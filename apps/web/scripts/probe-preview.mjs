@@ -1,11 +1,12 @@
 // Serves dist-preview statically and walks journey 1 in headless Chromium against the recorded preview.
 import { createReadStream, existsSync, statSync } from 'node:fs';
-import { createServer } from 'node:http';
-import { extname, join, normalize } from 'node:path';
+import { createServer, request } from 'node:http';
+import { extname, join, resolve, sep } from 'node:path';
 import { chromium } from '@playwright/test';
 import { generateDataset } from '@pb/synthetic';
 
-const root = process.env.PB_PREVIEW_OUT ?? 'dist-preview';
+const root = resolve(process.env.PB_PREVIEW_OUT ?? 'dist-preview');
+const shell = join(root, 'index.html');
 const types = {
   '.html': 'text/html',
   '.js': 'text/javascript',
@@ -15,15 +16,40 @@ const types = {
   '.woff2': 'font/woff2',
   '.map': 'application/json',
 };
+function requestedPath(url) {
+  try {
+    return resolve(root, `.${decodeURIComponent(url.split('?')[0])}`);
+  } catch {
+    return shell;
+  }
+}
 const server = createServer((req, res) => {
-  const path = normalize(decodeURIComponent((req.url ?? '/').split('?')[0]));
-  let file = join(root, path === '/' ? 'index.html' : path);
-  if (!existsSync(file) || statSync(file).isDirectory()) file = join(root, 'index.html');
+  // Only files inside the preview directory are served; anything else (including path traversal
+  // and unknown routes) gets the app shell, as a static host would.
+  const requested = requestedPath(req.url ?? '/');
+  const inside = requested.startsWith(root + sep);
+  const file =
+    inside && existsSync(requested) && !statSync(requested).isDirectory() ? requested : shell;
   res.setHeader('content-type', types[extname(file)] ?? 'application/octet-stream');
   createReadStream(file).pipe(res);
 });
 await new Promise((r) => server.listen(0, '127.0.0.1', r));
 const origin = `http://127.0.0.1:${server.address().port}`;
+
+/** Sends a raw request path (fetch would normalize the dot segments away before sending). */
+function rawGet(path) {
+  return new Promise((done, fail) => {
+    const req = request({ host: '127.0.0.1', port: server.address().port, path }, (res) => {
+      let body = '';
+      res.on('data', (chunk) => {
+        body += chunk;
+      });
+      res.on('end', () => done({ type: res.headers['content-type'], body }));
+    });
+    req.on('error', fail);
+    req.end();
+  });
+}
 
 const d = generateDataset({ profile: 'small', seed: 42 });
 const walledId = d.scenarios.walled_deal[0];
@@ -48,6 +74,14 @@ async function signIn(externalId) {
   await page.goto(`${origin}/#/sign-in`);
   await page.getByRole('button', { name: new RegExp(by(externalId).displayName) }).click();
   await page.getByTestId('current-user').waitFor();
+}
+
+for (const path of ['/../package.json', '/%2e%2e/package.json', '/assets/../../package.json']) {
+  const r = await rawGet(path);
+  check(
+    `server: ${path} stays inside the preview directory`,
+    r.type === 'text/html' && !r.body.includes('"name": "@pb/web"'),
+  );
 }
 
 await page.goto(`${origin}/#/portfolio`);

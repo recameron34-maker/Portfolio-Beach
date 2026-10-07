@@ -114,7 +114,18 @@ process.stdout.write(`preview: recorded ${count} responses for ${dataset.users.l
 
 const build = spawnSync(
   'pnpm',
-  ['exec', 'vite', 'build', '--base', './', '--outDir', out, '--emptyOutDir', 'false'],
+  [
+    'exec',
+    'vite',
+    'build',
+    '--base',
+    './',
+    '--outDir',
+    out,
+    '--emptyOutDir',
+    'false',
+    '--manifest',
+  ],
   {
     stdio: 'inherit',
     env: { ...process.env, VITE_PB_PREVIEW: 'true' },
@@ -122,11 +133,16 @@ const build = spawnSync(
 );
 if (build.status !== 0) process.exit(build.status ?? 1);
 
-// Artifact fragment: the publishing host wraps the page in its own document skeleton.
-const html = readFileSync(join(out, 'index.html'), 'utf8');
-const tags = [...html.matchAll(/<(?:script|link)[^>]*>(?:<\/script>)?/g)]
-  .map((m) => m[0])
-  .filter((t) => t.includes('assets/'));
+// Artifact fragment: the publishing host wraps the page in its own document skeleton. The asset
+// names come from Vite's build manifest, not from parsing the generated HTML.
+const manifest = JSON.parse(readFileSync(join(out, '.vite', 'manifest.json'), 'utf8'));
+const entry = manifest['index.html'];
+if (entry === undefined) throw new Error('vite manifest has no index.html entry');
+const tags = [
+  `<script type="module" crossorigin src="./${entry.file}"></script>`,
+  ...(entry.css ?? []).map((css) => `<link rel="stylesheet" crossorigin href="./${css}">`),
+];
+rmSync(join(out, '.vite'), { recursive: true, force: true });
 const brand = JSON.parse(
   readFileSync(new URL('../../../config/brand.json', import.meta.url), 'utf8'),
 );
