@@ -3,7 +3,7 @@
 // paths. Output: dist-preview/ (index.html for local serving, artifact.html fragment for publishing).
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 import { generateDataset } from '@pb/synthetic';
 import { createDb, loadSyntheticDataset, migrate } from '@pb/db';
 import { FixedClock } from '@pb/adapters';
@@ -125,6 +125,8 @@ const build = spawnSync(
     '--emptyOutDir',
     'false',
     '--manifest',
+    '--sourcemap',
+    'false',
   ],
   {
     stdio: 'inherit',
@@ -154,6 +156,13 @@ const fragment = [
   '',
 ].join('\n');
 writeFileSync(join(out, 'artifact.html'), fragment);
+
+// The bundle is build output that git never sees, so the employer-data guard scans it here.
+const guard = spawnSync('bash', ['scripts/check-employer-data.sh', '--paths', resolve(out)], {
+  stdio: 'inherit',
+  cwd: new URL('../../../', import.meta.url).pathname,
+});
+if (guard.status !== 0) process.exit(guard.status ?? 1);
 rmSync(scratch, { recursive: true, force: true });
 process.stdout.write(
   `preview: built ${out} (index.html for local serving, artifact.html for publishing)\n`,

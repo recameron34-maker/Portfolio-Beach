@@ -2,12 +2,16 @@
 # Blocks employer information and risky content from entering the repo.
 # 1) Terms from config/local/denylist.txt (local machine only, gitignored).
 # 2) Generic patterns that work everywhere (CI, cloud sandbox).
-# Usage: scripts/check-employer-data.sh [--staged]
+# Usage: scripts/check-employer-data.sh [--staged | --paths <file-or-dir>...]
+#   --paths scans the given files or directories (for build output git never sees).
 set -uo pipefail
 cd "$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
 
 if [[ "${1:-}" == "--staged" ]]; then
   mapfile -t FILES < <(git diff --cached --name-only --diff-filter=ACMR)
+elif [[ "${1:-}" == "--paths" ]]; then
+  shift
+  mapfile -t FILES < <(find "$@" -type f 2>/dev/null)
 else
   mapfile -t FILES < <(git ls-files 2>/dev/null || find . -type f -not -path './.git/*')
 fi
