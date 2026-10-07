@@ -10,7 +10,7 @@ config/local/*
 !config/local/README.md
 # generated data (never commit)
 .synthetic/
-data/
+/data/
 # build and tooling
 node_modules/
 dist/
