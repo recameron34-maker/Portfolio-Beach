@@ -5,16 +5,17 @@ Synthetic data and mock adapters throughout. Every phase ends with: all CI gates
 ## Phase 0: Foundations
 - [ ] P0-0 Tell IT and your manager about the repo; ask whether it can live in the employer's GitHub org now (`docs/16` section 1)
 - [ ] P0-1 Repo settings (`docs/16` section 2); Claude Code cloud environment (restricted network, no secrets)
-- [ ] P0-2 Monorepo scaffold per `docs/02` and `docs/17` (scripts contract, TS strict, lint, formatting, Python tooling)
-- [ ] P0-3 CI completed (`.github/workflows/ci.yml`), actions pinned to SHAs; `scripts/check-employer-data.sh` wired in
-- [ ] P0-4 `packages/db`: migrations for `docs/03` core + audit + ops; in-process Postgres test harness; RLS baseline
-- [ ] P0-5 `tools/synthetic` small + default profiles with scenario tags (`docs/14`)
-- [ ] P0-6 `packages/calc` with every fixture in `docs/08` section 9 + property tests + Python cross-check
-- [ ] P0-7 `packages/adapters` interfaces + mocks; production startup guard against mocks (`docs/17` section 6)
-- [ ] P0-8 Web shell with theme, mock sign-in and role switcher; RLS matrix test generator
-- [ ] P0-9 Telemetry, health endpoints, feature flags and kill switches
-- [ ] P0-10 `packages/workflows` typed transition tables for every machine in `docs/18`, with allowed and forbidden transition tests (pulled forward from Phase 3 because API commands depend on them)
+- [x] P0-2 Monorepo scaffold per `docs/02` and `docs/17` (scripts contract, TS strict, lint, formatting, Python tooling)
+- [ ] P0-3 CI completed (`.github/workflows/ci.yml`), actions pinned to SHAs; `scripts/check-employer-data.sh` wired in. Workflow and guards are in place; SHA pinning needs `bash scripts/pin-actions.sh` on a signed-in machine (the sandbox cannot read other repositories)
+- [x] P0-4 `packages/db`: migrations for `docs/03` core + audit + ops; in-process Postgres test harness; RLS baseline
+- [x] P0-5 `tools/synthetic` small + default profiles with scenario tags (`docs/14`)
+- [x] P0-6 `packages/calc` with every fixture in `docs/08` section 9 + property tests + Python cross-check
+- [x] P0-7 `packages/adapters` interfaces + mocks; production startup guard against mocks (`docs/17` section 6)
+- [x] P0-8 Web shell with theme, mock sign-in and role switcher; RLS matrix test generator
+- [x] P0-9 Telemetry, health endpoints, feature flags and kill switches (structured content-free logs, health live and ready, flags with audited changes; OpenTelemetry traces and the synthetic canary are Phase 7 with Beach Ops)
+- [x] P0-10 `packages/workflows` typed transition tables for every machine in `docs/18`, with allowed and forbidden transition tests (pulled forward from Phase 3 because API commands depend on them)
 **Exit:** CI green; seeded DB loads; calc fixtures pass in both languages; RLS matrix passes for all roles on core tables; app refuses to start in production mode with mocks.
+**Status (session 1):** every exit criterion is proven by tests in the repo; CI runs the same commands but the branch ruleset and SHA pinning (P0-1, P0-3) are owner actions still open.
 
 ## Phase 1: Data foundation and intake (M1, M2)
 - [ ] Entities, linking, aliases, match guards, taxonomy, Data Health and Data Dictionary pages

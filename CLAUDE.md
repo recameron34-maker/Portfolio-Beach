@@ -125,6 +125,8 @@ uv run --project apps/worker-py pytest        # Python worker tests
 pnpm synth --profile small --seed 42          # synthetic data (docs/14)
 pnpm check:employer-data                      # blocks employer information (docs/10)
 pnpm test:rls && pnpm test:workflows          # access matrix and state machines
+pnpm check:classification                     # every column classified (SEC-2.1)
+pnpm openapi:generate                         # OpenAPI 3.1 from packages/contracts
 
 # Infrastructure: validate/lint only in the prototype (no cloud credentials exist here)
 cd infra && terraform validate                # or: bicep build

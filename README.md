@@ -18,6 +18,17 @@ Internal-use private equity platform prototype for an LP / co-investor team: pip
 | Bug fix | `prompts/03_BUGFIX.md` |
 | End of every session | `prompts/04_SESSION_CLOSE.md` |
 
+## Quick start (synthetic data only)
+```bash
+pnpm install && (cd apps/worker-py && uv sync)
+pnpm typecheck                                   # builds every package (TypeScript project references)
+pnpm synth --profile small --seed 42 --out .synthetic/
+pnpm db:seed:synthetic .synthetic/dataset.json   # local in-process Postgres under .pglite/dev
+pnpm dev                                         # API on :3001 and web on :5173; sign in as any synthetic user
+pnpm test && pnpm test:calc && pnpm test:e2e     # unit, database, calc cross-check, Playwright journey 1
+```
+What exists after Phase 0: the data layer with row-level security and audit (`packages/db`), the calculation library with a Python cross-check (`packages/calc`), workflow state machines (`packages/workflows`), adapter interfaces with mocks and the production guard (`packages/adapters`), the synthetic data generator (`tools/synthetic`), the API (`apps/api`) and the web shell (`apps/web`). Each has a README. The roadmap in `docs/09` records what is done and what is next.
+
 ## Docs
 Start with `CLAUDE.md` (doc map). Roadmap with exit criteria: `docs/09`. Completeness: `docs/11`.
 
