@@ -154,7 +154,9 @@ await page.getByLabel('ai.extraction enabled').click();
 await page.getByTestId('flag-message').waitFor();
 check(
   'admin: simulated flag change acknowledged',
-  (await page.getByTestId('flag-message').innerText()).includes('is now on'),
+  (await page.getByTestId('flag-message').innerText()).includes(
+    'is now on (simulated in this preview',
+  ),
 );
 check('no page errors', errors.length === 0, errors.slice(0, 3).join(' | '));
 

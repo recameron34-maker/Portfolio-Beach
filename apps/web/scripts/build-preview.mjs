@@ -4,6 +4,7 @@
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { join, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { generateDataset } from '@pb/synthetic';
 import { createDb, loadSyntheticDataset, migrate } from '@pb/db';
 import { FixedClock } from '@pb/adapters';
@@ -27,7 +28,7 @@ const config = loadConfig({
   PORT: '0',
   PB_LOG_LEVEL: 'silent',
   PB_MOCK_USERS: join(scratch, 'dataset.json'),
-  PB_CONFIG_DIR: new URL('../../../config/', import.meta.url).pathname,
+  PB_CONFIG_DIR: fileURLToPath(new URL('../../../config/', import.meta.url)),
   PB_DOCUMENT_ROOT: join(scratch, 'documents'),
   PB_ACCOUNTING_ROOT: join(scratch, 'accounting'),
 });
@@ -57,10 +58,12 @@ async function record(credential, path) {
     headers: credential ? { authorization: `Bearer ${credential}` } : {},
   });
   const body = await res.text();
+  // Problem bodies carry a fresh request id per run; pin it so the recordings are byte-stable.
+  const stored = res.ok ? body : body.replace(/"request_id":"[^"]*"/, '"request_id":"preview"');
   responses[normalizeKey(credential, 'GET', url.pathname, url.search)] = {
     status: res.status,
     contentType: res.headers.get('content-type') ?? 'application/json',
-    body,
+    body: stored,
   };
   count++;
   return res.ok ? JSON.parse(body) : null;
@@ -161,7 +164,7 @@ writeFileSync(join(out, 'artifact.html'), fragment);
 // The bundle is build output that git never sees, so the employer-data guard scans it here.
 const guard = spawnSync('bash', ['scripts/check-employer-data.sh', '--paths', resolve(out)], {
   stdio: 'inherit',
-  cwd: new URL('../../../', import.meta.url).pathname,
+  cwd: fileURLToPath(new URL('../../../', import.meta.url)),
 });
 if (guard.status !== 0) process.exit(guard.status ?? 1);
 rmSync(scratch, { recursive: true, force: true });
