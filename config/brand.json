@@ -1,0 +1,13 @@
+{
+  "name": "Portfolio Beach",
+  "theme": "default",
+  "colors": {
+    "brand": { "primary": "#0F4C5C", "accent": "#2A9D8F", "sand": "#F4EBD9" },
+    "ui": { "bg": "#FFFFFF", "text": "#1F2328", "muted": "#6B7280", "border": "#E5E7EB" },
+    "status": { "good": "#2E7D32", "watch": "#B7791F", "bad": "#C62828" },
+    "chartSeries": ["#0F4C5C", "#2A9D8F", "#E9C46A", "#F4A261", "#264653", "#8AB17D", "#6D597A", "#B56576"]
+  },
+  "fonts": { "ui": ["Segoe UI", "system-ui", "sans-serif"], "display": ["Georgia", "serif"] },
+  "logo": "none (text wordmark 'Portfolio Beach' in the prototype)",
+  "missingValue": "-"
+}

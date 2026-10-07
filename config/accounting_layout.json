@@ -1,0 +1,20 @@
+{
+  "_note": "Neutral sample layout for the generic accounting import/export. Replace with the real system's layout only after merge.",
+  "export": {
+    "format": "csv",
+    "dateFormat": "YYYY-MM-DD",
+    "columns": [
+      { "name": "InvestmentNumber", "source": "investment.investment_number" },
+      { "name": "PeriodEnd", "source": "quarterly_performance.period_end" },
+      { "name": "RevenueLTM", "source": "quarterly_performance.revenue_ltm", "unit": "USD" },
+      { "name": "EBITDALTM", "source": "quarterly_performance.ebitda_ltm", "unit": "USD" },
+      { "name": "EnterpriseValue", "source": "quarterly_performance.ev", "unit": "USD" },
+      { "name": "NetDebt", "source": "quarterly_performance.net_debt", "unit": "USD" },
+      { "name": "FairValue", "source": "valuation.fair_value", "unit": "USD", "requires": "valuation.state = Locked" }
+    ]
+  },
+  "import": {
+    "keyColumns": ["InvestmentNumber", "PeriodEnd"],
+    "rejectUnknownColumns": true
+  }
+}

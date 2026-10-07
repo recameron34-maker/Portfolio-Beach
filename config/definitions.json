@@ -1,0 +1,56 @@
+{
+  "irr": {
+    "method": "XIRR",
+    "annualization": "configurable (daily or periodic)",
+    "showGrossAndNet": true,
+    "dayCount": "actual/365",
+    "minHoldYearsForDisplay": 1.0,
+    "displayShortPeriodAs": "NM"
+  },
+  "priorYear": "same fiscal quarter one year earlier only",
+  "currencyStorage": "dollars as exact decimals; AI outputs declare units; convert in packages/calc/units.ts",
+  "classifierConfidenceThreshold": 0.85,
+  "dealTypes": {
+    "coInvest": [
+      "Co-Invest Fund A",
+      "Co-Invest Fund B"
+    ],
+    "cv": [
+      "Secondaries Fund A"
+    ]
+  },
+  "realizationFlagEditableOnlyManually": true,
+  "agentModels": {
+    "_note": "Prototype: mock client by default. A real model may be called only with synthetic data, using an API key approved for this work. Production model chosen and approved at merge.",
+    "default": "mock",
+    "ops": "mock"
+  },
+  "platformStack": "Option B: custom Azure app + PostgreSQL or Azure SQL (docs/13).",
+  "priorYearPeriodEndToleranceDays": 7,
+  "rollForwardToleranceUsd": 1.0,
+  "watchlist": {
+    "netDebtToEbitdaMax": 6.0,
+    "ebitdaYoYDeclinePct": 0.15,
+    "markdownPct": 0.2,
+    "missingFinancialsDays": 75
+  },
+  "capitalActivity": {
+    "alertDaysBeforeDue": [
+      3,
+      1,
+      0
+    ],
+    "wireChangeHoldDays": 30
+  },
+  "aiBudgets": {
+    "maxTokensPerDocument": 200000,
+    "maxDailySpendUsd": 25,
+    "pauseOnBudget": true
+  },
+  "unitSanityBoundsUsd": {
+    "revenueMin": 1000000,
+    "revenueMax": 50000000000
+  },
+  "valuationVarianceFlag": 0.1,
+  "_units": "All percentages in this file are decimals (0.10 = 10%)."
+}

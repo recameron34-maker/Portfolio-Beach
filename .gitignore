@@ -1,0 +1,27 @@
+# secrets and local-only config
+.env
+.env.*
+secrets/
+*.pfx
+*.pem
+*.key
+config/local/*
+!config/local/*.example.json
+!config/local/README.md
+# generated data (never commit)
+.synthetic/
+data/
+# build and tooling
+node_modules/
+dist/
+build/
+coverage/
+.turbo/
+.venv/
+__pycache__/
+*.pyc
+playwright-report/
+test-results/
+.DS_Store
+# generated bundles
+.bundle/
