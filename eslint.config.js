@@ -3,6 +3,8 @@ import js from '@eslint/js';
 import tseslint from 'typescript-eslint';
 import prettier from 'eslint-config-prettier';
 import globals from 'globals';
+import reactHooks from 'eslint-plugin-react-hooks';
+import reactRefresh from 'eslint-plugin-react-refresh';
 
 /**
  * Domain packages hold financial logic. They may not read the wall clock, use randomness or
@@ -25,7 +27,10 @@ export default tseslint.config(
       '.synthetic/**',
       '.pglite/**',
       'apps/worker-py/**',
-      'apps/web/src/routeTree.gen.ts',
+      'apps/web/dist/**',
+      'apps/web/dist-types/**',
+      'apps/web/playwright-report/**',
+      'apps/web/test-results/**',
     ],
   },
   js.configs.recommended,
@@ -83,6 +88,16 @@ export default tseslint.config(
           message: 'Money and rates are Decimals, never floats (docs/17 section 4).',
         },
       ],
+    },
+  },
+  {
+    files: ['apps/web/src/**/*.{ts,tsx}'],
+    languageOptions: { globals: { ...globals.browser } },
+    plugins: { 'react-hooks': reactHooks, 'react-refresh': reactRefresh },
+    rules: {
+      ...reactHooks.configs['recommended-latest'].rules,
+      'react-refresh/only-export-components': ['warn', { allowConstantExport: true }],
+      '@typescript-eslint/explicit-module-boundary-types': 'off',
     },
   },
   {

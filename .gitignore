@@ -34,3 +34,7 @@ test-results/
 apps/api/openapi.json
 # per-machine Claude Code permissions
 .claude/settings.local.json
+# web build outputs
+apps/web/dist-types/
+# e2e scratch
+apps/web/.e2e/

@@ -1,0 +1,225 @@
+/* Layout and scoped styles. Colors and fonts come only from the CSS variables set from config/brand.json. */
+html,
+body,
+#root {
+  margin: 0;
+  min-height: 100%;
+  background: var(--pb-bg);
+  color: var(--pb-text);
+  font-family: var(--pb-font-ui);
+}
+a {
+  color: var(--pb-brand-primary);
+}
+.pb-shell {
+  display: grid;
+  grid-template-columns: 220px 1fr;
+  grid-template-rows: auto 1fr;
+  min-height: 100vh;
+}
+.pb-header {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 10px 20px;
+  border-bottom: 1px solid var(--pb-border);
+  background: var(--pb-brand-primary);
+  color: var(--pb-bg);
+}
+.pb-wordmark {
+  font-family: var(--pb-font-display);
+  font-size: 20px;
+  letter-spacing: 0.02em;
+  color: var(--pb-bg);
+  text-decoration: none;
+}
+.pb-header-spacer {
+  flex: 1;
+}
+.pb-mock-banner {
+  grid-column: 1 / -1;
+  padding: 6px 20px;
+  background: var(--pb-brand-sand);
+  color: var(--pb-text);
+  font-size: 13px;
+  border-bottom: 1px solid var(--pb-border);
+}
+.pb-nav {
+  border-right: 1px solid var(--pb-border);
+  padding: 12px 0;
+}
+.pb-nav a {
+  display: block;
+  padding: 8px 20px;
+  color: var(--pb-text);
+  text-decoration: none;
+  font-size: 14px;
+}
+.pb-nav a:hover,
+.pb-nav a:focus-visible {
+  background: var(--pb-brand-sand);
+  outline: 2px solid var(--pb-brand-accent);
+  outline-offset: -2px;
+}
+.pb-nav a[aria-current='page'] {
+  color: var(--pb-brand-primary);
+  font-weight: 600;
+  border-left: 3px solid var(--pb-brand-accent);
+  padding-left: 17px;
+}
+.pb-main {
+  padding: 20px 24px 40px;
+  min-width: 0;
+}
+.pb-card {
+  background: var(--pb-bg);
+  border: 1px solid var(--pb-border);
+  border-radius: 6px;
+  padding: 16px 20px;
+  margin-bottom: 16px;
+}
+.pb-card-tinted {
+  background: var(--pb-brand-sand);
+}
+.pb-section-header {
+  margin: 0 0 12px;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--pb-brand-primary);
+}
+.pb-section-header span {
+  display: inline-block;
+  padding-bottom: 4px;
+  border-bottom: 2px solid var(--pb-brand-accent);
+}
+.pb-tiles {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 12px;
+  margin-bottom: 16px;
+}
+.pb-stat-tile {
+  border: 1px solid var(--pb-border);
+  border-radius: 6px;
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  background: var(--pb-bg);
+}
+.pb-stat-label {
+  color: var(--pb-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+.pb-stat-value {
+  color: var(--pb-brand-primary);
+  font-variant-numeric: tabular-nums;
+}
+.pb-stat-hint {
+  color: var(--pb-muted);
+}
+.pb-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
+}
+.pb-table th {
+  text-align: left;
+  background: var(--pb-brand-primary);
+  color: var(--pb-bg);
+  padding: 8px 10px;
+  font-weight: 600;
+}
+.pb-table td {
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--pb-border);
+}
+.pb-table td.num,
+.pb-table th.num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.pb-banner {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 24px;
+  align-items: baseline;
+  margin-bottom: 16px;
+}
+.pb-banner h1 {
+  font-family: var(--pb-font-display);
+  font-weight: 500;
+  font-size: 26px;
+  margin: 0;
+  color: var(--pb-brand-primary);
+}
+.pb-meta {
+  color: var(--pb-muted);
+  font-size: 13px;
+}
+.pb-ai-draft {
+  display: inline-block;
+  font-size: 11px;
+  padding: 1px 6px;
+  border-radius: 3px;
+  border: 1px solid var(--pb-watch);
+  color: var(--pb-watch);
+  margin-left: 6px;
+}
+.pb-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: end;
+  margin-bottom: 12px;
+}
+.pb-grid {
+  height: 560px;
+  width: 100%;
+}
+.pb-signin {
+  max-width: 520px;
+  margin: 60px auto;
+}
+.pb-signin-list {
+  display: grid;
+  gap: 8px;
+}
+.pb-status-good {
+  color: var(--pb-good);
+}
+.pb-status-watch {
+  color: var(--pb-watch);
+}
+.pb-status-bad {
+  color: var(--pb-bad);
+}
+.pb-visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+}
+@media (max-width: 760px) {
+  .pb-shell {
+    grid-template-columns: 1fr;
+  }
+  .pb-nav {
+    border-right: 0;
+    border-bottom: 1px solid var(--pb-border);
+    display: flex;
+    flex-wrap: wrap;
+    padding: 4px 8px;
+  }
+  .pb-nav a {
+    padding: 8px 10px;
+  }
+  .pb-main {
+    padding: 16px;
+  }
+}
