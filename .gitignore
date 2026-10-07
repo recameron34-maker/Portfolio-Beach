@@ -40,3 +40,5 @@ apps/web/dist-types/
 apps/web/.e2e/
 # static preview build
 apps/web/dist-preview/
+# agent worktrees (never committed)
+.claude/worktrees/
