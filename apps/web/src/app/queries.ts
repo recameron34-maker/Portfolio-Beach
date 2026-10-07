@@ -1,13 +1,28 @@
 import { queryOptions } from '@tanstack/react-query';
 import {
+  analyticsSummary,
+  auditPage,
+  capitalNoticeDetail,
+  capitalNoticePage,
+  clientList,
+  commitmentList,
   dataDictionary,
   dataHealth,
   featureFlagList,
   investmentDetail,
   investmentPage,
+  investmentPerformance,
   mockUserList,
   principal,
+  sponsorDetail,
+  sponsorPage,
+  taxonomy,
+  valuationPage,
+  vehicleDetail,
   vehicleList,
+  wallList,
+  watchlist,
+  weeklyReport,
 } from '@pb/contracts';
 import { api } from '../api/client.js';
 
@@ -65,3 +80,123 @@ export function investmentQuery(id: string) {
     retry: false,
   });
 }
+
+/* Every query below sends a fixed, sorted set of parameters; scripts/preview-plan.mjs records exactly these keys. */
+
+export const LIST_LIMIT = 200;
+
+export function investmentPerformanceQuery(id: string) {
+  return queryOptions({
+    queryKey: ['investment-performance', id],
+    queryFn: () =>
+      api(`/api/v1/investments/${encodeURIComponent(id)}/performance`, investmentPerformance),
+    retry: false,
+  });
+}
+
+export const analyticsQuery = queryOptions({
+  queryKey: ['analytics-summary'],
+  queryFn: () => api('/api/v1/analytics/summary', analyticsSummary),
+});
+export const watchlistQuery = queryOptions({
+  queryKey: ['watchlist'],
+  queryFn: () => api('/api/v1/monitoring/watchlist', watchlist),
+});
+export const weeklyReportQuery = queryOptions({
+  queryKey: ['weekly-report'],
+  queryFn: () => api('/api/v1/reports/weekly', weeklyReport),
+});
+export const commitmentsQuery = queryOptions({
+  queryKey: ['commitments'],
+  queryFn: () => api('/api/v1/commitments', commitmentList),
+});
+export const clientsQuery = queryOptions({
+  queryKey: ['clients'],
+  queryFn: () => api('/api/v1/clients', clientList),
+});
+export const sponsorsQuery = queryOptions({
+  queryKey: ['sponsors'],
+  queryFn: () => api(`/api/v1/sponsors?limit=${LIST_LIMIT}`, sponsorPage),
+});
+export function sponsorQuery(id: string) {
+  return queryOptions({
+    queryKey: ['sponsor', id],
+    queryFn: () => api(`/api/v1/sponsors/${encodeURIComponent(id)}`, sponsorDetail),
+    retry: false,
+  });
+}
+export function vehicleQuery(id: string) {
+  return queryOptions({
+    queryKey: ['vehicle', id],
+    queryFn: () => api(`/api/v1/vehicles/${encodeURIComponent(id)}`, vehicleDetail),
+    retry: false,
+  });
+}
+
+export interface ValuationFilters {
+  periodEnd?: string | undefined;
+  state?: string | undefined;
+  investmentId?: string | undefined;
+  vehicleId?: string | undefined;
+}
+export function valuationsQuery(filters: ValuationFilters = {}) {
+  const params = new URLSearchParams();
+  params.set('limit', String(LIST_LIMIT));
+  if (filters.periodEnd) params.set('periodEnd', filters.periodEnd);
+  if (filters.state) params.set('state', filters.state);
+  if (filters.investmentId) params.set('investmentId', filters.investmentId);
+  if (filters.vehicleId) params.set('vehicleId', filters.vehicleId);
+  return queryOptions({
+    queryKey: ['valuations', filters],
+    queryFn: () => api(`/api/v1/valuations?${params.toString()}`, valuationPage),
+  });
+}
+
+export interface CapitalNoticeFilters {
+  state?: string | undefined;
+  vehicleId?: string | undefined;
+  investmentId?: string | undefined;
+  noticeType?: string | undefined;
+}
+export function capitalNoticesQuery(filters: CapitalNoticeFilters = {}) {
+  const params = new URLSearchParams();
+  params.set('limit', String(LIST_LIMIT));
+  if (filters.state) params.set('state', filters.state);
+  if (filters.vehicleId) params.set('vehicleId', filters.vehicleId);
+  if (filters.investmentId) params.set('investmentId', filters.investmentId);
+  if (filters.noticeType) params.set('noticeType', filters.noticeType);
+  return queryOptions({
+    queryKey: ['capital-notices', filters],
+    queryFn: () => api(`/api/v1/capital-notices?${params.toString()}`, capitalNoticePage),
+  });
+}
+export function capitalNoticeQuery(id: string) {
+  return queryOptions({
+    queryKey: ['capital-notice', id],
+    queryFn: () => api(`/api/v1/capital-notices/${encodeURIComponent(id)}`, capitalNoticeDetail),
+    retry: false,
+  });
+}
+
+export interface AuditFilters {
+  entityId?: string | undefined;
+}
+export function auditQuery(filters: AuditFilters = {}) {
+  const params = new URLSearchParams();
+  params.set('limit', '100');
+  if (filters.entityId) params.set('entityId', filters.entityId);
+  return queryOptions({
+    queryKey: ['audit', filters],
+    queryFn: () => api(`/api/v1/audit/events?${params.toString()}`, auditPage),
+    retry: false,
+  });
+}
+export const taxonomyQuery = queryOptions({
+  queryKey: ['taxonomy'],
+  queryFn: () => api('/api/v1/taxonomy', taxonomy),
+  staleTime: Infinity,
+});
+export const wallsQuery = queryOptions({
+  queryKey: ['walls'],
+  queryFn: () => api('/api/v1/walls', wallList),
+});

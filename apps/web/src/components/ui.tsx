@@ -1,5 +1,8 @@
+import { Fragment } from 'react';
 import type { ReactNode } from 'react';
+import { Link } from '@tanstack/react-router';
 import { Text } from '@fluentui/react-components';
+import { previewMode } from '../app/env.js';
 
 /** Section header: small uppercase label with an accent underline (docs/06 section 2). */
 export function SectionHeader({ children }: { children: ReactNode }): ReactNode {
@@ -92,5 +95,160 @@ export function ErrorState({
       <SectionHeader>{title}</SectionHeader>
       {detail !== undefined ? <p>{detail}</p> : null}
     </Card>
+  );
+}
+
+/** Page title row: a serif title (docs/06), the as-of or context line, and optional actions on the right. */
+export function PageHeader({
+  title,
+  meta,
+  actions,
+  testId,
+}: {
+  title: ReactNode;
+  meta?: ReactNode;
+  actions?: ReactNode;
+  testId?: string | undefined;
+}): ReactNode {
+  return (
+    <div className="pb-banner" data-testid={testId}>
+      <h1>{title}</h1>
+      {meta !== undefined ? <span className="pb-meta">{meta}</span> : null}
+      {actions !== undefined ? <span className="pb-banner-actions">{actions}</span> : null}
+    </div>
+  );
+}
+
+/** Secondary navigation inside an area (tabs). Paths are absolute so hash and browser history both work. */
+export function TabNav({
+  items,
+  label,
+}: {
+  items: { to: string; label: string; exact?: boolean | undefined }[];
+  label: string;
+}): ReactNode {
+  return (
+    <nav className="pb-tabs" aria-label={label}>
+      {items.map((t) => (
+        <Link
+          key={t.to}
+          to={t.to}
+          activeOptions={{ exact: t.exact ?? false }}
+          activeProps={{ 'aria-current': 'page' }}
+          resetScroll={false}
+        >
+          {t.label}
+        </Link>
+      ))}
+    </nav>
+  );
+}
+
+export type Tone = 'neutral' | 'good' | 'watch' | 'bad' | 'brand';
+
+/** Status with a dot and a word, never color alone (docs/06). */
+export function Badge({
+  tone = 'neutral',
+  children,
+}: {
+  tone?: Tone;
+  children: ReactNode;
+}): ReactNode {
+  return (
+    <span className={`pb-badge pb-badge-${tone}`}>
+      <span className="pb-badge-dot" aria-hidden="true" />
+      {children}
+    </span>
+  );
+}
+
+/** Label and value pairs in two or four columns; values keep tabular figures. */
+export function KeyValueTable({
+  rows,
+  label,
+  columns = 2,
+}: {
+  rows: { label: string; value: ReactNode }[];
+  label: string;
+  columns?: 1 | 2;
+}): ReactNode {
+  const pairs: { label: string; value: ReactNode }[][] = [];
+  for (let i = 0; i < rows.length; i += columns) pairs.push(rows.slice(i, i + columns));
+  return (
+    <table className="pb-table pb-kv" aria-label={label}>
+      <tbody>
+        {pairs.map((pair, i) => (
+          <tr key={i}>
+            {pair.map((r) => (
+              <Fragment key={r.label}>
+                <th scope="row">{r.label}</th>
+                <td>{r.value}</td>
+              </Fragment>
+            ))}
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  );
+}
+
+export function Toolbar({ children }: { children: ReactNode }): ReactNode {
+  return <div className="pb-toolbar">{children}</div>;
+}
+
+/** Nothing to show, said plainly, with the reason and optionally what would make it appear. */
+export function EmptyState({
+  title,
+  detail,
+  testId,
+}: {
+  title: string;
+  detail?: string | undefined;
+  testId?: string | undefined;
+}): ReactNode {
+  return (
+    <div className="pb-empty" data-testid={testId}>
+      <p className="pb-empty-title">{title}</p>
+      {detail !== undefined ? <p className="pb-empty-detail">{detail}</p> : null}
+    </div>
+  );
+}
+
+/** Marks an action the static preview only simulates (docs/16: no server, nothing saved, nothing audited). */
+export function SimulatedBadge(): ReactNode {
+  if (!previewMode) return null;
+  return (
+    <span
+      className="pb-simulated"
+      title="Simulated in this preview: not saved, not audited, resets when the page reloads"
+    >
+      Simulated
+    </span>
+  );
+}
+
+/** A page that will arrive in a later phase: says which, and what the data would show. */
+export function PhasePage({
+  title,
+  phase,
+  modules,
+  children,
+}: {
+  title: string;
+  phase: string;
+  modules: string;
+  children?: ReactNode;
+}): ReactNode {
+  return (
+    <>
+      <PageHeader title={title} meta={`${phase}: ${modules}`} />
+      <Card>
+        <EmptyState
+          title={`${title} arrives in ${phase}`}
+          detail="The data model and workflow for this area are specified (docs/04, docs/18); the screens are built once the earlier phases pass their exit criteria."
+        />
+        {children}
+      </Card>
+    </>
   );
 }

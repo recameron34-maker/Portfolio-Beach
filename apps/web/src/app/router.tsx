@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react';
 import {
   createHashHistory,
   createRootRoute,
@@ -7,16 +8,51 @@ import {
   redirect,
 } from '@tanstack/react-router';
 import { AppShell } from '../components/AppShell.js';
-import { PlaceholderPage } from '../components/ui.js';
+import { ErrorState } from '../components/ui.js';
 import { AdminFlagsPage } from '../pages/AdminFlags.js';
+import { AccessPage, AuditPage, HealthPage } from '../pages/admin/Admin.js';
+import { TaxonomyPage } from '../pages/admin/Taxonomy.js';
+import {
+  AnalyticsLayout,
+  ClientAnalyticsTab,
+  CreditTab,
+  ExposureTab,
+  PerformanceAnalyticsTab,
+  RealizationsTab,
+} from '../pages/analytics/Analytics.js';
+import { AssistantsPage } from '../pages/assistants/Assistants.js';
+import {
+  CapitalActivityPage,
+  CapitalNoticePage,
+  CommitmentsPage,
+} from '../pages/capital/CapitalActivity.js';
 import { DataDictionaryPage, DataHealthPage } from '../pages/Data.js';
+import { ActivityTab } from '../pages/deal/ActivityTab.js';
+import { CapitalTab } from '../pages/deal/CapitalTab.js';
+import { DealWorkspace } from '../pages/deal/DealWorkspace.js';
+import { ClosingTab, DiligenceTab, DocumentsTab, TasksTab } from '../pages/deal/LaterTabs.js';
+import { PerformanceTab } from '../pages/deal/PerformanceTab.js';
+import { SponsorTab } from '../pages/deal/SponsorTab.js';
+import { ValuationsTab } from '../pages/deal/ValuationsTab.js';
+import { DocumentsPage } from '../pages/documents/Documents.js';
 import { HomePage } from '../pages/Home.js';
 import { InvestmentDetailPage } from '../pages/InvestmentDetail.js';
+import { PipelinePage } from '../pages/pipeline/Pipeline.js';
 import { PortfolioPage } from '../pages/Portfolio.js';
+import { VehicleDetailPage, VehiclesPage } from '../pages/portfolio/Vehicles.js';
+import { WatchlistPage } from '../pages/portfolio/Watchlist.js';
+import { ClientsPage, DisclosuresPage, WeeklyReportPage } from '../pages/reporting/Reporting.js';
 import { SignInPage } from '../pages/SignIn.js';
+import { SponsorDetailPage, SponsorsPage } from '../pages/sponsors/Sponsors.js';
+import { ValuationsPage } from '../pages/valuations/Valuations.js';
 import { getCredential } from './session.js';
 
-const rootRoute = createRootRoute({ component: () => <Outlet /> });
+const rootRoute = createRootRoute({
+  component: () => <Outlet />,
+  notFoundComponent: () => (
+    <ErrorState title="Page not found" detail="There is no page at this address." />
+  ),
+});
 
 const signInRoute = createRoute({
   getParentRoute: () => rootRoute,
@@ -36,101 +72,114 @@ const appRoute = createRoute({
   },
 });
 
-const homeRoute = createRoute({ getParentRoute: () => appRoute, path: '/', component: HomePage });
-const portfolioRoute = createRoute({
-  getParentRoute: () => appRoute,
-  path: '/portfolio',
-  component: PortfolioPage,
-});
+const child = <P extends string>(path: P, component: () => ReactNode) =>
+  createRoute({ getParentRoute: () => appRoute, path, component });
+
+const homeRoute = child('/', HomePage);
+const portfolioRoute = child('/portfolio', PortfolioPage);
+const vehiclesRoute = child('/portfolio/vehicles', VehiclesPage);
+const vehicleRoute = child('/portfolio/vehicles/$id', VehicleDetailPage);
+const watchlistRoute = child('/portfolio/watchlist', WatchlistPage);
+
+/** Deal workspace: the one-pager is the Overview tab; the other tabs are children (docs/06 section 2). */
 const investmentRoute = createRoute({
   getParentRoute: () => appRoute,
   path: '/portfolio/$id',
-  component: InvestmentDetailPage,
+  component: DealWorkspace,
 });
-const dataHealthRoute = createRoute({
-  getParentRoute: () => appRoute,
-  path: '/data/health',
-  component: DataHealthPage,
-});
-const dataDictionaryRoute = createRoute({
-  getParentRoute: () => appRoute,
-  path: '/data/dictionary',
-  component: DataDictionaryPage,
-});
-const adminFlagsRoute = createRoute({
-  getParentRoute: () => appRoute,
-  path: '/admin/flags',
-  component: AdminFlagsPage,
-});
+const dealTab = <P extends string>(path: P, component: () => ReactNode) =>
+  createRoute({ getParentRoute: () => investmentRoute, path, component });
+const dealOverviewRoute = dealTab('/', InvestmentDetailPage);
+const dealPerformanceRoute = dealTab('/performance', PerformanceTab);
+const dealSponsorRoute = dealTab('/sponsor', SponsorTab);
+const dealDiligenceRoute = dealTab('/diligence', DiligenceTab);
+const dealClosingRoute = dealTab('/closing', ClosingTab);
+const dealValuationsRoute = dealTab('/valuations', ValuationsTab);
+const dealCapitalRoute = dealTab('/capital', CapitalTab);
+const dealDocumentsRoute = dealTab('/documents', DocumentsTab);
+const dealTasksRoute = dealTab('/tasks', TasksTab);
+const dealActivityRoute = dealTab('/activity', ActivityTab);
 
-const placeholders: { path: string; title: string; phase: string; modules: string }[] = [
-  {
-    path: '/pipeline',
-    title: 'Pipeline',
-    phase: 'Phase 5',
-    modules: 'M5 pipeline, M7 diligence and IC',
-  },
-  {
-    path: '/sponsors',
-    title: 'Sponsors',
-    phase: 'Phase 5',
-    modules: 'M6 relationship intelligence, M18 coverage and AGMs',
-  },
-  {
-    path: '/documents',
-    title: 'Documents',
-    phase: 'Phase 2',
-    modules: 'M3 document hub, M4 extraction',
-  },
-  {
-    path: '/valuations',
-    title: 'Valuations',
-    phase: 'Phase 3',
-    modules: 'M10 valuation workflow, M11 deal change requests',
-  },
-  {
-    path: '/capital-activity',
-    title: 'Capital Activity',
-    phase: 'Phase 3',
-    modules: 'M16 calls, distributions and funding',
-  },
-  {
-    path: '/reporting',
-    title: 'Reporting',
-    phase: 'Phase 4',
-    modules: 'M12 weekly report, M14 report automation and QA, M19 disclosures',
-  },
-  {
-    path: '/analytics',
-    title: 'Analytics',
-    phase: 'Phase 4 and 6',
-    modules: 'M13 in-app analytics, M20 advanced analytics',
-  },
-  {
-    path: '/assistants',
-    title: 'Assistants',
-    phase: 'Phase 6',
-    modules: 'M15 Ask Portfolio Beach and Market Intelligence',
-  },
-];
-const placeholderRoutes = placeholders.map((p) =>
-  createRoute({
-    getParentRoute: () => appRoute,
-    path: p.path,
-    component: () => <PlaceholderPage title={p.title} phase={p.phase} modules={p.modules} />,
-  }),
-);
+const pipelineRoute = child('/pipeline', PipelinePage);
+const sponsorsRoute = child('/sponsors', SponsorsPage);
+const sponsorRoute = child('/sponsors/$id', SponsorDetailPage);
+const documentsRoute = child('/documents', DocumentsPage);
+const valuationsRoute = child('/valuations', ValuationsPage);
+const capitalRoute = child('/capital-activity', CapitalActivityPage);
+const commitmentsRoute = child('/capital-activity/commitments', CommitmentsPage);
+const capitalNoticeRoute = child('/capital-activity/$id', CapitalNoticePage);
+const reportingRoute = child('/reporting', WeeklyReportPage);
+const clientsRoute = child('/reporting/clients', ClientsPage);
+const disclosuresRoute = child('/reporting/disclosures', DisclosuresPage);
+
+const analyticsRoute = createRoute({
+  getParentRoute: () => appRoute,
+  path: '/analytics',
+  component: AnalyticsLayout,
+});
+const analyticsTab = <P extends string>(path: P, component: () => ReactNode) =>
+  createRoute({ getParentRoute: () => analyticsRoute, path, component });
+const analyticsExposureRoute = analyticsTab('/', ExposureTab);
+const analyticsPerformanceRoute = analyticsTab('/performance', PerformanceAnalyticsTab);
+const analyticsCreditRoute = analyticsTab('/credit', CreditTab);
+const analyticsRealizationsRoute = analyticsTab('/realizations', RealizationsTab);
+const analyticsClientsRoute = analyticsTab('/clients', ClientAnalyticsTab);
+
+const assistantsRoute = child('/assistants', AssistantsPage);
+const adminFlagsRoute = child('/admin/flags', AdminFlagsPage);
+const adminAuditRoute = child('/admin/audit', AuditPage);
+const adminAccessRoute = child('/admin/access', AccessPage);
+const adminHealthRoute = child('/admin/health', HealthPage);
+const dataHealthRoute = child('/data/health', DataHealthPage);
+const dataDictionaryRoute = child('/data/dictionary', DataDictionaryPage);
+const dataTaxonomyRoute = child('/data/taxonomy', TaxonomyPage);
 
 const routeTree = rootRoute.addChildren([
   signInRoute,
   appRoute.addChildren([
     homeRoute,
     portfolioRoute,
-    investmentRoute,
+    vehiclesRoute,
+    vehicleRoute,
+    watchlistRoute,
+    investmentRoute.addChildren([
+      dealOverviewRoute,
+      dealPerformanceRoute,
+      dealSponsorRoute,
+      dealDiligenceRoute,
+      dealClosingRoute,
+      dealValuationsRoute,
+      dealCapitalRoute,
+      dealDocumentsRoute,
+      dealTasksRoute,
+      dealActivityRoute,
+    ]),
+    pipelineRoute,
+    sponsorsRoute,
+    sponsorRoute,
+    documentsRoute,
+    valuationsRoute,
+    capitalRoute,
+    commitmentsRoute,
+    capitalNoticeRoute,
+    reportingRoute,
+    clientsRoute,
+    disclosuresRoute,
+    analyticsRoute.addChildren([
+      analyticsExposureRoute,
+      analyticsPerformanceRoute,
+      analyticsCreditRoute,
+      analyticsRealizationsRoute,
+      analyticsClientsRoute,
+    ]),
+    assistantsRoute,
+    adminFlagsRoute,
+    adminAuditRoute,
+    adminAccessRoute,
+    adminHealthRoute,
     dataHealthRoute,
     dataDictionaryRoute,
-    adminFlagsRoute,
-    ...placeholderRoutes,
+    dataTaxonomyRoute,
   ]),
 ]);
 

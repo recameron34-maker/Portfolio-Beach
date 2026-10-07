@@ -4,11 +4,9 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Button, Input, Label, Spinner, Switch } from '@fluentui/react-components';
 import { featureFlag } from '@pb/contracts';
 import { api, ApiError } from '../api/client.js';
+import { previewMode } from '../app/env.js';
 import { flagsQuery, meQuery } from '../app/queries.js';
 import { Card, ErrorState, SectionHeader } from '../components/ui.js';
-
-// Preview builds replay recorded responses and simulate flag writes; the message must say so.
-const previewMode = import.meta.env.VITE_PB_PREVIEW === 'true';
 
 /** Feature flags and kill switches (docs/17 section 5). Only platform admins can change them; the API and RLS both enforce it. */
 export function AdminFlagsPage(): ReactNode {
