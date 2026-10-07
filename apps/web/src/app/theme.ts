@@ -47,5 +47,6 @@ export function createTheme(): Theme {
 
 /** CSS custom properties so feature-scoped styles can use the same tokens. */
 export function cssVariables(): string {
-  return `:root{--pb-brand-primary:${tokens.brand.primary};--pb-brand-accent:${tokens.brand.accent};--pb-brand-sand:${tokens.brand.sand};--pb-bg:${tokens.ui.bg};--pb-text:${tokens.ui.text};--pb-muted:${tokens.ui.muted};--pb-border:${tokens.ui.border};--pb-good:${tokens.status.good};--pb-watch:${tokens.status.watch};--pb-bad:${tokens.status.bad};--pb-font-ui:${brand.fonts.ui.join(', ')};--pb-font-display:${brand.fonts.display.join(', ')};}`;
+  const chart = tokens.chartSeries.map((c, i) => `--pb-chart-${i + 1}:${c};`).join('');
+  return `:root{${chart}--pb-chart-muted:${tokens.chartMuted};--pb-brand-primary:${tokens.brand.primary};--pb-brand-accent:${tokens.brand.accent};--pb-brand-sand:${tokens.brand.sand};--pb-bg:${tokens.ui.bg};--pb-text:${tokens.ui.text};--pb-muted:${tokens.ui.muted};--pb-border:${tokens.ui.border};--pb-good:${tokens.status.good};--pb-watch:${tokens.status.watch};--pb-bad:${tokens.status.bad};--pb-font-ui:${brand.fonts.ui.join(', ')};--pb-font-display:${brand.fonts.display.join(', ')};}`;
 }

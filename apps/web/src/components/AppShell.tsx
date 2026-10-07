@@ -5,6 +5,8 @@ import { Button, Dropdown, Option } from '@fluentui/react-components';
 import { NAV_GROUPS } from '../app/nav.js';
 import { meQuery, mockUsersQuery } from '../app/queries.js';
 import { clearCredential, setCredential } from '../app/session.js';
+import { ApiError } from '../api/client.js';
+import { useSignOutOnRejectedCredential } from '../app/useSignOutOnRejectedCredential.js';
 
 export function RoleSwitcher(): ReactNode {
   const me = useQuery(meQuery);
@@ -44,6 +46,12 @@ export function AppShell(): ReactNode {
   const me = useQuery(meQuery);
   const navigate = useNavigate();
   const queryClient = useQueryClient();
+  const rejected = me.isError && me.error instanceof ApiError && me.error.status === 401;
+  useSignOutOnRejectedCredential(rejected, () => {
+    clearCredential();
+    queryClient.clear();
+    void navigate({ to: '/sign-in' });
+  });
   return (
     <div className="pb-shell">
       <header className="pb-header">
