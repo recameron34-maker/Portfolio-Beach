@@ -48,7 +48,8 @@ export interface PositionMetrics {
   calcVersion: string;
 }
 
-const str = (d: Decimal | null): string | null =>
+/** Decimal to the contract's decimal string (no exponent, no trailing zeros); null stays null. */
+export const str = (d: Decimal | null): string | null =>
   d === null ? null : d.toFixed(10).replace(/\.?0+$/, '');
 
 function kindOf(flowType: string): FlowKind {
