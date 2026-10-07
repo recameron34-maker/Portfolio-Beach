@@ -27,7 +27,8 @@
     "netDebtToEbitdaMax": 6.0,
     "ebitdaYoYDeclinePct": 0.15,
     "markdownPct": 0.2,
-    "missingFinancialsDays": 75
+    "missingFinancialsDays": 75,
+    "maturityWithinMonths": 12
   },
   "capitalActivity": {
     "alertDaysBeforeDue": [3, 1, 0],
@@ -43,5 +44,15 @@
     "revenueMax": 50000000000
   },
   "valuationVarianceFlag": 0.1,
-  "_units": "All percentages in this file are decimals (0.10 = 10%)."
+  "_units": "All percentages in this file are decimals (0.10 = 10%).",
+  "reporting": {
+    "weeklyMoversCount": 5,
+    "capitalActivityWindowDays": 30,
+    "staleValuationFootnote": "Carried at the latest Locked valuation of {lockedPeriodEnd}; no Locked mark for {periodEnd}.",
+    "noValuationFootnote": "No Locked valuation on record; NAV is not calculable this quarter."
+  },
+  "analytics": {
+    "navSeriesQuarters": 8,
+    "topPositions": 10
+  }
 }

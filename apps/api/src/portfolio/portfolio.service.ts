@@ -1,14 +1,13 @@
 import { Inject, Injectable } from '@nestjs/common';
-import { and, asc, desc, eq, gt, inArray, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, gt, sql } from 'drizzle-orm';
 import type { Principal } from '@pb/adapters';
-import type { InvestmentDetail, InvestmentPage, InvestmentSummary } from '@pb/contracts';
+import type { InvestmentDetail, InvestmentPage } from '@pb/contracts';
 import { schema } from '@pb/db';
-import type { Tx } from '@pb/db';
 import { DEFINITIONS } from '../common/tokens.js';
 import { ProblemError } from '../common/problem.js';
 import { DbService } from '../db/db.service.js';
-import { creditView, operatingView, positionMetrics } from './metrics.js';
-import type { FlowRow, ValuationRow } from './metrics.js';
+import { loadFlowsAndValuations, loadInvestmentRows, summarizeInvestment } from './loaders.js';
+import { creditView, operatingView } from './metrics.js';
 
 export interface ListOptions {
   limit: number;
@@ -31,21 +30,6 @@ const decodeCursor = (cursor: string): string => {
   return value;
 };
 
-interface BaseRow {
-  id: string;
-  investmentNumber: string;
-  companyName: string;
-  sponsorName: string;
-  sponsorFundName: string | null;
-  vehicleName: string;
-  dealType: string;
-  entryDate: string;
-  exitDate: string | null;
-  isActive: boolean;
-  sector: string | null;
-  geography: string | null;
-}
-
 /**
  * Fully qualified outer-table columns for correlated subqueries. In a single-table select Drizzle
  * renders a column as a bare `"id"`, which inside the subquery would bind to the inner table.
@@ -53,95 +37,12 @@ interface BaseRow {
 const OUTER_SPONSOR_ID = sql.raw('"core"."sponsor"."id"');
 const OUTER_VEHICLE_ID = sql.raw('"core"."vehicle"."id"');
 
-const baseSelect = {
-  id: schema.investment.id,
-  investmentNumber: schema.investment.investmentNumber,
-  companyName: schema.portfolioCompany.name,
-  sponsorName: schema.sponsor.name,
-  sponsorFundName: schema.sponsorFund.name,
-  vehicleName: schema.vehicle.name,
-  dealType: schema.investment.dealType,
-  entryDate: schema.investment.entryDate,
-  exitDate: schema.investment.exitDate,
-  isActive: schema.investment.isActive,
-  sector: schema.portfolioCompany.sector,
-  geography: schema.portfolioCompany.geography,
-};
-
 @Injectable()
 export class PortfolioService {
   constructor(
     private readonly db: DbService,
     @Inject(DEFINITIONS) private readonly definitions: Definitions,
   ) {}
-
-  private async loadFlowsAndValuations(
-    tx: Tx,
-    ids: string[],
-  ): Promise<{ flows: Map<string, FlowRow[]>; valuations: Map<string, ValuationRow[]> }> {
-    const flows = new Map<string, FlowRow[]>();
-    const valuations = new Map<string, ValuationRow[]>();
-    if (ids.length === 0) return { flows, valuations };
-    const flowRows = await tx
-      .select({
-        investmentId: schema.cashFlow.investmentId,
-        flowDate: schema.cashFlow.flowDate,
-        flowType: schema.cashFlow.flowType,
-        amount: schema.cashFlow.amount,
-      })
-      .from(schema.cashFlow)
-      .where(
-        and(
-          inArray(schema.cashFlow.investmentId, ids),
-          eq(schema.cashFlow.status, 'record_status.approved'),
-        ),
-      )
-      .orderBy(asc(schema.cashFlow.flowDate));
-    for (const f of flowRows) {
-      if (f.investmentId === null) continue;
-      (flows.get(f.investmentId) ?? flows.set(f.investmentId, []).get(f.investmentId))!.push({
-        flowDate: f.flowDate,
-        flowType: f.flowType,
-        amount: f.amount,
-      });
-    }
-    const valRows = await tx
-      .select({
-        investmentId: schema.valuation.investmentId,
-        periodEnd: schema.valuation.periodEnd,
-        version: schema.valuation.version,
-        state: schema.valuation.state,
-        fairValue: schema.valuation.fairValue,
-        method: schema.valuation.method,
-      })
-      .from(schema.valuation)
-      .where(inArray(schema.valuation.investmentId, ids))
-      .orderBy(asc(schema.valuation.periodEnd), asc(schema.valuation.version));
-    for (const v of valRows) {
-      (valuations.get(v.investmentId) ??
-        valuations.set(v.investmentId, []).get(v.investmentId))!.push({
-        periodEnd: v.periodEnd,
-        version: v.version,
-        state: v.state,
-        fairValue: v.fairValue,
-        method: v.method,
-      });
-    }
-    return { flows, valuations };
-  }
-
-  private summarize(
-    row: BaseRow,
-    flows: FlowRow[],
-    valuations: ValuationRow[],
-    asOf: string,
-  ): InvestmentSummary {
-    return {
-      ...row,
-      vintage: Number(row.entryDate.slice(0, 4)),
-      ...positionMetrics(flows, valuations, asOf, row.isActive),
-    };
-  }
 
   async list(principal: Principal, requestId: string, opts: ListOptions): Promise<InvestmentPage> {
     return this.db.run(principal, requestId, async (tx) => {
@@ -154,26 +55,17 @@ export class PortfolioService {
         conditions.push(eq(schema.investment.dealType, opts.dealType));
       if (opts.active !== undefined)
         conditions.push(eq(schema.investment.isActive, opts.active === 'true'));
-      const rows = await tx
-        .select(baseSelect)
-        .from(schema.investment)
-        .innerJoin(
-          schema.portfolioCompany,
-          eq(schema.portfolioCompany.id, schema.investment.portfolioCompanyId),
-        )
-        .innerJoin(schema.sponsor, eq(schema.sponsor.id, schema.investment.sponsorId))
-        .innerJoin(schema.vehicle, eq(schema.vehicle.id, schema.investment.vehicleId))
-        .leftJoin(schema.sponsorFund, eq(schema.sponsorFund.id, schema.investment.sponsorFundId))
-        .where(conditions.length > 0 ? and(...conditions) : undefined)
-        .orderBy(asc(schema.investment.investmentNumber))
-        .limit(opts.limit + 1);
+      const rows = await loadInvestmentRows(tx, {
+        where: conditions.length > 0 ? and(...conditions) : undefined,
+        limit: opts.limit + 1,
+      });
       const page = rows.slice(0, opts.limit);
-      const { flows, valuations } = await this.loadFlowsAndValuations(
+      const { flows, valuations } = await loadFlowsAndValuations(
         tx,
         page.map((r) => r.id),
       );
       const items = page.map((r) =>
-        this.summarize(r, flows.get(r.id) ?? [], valuations.get(r.id) ?? [], opts.asOf),
+        summarizeInvestment(r, flows.get(r.id) ?? [], valuations.get(r.id) ?? [], opts.asOf),
       );
       const last = page[page.length - 1];
       return {
@@ -195,29 +87,18 @@ export class PortfolioService {
     asOf: string,
   ): Promise<InvestmentDetail> {
     return this.db.run(principal, requestId, async (tx, audit) => {
-      const rows = await tx
-        .select({
-          ...baseSelect,
-          companyId: schema.portfolioCompany.id,
-          sponsorId: schema.sponsor.id,
-          sponsorFundId: schema.investment.sponsorFundId,
-          vehicleId: schema.vehicle.id,
-          companyDescription: schema.portfolioCompany.description,
-        })
-        .from(schema.investment)
-        .innerJoin(
-          schema.portfolioCompany,
-          eq(schema.portfolioCompany.id, schema.investment.portfolioCompanyId),
-        )
-        .innerJoin(schema.sponsor, eq(schema.sponsor.id, schema.investment.sponsorId))
-        .innerJoin(schema.vehicle, eq(schema.vehicle.id, schema.investment.vehicleId))
-        .leftJoin(schema.sponsorFund, eq(schema.sponsorFund.id, schema.investment.sponsorFundId))
-        .where(eq(schema.investment.id, id))
-        .limit(1);
+      const rows = await loadInvestmentRows(tx, { where: eq(schema.investment.id, id), limit: 1 });
       const row = rows[0];
       if (row === undefined) throw new ProblemError(404, 'not-found', 'Investment not found');
-      const { flows, valuations } = await this.loadFlowsAndValuations(tx, [row.id]);
-      const summary = this.summarize(
+      const description = (
+        await tx
+          .select({ description: schema.portfolioCompany.description })
+          .from(schema.portfolioCompany)
+          .where(eq(schema.portfolioCompany.id, row.companyId))
+          .limit(1)
+      )[0];
+      const { flows, valuations } = await loadFlowsAndValuations(tx, [row.id]);
+      const summary = summarizeInvestment(
         row,
         flows.get(row.id) ?? [],
         valuations.get(row.id) ?? [],
@@ -282,7 +163,7 @@ export class PortfolioService {
         sponsorId: row.sponsorId,
         sponsorFundId: row.sponsorFundId,
         vehicleId: row.vehicleId,
-        companyDescription: row.companyDescription,
+        companyDescription: description?.description ?? null,
         latestPeriodEnd,
         cashFlows: (flows.get(row.id) ?? []).map((f) => ({
           date: f.flowDate,
