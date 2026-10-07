@@ -31,12 +31,16 @@ function queryParameters(route: RouteDefinition): unknown[] {
   return params;
 }
 
-/** Builds the OpenAPI 3.1 document from the route table and the zod contracts (docs/17 section 3). */
+/**
+ * Builds the OpenAPI 3.1 document from the route table and the zod contracts (docs/17 section 3).
+ * Paths and operations are collected in Maps and serialized with Object.fromEntries, so a path or
+ * method string can never write to an object prototype (CodeQL js/prototype-polluting-assignment).
+ */
 export function buildOpenApi(
   version: string,
   routes: readonly RouteDefinition[] = ROUTES,
 ): OpenApiDocument {
-  const paths: Record<string, Record<string, unknown>> = {};
+  const paths = new Map<string, Map<string, unknown>>();
   for (const route of routes) {
     const operation: Record<string, unknown> = {
       summary: route.summary,
@@ -63,8 +67,9 @@ export function buildOpenApi(
         content: { 'application/json': { schema: jsonSchema(route.body) } },
       };
     }
-    paths[route.path] ??= {};
-    paths[route.path]![route.method.toLowerCase()] = operation;
+    const operations = paths.get(route.path) ?? new Map<string, unknown>();
+    operations.set(route.method.toLowerCase(), operation);
+    paths.set(route.path, operations);
   }
   return {
     openapi: '3.1.0',
@@ -74,7 +79,9 @@ export function buildOpenApi(
       description:
         'Internal API. Errors are RFC 9457 problem details; records the caller may not see return 404.',
     },
-    paths,
+    paths: Object.fromEntries(
+      [...paths].map(([path, operations]) => [path, Object.fromEntries(operations)]),
+    ),
     components: {
       schemas: { ProblemDetails: jsonSchema(problemDetails) },
       securitySchemes: { bearer: { type: 'http', scheme: 'bearer' } },
