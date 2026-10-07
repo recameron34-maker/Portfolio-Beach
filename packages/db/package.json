@@ -1,0 +1,40 @@
+{
+  "name": "@pb/db",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Portfolio Beach database: SQL migrations, typed schema, RLS context, in-process Postgres for tests",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./testing": {
+      "types": "./dist/testing.d.ts",
+      "default": "./dist/testing.js"
+    }
+  },
+  "files": [
+    "dist",
+    "migrations"
+  ],
+  "scripts": {
+    "build": "tsc -b",
+    "test": "vitest run",
+    "migrate": "node dist/cli/migrate.js",
+    "reset": "node dist/cli/reset.js",
+    "seed:synthetic": "node dist/cli/seed.js",
+    "check:classification": "node dist/cli/check-classification.js"
+  },
+  "dependencies": {
+    "@electric-sql/pglite": "0.5.8",
+    "drizzle-orm": "0.45.3",
+    "pg": "8.23.1",
+    "zod": "4.6.5"
+  },
+  "devDependencies": {
+    "@types/pg": "8.23.1"
+  }
+}

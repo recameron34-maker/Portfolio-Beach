@@ -1,0 +1,39 @@
+{
+  "name": "@pb/api",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Portfolio Beach API (NestJS): identity to RLS context, problem details, health, feature flags, M1 read endpoints",
+  "type": "module",
+  "scripts": {
+    "build": "tsc -b",
+    "dev": "tsc -b && node --enable-source-maps dist/main.js",
+    "start": "node --enable-source-maps dist/main.js",
+    "test": "vitest run",
+    "openapi:generate": "node dist/openapi-cli.js"
+  },
+  "dependencies": {
+    "@nestjs/common": "12.1.2",
+    "@nestjs/core": "12.1.2",
+    "@nestjs/platform-express": "12.1.2",
+    "@pb/adapters": "workspace:*",
+    "@pb/calc": "workspace:*",
+    "@pb/contracts": "workspace:*",
+    "@pb/db": "workspace:*",
+    "@pb/workflows": "workspace:*",
+    "drizzle-orm": "0.45.3",
+    "helmet": "8.3.0",
+    "pino": "10.4.0",
+    "reflect-metadata": "0.2.2",
+    "rxjs": "7.8.2",
+    "zod": "4.6.5"
+  },
+  "devDependencies": {
+    "@nestjs/testing": "12.1.2",
+    "@pb/synthetic": "workspace:*",
+    "@swc/core": "1.16.13",
+    "@types/express": "5.0.6",
+    "@types/supertest": "7.2.1",
+    "supertest": "7.3.1",
+    "unplugin-swc": "2.0.0"
+  }
+}

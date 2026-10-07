@@ -1,0 +1,20 @@
+{
+  "_note": "Neutral sample values. A deploying firm replaces these with its own house style.",
+  "global": { "noEmDash": true, "plainLanguage": true },
+  "highlights": {
+    "tone": "Direct, factual, concise.",
+    "bullets": 3,
+    "requiredOpenings": { "1": "LTM revenue", "2": "Performance was driven by" },
+    "bannedPhrases": ["world-class", "best-in-class", "synergies"],
+    "notCalculableText": "not calculable this quarter"
+  },
+  "moverCommentary": {
+    "sentences": [2, 3],
+    "words": [50, 90],
+    "openings": [
+      "The increase in valuation of {name} was driven by",
+      "The decline in valuation of {name} was driven by"
+    ],
+    "excludeValuationMechanics": true
+  }
+}

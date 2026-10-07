@@ -1,0 +1,33 @@
+{
+  "id": "10_units",
+  "function": "to_dollars",
+  "note": "Thousands, millions and billions convert exactly; an unknown unit must throw.",
+  "input": {
+    "cases": [
+      {
+        "value": "12.5",
+        "unit": "USD_K"
+      },
+      {
+        "value": "12.5",
+        "unit": "USD_M"
+      },
+      {
+        "value": "1.25",
+        "unit": "USD_B"
+      },
+      {
+        "value": "7",
+        "unit": "USD"
+      },
+      {
+        "value": "1",
+        "unit": "EUR_M"
+      }
+    ]
+  },
+  "expected": {
+    "results": ["12500", "12500000", "1250000000", "7", "THROWS:unknown_unit"]
+  },
+  "tolerance": "0"
+}

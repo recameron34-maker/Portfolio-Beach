@@ -1,0 +1,12 @@
+node_modules
+dist
+build
+coverage
+.bundle
+.synthetic
+.pglite
+pnpm-lock.yaml
+uv.lock
+*.md
+apps/worker-py/.venv
+apps/web/src/routeTree.gen.ts

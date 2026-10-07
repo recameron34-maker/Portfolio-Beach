@@ -1,0 +1,35 @@
+{
+  "id": "14_credit_yield",
+  "function": "credit_yield",
+  "note": "Unitranche: base 5% with a 1% floor plus 600 bps = 11% all-in, split 9% cash and 2% PIK, quarterly. Par 100 at fair value 98, three years to maturity. Current yield = 9/98. YTM is the XIRR of the contractual flows with PIK capitalized each quarter and paid at maturity (reference from a 50-digit bisection).",
+  "input": {
+    "terms": {
+      "baseRate": "0.05",
+      "floor": "0.01",
+      "spread": "0.06"
+    },
+    "floorCase": {
+      "baseRate": "0.005",
+      "floor": "0.01",
+      "spread": "0.06"
+    },
+    "ytm": {
+      "asOf": "2025-01-15",
+      "fairValue": "98",
+      "par": "100",
+      "cashCoupon": "0.09",
+      "pikCoupon": "0.02",
+      "maturity": "2028-01-15",
+      "frequency": "quarterly"
+    }
+  },
+  "expected": {
+    "allInCoupon": "0.11",
+    "allInCouponFloored": "0.07",
+    "currentYield": "0.091836734693878",
+    "ytm": "0.123141589334294",
+    "parAtMaturity": "106.167781186449957",
+    "flowCount": 13
+  },
+  "tolerance": "1e-10"
+}

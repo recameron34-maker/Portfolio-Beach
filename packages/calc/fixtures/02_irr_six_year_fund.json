@@ -1,0 +1,51 @@
+{
+  "id": "02_irr_six_year_fund",
+  "function": "xirr",
+  "note": "Four calls and five distributions over six years. Reference: independent bisection at 50-digit precision; NPV at the root is 0 to 15 places.",
+  "input": {
+    "flows": [
+      {
+        "date": "2018-03-15",
+        "amount": "-4000000"
+      },
+      {
+        "date": "2018-09-30",
+        "amount": "-2500000"
+      },
+      {
+        "date": "2019-04-10",
+        "amount": "-1500000"
+      },
+      {
+        "date": "2020-06-30",
+        "amount": "1200000"
+      },
+      {
+        "date": "2021-02-14",
+        "amount": "-800000"
+      },
+      {
+        "date": "2021-12-20",
+        "amount": "3500000"
+      },
+      {
+        "date": "2022-11-30",
+        "amount": "2750000"
+      },
+      {
+        "date": "2023-08-31",
+        "amount": "4100000"
+      },
+      {
+        "date": "2024-03-15",
+        "amount": "2600000"
+      }
+    ]
+  },
+  "expected": {
+    "value": "0.122995564168867",
+    "reason": null,
+    "shortPeriod": false
+  },
+  "tolerance": "1e-10"
+}

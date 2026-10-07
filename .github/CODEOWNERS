@@ -1,0 +1,16 @@
+# Default: maintainers review everything
+*                               @ORG/pb-maintainers
+# Security-sensitive paths need a second reviewer from pb-security
+/packages/db/**/rls*            @ORG/pb-security
+/packages/db/migrations/        @ORG/pb-maintainers @ORG/pb-security
+/apps/api/src/auth/             @ORG/pb-security
+/apps/api/src/payments/         @ORG/pb-security
+/packages/ai/                   @ORG/pb-security
+/apps/ops-agents/               @ORG/pb-security
+/ops/runbooks/                  @ORG/pb-security
+/infra/                         @ORG/pb-security
+/.github/                       @ORG/pb-security
+/.claude/                       @ORG/pb-security
+/docs/05_SECURITY.md            @ORG/pb-security
+# ORG is a placeholder. Replace it and the team names with the real GitHub organization and teams once the repo
+# moves into the employer's organization (docs/10 section 4). On a personal repo GitHub ignores unknown teams.

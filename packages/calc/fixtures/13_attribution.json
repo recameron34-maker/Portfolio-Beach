@@ -1,0 +1,44 @@
+{
+  "id": "13_attribution",
+  "function": "attribution",
+  "note": "Sequential substitution (revenue, margin, multiple, net debt). Entry: revenue 200, EBITDA 40, EV 400, net debt 150 (equity 250). Current: 260, 65, 715, 120 (equity 595). Parts sum exactly to 345.",
+  "input": {
+    "entry": {
+      "revenue": "200",
+      "ebitda": "40",
+      "ev": "400",
+      "netDebt": "150"
+    },
+    "current": {
+      "revenue": "260",
+      "ebitda": "65",
+      "ev": "715",
+      "netDebt": "120"
+    },
+    "nullCase": {
+      "entry": {
+        "revenue": "200",
+        "ebitda": "0",
+        "ev": "400",
+        "netDebt": "150"
+      },
+      "current": {
+        "revenue": "260",
+        "ebitda": "65",
+        "ev": "715",
+        "netDebt": "120"
+      }
+    }
+  },
+  "expected": {
+    "equityAtEntry": "250",
+    "equityCurrent": "595",
+    "revenueGrowth": "120",
+    "marginChange": "130",
+    "multipleChange": "65",
+    "netDebtChange": "30",
+    "total": "345",
+    "nullCase": null
+  },
+  "tolerance": "1e-12"
+}

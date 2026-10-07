@@ -1,0 +1,73 @@
+# Portfolio Beach CI (docs/12 section 5, docs/16 section 2).
+# Actions are referenced by tag here; run `bash scripts/pin-actions.sh` on a signed-in machine to
+# rewrite every `uses:` to a full commit SHA before enabling branch protection (P0-3, SEC-17.5).
+name: ci
+on:
+  pull_request:
+  push:
+    branches: [main]
+permissions:
+  contents: read
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+env:
+  PNPM_VERSION: 10.28.0
+jobs:
+  guard:
+    name: employer-data and style guard
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4 # pin to SHA
+      - run: bash scripts/check-employer-data.sh
+      - run: bash scripts/check-style.sh
+  ci:
+    needs: guard
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4 # pin to SHA
+      - uses: pnpm/action-setup@v4 # pin to SHA
+        with: { version: '${{ env.PNPM_VERSION }}' }
+      - uses: actions/setup-node@v4 # pin to SHA
+        with: { node-version-file: .nvmrc, cache: pnpm }
+      - uses: astral-sh/setup-uv@v5 # pin to SHA
+        with: { enable-cache: true }
+      - run: pnpm install --frozen-lockfile
+      - run: uv sync --project apps/worker-py --frozen
+      - run: pnpm typecheck
+      - run: pnpm lint
+      - run: pnpm --filter @pb/worker-py lint
+      - run: pnpm test # unit + db (in-process Postgres, no Docker)
+      - run: pnpm test:rls && pnpm test:workflows
+      - run: pnpm test:calc # golden + property + Python cross-check
+      - run: pnpm test:evals -- --mock
+      - run: pnpm check:classification
+  e2e:
+    needs: ci
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4 # pin to SHA
+      - uses: pnpm/action-setup@v4 # pin to SHA
+        with: { version: '${{ env.PNPM_VERSION }}' }
+      - uses: actions/setup-node@v4 # pin to SHA
+        with: { node-version-file: .nvmrc, cache: pnpm }
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm typecheck
+      - run: pnpm exec playwright install --with-deps chromium
+      - run: pnpm test:e2e && pnpm test:a11y
+  security:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions: { contents: read, security-events: write }
+    steps:
+      - uses: actions/checkout@v4 # pin to SHA
+      - uses: github/codeql-action/init@v3 # pin to SHA
+        with: { languages: 'javascript-typescript,python' }
+      - uses: github/codeql-action/analyze@v3 # pin to SHA
+      - uses: actions/dependency-review-action@v4 # pin to SHA
+        if: github.event_name == 'pull_request'
+        with: { fail-on-severity: moderate, deny-licenses: 'GPL-2.0, GPL-3.0, AGPL-3.0' }

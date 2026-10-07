@@ -1,0 +1,29 @@
+{
+  "files": [],
+  "references": [
+    {
+      "path": "packages/calc"
+    },
+    {
+      "path": "packages/db"
+    },
+    {
+      "path": "packages/adapters"
+    },
+    {
+      "path": "packages/workflows"
+    },
+    {
+      "path": "packages/contracts"
+    },
+    {
+      "path": "tools/synthetic"
+    },
+    {
+      "path": "apps/api"
+    },
+    {
+      "path": "apps/web"
+    }
+  ]
+}

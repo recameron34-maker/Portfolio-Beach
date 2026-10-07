@@ -1,0 +1,37 @@
+{
+  "id": "11_nav_roll_forward",
+  "function": "nav_roll_forward",
+  "note": "Pass within the $1 tolerance, then a $1.01 mismatch fails.",
+  "input": {
+    "toleranceUsd": "1",
+    "cases": [
+      {
+        "beginNav": "1000000",
+        "contributions": "250000",
+        "distributions": "100000",
+        "gainLoss": "75000.50",
+        "endNav": "1225000.50"
+      },
+      {
+        "beginNav": "1000000",
+        "contributions": "250000",
+        "distributions": "100000",
+        "gainLoss": "75000.50",
+        "endNav": "1225001.51"
+      }
+    ]
+  },
+  "expected": {
+    "results": [
+      {
+        "passed": true,
+        "difference": "0"
+      },
+      {
+        "passed": false,
+        "difference": "1.01"
+      }
+    ]
+  },
+  "tolerance": "1e-12"
+}

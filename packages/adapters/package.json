@@ -1,0 +1,29 @@
+{
+  "name": "@pb/adapters",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Outside-system interfaces, resilience wrappers, the production guard, and the prototype mocks (docs/13 section 3, docs/17 sections 5 and 6)",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./mocks": {
+      "types": "./dist/mocks.d.ts",
+      "default": "./dist/mocks.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -b",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@pb/db": "workspace:*"
+  }
+}

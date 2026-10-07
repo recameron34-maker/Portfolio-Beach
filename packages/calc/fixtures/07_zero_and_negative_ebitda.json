@@ -1,0 +1,58 @@
+{
+  "id": "07_zero_and_negative_ebitda",
+  "function": "operating_ratios",
+  "note": "Ratios are null when EBITDA is zero or negative; revenue-based margin still computes when revenue is positive.",
+  "input": {
+    "cases": [
+      {
+        "ev": "500",
+        "netDebt": "200",
+        "ebitda": "0",
+        "revenue": "300"
+      },
+      {
+        "ev": "500",
+        "netDebt": "200",
+        "ebitda": "-25",
+        "revenue": "300"
+      },
+      {
+        "ev": "500",
+        "netDebt": "200",
+        "ebitda": "50",
+        "revenue": "0"
+      },
+      {
+        "ev": "500",
+        "netDebt": "200",
+        "ebitda": "50",
+        "revenue": "250"
+      }
+    ]
+  },
+  "expected": {
+    "results": [
+      {
+        "evToEbitda": null,
+        "netDebtToEbitda": null,
+        "ebitdaMargin": "0"
+      },
+      {
+        "evToEbitda": null,
+        "netDebtToEbitda": null,
+        "ebitdaMargin": "-0.08333333333333333333"
+      },
+      {
+        "evToEbitda": "10",
+        "netDebtToEbitda": "4",
+        "ebitdaMargin": null
+      },
+      {
+        "evToEbitda": "10",
+        "netDebtToEbitda": "4",
+        "ebitdaMargin": "0.2"
+      }
+    ]
+  },
+  "tolerance": "1e-12"
+}

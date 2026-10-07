@@ -1,0 +1,11 @@
+{
+  "_note": "Prototype stage: everything false. Real data never enters this repo or Claude Code sessions. Gates apply only after the code moves into the employer's environment.",
+  "prototypeSyntheticOnly": true,
+  "G0_transferAndToolingApproved": false,
+  "G1_employerSchemaMetadata": false,
+  "G2_internalReferenceData": false,
+  "G3_realDocumentsAndFinancials": false,
+  "G4_clientLpAndEmailData": false,
+  "G5_productionGoLive": false,
+  "approvals": []
+}

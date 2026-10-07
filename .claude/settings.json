@@ -1,0 +1,55 @@
+{
+  "permissions": {
+    "deny": [
+      "Read(./.env)",
+      "Read(./.env.*)",
+      "Read(./secrets/**)",
+      "Read(./**/*.pfx)",
+      "Read(./**/*.pem)",
+      "Read(./**/*.key)",
+      "Read(./config/local/denylist.txt)",
+      "Read(./data/**)",
+      "Bash(curl:*)",
+      "Bash(wget:*)",
+      "Bash(rm -rf /*)",
+      "Bash(git push --force*)",
+      "Bash(git push -f*)",
+      "Bash(git push origin main*)",
+      "Bash(az login*)",
+      "Bash(az *)",
+      "Bash(terraform apply*)",
+      "Bash(terraform plan*)",
+      "Bash(gh pr merge*)",
+      "Bash(gh secret*)",
+      "Bash(psql *)"
+    ],
+    "ask": [
+      "Bash(git push*)",
+      "Bash(pnpm add *)",
+      "Bash(pnpm install *)",
+      "Bash(npm install *)",
+      "Bash(uv add *)",
+      "Bash(pip install *)",
+      "Bash(pnpm db:reset*)"
+    ],
+    "allow": [
+      "Bash(git status)",
+      "Bash(git diff*)",
+      "Bash(git log*)",
+      "Bash(pnpm install --frozen-lockfile)",
+      "Bash(pnpm typecheck*)",
+      "Bash(pnpm lint*)",
+      "Bash(pnpm test*)",
+      "Bash(pnpm dev*)",
+      "Bash(pnpm build*)",
+      "Bash(pnpm db:migrate)",
+      "Bash(pnpm db:seed:synthetic)",
+      "Bash(pnpm synth*)",
+      "Bash(pnpm check:*)",
+      "Bash(bash scripts/check-employer-data.sh*)",
+      "Bash(uv run *)",
+      "Bash(terraform validate*)",
+      "Bash(terraform fmt*)"
+    ]
+  }
+}
