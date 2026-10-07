@@ -40,6 +40,7 @@ Status: N = not started, P = partial, B = built.
 | C5 | Equalization, recallable, interest and expense true-up handling; unfunded reconciliation | M16 | N |
 | C6 | Follow-on, preemptive rights and other LP elections with deadlines | M11, M16 | N |
 | C7 | Deal economics received (e.g., shared monitoring fees, fee offsets) | M11 | N |
+| C8 | Interest, principal and PIK notices on credit positions create the right cash flows and par changes | M16 | N |
 
 ## D. Commitments and primary program (New)
 | # | Capability | Module | Status |
@@ -51,6 +52,7 @@ Status: N = not started, P = partial, B = built.
 | D5 | Advisory board / LPAC seats, votes and consents | M17 | N |
 | D6 | Fund-of-funds market reference data (terms, sleeve mix) | M17 | N |
 | D7 | Commitment linking and multi-client dedup | M1 | N |
+| D8 | LP commitments to firm vehicles, ownership after each close, client look-through of every position | M1, M17 | N |
 
 ## E. Portfolio monitoring and valuation
 | # | Capability | Module | Status |
@@ -67,6 +69,7 @@ Status: N = not started, P = partial, B = built.
 | E10 | Deal change requests routed to Ops | M11 | N |
 | E11 | **New:** NAV roll-forward when sponsor marks are late, with automatic footnote | M9, M19 | N |
 | E12 | Sublines: balance, usage, paydowns, documented support for paydown sources | M12 | N |
+| E13 | Private credit monitoring: terms, par / cost / fair value, PIK, coverage, leverage, LTV, DSCR, covenant and payment status, maturity ladder | M9 | N |
 
 ## F. Reporting
 | # | Capability | Module | Status |
@@ -128,6 +131,7 @@ Fund-accounting general ledger, investor onboarding / KYC, fixing the look-throu
 | I12 | Client / LP request routing with templated drafts | M14 | N |
 | I13 | Information barriers (walled deals) in search and AI | SEC-5.3 | N |
 | I14 | Self-serve client view: investments, dates, performance, calls, distributions | M14, M16 | N |
+| I15 | Credit analytics: weighted yield and spread, exposure by seniority and base rate, PIK share of income | M20 | N |
 
 ## J. IT operations by AI agents (docs/15)
 | # | Capability | Module | Status |

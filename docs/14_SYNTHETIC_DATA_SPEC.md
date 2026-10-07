@@ -13,11 +13,11 @@ The prototype's realism depends on this generator. It must produce data that **l
 |---|---|
 | Sponsors | 40 (tiers mixed) |
 | Sponsor funds | 90 |
-| Firm vehicles | 6 (3 co-invest, 1 secondaries/CV, 1 primary program, 1 client vehicle) |
+| Firm vehicles | 7 (3 co-invest, 1 CV fund, 1 primary program / fund of funds, 1 private credit, 1 client SMA) |
 | Clients | 3, each with different reporting bases |
-| Investments | 160 active + 40 realized |
+| Investments | 160 active + 40 realized (about 25 of the active positions are private credit) |
 | Quarterly periods | 12 per active investment (with gaps by scenario) |
-| Commitments | 420 (including the same fund held by two clients) |
+| Commitments | 420 vehicle-to-fund commitments (including the same fund held by two vehicles or clients); LP commitments: every client in at least two vehicles, one client joining at a second closing |
 | Contacts | 600; interactions 8,000 |
 | Capital notices | 900 (calls, distributions, equalization sequences) |
 | Documents | 300 synthetic PDFs + 50 XLSX ops workbooks |
@@ -46,6 +46,11 @@ A `small` profile (20 investments) exists for fast unit tests.
 | `untagged_doc` | Document with no useful filename or metadata |
 | `late_financials` | Expected document never arrives |
 | `multiple_irr` | Cash flows with more than one IRR root |
+| `pik_toggle` | Credit position switches part of its coupon from cash to PIK mid-life |
+| `covenant_breach` | Interest coverage falls below the covenant level; waiver recorded next quarter |
+| `credit_amortization` | Scheduled principal paydowns reduce par on each payment date |
+| `credit_prepayment` | Full repayment before maturity with a call premium |
+| `lp_second_closing` | Client commits to a vehicle at a later closing; ownership percentages change and an equalization notice follows |
 
 ## 4. Synthetic documents
 - Generated with a PDF library from templates that imitate common sponsor report layouts (letter page, financial summary table, portfolio table, footnotes), plus scanned-style variants (rasterized pages) to test OCR paths.

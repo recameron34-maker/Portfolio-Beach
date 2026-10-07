@@ -2,13 +2,16 @@
 
 ## 1. The user
 An institutional **LP / co-investor / allocator** private equity team that:
-- commits to sponsor (GP) primary funds,
-- co-invests alongside sponsors whose funds it backs,
-- invests in GP-led continuation vehicles (CVs), single and multi-asset,
-- manages capital for several clients with client-specific reporting,
+- commits to sponsor (GP) primary funds through a fund of funds / primary program vehicle,
+- co-invests alongside sponsors whose funds it backs, through pooled co-invest funds,
+- invests in GP-led continuation vehicles (CVs), mostly single-asset, through dedicated CV funds,
+- invests in private credit (senior secured, unitranche, second lien, mezzanine and NAV loans, usually alongside sponsors it backs) through a credit vehicle,
+- manages capital for several clients (the LPs in its vehicles, plus client-directed separately managed accounts) with client-specific reporting,
 - uses subscription credit lines on some vehicles.
 
-Typical scale to design for: 10 to 20 users, 150 to 300 active co-investments and CV positions, 400+ fund commitments, several vehicles and 2 to 5 clients.
+**Two layers of commitment.** Clients commit to the firm's vehicles (`core.lp_commitment`); the firm's vehicles commit to sponsor funds and deals (`core.commitment`, `core.investment`). Every client view is a look-through of vehicle positions by the client's ownership share, so a position is stored once and allocated, never duplicated per client.
+
+Typical scale to design for: 10 to 20 users, 150 to 300 active co-investment, CV and credit positions, 400+ fund commitments, several vehicles and 2 to 5 clients.
 
 It is **not** a GP fund administrator: no general ledger, no investor onboarding or KYC. A separate fund accounting system remains the official book of record.
 
@@ -37,4 +40,6 @@ It is **not** a GP fund administrator: no general ledger, no investor onboarding
 Zero entry where possible; one record, many views; human approval before anything reaches a client or the books; self-service; audit-ready by default; maintainable by others; firm-specific details in configuration.
 
 ## 5. Glossary
-LP / GP, co-invest, CV, NAV, MOIC, TVPI, DPI, IRR (XIRR), LTM, SOI, ODD, subline, entry multiple, ILPA templates, PME.
+LP / GP, co-invest, CV, fund of funds (FoF), SMA (separately managed account), NAV, MOIC, TVPI, DPI, RVPI, IRR (XIRR), LTM, SOI, ODD, subline, entry multiple, ILPA templates, PME, LPAC.
+
+Private credit: unitranche, second lien, mezzanine, NAV loan, base rate (for example SOFR) and floor, spread, cash coupon vs. PIK (paid in kind), OID (original issue discount), par, amortization, call protection, maturity, covenant, interest coverage, DSCR, LTV, leverage through the tranche.

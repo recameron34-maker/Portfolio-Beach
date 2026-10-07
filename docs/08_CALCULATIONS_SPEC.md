@@ -3,7 +3,7 @@
 All financial math lives in `packages/calc` (TypeScript) and is cross-checked by an independent Python implementation in `apps/worker-py/calc_check`. Every function is pure, deterministic, uses a decimal library (never JS `number` for money), and returns `null` (rendered as the missing placeholder) instead of a misleading value. Each function records `CALC_VERSION` with persisted results.
 
 ## 1. Inputs and conventions
-- Cash flows: `{date, amount}` from the investor's perspective: contributions negative, distributions positive. Terminal value (NAV) is a positive flow on the valuation date.
+- Cash flows: `{date, amount}` from the investor's perspective: contributions (fundings) negative, distributions, interest, principal and fees received positive. Terminal value (NAV, or fair value plus accrued interest for credit) is a positive flow on the valuation date.
 - Dates are calendar dates (no time). Day count for XIRR: actual/365 (configurable to actual/365.25).
 - Rounding: keep full precision internally; round only for display (`docs/06`). Use round half away from zero at display.
 
@@ -69,4 +69,22 @@ All financial math lives in `packages/calc` (TypeScript) and is cross-checked by
 11. Roll-forward pass and a $1.01 mismatch fail.
 12. KS-PME and Direct Alpha worked example with a synthetic index.
 13. Attribution worked example that sums exactly to total value change.
-Property-based tests (fast-check / Hypothesis): IRR of flows scaled by k is unchanged; TVPI = DPI + RVPI; NPV at the solved IRR is within tolerance.
+14. Private credit: all-in coupon, current yield and yield to maturity for a unitranche loan with a floor, OID and a bullet maturity.
+15. PIK: par roll-forward over four quarters with PIK capitalized; cash-on-cash excludes PIK.
+16. Credit ratios: interest coverage, leverage through the tranche, LTV and DSCR, including the null cases (EBITDA, interest or EV at or below zero).
+Property-based tests (fast-check / Hypothesis): IRR of flows scaled by k is unchanged; TVPI = DPI + RVPI; NPV at the solved IRR is within tolerance; par after PIK capitalization is never below par before it.
+
+## 10. Private credit metrics
+Inputs come from `mon.credit_terms` and `mon.credit_performance` (`docs/03`). All rates are annual decimals.
+| Metric | Formula | Null when |
+|---|---|---|
+| All-in coupon | max(base_rate, floor) + spread, split into cash_coupon and pik_coupon as the terms state | base rate missing |
+| Current yield | annual cash interest (cash_coupon x par) / fair value | fair value <= 0 |
+| Yield to maturity (YTM) | XIRR of {-fair_value on the as-of date, remaining contractual cash interest and scheduled principal, par (plus capitalized PIK) at maturity}; uses the XIRR rules in section 3 | maturity missing or past, fair value <= 0 |
+| Cash-on-cash | cash interest received LTM / average funded amount over the period | funded = 0 |
+| Interest coverage | EBITDA LTM / cash interest expense LTM (borrower level) | EBITDA <= 0 or interest <= 0 |
+| Leverage through the tranche | net debt senior to and including the tranche / EBITDA LTM | EBITDA <= 0 |
+| LTV | net debt through the tranche / enterprise value | EV <= 0 |
+| DSCR | (EBITDA LTM - cash taxes - maintenance capex) / (cash interest + scheduled principal, LTM) | debt service <= 0 |
+| Par roll-forward | par_begin + fundings + PIK capitalized - principal repaid = par_end within $1 (config) | |
+Credit MOIC and IRR use the cash flows in section 1 with fair value plus accrued interest as the terminal value. PIK is income only once capitalized into par; it is never counted as cash received. Rates and coupons stay as decimals internally and are formatted per `docs/06`.

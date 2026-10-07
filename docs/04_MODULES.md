@@ -9,8 +9,9 @@ Global rules in `CLAUDE.md` apply to every module. Workflow states are defined i
 ## M1. Data Foundation
 **Purpose:** one trusted, linked, secured data layer.
 **Features**
-- Core entities from `docs/03`: sponsor, sponsor fund, portfolio company, vehicle, investment, client, commitment, contact.
-- Linking services: portfolio company to sponsor fund; commitment to sponsor fund, with dedup when two clients hold the same fund (one canonical fund, many commitments).
+- Core entities from `docs/03`: sponsor, sponsor fund, portfolio company, vehicle, investment, client, commitment (vehicle to sponsor fund), LP commitment (client to vehicle), contact.
+- Linking services: portfolio company to sponsor fund; commitment to sponsor fund, with dedup when two vehicles or clients hold the same fund (one canonical fund, many commitments).
+- Client look-through: every vehicle position allocated to clients by `lp_commitment.ownership_pct`; ownership percentages per vehicle must sum to 100% after the final close or the vehicle shows a data exception.
 - Alias table and **match guards** (pairs of similar names that must never auto-match).
 - Taxonomy master (sector, strategy, geography, deal type, doc type) owned by the firm; outside sources are mapped to it and never override it.
 - Data Health page: orphans, unresolved names, stale records, open exceptions.
@@ -19,6 +20,7 @@ Global rules in `CLAUDE.md` apply to every module. Workflow states are defined i
 **Depends on:** none.
 **AC**
 - Every active investment resolves Investment > Vehicle > Sponsor Fund > Sponsor; orphan count is 0 on the seed data or each orphan has an exception row.
+- Client look-through totals equal the vehicle totals for every vehicle whose ownership sums to 100% (test).
 - A near-miss name pair from the match-guard config is never linked automatically (test).
 - Each role reads exactly what its matrix allows: positive and negative tests per role (`docs/12`).
 
@@ -140,6 +142,8 @@ Global rules in `CLAUDE.md` apply to every module. Workflow states are defined i
 - Watchlist rules in config (leverage, EBITDA decline, markdown, covenant flags, missing financials); alerts to the deal team.
 - Realization outlook (next 18 months, partial or full) changes **only** by explicit edit, audited.
 - Primary fund monitoring: fund NAV, calls, distributions, unfunded, reported net metrics.
+- Private credit monitoring: credit terms (facility, coupon split cash / PIK, floor, spread, OID, maturity, amortization, call protection, covenants); per period par, cost, fair value, accrued and PIK, cash interest received, principal repaid; current yield, yield to maturity, interest coverage, leverage through the tranche, LTV, DSCR (`docs/08` section 10); covenant and payment status; maturity ladder across the credit vehicle.
+- Credit watchlist rules in config: coverage below covenant level, PIK toggle or deferred interest, LTV above threshold, maturity inside 12 months, payment status not current.
 - Entry snapshot pinned by flag, never inferred from the earliest date.
 **Prototype scope:** fully built.
 **Depends on:** M1, M4.
@@ -147,6 +151,7 @@ Global rules in `CLAUDE.md` apply to every module. Workflow states are defined i
 - Latest-period selection ignores forward-dated snapshots without approved data (test).
 - Prior Year shows the missing placeholder when the exact quarter is absent (test).
 - "Monitoring status for a quarter" export lists every active investment with its status.
+- A credit position with EBITDA at or below zero shows the missing placeholder for coverage and leverage, never a number (test).
 
 ## M10. Valuation Workflow
 **Purpose:** one controlled valuation per investment per period.
@@ -167,7 +172,7 @@ Global rules in `CLAUDE.md` apply to every module. Workflow states are defined i
 **Depends on:** M9. **AC:** every request has an owner and an applied-in-period value before quarter close, or appears on the exceptions list.
 
 ## M12. Weekly Report and Live Dashboard
-**Features:** generated weekly report (PDF + XLSX) from approved data: pipeline, schedule of investments by vehicle, valuations, cash activity, subline section, movers; portfolio analysis page (sector, vintage, sponsor, average check size, deal type, concentration); snapshot archive of every issued report.
+**Features:** generated weekly report (PDF + XLSX) from approved data: pipeline, schedule of investments by vehicle (credit vehicle shows par, fair value, yield and maturity), valuations, cash activity, subline section, movers; portfolio analysis page (sector, vintage, sponsor, average check size, deal type, concentration); snapshot archive of every issued report.
 **Depends on:** M9, M10, M16. **AC:** every figure ties to the data snapshot at issue time (automated tie-out).
 
 ## M13. Analytics (Power BI and in-app)
@@ -201,7 +206,7 @@ Global rules in `CLAUDE.md` apply to every module. Workflow states are defined i
 
 ## M16. Capital Activity: Calls, Distributions and Funding
 **Features**
-- Notice intake (ILPA template aware): issue and due dates, amount, split (investment, fees, expenses, interest), cumulative figures, unfunded.
+- Notice intake (ILPA template aware): issue and due dates, amount, split (investment, fees, expenses, interest), cumulative figures, unfunded. Interest and principal payment notices on credit positions follow the same intake and create `interest` and `principal` cash flows; PIK capitalization notices update par only.
 - Funding tracker per `docs/18` with alerts at T-3, T-1 and due date.
 - Trade ticket generator; preparer and approver must differ.
 - **Wire safety:** bank details only from the approved Wire Instruction register; extraction may flag "instructions present" but never fills bank fields; any change requires a callback to an independently sourced number by a second person.
@@ -209,8 +214,8 @@ Global rules in `CLAUDE.md` apply to every module. Workflow states are defined i
 **Depends on:** M1, M3. **AC:** a ticket cannot be released with an unverified or recently changed instruction (test); unfunded reconciliation test passes on synthetic notice sequences, including an equalization case.
 
 ## M17. Commitments, Primary Program and Portfolio Construction
-**Features:** commitment record (target, hard cap, final size updates, close date, vehicle split); monthly new commitment report with approval; GP track record by vintage; fund terms; pacing plan and exposure targets (config); advisory seats; market reference data on peer programs.
-**Depends on:** M1. **AC:** pacing view flags targets out of range from config.
+**Features:** commitment record (target, hard cap, final size updates, close date, vehicle split); LP commitments to firm vehicles with closing number and ownership percentage after each close (equalization handled in M16); monthly new commitment report with approval; GP track record by vintage; fund terms; pacing plan and exposure targets (config); advisory seats; market reference data on peer programs.
+**Depends on:** M1. **AC:** pacing view flags targets out of range from config; a vehicle whose LP ownership percentages do not sum to 100% after final close appears on the exceptions list.
 
 ## M18. GP Coverage, Annual Meetings and Notes
 **Features:** coverage map with delegates and effective dates; AGM calendar with RSVP, attendees and travel-by date (config days); materials filed to the hub; AGM notes drafted as statements about the GP and portfolio (not a meeting recap) and approved by the attendee; weekly team meeting pack.
@@ -221,7 +226,7 @@ Global rules in `CLAUDE.md` apply to every module. Workflow states are defined i
 **Depends on:** M8, M14. **AC:** a template cannot contain free-text disclosure (lint); an expired statistic cannot be used in a generated document.
 
 ## M20. Advanced Analytics
-**Features:** look-through exposures at cost and NAV; benchmarking with quartiles and PME (Kaplan-Schoar, Direct Alpha); liquidity forecasting (Takahashi-Alexander with tunable parameters); value creation attribution (revenue, margin, multiple, leverage); exit analytics; manager diligence pack.
+**Features:** look-through exposures at cost and NAV; benchmarking with quartiles and PME (Kaplan-Schoar, Direct Alpha); liquidity forecasting (Takahashi-Alexander with tunable parameters); value creation attribution (revenue, margin, multiple, leverage); exit analytics; credit analytics (maturity ladder, weighted average yield and spread, exposure by seniority and base rate, PIK share of income); manager diligence pack.
 **Prototype scope:** synthetic benchmark and index series.
 **Depends on:** M9, M16. **AC:** PME and attribution results match the worked examples in `docs/08`.
 

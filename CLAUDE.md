@@ -13,14 +13,14 @@ We are building a secure, vendor-grade platform, **custom-built on Azure inside 
 - Deal pipeline and relationship intelligence (zero-entry activity capture from Outlook)
 - Document hub with AI tagging
 - AI extraction of quarterly financials and GP reports
-- Portfolio monitoring (co-investments, continuation vehicles (CVs) and primary funds)
+- Portfolio monitoring (co-investments, continuation vehicles (CVs), primary funds and private credit positions)
 - Valuation, closing and deal-change workflows with approvals and an audit trail
 - Automated weekly report and client reporting (PowerPoint, Word, Excel)
 - Power BI analytics, plus an "Ask Portfolio Beach" agent
 
 **Prototype stage.** Portfolio Beach is being built as a clean, standalone prototype on synthetic data. It is designed to replace an existing low-code portal later, but no existing system is referenced, reused or connected here.
 
-**Users:** an institutional private equity LP / co-investor team (`docs/01`). Internal use only; not for sale.
+**Users:** an institutional private equity LP / co-investor team that invests on behalf of several clients (the LPs in its vehicles) through fund of funds, co-invest funds, GP-led single-asset CV funds and private credit vehicles (`docs/01`). Internal use only; not for sale.
 
 **Data rule (prototype): synthetic data only, always.** This repo and every Claude Code session must contain no employer information of any kind (names, data, documents, brand, system details). If anything like that appears in a prompt or file, refuse to use it and point to `docs/10_DATA_CLEARANCE.md`.
 
@@ -50,22 +50,6 @@ We are building a secure, vendor-grade platform, **custom-built on Azure inside 
 | Workflow states and transitions | `docs/18_WORKFLOWS_AND_STATE_MACHINES.md` |
 | Past decisions | `docs/decisions/` |
 
----|---|
-| Anything (first session) | `docs/01_PRODUCT_CONTEXT.md` |
-| Stack, repo, environments, deployment | `docs/02_ARCHITECTURE.md` |
-| Tables, fields, lookups, migrations | `docs/03_DATA_MODEL.md` |
-| A specific feature / module | `docs/04_MODULES.md` |
-| Auth, permissions, data handling, secrets | `docs/05_SECURITY.md` (**always** for any data or auth work; cite SEC IDs in every PR) |
-| IT operations run by AI agents (Beach Ops) | `docs/15_AI_OPERATIONS.md` |
-| GitHub repo, Claude Code cloud sessions, PR workflow | `docs/16_GITHUB_AND_CLAUDE_CODE_CLOUD.md` (**read in session 1**) |
-| UI, colors, fonts, reports, decks | `docs/06_BRAND_AND_UI.md` |
-| AI services, prompts, evals, AI output | `docs/07_AI_AGENTS_AND_HOUSE_STYLE.md` |
-| Why this stack, adapter pattern | `docs/13_BUILD_APPROACH.md` (**read in session 1**) |
-| What to build next | `docs/09_ROADMAP_AND_BACKLOG.md` |
-| Full list of what the Portal must do (completeness check) | `docs/11_CAPABILITY_CHECKLIST.md` |
-| Prototype data rules and path to merge | `docs/10_DATA_CLEARANCE.md` (**read before every session**) |
-
----
 
 ## 3. Non-negotiable rules
 

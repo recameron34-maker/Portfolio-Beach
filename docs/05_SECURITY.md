@@ -7,7 +7,7 @@ Portfolio Beach holds some of the most sensitive data at the firm:
 - wire instructions
 - summaries of internal and external communications
 
-This document sets the security bar. It is written to the standard that vendors such as a commercial vendor, a commercial vendor and a commercial vendor advertise to institutional LPs, so the application can stand up to IT and InfoSec review, internal audit, external audit, and prospective LP operational due diligence (ODD).
+This document sets the security bar. It is written to the standard that the leading private-markets software vendors advertise to institutional LPs, so the application can stand up to IT and InfoSec review, internal audit, external audit, and prospective LP operational due diligence (ODD).
 
 Every requirement has an ID (SEC-x.y). Claude Code (Fable) must cite the IDs it satisfies in each pull request. "Must" is mandatory before go-live. "Should" is expected unless a decision record explains otherwise.
 
@@ -72,7 +72,7 @@ Every requirement has an ID (SEC-x.y). Claude Code (Fable) must cite the IDs it 
 
 - SEC-5.1 (must): **defense in depth.** The UI hides what a user can't use, the API enforces role checks, and **PostgreSQL row-level security** enforces the same rules at the data layer. A bug in one layer must not expose data.
 - SEC-5.2 (must): **entitlements** beyond roles. Client-specific data is visible only to users entitled to that client. Deals under NDA or in a restricted pipeline stage are visible only to the deal team, approvers and Operations.
-- SEC-5.3 (must): **information barriers / MNPI walls.** Support "restricted lists" and "walled deals" where only named users can see the record, and searches and AI answers never reveal that the record exists to others. (a commercial vendor positions this as ethical walls enforced at the architecture level. Portfolio Beach must match that.)
+- SEC-5.3 (must): **information barriers / MNPI walls.** Support "restricted lists" and "walled deals" where only named users can see the record, and searches and AI answers never reveal that the record exists to others. (Leading vendors position ethical walls enforced at the architecture level as a core control. Portfolio Beach must match that.)
 - SEC-5.4 (must): **least privilege for Platform Admin.** Configuration rights do not grant data access. Elevation to data access goes through PIM with a reason.
 - SEC-5.5 (must): the **export controls** follow the same rules as screen access. Bulk exports over a set threshold (config) need a reason, are logged, are labeled, and alert security.
 - SEC-5.6 (must): **segregation of duties.** The person who prepares a valuation, wire instruction or report package cannot be its final approver.

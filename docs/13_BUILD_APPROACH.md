@@ -23,7 +23,7 @@ Portfolio Beach is built the way a specialist software vendor would build an ins
 | Search | Azure AI Search (hybrid keyword + vector), permission-filtered |
 | Documents | SharePoint Online via Microsoft Graph in production; local folder adapter in the prototype |
 | Backend API | TypeScript, Node 22, NestJS, Zod validation |
-| Document and Office workers | Python 3.12 (PDF parsing, python-pptx, python-docx, openpyxl) |
+| Document and Office workers | Python 3.12 or later (PDF parsing, python-pptx, python-docx, openpyxl) |
 | Workflow and jobs | Temporal or Azure Durable Functions |
 | Messaging | Azure Service Bus |
 | Front end | React + TypeScript + Vite, TanStack Router and Query, Fluent UI v9, AG Grid, ECharts |

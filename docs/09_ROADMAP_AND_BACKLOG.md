@@ -13,6 +13,7 @@ Synthetic data and mock adapters throughout. Every phase ends with: all CI gates
 - [ ] P0-7 `packages/adapters` interfaces + mocks; production startup guard against mocks (`docs/17` section 6)
 - [ ] P0-8 Web shell with theme, mock sign-in and role switcher; RLS matrix test generator
 - [ ] P0-9 Telemetry, health endpoints, feature flags and kill switches
+- [ ] P0-10 `packages/workflows` typed transition tables for every machine in `docs/18`, with allowed and forbidden transition tests (pulled forward from Phase 3 because API commands depend on them)
 **Exit:** CI green; seeded DB loads; calc fixtures pass in both languages; RLS matrix passes for all roles on core tables; app refuses to start in production mode with mocks.
 
 ## Phase 1: Data foundation and intake (M1, M2)

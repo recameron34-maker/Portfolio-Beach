@@ -1,7 +1,7 @@
 # 17: Engineering Standards
 
 ## 1. Repository and tooling
-- pnpm workspaces; Node 22 LTS (`.nvmrc`); Python 3.12 with `uv`; TypeScript `strict`, `noUncheckedIndexedAccess`, `exactOptionalPropertyTypes`.
+- pnpm workspaces; Node 22 LTS (`.nvmrc`); Python 3.12 or later with `uv`; TypeScript `strict`, `noUncheckedIndexedAccess`, `exactOptionalPropertyTypes`.
 - ESLint + Prettier; Ruff + mypy (strict) for Python.
 - **Conventional Commits** (`feat:`, `fix:`, `chore:`...) with the issue number; squash merge.
 - Semantic versioning for the app; a `CHANGELOG.md` generated from commits.

@@ -22,10 +22,11 @@ Fonts: system UI stack (`"Segoe UI", system-ui, sans-serif`); serif accent for p
 - Navigation groups: Home, Pipeline, Portfolio, Sponsors, Documents, Valuations, Capital Activity, Reporting, Analytics, Assistants, Admin.
 - Deal workspace tabs: Overview (one-pager), Performance, Sponsor & Contacts, Diligence, Closing, Valuations, Documents, Tasks, Activity. Reporting Period selector shared across tabs.
 - One-pager sections: header banner (company, vehicle, as-of period, investment date), Business Description, Investment Summary at Entry, Deal Details (CV fields shown only for CV deals), Thesis, Sourcing Angle, stat tiles (Invested Capital, Current NAV, Gross MOIC, Gross IRR), Financial Performance table (At Entry, Prior Year, LTM / Current, YoY), Business Highlights, Deal Status.
+- Private credit one-pager: the Deal Details section becomes Credit Terms (facility, seniority, coupon split cash / PIK, floor and spread, OID, maturity, call protection, covenants); stat tiles are Funded, Par, Fair Value, Current Yield and Gross IRR; the performance table adds Interest Coverage, Leverage Through Tranche, LTV and Covenant Status. Equity-only fields (EV / EBITDA multiples) are hidden.
 - Every AI-generated text shows an "AI draft" badge until approved.
 
 ## 3. Number and date display
-- $M with one decimal in tables; multiples 1 decimal + "x"; MOIC 2 decimals; IRR 1 decimal %.
+- $M with one decimal in tables; multiples 1 decimal + "x"; MOIC 2 decimals; IRR 1 decimal %; yields and spreads 2 decimals % (spreads may also show in basis points); coverage ratios 1 decimal + "x"; LTV 1 decimal %.
 - Missing or not meaningful: a single `MISSING` constant (a hyphen or "NM"); never 0, Infinity or -100%.
 - Prior Year means the same fiscal quarter one year earlier only.
 - Dates: "Jan 15, 2026"; investment dates "January 2026"; UTC-safe formatter.

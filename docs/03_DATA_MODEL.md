@@ -21,7 +21,9 @@
 ```
 core.sponsor 1-N core.sponsor_fund 1-N core.fund_holding N-1 core.portfolio_company
 core.vehicle 1-N core.investment N-1 core.portfolio_company        (investment = company x vehicle; investment_number unique)
-core.client 1-N core.commitment N-1 core.sponsor_fund              (unique: client, vehicle, sponsor_fund)
+core.vehicle 1-N core.commitment N-1 core.sponsor_fund              (vehicle's commitment to a sponsor fund; unique: vehicle, sponsor_fund, client)
+core.client 1-N core.lp_commitment N-1 core.vehicle                 (client's commitment to a firm vehicle; unique: client, vehicle)
+core.investment 1-1 mon.credit_terms; core.investment 1-N mon.credit_performance   (private credit positions only)
 core.investment 1-N mon.quarterly_performance                      (unique: investment_id, period_end)
 core.investment 1-N mon.valuation (versions)  1-N mon.valuation_approval
 core.investment 1-N mon.cash_flow             (IRR source of truth)
@@ -39,10 +41,11 @@ doc.document 1-N doc.extraction_run 1-N stg.extracted_value
 | fund_alias | sponsor_fund_id, alias (unique) | name matching |
 | portfolio_company | canonical_name, sector, geography, description | |
 | fund_holding | sponsor_fund_id, portfolio_company_id | |
-| vehicle | name (unique), type (co-invest, secondaries/CV, primary program, client vehicle), vintage, currency | |
-| investment | investment_number (unique), vehicle_id, portfolio_company_id, sponsor_fund_id (nullable), deal_type, entry_date, is_active | |
+| vehicle | name (unique), type (co_invest, cv, primary_program (fund of funds), private_credit, client_sma), vintage, currency, closing_count | |
+| investment | investment_number (unique), vehicle_id, portfolio_company_id, sponsor_fund_id (nullable), deal_type (taxonomy: co_invest_equity, cv_single_asset, cv_multi_asset, primary_fund, private_credit), entry_date, is_active | deal_type decides which monitoring tables apply (`quarterly_performance` for equity and CV, `credit_terms` + `credit_performance` for credit, fund-level rows for primaries) |
 | client | name, reporting_bases (json), cadence | Restricted |
-| commitment | client_id, vehicle_id, sponsor_fund_id, amount, commitment_date, side_letter_flags | Restricted |
+| commitment | vehicle_id, sponsor_fund_id, client_id (nullable; set only for client-directed SMA commitments), amount, commitment_date, side_letter_flags | Restricted. The firm vehicle's commitment to a sponsor fund |
+| lp_commitment | client_id, vehicle_id, amount, commitment_date, closing_number, ownership_pct (nullable until final close), side_letter_flags | Restricted. A client's commitment to a firm vehicle; ownership_pct drives client look-through |
 | taxonomy_term | domain, code, label, parent_id, active | |
 | match_guard | name_a, name_b, reason | never auto-match |
 | wall | name, description; wall_member(wall_id, user_id); walled_record(wall_id, entity, entity_id) | information barriers |
@@ -68,8 +71,8 @@ doc.document 1-N doc.extraction_run 1-N stg.extracted_value
 | valuation | investment_id, period_end, version, method, inputs (json), fair_value, state, lock_hash, prepared_by, approved_by |
 | valuation_approval | valuation_id, approver_id, decision, comment, at |
 | valuation_staging | report_date, investment_number, reported_value, prior_value, variance_pct, flag, match_status, reviewer_id, decision |
-| cash_flow | investment_id or commitment_id, flow_date, flow_type (contribution, distribution, fee, expense, interest, recallable), amount, source_notice_id, status |
-| capital_notice | notice_type, vehicle_id, investment_id or commitment_id, issue_date, due_date, amount, split (json), ilpa_fields (json), preferred_funding_date, state |
+| cash_flow | investment_id or commitment_id, flow_date, flow_type (contribution, distribution, fee, expense, interest, principal, recallable), amount, source_notice_id, status | PIK capitalization is not a cash flow: it raises par in `credit_performance` and shows in unrealized value |
+| capital_notice | notice_type (taxonomy: capital_call, distribution, equalization, interest_payment, principal_repayment, fee_notice), vehicle_id, investment_id or commitment_id, issue_date, due_date, amount, split (json), ilpa_fields (json), preferred_funding_date, state |
 | trade_ticket | capital_notice_id, amount, funding_date, prepared_by, approved_by, state |
 | wire_instruction | counterparty, version, bank_details (encrypted at app layer), callback_by, callback_at, callback_number_source, active |
 | deal_change_request | investment_id, change_type, effective_date, details (json), owner_id, state, applied_period |
@@ -78,6 +81,8 @@ doc.document 1-N doc.extraction_run 1-N stg.extracted_value
 | pacing_plan | vehicle_id, year, target_commitments, gp_count_min, gp_count_max, exposure_targets (json) |
 | track_record | sponsor_fund_id, as_of, gross_irr, net_irr, gross_moic, net_moic, dpi, source |
 | advisory_seat | sponsor_fund_id, holder_id, seat_type, start, end |
+| credit_terms | investment_id (unique), facility_type (taxonomy: senior_secured, unitranche, second_lien, mezzanine, nav_loan, preferred), seniority_rank, commitment_amount, base_rate (taxonomy), floor, spread, cash_coupon, pik_coupon, oid, upfront_fee, maturity_date, amortization (json), call_protection (json), covenants (json: name, level, test frequency), effective_date, source_document_id, status | Private credit only |
+| credit_performance | investment_id, period_end, par_value, cost_basis, fair_value, accrued_interest, cash_interest_ltm, pik_capitalized_ltm, principal_repaid_ltm, funded_amount, ebitda_ltm, cash_interest_expense_ltm, net_debt_through_tranche, ev, dscr_inputs (json), covenant_status (taxonomy: compliant, waiver, breach), payment_status (taxonomy: current, deferred, default), highlights (json), commentary, status | unique: investment_id, period_end. Same period-selection rules as quarterly_performance |
 
 ### doc, rel, rpt, ops, stg, audit
 | Table | Key fields |
@@ -112,7 +117,8 @@ Stored in `config/definitions.json`, rendered on the Data Dictionary page. Formu
 - **Close date:** the closing record only.
 - **Prior Year:** the same fiscal quarter one year earlier only; otherwise the missing placeholder.
 - **Units:** money stored in dollars; AI output declares units; conversion only in `packages/calc/units.ts`.
-- **Deal type branching:** vehicle type controls which fields show (CV-only fields hidden for direct co-invests).
+- **Deal type branching:** investment deal type controls which fields and tables apply (CV-only fields hidden for direct co-invests; credit terms and credit metrics shown only for private credit; fund-level metrics only for primaries).
+- **Client look-through:** a client's share of any vehicle position is `position x lp_commitment.ownership_pct` for that vehicle, computed at read time from approved values; never stored per client.
 
 ## 5. Linking and matching rules
 - Resolve by investment number first, then canonical name or alias exact match. Never fuzzy auto-link.

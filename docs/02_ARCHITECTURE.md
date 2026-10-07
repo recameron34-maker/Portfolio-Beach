@@ -67,7 +67,9 @@ Each environment is a separate resource group (or subscription) with its own Key
 |   `-- runbooks/                 # named, tested, reversible runbooks agents may call
 |-- packages/
 |   |-- db/                       # Drizzle schema, migrations, seed, RLS policies
-|   |-- calc/                     # XIRR, MOIC, TVPI, DPI, multiples, YoY, quarter matching
+|   |-- calc/                     # XIRR, MOIC, TVPI, DPI, multiples, YoY, quarter matching, credit metrics
+|   |-- adapters/                 # outside-system interfaces + mocks (docs/13 section 3); resilience wrappers
+|   |-- workflows/                # typed state-machine transition tables (docs/18) shared by API and tests
 |   |-- validation/               # shared validation rules (Zod)
 |   |-- ai/                       # prompt registry, schemas, model client, redaction, evals
 |   |-- report-engine/            # template binding + QA checks (TS orchestration, Python rendering)

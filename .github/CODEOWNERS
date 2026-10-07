@@ -1,15 +1,16 @@
 # Default: maintainers review everything
-*                               @the firm-ORG/pb-maintainers
+*                               @ORG/pb-maintainers
 # Security-sensitive paths need a second reviewer from pb-security
-/packages/db/**/rls*            @the firm-ORG/pb-security
-/packages/db/migrations/        @the firm-ORG/pb-maintainers @the firm-ORG/pb-security
-/apps/api/src/auth/             @the firm-ORG/pb-security
-/apps/api/src/payments/         @the firm-ORG/pb-security
-/packages/ai/                   @the firm-ORG/pb-security
-/apps/ops-agents/               @the firm-ORG/pb-security
-/ops/runbooks/                  @the firm-ORG/pb-security
-/infra/                         @the firm-ORG/pb-security
-/.github/                       @the firm-ORG/pb-security
-/.claude/                       @the firm-ORG/pb-security
-/docs/05_SECURITY.md            @the firm-ORG/pb-security
-# Replace the firm-ORG and team names with the real GitHub org and teams.
+/packages/db/**/rls*            @ORG/pb-security
+/packages/db/migrations/        @ORG/pb-maintainers @ORG/pb-security
+/apps/api/src/auth/             @ORG/pb-security
+/apps/api/src/payments/         @ORG/pb-security
+/packages/ai/                   @ORG/pb-security
+/apps/ops-agents/               @ORG/pb-security
+/ops/runbooks/                  @ORG/pb-security
+/infra/                         @ORG/pb-security
+/.github/                       @ORG/pb-security
+/.claude/                       @ORG/pb-security
+/docs/05_SECURITY.md            @ORG/pb-security
+# ORG is a placeholder. Replace it and the team names with the real GitHub organization and teams once the repo
+# moves into the employer's organization (docs/10 section 4). On a personal repo GitHub ignores unknown teams.
