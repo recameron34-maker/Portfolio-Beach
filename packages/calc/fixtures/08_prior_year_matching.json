@@ -1,0 +1,57 @@
+{
+  "id": "08_prior_year_matching",
+  "function": "same_quarter_prior_year",
+  "note": "Exact prior-year quarter absent (a nearer quarter exists and must not be used); then present with a 3-day period-end shift inside the 7-day tolerance; then an 8-day shift outside it.",
+  "input": {
+    "toleranceDays": 7,
+    "cases": [
+      {
+        "target": "2024-06-30",
+        "rows": [
+          {
+            "periodEnd": "2023-03-31"
+          },
+          {
+            "periodEnd": "2023-09-30"
+          },
+          {
+            "periodEnd": "2024-03-31"
+          },
+          {
+            "periodEnd": "2024-06-30"
+          }
+        ]
+      },
+      {
+        "target": "2024-06-30",
+        "rows": [
+          {
+            "periodEnd": "2023-06-27"
+          },
+          {
+            "periodEnd": "2024-06-30"
+          }
+        ]
+      },
+      {
+        "target": "2024-06-30",
+        "rows": [
+          {
+            "periodEnd": "2023-06-22"
+          },
+          {
+            "periodEnd": "2024-06-30"
+          }
+        ]
+      }
+    ]
+  },
+  "expected": {
+    "results": [
+      null,
+      "2023-06-27",
+      null
+    ]
+  },
+  "tolerance": "0"
+}

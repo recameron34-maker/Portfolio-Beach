@@ -1,0 +1,12 @@
+{
+  "name": "@pb/worker-py",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Python worker: document parsing and Office generation (later phases) plus the independent calculation cross-check (docs/08)",
+  "scripts": {
+    "setup": "uv sync",
+    "test": "uv run pytest -q",
+    "lint": "uv run ruff check . && uv run ruff format --check . && uv run mypy src tests",
+    "format": "uv run ruff format ."
+  }
+}

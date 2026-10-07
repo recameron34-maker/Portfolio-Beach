@@ -1,0 +1,27 @@
+{
+  "id": "03_irr_all_negative",
+  "function": "xirr",
+  "note": "All flows the same sign: no IRR exists.",
+  "input": {
+    "flows": [
+      {
+        "date": "2020-01-01",
+        "amount": "-100"
+      },
+      {
+        "date": "2021-01-01",
+        "amount": "-50"
+      },
+      {
+        "date": "2022-01-01",
+        "amount": "-25"
+      }
+    ]
+  },
+  "expected": {
+    "value": null,
+    "reason": "same_sign",
+    "shortPeriod": false
+  },
+  "tolerance": "1e-10"
+}

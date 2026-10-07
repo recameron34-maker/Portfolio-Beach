@@ -1,0 +1,23 @@
+{
+  "id": "01_irr_simple_two_flow",
+  "function": "xirr",
+  "note": "Closed form: (150/100)^(365/1096) - 1 for 2020-01-01 to 2023-01-01 (1096 days, actual/365).",
+  "input": {
+    "flows": [
+      {
+        "date": "2020-01-01",
+        "amount": "-100"
+      },
+      {
+        "date": "2023-01-01",
+        "amount": "150"
+      }
+    ]
+  },
+  "expected": {
+    "value": "0.144573088944120",
+    "reason": null,
+    "shortPeriod": false
+  },
+  "tolerance": "1e-10"
+}

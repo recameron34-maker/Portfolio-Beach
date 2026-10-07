@@ -1,0 +1,27 @@
+{
+  "name": "@pb/calc",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Portfolio Beach financial calculations (docs/08): exact decimals, pure, deterministic",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": ["dist", "fixtures"],
+  "scripts": {
+    "build": "tsc -b",
+    "test": "vitest run",
+    "cross-check": "node dist/cross-check/generate.js .cross-check/cases.json && uv run --project ../../apps/worker-py python -m calc_check.cross_check .cross-check/cases.json"
+  },
+  "dependencies": {
+    "decimal.js": "10.6.0"
+  },
+  "devDependencies": {
+    "fast-check": "4.10.2"
+  }
+}

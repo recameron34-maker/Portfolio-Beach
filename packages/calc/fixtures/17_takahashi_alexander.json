@@ -1,0 +1,54 @@
+{
+  "id": "17_takahashi_alexander",
+  "function": "takahashi_alexander",
+  "note": "Commitment 100, 25% contribution rate, life 10, bow 2.5, growth 10%, yield floor 5%, five years. Years 1 to 3 use the yield floor; from year 4 the (t/L)^B curve exceeds it. Reference from an independent Decimal implementation.",
+  "input": {
+    "commitment": "100",
+    "rateOfContribution": "0.25",
+    "life": 10,
+    "bow": "2.5",
+    "growth": "0.10",
+    "yield": "0.05",
+    "years": 5
+  },
+  "expected": {
+    "rows": [
+      {
+        "year": 1,
+        "contribution": "25.000000000000000",
+        "distribution": "0.000000000000000",
+        "nav": "25.000000000000000",
+        "unfunded": "75.000000000000000"
+      },
+      {
+        "year": 2,
+        "contribution": "18.750000000000000",
+        "distribution": "1.375000000000000",
+        "nav": "44.875000000000000",
+        "unfunded": "56.250000000000000"
+      },
+      {
+        "year": 3,
+        "contribution": "14.062500000000000",
+        "distribution": "2.468125000000000",
+        "nav": "60.956875000000000",
+        "unfunded": "42.187500000000000"
+      },
+      {
+        "year": 4,
+        "contribution": "10.546875000000000",
+        "distribution": "6.785242254425409",
+        "nav": "70.814195245574591",
+        "unfunded": "31.640625000000000"
+      },
+      {
+        "year": 5,
+        "contribution": "7.910156250000000",
+        "distribution": "13.770129357163841",
+        "nav": "72.035641662968210",
+        "unfunded": "23.730468750000000"
+      }
+    ]
+  },
+  "tolerance": "1e-10"
+}

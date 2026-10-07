@@ -1,0 +1,40 @@
+{
+  "id": "09_forward_entry_snapshot",
+  "function": "latest_period",
+  "note": "Latest period ignores the entry snapshot (even when dated after the reporting date), unapproved rows and rows after the reporting date.",
+  "input": {
+    "reportingDate": "2024-09-30",
+    "rows": [
+      {
+        "periodEnd": "2024-12-31",
+        "status": "approved",
+        "isEntrySnapshot": true
+      },
+      {
+        "periodEnd": "2024-09-30",
+        "status": "draft",
+        "isEntrySnapshot": false
+      },
+      {
+        "periodEnd": "2024-12-31",
+        "status": "approved",
+        "isEntrySnapshot": false
+      },
+      {
+        "periodEnd": "2024-06-30",
+        "status": "approved",
+        "isEntrySnapshot": false
+      },
+      {
+        "periodEnd": "2024-03-31",
+        "status": "approved",
+        "isEntrySnapshot": false
+      }
+    ]
+  },
+  "expected": {
+    "periodEnd": "2024-06-30",
+    "entrySnapshotPeriodEnd": "2024-12-31"
+  },
+  "tolerance": "0"
+}

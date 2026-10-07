@@ -1,0 +1,74 @@
+{
+  "id": "16_credit_ratios",
+  "function": "credit_ratios",
+  "note": "Coverage, leverage through the tranche, LTV and DSCR with their null cases.",
+  "input": {
+    "cases": [
+      {
+        "ebitda": "50",
+        "cashInterest": "20",
+        "netDebtThroughTranche": "180",
+        "ev": "400",
+        "cashTaxes": "5",
+        "maintenanceCapex": "8",
+        "scheduledPrincipal": "4"
+      },
+      {
+        "ebitda": "0",
+        "cashInterest": "20",
+        "netDebtThroughTranche": "180",
+        "ev": "400",
+        "cashTaxes": "5",
+        "maintenanceCapex": "8",
+        "scheduledPrincipal": "4"
+      },
+      {
+        "ebitda": "-10",
+        "cashInterest": "20",
+        "netDebtThroughTranche": "180",
+        "ev": "0",
+        "cashTaxes": "5",
+        "maintenanceCapex": "8",
+        "scheduledPrincipal": "4"
+      },
+      {
+        "ebitda": "50",
+        "cashInterest": "0",
+        "netDebtThroughTranche": "180",
+        "ev": "400",
+        "cashTaxes": "5",
+        "maintenanceCapex": "8",
+        "scheduledPrincipal": "0"
+      }
+    ]
+  },
+  "expected": {
+    "results": [
+      {
+        "interestCoverage": "2.5",
+        "leverageThroughTranche": "3.6",
+        "ltv": "0.45",
+        "dscr": "1.541666666666666666666666666666667"
+      },
+      {
+        "interestCoverage": null,
+        "leverageThroughTranche": null,
+        "ltv": "0.45",
+        "dscr": "-0.5416666666666666666666666666666667"
+      },
+      {
+        "interestCoverage": null,
+        "leverageThroughTranche": null,
+        "ltv": null,
+        "dscr": "-0.9583333333333333333333333333333333"
+      },
+      {
+        "interestCoverage": null,
+        "leverageThroughTranche": "3.6",
+        "ltv": "0.45",
+        "dscr": null
+      }
+    ]
+  },
+  "tolerance": "1e-12"
+}

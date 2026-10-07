@@ -1,0 +1,27 @@
+{
+  "id": "04_irr_multiple_roots",
+  "function": "xirr",
+  "note": "-100, +230, -132 at yearly dates has NPV roots near 10.3% and 19.2% (actual/365 shifts the textbook 10% and 20%). Two sign changes and two brackets: null with reason multiple_irr.",
+  "input": {
+    "flows": [
+      {
+        "date": "2020-01-01",
+        "amount": "-100"
+      },
+      {
+        "date": "2021-01-01",
+        "amount": "230"
+      },
+      {
+        "date": "2022-01-01",
+        "amount": "-132"
+      }
+    ]
+  },
+  "expected": {
+    "value": null,
+    "reason": "multiple_irr",
+    "shortPeriod": false
+  },
+  "tolerance": "1e-10"
+}

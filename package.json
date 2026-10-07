@@ -1,0 +1,50 @@
+{
+  "name": "portfolio-beach",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Portfolio Beach: private equity LP / co-investor platform prototype on synthetic data",
+  "license": "SEE LICENSE IN LICENSE",
+  "type": "module",
+  "packageManager": "pnpm@10.28.0",
+  "engines": {
+    "node": ">=22.12.0",
+    "pnpm": ">=10"
+  },
+  "scripts": {
+    "dev": "pnpm -r --parallel --filter \"./apps/*\" dev",
+    "build": "tsc -b && pnpm --filter @pb/web build",
+    "typecheck": "tsc -b",
+    "lint": "eslint . && prettier --check .",
+    "format": "prettier --write .",
+    "test": "vitest run",
+    "test:calc": "vitest run --project calc && pnpm --filter @pb/worker-py test && pnpm --filter @pb/calc cross-check",
+    "test:rls": "vitest run --project db --dir packages/db/src/rls",
+    "test:workflows": "vitest run --project workflows",
+    "test:evals": "vitest run --project evals --passWithNoTests",
+    "test:e2e": "pnpm --filter @pb/web test:e2e",
+    "test:a11y": "pnpm --filter @pb/web test:a11y",
+    "test:perf": "node scripts/not-in-phase.mjs test:perf 'Phase 6 (nightly k6 run, docs/12 section 1)'",
+    "db:migrate": "pnpm --filter @pb/db migrate",
+    "db:reset": "pnpm --filter @pb/db reset",
+    "db:seed:synthetic": "pnpm --filter @pb/db seed:synthetic",
+    "synth": "pnpm --filter @pb/synthetic generate",
+    "synth:verify": "pnpm --filter @pb/synthetic verify",
+    "check:style": "bash scripts/check-style.sh",
+    "check:employer-data": "bash scripts/check-employer-data.sh",
+    "check:classification": "pnpm --filter @pb/db check:classification",
+    "check:all": "pnpm check:employer-data && pnpm check:style && pnpm typecheck && pnpm lint && pnpm test && pnpm check:classification",
+    "openapi:generate": "pnpm --filter @pb/api openapi:generate"
+  },
+  "devDependencies": {
+    "@eslint/js": "10.0.1",
+    "@types/node": "22.20.5",
+    "@vitest/coverage-v8": "5.0.3",
+    "eslint": "10.12.0",
+    "eslint-config-prettier": "10.1.8",
+    "globals": "17.13.0",
+    "prettier": "3.9.9",
+    "typescript": "5.9.3",
+    "typescript-eslint": "8.71.1",
+    "vitest": "5.0.3"
+  }
+}

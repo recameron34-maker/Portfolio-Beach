@@ -1,0 +1,44 @@
+from __future__ import annotations
+
+from decimal import Decimal
+
+from calc_check.dates import days_between
+
+
+def paid_in(contributions: Decimal) -> Decimal | None:
+    pi = abs(contributions)
+    return None if pi == 0 else pi
+
+
+def dpi(distributions: Decimal, contributions: Decimal) -> Decimal | None:
+    pi = paid_in(contributions)
+    return None if pi is None else distributions / pi
+
+
+def rvpi(nav: Decimal, contributions: Decimal) -> Decimal | None:
+    pi = paid_in(contributions)
+    return None if pi is None else nav / pi
+
+
+def tvpi(distributions: Decimal, nav: Decimal, contributions: Decimal) -> Decimal | None:
+    pi = paid_in(contributions)
+    return None if pi is None else (distributions + nav) / pi
+
+
+def moic(realized: Decimal, unrealized: Decimal, invested: Decimal) -> Decimal | None:
+    inv = abs(invested)
+    return None if inv == 0 else (realized + unrealized) / inv
+
+
+def unfunded(
+    commitment: Decimal | None, contributions: Decimal, recallable: Decimal = Decimal(0)
+) -> Decimal | None:
+    if commitment is None:
+        return None
+    return commitment - abs(contributions) + abs(recallable)
+
+
+def holding_period_years(first_contribution: str | None, exit_or_as_of: str) -> Decimal | None:
+    if first_contribution is None:
+        return None
+    return Decimal(days_between(first_contribution, exit_or_as_of)) / Decimal(365)

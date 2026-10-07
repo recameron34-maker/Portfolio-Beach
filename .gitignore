@@ -25,3 +25,8 @@ test-results/
 .DS_Store
 # generated bundles
 .bundle/
+# local databases and tool caches
+.pglite/
+*.tsbuildinfo
+.eslintcache
+.cross-check/

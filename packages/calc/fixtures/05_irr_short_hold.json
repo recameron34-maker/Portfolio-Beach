@@ -1,0 +1,23 @@
+{
+  "id": "05_irr_short_hold",
+  "function": "xirr",
+  "note": "182-day hold: IRR = 1.1^(365/182) - 1, reported with shortPeriod true so the UI can show NM.",
+  "input": {
+    "flows": [
+      {
+        "date": "2024-01-01",
+        "amount": "-100"
+      },
+      {
+        "date": "2024-07-01",
+        "amount": "110"
+      }
+    ]
+  },
+  "expected": {
+    "value": "0.210633821537084",
+    "reason": null,
+    "shortPeriod": true
+  },
+  "tolerance": "1e-10"
+}

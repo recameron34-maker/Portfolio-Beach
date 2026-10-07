@@ -1,0 +1,56 @@
+{
+  "id": "12_pme",
+  "function": "pme",
+  "note": "KS-PME and Direct Alpha against a synthetic index (100, 110, 121, 115, 130). Reference values from an independent 50-digit implementation; the plain IRR is included for comparison.",
+  "input": {
+    "flows": [
+      {
+        "date": "2019-12-31",
+        "amount": "-1000000"
+      },
+      {
+        "date": "2020-12-31",
+        "amount": "-500000"
+      },
+      {
+        "date": "2021-12-31",
+        "amount": "300000"
+      },
+      {
+        "date": "2022-12-31",
+        "amount": "400000"
+      }
+    ],
+    "nav": "1200000",
+    "navDate": "2023-12-31",
+    "index": [
+      {
+        "date": "2019-12-31",
+        "level": "100"
+      },
+      {
+        "date": "2020-12-31",
+        "level": "110"
+      },
+      {
+        "date": "2021-12-31",
+        "level": "121"
+      },
+      {
+        "date": "2022-12-31",
+        "level": "115"
+      },
+      {
+        "date": "2023-12-31",
+        "level": "130"
+      }
+    ]
+  },
+  "expected": {
+    "ksPme": "1.044200364852539",
+    "directAlpha": "0.013812099936495",
+    "adjustedIrr": "0.013907927674636",
+    "plainIrr": "0.078480220234468"
+  },
+  "tolerance": "1e-10"
+}

@@ -1,0 +1,26 @@
+{
+  "id": "15_pik_roll",
+  "function": "pik_roll",
+  "note": "2% PIK capitalized quarterly for four quarters: 100 x 1.005^4. Cash-on-cash counts only the 9 of cash interest over an average funded 100; PIK is excluded. Par roll-forward ties.",
+  "input": {
+    "par": "100",
+    "pikCoupon": "0.02",
+    "frequency": "quarterly",
+    "quarters": 4,
+    "cashInterestReceived": "9",
+    "averageFunded": "100",
+    "rollForward": {
+      "beginPar": "100",
+      "fundings": "0",
+      "pikCapitalized": "2.015050062500",
+      "principalRepaid": "0",
+      "endPar": "102.015050062500"
+    }
+  },
+  "expected": {
+    "parAfter": "102.0150500625",
+    "cashOnCash": "0.09",
+    "rollForwardPassed": true
+  },
+  "tolerance": "1e-12"
+}

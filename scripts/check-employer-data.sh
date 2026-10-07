@@ -17,7 +17,7 @@ TEXT_FILES=()
 for f in "${FILES[@]}"; do
   [[ -f "$f" ]] || continue
   case "$f" in
-    *.png|*.jpg|*.pdf|*.xlsx|*.docx|*.pptx|*.zip|pnpm-lock.yaml|*/pnpm-lock.yaml|uv.lock|scripts/check-employer-data.sh) continue ;;
+    *.png|*.jpg|*.pdf|*.xlsx|*.docx|*.pptx|*.zip|*.ico|*.woff|*.woff2|pnpm-lock.yaml|*/pnpm-lock.yaml|uv.lock|*/uv.lock|scripts/check-employer-data.sh) continue ;;
   esac
   TEXT_FILES+=("$f")
 done
@@ -47,7 +47,7 @@ phones=$(grep -rIhoE "\(?\b[2-9][0-9]{2}\)?[-. ][0-9]{3}[-. ][0-9]{4}\b" "${TEXT
 [[ -n "$phones" ]] && report "phone numbers (use 555-01xx in synthetic data): $(echo "$phones" | tr '\n' ' ')"
 
 # 2c) Bank routing / SWIFT-like identifiers next to banking words.
-bank=$(grep -rIniE "(aba|routing|swift|iban|account (number|no))[^a-z0-9]{0,15}[0-9A-Z]{8,}" "${TEXT_FILES[@]}" 2>/dev/null | grep -viE "example|placeholder|xxxx|0000000" || true)
+bank=$(grep -rIniE "\b(aba|routing|swift|iban|account (number|no))\b[^a-z0-9]{0,15}[0-9A-Z]{8,}" "${TEXT_FILES[@]}" 2>/dev/null | grep -viE "example|placeholder|xxxx|0000000" || true)
 [[ -n "$bank" ]] && report "possible bank details: $(echo "$bank" | cut -c1-120 | tr '\n' ' ')"
 
 # 2d) Secrets that slipped past secret scanning.
