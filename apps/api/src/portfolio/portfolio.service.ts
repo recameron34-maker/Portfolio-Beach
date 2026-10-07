@@ -42,6 +42,8 @@ interface BaseRow {
   entryDate: string;
   exitDate: string | null;
   isActive: boolean;
+  sector: string | null;
+  geography: string | null;
 }
 
 /**
@@ -62,6 +64,8 @@ const baseSelect = {
   entryDate: schema.investment.entryDate,
   exitDate: schema.investment.exitDate,
   isActive: schema.investment.isActive,
+  sector: schema.portfolioCompany.sector,
+  geography: schema.portfolioCompany.geography,
 };
 
 @Injectable()
@@ -132,7 +136,11 @@ export class PortfolioService {
     valuations: ValuationRow[],
     asOf: string,
   ): InvestmentSummary {
-    return { ...row, ...positionMetrics(flows, valuations, asOf, row.isActive) };
+    return {
+      ...row,
+      vintage: Number(row.entryDate.slice(0, 4)),
+      ...positionMetrics(flows, valuations, asOf, row.isActive),
+    };
   }
 
   async list(principal: Principal, requestId: string, opts: ListOptions): Promise<InvestmentPage> {
@@ -192,9 +200,9 @@ export class PortfolioService {
           ...baseSelect,
           companyId: schema.portfolioCompany.id,
           sponsorId: schema.sponsor.id,
+          sponsorFundId: schema.investment.sponsorFundId,
           vehicleId: schema.vehicle.id,
-          sector: schema.portfolioCompany.sector,
-          geography: schema.portfolioCompany.geography,
+          companyDescription: schema.portfolioCompany.description,
         })
         .from(schema.investment)
         .innerJoin(
@@ -272,9 +280,9 @@ export class PortfolioService {
         ...summary,
         companyId: row.companyId,
         sponsorId: row.sponsorId,
+        sponsorFundId: row.sponsorFundId,
         vehicleId: row.vehicleId,
-        sector: row.sector,
-        geography: row.geography,
+        companyDescription: row.companyDescription,
         latestPeriodEnd,
         cashFlows: (flows.get(row.id) ?? []).map((f) => ({
           date: f.flowDate,

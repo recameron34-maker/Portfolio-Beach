@@ -1,7 +1,11 @@
 import {
   CALC_VERSION,
   D,
+  ZERO,
   currentYield,
+  dpi,
+  rvpi,
+  tvpi,
   ebitdaMargin,
   evToEbitda,
   interestCoverage,
@@ -17,6 +21,7 @@ import {
   yoyGrowth,
 } from '@pb/calc';
 import type { Decimal, FlowKind, IrrReason, TypedCashFlow } from '@pb/calc';
+import type { PooledMetrics, SeriesPoint } from '@pb/contracts';
 
 export interface FlowRow {
   flowDate: string;
@@ -209,4 +214,87 @@ export function creditView(
     covenantStatus: latest.covenantStatus,
     paymentStatus: latest.paymentStatus,
   };
+}
+
+export interface PositionInput {
+  flows: readonly FlowRow[];
+  valuations: readonly ValuationRow[];
+  isActive: boolean;
+}
+
+/**
+ * Pooled gross metrics over a set of positions (vehicle, sponsor, client slice, whole portfolio):
+ * flows are pooled, NAV is the sum of each active position's latest Locked mark, and the IRR runs
+ * over the pooled flows plus the summed NAV as a terminal flow (docs/08 sections 2 and 3). Pooled
+ * flows can change sign more than once, so the IRR flag matters. Never a JS number for money.
+ */
+export function pooledPositionMetrics(
+  positions: readonly PositionInput[],
+  asOf: string,
+): PooledMetrics {
+  const typed: TypedCashFlow[] = [];
+  let navSum = ZERO;
+  let anyNav = false;
+  let anyActive = false;
+  for (const p of positions) {
+    for (const f of p.flows) {
+      if (f.flowDate <= asOf)
+        typed.push({ date: f.flowDate, kind: kindOf(f.flowType), amount: f.amount });
+    }
+    if (p.isActive) {
+      anyActive = true;
+      const nav = latestLockedValuation(p.valuations, asOf);
+      if (nav !== null) {
+        navSum = navSum.plus(nav.fairValue);
+        anyNav = true;
+      }
+    }
+  }
+  const summary = summarizeFlows(typed);
+  const invested = summary.contributions.isZero() ? null : summary.contributions;
+  // Realized sets carry a zero NAV; an active set with no Locked mark is not calculable.
+  const nav: Decimal | null = anyNav ? navSum : anyActive ? null : ZERO;
+  const signed = toSignedFlows(typed);
+  if (nav !== null && !nav.isZero()) signed.push({ date: asOf, amount: nav.toFixed(2) });
+  const irr = signed.length >= 2 ? xirr(signed) : null;
+  let irrFlag: PositionMetrics['irrFlag'] = null;
+  if (irr === null) irrFlag = 'insufficient_flows';
+  else if (irr.value === null) irrFlag = irr.reason ?? 'no_root';
+  else if (irr.shortPeriod) irrFlag = 'short_period';
+  return {
+    count: positions.length,
+    invested: str(invested),
+    distributions: invested === null ? null : str(summary.distributions),
+    nav: str(nav),
+    dpi: invested === null ? null : str(dpi(summary.distributions, invested)),
+    rvpi: invested === null || nav === null ? null : str(rvpi(nav, invested)),
+    tvpi:
+      invested === null || nav === null ? null : str(tvpi(summary.distributions, nav, invested)),
+    grossMoic: invested === null ? null : str(moic(summary.distributions, nav ?? ZERO, invested)),
+    grossIrr: irr?.value === undefined || irr.value === null ? null : str(irr.value),
+    irrFlag,
+  };
+}
+
+/**
+ * Sum of Locked fair values per period end over a set of positions, oldest first, limited to the
+ * latest `quarters` period ends on or before the as-of date. A position without a Locked mark for
+ * a period simply does not contribute to that point; the caller says so in the chart subtitle.
+ */
+export function lockedNavSeries(
+  valuationSets: readonly (readonly ValuationRow[])[],
+  asOf: string,
+  quarters = 8,
+): SeriesPoint[] {
+  const totals = new Map<string, Decimal>();
+  for (const set of valuationSets) {
+    for (const v of set) {
+      if (v.state !== 'Locked' || v.periodEnd > asOf) continue;
+      totals.set(v.periodEnd, (totals.get(v.periodEnd) ?? ZERO).plus(v.fairValue));
+    }
+  }
+  return [...totals.entries()]
+    .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
+    .slice(-quarters)
+    .map(([periodEnd, value]) => ({ periodEnd, value: str(value) }));
 }

@@ -24,6 +24,7 @@ const TITLES: Record<number, string> = {
   422: 'Unprocessable',
   429: 'Too many requests',
   500: 'Internal error',
+  501: 'Not implemented',
   503: 'Service unavailable',
 };
 
