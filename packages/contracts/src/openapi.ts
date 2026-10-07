@@ -36,7 +36,7 @@ export function buildOpenApi(
   version: string,
   routes: readonly RouteDefinition[] = ROUTES,
 ): OpenApiDocument {
-  const paths: Record<string, Record<string, unknown>> = {};
+  const paths = Object.create(null) as Record<string, Record<string, unknown>>;
   for (const route of routes) {
     const operation: Record<string, unknown> = {
       summary: route.summary,
@@ -63,7 +63,7 @@ export function buildOpenApi(
         content: { 'application/json': { schema: jsonSchema(route.body) } },
       };
     }
-    paths[route.path] ??= {};
+    paths[route.path] ??= Object.create(null) as Record<string, unknown>;
     paths[route.path]![route.method.toLowerCase()] = operation;
   }
   return {
