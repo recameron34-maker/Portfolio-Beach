@@ -5,7 +5,8 @@ import { addYears, compareIso, daysBetween } from './dates.js';
 /** The subset of a monitoring row that period selection needs (docs/08 section 5). */
 export interface PeriodRow {
   periodEnd: IsoDate;
-  status: 'approved' | 'draft' | 'flagged' | 'rejected' | string;
+  /** Staging status; only 'approved' rows count as data (docs/18 section 2). */
+  status: string;
   isEntrySnapshot: boolean;
 }
 
@@ -41,7 +42,10 @@ export function sameQuarterPriorYear<T extends PeriodRow>(
  * The most recent period with approved data on or before the reporting date, ignoring entry
  * snapshots and anything after the reporting date (forward-dated rows are never selected).
  */
-export function latestPeriod<T extends PeriodRow>(rows: readonly T[], reportingDate: IsoDate): T | null {
+export function latestPeriod<T extends PeriodRow>(
+  rows: readonly T[],
+  reportingDate: IsoDate,
+): T | null {
   let best: T | null = null;
   for (const row of rows) {
     if (row.isEntrySnapshot || row.status !== 'approved') continue;

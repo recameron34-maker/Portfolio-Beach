@@ -25,7 +25,10 @@ export interface AttributionResult {
  * margin = EBITDA / revenue and multiple = EV / EBITDA. Null when a revenue or EBITDA is not
  * positive, because the multiple is then undefined.
  */
-export function valueCreationAttribution(entry: AttributionPoint, current: AttributionPoint): AttributionResult | null {
+export function valueCreationAttribution(
+  entry: AttributionPoint,
+  current: AttributionPoint,
+): AttributionResult | null {
   const r0 = D(entry.revenue);
   const e0 = D(entry.ebitda);
   const r1 = D(current.revenue);

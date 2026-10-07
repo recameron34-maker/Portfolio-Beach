@@ -8,7 +8,8 @@
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { CALC_VERSION } from '../version.js';
-import { D, Decimal } from '../decimal.js';
+import { D } from '../decimal.js';
+import type { Decimal } from '../decimal.js';
 import { addDays } from '../dates.js';
 import { xirr } from '../irr.js';
 import { dpi, rvpi, tvpi } from '../multiples.js';
@@ -51,10 +52,19 @@ function run(seed: number, perKind: number): Case[] {
     const n = int(1, 6);
     for (let j = 0; j < n; j++) {
       const sign = rnd() < 0.3 ? -1 : 1;
-      flows.push({ date: addDays('2016-01-01', int(1, 3650)), amount: String(sign * int(10_000, 4_000_000)) });
+      flows.push({
+        date: addDays('2016-01-01', int(1, 3650)),
+        amount: String(sign * int(10_000, 4_000_000)),
+      });
     }
     const r = xirr(flows);
-    cases.push({ id: id++, kind: 'xirr', tolerance: '1e-9', input: { flows }, result: { value: str(r.value), reason: r.reason ?? null } });
+    cases.push({
+      id: id++,
+      kind: 'xirr',
+      tolerance: '1e-9',
+      input: { flows },
+      result: { value: str(r.value), reason: r.reason ?? null },
+    });
   }
 
   for (let i = 0; i < perKind; i++) {
@@ -66,7 +76,11 @@ function run(seed: number, perKind: number): Case[] {
       kind: 'multiples',
       tolerance: '1e-20',
       input: { contributions, distributions, nav },
-      result: { dpi: str(dpi(distributions, contributions)), rvpi: str(rvpi(nav, contributions)), tvpi: str(tvpi(distributions, nav, contributions)) },
+      result: {
+        dpi: str(dpi(distributions, contributions)),
+        rvpi: str(rvpi(nav, contributions)),
+        tvpi: str(tvpi(distributions, nav, contributions)),
+      },
     });
   }
 
@@ -76,20 +90,35 @@ function run(seed: number, perKind: number): Case[] {
       asOf: '2025-03-31',
       fairValue: String(int(80, 105)),
       par: '100',
-      cashCoupon: D(String(int(300, 1200))).div(10000).toString(),
-      pikCoupon: D(String(int(0, 400))).div(10000).toString(),
+      cashCoupon: D(String(int(300, 1200)))
+        .div(10000)
+        .toString(),
+      pikCoupon: D(String(int(0, 400)))
+        .div(10000)
+        .toString(),
       maturity: addDays('2025-03-31', int(90, 2500)),
       frequency: frequencies[int(0, 3)] ?? 'quarterly',
     };
     const r = yieldToMaturity(input);
-    cases.push({ id: id++, kind: 'ytm', tolerance: '1e-9', input, result: { value: str(r.value), parAtMaturity: str(r.parAtMaturity) } });
+    cases.push({
+      id: id++,
+      kind: 'ytm',
+      tolerance: '1e-9',
+      input,
+      result: { value: str(r.value), parAtMaturity: str(r.parAtMaturity) },
+    });
   }
 
   for (let i = 0; i < perKind; i++) {
     const point = (): { revenue: string; ebitda: string; ev: string; netDebt: string } => {
       const revenue = int(50, 1000);
       const ebitda = rnd() < 0.1 ? 0 : int(5, Math.floor(revenue / 2));
-      return { revenue: String(revenue), ebitda: String(ebitda), ev: String(ebitda * int(6, 14)), netDebt: String(int(0, ebitda * 5)) };
+      return {
+        revenue: String(revenue),
+        ebitda: String(ebitda),
+        ev: String(ebitda * int(6, 14)),
+        netDebt: String(int(0, ebitda * 5)),
+      };
     };
     const input = { entry: point(), current: point() };
     const r = valueCreationAttribution(input.entry, input.current);
@@ -98,9 +127,16 @@ function run(seed: number, perKind: number): Case[] {
       kind: 'attribution',
       tolerance: '1e-20',
       input,
-      result: r === null
-        ? { total: null }
-        : { revenueGrowth: str(r.revenueGrowth), marginChange: str(r.marginChange), multipleChange: str(r.multipleChange), netDebtChange: str(r.netDebtChange), total: str(r.total) },
+      result:
+        r === null
+          ? { total: null }
+          : {
+              revenueGrowth: str(r.revenueGrowth),
+              marginChange: str(r.marginChange),
+              multipleChange: str(r.multipleChange),
+              netDebtChange: str(r.netDebtChange),
+              total: str(r.total),
+            },
     });
   }
 
@@ -114,12 +150,26 @@ function run(seed: number, perKind: number): Case[] {
     const flows: CashFlow[] = [{ date: '2018-12-31', amount: String(-int(500_000, 2_000_000)) }];
     for (let j = 0; j < int(1, 5); j++) {
       const sign = rnd() < 0.4 ? -1 : 1;
-      flows.push({ date: addDays('2018-12-31', int(1, 1800)), amount: String(sign * int(50_000, 900_000)) });
+      flows.push({
+        date: addDays('2018-12-31', int(1, 1800)),
+        amount: String(sign * int(50_000, 900_000)),
+      });
     }
-    const input = { flows, nav: String(int(0, 3_000_000)), navDate: addDays('2018-12-31', 20 * 91), index };
+    const input = {
+      flows,
+      nav: String(int(0, 3_000_000)),
+      navDate: addDays('2018-12-31', 20 * 91),
+      index,
+    };
     const ks = ksPme(input);
     const da = directAlpha(input);
-    cases.push({ id: id++, kind: 'pme', tolerance: '1e-9', input, result: { ksPme: str(ks), directAlpha: str(da.value) } });
+    cases.push({
+      id: id++,
+      kind: 'pme',
+      tolerance: '1e-9',
+      input,
+      result: { ksPme: str(ks), directAlpha: str(da.value) },
+    });
   }
   return cases;
 }

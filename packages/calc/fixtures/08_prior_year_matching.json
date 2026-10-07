@@ -47,11 +47,7 @@
     ]
   },
   "expected": {
-    "results": [
-      null,
-      "2023-06-27",
-      null
-    ]
+    "results": [null, "2023-06-27", null]
   },
   "tolerance": "0"
 }

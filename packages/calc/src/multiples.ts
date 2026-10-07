@@ -20,13 +20,21 @@ export function rvpi(nav: DecimalInput, contributions: DecimalInput): Decimal | 
   return pi === null ? null : D(nav).div(pi);
 }
 
-export function tvpi(distributions: DecimalInput, nav: DecimalInput, contributions: DecimalInput): Decimal | null {
+export function tvpi(
+  distributions: DecimalInput,
+  nav: DecimalInput,
+  contributions: DecimalInput,
+): Decimal | null {
   const pi = paidIn(contributions);
   return pi === null ? null : D(distributions).plus(D(nav)).div(pi);
 }
 
 /** Gross deal-level MOIC: (realized proceeds + unrealized value) / invested capital. */
-export function moic(realized: DecimalInput, unrealized: DecimalInput, invested: DecimalInput): Decimal | null {
+export function moic(
+  realized: DecimalInput,
+  unrealized: DecimalInput,
+  invested: DecimalInput,
+): Decimal | null {
   const inv = D(invested).abs();
   if (inv.isZero()) return null;
   return D(realized).plus(D(unrealized)).div(inv);
@@ -43,7 +51,10 @@ export function unfunded(
 }
 
 /** Holding period in years (actual/365) from the first contribution to exit or as-of. */
-export function holdingPeriodYears(firstContributionDate: IsoDate | null, exitOrAsOf: IsoDate): Decimal | null {
+export function holdingPeriodYears(
+  firstContributionDate: IsoDate | null,
+  exitOrAsOf: IsoDate,
+): Decimal | null {
   if (firstContributionDate === null) return null;
   return new Dec(daysBetween(firstContributionDate, exitOrAsOf)).div(365);
 }

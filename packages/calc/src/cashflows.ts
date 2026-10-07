@@ -16,13 +16,7 @@ export interface DatedAmount {
 
 /** Cash flow kinds stored in mon.cash_flow (docs/03). PIK capitalization is deliberately absent. */
 export type FlowKind =
-  | 'contribution'
-  | 'distribution'
-  | 'fee'
-  | 'expense'
-  | 'interest'
-  | 'principal'
-  | 'recallable';
+  'contribution' | 'distribution' | 'fee' | 'expense' | 'interest' | 'principal' | 'recallable';
 
 export interface TypedCashFlow extends CashFlow {
   kind: FlowKind;

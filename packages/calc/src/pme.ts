@@ -16,7 +16,8 @@ export interface IndexPoint {
 export function indexLevelAt(series: readonly IndexPoint[], date: IsoDate): Decimal {
   let best: IndexPoint | null = null;
   for (const p of series) {
-    if (compareIso(p.date, date) <= 0 && (best === null || compareIso(p.date, best.date) > 0)) best = p;
+    if (compareIso(p.date, date) <= 0 && (best === null || compareIso(p.date, best.date) > 0))
+      best = p;
   }
   if (best === null) throw new CalcError(`no index level on or before ${date}`, 'index_missing');
   return D(best.level);

@@ -4,7 +4,6 @@ import { join } from 'node:path';
 import {
   CalcError,
   D,
-  Decimal,
   allInCoupon,
   capitalizePik,
   cashOnCash,
@@ -30,7 +29,7 @@ import {
   xirr,
   yieldToMaturity,
 } from './index.js';
-import type { CashFlow, IndexPoint, PaymentFrequency, PeriodRow } from './index.js';
+import type { CashFlow, Decimal, IndexPoint, PaymentFrequency, PeriodRow } from './index.js';
 
 /**
  * Golden-file tests (docs/08 section 9). The same fixture files are run by the Python cross-check
@@ -57,9 +56,10 @@ function expectClose(actual: Decimal | null, expected: unknown, tolerance: strin
     expect(actual).toBeNull();
     return;
   }
-  expect(actual, `expected ${String(expected)} but got null`).not.toBeNull();
-  const diff = (actual as Decimal).minus(D(expected as string)).abs();
-  expect(diff.lte(D(tolerance)), `expected ${String(expected)}, got ${(actual as Decimal).toString()}`).toBe(true);
+  const want = expected as string;
+  expect(actual, `expected ${want} but got null`).not.toBeNull();
+  const diff = actual!.minus(D(want)).abs();
+  expect(diff.lte(D(tolerance)), `expected ${want}, got ${actual!.toString()}`).toBe(true);
 }
 
 const flowsOf = (v: unknown): CashFlow[] => v as CashFlow[];
@@ -93,7 +93,12 @@ describe('golden fixtures', () => {
           break;
         }
         case 'operating_ratios': {
-          const cases = fx.input.cases as { ev: string; netDebt: string; ebitda: string; revenue: string }[];
+          const cases = fx.input.cases as {
+            ev: string;
+            netDebt: string;
+            ebitda: string;
+            revenue: string;
+          }[];
           const results = fx.expected.results as Record<string, string | null>[];
           cases.forEach((c, i) => {
             const e = results[i]!;
@@ -107,15 +112,23 @@ describe('golden fixtures', () => {
           const cases = fx.input.cases as { target: string; rows: { periodEnd: string }[] }[];
           const results = fx.expected.results as (string | null)[];
           cases.forEach((c, i) => {
-            const rows: PeriodRow[] = c.rows.map((r) => ({ ...r, status: 'approved', isEntrySnapshot: false }));
-            const found = sameQuarterPriorYear(rows, c.target, { toleranceDays: fx.input.toleranceDays as number });
+            const rows: PeriodRow[] = c.rows.map((r) => ({
+              ...r,
+              status: 'approved',
+              isEntrySnapshot: false,
+            }));
+            const found = sameQuarterPriorYear(rows, c.target, {
+              toleranceDays: fx.input.toleranceDays as number,
+            });
             expect(found?.periodEnd ?? null).toBe(results[i]);
           });
           break;
         }
         case 'latest_period': {
           const rows = fx.input.rows as PeriodRow[];
-          expect(latestPeriod(rows, fx.input.reportingDate as string)?.periodEnd).toBe(fx.expected.periodEnd);
+          expect(latestPeriod(rows, fx.input.reportingDate as string)?.periodEnd).toBe(
+            fx.expected.periodEnd,
+          );
           expect(entrySnapshot(rows)?.periodEnd).toBe(fx.expected.entrySnapshotPeriodEnd);
           break;
         }
@@ -166,10 +179,24 @@ describe('golden fixtures', () => {
           type P = Parameters<typeof valueCreationAttribution>[0];
           const r = valueCreationAttribution(fx.input.entry as P, fx.input.current as P);
           expect(r).not.toBeNull();
-          for (const key of ['equityAtEntry', 'equityCurrent', 'revenueGrowth', 'marginChange', 'multipleChange', 'netDebtChange', 'total'] as const) {
+          for (const key of [
+            'equityAtEntry',
+            'equityCurrent',
+            'revenueGrowth',
+            'marginChange',
+            'multipleChange',
+            'netDebtChange',
+            'total',
+          ] as const) {
             expectClose(r![key], fx.expected[key], tol);
           }
-          expect(r!.revenueGrowth.plus(r!.marginChange).plus(r!.multipleChange).plus(r!.netDebtChange).eq(r!.total)).toBe(true);
+          expect(
+            r!.revenueGrowth
+              .plus(r!.marginChange)
+              .plus(r!.multipleChange)
+              .plus(r!.netDebtChange)
+              .eq(r!.total),
+          ).toBe(true);
           const nc = fx.input.nullCase as { entry: P; current: P };
           expect(valueCreationAttribution(nc.entry, nc.current)).toBe(fx.expected.nullCase);
           break;
@@ -177,9 +204,17 @@ describe('golden fixtures', () => {
         case 'credit_yield': {
           type Terms = Parameters<typeof allInCoupon>[0];
           expectClose(allInCoupon(fx.input.terms as Terms), fx.expected.allInCoupon, tol);
-          expectClose(allInCoupon(fx.input.floorCase as Terms), fx.expected.allInCouponFloored, tol);
+          expectClose(
+            allInCoupon(fx.input.floorCase as Terms),
+            fx.expected.allInCouponFloored,
+            tol,
+          );
           const y = fx.input.ytm as Parameters<typeof yieldToMaturity>[0];
-          expectClose(currentYield(y.cashCoupon, y.par, y.fairValue), fx.expected.currentYield, tol);
+          expectClose(
+            currentYield(y.cashCoupon, y.par, y.fairValue),
+            fx.expected.currentYield,
+            tol,
+          );
           const r = yieldToMaturity(y);
           expectClose(r.value, fx.expected.ytm, tol);
           expectClose(r.parAtMaturity, fx.expected.parAtMaturity, tol);
@@ -189,11 +224,21 @@ describe('golden fixtures', () => {
         case 'pik_roll': {
           let par = D(fx.input.par as string);
           for (let q = 0; q < (fx.input.quarters as number); q++) {
-            par = capitalizePik(par, fx.input.pikCoupon as string, fx.input.frequency as PaymentFrequency);
+            par = capitalizePik(
+              par,
+              fx.input.pikCoupon as string,
+              fx.input.frequency as PaymentFrequency,
+            );
           }
           expectClose(par, fx.expected.parAfter, tol);
-          expectClose(cashOnCash(fx.input.cashInterestReceived as string, fx.input.averageFunded as string), fx.expected.cashOnCash, tol);
-          expect(parRollForward(fx.input.rollForward as Parameters<typeof parRollForward>[0]).passed).toBe(fx.expected.rollForwardPassed);
+          expectClose(
+            cashOnCash(fx.input.cashInterestReceived as string, fx.input.averageFunded as string),
+            fx.expected.cashOnCash,
+            tol,
+          );
+          expect(
+            parRollForward(fx.input.rollForward as Parameters<typeof parRollForward>[0]).passed,
+          ).toBe(fx.expected.rollForwardPassed);
           break;
         }
         case 'credit_ratios': {
@@ -202,7 +247,11 @@ describe('golden fixtures', () => {
           cases.forEach((c, i) => {
             const e = results[i]!;
             expectClose(interestCoverage(c.ebitda!, c.cashInterest!), e.interestCoverage, tol);
-            expectClose(leverageThroughTranche(c.netDebtThroughTranche!, c.ebitda!), e.leverageThroughTranche, tol);
+            expectClose(
+              leverageThroughTranche(c.netDebtThroughTranche!, c.ebitda!),
+              e.leverageThroughTranche,
+              tol,
+            );
             expectClose(loanToValue(c.netDebtThroughTranche!, c.ev!), e.ltv, tol);
             expectClose(
               dscr({
@@ -219,7 +268,9 @@ describe('golden fixtures', () => {
           break;
         }
         case 'takahashi_alexander': {
-          const rows = takahashiAlexander(fx.input as unknown as Parameters<typeof takahashiAlexander>[0]);
+          const rows = takahashiAlexander(
+            fx.input as unknown as Parameters<typeof takahashiAlexander>[0],
+          );
           const expected = fx.expected.rows as Record<string, string | number>[];
           expect(rows.length).toBe(expected.length);
           rows.forEach((r, i) => {

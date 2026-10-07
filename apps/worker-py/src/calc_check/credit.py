@@ -73,7 +73,14 @@ def yield_to_maturity(
         return None, None, [], None
     with localcontext(CTX):
         flows, par_at_maturity = ytm_flows(
-            as_of, fair_value, par, cash_coupon, pik_coupon, maturity, frequency, scheduled_principal
+            as_of,
+            fair_value,
+            par,
+            cash_coupon,
+            pik_coupon,
+            maturity,
+            frequency,
+            scheduled_principal,
         )
         irr = xirr(flows)
         return irr.value, irr, flows, par_at_maturity

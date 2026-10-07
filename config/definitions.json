@@ -11,13 +11,8 @@
   "currencyStorage": "dollars as exact decimals; AI outputs declare units; convert in packages/calc/units.ts",
   "classifierConfidenceThreshold": 0.85,
   "dealTypes": {
-    "coInvest": [
-      "Co-Invest Fund A",
-      "Co-Invest Fund B"
-    ],
-    "cv": [
-      "Secondaries Fund A"
-    ]
+    "coInvest": ["Co-Invest Fund A", "Co-Invest Fund B"],
+    "cv": ["Secondaries Fund A"]
   },
   "realizationFlagEditableOnlyManually": true,
   "agentModels": {
@@ -35,11 +30,7 @@
     "missingFinancialsDays": 75
   },
   "capitalActivity": {
-    "alertDaysBeforeDue": [
-      3,
-      1,
-      0
-    ],
+    "alertDaysBeforeDue": [3, 1, 0],
     "wireChangeHoldDays": 30
   },
   "aiBudgets": {

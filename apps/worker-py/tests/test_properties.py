@@ -12,9 +12,7 @@ from calc_check.irr import Flow, npv, xirr
 def flows(draw: st.DrawFn) -> list[Flow]:
     start = date(2015, 1, 1)
     items = draw(
-        st.lists(
-            st.tuples(st.integers(0, 3650), st.integers(1, 5_000_000)), min_size=1, max_size=4
-        )
+        st.lists(st.tuples(st.integers(0, 3650), st.integers(1, 5_000_000)), min_size=1, max_size=4)
     )
     out: list[Flow] = [(start.isoformat(), Decimal(-1_000_000))]
     for day, amount in items:

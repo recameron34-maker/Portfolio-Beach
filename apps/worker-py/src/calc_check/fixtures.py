@@ -18,8 +18,7 @@ FIXTURES_DIR = Path(__file__).resolve().parents[4] / "packages" / "calc" / "fixt
 
 def load_fixtures() -> list[dict[str, Any]]:
     return [
-        cast(dict[str, Any], json.loads(p.read_text()))
-        for p in sorted(FIXTURES_DIR.glob("*.json"))
+        cast(dict[str, Any], json.loads(p.read_text())) for p in sorted(FIXTURES_DIR.glob("*.json"))
     ]
 
 
@@ -27,29 +26,29 @@ def flows_of(raw: list[dict[str, str]]) -> list[Flow]:
     return [(f["date"], Decimal(f["amount"])) for f in raw]
 
 
-class Mismatch(AssertionError):
+class MismatchError(AssertionError):
     pass
 
 
 def close(actual: Decimal | None, expected: str | None, tol: str, label: str) -> None:
     if expected is None:
         if actual is not None:
-            raise Mismatch(f"{label}: expected null, got {actual}")
+            raise MismatchError(f"{label}: expected null, got {actual}")
         return
     if actual is None:
-        raise Mismatch(f"{label}: expected {expected}, got null")
+        raise MismatchError(f"{label}: expected {expected}, got null")
     if abs(actual - Decimal(expected)) > Decimal(tol):
-        raise Mismatch(f"{label}: expected {expected}, got {actual}")
+        raise MismatchError(f"{label}: expected {expected}, got {actual}")
 
 
-def run_fixture(fx: dict[str, Any]) -> None:  # noqa: PLR0912, PLR0915
+def run_fixture(fx: dict[str, Any]) -> None:
     fn = fx["function"]
     inp = fx["input"]
     exp = fx["expected"]
     tol = fx["tolerance"]
     handler = HANDLERS.get(fn)
     if handler is None:
-        raise Mismatch(f"{fx['id']}: unknown function {fn}")
+        raise MismatchError(f"{fx['id']}: unknown function {fn}")
     handler(inp, exp, tol)
 
 
@@ -106,7 +105,7 @@ def _units(inp: dict[str, Any], exp: dict[str, Any], _tol: str) -> None:
             except units.UnknownUnitError as err:
                 assert err.code == e.split(":", 1)[1]
             else:
-                raise Mismatch(f"expected {c['unit']} to throw")
+                raise MismatchError(f"expected {c['unit']} to throw")
         else:
             assert units.to_dollars(Decimal(c["value"]), c["unit"]) == Decimal(e)
 
@@ -152,9 +151,10 @@ def _attribution(inp: dict[str, Any], exp: dict[str, Any], tol: str) -> None:
         "total",
     ):
         close(r[key], exp[key], tol, key)
-    assert r["revenueGrowth"] + r["marginChange"] + r["multipleChange"] + r["netDebtChange"] == r[
-        "total"
-    ]
+    assert (
+        r["revenueGrowth"] + r["marginChange"] + r["multipleChange"] + r["netDebtChange"]
+        == r["total"]
+    )
     nc = inp["nullCase"]
     assert attr.attribution(pt(nc["entry"]), pt(nc["current"])) is exp["nullCase"]
 

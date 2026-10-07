@@ -28,7 +28,7 @@ def _agree(a: Decimal | None, b: Decimal | None, tol: Decimal) -> bool:
     return abs(a - b) <= tol * scale
 
 
-def check_case(case: dict[str, Any]) -> list[str]:  # noqa: PLR0912
+def check_case(case: dict[str, Any]) -> list[str]:
     kind = case["kind"]
     inp = case["input"]
     ts = case["result"]
@@ -65,16 +65,22 @@ def check_case(case: dict[str, Any]) -> list[str]:  # noqa: PLR0912
         if not _agree(par, _dec(ts["parAtMaturity"]), tol):
             problems.append(f"par {par} vs ts {ts['parAtMaturity']}")
     elif kind == "attribution":
-        r = attr.attribution(
+        parts = attr.attribution(
             {k: Decimal(v) for k, v in inp["entry"].items()},
             {k: Decimal(v) for k, v in inp["current"].items()},
         )
-        if (r is None) != (ts["total"] is None):
+        if (parts is None) != (ts["total"] is None):
             problems.append("null mismatch")
-        elif r is not None:
-            for key in ("revenueGrowth", "marginChange", "multipleChange", "netDebtChange", "total"):
-                if not _agree(r[key], _dec(ts[key]), tol):
-                    problems.append(f"{key} {r[key]} vs ts {ts[key]}")
+        elif parts is not None:
+            for key in (
+                "revenueGrowth",
+                "marginChange",
+                "multipleChange",
+                "netDebtChange",
+                "total",
+            ):
+                if not _agree(parts[key], _dec(ts[key]), tol):
+                    problems.append(f"{key} {parts[key]} vs ts {ts[key]}")
     elif kind == "pme":
         flows = [(f["date"], Decimal(f["amount"])) for f in inp["flows"]]
         index = [(p["date"], Decimal(p["level"])) for p in inp["index"]]

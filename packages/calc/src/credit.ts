@@ -24,7 +24,11 @@ export function allInCoupon(terms: CouponTerms): Decimal | null {
 }
 
 /** Annual cash interest / fair value. Null when fair value is not positive. */
-export function currentYield(cashCoupon: DecimalInput, par: DecimalInput, fairValue: DecimalInput): Decimal | null {
+export function currentYield(
+  cashCoupon: DecimalInput,
+  par: DecimalInput,
+  fairValue: DecimalInput,
+): Decimal | null {
   const fv = D(fairValue);
   if (fv.lte(0)) return null;
   return D(cashCoupon).times(D(par)).div(fv);
@@ -32,7 +36,12 @@ export function currentYield(cashCoupon: DecimalInput, par: DecimalInput, fairVa
 
 export type PaymentFrequency = 'monthly' | 'quarterly' | 'semiannual' | 'annual';
 
-const MONTHS: Record<PaymentFrequency, number> = { monthly: 1, quarterly: 3, semiannual: 6, annual: 12 };
+const MONTHS: Record<PaymentFrequency, number> = {
+  monthly: 1,
+  quarterly: 3,
+  semiannual: 6,
+  annual: 12,
+};
 
 export interface YtmInput {
   asOf: IsoDate;
@@ -72,10 +81,13 @@ export function yieldToMaturity(input: YtmInput): YtmResult {
   const pik = D(input.pikCoupon ?? '0').div(periodsPerYear);
 
   const dates: IsoDate[] = [];
-  for (let d = input.maturity; compareIso(d, input.asOf) > 0; d = addMonths(d, -months)) dates.push(d);
+  for (let d = input.maturity; compareIso(d, input.asOf) > 0; d = addMonths(d, -months))
+    dates.push(d);
   dates.reverse();
 
-  const principal = [...(input.scheduledPrincipal ?? [])].sort((a, b) => compareIso(a.date, b.date));
+  const principal = [...(input.scheduledPrincipal ?? [])].sort((a, b) =>
+    compareIso(a.date, b.date),
+  );
   let par = D(input.par);
   let principalIndex = 0;
   const flows: CashFlow[] = [{ date: input.asOf, amount: fv.neg() }];
@@ -100,13 +112,19 @@ export function yieldToMaturity(input: YtmInput): YtmResult {
 }
 
 /** Cash interest received over the period / average funded amount. Null when nothing was funded. */
-export function cashOnCash(cashInterestReceived: DecimalInput, averageFunded: DecimalInput): Decimal | null {
+export function cashOnCash(
+  cashInterestReceived: DecimalInput,
+  averageFunded: DecimalInput,
+): Decimal | null {
   const funded = D(averageFunded);
   return funded.lte(0) ? null : D(cashInterestReceived).div(funded);
 }
 
 /** EBITDA LTM / cash interest expense LTM at the borrower. Null when either is not positive. */
-export function interestCoverage(ebitdaLtm: DecimalInput | null, cashInterestExpenseLtm: DecimalInput | null): Decimal | null {
+export function interestCoverage(
+  ebitdaLtm: DecimalInput | null,
+  cashInterestExpenseLtm: DecimalInput | null,
+): Decimal | null {
   if (ebitdaLtm === null || cashInterestExpenseLtm === null) return null;
   const e = D(ebitdaLtm);
   const i = D(cashInterestExpenseLtm);
@@ -114,14 +132,20 @@ export function interestCoverage(ebitdaLtm: DecimalInput | null, cashInterestExp
 }
 
 /** Net debt senior to and including the tranche / EBITDA LTM. Null when EBITDA is not positive. */
-export function leverageThroughTranche(netDebtThroughTranche: DecimalInput, ebitdaLtm: DecimalInput | null): Decimal | null {
+export function leverageThroughTranche(
+  netDebtThroughTranche: DecimalInput,
+  ebitdaLtm: DecimalInput | null,
+): Decimal | null {
   if (ebitdaLtm === null) return null;
   const e = D(ebitdaLtm);
   return e.lte(0) ? null : D(netDebtThroughTranche).div(e);
 }
 
 /** Net debt through the tranche / enterprise value. Null when EV is not positive. */
-export function loanToValue(netDebtThroughTranche: DecimalInput, enterpriseValue: DecimalInput | null): Decimal | null {
+export function loanToValue(
+  netDebtThroughTranche: DecimalInput,
+  enterpriseValue: DecimalInput | null,
+): Decimal | null {
   if (enterpriseValue === null) return null;
   const ev = D(enterpriseValue);
   return ev.lte(0) ? null : D(netDebtThroughTranche).div(ev);
@@ -151,14 +175,24 @@ export interface ParRollForwardInput {
 }
 
 /** begin + fundings + PIK capitalized - principal repaid = end within the tolerance. */
-export function parRollForward(input: ParRollForwardInput, toleranceUsd: DecimalInput = '1'): CheckResult {
-  const expected = D(input.beginPar).plus(D(input.fundings)).plus(D(input.pikCapitalized)).minus(D(input.principalRepaid));
+export function parRollForward(
+  input: ParRollForwardInput,
+  toleranceUsd: DecimalInput = '1',
+): CheckResult {
+  const expected = D(input.beginPar)
+    .plus(D(input.fundings))
+    .plus(D(input.pikCapitalized))
+    .minus(D(input.principalRepaid));
   const difference = D(input.endPar).minus(expected);
   return { passed: difference.abs().lte(D(toleranceUsd)), difference };
 }
 
 /** Par after capitalizing PIK for one period: par x (1 + pik coupon / periods per year). Never below the starting par. */
-export function capitalizePik(par: DecimalInput, pikCoupon: DecimalInput, frequency: PaymentFrequency): Decimal {
+export function capitalizePik(
+  par: DecimalInput,
+  pikCoupon: DecimalInput,
+  frequency: PaymentFrequency,
+): Decimal {
   const periodsPerYear = new Dec(12 / MONTHS[frequency]);
   return D(par).times(ONE.plus(D(pikCoupon).abs().div(periodsPerYear)));
 }

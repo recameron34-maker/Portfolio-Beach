@@ -11,7 +11,10 @@
   "moverCommentary": {
     "sentences": [2, 3],
     "words": [50, 90],
-    "openings": ["The increase in valuation of {name} was driven by", "The decline in valuation of {name} was driven by"],
+    "openings": [
+      "The increase in valuation of {name} was driven by",
+      "The decline in valuation of {name} was driven by"
+    ],
     "excludeValuationMechanics": true
   }
 }

@@ -89,7 +89,8 @@ const flowArb = (n: { min: number; max: number }): fc.Arbitrary<CashFlow[]> =>
     .map((items) => {
       // First flow is always a contribution on day 0; later ones are distributions.
       const flows: CashFlow[] = [{ date: '2015-01-01', amount: '-1000000' }];
-      for (const it of items) flows.push({ date: addDays('2015-01-01', it.day + 1), amount: String(it.amount) });
+      for (const it of items)
+        flows.push({ date: addDays('2015-01-01', it.day + 1), amount: String(it.amount) });
       return flows;
     });
 
@@ -224,7 +225,16 @@ describe('multiples', () => {
     expect(s.feesAndExpenses.eq('3')).toBe(true);
     expect(s.firstContributionDate).toBe('2020-01-01');
     const signed = toSignedFlows(flows);
-    expect(signed.map((f) => D(f.amount).toString())).toEqual(['-100', '-50', '30', '10', '5', '20', '-2', '-1']);
+    expect(signed.map((f) => D(f.amount).toString())).toEqual([
+      '-100',
+      '-50',
+      '30',
+      '10',
+      '5',
+      '20',
+      '-2',
+      '-1',
+    ]);
     const empty = summarizeFlows([]);
     expect(empty.firstContributionDate).toBeNull();
   });
@@ -259,7 +269,14 @@ describe('operating and period helpers', () => {
 
 describe('report QA math', () => {
   it('QTD gain/loss and prior-report tie-out', () => {
-    expect(qtdGainLoss({ endNav: '120', beginNavOfQuarter: '100', contributionsQtd: '30', distributionsQtd: '15' }).eq('5')).toBe(true);
+    expect(
+      qtdGainLoss({
+        endNav: '120',
+        beginNavOfQuarter: '100',
+        contributionsQtd: '30',
+        distributionsQtd: '15',
+      }).eq('5'),
+    ).toBe(true);
     expect(priorReportTieOut('100', '100', null).passed).toBe(true);
     const broken = priorReportTieOut('105', '100', null);
     expect(broken.passed).toBe(false);
@@ -301,21 +318,42 @@ describe('liquidity model', () => {
     // distributes, so year-end NAV is just that year's contribution.
     expect(rows[3]!.distribution.eq(rows[2]!.nav)).toBe(true);
     expect(rows[3]!.nav.eq(rows[3]!.contribution)).toBe(true);
-    expect(() => takahashiAlexander({ commitment: '1', rateOfContribution: '0.1', life: 0, bow: '1', growth: '0', yield: '0', years: 1 })).toThrow(CalcError);
+    expect(() =>
+      takahashiAlexander({
+        commitment: '1',
+        rateOfContribution: '0.1',
+        life: 0,
+        bow: '1',
+        growth: '0',
+        yield: '0',
+        years: 1,
+      }),
+    ).toThrow(CalcError);
   });
 });
 
 describe('credit', () => {
   it('par never falls when PIK is capitalized', () => {
     fc.assert(
-      fc.property(fc.integer({ min: 1, max: 100_000_000 }), fc.integer({ min: 0, max: 2000 }), (par, bps) => {
-        const after = capitalizePik(String(par), D(String(bps)).div(10000), 'quarterly');
-        expect(after.gte(String(par))).toBe(true);
-      }),
+      fc.property(
+        fc.integer({ min: 1, max: 100_000_000 }),
+        fc.integer({ min: 0, max: 2000 }),
+        (par, bps) => {
+          const after = capitalizePik(String(par), D(String(bps)).div(10000), 'quarterly');
+          expect(after.gte(String(par))).toBe(true);
+        },
+      ),
     );
   });
   it('yield to maturity is null when maturity has passed or fair value is not positive', () => {
-    const base = { asOf: '2025-01-15', fairValue: '98', par: '100', cashCoupon: '0.09', maturity: '2024-01-15', frequency: 'quarterly' as const };
+    const base = {
+      asOf: '2025-01-15',
+      fairValue: '98',
+      par: '100',
+      cashCoupon: '0.09',
+      maturity: '2024-01-15',
+      frequency: 'quarterly' as const,
+    };
     expect(yieldToMaturity(base).value).toBeNull();
     expect(yieldToMaturity({ ...base, maturity: '2028-01-15', fairValue: '0' }).value).toBeNull();
   });
@@ -336,9 +374,23 @@ describe('credit', () => {
     expect(r.flows.map((f) => D(f.amount).toString())).toEqual(['-100', '50', '66']);
     expect(r.parAtMaturity!.isZero()).toBe(true);
     expect(r.value).not.toBeNull();
-    const monthly = yieldToMaturity({ asOf: '2025-01-15', fairValue: '100', par: '100', cashCoupon: '0.12', maturity: '2025-04-15', frequency: 'monthly' });
+    const monthly = yieldToMaturity({
+      asOf: '2025-01-15',
+      fairValue: '100',
+      par: '100',
+      cashCoupon: '0.12',
+      maturity: '2025-04-15',
+      frequency: 'monthly',
+    });
     expect(monthly.flows.length).toBe(4);
-    const semi = yieldToMaturity({ asOf: '2025-01-15', fairValue: '100', par: '100', cashCoupon: '0.12', maturity: '2026-01-15', frequency: 'semiannual' });
+    const semi = yieldToMaturity({
+      asOf: '2025-01-15',
+      fairValue: '100',
+      par: '100',
+      cashCoupon: '0.12',
+      maturity: '2026-01-15',
+      frequency: 'semiannual',
+    });
     expect(semi.flows.length).toBe(3);
   });
 });

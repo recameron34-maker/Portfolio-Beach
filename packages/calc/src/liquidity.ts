@@ -1,5 +1,5 @@
 import type { Decimal, DecimalInput } from './decimal.js';
-import { CalcError, D, ONE, ZERO } from './decimal.js';
+import { CalcError, D, Decimal as Dec, ONE, ZERO } from './decimal.js';
 
 export interface TakahashiAlexanderParams {
   commitment: DecimalInput;
@@ -31,11 +31,11 @@ export interface LiquidityYear {
  * NAV_t = NAV_{t-1} x (1 + G) + C_t - D_t.
  */
 export function takahashiAlexander(params: TakahashiAlexanderParams): LiquidityYear[] {
-  if (params.years < 1 || params.life <= 0) throw new CalcError('years and life must be positive', 'invalid_params');
-  const rates = Array.isArray(params.rateOfContribution)
-    ? params.rateOfContribution.map((r) => D(r))
-    : null;
-  const singleRate = rates === null ? D(params.rateOfContribution as DecimalInput) : null;
+  if (params.years < 1 || params.life <= 0)
+    throw new CalcError('years and life must be positive', 'invalid_params');
+  const roc = params.rateOfContribution;
+  const rates: Decimal[] =
+    typeof roc === 'string' || roc instanceof Dec ? [D(roc)] : roc.map((r) => D(r));
   const bow = D(params.bow);
   const growth = D(params.growth);
   const minYield = D(params.yield);
@@ -45,7 +45,7 @@ export function takahashiAlexander(params: TakahashiAlexanderParams): LiquidityY
   let nav = ZERO;
   const out: LiquidityYear[] = [];
   for (let t = 1; t <= params.years; t++) {
-    const rc = rates === null ? (singleRate ?? ZERO) : (rates[t - 1] ?? rates[rates.length - 1] ?? ZERO);
+    const rc = rates[t - 1] ?? rates[rates.length - 1] ?? ZERO;
     const contribution = rc.times(unfunded);
     const grown = nav.times(ONE.plus(growth));
     const rdCurve = D(String(t)).div(life).pow(bow);

@@ -27,13 +27,7 @@
     ]
   },
   "expected": {
-    "results": [
-      "12500",
-      "12500000",
-      "1250000000",
-      "7",
-      "THROWS:unknown_unit"
-    ]
+    "results": ["12500", "12500000", "1250000000", "7", "THROWS:unknown_unit"]
   },
   "tolerance": "0"
 }

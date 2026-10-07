@@ -10,7 +10,12 @@
       { "name": "EBITDALTM", "source": "quarterly_performance.ebitda_ltm", "unit": "USD" },
       { "name": "EnterpriseValue", "source": "quarterly_performance.ev", "unit": "USD" },
       { "name": "NetDebt", "source": "quarterly_performance.net_debt", "unit": "USD" },
-      { "name": "FairValue", "source": "valuation.fair_value", "unit": "USD", "requires": "valuation.state = Locked" }
+      {
+        "name": "FairValue",
+        "source": "valuation.fair_value",
+        "unit": "USD",
+        "requires": "valuation.state = Locked"
+      }
     ]
   },
   "import": {

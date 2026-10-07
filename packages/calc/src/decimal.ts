@@ -27,7 +27,10 @@ export class CalcError extends Error {
 
 export function D(value: DecimalInput): Decimal {
   if (typeof value === 'number') {
-    throw new CalcError('JS numbers are not accepted for money or rates; pass a string', 'number_input');
+    throw new CalcError(
+      'JS numbers are not accepted for money or rates; pass a string',
+      'number_input',
+    );
   }
   const d = new Decimal(value);
   if (!d.isFinite()) throw new CalcError(`not a finite decimal: ${String(value)}`, 'not_finite');

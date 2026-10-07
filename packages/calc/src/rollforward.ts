@@ -16,8 +16,14 @@ export interface CheckResult {
 }
 
 /** begin_nav + contributions - distributions + gain_loss = end_nav within the tolerance (docs/08 section 7). */
-export function navRollForward(input: RollForwardInput, toleranceUsd: DecimalInput = '1'): CheckResult {
-  const expected = D(input.beginNav).plus(D(input.contributions)).minus(D(input.distributions)).plus(D(input.gainLoss));
+export function navRollForward(
+  input: RollForwardInput,
+  toleranceUsd: DecimalInput = '1',
+): CheckResult {
+  const expected = D(input.beginNav)
+    .plus(D(input.contributions))
+    .minus(D(input.distributions))
+    .plus(D(input.gainLoss));
   const difference = D(input.endNav).minus(expected);
   return { passed: difference.abs().lte(D(toleranceUsd)), difference };
 }
@@ -31,7 +37,10 @@ export interface QtdInput {
 
 /** QTD gain/loss = end_nav - begin_nav_of_quarter - contributions_qtd + distributions_qtd. */
 export function qtdGainLoss(input: QtdInput): Decimal {
-  return D(input.endNav).minus(D(input.beginNavOfQuarter)).minus(D(input.contributionsQtd)).plus(D(input.distributionsQtd));
+  return D(input.endNav)
+    .minus(D(input.beginNavOfQuarter))
+    .minus(D(input.contributionsQtd))
+    .plus(D(input.distributionsQtd));
 }
 
 /** This report's begin NAV must equal the last released report's end NAV, or an explanation must exist. */

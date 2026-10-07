@@ -1,4 +1,6 @@
-{ "_note": "Placeholder shape. Real values only after merge, in the employer's environment.",
+{
+  "_note": "Placeholder shape. Real values only after merge, in the employer's environment.",
   "neverMatch": [["<Company A (Inv #)>", "<Similar company B (Inv #)>"]],
   "sponsorTierOverrides": { "<Sponsor>": "<Tier>" },
-  "fundNameEquivalence": [["<Fund X-A>", "<Fund X-B>"]] }
+  "fundNameEquivalence": [["<Fund X-A>", "<Fund X-B>"]]
+}

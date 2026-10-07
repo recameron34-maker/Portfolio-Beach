@@ -5,11 +5,7 @@ import { normalizeFlows } from './cashflows.js';
 import { daysBetween } from './dates.js';
 
 export type IrrReason =
-  | 'insufficient_flows'
-  | 'same_sign'
-  | 'no_root'
-  | 'multiple_irr'
-  | 'no_convergence';
+  'insufficient_flows' | 'same_sign' | 'no_root' | 'multiple_irr' | 'no_convergence';
 
 export interface IrrResult {
   /** Annualized rate as a decimal (0.125 = 12.5%), or null with a reason. */
@@ -98,7 +94,8 @@ function scanBrackets(prepared: Prepared): [Decimal, Decimal][] {
   const years = prepared.years.map((t) => t.toNumber());
   const npvFloat = (rate: number): number => {
     let total = 0;
-    for (let i = 0; i < amounts.length; i++) total += (amounts[i] ?? 0) * Math.pow(1 + rate, -(years[i] ?? 0));
+    for (let i = 0; i < amounts.length; i++)
+      total += (amounts[i] ?? 0) * Math.pow(1 + rate, -(years[i] ?? 0));
     return total;
   };
   const points: number[] = [];
@@ -193,7 +190,6 @@ export function xirr(flows: readonly CashFlow[], options: IrrOptions = {}): IrrR
   // Newton-Raphson.
   let rate = new Dec(options.initialGuess ?? '0.1');
   let iterations = 0;
-  let newtonFailed = false;
   while (iterations < maxIterations) {
     iterations++;
     const f = npvAt(prepared, rate);
@@ -201,28 +197,18 @@ export function xirr(flows: readonly CashFlow[], options: IrrOptions = {}): IrrR
       return { value: rate, shortPeriod, iterations };
     }
     const df = dNpvAt(prepared, rate);
-    if (df.isZero()) {
-      newtonFailed = true;
-      break;
-    }
+    if (df.isZero()) break;
     const next = rate.minus(f.div(df));
-    if (next.lte(BRACKET_LO) || next.gt(BRACKET_HI) || !next.isFinite()) {
-      newtonFailed = true;
-      break;
-    }
+    if (next.lte(BRACKET_LO) || next.gt(BRACKET_HI) || !next.isFinite()) break;
     if (next.minus(rate).abs().lt('1e-18')) {
       rate = next;
       const check = npvAt(prepared, rate);
       if (check.abs().lte(tolerance)) return { value: rate, shortPeriod, iterations };
-      newtonFailed = true;
       break;
     }
     rate = next;
   }
-  if (!newtonFailed) {
-    // Ran out of iterations without converging: fall through to bisection.
-    newtonFailed = true;
-  }
+  // Newton stalled, left the bracket or ran out of iterations: bisection takes over.
 
   // Bisection fallback over the whole bracket, or over the single sign-change sub-bracket.
   const lo = BRACKET_LO;
@@ -250,7 +236,11 @@ export function xirr(flows: readonly CashFlow[], options: IrrOptions = {}): IrrR
 }
 
 /** NPV of flows at a given annual rate, exposed for tests and the Python cross-check. */
-export function npv(flows: readonly CashFlow[], rate: Decimal, dayCountBasis: 365 | 365.25 = 365): Decimal {
+export function npv(
+  flows: readonly CashFlow[],
+  rate: Decimal,
+  dayCountBasis: 365 | 365.25 = 365,
+): Decimal {
   const sorted = normalizeFlows(flows);
   if (sorted.length === 0) return ZERO;
   return npvAt(prepare(sorted, new Dec(dayCountBasis)), rate);
