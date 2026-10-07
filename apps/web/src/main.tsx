@@ -15,12 +15,21 @@ const queryClient = new QueryClient({
   defaultOptions: { queries: { retry: 1, refetchOnWindowFocus: false } },
 });
 
-createRoot(document.getElementById('root')!).render(
-  <StrictMode>
-    <FluentProvider theme={createTheme()}>
-      <QueryClientProvider client={queryClient}>
-        <RouterProvider router={router} />
-      </QueryClientProvider>
-    </FluentProvider>
-  </StrictMode>,
-);
+async function bootstrap(): Promise<void> {
+  // Preview builds (VITE_PB_PREVIEW=true) run against recorded synthetic API responses; see src/preview/shim.ts.
+  if (import.meta.env.VITE_PB_PREVIEW === 'true') {
+    const { installPreviewShim } = await import('./preview/shim.js');
+    await installPreviewShim('./preview/fixtures.json');
+  }
+  createRoot(document.getElementById('root')!).render(
+    <StrictMode>
+      <FluentProvider theme={createTheme()}>
+        <QueryClientProvider client={queryClient}>
+          <RouterProvider router={router} />
+        </QueryClientProvider>
+      </FluentProvider>
+    </StrictMode>,
+  );
+}
+
+void bootstrap();

@@ -11,7 +11,9 @@
     "typecheck": "tsc -b",
     "test": "vitest run",
     "test:e2e": "playwright test",
-    "test:a11y": "playwright test --grep @a11y"
+    "test:a11y": "playwright test --grep @a11y",
+    "build:preview": "node scripts/build-preview.mjs",
+    "probe:preview": "node scripts/probe-preview.mjs"
   },
   "dependencies": {
     "@fluentui/react-components": "9.74.9",

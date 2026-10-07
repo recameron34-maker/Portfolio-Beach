@@ -38,3 +38,5 @@ apps/api/openapi.json
 apps/web/dist-types/
 # e2e scratch
 apps/web/.e2e/
+# static preview build
+apps/web/dist-preview/

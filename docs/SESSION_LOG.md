@@ -36,3 +36,17 @@
 
 **Next step**
 Phase 1 (M1, M2): linking services with match guards, the staging framework and validation rule library (100+ rules), accounting import and export, ops-drop parser, weekly report intake, look-through reconcile. Start with `prompts/01_PHASE_TEMPLATE.md` and one issue per item.
+
+## Session 2 (2026-10-07): fix PR and static preview
+**Branch:** `claude/gifted-tesla-eg7s85`, PR #7 against `main`. Synthetic data only; no employer information anywhere.
+
+**What changed**
+- `main` failed `pnpm typecheck` after PR #1: the pack's `.gitignore` rule `data/` hid `apps/api/src/data/data.controller.ts`, so it was never committed. The rule is now root-anchored (`/data/`) and the controller is in. The branch also keeps the Map-based `buildOpenApi` (no computed object keys from route strings).
+- Static preview of the Phase 0 web app for review without a server: `apps/web/scripts/build-preview.mjs` records every API response the screens can request from the real API over the small synthetic profile (seed 42) for each mock user, then bundles the app with `VITE_PB_PREVIEW=true`; `src/preview/shim.ts` answers `/api` and `/health` from the recordings and simulates flag changes in memory; the router uses hash history in that mode. `scripts/probe-preview.mjs` walks journey 1 against the built bundle. The preview is a static bundle, not a deployment (docs/16 section 5): no server, no credentials, no employer systems.
+
+**Verified (command output summarized)**
+- Clean-worktree run of the fix: `pnpm typecheck` and `pnpm lint` clean; `pnpm test` 16 files, 509 tests; cross-check 0 mismatches; classification 566 columns; house-style and employer-data guards OK.
+- Preview: 410 responses recorded for 11 users; `probe:preview` 13 checks passing (anonymous redirect, viewer without the walled deal and 404 on its one-pager, wall member with it, credit one-pager, Data Health, Data Dictionary, simulated flag change as platform admin, no page errors); shim unit tests 5 passing.
+
+**Open items for the owner**
+- Merge PR #7 to make `main` green again; the earlier owner items (rulesets, SHA pinning, Dependency graph for dependency review, local deny-list) still stand.
