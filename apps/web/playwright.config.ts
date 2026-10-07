@@ -26,19 +26,24 @@ export default defineConfig({
       : {}),
   },
   projects: [{ name: 'chromium', use: { ...devices['Desktop Chrome'] } }],
+  // Both servers bind IPv4 loopback explicitly: Playwright polls 127.0.0.1, and on hosts where
+  // localhost resolves to ::1 first (GitHub runners) a server bound to "localhost" never answers.
+  // In CI their stdout is kept so a start-up problem shows in the job log.
   webServer: [
     {
       command: `node scripts/e2e-api.mjs`,
       url: `http://127.0.0.1:${apiPort}/health/live`,
       reuseExistingServer: false,
       timeout: 120_000,
+      stdout: process.env.CI ? 'pipe' : 'ignore',
       env: { PB_E2E_DIR: scratch, PORT: String(apiPort) },
     },
     {
-      command: `pnpm exec vite --port ${webPort} --strictPort`,
+      command: `pnpm exec vite --host 127.0.0.1 --port ${webPort} --strictPort`,
       url: `http://127.0.0.1:${webPort}`,
       reuseExistingServer: false,
       timeout: 120_000,
+      stdout: process.env.CI ? 'pipe' : 'ignore',
       env: { PB_API_URL: `http://127.0.0.1:${apiPort}` },
     },
   ],

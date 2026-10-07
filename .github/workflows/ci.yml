@@ -57,7 +57,7 @@ jobs:
         with: { node-version-file: .nvmrc, cache: pnpm }
       - run: pnpm install --frozen-lockfile
       - run: pnpm typecheck
-      - run: pnpm exec playwright install --with-deps chromium
+      - run: pnpm --filter @pb/web exec playwright install --with-deps chromium
       - run: pnpm test:e2e && pnpm test:a11y
   security:
     runs-on: ubuntu-latest

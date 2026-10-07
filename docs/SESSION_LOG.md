@@ -36,3 +36,22 @@
 
 **Next step**
 Phase 1 (M1, M2): linking services with match guards, the staging framework and validation rule library (100+ rules), accounting import and export, ops-drop parser, weekly report intake, look-through reconcile. Start with `prompts/01_PHASE_TEMPLATE.md` and one issue per item.
+
+## Session 2 (2026-10-07): fix PR, CI fixes and static preview
+**Branch:** `claude/gifted-tesla-eg7s85`, PR #7 against `main`. Synthetic data only; no employer information anywhere.
+
+**What changed**
+- `main` failed `pnpm typecheck` after PR #1: the pack's `.gitignore` rule `data/` hid `apps/api/src/data/data.controller.ts`, so it was never committed. The rule is now root-anchored (`/data/`) and the controller is in. The branch also keeps the Map-based `buildOpenApi` (no computed object keys from route strings).
+- e2e CI job: Playwright installs through the web package (the root has no Playwright, so `pnpm exec playwright` failed); the Vite dev server binds 127.0.0.1 explicitly, because Playwright polls 127.0.0.1 and on GitHub runners `localhost` resolves to `::1` first, which timed out the web server wait; in CI the servers' stdout stays in the job log.
+- Static preview of the Phase 0 web app for review without a server: `apps/web/scripts/build-preview.mjs` records every API response the screens can request from the real API over the small synthetic profile (seed 42) for each mock user (request ids pinned so the recordings are byte-stable), then bundles the app with `VITE_PB_PREVIEW=true`, no source maps, asset tags from Vite's manifest, and runs the employer-data guard over the output (`check-employer-data.sh --paths`, new). `src/preview/shim.ts` answers `/api` and `/health` from the recordings and simulates flag changes in memory (the admin page says "simulated in this preview, not audited"); the router uses hash history in that mode; a failed recordings load shows a message instead of a blank page. `scripts/probe-preview.mjs` walks journey 1 against the bundle through a path-confined loopback server. CodeQL's findings on the first version of these scripts (HTML regex, path from request URL) are fixed.
+- `src/app/session.ts` keeps an in-memory copy of the mock credential for the page session when storage is blocked (sandboxed frames), with a test.
+- The preview is a static bundle, not a deployment: docs/16 section 5 rules out cloud deployment from the prototype and routes hosted demos through IT; the repo only adds the build. Where a bundle may be shared is the owner's call.
+
+**Verified (command output summarized)**
+- `pnpm typecheck` and `pnpm lint` clean; `pnpm test` 18 files, 516 tests (web 5 files, 14 tests, including the shim and session tests); cross-check 0 mismatches; classification 566 columns; house-style and employer-data guards OK; `pnpm test:e2e` 7 passing locally and in CI.
+- Preview: 410 responses recorded for 11 users; guard over the output OK; `probe:preview` 17 checks passing (3 path-traversal requests served the shell, anonymous redirect, viewer without the walled deal and 404 on its one-pager, wall member with it, credit one-pager, Data Health, Data Dictionary, simulated flag change as platform admin, no page errors, message when the recordings cannot load). Independent review workflow (five lenses, adversarial verification): no blockers; its confirmed items are in this entry.
+
+**Open items for the owner**
+- Merge PR #7 to make `main` green again. The `security` job's dependency-review step fails until Dependency graph is enabled in the repository settings (Code security and analysis); CodeQL itself passes.
+- The earlier owner items (rulesets, SHA pinning, local deny-list) still stand.
+- Follow-up suggested: treat a 401 from `/api/v1/auth/me` as signed out (clear the credential, return to the picker); today a stale credential strands the user on an error card.

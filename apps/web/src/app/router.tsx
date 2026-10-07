@@ -1,4 +1,5 @@
 import {
+  createHashHistory,
   createRootRoute,
   createRoute,
   createRouter,
@@ -133,7 +134,13 @@ const routeTree = rootRoute.addChildren([
   ]),
 ]);
 
-export const router = createRouter({ routeTree, defaultPreload: 'intent' });
+// A static preview has no server to rewrite deep links, so it routes through the URL hash.
+const previewMode = import.meta.env.VITE_PB_PREVIEW === 'true';
+export const router = createRouter({
+  routeTree,
+  defaultPreload: 'intent',
+  ...(previewMode ? { history: createHashHistory() } : {}),
+});
 
 declare module '@tanstack/react-router' {
   interface Register {

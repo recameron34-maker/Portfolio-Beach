@@ -29,6 +29,8 @@ export default tseslint.config(
       'apps/worker-py/**',
       'apps/web/dist/**',
       'apps/web/dist-types/**',
+      'apps/web/dist-preview/**',
+      'apps/web/.e2e/**',
       'apps/web/playwright-report/**',
       'apps/web/test-results/**',
     ],

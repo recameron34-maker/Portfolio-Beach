@@ -10,7 +10,7 @@ config/local/*
 !config/local/README.md
 # generated data (never commit)
 .synthetic/
-data/
+/data/
 # build and tooling
 node_modules/
 dist/
@@ -38,3 +38,5 @@ apps/api/openapi.json
 apps/web/dist-types/
 # e2e scratch
 apps/web/.e2e/
+# static preview build
+apps/web/dist-preview/

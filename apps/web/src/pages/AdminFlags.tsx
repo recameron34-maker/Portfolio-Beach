@@ -7,6 +7,9 @@ import { api, ApiError } from '../api/client.js';
 import { flagsQuery, meQuery } from '../app/queries.js';
 import { Card, ErrorState, SectionHeader } from '../components/ui.js';
 
+// Preview builds replay recorded responses and simulate flag writes; the message must say so.
+const previewMode = import.meta.env.VITE_PB_PREVIEW === 'true';
+
 /** Feature flags and kill switches (docs/17 section 5). Only platform admins can change them; the API and RLS both enforce it. */
 export function AdminFlagsPage(): ReactNode {
   const me = useQuery(meQuery);
@@ -21,7 +24,9 @@ export function AdminFlagsPage(): ReactNode {
         body: JSON.stringify({ enabled, reason }),
       }),
     onSuccess: (f) => {
-      setMessage(`${f.key} is now ${f.enabled ? 'on' : 'off'} (audited).`);
+      setMessage(
+        `${f.key} is now ${f.enabled ? 'on' : 'off'} ${previewMode ? '(simulated in this preview, not audited)' : '(audited)'}.`,
+      );
       void queryClient.invalidateQueries({ queryKey: ['flags'] });
     },
     onError: (e) =>
