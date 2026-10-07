@@ -66,7 +66,8 @@ async function record(credential, path) {
   return res.ok ? JSON.parse(body) : null;
 }
 
-// Public routes.
+// Public routes. Health, vehicles and sponsors have no Phase 0 screen yet; they are recorded so the
+// preview keeps working when those screens arrive.
 await record('', '/health/live');
 await record('', '/health/ready');
 await record('', '/api/v1/auth/mock-users');

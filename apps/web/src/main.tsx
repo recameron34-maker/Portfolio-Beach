@@ -16,12 +16,20 @@ const queryClient = new QueryClient({
 });
 
 async function bootstrap(): Promise<void> {
+  const root = document.getElementById('root')!;
   // Preview builds (VITE_PB_PREVIEW=true) run against recorded synthetic API responses; see src/preview/shim.ts.
   if (import.meta.env.VITE_PB_PREVIEW === 'true') {
-    const { installPreviewShim } = await import('./preview/shim.js');
-    await installPreviewShim('./preview/fixtures.json');
+    try {
+      const { installPreviewShim } = await import('./preview/shim.js');
+      await installPreviewShim('./preview/fixtures.json');
+    } catch (error) {
+      // Without the recordings nothing can render; say so rather than leave the page blank.
+      const reason = error instanceof Error ? error.message : 'unknown error';
+      root.textContent = `This preview could not load its recorded data (preview/fixtures.json): ${reason}.`;
+      return;
+    }
   }
-  createRoot(document.getElementById('root')!).render(
+  createRoot(root).render(
     <StrictMode>
       <FluentProvider theme={createTheme()}>
         <QueryClientProvider client={queryClient}>

@@ -158,6 +158,14 @@ check(
 );
 check('no page errors', errors.length === 0, errors.slice(0, 3).join(' | '));
 
+// A bundle whose recordings are missing must say so instead of rendering nothing.
+const broken = await browser.newPage();
+await broken.route('**/preview/fixtures.json', (route) => route.fulfill({ status: 404, body: '' }));
+await broken.goto(`${origin}/#/sign-in`);
+await broken.getByText('could not load its recorded data').waitFor();
+check('missing recordings: message shown instead of a blank page', true);
+await broken.close();
+
 await browser.close();
 server.close();
 for (const r of results)
