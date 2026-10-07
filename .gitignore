@@ -30,3 +30,7 @@ test-results/
 *.tsbuildinfo
 .eslintcache
 .cross-check/
+# generated API description (source: packages/contracts)
+apps/api/openapi.json
+# per-machine Claude Code permissions
+.claude/settings.local.json

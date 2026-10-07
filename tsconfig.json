@@ -14,7 +14,13 @@
       "path": "packages/workflows"
     },
     {
+      "path": "packages/contracts"
+    },
+    {
       "path": "tools/synthetic"
+    },
+    {
+      "path": "apps/api"
     }
   ]
 }
