@@ -1,4 +1,11 @@
 {
   "files": [],
-  "references": [{ "path": "packages/calc" }]
+  "references": [
+    {
+      "path": "packages/calc"
+    },
+    {
+      "path": "packages/db"
+    }
+  ]
 }
