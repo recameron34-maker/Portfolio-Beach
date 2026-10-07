@@ -1,0 +1,31 @@
+{
+  "name": "@pb/synthetic",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Deterministic synthetic private equity data generator (docs/14). Fictional names only.",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -b",
+    "test": "vitest run",
+    "generate": "node dist/cli.js generate",
+    "verify": "node dist/cli.js verify"
+  },
+  "dependencies": {
+    "@pb/calc": "workspace:*",
+    "@pb/db": "workspace:*"
+  },
+  "devDependencies": {
+    "drizzle-orm": "0.45.3"
+  }
+}

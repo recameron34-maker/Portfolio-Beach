@@ -17,10 +17,10 @@ The prototype's realism depends on this generator. It must produce data that **l
 | Clients | 3, each with different reporting bases |
 | Investments | 160 active + 40 realized (about 25 of the active positions are private credit) |
 | Quarterly periods | 12 per active investment (with gaps by scenario) |
-| Commitments | 420 vehicle-to-fund commitments (including the same fund held by two vehicles or clients); LP commitments: every client in at least two vehicles, one client joining at a second closing |
-| Contacts | 600; interactions 8,000 |
-| Capital notices | 900 (calls, distributions, equalization sequences) |
-| Documents | 300 synthetic PDFs + 50 XLSX ops workbooks |
+| Commitments | Vehicle-to-fund commitments for every fund of vintage 2014 or later from the primary program, plus client-directed commitments from the separate account (about 150 in the default profile, including the same fund held both pooled and client-directed); LP commitments: every client in at least two vehicles, one client joining at a second closing |
+| Contacts | 600; interactions 8,000 (generated with the relationship module in Phase 5) |
+| Capital notices | About 900 in the default profile (calls, distributions, interest and principal notices, an equalization sequence); each approved cash flow points at its notice |
+| Documents | 300 synthetic PDFs + 50 XLSX ops workbooks (generated with the document hub in Phase 2) |
 A `small` profile (20 investments) exists for fast unit tests.
 
 ## 3. Required scenarios (each tagged)

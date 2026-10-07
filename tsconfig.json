@@ -6,6 +6,15 @@
     },
     {
       "path": "packages/db"
+    },
+    {
+      "path": "packages/adapters"
+    },
+    {
+      "path": "packages/workflows"
+    },
+    {
+      "path": "tools/synthetic"
     }
   ]
 }

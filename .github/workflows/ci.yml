@@ -29,7 +29,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4 # pin to SHA
       - uses: pnpm/action-setup@v4 # pin to SHA
-        with: { version: "${{ env.PNPM_VERSION }}" }
+        with: { version: '${{ env.PNPM_VERSION }}' }
       - uses: actions/setup-node@v4 # pin to SHA
         with: { node-version-file: .nvmrc, cache: pnpm }
       - uses: astral-sh/setup-uv@v5 # pin to SHA
@@ -52,7 +52,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4 # pin to SHA
       - uses: pnpm/action-setup@v4 # pin to SHA
-        with: { version: "${{ env.PNPM_VERSION }}" }
+        with: { version: '${{ env.PNPM_VERSION }}' }
       - uses: actions/setup-node@v4 # pin to SHA
         with: { node-version-file: .nvmrc, cache: pnpm }
       - run: pnpm install --frozen-lockfile
@@ -66,8 +66,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4 # pin to SHA
       - uses: github/codeql-action/init@v3 # pin to SHA
-        with: { languages: "javascript-typescript,python" }
+        with: { languages: 'javascript-typescript,python' }
       - uses: github/codeql-action/analyze@v3 # pin to SHA
       - uses: actions/dependency-review-action@v4 # pin to SHA
         if: github.event_name == 'pull_request'
-        with: { fail-on-severity: moderate, deny-licenses: "GPL-2.0, GPL-3.0, AGPL-3.0" }
+        with: { fail-on-severity: moderate, deny-licenses: 'GPL-2.0, GPL-3.0, AGPL-3.0' }

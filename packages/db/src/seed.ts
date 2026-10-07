@@ -17,6 +17,10 @@ export const syntheticDatasetSchema = z.object({
   version: z.literal(1),
   profile: z.string(),
   seed: z.number().int(),
+  /** Reporting date the dataset is built up to. */
+  asOf: isoDate,
+  /** Scenario tag to the ids that carry it (docs/14 section 3). */
+  scenarios: z.record(z.string(), z.array(z.string())).default({}),
   users: z.array(
     z.object({
       id: uuid,
@@ -168,6 +172,7 @@ export const syntheticDatasetSchema = z.object({
       maturityDate: isoDate,
       paymentFrequency: z.enum(['monthly', 'quarterly', 'semiannual', 'annual']),
       amortization: z.array(z.object({ date: isoDate, amount: money })).default([]),
+      callProtection: z.array(z.object({ until: isoDate, premium: money })).default([]),
       covenants: z
         .array(z.object({ name: z.string(), level: money, test: z.string() }))
         .default([]),
