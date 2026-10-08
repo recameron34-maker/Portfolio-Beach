@@ -1,7 +1,8 @@
 import type { AnalyticsSummary } from '@pb/contracts';
 import type { InvestmentFilters } from '../../app/queries.js';
 
-export type DimensionKey = keyof AnalyticsSummary['exposures'];
+/** The bucket lists of the exposures; vehicleByDealType is the stacked breakdown, not a dimension. */
+export type DimensionKey = Exclude<keyof AnalyticsSummary['exposures'], 'vehicleByDealType'>;
 
 /** The exposure dimensions the API buckets, in the order the selector lists them. */
 export const DIMENSION_KEYS: readonly DimensionKey[] = [
@@ -27,7 +28,6 @@ export function isDimensionKey(value: string): value is DimensionKey {
 }
 
 /* Investment list filters, exactly as the preview recorder expects their query keys. */
-export const ACTIVE_POSITIONS: InvestmentFilters = { active: 'true', limit: 200 };
 export const CREDIT_POSITIONS: InvestmentFilters = {
   dealType: 'deal_type.private_credit',
   limit: 100,

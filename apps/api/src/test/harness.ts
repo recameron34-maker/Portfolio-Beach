@@ -25,8 +25,13 @@ export interface Harness {
   close: () => Promise<void>;
 }
 
+export interface HarnessOptions {
+  /** Top-level keys of config/definitions.json to leave out, to prove a missing key is a 500. */
+  withoutDefinitions?: readonly string[];
+}
+
 /** An API over a fresh in-memory database seeded with the small synthetic profile. */
-export async function startHarness(): Promise<Harness> {
+export async function startHarness(options: HarnessOptions = {}): Promise<Harness> {
   const dataset = generateDataset({ profile: 'small', seed: 42 });
   const db = await createTestDb();
   await loadSyntheticDataset(db, dataset);
@@ -50,6 +55,10 @@ export async function startHarness(): Promise<Harness> {
       clientIds: u.clientIds,
     })),
   });
+  const dropped = new Set(options.withoutDefinitions ?? []);
+  runtime.definitions = Object.fromEntries(
+    Object.entries(runtime.definitions).filter(([key]) => !dropped.has(key)),
+  );
   const app = await createApp(runtime);
   const server = app.getHttpServer() as Parameters<typeof request>[0];
   return {

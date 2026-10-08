@@ -1,9 +1,11 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { D } from '@pb/calc';
-import { analyticsSummary, watchlist as watchlistSchema } from '@pb/contracts';
-import type { AnalyticsSummary, Watchlist } from '@pb/contracts';
+import { analyticsSummary, investmentPage, watchlist as watchlistSchema } from '@pb/contracts';
+import type { AnalyticsSummary, ExposureBucket, Watchlist } from '@pb/contracts';
+import { vehicleByDealType } from '../analytics/analytics.service.js';
 import { startHarness } from './harness.js';
 import type { Harness } from './harness.js';
+import { expectedNavSeries } from './nav-oracle.js';
 
 describe('analytics summary (M12, M13) and monitoring watchlist (M9)', () => {
   let h: Harness;
@@ -85,7 +87,17 @@ describe('analytics summary (M12, M13) and monitoring watchlist (M9)', () => {
     it('buckets exposures with taxonomy labels and NAV shares that sum to one', async () => {
       const s = await summaryFor('viewer.one');
       const activeNav = D(s.active.nav ?? '0');
-      for (const [name, buckets] of Object.entries(s.exposures)) {
+      const dimensions = [
+        'sector',
+        'geography',
+        'dealType',
+        'vehicle',
+        'sponsor',
+        'vintage',
+      ] as const;
+      expect(Object.keys(s.exposures).sort()).toEqual([...dimensions, 'vehicleByDealType'].sort());
+      for (const name of dimensions) {
+        const buckets = s.exposures[name];
         expect(buckets.length, name).toBeGreaterThan(0);
         expect(
           buckets.reduce((n, b) => n + b.count, 0),
@@ -123,6 +135,67 @@ describe('analytics summary (M12, M13) and monitoring watchlist (M9)', () => {
       expect(s.exposures.sponsor.every((b) => b.label.length > 0)).toBe(true);
     });
 
+    it('splits each vehicle NAV by deal type with Decimal sums that reconcile to the vehicle buckets', async () => {
+      for (const who of ['viewer.one', 'deal.three']) {
+        const s = await summaryFor(who);
+        const rows = s.exposures.vehicleByDealType;
+        const dealTypeOrder = s.exposures.dealType.map((b) => b.key);
+        // One row per vehicle with a Locked NAV, keyed and labelled like its vehicle bucket.
+        const withNav = s.exposures.vehicle.filter((b) => b.nav !== null);
+        expect(rows.map((r) => r.key).sort(), who).toEqual(withNav.map((b) => b.key).sort());
+        for (const r of rows) {
+          const bucket = s.exposures.vehicle.find((b) => b.key === r.key)!;
+          expect(r.label).toBe(bucket.label);
+          expect(r.segments.length).toBeGreaterThan(0);
+          // Segment NAVs sum exactly to the vehicle's NAV in exposures.vehicle.
+          const navSum = r.segments.reduce((acc, seg) => acc.plus(seg.nav!), D('0'));
+          expect(navSum.eq(bucket.nav!), `${who} ${r.label}`).toBe(true);
+          // Segments are deal type buckets, in the order of exposures.dealType.
+          const order = r.segments.map((seg) => dealTypeOrder.indexOf(seg.key));
+          expect(order.every((i) => i >= 0)).toBe(true);
+          expect(order).toEqual([...order].sort((a, b) => a - b));
+          for (const seg of r.segments) {
+            expect(seg.key).toMatch(/^deal_type\./);
+            expect(seg.label).toBe(s.exposures.dealType.find((b) => b.key === seg.key)!.label);
+            expect(seg.count).toBeGreaterThan(0);
+            const share = D(seg.navShare!).minus(D(seg.nav!).div(s.active.nav!));
+            expect(share.abs().lte('1e-9')).toBe(true);
+          }
+        }
+        // Vehicles by total NAV, largest first.
+        const totals = rows.map((r) => r.segments.reduce((acc, seg) => acc.plus(seg.nav!), D('0')));
+        for (let i = 1; i < totals.length; i += 1)
+          expect(totals[i - 1]!.gte(totals[i]!)).toBe(true);
+
+        // Every active position with a Locked mark counts once, in its vehicle and deal type.
+        const page = investmentPage.parse(
+          (
+            await h
+              .http()
+              .get(`/api/v1/investments?active=true&limit=200&asOf=${h.dataset.asOf}`)
+              .set('authorization', h.as(who))
+              .expect(200)
+          ).body,
+        );
+        expect(page.nextCursor).toBeNull();
+        expect(page.items.length).toBe(s.activeInvestments);
+        const marked = page.items.filter((i) => i.nav !== null);
+        const cells = new Map<string, { count: number; nav: ReturnType<typeof D> }>();
+        for (const i of marked) {
+          const key = `${i.vehicleName}|${i.dealType}`;
+          const cell = cells.get(key) ?? { count: 0, nav: D('0') };
+          cells.set(key, { count: cell.count + 1, nav: cell.nav.plus(i.nav!) });
+        }
+        const segments = rows.flatMap((r) => r.segments.map((seg) => ({ r, seg })));
+        expect(segments.length).toBe(cells.size);
+        for (const { r, seg } of segments) {
+          const cell = cells.get(`${r.label}|${seg.key}`)!;
+          expect(seg.count).toBe(cell.count);
+          expect(D(seg.nav!).eq(cell.nav)).toBe(true);
+        }
+      }
+    });
+
     it('builds the NAV series, flows by year and top positions from config', async () => {
       const s = await summaryFor('operations');
       expect(s.navSeries.length).toBeGreaterThan(0);
@@ -136,6 +209,21 @@ describe('analytics summary (M12, M13) and monitoring watchlist (M9)', () => {
         expect(point.value).not.toBeNull();
       }
       expect(s.navSeries.length).toBe(8);
+      // Point by point, the Locked marks of the visible active positions summed by calendar quarter.
+      const definitions = h.runtime.definitions as {
+        priorYearPeriodEndToleranceDays: number;
+        analytics: { navSeriesQuarters: number };
+      };
+      const expected = expectedNavSeries(
+        h.dataset,
+        new Set(
+          h.dataset.investments.filter((i) => i.isActive && !walled().has(i.id)).map((i) => i.id),
+        ),
+        definitions.analytics.navSeriesQuarters,
+        definitions.priorYearPeriodEndToleranceDays,
+      );
+      expect(s.navSeries.map((p) => p.periodEnd)).toEqual(expected.map((p) => p.periodEnd));
+      s.navSeries.forEach((p, i) => expect(D(p.value!).eq(expected[i]!.value)).toBe(true));
 
       expect(s.flowsByYear.length).toBeGreaterThan(1);
       let running = D('0');
@@ -273,5 +361,100 @@ describe('analytics summary (M12, M13) and monitoring watchlist (M9)', () => {
         h.dataset.investments.filter((i) => i.isActive).length,
       );
     });
+  });
+});
+
+describe('vehicleByDealType (the stacked NAV by vehicle and deal type)', () => {
+  type Position = Parameters<typeof vehicleByDealType>[0][number];
+  const CO = 'deal_type.co_invest_equity';
+  const CV = 'deal_type.cv_single_asset';
+  const CREDIT = 'deal_type.private_credit';
+  const LABELS: Record<string, string> = {
+    [CO]: 'Co-investment (equity)',
+    [CV]: 'Continuation vehicle (single asset)',
+    [CREDIT]: 'Private credit',
+  };
+  /** Only the fields the breakdown reads; the rest of a position plays no part in it. */
+  const position = (
+    vehicleId: string,
+    vehicleName: string,
+    dealType: string,
+    nav: string | null,
+    invested: string | null,
+  ): Position => ({
+    row: { vehicleId, vehicleName, dealType } as Position['row'],
+    summary: { nav, invested } as Position['summary'],
+    flows: [],
+    valuations: [],
+  });
+  const dealTypeOf = (p: Position): { key: string; label: string } => ({
+    key: p.row.dealType,
+    label: LABELS[p.row.dealType] ?? p.row.dealType,
+  });
+  const bucket = (key: string): ExposureBucket => ({
+    key,
+    label: LABELS[key] ?? key,
+    count: 0,
+    invested: null,
+    nav: null,
+    navShare: null,
+  });
+  const A = '00000000-0000-4000-8000-00000000000a';
+  const B = '00000000-0000-4000-8000-00000000000b';
+  const C = '00000000-0000-4000-8000-00000000000c';
+  const Z = '00000000-0000-4000-8000-00000000000d';
+
+  it('sums Decimal NAV per vehicle and deal type, leaves out unmarked positions and orders both levels', () => {
+    const active = [
+      position(A, 'Beach Fund A', CO, '10.10', '5'),
+      position(A, 'Beach Fund A', CV, '29.90', '20'),
+      position(A, 'Beach Fund A', CO, null, '7'), // no Locked mark: left out
+      position(B, 'Beach Fund B', CREDIT, '0.1', '1'),
+      position(B, 'Beach Fund B', CREDIT, '49.9', null),
+      position(C, 'Beach Fund C', CO, null, '3'), // no Locked mark at all: no row
+      position(Z, 'Aardvark Fund', CO, '40', '30'), // the same NAV as Beach Fund A
+    ];
+    // The deal type buckets' order (largest NAV first) decides the segment order in every bar.
+    const rows = vehicleByDealType(
+      active,
+      D('130'),
+      [bucket(CREDIT), bucket(CV), bucket(CO)],
+      dealTypeOf,
+    );
+    expect(rows.map((r) => r.key)).toEqual([B, Z, A]);
+    expect(rows.map((r) => r.label)).toEqual(['Beach Fund B', 'Aardvark Fund', 'Beach Fund A']);
+    expect(rows[0]!.segments).toEqual([
+      {
+        key: CREDIT,
+        label: 'Private credit',
+        count: 2,
+        invested: '1',
+        nav: '50',
+        navShare: '0.3846153846',
+      },
+    ]);
+    const fundA = rows[2]!;
+    expect(fundA.segments.map((s) => s.key)).toEqual([CV, CO]);
+    expect(fundA.segments.map((s) => s.label)).toEqual([
+      'Continuation vehicle (single asset)',
+      'Co-investment (equity)',
+    ]);
+    expect(fundA.segments.map((s) => [s.count, s.invested, s.nav])).toEqual([
+      [1, '20', '29.9'],
+      [1, '5', '10.1'],
+    ]);
+    // Shares are of the total active NAV, like every other exposure bucket.
+    expect(fundA.segments.map((s) => s.navShare)).toEqual(['0.23', '0.0776923077']);
+  });
+
+  it('has no rows when no active position has a Locked mark', () => {
+    expect(
+      vehicleByDealType(
+        [position(C, 'Beach Fund C', CO, null, '1')],
+        null,
+        [bucket(CO)],
+        dealTypeOf,
+      ),
+    ).toEqual([]);
   });
 });

@@ -1,15 +1,14 @@
 import { Inject, Injectable } from '@nestjs/common';
-import { and, asc, eq, inArray, lte, sql } from 'drizzle-orm';
-import type { SQL } from 'drizzle-orm';
+import { asc, eq, inArray, sql } from 'drizzle-orm';
 import type { Principal } from '@pb/adapters';
-import { CALC_VERSION, ZERO, summarizeFlows, unfunded } from '@pb/calc';
-import type { Decimal, FlowKind, TypedCashFlow } from '@pb/calc';
-import type { FundCommitmentRow, SponsorDetail, Taxonomy, WallList } from '@pb/contracts';
+import { CALC_VERSION, ZERO } from '@pb/calc';
+import type { Decimal } from '@pb/calc';
+import type { SponsorDetail, Taxonomy, WallList } from '@pb/contracts';
 import { schema } from '@pb/db';
-import type { Tx } from '@pb/db';
 import { DEFINITIONS } from '../common/tokens.js';
 import { ProblemError } from '../common/problem.js';
 import { DbService } from '../db/db.service.js';
+import { loadCommitmentRows } from '../portfolio/commitments.js';
 import { loadInvestmentRows, loadInvestmentsWithMetrics } from '../portfolio/loaders.js';
 import { pooledPositionMetrics, str } from '../portfolio/metrics.js';
 
@@ -25,88 +24,6 @@ interface Definitions {
  */
 const OUTER_SPONSOR_ID = sql.raw('"core"."sponsor"."id"');
 const OUTER_FUND_ID = sql.raw('"core"."sponsor_fund"."id"');
-
-/** The flow kind packages/calc expects: the taxonomy code without its domain prefix. */
-const kindOf = (flowType: string): FlowKind => flowType.replace('flow_type.', '') as FlowKind;
-
-/**
- * Commitment rows (vehicle to sponsor fund) the caller can see, with called, distributed and
- * recallable from the commitment-keyed approved flows on or before the as-of date and unfunded
- * from @pb/calc (docs/08 section 2). A commitment without a flow by that date is not calculable:
- * its four figures are null, never zero. Ordered by vehicle name, fund name, then id.
- */
-async function loadFundCommitmentRows(
-  tx: Tx,
-  asOf: string,
-  where: SQL,
-): Promise<FundCommitmentRow[]> {
-  const c = schema.commitment;
-  const rows = await tx
-    .select({
-      id: c.id,
-      vehicleId: c.vehicleId,
-      vehicleName: schema.vehicle.name,
-      vehicleType: schema.vehicle.vehicleType,
-      sponsorId: schema.sponsor.id,
-      sponsorName: schema.sponsor.name,
-      sponsorFundId: c.sponsorFundId,
-      sponsorFundName: schema.sponsorFund.name,
-      vintage: schema.sponsorFund.vintage,
-      strategy: schema.sponsorFund.strategy,
-      clientName: schema.client.name,
-      amount: c.amount,
-      commitmentDate: c.commitmentDate,
-    })
-    .from(c)
-    .innerJoin(schema.vehicle, eq(schema.vehicle.id, c.vehicleId))
-    .innerJoin(schema.sponsorFund, eq(schema.sponsorFund.id, c.sponsorFundId))
-    .innerJoin(schema.sponsor, eq(schema.sponsor.id, schema.sponsorFund.sponsorId))
-    .leftJoin(schema.client, eq(schema.client.id, c.clientId))
-    .where(where)
-    .orderBy(asc(schema.vehicle.name), asc(schema.sponsorFund.name), asc(c.id));
-  if (rows.length === 0) return [];
-  const f = schema.cashFlow;
-  const flows = await tx
-    .select({
-      commitmentId: f.commitmentId,
-      flowDate: f.flowDate,
-      flowType: f.flowType,
-      amount: f.amount,
-    })
-    .from(f)
-    .where(
-      and(
-        inArray(
-          f.commitmentId,
-          rows.map((r) => r.id),
-        ),
-        eq(f.status, 'record_status.approved'),
-        lte(f.flowDate, asOf),
-      ),
-    )
-    .orderBy(asc(f.flowDate), asc(f.id));
-  const byCommitment = new Map<string, TypedCashFlow[]>();
-  for (const flow of flows) {
-    if (flow.commitmentId === null) continue;
-    const typed = { date: flow.flowDate, kind: kindOf(flow.flowType), amount: flow.amount };
-    const list = byCommitment.get(flow.commitmentId);
-    if (list === undefined) byCommitment.set(flow.commitmentId, [typed]);
-    else list.push(typed);
-  }
-  return rows.map((r) => {
-    const typed = byCommitment.get(r.id);
-    if (typed === undefined)
-      return { ...r, called: null, distributed: null, recallable: null, unfunded: null };
-    const summary = summarizeFlows(typed);
-    return {
-      ...r,
-      called: str(summary.contributions),
-      distributed: str(summary.distributions),
-      recallable: str(summary.recallable),
-      unfunded: str(unfunded(r.amount, summary.contributions, summary.recallable)),
-    };
-  });
-}
 
 @Injectable()
 export class SponsorsService {
@@ -179,7 +96,8 @@ export class SponsorsService {
               )
               .orderBy(asc(a.alias));
 
-      const commitments = await loadFundCommitmentRows(
+      // The shared commitment loader, narrowed to this sponsor's funds (portfolio/commitments.ts).
+      const commitments = await loadCommitmentRows(
         tx,
         asOf,
         eq(schema.sponsorFund.sponsorId, sponsor.id),

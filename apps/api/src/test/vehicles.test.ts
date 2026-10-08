@@ -5,6 +5,7 @@ import { clientList, commitmentList, vehicleDetail, vehicleList } from '@pb/cont
 import type { ClientList, CommitmentList, FundCommitmentRow, VehicleDetail } from '@pb/contracts';
 import { startHarness } from './harness.js';
 import type { Harness } from './harness.js';
+import { containingQuarterEnd, expectedNavSeries } from './nav-oracle.js';
 
 describe('vehicles, commitments and clients (M17, decision 0004)', () => {
   let h: Harness;
@@ -258,6 +259,48 @@ describe('vehicles, commitments and clients (M17, decision 0004)', () => {
       }
     });
 
+    it('charts NAV on calendar quarter ends, folding a sponsor that reports early (period_end_shift)', async () => {
+      const shifted = h.dataset.scenarios.period_end_shift![0]!;
+      const holding = h.dataset.investments.find((i) => i.id === shifted)!;
+      expect(holding.investmentNumber).toBe('INV-0002');
+      // The seed dates this position's marks a few days before the calendar quarter end.
+      const marks = h.dataset.valuations.filter((v) => v.investmentId === shifted);
+      expect(marks.some((v) => v.periodEnd !== containingQuarterEnd(v.periodEnd))).toBe(true);
+      const definitions = h.runtime.definitions as {
+        priorYearPeriodEndToleranceDays: number;
+        analytics: { navSeriesQuarters: number };
+      };
+      const quarters = definitions.analytics.navSeriesQuarters;
+      const tolerance = definitions.priorYearPeriodEndToleranceDays;
+
+      // The viewer sees INV-0002 and the realized INV-0019; the wall member also sees INV-0010.
+      for (const who of ['viewer.one', 'deal.three']) {
+        const detail = await detailFor(who, holding.vehicleId);
+        expect(detail.positions.map((p) => p.id)).toContain(shifted);
+        expect(detail.navSeries.length).toBeGreaterThan(0);
+        expect(detail.navSeries.length).toBeLessThanOrEqual(quarters);
+        for (const point of detail.navSeries) {
+          expect(point.periodEnd, who).toMatch(/-(03-31|06-30|09-30|12-31)$/);
+          expect(point.value).not.toBeNull();
+        }
+        for (let i = 1; i < detail.navSeries.length; i += 1)
+          expect(detail.navSeries[i]!.periodEnd > detail.navSeries[i - 1]!.periodEnd).toBe(true);
+        // The latest point is the as-of quarter end and carries the pooled NAV of the positions.
+        const latest = detail.navSeries[detail.navSeries.length - 1]!;
+        expect(latest.periodEnd).toBe(h.dataset.asOf);
+        expect(D(latest.value!).eq(detail.metrics.nav!)).toBe(true);
+        // Point by point, the Locked marks of the visible positions summed by calendar quarter.
+        const expected = expectedNavSeries(
+          h.dataset,
+          new Set(detail.positions.map((p) => p.id)),
+          quarters,
+          tolerance,
+        );
+        expect(detail.navSeries.map((p) => p.periodEnd)).toEqual(expected.map((p) => p.periodEnd));
+        detail.navSeries.forEach((p, i) => expect(D(p.value!).eq(expected[i]!.value)).toBe(true));
+      }
+    });
+
     it('shows the primary program as fund commitments with called, distributed and unfunded, and no pooled figures (G8)', async () => {
       const primary = vehicleOfType('vehicle_type.primary_program');
       const detail = await detailFor('viewer.one', primary);
@@ -342,6 +385,29 @@ describe('vehicles, commitments and clients (M17, decision 0004)', () => {
         r.sponsorFundName,
         r.clientName,
       ]);
+    });
+
+    it('reports a commitment with no approved flow by the as-of date as not calculable, never zero', async () => {
+      // Before the primary program's first call: the amounts show, the flow figures do not.
+      const early = commitmentList.parse(
+        (
+          await h
+            .http()
+            .get('/api/v1/commitments?asOf=2013-12-31')
+            .set('authorization', h.as('ops.one'))
+            .expect(200)
+        ).body,
+      );
+      expect(early.items.length).toBe(14);
+      for (const r of early.items) {
+        expect(r.called).toBeNull();
+        expect(r.distributed).toBeNull();
+        expect(r.recallable).toBeNull();
+        expect(r.unfunded).toBeNull();
+      }
+      expect(D(early.totals.amount!).eq('338000000')).toBe(true);
+      expect(early.totals.called).toBeNull();
+      expect(early.totals.unfunded).toBeNull();
     });
   });
 

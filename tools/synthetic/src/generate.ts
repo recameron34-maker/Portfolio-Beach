@@ -362,6 +362,9 @@ export function generateDataset(options: GenerateOptions = {}): SyntheticDataset
   const capitalNotices: SyntheticDataset['capitalNotices'] = [];
   const cashFlows: SyntheticDataset['cashFlows'] = [];
   const realizationOutlooks: SyntheticDataset['realizationOutlooks'] = [];
+  // Outlooks were set at the last quarterly review before the as-of date, at noon UTC: a timestamp
+  // derived from the dataset's own dates, never the wall clock, so every build is byte-identical.
+  const outlookSetAt = `${quarterEnd(addMonths(asOf, -3))}T12:00:00Z`;
   const total = profile.activeInvestments + profile.realizedInvestments;
 
   const vehicleFor = (dealType: string, entryYear: number): string => {
@@ -720,6 +723,7 @@ export function generateDataset(options: GenerateOptions = {}): SyntheticDataset
         horizonMonths: 18,
         outlook: rng.pick(['realization_outlook.partial', 'realization_outlook.full']),
         note: 'Sponsor has engaged advisors.',
+        setAt: outlookSetAt,
       });
     }
   }

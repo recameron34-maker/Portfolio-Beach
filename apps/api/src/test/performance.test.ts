@@ -244,12 +244,17 @@ describe('investment performance (M9): GET /api/v1/investments/{id}/performance'
   });
 
   it('returns the realization outlook when one is set, never an invented one', async () => {
-    const p = await performanceFor('viewer.one', idOf('INV-0011'));
+    const id = idOf('INV-0011');
+    const seeded = h.dataset.realizationOutlooks.find((o) => o.investmentId === id)!;
+    // Set from the dataset's own dates (the quarter end before the as-of date), never the clock
+    // at seed time, so recordings are the same on every build.
+    expect(seeded.setAt).toBe('2025-03-31T12:00:00Z');
+    const p = await performanceFor('viewer.one', id);
     expect(p.realizationOutlook).toEqual({
       horizonMonths: 18,
       outlook: 'realization_outlook.full',
       note: 'Sponsor has engaged advisors.',
-      setAt: expect.stringMatching(/^\d{4}-\d{2}-\d{2}T/) as string,
+      setAt: new Date(seeded.setAt).toISOString(),
     });
     const none = await performanceFor('viewer.one', idOf('INV-0014'));
     expect(none.realizationOutlook).toBeNull();

@@ -48,6 +48,15 @@ describe('synthetic generator', () => {
     expect(r.reason).toBe('multiple_irr');
   });
 
+  it('stamps realization outlooks from the dataset dates, never the wall clock', () => {
+    // The last quarter end before the as-of date, at noon UTC.
+    expect(small.realizationOutlooks.length).toBeGreaterThan(0);
+    for (const o of small.realizationOutlooks) expect(o.setAt).toBe('2025-03-31T12:00:00Z');
+    const earlier = generateDataset({ profile: 'small', seed: 42, asOf: '2024-12-31' });
+    expect(earlier.realizationOutlooks.length).toBeGreaterThan(0);
+    for (const o of earlier.realizationOutlooks) expect(o.setAt).toBe('2024-09-30T12:00:00Z');
+  });
+
   it('keeps a nearer quarter but not the exact prior-year quarter for missing_prior_year', () => {
     const [invId] = small.scenarios.missing_prior_year ?? [];
     const rows = small.quarterlyPerformance
@@ -94,6 +103,15 @@ describe('synthetic generator', () => {
         });
       expect(await seen(viewer.id, viewer.roles)).toBe(0);
       expect(await seen(member.id, member.roles)).toBe(1);
+
+      // Business timestamps are written from the dataset, so set_at never falls back to now().
+      const outlooks = await handle.query<{ id: string; set_at: string }>(
+        `select id, to_char(set_at at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') as set_at
+         from mon.realization_outlook`,
+      );
+      expect(new Map(outlooks.map((r) => [r.id, r.set_at]))).toEqual(
+        new Map(small.realizationOutlooks.map((o) => [o.id, o.setAt])),
+      );
 
       // Client look-through: ownership per closed vehicle sums to 100%.
       const sums = await handle.query<{ name: string; total: string }>(

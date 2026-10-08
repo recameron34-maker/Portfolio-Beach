@@ -11,6 +11,8 @@ import * as schema from './schema/index.js';
  */
 const money = z.string().regex(/^-?\d+(\.\d+)?$/);
 const isoDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
+/** A UTC instant such as 2025-03-31T12:00:00Z; the generator derives it, the loader writes it. */
+const isoTimestamp = z.iso.datetime();
 const uuid = z.string().uuid();
 
 export const syntheticDatasetSchema = z.object({
@@ -263,6 +265,8 @@ export const syntheticDatasetSchema = z.object({
       horizonMonths: z.number().int(),
       outlook: z.string(),
       note: z.string().nullable(),
+      /** When the outlook was set; written explicitly so set_at never falls back to now(). */
+      setAt: isoTimestamp,
     }),
   ),
 });
@@ -360,6 +364,10 @@ export async function loadSyntheticDataset(
   );
   await insert('capitalNotices', schema.capitalNotice, data.capitalNotices);
   await insert('cashFlows', schema.cashFlow, data.cashFlows);
-  await insert('realizationOutlooks', schema.realizationOutlook, data.realizationOutlooks);
+  await insert(
+    'realizationOutlooks',
+    schema.realizationOutlook,
+    data.realizationOutlooks.map(({ setAt, ...row }) => ({ ...row, setAt: new Date(setAt) })),
+  );
   return counts;
 }

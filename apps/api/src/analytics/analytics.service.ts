@@ -1,17 +1,7 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { asc, eq, inArray } from 'drizzle-orm';
 import type { Principal } from '@pb/adapters';
-import {
-  CALC_VERSION,
-  D,
-  ZERO,
-  addMonths,
-  daysBetween,
-  daysInMonth,
-  formatIso,
-  latestPeriod,
-  parseIso,
-} from '@pb/calc';
+import { CALC_VERSION, D, ZERO, addMonths, daysBetween, latestPeriod } from '@pb/calc';
 import type { Decimal } from '@pb/calc';
 import type {
   AnalyticsSummary,
@@ -22,13 +12,14 @@ import type {
 } from '@pb/contracts';
 import { schema } from '@pb/db';
 import type { Tx } from '@pb/db';
+import { configDecimal, configError, configInteger } from '../common/definitions.js';
 import { DEFINITIONS } from '../common/tokens.js';
-import { ProblemError } from '../common/problem.js';
 import { DbService } from '../db/db.service.js';
 import { loadInvestmentsWithMetrics } from '../portfolio/loaders.js';
 import type { InvestmentBaseRow } from '../portfolio/loaders.js';
 import {
   latestLockedValuation,
+  latestQuarterEndOnOrBefore,
   lockedNavSeries,
   operatingView,
   pooledPositionMetrics,
@@ -84,23 +75,6 @@ interface WatchInputs {
 }
 
 const OUTFLOW_TYPES = new Set(['flow_type.contribution', 'flow_type.fee', 'flow_type.expense']);
-const DECIMAL = /^-?\d+(\.\d+)?$/;
-
-/* ---- config readers: a missing or malformed key is a configuration error, never a default ---- */
-
-const configError = (key: string): ProblemError =>
-  new ProblemError(500, 'configuration', `config/definitions.json is missing a usable ${key}`);
-
-function configInteger(value: unknown, key: string): number {
-  if (typeof value !== 'number' || !Number.isInteger(value) || value < 0) throw configError(key);
-  return value;
-}
-
-function configDecimal(value: unknown, key: string): Decimal {
-  if (typeof value === 'number' && Number.isFinite(value)) return D(String(value));
-  if (typeof value === 'string' && DECIMAL.test(value)) return D(value);
-  throw configError(key);
-}
 
 /* ---- pure helpers ---- */
 
@@ -130,34 +104,6 @@ function sumNav(positions: readonly Position[]): Decimal | null {
   return total;
 }
 
-const quarterEnd = (year: number, month: number): string =>
-  formatIso({ year, month, day: daysInMonth(year, month) });
-
-/** The calendar quarter end on or before a date. */
-function latestQuarterEndOnOrBefore(asOf: string): string {
-  const { year, month } = parseIso(asOf);
-  const endMonth = Math.ceil(month / 3) * 3;
-  const candidate = quarterEnd(year, endMonth);
-  if (candidate <= asOf) return candidate;
-  return endMonth === 3 ? quarterEnd(year - 1, 12) : quarterEnd(year, endMonth - 3);
-}
-
-/**
- * A sponsor's period end aligned to the calendar quarter end it reports for, when it is within
- * the tolerance (docs/08 section 5); otherwise the period end stays as reported. Keeps a sponsor
- * closing a few days early from showing up as a separate point in a quarterly series.
- */
-function alignedQuarterEnd(periodEnd: string, toleranceDays: number): string {
-  const floor = latestQuarterEndOnOrBefore(periodEnd);
-  if (floor === periodEnd) return periodEnd;
-  const { year, month } = parseIso(floor);
-  const ceil = month === 12 ? quarterEnd(year + 1, 3) : quarterEnd(year, month + 3);
-  const toFloor = daysBetween(floor, periodEnd);
-  const toCeil = daysBetween(periodEnd, ceil);
-  const nearest = toFloor <= toCeil ? floor : ceil;
-  return Math.min(toFloor, toCeil) <= toleranceDays ? nearest : periodEnd;
-}
-
 /** The latest Locked valuation strictly before a period end (the previous Locked mark). */
 function previousLocked(valuations: readonly ValuationRow[], before: string): ValuationRow | null {
   let best: ValuationRow | null = null;
@@ -166,15 +112,6 @@ function previousLocked(valuations: readonly ValuationRow[], before: string): Va
     if (best === null || v.periodEnd > best.periodEnd) best = v;
   }
   return best;
-}
-
-/**
- * The valuation keyed by its aligned quarter end for the NAV series. A mark dated on or before
- * the as-of date is never dropped: if its calendar quarter has not ended yet it keeps its own date.
- */
-function alignToQuarter(v: ValuationRow, asOf: string, toleranceDays: number): ValuationRow {
-  const aligned = alignedQuarterEnd(v.periodEnd, toleranceDays);
-  return aligned === v.periodEnd || aligned > asOf ? v : { ...v, periodEnd: aligned };
 }
 
 /** A rate as a percentage with one decimal for messages, for example 0.225 to "22.5". */
@@ -208,6 +145,40 @@ function exposures(
       nav: str(g.nav),
       navShare: navShareOf(g.nav, totalNav),
     }));
+}
+
+/**
+ * NAV per vehicle split by deal type (the stacked chart on the Exposure tab): the active
+ * positions with a Locked mark, grouped by vehicle, each vehicle's segments the deal type buckets
+ * of its positions (Decimal sums, shares of the total active NAV). Vehicles by total NAV, largest
+ * first, then name; segments follow the order of the deal type buckets so every bar stacks alike.
+ */
+export function vehicleByDealType(
+  active: readonly Position[],
+  totalNav: Decimal | null,
+  dealTypes: readonly ExposureBucket[],
+  dealTypeOf: (p: Position) => { key: string; label: string },
+): AnalyticsSummary['exposures']['vehicleByDealType'] {
+  const rank = new Map(dealTypes.map((b, i) => [b.key, i]));
+  const rankOf = (key: string): number => rank.get(key) ?? dealTypes.length;
+  const byVehicle = new Map<string, { label: string; positions: Position[] }>();
+  for (const p of active) {
+    if (p.summary.nav === null) continue;
+    const vehicle = byVehicle.get(p.row.vehicleId) ?? { label: p.row.vehicleName, positions: [] };
+    vehicle.positions.push(p);
+    byVehicle.set(p.row.vehicleId, vehicle);
+  }
+  return [...byVehicle.entries()]
+    .map(([key, v]) => ({
+      key,
+      label: v.label,
+      nav: sumNav(v.positions),
+      segments: exposures(v.positions, totalNav, dealTypeOf).sort(
+        (a, b) => rankOf(a.key) - rankOf(b.key) || compareText(a.key, b.key),
+      ),
+    }))
+    .sort((a, b) => compareNavDesc(a.nav, b.nav) || compareText(a.label, b.label))
+    .map(({ key, label, segments }) => ({ key, label, segments }));
 }
 
 /** Approved investment-level flows by calendar year: absolute sums, net and the running net. */
@@ -578,6 +549,8 @@ export class AnalyticsService {
         code === null
           ? { key: 'unknown', label: 'Not recorded' }
           : { key: code, label: labels.get(code) ?? code };
+      const dealTypeOf = (p: Position): { key: string; label: string } => taxonomy(p.row.dealType);
+      const dealTypes = exposures(active, activeNav, dealTypeOf);
       await audit({ action: 'analytics.read', entity: 'core.investment' });
       return {
         asOf,
@@ -589,7 +562,7 @@ export class AnalyticsService {
         exposures: {
           sector: exposures(active, activeNav, (p) => taxonomy(p.row.sector)),
           geography: exposures(active, activeNav, (p) => taxonomy(p.row.geography)),
-          dealType: exposures(active, activeNav, (p) => taxonomy(p.row.dealType)),
+          dealType: dealTypes,
           vehicle: exposures(active, activeNav, (p) => ({
             key: p.row.vehicleId,
             label: p.row.vehicleName,
@@ -602,11 +575,12 @@ export class AnalyticsService {
             const year = p.row.entryDate.slice(0, 4);
             return { key: year, label: year };
           }),
+          vehicleByDealType: vehicleByDealType(active, activeNav, dealTypes, dealTypeOf),
         },
         navSeries: lockedNavSeries(
-          active.map((p) => p.valuations.map((v) => alignToQuarter(v, asOf, tolerance))),
+          active.map((p) => p.valuations),
           asOf,
-          quarters,
+          { quarters, toleranceDays: tolerance },
         ),
         flowsByYear: flowsByYear(positions, asOf),
         topPositions: topPositions(active, activeNav, top),
