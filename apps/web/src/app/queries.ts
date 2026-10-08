@@ -89,8 +89,8 @@ export const LIST_LIMIT = 200;
 
 /**
  * The API writes an audit row for every read of a position's performance, a sponsor and a vehicle
- * (SEC-11.1). The deal tabs ask for them again on each tab visit, so a minute of freshness keeps a tab
- * switch from writing a new row each time; a change made in the app still refetches them.
+ * (SEC-11.1), and the deal tabs ask for them again on each tab visit. They stay fresh for a minute,
+ * so a tab switch within it reads the cache instead of writing another audit row.
  */
 const AUDITED_READ_STALE_MS = 60_000;
 

@@ -5,7 +5,7 @@ import { generateDataset } from '@pb/synthetic';
 import { ANALYTICS_TABS, DEAL_TABS } from '../src/app/nav.js';
 import { loadDataset, signInAs, walledDeal } from './fixtures.js';
 
-/** WCAG 2.1 AA with zero critical or serious issues on the Phase 0 pages (docs/12 section 1, docs/17 section 9). */
+/** WCAG 2.1 AA with zero critical or serious issues on every page (docs/12 section 1, docs/17 section 9). */
 const d = loadDataset();
 const full = generateDataset({ profile: 'small', seed: 42 });
 
