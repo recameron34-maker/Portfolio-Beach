@@ -1,0 +1,24 @@
+/* Valuation board (docs/04 M10). Tokens only; shared table, tile and badge styles live in styles.css. */
+.pb-val-gates {
+  display: grid;
+  gap: 6px;
+  margin: 0 0 16px;
+}
+.pb-val-gates > .pb-notice,
+.pb-val-gates > .pb-meta {
+  margin: 0;
+}
+.pb-val-reset {
+  display: inline-flex;
+  align-items: center;
+}
+.pb-val-change {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  white-space: nowrap;
+}
+.pb-val-table td {
+  vertical-align: middle;
+}
