@@ -3,7 +3,7 @@
 The prototype's realism depends on this generator. It must produce data that **looks and misbehaves like real private equity data** while containing nothing real.
 
 ## 1. Principles
-- **Deterministic:** same seed, same output (`--seed 42` default). Tests depend on it.
+- **Deterministic:** same seed, same output (`--seed 42` default). Tests depend on it. Business timestamps are derived from the dataset's own dates, never the wall clock (valuation approvals at period end plus 40 days, realization outlooks at noon UTC on the last quarter end before the as-of date), and the seed loader writes them, so no column falls back to a database `now()` default and recordings are the same on every build.
 - **Fictional only:** names from generated word lists (for example "Harborlight Capital", "Saltmarsh Holdings"). A check fails the build if any generated name matches the local deny-list (`docs/10`).
 - **Internally consistent:** cash flows, NAVs, valuations and financials reconcile unless a scenario deliberately breaks them.
 - **Scenario-tagged:** every deliberate defect has a scenario tag so tests can find it.
