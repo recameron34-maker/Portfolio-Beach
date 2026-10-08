@@ -6,6 +6,7 @@ import type { ClientList, CommitmentList, FundCommitmentRow, VehicleDetail } fro
 import { startHarness } from './harness.js';
 import type { Harness } from './harness.js';
 import { containingQuarterEnd, expectedNavSeries } from './nav-oracle.js';
+import { NOTHING_POOLED } from './pools.js';
 
 describe('vehicles, commitments and clients (M17, decision 0004)', () => {
   let h: Harness;
@@ -305,10 +306,8 @@ describe('vehicles, commitments and clients (M17, decision 0004)', () => {
       const primary = vehicleOfType('vehicle_type.primary_program');
       const detail = await detailFor('viewer.one', primary);
       expect(detail.positions).toEqual([]);
-      expect(detail.metrics.count).toBe(0);
-      expect(detail.metrics.invested).toBeNull();
-      expect(detail.metrics.nav).toBeNull();
-      expect(detail.metrics.grossMoic).toBeNull();
+      // Nothing to pool: the same answer every pooled view gives (pooledPositionMetrics).
+      expect(detail.metrics).toEqual(NOTHING_POOLED);
       expect(detail.navSeries).toEqual([]);
 
       const pooledSeed = h.dataset.commitments.filter(

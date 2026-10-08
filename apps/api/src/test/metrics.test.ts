@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { latestQuarterEndOnOrBefore, lockedNavSeries } from '../portfolio/metrics.js';
-import type { ValuationRow } from '../portfolio/metrics.js';
+import {
+  latestQuarterEndOnOrBefore,
+  lockedNavSeries,
+  pooledPositionMetrics,
+} from '../portfolio/metrics.js';
+import type { FlowRow, ValuationRow } from '../portfolio/metrics.js';
+import { NOTHING_POOLED } from './pools.js';
 
 const mark = (periodEnd: string, fairValue: string, state = 'Locked'): ValuationRow => ({
   periodEnd,
@@ -10,7 +15,42 @@ const mark = (periodEnd: string, fairValue: string, state = 'Locked'): Valuation
   method: 'valuation_method.sponsor_mark',
 });
 
+const flow = (flowDate: string, flowType: string, amount: string): FlowRow => ({
+  flowDate,
+  flowType: `flow_type.${flowType}`,
+  amount,
+});
+
 const RULE = { quarters: 8, toleranceDays: 7 };
+
+describe('pooledPositionMetrics: one answer for every pooled view', () => {
+  it('gives a set with no position null figures and the insufficient_flows flag, never 0', () => {
+    expect(pooledPositionMetrics([], '2025-06-30')).toEqual(NOTHING_POOLED);
+  });
+
+  it('keeps the real zero NAV of a realized set and the null NAV of an unmarked active one', () => {
+    const flows = [
+      flow('2020-01-15', 'contribution', '-100'),
+      flow('2023-06-30', 'distribution', '150'),
+    ];
+    const realized = pooledPositionMetrics(
+      [{ flows, valuations: [], isActive: false }],
+      '2025-06-30',
+    );
+    expect(realized.count).toBe(1);
+    expect(realized.nav).toBe('0');
+    expect(realized.invested).toBe('100');
+    expect(realized.grossMoic).toBe('1.5');
+    const unmarked = pooledPositionMetrics(
+      [{ flows: flows.slice(0, 1), valuations: [], isActive: true }],
+      '2025-06-30',
+    );
+    expect(unmarked.count).toBe(1);
+    expect(unmarked.nav).toBeNull();
+    expect(unmarked.rvpi).toBeNull();
+    expect(unmarked.tvpi).toBeNull();
+  });
+});
 
 describe('latestQuarterEndOnOrBefore', () => {
   it('returns the date itself on a quarter end and the previous quarter end otherwise', () => {

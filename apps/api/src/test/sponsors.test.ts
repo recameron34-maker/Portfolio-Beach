@@ -1,9 +1,10 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { D } from '@pb/calc';
-import { commitmentList, sponsorDetail } from '@pb/contracts';
+import { commitmentList, sponsorDetail, vehicleDetail } from '@pb/contracts';
 import type { SponsorDetail } from '@pb/contracts';
 import { startHarness } from './harness.js';
 import type { Harness } from './harness.js';
+import { NOTHING_POOLED } from './pools.js';
 
 /** Decimal to the contract's decimal string, the same rendering the API uses. */
 const str = (d: ReturnType<typeof D>): string => d.toFixed(10).replace(/\.?0+$/, '');
@@ -190,10 +191,28 @@ describe('sponsor 360 (M6): GET /api/v1/sponsors/{id}', () => {
     expect(d.funds.find((f) => f.name === 'Dunecrest Fund IV')?.ourCommitment).toBe('17000000');
     expect(d.funds.find((f) => f.name === 'Dunecrest Fund IV')?.aliases).toEqual(['DF IV']);
     expect(d.totalCommitted).toBe(str(seeded.reduce((acc, c) => acc.plus(c.amount), D('0'))));
-    expect(d.metrics.count).toBe(0);
-    expect(d.metrics.invested).toBeNull();
-    expect(d.metrics.grossMoic).toBeNull();
-    expect(d.metrics.grossIrr).toBeNull();
+    // Nothing to pool: every figure is null, NAV included, never 0 (docs/06 section 3).
+    expect(d.metrics).toEqual(NOTHING_POOLED);
+  });
+
+  it('answers a sponsor without positions exactly as a vehicle without positions', async () => {
+    const dunecrest = sponsorNamed('Dunecrest Private Equity');
+    const primary = h.dataset.vehicles.find(
+      (v) => v.vehicleType === 'vehicle_type.primary_program',
+    );
+    const vehicle = vehicleDetail.parse(
+      (
+        await h
+          .http()
+          .get(`/api/v1/vehicles/${primary!.id}?asOf=${h.dataset.asOf}`)
+          .set('authorization', h.as('viewer.one'))
+          .expect(200)
+      ).body,
+    );
+    const sponsor = await detailFor('viewer.one', dunecrest.id, 'req-sponsor-empty-pool');
+    expect(vehicle.positions).toEqual([]);
+    expect(sponsor.metrics).toEqual(vehicle.metrics);
+    expect(sponsor.metrics).toEqual(NOTHING_POOLED);
   });
 
   it('returns 404, never 403, for an unknown or malformed id', async () => {
