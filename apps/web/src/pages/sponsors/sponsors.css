@@ -1,0 +1,85 @@
+/* Sponsor pages (pages/sponsors/Sponsors.tsx). Tokens only; scoped to pb-sponsors-* classes. */
+
+/* Back to the directory, above the banner. */
+.pb-sponsors-back {
+  margin: 0 0 6px;
+  font-size: 13px;
+  line-height: 20px;
+}
+.pb-sponsors-back a {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  text-decoration: none;
+}
+.pb-sponsors-back a:hover {
+  text-decoration: underline;
+}
+.pb-sponsors-back svg {
+  flex: none;
+}
+
+/* The sponsor's description, read as the page's lead paragraph under the banner. */
+.pb-sponsors-lead {
+  max-width: 78ch;
+  margin: -6px 0 18px;
+  font-size: 14px;
+  line-height: 22px;
+  color: var(--pb-text);
+}
+
+/* Six tiles: three by two on a laptop, one row on a wide screen, pairs on a phone. */
+@media (min-width: 1100px) {
+  .pb-tiles.pb-sponsors-tiles {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+@media (min-width: 1440px) {
+  .pb-tiles.pb-sponsors-tiles {
+    grid-template-columns: repeat(6, minmax(0, 1fr));
+  }
+}
+@media (max-width: 480px) {
+  .pb-tiles.pb-sponsors-tiles {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+/* The NAV bar chart keeps a fixed label column and needs about 440 pixels to show every value;
+   below that the positions table carries the same figures. */
+@media (max-width: 440px) {
+  .pb-sponsors-exposure {
+    display: none;
+  }
+}
+
+/* Alias chips inside a table cell keep the row height. */
+.pb-chips.pb-sponsors-aliases {
+  flex-wrap: nowrap;
+  gap: 4px;
+  margin: 0;
+}
+
+/* A second line inside a table cell (the vehicle under the company); hover tints the row, so muted-strong. */
+.pb-sponsors-sub {
+  display: block;
+  margin-top: 1px;
+  font-size: 12px;
+  line-height: 16px;
+  color: var(--pb-muted-strong);
+}
+
+/* A note under a table or chart. */
+.pb-sponsors-note {
+  margin-top: 10px;
+}
+
+/* Total rows: a rule above, the figures in the key-number weight. Two classes so the row header
+   loses the hairline that .pb-table th[scope='row'] draws under body rows. */
+.pb-table.pb-sponsors-table tfoot th,
+.pb-table.pb-sponsors-table tfoot td {
+  padding: 8px 10px;
+  border-top: 1px solid var(--pb-border);
+  border-bottom: 0;
+  font-weight: 600;
+}
