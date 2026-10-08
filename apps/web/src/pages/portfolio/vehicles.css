@@ -1,0 +1,56 @@
+/* Vehicle pages (pages/portfolio/Vehicles.tsx). Tokens only; scoped to pb-vehicles-* classes. */
+
+/* Back to the list, above the banner. */
+.pb-vehicles-back {
+  margin: 0 0 6px;
+  font-size: 13px;
+  line-height: 20px;
+}
+.pb-vehicles-back a {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  text-decoration: none;
+}
+.pb-vehicles-back a:hover {
+  text-decoration: underline;
+}
+.pb-vehicles-back svg {
+  flex: none;
+}
+
+/* Eight tiles read as two rows of four on a desktop, and as pairs on a phone. */
+@media (min-width: 1100px) {
+  .pb-tiles.pb-vehicles-tiles {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+}
+@media (max-width: 480px) {
+  .pb-tiles.pb-vehicles-tiles {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+/* A second line inside a table cell (the sponsor under the company); hover tints the row, so muted-strong. */
+.pb-vehicles-sub {
+  display: block;
+  margin-top: 1px;
+  font-size: 12px;
+  line-height: 16px;
+  color: var(--pb-muted-strong);
+}
+
+/* A note under a table. */
+.pb-vehicles-note {
+  margin-top: 10px;
+}
+
+/* Total rows: a rule above, the figures in the key-number weight. Two classes so the row header
+   loses the hairline that .pb-table th[scope='row'] draws under body rows. */
+.pb-table.pb-vehicles-table tfoot th,
+.pb-table.pb-vehicles-table tfoot td {
+  padding: 8px 10px;
+  border-top: 1px solid var(--pb-border);
+  border-bottom: 0;
+  font-weight: 600;
+}
