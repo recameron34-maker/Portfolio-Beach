@@ -24,6 +24,7 @@
   "references": [
     { "path": "../../packages/contracts" },
     { "path": "../../packages/db" },
+    { "path": "../../packages/workflows" },
     { "path": "../../tools/synthetic" }
   ]
 }

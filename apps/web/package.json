@@ -19,6 +19,7 @@
     "@fluentui/react-components": "9.74.9",
     "@fluentui/react-icons": "2.0.343",
     "@pb/contracts": "workspace:*",
+    "@pb/workflows": "workspace:*",
     "@tanstack/react-query": "5.104.1",
     "@tanstack/react-router": "1.170.41",
     "ag-grid-community": "36.2.0",

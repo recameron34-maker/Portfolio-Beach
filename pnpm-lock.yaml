@@ -123,6 +123,9 @@ importers:
       '@pb/contracts':
         specifier: workspace:*
         version: link:../../packages/contracts
+      '@pb/workflows':
+        specifier: workspace:*
+        version: link:../../packages/workflows
       '@tanstack/react-query':
         specifier: 5.104.1
         version: 5.104.1(react@19.3.0)
