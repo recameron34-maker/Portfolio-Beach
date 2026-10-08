@@ -5,11 +5,17 @@ import { Spinner } from '@fluentui/react-components';
 import type { AuditEventRow } from '@pb/contracts';
 import { auditQuery, capitalNoticesQuery, meQuery } from '../../app/queries.js';
 import { UnavailableState } from '../../components/UnavailableState.js';
-import { Badge, Card, EmptyState, PageSkeleton, SectionHeader } from '../../components/ui.js';
+import {
+  Badge,
+  Card,
+  EmptyState,
+  PageSkeleton,
+  SectionHeader,
+  TableWrap,
+} from '../../components/ui.js';
 import { formatDate, formatDateTime } from '../../lib/format.js';
 import { retryUnlessUnavailable } from '../../lib/unavailable.js';
 import { canReadAudit, TIMELINE_LIMIT, timelineEntries, useDealDetail, useDealId } from './data.js';
-import { WideTable } from './parts.js';
 import './deal.css';
 
 const AUDIT_AUDIENCE =
@@ -17,7 +23,7 @@ const AUDIT_AUDIENCE =
 
 function AuditTable({ items }: { items: AuditEventRow[] }): ReactNode {
   return (
-    <WideTable label="Audit trail for this record">
+    <TableWrap label="Audit trail for this record">
       <table className="pb-table" aria-label="Audit trail for this record">
         <thead>
           <tr>
@@ -46,7 +52,7 @@ function AuditTable({ items }: { items: AuditEventRow[] }): ReactNode {
           ))}
         </tbody>
       </table>
-    </WideTable>
+    </TableWrap>
   );
 }
 

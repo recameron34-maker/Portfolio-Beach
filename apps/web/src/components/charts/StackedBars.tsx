@@ -4,11 +4,14 @@ import { ChartFigure } from './ChartFigure.js';
 import type { TooltipState } from './ChartFigure.js';
 import {
   compactValue,
+  LABEL_GAP,
+  labelBudget,
+  labelColumn,
   labelStride,
   linearScale,
   niceTicks,
   seriesColor,
-  truncateLabel,
+  truncateMiddle,
 } from './scale.js';
 import type { ValueKind } from './scale.js';
 import { useWidth } from './useWidth.js';
@@ -26,8 +29,10 @@ export interface StackDatum {
 
 const ROW = 30;
 const BAR = 18;
-const LABEL_W = 170;
+/** Room right of the plot for the last tick label. */
 const PAD_R = 24;
+/** The plot never shrinks below this. */
+const MIN_PLOT = 40;
 
 /** Part-to-whole per category: horizontal stacked bars with a 2px surface gap between segments (six segments at most). */
 export function StackedBars({
@@ -52,15 +57,17 @@ export function StackedBars({
   const totals = data.map((d) => d.segments.reduce((s, seg) => s + Math.max(0, seg.value), 0));
   const ticks = niceTicks(0, Math.max(0, ...totals), 4);
   const hi = ticks[ticks.length - 1] ?? 1;
-  const plotW = Math.max(120, width - LABEL_W - PAD_R);
-  const x = linearScale(0, hi, LABEL_W, LABEL_W + plotW);
+  const labelW = labelColumn(width);
+  const budget = labelBudget(labelW);
+  const plotW = Math.max(MIN_PLOT, width - labelW - PAD_R);
+  const x = linearScale(0, hi, labelW, labelW + plotW);
   const stride = labelStride(ticks.length - 1, plotW);
   const height = data.length * ROW + 28;
   const series = segmentNames.map((name, i) => ({ name, color: seriesColor(i + 1) }));
   const colorOf = (name: string) => seriesColor(segmentNames.indexOf(name) + 1);
   const show = (d: StackDatum, i: number) =>
     setTooltip({
-      left: Math.min(LABEL_W + 12, width - 200),
+      left: Math.max(0, Math.min(labelW + 12, width - 200)),
       top: i * ROW,
       title: d.label,
       rows: d.segments.map((s) => ({ name: s.name, value: s.display, color: colorOf(s.name) })),
@@ -129,12 +136,12 @@ export function StackedBars({
               >
                 <rect x={0} y={i * ROW} width={width} height={ROW} className="pb-chart-hit" />
                 <text
-                  x={LABEL_W - 10}
+                  x={labelW - LABEL_GAP}
                   y={y + BAR / 2 + 4}
                   className="pb-chart-label"
                   textAnchor="end"
                 >
-                  {truncateLabel(d.label)}
+                  {truncateMiddle(d.label, budget)}
                 </text>
                 {positives.map((s, si) => {
                   const start = x(cursor);

@@ -11,6 +11,7 @@ import {
   PageSkeleton,
   SectionHeader,
   StatTile,
+  TableWrap,
 } from '../../components/ui.js';
 import { formatHoldingPeriod } from '../../lib/dates.js';
 import { formatDate, formatMoic, formatMoneyM, irrDisplay, labelOf } from '../../lib/format.js';
@@ -44,7 +45,7 @@ function RealizedTable({ page }: { page: InvestmentPage }): ReactNode {
     );
   }
   return (
-    <div className="pb-table-wrap">
+    <TableWrap label="Realized positions">
       <table className="pb-table" aria-label="Realized positions">
         <thead>
           <tr>
@@ -85,7 +86,7 @@ function RealizedTable({ page }: { page: InvestmentPage }): ReactNode {
           ))}
         </tbody>
       </table>
-    </div>
+    </TableWrap>
   );
 }
 

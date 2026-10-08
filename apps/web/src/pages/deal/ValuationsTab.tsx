@@ -13,11 +13,13 @@ import {
   NumCell,
   PageSkeleton,
   SectionHeader,
+  TableWrap,
 } from '../../components/ui.js';
 import {
   formatDate,
   formatMoneyM,
   formatMonthYear,
+  formatMonthYearShort,
   formatPct,
   labelOf,
   MISSING,
@@ -26,7 +28,6 @@ import {
 import { humanizeState, valuationTone } from '../../lib/states.js';
 import { retryUnlessUnavailable } from '../../lib/unavailable.js';
 import {
-  axisPeriod,
   datePart,
   lockedSeries,
   toNumber,
@@ -35,7 +36,6 @@ import {
   versionsNewestFirst,
 } from './data.js';
 import type { VersionPoint } from './data.js';
-import { WideTable } from './parts.js';
 import './deal.css';
 
 /** Single series: the Locked fair value per period. Drafts, versions in review and reopened versions are left out. */
@@ -55,7 +55,7 @@ function LockedChart({ rows }: { rows: readonly VersionPoint[] }): ReactNode {
     <LineChart
       title="Locked fair value by period"
       subtitle="Locked versions only"
-      x={locked.map((v) => axisPeriod(v.periodEnd))}
+      x={locked.map((v) => formatMonthYearShort(v.periodEnd))}
       series={[{ name: 'Fair value', values: locked.map((v) => toNumber(v.fairValue)) }]}
       kind="money"
       format={moneyLabel}
@@ -79,7 +79,7 @@ const COLUMNS = 8;
 function VersionsTable({ page }: { page: ValuationPage }): ReactNode {
   const rows = versionsNewestFirst(page.items);
   return (
-    <WideTable label="Valuation versions">
+    <TableWrap label="Valuation versions">
       <table className="pb-table" aria-label="Valuation versions">
         <thead>
           <tr>
@@ -121,7 +121,7 @@ function VersionsTable({ page }: { page: ValuationPage }): ReactNode {
           ))}
         </tbody>
       </table>
-    </WideTable>
+    </TableWrap>
   );
 }
 
@@ -141,9 +141,7 @@ function VersionsCard({ page }: { page: ValuationPage }): ReactNode {
         />
       ) : (
         <>
-          <div className="pb-deal-chart">
-            <LockedChart rows={page.items} />
-          </div>
+          <LockedChart rows={page.items} />
           <VersionsTable page={page} />
           {page.nextCursor !== null ? (
             <p className="pb-meta pb-deal-note">
@@ -172,10 +170,8 @@ function RecordedVersionsCard({ detail }: { detail: InvestmentDetail }): ReactNo
         />
       ) : (
         <>
-          <div className="pb-deal-chart">
-            <LockedChart rows={rows} />
-          </div>
-          <WideTable label="Valuation versions">
+          <LockedChart rows={rows} />
+          <TableWrap label="Valuation versions">
             <table className="pb-table" aria-label="Valuation versions">
               <thead>
                 <tr>
@@ -200,7 +196,7 @@ function RecordedVersionsCard({ detail }: { detail: InvestmentDetail }): ReactNo
                 ))}
               </tbody>
             </table>
-          </WideTable>
+          </TableWrap>
         </>
       )}
       <BoardLink />

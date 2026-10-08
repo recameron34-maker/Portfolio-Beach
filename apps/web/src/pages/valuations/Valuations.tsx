@@ -53,6 +53,7 @@ import {
   SectionHeader,
   SimulatedBadge,
   StatTile,
+  TableWrap,
   Toolbar,
 } from '../../components/ui.js';
 import { formatDate, formatMoneyM, formatPct, labelOf, MISSING } from '../../lib/format.js';
@@ -75,9 +76,14 @@ import {
   versionLabel,
 } from './board.js';
 import { NewValuationDialog } from './NewValuation.js';
-import { ActionLogCard, ActionStatus, CommandButtons, ReasonDialog } from './WorkflowActions.js';
-import { blockedTitle, resultSuffix, useActionLog } from './workflow.js';
-import type { ActionLog } from './workflow.js';
+import {
+  ActionLogCard,
+  ActionStatus,
+  CommandButtons,
+  ReasonDialog,
+} from '../../components/WorkflowActions.js';
+import { blockedTitle, resultSuffix, useActionLog } from '../../lib/workflow.js';
+import type { ActionLog } from '../../lib/workflow.js';
 import './valuations.css';
 
 type ValuationOption = CommandOption<ValuationState, ValuationCommand>;
@@ -127,7 +133,7 @@ function VersionTable({
   onIssue: (row: ValuationRow, option: ValuationOption) => void;
 }): ReactNode {
   return (
-    <div className="pb-table-wrap">
+    <TableWrap label="Valuations">
       <table className="pb-table pb-val-table" aria-label="Valuations">
         <thead>
           <tr>
@@ -184,7 +190,7 @@ function VersionTable({
           ))}
         </tbody>
       </table>
-    </div>
+    </TableWrap>
   );
 }
 
@@ -270,7 +276,7 @@ function MissingMarksCard({
             detail={`Each active position has at least one valuation version for ${formatDate(period)}.`}
           />
         ) : (
-          <div className="pb-table-wrap">
+          <TableWrap label="Missing marks">
             <table className="pb-table" aria-label="Missing marks">
               <thead>
                 <tr>
@@ -308,7 +314,7 @@ function MissingMarksCard({
                 ))}
               </tbody>
             </table>
-          </div>
+          </TableWrap>
         );
       break;
   }

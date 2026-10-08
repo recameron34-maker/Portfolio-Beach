@@ -17,6 +17,7 @@ import {
   PageHeader,
   PageSkeleton,
   SectionHeader,
+  TableWrap,
   TabNav,
 } from '../../components/ui.js';
 import { UnavailableState } from '../../components/UnavailableState.js';
@@ -27,7 +28,7 @@ import { ROLE_ROWS, ROLE_SOURCE } from './roles.js';
 
 function AuditTable({ items }: { items: AuditEventRow[] }): ReactNode {
   return (
-    <div className="pb-table-wrap">
+    <TableWrap label="Audit events">
       <table className="pb-table" aria-label="Audit events">
         <thead>
           <tr>
@@ -72,7 +73,7 @@ function AuditTable({ items }: { items: AuditEventRow[] }): ReactNode {
           ))}
         </tbody>
       </table>
-    </div>
+    </TableWrap>
   );
 }
 
@@ -213,7 +214,7 @@ export function AccessPage(): ReactNode {
       ) : null}
       <Card>
         <SectionHeader aside={`${ROLE_ROWS.length} roles`}>What each role sees</SectionHeader>
-        <div className="pb-table-wrap">
+        <TableWrap label="What each role sees">
           <table className="pb-table" aria-label="What each role sees">
             <thead>
               <tr>
@@ -242,7 +243,7 @@ export function AccessPage(): ReactNode {
               })}
             </tbody>
           </table>
-        </div>
+        </TableWrap>
         <p className="pb-meta" data-testid="role-source">
           {ROLE_SOURCE}
         </p>
@@ -287,7 +288,7 @@ export function HealthPage(): ReactNode {
           />
         ) : null}
         {ready.data !== undefined ? (
-          <div className="pb-table-wrap">
+          <TableWrap label="Readiness checks">
             <table className="pb-table" aria-label="Readiness checks">
               <thead>
                 <tr>
@@ -310,7 +311,7 @@ export function HealthPage(): ReactNode {
                 ))}
               </tbody>
             </table>
-          </div>
+          </TableWrap>
         ) : null}
       </Card>
       <Card>
@@ -326,7 +327,7 @@ export function HealthPage(): ReactNode {
           switches.length === 0 ? (
             <EmptyState title="No adapter flags" detail="No adapter.* flag is configured." />
           ) : (
-            <div className="pb-table-wrap">
+            <TableWrap label="Kill switches">
               <table className="pb-table" aria-label="Kill switches">
                 <thead>
                   <tr>
@@ -351,7 +352,7 @@ export function HealthPage(): ReactNode {
                   ))}
                 </tbody>
               </table>
-            </div>
+            </TableWrap>
           )
         ) : null}
         <p className="pb-meta">

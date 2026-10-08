@@ -1,5 +1,14 @@
 import { describe, expect, it } from 'vitest';
-import { compactValue, labelStride, niceStep, niceTicks, truncateLabel } from './scale.js';
+import {
+  compactValue,
+  labelBudget,
+  labelColumn,
+  labelStride,
+  niceStep,
+  niceTicks,
+  truncateMiddle,
+  valueLabelPosition,
+} from './scale.js';
 
 describe('chart scales', () => {
   it('picks 1, 2, 5 steps', () => {
@@ -24,11 +33,57 @@ describe('chart scales', () => {
     expect(compactValue(1.4, 'multiple')).toBe('1.4x');
     expect(compactValue(12345, 'count')).toBe('12,345');
   });
-  it('truncates long labels without cutting the tooltip copy', () => {
-    expect(truncateLabel('Beach Co-Invest Fund III Partners LP', 22)).toBe(
-      'Beach Co-Invest Fund...',
-    );
-    expect(truncateLabel('Short')).toBe('Short');
+});
+
+describe('category labels', () => {
+  it('gives the label column about 36 percent of the chart, between 96 and 220 pixels', () => {
+    expect(labelColumn(316)).toBe(114);
+    expect(labelColumn(450)).toBe(162);
+    expect(labelColumn(200)).toBe(96);
+    expect(labelColumn(1000)).toBe(220);
+  });
+
+  it('fits about one character per 6.6 pixels of the column, after the gap', () => {
+    expect(labelBudget(96)).toBe(12);
+    expect(labelBudget(114)).toBe(15);
+    expect(labelBudget(162)).toBe(22);
+    expect(labelBudget(220)).toBe(31);
+    expect(labelBudget(10)).toBe(5);
+  });
+
+  it('cuts the middle so funds that share a long start stay apart', () => {
+    expect(truncateMiddle('Beach Co-Invest Fund II', 15)).toBe('Beach...Fund II');
+    expect(truncateMiddle('Beach Co-Invest Fund III', 15)).toBe('Beac...Fund III');
+    expect(truncateMiddle('Beach Co-Invest Fund II', 22)).toBe('Beach Co-Inv...Fund II');
+    expect(truncateMiddle('Beach Co-Invest Fund III', 22)).toBe('Beach Co-In...Fund III');
+    expect(truncateMiddle('Silverline Staffing Holdings', 22)).toBe('Silverline...Holdings');
+    expect(truncateMiddle('Supercalifragilistic', 10)).toBe('Sup...stic');
+    expect(truncateMiddle('Short', 15)).toBe('Short');
+    expect(truncateMiddle('Beach Co-Invest Fund II', 23)).toBe('Beach Co-Invest Fund II');
+  });
+
+  it('never runs past its budget and always keeps the last character', () => {
+    const labels = [
+      'Beach Co-Invest Fund III',
+      'Kelpwood Capital Partners Fund IV',
+      'North America',
+      'A B C D E F G H I J K',
+      'Unbrokenlonglabelwithoutanyspaces',
+    ];
+    for (const label of labels) {
+      for (let max = 4; max <= 36; max += 1) {
+        const short = truncateMiddle(label, max);
+        expect(short.length, `${label} at ${max}`).toBeLessThanOrEqual(max);
+        if (label.length <= max) expect(short).toBe(label);
+        else expect(short.endsWith(label.slice(-1)), `${label} at ${max}`).toBe(true);
+      }
+    }
+  });
+
+  it('keeps a value label inside the chart, reading back from the edge when it would spill', () => {
+    expect(valueLabelPosition(100, 316)).toEqual({ x: 106, anchor: 'start' });
+    expect(valueLabelPosition(306, 316)).toEqual({ x: 312, anchor: 'start' });
+    expect(valueLabelPosition(315, 316)).toEqual({ x: 312, anchor: 'end' });
   });
 });
 

@@ -17,6 +17,7 @@ import {
   PageSkeleton,
   SectionHeader,
   StatTile,
+  TableWrap,
   TabNav,
   Toolbar,
 } from '../../components/ui.js';
@@ -55,20 +56,18 @@ function UnfundedCard({ list }: { list: CommitmentList }): ReactNode {
         />
       ) : (
         <>
-          <div className="pb-cap-unfunded">
-            <HorizontalBars
-              title="Unfunded by sponsor fund"
-              subtitle="Commitments with recorded cash flows"
-              data={chart.bars}
-              kind="money"
-              valueColumn="Unfunded"
-              summary={[
-                `Unfunded by sponsor fund across ${chart.bars.length} commitments; the largest is ${largest.label} at ${largest.display}.`,
-                ...caveats,
-              ].join(' ')}
-              testId="unfunded-chart"
-            />
-          </div>
+          <HorizontalBars
+            title="Unfunded by sponsor fund"
+            subtitle="Commitments with recorded cash flows"
+            data={chart.bars}
+            kind="money"
+            valueColumn="Unfunded"
+            summary={[
+              `Unfunded by sponsor fund across ${chart.bars.length} commitments; the largest is ${largest.label} at ${largest.display}.`,
+              ...caveats,
+            ].join(' ')}
+            testId="unfunded-chart"
+          />
           {caveats.length > 0 ? (
             <p className="pb-meta" data-testid="unfunded-caveats">
               {caveats.join(' ')}
@@ -92,9 +91,7 @@ function CommitmentsTable({
   const hasClient = rows.some((r) => r.clientName !== null);
   const t = list.totals;
   return (
-    // The frame scrolls sideways and holds no link or button, so it takes focus itself: keyboard
-    // users can then scroll it with the arrow keys (WCAG 2.1.1).
-    <div className="pb-table-wrap" tabIndex={0} role="region" aria-label="Commitments, scrollable">
+    <TableWrap label="Commitments">
       <table className="pb-table pb-cap-commitments" aria-label="Commitments">
         <thead>
           <tr>
@@ -149,7 +146,7 @@ function CommitmentsTable({
           </tfoot>
         ) : null}
       </table>
-    </div>
+    </TableWrap>
   );
 }
 

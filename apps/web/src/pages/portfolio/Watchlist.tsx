@@ -17,6 +17,7 @@ import {
   PageSkeleton,
   SectionHeader,
   StatTile,
+  TableWrap,
   TabNav,
   Toolbar,
 } from '../../components/ui.js';
@@ -48,7 +49,7 @@ function isSeverity(value: string): value is Severity {
 
 function FlaggedTable({ items }: { items: WatchlistItem[] }): ReactNode {
   return (
-    <div className="pb-table-wrap">
+    <TableWrap label="Flagged positions">
       <table className="pb-table" aria-label="Flagged positions">
         <thead>
           <tr>
@@ -86,7 +87,7 @@ function FlaggedTable({ items }: { items: WatchlistItem[] }): ReactNode {
           ))}
         </tbody>
       </table>
-    </div>
+    </TableWrap>
   );
 }
 

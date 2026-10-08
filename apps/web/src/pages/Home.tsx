@@ -21,12 +21,14 @@ import {
   PageSkeleton,
   SectionHeader,
   StatTile,
+  TableWrap,
 } from '../components/ui.js';
 import {
   formatDate,
   formatMoic,
   formatMoneyM,
   formatMonthYear,
+  formatMonthYearShort,
   irrDisplay,
   labelOf,
   moneyLabel,
@@ -158,7 +160,7 @@ function NoticesBody({ page }: { page: CapitalNoticePage }): ReactNode {
   }
   return (
     <>
-      <div className="pb-table-wrap">
+      <TableWrap label="Capital activity needing attention">
         <table className="pb-table" aria-label="Capital activity needing attention">
           <thead>
             <tr>
@@ -195,7 +197,7 @@ function NoticesBody({ page }: { page: CapitalNoticePage }): ReactNode {
             ))}
           </tbody>
         </table>
-      </div>
+      </TableWrap>
       <p className="pb-meta">
         <Link to="/capital-activity">Open capital activity</Link>
         {page.attention.length > rows.length
@@ -270,7 +272,7 @@ function ChartsRow({ summary }: { summary: AnalyticsSummary }): ReactNode {
           <LineChart
             title="NAV by quarter"
             subtitle={`Locked marks only, last ${points.length} quarters`}
-            x={points.map((p) => formatMonthYear(p.periodEnd))}
+            x={points.map((p) => formatMonthYearShort(p.periodEnd))}
             series={[{ name: 'NAV', values: points.map((p) => toNumber(p.value)) }]}
             kind="money"
             format={moneyLabel}

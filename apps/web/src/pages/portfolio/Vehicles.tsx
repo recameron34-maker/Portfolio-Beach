@@ -23,6 +23,7 @@ import {
   PageSkeleton,
   SectionHeader,
   StatTile,
+  TableWrap,
   TabNav,
 } from '../../components/ui.js';
 import {
@@ -50,7 +51,7 @@ import './vehicles.css';
 
 function VehiclesTable({ items }: { items: VehicleSummary[] }): ReactNode {
   return (
-    <div className="pb-table-wrap">
+    <TableWrap label="Vehicles">
       <table className="pb-table" aria-label="Vehicles">
         <thead>
           <tr>
@@ -77,7 +78,7 @@ function VehiclesTable({ items }: { items: VehicleSummary[] }): ReactNode {
           ))}
         </tbody>
       </table>
-    </div>
+    </TableWrap>
   );
 }
 
@@ -239,7 +240,7 @@ function ScheduleTable({
   metrics: PooledMetrics;
 }): ReactNode {
   return (
-    <div className="pb-table-wrap">
+    <TableWrap label="Schedule of investments">
       <table className="pb-table pb-vehicles-table" aria-label="Schedule of investments">
         <thead>
           <tr>
@@ -294,7 +295,7 @@ function ScheduleTable({
           </tr>
         </tfoot>
       </table>
-    </div>
+    </TableWrap>
   );
 }
 
@@ -349,7 +350,7 @@ function FundCommitmentsCard({ vehicle }: { vehicle: VehicleDetail }): ReactNode
         />
       ) : (
         <>
-          <div className="pb-table-wrap">
+          <TableWrap label="Fund commitments">
             <table className="pb-table" aria-label="Fund commitments">
               <thead>
                 <tr>
@@ -387,7 +388,7 @@ function FundCommitmentsCard({ vehicle }: { vehicle: VehicleDetail }): ReactNode
                 ))}
               </tbody>
             </table>
-          </div>
+          </TableWrap>
           <p className="pb-meta pb-vehicles-note">{NO_CASH_FLOW_NOTE}</p>
         </>
       )}
@@ -417,7 +418,7 @@ function ClientCommitmentsCard({ vehicle }: { vehicle: VehicleDetail }): ReactNo
           testId="client-commitments-empty"
         />
       ) : (
-        <div className="pb-table-wrap">
+        <TableWrap label="Client commitments">
           <table className="pb-table pb-vehicles-table" aria-label="Client commitments">
             <thead>
               <tr>
@@ -450,7 +451,7 @@ function ClientCommitmentsCard({ vehicle }: { vehicle: VehicleDetail }): ReactNo
               </tr>
             </tfoot>
           </table>
-        </div>
+        </TableWrap>
       )}
     </Card>
   );

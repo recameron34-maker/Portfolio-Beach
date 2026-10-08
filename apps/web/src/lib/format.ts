@@ -88,6 +88,17 @@ export function formatMonthYear(iso: string | null | undefined): string {
   return `${long[Number(m[2]) - 1] ?? '?'} ${m[1]}`;
 }
 
+/**
+ * "Jun 2025" for chart axes, where full month names run into each other at phone width. The
+ * missing placeholder for anything that is not an ISO date with a real month.
+ */
+export function formatMonthYearShort(iso: string | null | undefined): string {
+  if (iso === null || iso === undefined) return MISSING;
+  const m = /^(\d{4})-(\d{2})-\d{2}$/.exec(iso);
+  const month = m === null ? undefined : MONTHS[Number(m[2]) - 1];
+  return m === null || month === undefined ? MISSING : `${month} ${m[1]}`;
+}
+
 /** Labels from GET /api/v1/taxonomy, registered once by the app shell (useTaxonomyLabels). */
 const TAXONOMY_LABELS = new Map<string, string>();
 

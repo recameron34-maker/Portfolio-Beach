@@ -1,5 +1,6 @@
 import { useId, useState } from 'react';
 import type { ReactNode } from 'react';
+import { TableWrap } from '../ui.js';
 
 export interface SeriesKey {
   name: string;
@@ -80,28 +81,30 @@ export function ChartFigure({
       </figcaption>
       <p className="pb-visually-hidden">{summary}</p>
       {showTable ? (
-        <table className="pb-table pb-chart-table" aria-label={`${title}, as a table`}>
-          <thead>
-            <tr>
-              {table.columns.map((c, i) => (
-                <th key={c} className={i === 0 ? undefined : 'num'}>
-                  {c}
-                </th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {table.rows.map((r, ri) => (
-              <tr key={`${r[0] ?? ''}-${ri}`}>
-                {r.map((cell, ci) => (
-                  <td key={`${ci}-${cell}`} className={ci === 0 ? undefined : 'num'}>
-                    {cell}
-                  </td>
+        <TableWrap label={`${title}, as a table`}>
+          <table className="pb-table pb-chart-table" aria-label={`${title}, as a table`}>
+            <thead>
+              <tr>
+                {table.columns.map((c, i) => (
+                  <th key={c} className={i === 0 ? undefined : 'num'}>
+                    {c}
+                  </th>
                 ))}
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {table.rows.map((r, ri) => (
+                <tr key={`${r[0] ?? ''}-${ri}`}>
+                  {r.map((cell, ci) => (
+                    <td key={`${ci}-${cell}`} className={ci === 0 ? undefined : 'num'}>
+                      {cell}
+                    </td>
+                  ))}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </TableWrap>
       ) : (
         <div className="pb-chart-wrap">
           {children}

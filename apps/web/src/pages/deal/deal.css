@@ -1,15 +1,5 @@
 /* Deal workspace tabs (pages/deal). Scoped to this folder; colours come only from the theme variables. */
 
-/* A wide table that scrolls sideways inside its card is a focusable region (keyboard scrolling).
-   Positioned so visually hidden text inside the table (absolutely positioned) scrolls and clips
-   with the table instead of widening the page. */
-.pb-deal-scroll {
-  position: relative;
-}
-.pb-deal-scroll:focus-visible {
-  outline-offset: 0;
-}
-
 /* A short explanatory line under a table or chart inside a card. */
 .pb-deal-note {
   margin: 10px 0 0;
@@ -59,12 +49,8 @@
 }
 
 /* The workspace repeats its tiles above every tab, so on a phone they stay two to a row instead of
-   stacking into one long column before the tab bar. Chart axis ticks step down one size there so
-   the last period label clears its neighbour (the chart kit always prints the last label). */
+   stacking into one long column before the tab bar. */
 @media (max-width: 480px) {
-  .pb-deal-chart .pb-chart-tick {
-    font-size: 11px;
-  }
   .pb-tiles.pb-deal-tiles {
     grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 8px;

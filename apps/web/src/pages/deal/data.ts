@@ -10,7 +10,7 @@ import type {
 } from '@pb/contracts';
 import definitions from '../../../../../config/definitions.json';
 import { investmentQuery } from '../../app/queries.js';
-import { formatDate, formatMoneyM, formatMonthYear, labelOf } from '../../lib/format.js';
+import { formatDate, formatMoneyM, labelOf } from '../../lib/format.js';
 import { humanizeState } from '../../lib/states.js';
 
 /* Data helpers shared by the deal workspace tabs. Pure functions and hooks only: components live in .tsx files. */
@@ -111,17 +111,6 @@ export function lockedSeries<T extends VersionPoint>(rows: readonly T[]): T[] {
     if (held === undefined || r.version > held.version) byPeriod.set(r.periodEnd, r);
   }
   return oldestFirst([...byPeriod.values()]);
-}
-
-/**
- * Chart axis label for a period end: formatMonthYear with the month cut to three letters
- * ("Jun 2025"). The chart kit thins its axis labels at phone width but always prints the last one,
- * and full month names run into each other there.
- */
-export function axisPeriod(iso: string): string {
-  const full = formatMonthYear(iso);
-  const [month, year] = full.split(' ');
-  return month === undefined || year === undefined ? full : `${month.slice(0, 3)} ${year}`;
 }
 
 /** The date part of an ISO timestamp ("2025-07-15T09:30:00Z" to "2025-07-15"); formatDate rejects anything else. */

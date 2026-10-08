@@ -15,12 +15,13 @@ import {
   PageSkeleton,
   SectionHeader,
   StatTile,
+  TableWrap,
 } from '../../components/ui.js';
 import {
   formatDate,
   formatMoic,
   formatMoneyM,
-  formatMonthYear,
+  formatMonthYearShort,
   formatMultiple,
   formatPct,
   irrDisplay,
@@ -34,7 +35,7 @@ type CreditBlock = NonNullable<InvestmentPerformance['credit']>;
 
 function BookTable({ items }: { items: InvestmentSummary[] }): ReactNode {
   return (
-    <div className="pb-table-wrap">
+    <TableWrap label="Credit positions">
       <table className="pb-table" aria-label="Credit positions">
         <thead>
           <tr>
@@ -79,7 +80,7 @@ function BookTable({ items }: { items: InvestmentSummary[] }): ReactNode {
           ))}
         </tbody>
       </table>
-    </div>
+    </TableWrap>
   );
 }
 
@@ -190,7 +191,7 @@ function ValueSeries({ credit, company }: { credit: CreditBlock; company: string
     <LineChart
       title="Fair value and par"
       subtitle="Approved quarters"
-      x={quarters.map((q) => formatMonthYear(q.periodEnd))}
+      x={quarters.map((q) => formatMonthYearShort(q.periodEnd))}
       series={[
         { name: 'Fair value', values: quarters.map((q) => numberOf(q.fairValue)) },
         { name: 'Par', values: quarters.map((q) => numberOf(q.parValue)) },
@@ -208,7 +209,7 @@ function AmortizationTable({ credit }: { credit: CreditBlock }): ReactNode {
     return <p className="pb-meta">No scheduled amortization on record.</p>;
   }
   return (
-    <div className="pb-table-wrap">
+    <TableWrap label="Amortization schedule">
       <table className="pb-table" aria-label="Amortization schedule">
         <thead>
           <tr>
@@ -225,7 +226,7 @@ function AmortizationTable({ credit }: { credit: CreditBlock }): ReactNode {
           ))}
         </tbody>
       </table>
-    </div>
+    </TableWrap>
   );
 }
 

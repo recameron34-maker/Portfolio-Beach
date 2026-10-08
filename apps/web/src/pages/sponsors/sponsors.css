@@ -45,14 +45,6 @@
   }
 }
 
-/* The NAV bar chart keeps a fixed label column and needs about 440 pixels to show every value;
-   below that the positions table carries the same figures. */
-@media (max-width: 440px) {
-  .pb-sponsors-exposure {
-    display: none;
-  }
-}
-
 /* Alias chips inside a table cell keep the row height. */
 .pb-chips.pb-sponsors-aliases {
   flex-wrap: nowrap;

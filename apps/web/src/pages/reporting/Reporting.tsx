@@ -16,6 +16,7 @@ import {
   PageSkeleton,
   SectionHeader,
   StatTile,
+  TableWrap,
   TabNav,
 } from '../../components/ui.js';
 import {
@@ -64,7 +65,7 @@ function ByVehicle({ report }: { report: WeeklyReport }): ReactNode {
           detail="No vehicle you can see holds an active position as of this date."
         />
       ) : (
-        <div className="pb-table-wrap">
+        <TableWrap label="By vehicle">
           <table className="pb-table" aria-label="By vehicle">
             <thead>
               <tr>
@@ -102,7 +103,7 @@ function ByVehicle({ report }: { report: WeeklyReport }): ReactNode {
               </tr>
             </tbody>
           </table>
-        </div>
+        </TableWrap>
       )}
     </Card>
   );
@@ -119,7 +120,7 @@ function Movers({ report }: { report: WeeklyReport }): ReactNode {
           testId="movers-empty"
         />
       ) : (
-        <div className="pb-table-wrap">
+        <TableWrap label="Movers">
           <table className="pb-table" aria-label="Movers">
             <thead>
               <tr>
@@ -151,7 +152,7 @@ function Movers({ report }: { report: WeeklyReport }): ReactNode {
               })}
             </tbody>
           </table>
-        </div>
+        </TableWrap>
       )}
     </Card>
   );
@@ -206,7 +207,7 @@ function CapitalActivity({ report }: { report: WeeklyReport }): ReactNode {
           testId="capital-empty"
         />
       ) : (
-        <div className="pb-table-wrap">
+        <TableWrap label="Capital activity">
           <table className="pb-table" aria-label="Capital activity">
             <thead>
               <tr>
@@ -236,7 +237,7 @@ function CapitalActivity({ report }: { report: WeeklyReport }): ReactNode {
               ))}
             </tbody>
           </table>
-        </div>
+        </TableWrap>
       )}
     </Card>
   );

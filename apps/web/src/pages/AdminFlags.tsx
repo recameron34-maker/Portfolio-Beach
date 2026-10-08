@@ -15,6 +15,7 @@ import {
   PageHeader,
   PageSkeleton,
   SectionHeader,
+  TableWrap,
   TabNav,
   Toolbar,
 } from '../components/ui.js';
@@ -77,7 +78,7 @@ export function AdminFlagsPage(): ReactNode {
             </Field>
           </Toolbar>
         ) : null}
-        <div className="pb-table-wrap">
+        <TableWrap label="Feature flags">
           <table className="pb-table" aria-label="Feature flags">
             <thead>
               <tr>
@@ -116,7 +117,7 @@ export function AdminFlagsPage(): ReactNode {
               ))}
             </tbody>
           </table>
-        </div>
+        </TableWrap>
         {message !== null ? (
           <p
             role="status"
