@@ -4,6 +4,7 @@
   "private": true,
   "description": "Typed state machines for every workflow in docs/18, shared by the API and its tests",
   "type": "module",
+  "sideEffects": false,
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "exports": {
