@@ -168,11 +168,10 @@ export class PortfolioService {
       await audit({ action: 'investment.read', entity: 'core.investment', entityId: row.id });
       const latestPeriodEnd = credit?.latest?.periodEnd ?? operating?.periodEnd ?? null;
       return {
+        // The summary row carries the vehicle and sponsor ids; the detail adds the rest.
         ...summary,
         companyId: row.companyId,
-        sponsorId: row.sponsorId,
         sponsorFundId: row.sponsorFundId,
-        vehicleId: row.vehicleId,
         companyDescription: description?.description ?? null,
         latestPeriodEnd,
         cashFlows: (flows.get(row.id) ?? []).map((f) => ({

@@ -77,13 +77,18 @@ export const investmentListQuery = pageQuery.extend({
   asOf: isoDate.optional(),
 });
 
-/** One row of the portfolio grid (M9 metrics from packages/calc, null where not calculable). */
+/**
+ * One row of the portfolio grid (M9 metrics from packages/calc, null where not calculable). The
+ * vehicle and sponsor ids let a page link a position to its vehicle and sponsor.
+ */
 export const investmentSummary = z.object({
   id: uuid,
   investmentNumber: z.string(),
   companyName: z.string(),
+  sponsorId: uuid,
   sponsorName: z.string(),
   sponsorFundName: z.string().nullable(),
+  vehicleId: uuid,
   vehicleName: z.string(),
   dealType: z.string(),
   sector: z.string().nullable(),
@@ -120,11 +125,10 @@ export const investmentPage = z.object({
 });
 export type InvestmentPage = z.infer<typeof investmentPage>;
 
+/** The summary row (vehicle and sponsor ids included) plus the detail the workspace tabs read. */
 export const investmentDetail = investmentSummary.extend({
   companyId: uuid,
-  sponsorId: uuid,
   sponsorFundId: uuid.nullable(),
-  vehicleId: uuid,
   companyDescription: z.string().nullable(),
   latestPeriodEnd: isoDate.nullable(),
   cashFlows: z.array(z.object({ date: isoDate, flowType: z.string(), amount: decimalString })),

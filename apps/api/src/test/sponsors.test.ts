@@ -75,6 +75,11 @@ describe('sponsor 360 (M6): GET /api/v1/sponsors/{id}', () => {
     expect(d.positions.length).toBe(7);
     expect(d.positions.map((p) => p.investmentNumber)).toEqual(expectedNumbers);
     expect(d.positions.every((p) => p.sponsorName === kelpwood.name)).toBe(true);
+    // Each position links back to this sponsor and to its own vehicle.
+    expect(d.positions.every((p) => p.sponsorId === kelpwood.id)).toBe(true);
+    for (const p of d.positions) {
+      expect(p.vehicleId).toBe(h.dataset.investments.find((i) => i.id === p.id)?.vehicleId);
+    }
     expect(d.positions.filter((p) => p.invested !== null).length).toBe(7);
     expect(d.activeInvestments).toBe(
       h.dataset.investments.filter((i) => i.sponsorId === kelpwood.id && i.isActive).length,

@@ -121,14 +121,17 @@ export async function loadFlowsAndValuations(
   return { flows, valuations };
 }
 
-/** The grid row: base columns plus the calculated position metrics as of a date. */
+/**
+ * The grid row: base columns (with the vehicle and sponsor ids pages link to) plus the calculated
+ * position metrics as of a date. The fund and company ids stay with the detail.
+ */
 export function summarizeInvestment(
   row: InvestmentBaseRow,
   flows: readonly FlowRow[],
   valuations: readonly ValuationRow[],
   asOf: string,
 ): InvestmentSummary {
-  const { vehicleId: _v, sponsorId: _s, sponsorFundId: _f, companyId: _c, ...base } = row;
+  const { sponsorFundId: _f, companyId: _c, ...base } = row;
   return {
     ...base,
     vintage: Number(row.entryDate.slice(0, 4)),

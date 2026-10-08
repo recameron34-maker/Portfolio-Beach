@@ -172,6 +172,11 @@ describe('vehicles, commitments and clients (M17, decision 0004)', () => {
       const expected = h.dataset.investments.filter((i) => i.vehicleId === id);
       expect(detail.positions.length).toBe(expected.length);
       expect(detail.positions.every((p) => p.vehicleName === detail.name)).toBe(true);
+      // Each position links back to this vehicle and to its own sponsor.
+      expect(detail.positions.every((p) => p.vehicleId === id)).toBe(true);
+      for (const p of detail.positions) {
+        expect(p.sponsorId).toBe(h.dataset.investments.find((i) => i.id === p.id)?.sponsorId);
+      }
       expect(detail.positions.map((p) => p.investmentNumber)).toEqual(
         expected.map((i) => i.investmentNumber).sort(),
       );

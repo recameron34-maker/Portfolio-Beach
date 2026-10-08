@@ -1,7 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import { buildOpenApi } from './openapi.js';
 import { ROUTES } from './routes.js';
-import { investmentListQuery, investmentSummary, problemDetails } from './schemas.js';
+import {
+  investmentDetail,
+  investmentListQuery,
+  investmentSummary,
+  problemDetails,
+} from './schemas.js';
 
 interface ObjectSchema {
   properties?: Record<string, Record<string, unknown>>;
@@ -54,8 +59,10 @@ describe('contracts', () => {
       id: '30000000-0000-4000-8000-000000000001',
       investmentNumber: 'INV-0001',
       companyName: 'X',
+      sponsorId: '30000000-0000-4000-8000-0000000000c1',
       sponsorName: 'Y',
       sponsorFundName: null,
+      vehicleId: '30000000-0000-4000-8000-0000000000b1',
       vehicleName: 'V',
       dealType: 'deal_type.co_invest_equity',
       sector: 'sector.software',
@@ -75,6 +82,20 @@ describe('contracts', () => {
     });
     expect(ok.success).toBe(true);
     expect(investmentSummary.safeParse({ ...ok.data, invested: 1000 }).success).toBe(false);
+  });
+
+  it('gives every position row its vehicle and sponsor ids, which the detail inherits', () => {
+    const doc = buildOpenApi('0.1.0');
+    const row = (responseSchema(doc, '/api/v1/investments').properties?.items?.items ??
+      {}) as ObjectSchema;
+    const detail = responseSchema(doc, '/api/v1/investments/{id}');
+    for (const schema of [row, detail]) {
+      expect(schema.required).toEqual(expect.arrayContaining(['vehicleId', 'sponsorId']));
+      expect(schema.properties?.vehicleId?.format).toBe('uuid');
+      expect(schema.properties?.sponsorId?.format).toBe('uuid');
+    }
+    expect(investmentDetail.shape.vehicleId).toBe(investmentSummary.shape.vehicleId);
+    expect(investmentDetail.shape.sponsorId).toBe(investmentSummary.shape.sponsorId);
   });
 
   it('problem details never carry a stack', () => {

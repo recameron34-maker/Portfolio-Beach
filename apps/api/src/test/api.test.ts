@@ -147,6 +147,37 @@ describe('Portfolio Beach API', () => {
       expect(audit[0]?.n).toBe(1);
     });
 
+    it("carries each position's vehicle and sponsor ids on the grid row and the detail alike", async () => {
+      const page = investmentPage.parse(
+        (
+          await h
+            .http()
+            .get('/api/v1/investments?limit=200')
+            .set('authorization', h.as('operations'))
+            .expect(200)
+        ).body,
+      );
+      expect(page.items.length).toBe(h.dataset.investments.length - 1);
+      for (const row of page.items) {
+        const seeded = h.dataset.investments.find((i) => i.id === row.id)!;
+        expect([row.vehicleId, row.sponsorId]).toEqual([seeded.vehicleId, seeded.sponsorId]);
+        expect(h.dataset.vehicles.find((v) => v.id === row.vehicleId)?.name).toBe(row.vehicleName);
+        expect(h.dataset.sponsors.find((s) => s.id === row.sponsorId)?.name).toBe(row.sponsorName);
+      }
+      // The detail inherits the summary row, ids included: one source for both.
+      const first = page.items[0]!;
+      const detail = investmentDetail.parse(
+        (
+          await h
+            .http()
+            .get(`/api/v1/investments/${first.id}`)
+            .set('authorization', h.as('operations'))
+            .expect(200)
+        ).body,
+      );
+      expect([detail.vehicleId, detail.sponsorId]).toEqual([first.vehicleId, first.sponsorId]);
+    });
+
     it('computes metrics with the calc library and flags multiple-root IRRs', async () => {
       const page = investmentPage.parse(
         (
