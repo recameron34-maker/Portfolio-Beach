@@ -1,0 +1,169 @@
+/* Deal workspace tabs (pages/deal). Scoped to this folder; colours come only from the theme variables. */
+
+/* A wide table that scrolls sideways inside its card is a focusable region (keyboard scrolling).
+   Positioned so visually hidden text inside the table (absolutely positioned) scrolls and clips
+   with the table instead of widening the page. */
+.pb-deal-scroll {
+  position: relative;
+}
+.pb-deal-scroll:focus-visible {
+  outline-offset: 0;
+}
+
+/* A short explanatory line under a table or chart inside a card. */
+.pb-deal-note {
+  margin: 10px 0 0;
+}
+/* Space between a list and a degrade notice that follows it in the same card. */
+.pb-deal-gap {
+  margin-top: 14px;
+}
+
+/* Wide quarterly tables: headers may wrap and cells sit closer so the columns fit a laptop screen. */
+.pb-table.pb-deal-dense thead th {
+  height: auto;
+  min-height: 32px;
+  padding: 6px;
+  line-height: 16px;
+  white-space: normal;
+  vertical-align: bottom;
+}
+.pb-table.pb-deal-dense td {
+  padding: 7px 6px;
+}
+.pb-table.pb-deal-dense th:first-child,
+.pb-table.pb-deal-dense td:first-child {
+  padding-left: 10px;
+}
+
+/* Two blocks side by side inside a card, stacked when the card is narrow (never wider than the card). */
+.pb-deal-split {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 300px), 1fr));
+  gap: 12px 16px;
+  align-items: start;
+}
+
+/* Two status badges in one cell, one above the other. */
+.pb-deal-stack {
+  display: inline-grid;
+  justify-items: start;
+  gap: 4px;
+}
+
+/* Tile rows whose labels may wrap: every label takes two lines so the numbers line up. */
+@media (min-width: 481px) {
+  .pb-deal-aligned .pb-stat-label {
+    min-height: 32px;
+  }
+}
+
+/* The workspace repeats its tiles above every tab, so on a phone they stay two to a row instead of
+   stacking into one long column before the tab bar. Chart axis ticks step down one size there so
+   the last period label clears its neighbour (the chart kit always prints the last label). */
+@media (max-width: 480px) {
+  .pb-deal-chart .pb-chart-tick {
+    font-size: 11px;
+  }
+  .pb-tiles.pb-deal-tiles {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+  }
+  .pb-deal-tiles .pb-stat-tile {
+    min-height: 0;
+    padding: 10px 12px;
+  }
+}
+
+/* A cell value with a badge beside it (Entry, due date, this position); the badge wraps under when space is short. */
+.pb-deal-period {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+}
+
+/* A note row under a table row (a reopen reason): attached to the row above it. */
+.pb-table tbody tr.pb-deal-has-note > td {
+  border-bottom: 0;
+}
+.pb-table tbody tr.pb-deal-note-row > td {
+  padding-top: 0;
+}
+
+/* Highlights grouped by quarter. */
+.pb-deal-highlights {
+  display: grid;
+  gap: 14px;
+}
+.pb-deal-highlights h3 {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 8px;
+  margin: 0 0 4px;
+  font-size: 13px;
+  line-height: 20px;
+  font-weight: 600;
+  color: var(--pb-text);
+}
+
+/* Sponsor card: the name as the lead line, then the facts. */
+.pb-deal-sponsor-name {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 10px;
+  margin: 0 0 6px;
+  font-size: 16px;
+  line-height: 24px;
+  font-weight: 600;
+}
+.pb-deal-sponsor-description {
+  max-width: 78ch;
+  margin: 10px 0 0;
+}
+
+/* A link list in a half-width card: the facts sit under the name instead of beside it. */
+.pb-linklist.pb-deal-stacked li {
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+}
+.pb-linklist.pb-deal-stacked .pb-meta {
+  flex: none;
+  text-align: left;
+}
+
+/* Activity timeline: date, kind and text in aligned columns; the text wraps under them on phones. */
+.pb-list.pb-deal-timeline {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.pb-list.pb-deal-timeline > li {
+  display: grid;
+  grid-template-columns: 104px 96px minmax(0, 1fr);
+  align-items: baseline;
+  gap: 4px 12px;
+  padding: 8px 0;
+  border-top: 1px solid var(--pb-hairline);
+}
+.pb-list.pb-deal-timeline > li:first-child {
+  border-top: 0;
+  padding-top: 0;
+}
+.pb-deal-timeline-date {
+  font-variant-numeric: tabular-nums lining-nums;
+  color: var(--pb-muted-strong);
+  white-space: nowrap;
+}
+
+@media (max-width: 760px) {
+  .pb-list.pb-deal-timeline > li {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+  .pb-deal-timeline-text {
+    grid-column: 1 / -1;
+  }
+}
