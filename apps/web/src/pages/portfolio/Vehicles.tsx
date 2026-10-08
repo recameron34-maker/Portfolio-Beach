@@ -46,6 +46,7 @@ import {
   quarterLabel,
 } from './vehicle-ui.js';
 import './vehicles.css';
+import { balanceTiles } from '../../lib/tiles.js';
 
 /* ---- Vehicles list (/portfolio/vehicles) ---- */
 
@@ -179,7 +180,7 @@ function StatusBadge({ active }: { active: boolean }): ReactNode {
 function VehicleTiles({ vehicle }: { vehicle: VehicleDetail }): ReactNode {
   const m = vehicle.metrics;
   return (
-    <div className="pb-tiles pb-vehicles-tiles" data-testid="vehicle-tiles">
+    <div ref={balanceTiles} className="pb-tiles pb-vehicles-tiles" data-testid="vehicle-tiles">
       <StatTile
         label="Positions"
         value={String(m.count)}

@@ -31,11 +31,12 @@ import {
 import { UnavailableState } from '../../components/UnavailableState.js';
 import { humanizeState, noticeTone } from '../../lib/states.js';
 import { changeBadge } from './report-ui.js';
+import { balanceTiles } from '../../lib/tiles.js';
 
 function SummaryTiles({ report }: { report: WeeklyReport }): ReactNode {
   const s = report.summary;
   return (
-    <div className="pb-tiles" data-testid="weekly-tiles">
+    <div ref={balanceTiles} className="pb-tiles" data-testid="weekly-tiles">
       <StatTile label="Active positions" value={String(s.activeInvestments)} />
       <StatTile label="Invested" value={formatMoneyM(s.invested)} />
       <StatTile label="Distributions" value={formatMoneyM(s.distributions)} />

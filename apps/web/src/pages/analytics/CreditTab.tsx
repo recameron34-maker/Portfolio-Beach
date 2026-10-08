@@ -30,6 +30,7 @@ import {
 } from '../../lib/format.js';
 import { creditStatusTone } from '../../lib/labels.js';
 import { CREDIT_POSITIONS } from './constants.js';
+import { balanceTiles } from '../../lib/tiles.js';
 
 type CreditBlock = NonNullable<InvestmentPerformance['credit']>;
 
@@ -159,7 +160,7 @@ function LatestQuarter({ credit }: { credit: CreditBlock }): ReactNode {
   const period = `Latest quarter, ${formatDate(latest.periodEnd)}`;
   return (
     <>
-      <div className="pb-tiles">
+      <div ref={balanceTiles} className="pb-tiles">
         <StatTile label="Par" value={formatMoneyM(latest.parValue)} hint={period} />
         <StatTile label="Fair value" value={formatMoneyM(latest.fairValue)} hint={period} />
         <StatTile label="Current yield" value={formatPct(latest.currentYield, 2)} />

@@ -25,6 +25,7 @@ import { formatDate, formatMoneyM, labelOf, MISSING } from '../../lib/format.js'
 import { retryUnlessUnavailable } from '../../lib/unavailable.js';
 import { distinctNames, isOverCalled, unfundedCaveats, unfundedChart } from './notices.js';
 import './capital.css';
+import { balanceTiles } from '../../lib/tiles.js';
 
 function UnfundedCell({ row }: { row: FundCommitmentRow }): ReactNode {
   if (!isOverCalled(row)) return <NumCell>{formatMoneyM(row.unfunded)}</NumCell>;
@@ -186,7 +187,7 @@ export function CommitmentsPage(): ReactNode {
     <>
       <PageHeader title="Commitments and unfunded" meta={`As of ${formatDate(list.asOf)}`} />
       <TabNav label="Capital activity" items={CAPITAL_TABS} />
-      <div className="pb-tiles" data-testid="commitment-tiles">
+      <div ref={balanceTiles} className="pb-tiles" data-testid="commitment-tiles">
         <StatTile
           label="Committed"
           value={formatMoneyM(t.amount)}

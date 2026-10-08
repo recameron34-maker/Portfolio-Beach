@@ -40,6 +40,7 @@ import {
   tierTone,
 } from './sponsor-ui.js';
 import './sponsors.css';
+import { balanceTiles } from '../../lib/tiles.js';
 
 /* ---- Sponsors directory (/sponsors) ---- */
 
@@ -185,14 +186,14 @@ function SponsorTiles({ sponsor }: { sponsor: SponsorDetail }): ReactNode {
   const m = sponsor.metrics;
   if (m.count === 0) {
     return (
-      <div className="pb-tiles pb-sponsors-tiles" data-testid="sponsor-tiles">
+      <div ref={balanceTiles} className="pb-tiles pb-sponsors-tiles" data-testid="sponsor-tiles">
         <StatTile label="Positions" value="0" hint="No positions with this sponsor" />
         <CommittedTile sponsor={sponsor} />
       </div>
     );
   }
   return (
-    <div className="pb-tiles pb-sponsors-tiles" data-testid="sponsor-tiles">
+    <div ref={balanceTiles} className="pb-tiles pb-sponsors-tiles" data-testid="sponsor-tiles">
       <StatTile
         label="Positions"
         value={String(m.count)}

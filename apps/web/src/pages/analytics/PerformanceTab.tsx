@@ -25,6 +25,7 @@ import {
   moneyLabel,
 } from '../../lib/format.js';
 import { irrFlagHint } from '../../lib/labels.js';
+import { balanceTiles } from '../../lib/tiles.js';
 
 function NavTrendCard({ summary }: { summary: AnalyticsSummary }): ReactNode {
   const points = summary.navSeries;
@@ -217,7 +218,7 @@ export function PerformanceAnalyticsTab(): ReactNode {
         As of {formatDate(summary.asOf)}. Pooled over {t.count} positions, active and realized, that
         you are entitled to see.
       </p>
-      <div className="pb-tiles" data-testid="performance-tiles">
+      <div ref={balanceTiles} className="pb-tiles" data-testid="performance-tiles">
         <StatTile label="Invested" value={formatMoneyM(t.invested)} hint="Contributions to date" />
         <StatTile label="Distributions" value={formatMoneyM(t.distributions)} />
         <StatTile label="NAV" value={formatMoneyM(t.nav)} hint="Latest Locked valuations" />

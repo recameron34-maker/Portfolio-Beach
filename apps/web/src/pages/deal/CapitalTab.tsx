@@ -19,6 +19,7 @@ import { formatDate, formatMoneyM, labelOf } from '../../lib/format.js';
 import { dueLabel, dueTone, humanizeState, noticeTone } from '../../lib/states.js';
 import { ALERT_DAYS_BEFORE_DUE, isSettled, useDealDetail, useDealId } from './data.js';
 import './deal.css';
+import { balanceTiles } from '../../lib/tiles.js';
 
 function NoticesTable({ page }: { page: CapitalNoticePage }): ReactNode {
   const rows = [...page.items].sort((a, b) => b.dueDate.localeCompare(a.dueDate));
@@ -133,7 +134,7 @@ export function CapitalTab(): ReactNode {
   const n = q.data?.items.length ?? 0;
   return (
     <>
-      <div className="pb-tiles pb-deal-tiles" data-testid="deal-capital-tiles">
+      <div ref={balanceTiles} className="pb-tiles pb-deal-tiles" data-testid="deal-capital-tiles">
         <StatTile
           label={d.credit !== null ? 'Funded' : 'Invested'}
           value={formatMoneyM(d.invested)}

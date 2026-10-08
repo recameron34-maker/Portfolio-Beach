@@ -50,6 +50,7 @@ import {
   progressSteps,
 } from './notices.js';
 import './capital.css';
+import { balanceTiles } from '../../lib/tiles.js';
 
 type NoticeOption = CommandOption<CapitalNoticeState, CapitalNoticeCommand>;
 
@@ -272,7 +273,7 @@ function NoticeBody({
           {formatDate(hold.until)} ({hold.holdDays} days, SEC-12.3).
         </p>
       )}
-      <div className="pb-tiles" data-testid="notice-tiles">
+      <div ref={balanceTiles} className="pb-tiles" data-testid="notice-tiles">
         <StatTile label="Amount" value={noticeAmount(notice.amount, notice.currency)} />
         <StatTile
           label="Settled"

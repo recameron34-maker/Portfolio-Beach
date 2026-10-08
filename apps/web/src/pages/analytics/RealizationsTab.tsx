@@ -17,10 +17,11 @@ import { formatHoldingPeriod } from '../../lib/dates.js';
 import { formatDate, formatMoic, formatMoneyM, irrDisplay, labelOf } from '../../lib/format.js';
 import { irrFlagHint } from '../../lib/labels.js';
 import { REALIZED_POSITIONS } from './constants.js';
+import { balanceTiles } from '../../lib/tiles.js';
 
 function RealizedTiles({ realized, count }: { realized: PooledMetrics; count: number }): ReactNode {
   return (
-    <div className="pb-tiles" data-testid="realizations-tiles">
+    <div ref={balanceTiles} className="pb-tiles" data-testid="realizations-tiles">
       <StatTile label="Realized positions" value={String(count)} />
       <StatTile label="Invested" value={formatMoneyM(realized.invested)} />
       <StatTile label="Distributions" value={formatMoneyM(realized.distributions)} />

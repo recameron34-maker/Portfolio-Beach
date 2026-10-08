@@ -17,6 +17,7 @@ import {
   Toolbar,
 } from '../components/ui.js';
 import { formatDate } from '../lib/format.js';
+import { balanceTiles } from '../lib/tiles.js';
 
 export function DataHealthPage(): ReactNode {
   const q = useQuery(dataHealthQuery);
@@ -26,7 +27,7 @@ export function DataHealthPage(): ReactNode {
   return (
     <>
       <PageHeader title="Data Health" meta={<>As of {formatDate(h.asOf)}</>} />
-      <div className="pb-tiles" data-testid="data-health-tiles">
+      <div ref={balanceTiles} className="pb-tiles" data-testid="data-health-tiles">
         <StatTile
           label="Orphan investments"
           value={String(h.orphanInvestments)}

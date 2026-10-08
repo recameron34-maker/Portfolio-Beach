@@ -42,6 +42,7 @@ import {
 } from './data.js';
 import { PeriodCell, RecordStatusBadge } from './parts.js';
 import './deal.css';
+import { balanceTiles } from '../../lib/tiles.js';
 
 type CreditBlock = NonNullable<InvestmentPerformance['credit']>;
 type Outlook = InvestmentPerformance['realizationOutlook'];
@@ -88,7 +89,7 @@ function SinceEntryCard({ perf }: { perf: InvestmentPerformance }): ReactNode {
       >
         Since entry
       </SectionHeader>
-      <div className="pb-tiles pb-deal-tiles pb-deal-aligned">
+      <div ref={balanceTiles} className="pb-tiles pb-deal-tiles pb-deal-aligned">
         <StatTile
           label="Revenue growth"
           value={formatPct(s.revenueGrowth)}

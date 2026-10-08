@@ -24,6 +24,7 @@ import {
 } from '../../lib/format.js';
 import { irrFlagHint } from '../../lib/labels.js';
 import './deal.css';
+import { balanceTiles } from '../../lib/tiles.js';
 
 /** The one-pager banner (docs/06 section 2): company, vehicle, deal type, investment date and as-of period. */
 function DealBanner({ detail: d }: { detail: InvestmentDetail }): ReactNode {
@@ -63,7 +64,7 @@ function DealTiles({ detail: d }: { detail: InvestmentDetail }): ReactNode {
   if (d.credit !== null) {
     const quarter = latest === null ? undefined : `As of ${formatDate(latest.periodEnd)}`;
     return (
-      <div className="pb-tiles pb-deal-tiles" data-testid="deal-tiles">
+      <div ref={balanceTiles} className="pb-tiles pb-deal-tiles" data-testid="deal-tiles">
         <StatTile label="Funded" value={formatMoneyM(d.invested)} hint="Contributions to date" />
         <StatTile label="Par" value={formatMoneyM(latest?.parValue ?? null)} hint={quarter} />
         <StatTile label="Fair value" value={formatMoneyM(d.nav)} hint={navHint} />
@@ -77,7 +78,7 @@ function DealTiles({ detail: d }: { detail: InvestmentDetail }): ReactNode {
     );
   }
   return (
-    <div className="pb-tiles pb-deal-tiles" data-testid="deal-tiles">
+    <div ref={balanceTiles} className="pb-tiles pb-deal-tiles" data-testid="deal-tiles">
       <StatTile label="Invested capital" value={formatMoneyM(d.invested)} />
       <StatTile label="Current NAV" value={formatMoneyM(d.nav)} hint={navHint} />
       <StatTile label="Gross MOIC" value={formatMoic(d.grossMoic)} />

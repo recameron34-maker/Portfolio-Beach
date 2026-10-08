@@ -86,6 +86,7 @@ import {
 import { blockedTitle, resultSuffix, useActionLog } from '../../lib/workflow.js';
 import type { ActionLog } from '../../lib/workflow.js';
 import './valuations.css';
+import { balanceTiles } from '../../lib/tiles.js';
 
 type ValuationOption = CommandOption<ValuationState, ValuationCommand>;
 
@@ -530,7 +531,7 @@ function Board({ page, roles }: { page: ValuationPage; roles: readonly string[] 
     <>
       {header}
       <Gate />
-      <div className="pb-tiles" data-testid="valuation-tiles">
+      <div ref={balanceTiles} className="pb-tiles" data-testid="valuation-tiles">
         <StatTile label="Locked" value={String(counts.locked)} hint="Read by reports" />
         <StatTile
           label="In flight"

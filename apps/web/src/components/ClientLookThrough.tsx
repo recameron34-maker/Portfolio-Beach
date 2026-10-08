@@ -14,6 +14,7 @@ import {
   StatTile,
   TableWrap,
 } from './ui.js';
+import { balanceTiles } from '../lib/tiles.js';
 
 const ENTITLED =
   'Client data is visible to operations, approvers, auditors and the investor relations users entitled to each client (SEC-5.4).';
@@ -36,7 +37,7 @@ function ClientCard({ client }: { client: ClientSummary }): ReactNode {
       >
         {client.name}
       </SectionHeader>
-      <div className="pb-tiles">
+      <div ref={balanceTiles} className="pb-tiles">
         <StatTile label="Commitment" value={formatMoneyM(t.commitment)} />
         <StatTile label="Invested share" value={formatMoneyM(t.invested)} />
         <StatTile label="Distributions share" value={formatMoneyM(t.distributions)} />

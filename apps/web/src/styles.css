@@ -411,9 +411,11 @@ p:last-child {
 }
 
 /* ---- Stat tiles ---- */
+/* --pb-tile-min is the narrowest a tile may get; balanceTiles (lib/tiles.ts) then evens out the rows */
 .pb-tiles {
+  --pb-tile-min: 172px;
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(172px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, var(--pb-tile-min)), 1fr));
   gap: 12px;
   margin-bottom: 16px;
 }
@@ -704,8 +706,10 @@ p:last-child {
   text-transform: uppercase;
   color: var(--pb-muted);
 }
+/* Tabs wrap to a second line rather than hide past the edge; phones swipe a single row instead */
 .pb-tabs {
   display: flex;
+  flex-wrap: wrap;
   gap: 2px;
   margin: 0 0 16px;
   border-bottom: 1px solid var(--pb-border);
@@ -1453,6 +1457,9 @@ p:last-child {
   }
 }
 @media (max-width: 760px) {
+  .pb-tabs {
+    flex-wrap: nowrap;
+  }
   .pb-shell {
     grid-template-columns: minmax(0, 1fr);
     grid-template-rows: auto auto auto minmax(0, 1fr);
@@ -1550,7 +1557,6 @@ p:last-child {
     line-height: 28px;
   }
   .pb-tiles {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 10px;
   }
   .pb-stat-value {
@@ -1585,6 +1591,9 @@ p:last-child {
 }
 @media (max-width: 480px) {
   .pb-tiles {
+    --pb-tile-min: 280px;
+  }
+  .pb-home-tiles {
     grid-template-columns: minmax(0, 1fr);
   }
   .pb-stat-tile.is-wide {

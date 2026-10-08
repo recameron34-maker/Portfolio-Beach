@@ -38,6 +38,7 @@ import {
   noticeTypes,
 } from './notices.js';
 import './capital.css';
+import { balanceTiles } from '../../lib/tiles.js';
 
 export { CommitmentsPage } from './Commitments.js';
 export { CapitalNoticePage } from './NoticeDetail.js';
@@ -77,7 +78,7 @@ function StateBadge({ state }: { state: CapitalNoticeState }): ReactNode {
 function Tiles({ page }: { page: CapitalNoticePage }): ReactNode {
   const c = noticeCounts(page.items, page.alertDaysBeforeDue);
   return (
-    <div className="pb-tiles" data-testid="notice-tiles">
+    <div ref={balanceTiles} className="pb-tiles" data-testid="notice-tiles">
       <StatTile
         label="Overdue"
         value={String(c.overdue)}

@@ -23,6 +23,7 @@ import {
 } from '../../components/ui.js';
 import { formatDate, labelOf } from '../../lib/format.js';
 import { watchFlagLabel } from '../../lib/labels.js';
+import { balanceTiles } from '../../lib/tiles.js';
 
 type Severity = 'all' | 'bad' | 'watch';
 
@@ -100,7 +101,7 @@ function WatchlistBody({ data }: { data: Watchlist }): ReactNode {
   const total = data.items.length + data.counts.clear;
   return (
     <>
-      <div className="pb-tiles" data-testid="watchlist-tiles">
+      <div ref={balanceTiles} className="pb-tiles" data-testid="watchlist-tiles">
         <StatTile
           label="Needs action"
           value={String(data.counts.bad)}

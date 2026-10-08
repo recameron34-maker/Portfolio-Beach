@@ -17,6 +17,7 @@ import {
 import { formatMoic, formatMoneyM, labelOf, MISSING } from '../../lib/format.js';
 import { useDealDetail } from './data.js';
 import './deal.css';
+import { balanceTiles } from '../../lib/tiles.js';
 
 type SponsorFund = SponsorDetail['funds'][number];
 
@@ -55,7 +56,7 @@ function MetricsCard({ sponsor: s }: { sponsor: SponsorDetail }): ReactNode {
       <SectionHeader aside="Pooled over the positions you can see">
         Across our positions with this sponsor
       </SectionHeader>
-      <div className="pb-tiles pb-deal-tiles">
+      <div ref={balanceTiles} className="pb-tiles pb-deal-tiles">
         <StatTile label="Positions" value={String(m.count)} hint="Active and realized" />
         <StatTile label="Invested" value={formatMoneyM(m.invested)} hint="Contributions to date" />
         <StatTile label="NAV" value={formatMoneyM(m.nav)} hint="Latest Locked valuations" />
