@@ -17,12 +17,12 @@ import {
   PageSkeleton,
   SectionHeader,
   StatTile,
+  TableWrap,
   TabNav,
   Toolbar,
 } from '../../components/ui.js';
 import { formatDate, labelOf } from '../../lib/format.js';
 import { dueLabel, dueTone, humanizeState, noticeTone } from '../../lib/states.js';
-import { retryUnlessUnavailable } from '../../lib/unavailable.js';
 import {
   byDueDate,
   dayCount,
@@ -108,7 +108,7 @@ function AttentionCard({ page }: { page: CapitalNoticePage }): ReactNode {
           detail={`No notice is in flight or due within ${dayCount(page.alertDaysBeforeDue)} of ${formatDate(page.asOf)}.`}
         />
       ) : (
-        <div className="pb-table-wrap">
+        <TableWrap label="Notices needing attention">
           <table className="pb-table" aria-label="Notices needing attention">
             <thead>
               <tr>
@@ -142,7 +142,7 @@ function AttentionCard({ page }: { page: CapitalNoticePage }): ReactNode {
               ))}
             </tbody>
           </table>
-        </div>
+        </TableWrap>
       )}
     </Card>
   );
@@ -226,7 +226,7 @@ function NoticesCard({ page }: { page: CapitalNoticePage }): ReactNode {
           detail="Pick another state, type or vehicle, or include reconciled notices."
         />
       ) : (
-        <div className="pb-table-wrap">
+        <TableWrap label="Capital notices">
           <table className="pb-table" aria-label="Capital notices">
             <thead>
               <tr>
@@ -259,7 +259,7 @@ function NoticesCard({ page }: { page: CapitalNoticePage }): ReactNode {
               ))}
             </tbody>
           </table>
-        </div>
+        </TableWrap>
       )}
       <p className="pb-meta" data-testid="notice-count">
         {rows.length === 1 ? '1 notice shown' : `${rows.length} notices shown`}
@@ -274,11 +274,7 @@ function NoticesCard({ page }: { page: CapitalNoticePage }): ReactNode {
  * their due-date alerts, what needs attention now, and every notice with client-side filters.
  */
 export function CapitalActivityPage(): ReactNode {
-  const q = useQuery({
-    ...capitalNoticesQuery({}),
-    placeholderData: keepPreviousData,
-    retry: retryUnlessUnavailable,
-  });
+  const q = useQuery({ ...capitalNoticesQuery({}), placeholderData: keepPreviousData });
   if (q.isPending) return <PageSkeleton tiles={4} rows={8} />;
   if (q.isError) {
     return (

@@ -13,6 +13,7 @@ import {
   PageSkeleton,
   SectionHeader,
   StatTile,
+  TableWrap,
   Toolbar,
 } from '../components/ui.js';
 import { formatDate } from '../lib/format.js';
@@ -112,7 +113,7 @@ export function DataDictionaryPage(): ReactNode {
             />
           </Field>
         </Toolbar>
-        <div className="pb-table-wrap">
+        <TableWrap label="Definitions">
           <table className="pb-table" aria-label="Definitions">
             <thead>
               <tr>
@@ -131,7 +132,7 @@ export function DataDictionaryPage(): ReactNode {
               ))}
             </tbody>
           </table>
-        </div>
+        </TableWrap>
         {shown.length === 0 ? (
           <EmptyState title="No terms match" detail="Clear the filter to see every definition." />
         ) : null}

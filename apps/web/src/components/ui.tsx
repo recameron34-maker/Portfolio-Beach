@@ -186,6 +186,20 @@ export function Badge({
   );
 }
 
+/**
+ * The frame every table sits in. A table wider than its card (a phone) scrolls sideways inside
+ * it, and the frame takes keyboard focus so it can be scrolled without a pointer (WCAG 2.1.1).
+ * It is positioned, so visually hidden text inside the table (absolutely positioned) scrolls and
+ * clips with the table instead of widening the page. The label is the table's own label.
+ */
+export function TableWrap({ label, children }: { label: string; children: ReactNode }): ReactNode {
+  return (
+    <div className="pb-table-wrap" role="region" aria-label={label} tabIndex={0}>
+      {children}
+    </div>
+  );
+}
+
 /** Label and value pairs in two or four columns; values keep tabular figures. */
 export function KeyValueTable({
   rows,
@@ -199,7 +213,7 @@ export function KeyValueTable({
   const pairs: { label: string; value: ReactNode }[][] = [];
   for (let i = 0; i < rows.length; i += columns) pairs.push(rows.slice(i, i + columns));
   return (
-    <div className="pb-table-wrap">
+    <TableWrap label={label}>
       <table className="pb-table pb-kv" aria-label={label}>
         <tbody>
           {pairs.map((pair, i) => (
@@ -214,7 +228,7 @@ export function KeyValueTable({
           ))}
         </tbody>
       </table>
-    </div>
+    </TableWrap>
   );
 }
 

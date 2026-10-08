@@ -1,13 +1,45 @@
 # @pb/web
 
-The Portfolio Beach web app: React 19, Vite, TanStack Router and Query, Fluent UI v9, AG Grid Community. Phase 0 scope: theme from `config/brand.json`, prototype sign-in with a role switcher, the navigation groups from `docs/06`, the portfolio grid with calculated metrics, the investment one-pager (equity and private credit variants), Data Health, Data Dictionary and the feature-flag admin page. Areas for later phases show a placeholder naming the phase and modules.
+The Portfolio Beach web app: React 19, Vite, TanStack Router and Query, Fluent UI v9, AG Grid Community, and a small SVG chart kit of its own. Theme from `config/brand.json`, prototype sign-in with a role switcher, the navigation groups from `docs/06`, and the pages listed below; areas for later phases show a placeholder naming the phase and modules.
 
 ```bash
 pnpm --filter @pb/web dev        # http://localhost:5173, proxies /api and /health to the API on 3001
-pnpm --filter @pb/web test       # formatters, theme, sign-in (jsdom)
-pnpm test:e2e                    # Playwright: starts the API over an in-memory seeded database and Vite, runs journey 1
-pnpm test:a11y                   # axe-core WCAG 2.1 AA checks on the Phase 0 pages
+pnpm --filter @pb/web test       # pages, shared pieces, formatters, preview engine (jsdom)
+pnpm test:e2e                    # Playwright: starts the API over an in-memory seeded database and Vite, runs every journey
+pnpm test:a11y                   # axe-core WCAG 2.1 AA on every page, at 1280 and 390 pixels wide
 ```
+
+## Pages
+Routes live in `src/app/router.tsx`; the secondary tabs of each area in `src/app/nav.ts`. Page CSS sits beside its page and loads after `src/styles.css`, so a page class wins over a shared one of the same specificity.
+
+| Route | Page | What it shows |
+|---|---|---|
+| `/sign-in` | `pages/SignIn.tsx` | Prototype sign-in: pick a synthetic user (Entra ID replaces it after merge). In the preview, the guide below the list. |
+| `/` | `pages/Home.tsx` | Pooled tiles with the NAV sparkline, what needs attention, capital activity, exposure and NAV trend charts, data health and where to start. In the preview, the guide at the top. |
+| `/portfolio` | `pages/Portfolio.tsx` | Every position in AG Grid with filters, CSV export and paging. |
+| `/portfolio/vehicles`, `/portfolio/vehicles/$id` | `pages/portfolio/Vehicles.tsx` | Vehicles with their active positions; a vehicle's pooled tiles, NAV trend, schedule of investments and client commitments (SEC-5.4). |
+| `/portfolio/watchlist` | `pages/portfolio/Watchlist.tsx` | Positions flagged against the configured thresholds. |
+| `/portfolio/$id` and its tabs | `pages/deal/DealWorkspace.tsx` | The deal workspace: banner and tiles over Overview (the one-pager, `pages/InvestmentDetail.tsx`), Performance, Sponsor and contacts, Valuations, Capital activity and Activity (`pages/deal/*Tab.tsx`); Diligence, Closing, Documents and Tasks say which phase brings them (`pages/deal/LaterTabs.tsx`). |
+| `/sponsors`, `/sponsors/$id` | `pages/sponsors/Sponsors.tsx` | The sponsor directory and the Sponsor 360: tiles, NAV by position, funds, our positions and commitments. |
+| `/valuations` | `pages/valuations/Valuations.tsx` | The valuation board for a period: versions and states, missing marks, and the docs/18 commands (simulated in the preview). |
+| `/capital-activity`, `/capital-activity/commitments`, `/capital-activity/$id` | `pages/capital/*.tsx` | Calls, distributions and payments with due-date alerts; commitments and unfunded; a notice with its progress, wire hold and commands. |
+| `/reporting`, `/reporting/clients`, `/reporting/disclosures` | `pages/reporting/Reporting.tsx` | The printable weekly report, the client look-through, and the disclosures placeholder. |
+| `/analytics` and its tabs | `pages/analytics/*.tsx` | Exposure, Performance, Credit book, Realizations and Clients. |
+| `/assistants` | `pages/assistants/Assistants.tsx` | Ask Portfolio Beach: fixed questions answered from the figures the user can already see, behind the `ai.assistant` kill switch. |
+| `/admin/flags` | `pages/AdminFlags.tsx` | Feature flags and kill switches; platform admins change them with a reason. |
+| `/admin/audit`, `/admin/access`, `/admin/health` | `pages/admin/Admin.tsx` | The audit trail, walls and the role table, and integration health. |
+| `/data/health`, `/data/dictionary` | `pages/Data.tsx` | Data Health and the Data Dictionary. |
+| `/data/taxonomy` | `pages/admin/Taxonomy.tsx` | Taxonomy domains and terms. |
+| `/pipeline`, `/documents` | `pages/pipeline/`, `pages/documents/` | Placeholders naming the phase and modules. |
+
+## Shared pieces
+- `components/ui.tsx`: the page vocabulary. `PageHeader`, `Card`, `SectionHeader`, `StatTile`, `NumCell`, `Badge`, `TabNav`, `Toolbar` and `Field`, `EmptyState`, `ErrorState`, `PageSkeleton`, `KeyValueTable`, `SimulatedBadge` and `PhasePage`. `TableWrap` is the frame every table sits in: a focusable `role="region"` named after its table, which scrolls sideways inside its card on a phone and keeps visually hidden text from widening the page.
+- `components/WorkflowActions.tsx` with `lib/workflow.ts`: the command buttons, the reason dialog, the page's one status line and the action log shared by the valuation board and the capital notice page; the rules for when an action is live and the in-memory action log.
+- `components/UnavailableState.tsx` with `lib/unavailable.ts`: what a failed read shows. A 403 or 501 becomes an empty state that says who can see the data or that it is not built yet; anything else is an error. `retryUnlessUnavailable` is the retry policy of the reads that can answer that way.
+- `components/PreviewGuide.tsx` with `lib/preview-guide.ts`: in the static preview only, five short walkthroughs (walls, valuation approval, capital controls, analytics and the weekly report, the assistant) naming the mock users by role from the mock user list. A compact card on sign-in; on Home a card the reviewer can hide for the tab, with the preview reset.
+- `components/charts/`: the SVG chart kit. `ChartFigure` (title, legend, a table twin behind Show table, tooltips), `HorizontalBars`, `StackedBars`, `LineChart` and `Sparkline`, with `scale.ts` for ticks, compact axis values and category labels: the label column takes about 36 percent of the chart and long labels are cut in the middle so similar names stay apart, with the full name in the tooltip, the aria-label and the table.
+- `components/ClientLookThrough.tsx`: each entitled client's share of every vehicle, rendered by Reporting and by the Analytics Clients tab.
+- `lib/format.ts`, `lib/dates.ts`, `lib/labels.ts`, `lib/states.ts`: number, date and state display (docs/06 section 3), including `formatMonthYearShort` ("Jun 2025") for chart axes.
 
 ## Rules this app follows
 - No hard-coded colors or fonts: `src/app/theme.ts` builds the Fluent theme and the CSS variables from `config/brand.json` (docs/06 section 1). Styles are scoped in `src/styles.css`; tinted panels appear only on the one-pager's deal-details card.
@@ -16,7 +48,7 @@ pnpm test:a11y                   # axe-core WCAG 2.1 AA checks on the Phase 0 pa
 - Every response is parsed with the shared zod contracts; every error is an RFC 9457 problem. A record the user cannot see is a 404 and renders "Investment not found".
 
 ## End-to-end tests
-`playwright.config.ts` starts `scripts/e2e-api.mjs` (the real API over PGlite seeded with the small synthetic profile, seed 42) and Vite, then runs `e2e/journey1.spec.ts` (critical journey 1: each role sees only permitted records, the walled deal is hidden from a viewer and visible to a wall member, the role switcher changes the acting user) and `e2e/a11y.spec.ts`. In the cloud sandbox the preinstalled Chromium matches Playwright 1.56.1; elsewhere `pnpm exec playwright install chromium` fetches it. Set `PW_CHROMIUM_PATH` to point at an existing browser if downloads are blocked.
+`playwright.config.ts` starts `scripts/e2e-api.mjs` (the real API over PGlite seeded with the small synthetic profile, seed 42) and Vite, then runs `e2e/journey1.spec.ts` (critical journey 1: each role sees only permitted records, the walled deal is hidden from a viewer and visible to a wall member, the role switcher changes the acting user), `e2e/deal-tabs.spec.ts`, `e2e/vehicles-sponsors.spec.ts` and `e2e/a11y.spec.ts`. The accessibility journey runs axe (WCAG 2.1 AA, zero serious or critical) over every page as operations and over the deal tabs of the walled deal as the approver, at 1280 and at 390 pixels wide, each page once its own content is in. `PB_E2E_API_PORT` and `PB_E2E_WEB_PORT` move the two servers so several checkouts can run side by side. In the cloud sandbox the preinstalled Chromium matches Playwright 1.56.1; elsewhere `pnpm exec playwright install chromium` fetches it. Set `PW_CHROMIUM_PATH` to point at an existing browser if downloads are blocked.
 
 ## Static preview
 `pnpm --filter @pb/web build:preview` builds `dist-preview/` (gitignored): the app in preview mode plus `preview/fixtures.json`, recorded from the real API over the small synthetic profile (seed 42). The router uses the URL hash so deep links work from a static host, and if the recordings cannot be loaded the page says so instead of rendering nothing.

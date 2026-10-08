@@ -4,6 +4,7 @@ import {
   formatMoic,
   formatMoneyM,
   formatMonthYear,
+  formatMonthYearShort,
   formatMultiple,
   formatPct,
   clearTaxonomyLabels,
@@ -35,6 +36,14 @@ describe('number and date display (docs/06 section 3)', () => {
     expect(formatMonthYear('2026-01-15')).toBe('January 2026');
     expect(formatDate(null)).toBe(MISSING);
     expect(formatDate('garbage')).toBe(MISSING);
+  });
+  it('shortens month and year for chart axes and never guesses a month', () => {
+    expect(formatMonthYearShort('2025-06-30')).toBe('Jun 2025');
+    expect(formatMonthYearShort('2024-09-30')).toBe('Sep 2024');
+    expect(formatMonthYearShort('2026-01-15')).toBe('Jan 2026');
+    expect(formatMonthYearShort('2024-12-31')).toBe('Dec 2024');
+    for (const bad of [null, undefined, '', 'not a date', 'June 2025', '2024-13-31', '2024-00-31'])
+      expect(formatMonthYearShort(bad), String(bad)).toBe(MISSING);
   });
   it('labels chart numbers in $M from the API figure, never from arithmetic', () => {
     expect(moneyLabel(346917161.92)).toBe('$346.9M');

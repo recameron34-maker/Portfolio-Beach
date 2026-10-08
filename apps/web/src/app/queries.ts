@@ -26,6 +26,7 @@ import {
   weeklyReport,
 } from '@pb/contracts';
 import { api } from '../api/client.js';
+import { retryUnlessUnavailable } from '../lib/unavailable.js';
 
 export const meQuery = queryOptions({
   queryKey: ['me'],
@@ -86,12 +87,20 @@ export function investmentQuery(id: string) {
 
 export const LIST_LIMIT = 200;
 
+/**
+ * The API writes an audit row for every read of a position's performance, a sponsor and a vehicle
+ * (SEC-11.1), and the deal tabs ask for them again on each tab visit. They stay fresh for a minute,
+ * so a tab switch within it reads the cache instead of writing another audit row.
+ */
+const AUDITED_READ_STALE_MS = 60_000;
+
 export function investmentPerformanceQuery(id: string) {
   return queryOptions({
     queryKey: ['investment-performance', id],
     queryFn: () =>
       api(`/api/v1/investments/${encodeURIComponent(id)}/performance`, investmentPerformance),
     retry: false,
+    staleTime: AUDITED_READ_STALE_MS,
   });
 }
 
@@ -124,6 +133,7 @@ export function sponsorQuery(id: string) {
     queryKey: ['sponsor', id],
     queryFn: () => api(`/api/v1/sponsors/${encodeURIComponent(id)}`, sponsorDetail),
     retry: false,
+    staleTime: AUDITED_READ_STALE_MS,
   });
 }
 export function vehicleQuery(id: string) {
@@ -131,6 +141,7 @@ export function vehicleQuery(id: string) {
     queryKey: ['vehicle', id],
     queryFn: () => api(`/api/v1/vehicles/${encodeURIComponent(id)}`, vehicleDetail),
     retry: false,
+    staleTime: AUDITED_READ_STALE_MS,
   });
 }
 
@@ -150,6 +161,7 @@ export function valuationsQuery(filters: ValuationFilters = {}) {
   return queryOptions({
     queryKey: ['valuations', filters],
     queryFn: () => api(`/api/v1/valuations?${params.toString()}`, valuationPage),
+    retry: retryUnlessUnavailable,
   });
 }
 
@@ -169,13 +181,14 @@ export function capitalNoticesQuery(filters: CapitalNoticeFilters = {}) {
   return queryOptions({
     queryKey: ['capital-notices', filters],
     queryFn: () => api(`/api/v1/capital-notices?${params.toString()}`, capitalNoticePage),
+    retry: retryUnlessUnavailable,
   });
 }
 export function capitalNoticeQuery(id: string) {
   return queryOptions({
     queryKey: ['capital-notice', id],
     queryFn: () => api(`/api/v1/capital-notices/${encodeURIComponent(id)}`, capitalNoticeDetail),
-    retry: false,
+    retry: retryUnlessUnavailable,
   });
 }
 

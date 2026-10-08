@@ -1,12 +1,33 @@
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { HorizontalBars } from './HorizontalBars.js';
 import { LineChart } from './LineChart.js';
 import { StackedBars } from './StackedBars.js';
 
+/** Every chart canvas measures this many pixels wide (useWidth reads a ResizeObserver). */
+function measureAs(width: number): void {
+  vi.stubGlobal(
+    'ResizeObserver',
+    class {
+      private readonly callback: (entries: { contentRect: { width: number } }[]) => void;
+      constructor(callback: (entries: { contentRect: { width: number } }[]) => void) {
+        this.callback = callback;
+      }
+      observe(): void {
+        this.callback([{ contentRect: { width } }]);
+      }
+      unobserve = vi.fn();
+      disconnect = vi.fn();
+    },
+  );
+}
+
 describe('charts', () => {
-  afterEach(cleanup);
+  afterEach(() => {
+    cleanup();
+    vi.unstubAllGlobals();
+  });
 
   it('renders bars with value labels, a tooltip on focus and a table twin', async () => {
     render(
@@ -53,6 +74,37 @@ describe('charts', () => {
     expect(screen.getByText('Q3: NAV $15M, Invested n/a')).toBeInTheDocument();
   });
 
+  it('at phone width keeps the ends of similar labels, the full names elsewhere and the values inside', async () => {
+    const width = 316;
+    measureAs(width);
+    const { container } = render(
+      <HorizontalBars
+        title="NAV by vehicle"
+        data={[
+          { label: 'Beach Co-Invest Fund II', value: 120_000_000, display: '$1,120.0M' },
+          { label: 'Beach Co-Invest Fund III', value: 40_000_000, display: '$40.0M' },
+        ]}
+        kind="money"
+        valueColumn="NAV"
+        summary="NAV by vehicle, two bars"
+      />,
+    );
+    const labels = [...container.querySelectorAll('.pb-chart-label')].map((t) => t.textContent);
+    expect(labels).toEqual(['Beach...Fund II', 'Beac...Fund III']);
+    expect(screen.getByRole('img', { name: 'Beach Co-Invest Fund III: $40.0M' })).toBeTruthy();
+    for (const value of container.querySelectorAll('.pb-chart-value')) {
+      const x = Number(value.getAttribute('x'));
+      expect(x).toBeLessThanOrEqual(width - 4);
+      // A label that starts after the plot must still fit before the right edge.
+      if (value.getAttribute('text-anchor') !== 'end')
+        expect(x + (value.textContent ?? '').length * 6.6).toBeLessThanOrEqual(width);
+    }
+    await userEvent.click(screen.getByRole('button', { name: 'Show table' }));
+    expect(screen.getByRole('table', { name: 'NAV by vehicle, as a table' })).toHaveTextContent(
+      'Beach Co-Invest Fund III',
+    );
+  });
+
   it('stacks segments with a legend in fixed order', () => {
     render(
       <StackedBars
@@ -76,5 +128,39 @@ describe('charts', () => {
     expect(
       screen.getByRole('img', { name: 'Fund I: Healthcare $3.0M, Software $2.0M' }),
     ).toBeTruthy();
+  });
+
+  it('at phone width gives stacked bars distinct short labels and keeps the ticks inside', () => {
+    const width = 300;
+    measureAs(width);
+    const segments = (a: number) => [
+      { name: 'Healthcare', value: a, display: `$${a}.0M` },
+      { name: 'Software', value: 2, display: '$2.0M' },
+    ];
+    const { container } = render(
+      <StackedBars
+        title="Exposure by vehicle"
+        data={[
+          { label: 'Seagrass Fund II', segments: segments(3) },
+          { label: 'Seagrass Growth Fund II', segments: segments(4) },
+          { label: 'Beach Co-Invest Fund III', segments: segments(5) },
+        ]}
+        segmentNames={['Healthcare', 'Software']}
+        kind="money"
+        summary="three bars, two segments"
+      />,
+    );
+    const labels = [...container.querySelectorAll('.pb-chart-label')].map((t) => t.textContent);
+    expect(new Set(labels).size).toBe(3);
+    for (const label of labels) expect((label ?? '').length).toBeLessThanOrEqual(14);
+    expect(
+      screen.getByRole('img', {
+        name: 'Seagrass Growth Fund II: Healthcare $4.0M, Software $2.0M',
+      }),
+    ).toBeTruthy();
+    for (const tick of container.querySelectorAll('.pb-chart-tick')) {
+      const half = ((tick.textContent ?? '').length * 6.6) / 2;
+      expect(Number(tick.getAttribute('x')) + half).toBeLessThanOrEqual(width);
+    }
   });
 });

@@ -1,5 +1,4 @@
 import { describe, expect, it } from 'vitest';
-import { MISSING } from '../../lib/format.js';
 import {
   dealDetailFixture,
   ENTRY_SNAPSHOT,
@@ -10,7 +9,6 @@ import {
   ALERT_DAYS_BEFORE_DUE,
   approvedQuarters,
   AUDIT_ROLES,
-  axisPeriod,
   canReadAudit,
   datePart,
   isApproved,
@@ -112,10 +110,7 @@ describe('deal tab helpers', () => {
     expect(new Set(entries.map((e) => e.key)).size).toBe(entries.length);
   });
 
-  it('shortens chart axis labels from formatMonthYear and keeps the date part of a timestamp', () => {
-    expect(axisPeriod('2025-06-30')).toBe('Jun 2025');
-    expect(axisPeriod('2024-09-30')).toBe('Sep 2024');
-    expect(axisPeriod('not a date')).toBe(MISSING);
+  it('keeps the date part of a timestamp', () => {
     expect(datePart('2025-05-02T09:30:00.000Z')).toBe('2025-05-02');
   });
 });

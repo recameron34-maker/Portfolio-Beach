@@ -13,6 +13,7 @@ import {
   NumCell,
   PageSkeleton,
   SectionHeader,
+  TableWrap,
   Toolbar,
 } from '../../components/ui.js';
 import { formatDate, formatMoneyM, formatPct } from '../../lib/format.js';
@@ -22,7 +23,7 @@ import { bucketBars, vehicleDealTypeStack } from './helpers.js';
 
 function BucketTable({ buckets, label }: { buckets: ExposureBucket[]; label: string }): ReactNode {
   return (
-    <div className="pb-table-wrap">
+    <TableWrap label={`Exposure by ${label.toLowerCase()}`}>
       <table className="pb-table" aria-label={`Exposure by ${label.toLowerCase()}`}>
         <thead>
           <tr>
@@ -45,7 +46,7 @@ function BucketTable({ buckets, label }: { buckets: ExposureBucket[]; label: str
           ))}
         </tbody>
       </table>
-    </div>
+    </TableWrap>
   );
 }
 

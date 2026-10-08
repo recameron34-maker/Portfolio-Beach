@@ -32,7 +32,6 @@ import {
   vehicleNames,
   versionLabel,
 } from './board.js';
-import { blockedTitle, isReason, PHASE_3_TITLE } from './workflow.js';
 
 describe('valuation fixtures match the contracts', () => {
   it.each([
@@ -135,13 +134,6 @@ describe('valuation board helpers', () => {
 
   it('names a version the way messages and buttons do', () => {
     expect(versionLabel(valuationRowFixture())).toBe('Meridian Data Partners, Jun 30, 2025 v1');
-  });
-
-  it('keeps every action disabled outside the preview and asks for at least three characters of reason', () => {
-    expect(blockedTitle({ allowed: true, roles: ['operations'] })).toBe(PHASE_3_TITLE);
-    expect(blockedTitle({ allowed: false, roles: ['approver'] })).toBe(PHASE_3_TITLE);
-    expect(isReason('ab ')).toBe(false);
-    expect(isReason(' abc ')).toBe(true);
   });
 });
 

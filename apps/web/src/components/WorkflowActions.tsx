@@ -11,12 +11,11 @@ import {
   Field as FluentField,
   Input,
 } from '@fluentui/react-components';
-import { Badge, Card, EmptyState, SectionHeader } from '../../components/ui.js';
-import { commandLabel } from '../../lib/states.js';
-import type { CommandOption } from '../../lib/states.js';
-import { blockedTitle, isReason, MIN_REASON_LENGTH } from './workflow.js';
-import type { ActionEntry } from './workflow.js';
-import './workflow.css';
+import { Badge, Card, EmptyState, SectionHeader } from './ui.js';
+import { commandLabel } from '../lib/states.js';
+import type { CommandOption } from '../lib/states.js';
+import { blockedTitle, isReason, MIN_REASON_LENGTH } from '../lib/workflow.js';
+import type { ActionEntry } from '../lib/workflow.js';
 
 /**
  * One small button per command the transition table lists from the record's state, under the

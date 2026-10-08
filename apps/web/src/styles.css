@@ -383,10 +383,14 @@ p:last-child {
   padding-bottom: 5px;
   border-bottom: 2px solid var(--pb-brand-accent);
 }
+/* The aside wraps inside its half of the header (chips on a phone) instead of widening the card. */
 .pb-section-aside {
   display: inline-flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
   align-items: center;
-  gap: 8px;
+  gap: 4px 8px;
+  min-width: 0;
   font-size: 12px;
   line-height: 16px;
   font-weight: 500;
@@ -459,12 +463,19 @@ p:last-child {
 }
 
 /* ---- Tables ---- */
+/* The frame every table sits in (TableWrap): a focusable region that scrolls sideways inside its
+   card. Positioned, so visually hidden text inside the table (absolutely positioned) scrolls and
+   clips with the table instead of widening the page. */
 .pb-table-wrap {
+  position: relative;
   overflow-x: auto;
   -webkit-overflow-scrolling: touch;
   border: 1px solid var(--pb-border);
   border-radius: 6px;
   background: var(--pb-bg);
+}
+.pb-table-wrap:focus-visible {
+  outline-offset: 0;
 }
 .pb-table-wrap + .pb-table-wrap,
 .pb-table-wrap + .pb-notice {
@@ -851,6 +862,80 @@ p:last-child {
   max-width: 100%;
 }
 
+/* ---- Preview guide (preview only): walkthroughs for a reviewer, on sign-in and on Home ---- */
+.pb-signin > .pb-card + .pb-card {
+  margin-top: 12px;
+}
+.pb-guide-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 4px 12px;
+  margin: 0 0 14px;
+}
+.pb-guide-head > .pb-section-header {
+  margin: 0;
+}
+.pb-guide-intro {
+  margin: -4px 0 12px;
+}
+.pb-guide-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 280px), 1fr));
+  gap: 16px 28px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.pb-guide-list h3 {
+  margin: 0 0 6px;
+  font-size: 13px;
+  line-height: 20px;
+  font-weight: 600;
+  color: var(--pb-text);
+}
+.pb-guide-steps {
+  margin: 0;
+  padding-left: 18px;
+  font-size: 13px;
+  line-height: 20px;
+}
+.pb-guide-steps > li + li {
+  margin-top: 4px;
+}
+.pb-guide-compact > details {
+  border-top: 1px solid var(--pb-hairline);
+}
+.pb-guide-compact summary {
+  padding: 8px 0;
+  font-size: 13px;
+  line-height: 20px;
+  font-weight: 600;
+  color: var(--pb-brand-primary);
+  cursor: pointer;
+}
+.pb-guide-compact .pb-guide-steps {
+  padding-bottom: 10px;
+}
+.pb-guide-foot {
+  margin-top: 16px;
+  padding-top: 12px;
+  border-top: 1px solid var(--pb-hairline);
+}
+.pb-guide-reset {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+}
+.pb-guide-result {
+  margin: 8px 0 0;
+}
+.pb-guide-result:empty {
+  margin: 0;
+}
+
 /* ---- Assistant switch (preview only): the simulated flag change beside its label ---- */
 .pb-assistant-switch {
   display: flex;
@@ -861,6 +946,52 @@ p:last-child {
 }
 .pb-assistant-switch > .pb-notice {
   flex-basis: 100%;
+  margin: 0;
+}
+
+/* ---- Workflow actions (valuation board, capital notices): command buttons, the page's one status
+   region, the action log and the reason dialog (components/WorkflowActions.tsx) ---- */
+.pb-command-buttons {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px 4px;
+}
+.pb-command-buttons > button {
+  white-space: nowrap;
+}
+.pb-action-status > .pb-notice {
+  margin: 0 0 12px;
+}
+.pb-action-log {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.pb-action-log > li {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  padding: 8px 0;
+  border-top: 1px solid var(--pb-hairline);
+  font-size: 13px;
+  line-height: 20px;
+}
+.pb-action-log > li:first-child {
+  border-top: 0;
+  padding-top: 0;
+}
+.pb-action-log > li:last-child {
+  padding-bottom: 0;
+}
+.pb-action-log .pb-badge {
+  flex: none;
+}
+.pb-dialog-content {
+  display: grid;
+  gap: 14px;
+}
+.pb-dialog-content > p {
   margin: 0;
 }
 

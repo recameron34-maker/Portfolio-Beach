@@ -1,6 +1,6 @@
 import { useCallback, useRef, useState } from 'react';
-import { previewMode } from '../../app/env.js';
-import { rolesLabel } from '../../lib/states.js';
+import { previewMode } from '../app/env.js';
+import { rolesLabel } from './states.js';
 
 /**
  * Workflow action rules shared by the valuation board and the capital notice pages (docs/18).

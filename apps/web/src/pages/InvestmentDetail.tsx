@@ -4,9 +4,10 @@ import {
   Badge,
   Card,
   KeyValueTable,
+  NumCell,
   PageSkeleton,
   SectionHeader,
-  NumCell,
+  TableWrap,
 } from '../components/ui.js';
 import {
   formatDate,
@@ -24,7 +25,7 @@ function OperatingTable({ detail }: { detail: InvestmentDetail }): ReactNode {
   const o = detail.operating;
   if (o === null) return <p>No approved quarterly financials for this position.</p>;
   return (
-    <div className="pb-table-wrap">
+    <TableWrap label="Financial performance">
       <table className="pb-table" aria-label="Financial performance">
         <thead>
           <tr>
@@ -76,7 +77,7 @@ function OperatingTable({ detail }: { detail: InvestmentDetail }): ReactNode {
           </tr>
         </tbody>
       </table>
-    </div>
+    </TableWrap>
   );
 }
 
@@ -168,7 +169,7 @@ export function InvestmentDetailPage(): ReactNode {
         <SectionHeader aside={d.valuations.length > 8 ? 'latest 8' : undefined}>
           Valuations
         </SectionHeader>
-        <div className="pb-table-wrap">
+        <TableWrap label="Valuations">
           <table className="pb-table" aria-label="Valuations">
             <thead>
               <tr>
@@ -196,11 +197,11 @@ export function InvestmentDetailPage(): ReactNode {
                 ))}
             </tbody>
           </table>
-        </div>
+        </TableWrap>
       </Card>
       <Card>
         <SectionHeader>Cash flows</SectionHeader>
-        <div className="pb-table-wrap">
+        <TableWrap label="Cash flows">
           <table className="pb-table" aria-label="Cash flows">
             <thead>
               <tr>
@@ -219,7 +220,7 @@ export function InvestmentDetailPage(): ReactNode {
               ))}
             </tbody>
           </table>
-        </div>
+        </TableWrap>
       </Card>
     </>
   );

@@ -12,10 +12,10 @@ import {
   PageSkeleton,
   SectionHeader,
   StatTile,
+  TableWrap,
 } from '../../components/ui.js';
 import { formatMoic, formatMoneyM, labelOf, MISSING } from '../../lib/format.js';
 import { useDealDetail } from './data.js';
-import { WideTable } from './parts.js';
 import './deal.css';
 
 type SponsorFund = SponsorDetail['funds'][number];
@@ -96,7 +96,7 @@ function FundsCard({
           detail="The sponsor's funds appear here with their vintage, strategy and size."
         />
       ) : (
-        <WideTable label="Sponsor funds">
+        <TableWrap label="Sponsor funds">
           <table className="pb-table" aria-label="Sponsor funds">
             <thead>
               <tr>
@@ -128,7 +128,7 @@ function FundsCard({
               ))}
             </tbody>
           </table>
-        </WideTable>
+        </TableWrap>
       )}
     </Card>
   );

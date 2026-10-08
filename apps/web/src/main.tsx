@@ -3,9 +3,11 @@ import { createRoot } from 'react-dom/client';
 import { FluentProvider } from '@fluentui/react-components';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { RouterProvider } from '@tanstack/react-router';
+// The shared stylesheet loads before the router pulls in every page's CSS, so a page rule wins
+// over a shared rule of the same specificity without doubling its classes.
+import './styles.css';
 import { router } from './app/router.js';
 import { createTheme, cssVariables } from './app/theme.js';
-import './styles.css';
 
 const style = document.createElement('style');
 style.textContent = cssVariables();

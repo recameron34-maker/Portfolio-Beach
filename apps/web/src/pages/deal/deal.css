@@ -1,14 +1,5 @@
-/* Deal workspace tabs (pages/deal). Scoped to this folder; colours come only from the theme variables. */
-
-/* A wide table that scrolls sideways inside its card is a focusable region (keyboard scrolling).
-   Positioned so visually hidden text inside the table (absolutely positioned) scrolls and clips
-   with the table instead of widening the page. */
-.pb-deal-scroll {
-  position: relative;
-}
-.pb-deal-scroll:focus-visible {
-  outline-offset: 0;
-}
+/* Deal workspace tabs (pages/deal). Scoped to this folder; colours come only from the theme variables.
+   styles.css loads first, so a page class wins over a shared class of the same specificity. */
 
 /* A short explanatory line under a table or chart inside a card. */
 .pb-deal-note {
@@ -20,7 +11,7 @@
 }
 
 /* Wide quarterly tables: headers may wrap and cells sit closer so the columns fit a laptop screen. */
-.pb-table.pb-deal-dense thead th {
+.pb-deal-dense thead th {
   height: auto;
   min-height: 32px;
   padding: 6px;
@@ -28,11 +19,11 @@
   white-space: normal;
   vertical-align: bottom;
 }
-.pb-table.pb-deal-dense td {
+.pb-deal-dense td {
   padding: 7px 6px;
 }
-.pb-table.pb-deal-dense th:first-child,
-.pb-table.pb-deal-dense td:first-child {
+.pb-deal-dense th:first-child,
+.pb-deal-dense td:first-child {
   padding-left: 10px;
 }
 
@@ -59,13 +50,9 @@
 }
 
 /* The workspace repeats its tiles above every tab, so on a phone they stay two to a row instead of
-   stacking into one long column before the tab bar. Chart axis ticks step down one size there so
-   the last period label clears its neighbour (the chart kit always prints the last label). */
+   stacking into one long column before the tab bar. */
 @media (max-width: 480px) {
-  .pb-deal-chart .pb-chart-tick {
-    font-size: 11px;
-  }
-  .pb-tiles.pb-deal-tiles {
+  .pb-deal-tiles {
     grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 8px;
   }
@@ -84,10 +71,10 @@
 }
 
 /* A note row under a table row (a reopen reason): attached to the row above it. */
-.pb-table tbody tr.pb-deal-has-note > td {
+tr.pb-deal-has-note > td {
   border-bottom: 0;
 }
-.pb-table tbody tr.pb-deal-note-row > td {
+tr.pb-deal-note-row > td {
   padding-top: 0;
 }
 
@@ -125,23 +112,23 @@
 }
 
 /* A link list in a half-width card: the facts sit under the name instead of beside it. */
-.pb-linklist.pb-deal-stacked li {
+.pb-deal-stacked li {
   flex-direction: column;
   align-items: flex-start;
   gap: 2px;
 }
-.pb-linklist.pb-deal-stacked .pb-meta {
+.pb-deal-stacked .pb-meta {
   flex: none;
   text-align: left;
 }
 
 /* Activity timeline: date, kind and text in aligned columns; the text wraps under them on phones. */
-.pb-list.pb-deal-timeline {
+.pb-deal-timeline {
   list-style: none;
   margin: 0;
   padding: 0;
 }
-.pb-list.pb-deal-timeline > li {
+.pb-deal-timeline > li {
   display: grid;
   grid-template-columns: 104px 96px minmax(0, 1fr);
   align-items: baseline;
@@ -149,7 +136,7 @@
   padding: 8px 0;
   border-top: 1px solid var(--pb-hairline);
 }
-.pb-list.pb-deal-timeline > li:first-child {
+.pb-deal-timeline > li:first-child {
   border-top: 0;
   padding-top: 0;
 }
@@ -160,7 +147,7 @@
 }
 
 @media (max-width: 760px) {
-  .pb-list.pb-deal-timeline > li {
+  .pb-deal-timeline > li {
     grid-template-columns: auto minmax(0, 1fr);
   }
   .pb-deal-timeline-text {
