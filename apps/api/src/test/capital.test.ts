@@ -211,10 +211,10 @@ describe('capital activity (M16)', () => {
       expect(D(wire!.amount).equals(D('2500000'))).toBe(true);
       expect(wire!.issueDate).toBe(seededWire.issueDate);
       expect(wire!.dueDate).toBe(seededWire.dueDate);
-      // The seeded call is issued after the dataset as-of date and falls due 12 days after it.
-      expect(wire!.issueDate > h.dataset.asOf).toBe(true);
+      // The seeded call is issued on the dataset as-of date and falls due two days after it.
+      expect(wire!.issueDate).toBe(h.dataset.asOf);
       expect(wire!.daysToDue).toBe(daysBetween(h.dataset.asOf, seededWire.dueDate));
-      expect(wire!.daysToDue).toBe(12);
+      expect(wire!.daysToDue).toBe(2);
       expect(wire!.settledAmount).toBeNull();
       expect(wire!.split).toEqual({ investment: '2500000.00' });
       expect(wire!.investmentNumber).toBe('INV-0011');
@@ -223,9 +223,9 @@ describe('capital activity (M16)', () => {
       expect(open.cashFlows).toEqual([]);
       const until = addDays(seededWire.issueDate, 30);
       expect(open.wireChangeHold).toEqual({ until, holdDays: 30 });
-      expect(until).toBe('2025-08-09');
+      expect(until).toBe('2025-07-30');
       expect(open.notes).toEqual([
-        'Wire instructions changed on Jul 10, 2025; release is held until Aug 9, 2025 (SEC-12.3).',
+        'Wire instructions changed on Jun 30, 2025; release is held until Jul 30, 2025 (SEC-12.3).',
         'No cash flow has been recorded for this notice.',
       ]);
       // Never a bank detail: the payload has the contract's keys only.
@@ -266,8 +266,10 @@ describe('capital activity (M16)', () => {
       const [flow] = flowsOf(call.id);
       const open = await detail('viewer', call.id);
       expect(open.settledAmount).not.toBeNull();
-      expect(D(open.settledAmount!).equals(D(flow!.amount))).toBe(true);
-      expect(D(open.settledAmount!).isNegative()).toBe(true);
+      // The flow is signed from the investor's side; the settled amount reads like the notice's.
+      expect(D(flow!.amount).isNegative()).toBe(true);
+      expect(D(open.settledAmount!).equals(D(flow!.amount).abs())).toBe(true);
+      expect(D(open.settledAmount!).equals(D(call.amount))).toBe(true);
       expect(open.cashFlows).toEqual([
         {
           date: flow!.flowDate,
@@ -288,11 +290,13 @@ describe('capital activity (M16)', () => {
       for (const n of rows) {
         expect(n.split).toEqual(h.dataset.capitalNotices.find((x) => x.id === n.id)!.split);
         expect(Object.keys(n.split)).toEqual(Object.keys(n.split).sort());
-        const flows = flowsOf(n.id).filter((f) => f.status === 'record_status.approved');
+        const flows = flowsOf(n.id).filter(
+          (f) => f.status === 'record_status.approved' && f.flowDate <= h.dataset.asOf,
+        );
         if (flows.length === 0) expect(n.settledAmount).toBeNull();
         else
           expect(
-            D(n.settledAmount!).equals(flows.reduce((acc, f) => acc.plus(f.amount), D('0'))),
+            D(n.settledAmount!).equals(flows.reduce((acc, f) => acc.plus(f.amount), D('0')).abs()),
           ).toBe(true);
         if (n.investmentId === null) {
           expect(n.commitmentId).not.toBeNull();
@@ -321,8 +325,8 @@ describe('capital activity (M16)', () => {
           expect(inRegisterOrder(rows[i - 1]!, rows[i]!), `row ${i}`).toBe(true);
         for (const n of rows) expect(n.daysToDue).toBe(daysBetween(h.dataset.asOf, n.dueDate));
       }
-      expect(seeded(false).length).toBe(186);
-      expect(seeded(true).length).toBe(188);
+      expect(seeded(false).length).toBe(185);
+      expect(seeded(true).length).toBe(187);
     });
 
     it('breaks every tie in the cursor key: small pages reproduce the single-page order', async () => {

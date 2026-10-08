@@ -590,7 +590,10 @@ export const capitalNoticeRow = z.object({
   currency: z.string(),
   split: z.record(z.string(), decimalString),
   scenarioTag: z.string().nullable(),
-  /** Sum of approved cash flows created from this notice; null when none yet. */
+  /**
+   * Approved cash flows created from this notice up to the as-of date, in the notice's own
+   * direction (unsigned like amount); null when none yet.
+   */
   settledAmount: decimalString.nullable(),
   /** Days from the as-of date to the due date; negative when overdue. */
   daysToDue: z.number().int(),

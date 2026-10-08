@@ -699,25 +699,32 @@ export function generateDataset(options: GenerateOptions = {}): SyntheticDataset
         );
       if (!realized && k === 3 && rng.chance(0.35)) {
         const dist = cost * Number(rng.decimal(0.1, 0.4, 2));
-        const nid = addNotice({
-          noticeType: 'notice_type.distribution',
-          vehicleId,
-          investmentId: inv.id,
-          commitmentId: null,
-          issueDate: addDays(periodEnd, 20),
-          dueDate: addDays(periodEnd, 30),
-          amount: fixed(dist),
-          state: 'Reconciled',
-          scenarioTag: null,
-        });
-        addFlow({
-          investmentId: inv.id,
-          commitmentId: null,
-          flowDate: addDays(periodEnd, 30),
-          flowType: 'flow_type.distribution',
-          amount: fixed(dist),
-          sourceNoticeId: nid,
-        });
+        if (compareIso(addDays(periodEnd, 30), asOf) <= 0) {
+          const nid = addNotice({
+            noticeType: 'notice_type.distribution',
+            vehicleId,
+            investmentId: inv.id,
+            commitmentId: null,
+            issueDate: addDays(periodEnd, 20),
+            dueDate: addDays(periodEnd, 30),
+            amount: fixed(dist),
+            state: 'Reconciled',
+            scenarioTag: null,
+          });
+          addFlow({
+            investmentId: inv.id,
+            commitmentId: null,
+            flowDate: addDays(periodEnd, 30),
+            flowType: 'flow_type.distribution',
+            amount: fixed(dist),
+            sourceNoticeId: nid,
+          });
+        } else {
+          // Paid after the as-of date, so not yet in the data; the two ids it would have drawn
+          // are drawn anyway, so every later seeded value stays where it was.
+          rng.uuid();
+          rng.uuid();
+        }
       }
     }
     if (realized && inv.exitDate !== null) {
@@ -786,25 +793,31 @@ export function generateDataset(options: GenerateOptions = {}): SyntheticDataset
       });
       if (n > 8 && rng.chance(0.5)) {
         const dist = call * Number(rng.decimal(0.3, 1.5, 2));
-        const did = addNotice({
-          noticeType: 'notice_type.distribution',
-          vehicleId: primary.id,
-          investmentId: null,
-          commitmentId: c.id,
-          issueDate: addDays(q, 15),
-          dueDate: addDays(q, 25),
-          amount: fixed(dist),
-          state: 'Reconciled',
-          scenarioTag: null,
-        });
-        addFlow({
-          investmentId: null,
-          commitmentId: c.id,
-          flowDate: addDays(q, 25),
-          flowType: 'flow_type.distribution',
-          amount: fixed(dist),
-          sourceNoticeId: did,
-        });
+        if (compareIso(addDays(q, 25), asOf) <= 0) {
+          const did = addNotice({
+            noticeType: 'notice_type.distribution',
+            vehicleId: primary.id,
+            investmentId: null,
+            commitmentId: c.id,
+            issueDate: addDays(q, 15),
+            dueDate: addDays(q, 25),
+            amount: fixed(dist),
+            state: 'Reconciled',
+            scenarioTag: null,
+          });
+          addFlow({
+            investmentId: null,
+            commitmentId: c.id,
+            flowDate: addDays(q, 25),
+            flowType: 'flow_type.distribution',
+            amount: fixed(dist),
+            sourceNoticeId: did,
+          });
+        } else {
+          // Paid after the as-of date: drawn but not added, as for the position distributions.
+          rng.uuid();
+          rng.uuid();
+        }
       }
     }
   }
@@ -1007,7 +1020,8 @@ export function generateDataset(options: GenerateOptions = {}): SyntheticDataset
       sourceNoticeId: n2,
     });
   }
-  // wire_change: a pending call whose notice carries changed bank details and urgency language.
+  // wire_change: a pending call, issued on the as-of date and due two days later, whose notice
+  // carries changed bank details and urgency language.
   {
     const inv = pickFresh(activeEquity, 'wire_change');
     addNotice({
@@ -1015,8 +1029,8 @@ export function generateDataset(options: GenerateOptions = {}): SyntheticDataset
       vehicleId: inv.vehicleId,
       investmentId: inv.id,
       commitmentId: null,
-      issueDate: addDays(asOf, 10),
-      dueDate: addDays(asOf, 12),
+      issueDate: asOf,
+      dueDate: addDays(asOf, 2),
       amount: '2500000.00',
       state: 'Extracted',
       scenarioTag: 'wire_change',

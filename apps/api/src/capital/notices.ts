@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, inArray, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, inArray, lte, sql } from 'drizzle-orm';
 import type { SQL } from 'drizzle-orm';
 import { daysBetween } from '@pb/calc';
 import type { CapitalNoticeRow } from '@pb/contracts';
@@ -46,10 +46,12 @@ export interface NoticeRowOptions {
 }
 
 /**
- * Visible capital notices as contract rows (M16): vehicle, position or fund names, the split as
- * decimal strings, the sum of approved cash flows created from each notice (one batched query; null
- * when none yet, never 0) and whole days from the as-of date to the due date (negative when
- * overdue). Row-level security decides which notices exist for the caller (SEC-5.1, SEC-5.3).
+ * Visible capital notices as contract rows (M16), as of a date: only notices issued on or before
+ * it, with vehicle, position or fund names, the split as decimal strings, the approved cash flows
+ * created from each notice up to that date (one batched query; in the notice's own direction,
+ * unsigned like its amount; null when none yet, never 0) and whole days from the as-of date to the
+ * due date (negative when overdue). Row-level security decides which notices exist for the caller
+ * (SEC-5.1, SEC-5.3).
  */
 export async function buildNoticeRows(
   tx: Tx,
@@ -86,14 +88,15 @@ export async function buildNoticeRows(
     )
     .leftJoin(schema.commitment, eq(schema.commitment.id, notice.commitmentId))
     .leftJoin(schema.sponsorFund, eq(schema.sponsorFund.id, schema.commitment.sponsorFundId))
-    .where(where)
+    .where(and(lte(notice.issueDate, asOf), where))
     .orderBy(...(options.orderBy ?? REGISTER_ORDER));
   const notices = await (options.limit === undefined ? query : query.limit(options.limit));
   if (notices.length === 0) return [];
 
   const flow = schema.cashFlow;
   const settledRows = await tx
-    .select({ noticeId: flow.sourceNoticeId, total: sql<string>`sum(${flow.amount})::text` })
+    // Cash flows are signed from the investor's side; a notice's amount is not, so the total is too.
+    .select({ noticeId: flow.sourceNoticeId, total: sql<string>`abs(sum(${flow.amount}))::text` })
     .from(flow)
     .where(
       and(
@@ -102,6 +105,7 @@ export async function buildNoticeRows(
           notices.map((n) => n.id),
         ),
         eq(flow.status, 'record_status.approved'),
+        lte(flow.flowDate, asOf),
       ),
     )
     .groupBy(flow.sourceNoticeId);

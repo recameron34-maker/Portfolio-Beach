@@ -130,7 +130,7 @@ export class CapitalService {
           status: flow.status,
         })
         .from(flow)
-        .where(eq(flow.sourceNoticeId, row.id))
+        .where(and(eq(flow.sourceNoticeId, row.id), lte(flow.flowDate, asOf)))
         .orderBy(asc(flow.flowDate), asc(flow.id));
 
       const holdUntil = addDays(row.issueDate, holdDays);

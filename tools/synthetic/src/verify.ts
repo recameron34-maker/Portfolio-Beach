@@ -68,6 +68,11 @@ export function verifyDataset(
       ids.vehicles.has(c.vehicleId) && ids.funds.has(c.sponsorFundId),
       'commitment with unknown vehicle or fund',
     );
+  // Nothing has happened after the dataset's as-of date: no notice issued, no cash flow paid.
+  for (const n of d.capitalNotices)
+    must(n.issueDate <= d.asOf, `notice ${n.id} is issued after the as-of date`);
+  for (const f of d.cashFlows)
+    must(f.flowDate <= d.asOf, `cash flow ${f.id} is dated after the as-of date`);
   for (const l of d.lpCommitments)
     must(
       ids.clients.has(l.clientId) && ids.vehicles.has(l.vehicleId),
