@@ -1,33 +1,24 @@
 import type { ReactNode } from 'react';
-import { useParams } from '@tanstack/react-router';
-import { useQuery } from '@tanstack/react-query';
 import type { InvestmentDetail } from '@pb/contracts';
-import { ApiError } from '../api/client.js';
-import { investmentQuery } from '../app/queries.js';
 import {
   Badge,
   Card,
-  ErrorState,
   KeyValueTable,
-  PageHeader,
   PageSkeleton,
   SectionHeader,
   NumCell,
-  StatTile,
 } from '../components/ui.js';
 import {
   formatDate,
-  formatMoic,
   formatMoneyM,
-  formatMonthYear,
   formatMultiple,
   formatPct,
-  irrDisplay,
   labelOf,
   MISSING,
 } from '../lib/format.js';
 import { creditStatusTone } from '../lib/labels.js';
 import { humanizeState, valuationTone } from '../lib/states.js';
+import { useDealDetail } from './deal/data.js';
 
 function OperatingTable({ detail }: { detail: InvestmentDetail }): ReactNode {
   const o = detail.operating;
@@ -133,62 +124,18 @@ function CreditTerms({ detail }: { detail: InvestmentDetail }): ReactNode {
   );
 }
 
+/**
+ * Overview tab: the one-pager body (docs/06 section 2). The banner and the stat tiles sit in
+ * DealWorkspace so every tab shares them; the workspace also owns the loading and not-found states
+ * and renders this tab only once the position has loaded.
+ */
 export function InvestmentDetailPage(): ReactNode {
-  const { id } = useParams({ from: '/app/portfolio/$id' });
-  const q = useQuery(investmentQuery(id));
-  if (q.isPending) return <PageSkeleton tiles={4} rows={6} />;
-  if (q.isError) {
-    const notFound = q.error instanceof ApiError && q.error.status === 404;
-    return (
-      <ErrorState
-        title={notFound ? 'Investment not found' : 'Could not load this investment'}
-        detail={
-          notFound
-            ? 'There is no investment with this id in your view of the portfolio.'
-            : q.error.message
-        }
-      />
-    );
-  }
+  const q = useDealDetail();
+  if (q.data === undefined) return q.isPending ? <PageSkeleton rows={6} /> : null;
   const d = q.data;
   const isCredit = d.credit !== null;
   return (
     <>
-      <PageHeader
-        testId="detail-banner"
-        title={d.companyName}
-        meta={
-          <span className="pb-meta-list">
-            <span>{d.vehicleName}</span>
-            <span>{labelOf(d.dealType)}</span>
-            <span>Investment date {formatMonthYear(d.entryDate)}</span>
-            <span>As of {formatDate(d.navDate ?? d.latestPeriodEnd)}</span>
-          </span>
-        }
-        actions={
-          d.isActive ? <Badge tone="brand">Active</Badge> : <Badge tone="neutral">Realized</Badge>
-        }
-      />
-      <div className="pb-tiles">
-        <StatTile
-          label={isCredit ? 'Funded' : 'Invested capital'}
-          value={formatMoneyM(d.invested)}
-        />
-        {isCredit ? (
-          <StatTile label="Par" value={formatMoneyM(d.credit?.latest?.parValue ?? null)} />
-        ) : null}
-        <StatTile
-          label={isCredit ? 'Fair value' : 'Current NAV'}
-          value={formatMoneyM(d.nav)}
-          hint={d.navDate === null ? 'No Locked valuation' : `Locked ${formatDate(d.navDate)}`}
-        />
-        <StatTile label="Gross MOIC" value={formatMoic(d.grossMoic)} />
-        <StatTile
-          label="Gross IRR"
-          value={irrDisplay(d)}
-          hint={d.irrFlag === null ? undefined : `Flag: ${d.irrFlag.replace('_', ' ')}`}
-        />
-      </div>
       <Card tinted>
         <SectionHeader>Deal details</SectionHeader>
         <KeyValueTable
