@@ -99,12 +99,18 @@ export const notSameAs =
   (ctx: TransitionContext): string | null =>
     ctx.record[key] !== ctx.actorId ? null : message;
 
-export const all =
-  (...checks: ((ctx: TransitionContext) => string | null)[]) =>
-  (ctx: TransitionContext): string | null => {
-    for (const c of checks) {
-      const f = c(ctx);
-      if (f !== null) return f;
-    }
-    return null;
-  };
+/** One precondition check: a failure message, or null when it passes. */
+export type Check = (ctx: TransitionContext) => string | null;
+
+/** Every check must pass and the first failure is the refusal; the checks stay listed for the UI and docs. */
+export const all = (...checks: Check[]): Check & { checks: readonly Check[] } =>
+  Object.assign(
+    (ctx: TransitionContext): string | null => {
+      for (const c of checks) {
+        const f = c(ctx);
+        if (f !== null) return f;
+      }
+      return null;
+    },
+    { checks },
+  );

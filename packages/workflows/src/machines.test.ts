@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { attempt, forbiddenPairs } from './machine.js';
+import { all, attempt, flag, forbiddenPairs, requireReason } from './machine.js';
 import type { Machine, TransitionContext, TransitionResult } from './machine.js';
 import type { DealStage } from './machines.js';
 import {
@@ -370,5 +370,17 @@ describe('reporting package, documents and extraction (docs/18 sections 5 to 7)'
         }),
       ).ok,
     ).toBe(false);
+  });
+});
+
+describe('a combined precondition', () => {
+  const ctx: TransitionContext = { actorId: 'a', actorRoles: [], record: {} };
+
+  it('refuses with the first failing check and keeps every check listed', () => {
+    const both = all(flag('done', true, 'not done'), requireReason);
+    expect(both(ctx)).toBe('not done');
+    expect(both({ ...ctx, record: { done: true } })).toBe('a reason is required');
+    expect(both({ ...ctx, record: { done: true }, reason: 'why' })).toBeNull();
+    expect(both.checks.map((c) => c(ctx))).toEqual(['not done', 'a reason is required']);
   });
 });

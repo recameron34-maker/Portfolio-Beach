@@ -669,6 +669,12 @@ p:last-child {
   gap: 8px;
   margin: 0 0 10px;
 }
+/* A workflow's states as a row of chips (WorkflowSpec on the phase pages) */
+.pb-workflow-states {
+  list-style: none;
+  padding: 0;
+  margin: 4px 0 14px;
+}
 
 /* ---- Toolbar, fields, tabs ---- */
 .pb-toolbar {

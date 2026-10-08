@@ -429,6 +429,7 @@ export const extractionRunMachine: Machine<ExtractionState, ExtractionCommand> =
       command: 'scheduleRetry',
       roles: ['service'],
       precondition: retryBudget,
+      note: 'A schema failure retries once and a transient one three times; after that the run fails.',
     },
     { from: 'NeedsRetry', to: 'Running', command: 'retry', roles: ['service'] },
   ],

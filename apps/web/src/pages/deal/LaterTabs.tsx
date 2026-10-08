@@ -1,5 +1,7 @@
 import type { ReactNode } from 'react';
+import { dealStageMachine, documentClassificationMachine } from '@pb/workflows';
 import { PhasePage } from '../../components/ui.js';
+import { WorkflowSpec } from '../../components/WorkflowSpec.js';
 import './deal.css';
 
 /* Tabs whose modules land in later phases (docs/09). Each says what arrives and from which module. */
@@ -14,14 +16,21 @@ function Arrives({ children }: { children: ReactNode }): ReactNode {
 
 export function DiligenceTab(): ReactNode {
   return (
-    <PhasePage title="Diligence" phase="Phase 5" modules="M7 diligence and IC">
-      <Arrives>
-        M7 brings diligence checklists by deal type, with owners, due dates and the IC gate that
-        holds a deal until every required task is done. IC memo sections and prescreen decks arrive
-        as drafts marked AI draft until a person approves them, and IC decisions are recorded here
-        with their conditions.
-      </Arrives>
-    </PhasePage>
+    <>
+      <PhasePage title="Diligence" phase="Phase 5" modules="M7 diligence and IC">
+        <Arrives>
+          M7 brings diligence checklists by deal type, with owners, due dates and the IC gate that
+          holds a deal until every required task is done. IC memo sections and prescreen decks
+          arrive as drafts marked AI draft until a person approves them, and IC decisions are
+          recorded here with their conditions.
+        </Arrives>
+      </PhasePage>
+      <WorkflowSpec
+        machine={dealStageMachine}
+        title="Deal stages"
+        detail="The stages this deal moves through, with the IC gate that diligence feeds."
+      />
+    </>
   );
 }
 
@@ -39,14 +48,21 @@ export function ClosingTab(): ReactNode {
 
 export function DocumentsTab(): ReactNode {
   return (
-    <PhasePage title="Documents" phase="Phase 2" modules="M3 document hub, M4 extraction">
-      <Arrives>
-        M3 brings the document hub for this position, with AI tagging of sponsor, period and
-        document type and a review queue for anything below the confidence threshold. The
-        expected-document tracker shows which quarterly reports and notices have arrived and which
-        are missing or late.
-      </Arrives>
-    </PhasePage>
+    <>
+      <PhasePage title="Documents" phase="Phase 2" modules="M3 document hub, M4 extraction">
+        <Arrives>
+          M3 brings the document hub for this position, with AI tagging of sponsor, period and
+          document type and a review queue for anything below the confidence threshold. The
+          expected-document tracker shows which quarterly reports and notices have arrived and which
+          are missing or late.
+        </Arrives>
+      </PhasePage>
+      <WorkflowSpec
+        machine={documentClassificationMachine}
+        title="Document classification"
+        detail="How each document for this position will be tagged, and when a person reviews it."
+      />
+    </>
   );
 }
 

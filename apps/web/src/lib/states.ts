@@ -1,22 +1,32 @@
 import type { Machine } from '@pb/workflows';
 import { requireReason } from '@pb/workflows';
 import type { Tone } from '../components/ui.js';
+import { ROLE_WORDS } from './roles.js';
 
-/** "OpsPrepared" to "Ops prepared", "TicketDrafted" to "Ticket drafted". */
-export function humanizeState(state: string): string {
-  const spaced = state.replace(/([a-z])([A-Z])/g, '$1 $2');
-  return spaced.charAt(0) + spaced.slice(1).toLowerCase();
+/** Acronyms in state and command names that stay in capitals ("IC", "QA failed"). */
+const ACRONYMS = /\b(ic|qa)\b/gi;
+
+/** A camelCase or PascalCase name as a sentence-case phrase, acronyms kept. */
+function phrase(name: string): string {
+  const spaced = name.replace(/([a-z])([A-Z])/g, '$1 $2').replace(/([A-Z]+)([A-Z][a-z])/g, '$1 $2');
+  const sentence = spaced.charAt(0).toUpperCase() + spaced.slice(1).toLowerCase();
+  return sentence.replace(ACRONYMS, (a) => a.toUpperCase());
 }
 
-/** "dealTeamApprove" to "Deal team approve", "sendBack" to "Send back". */
+/** "OpsPrepared" to "Ops prepared", "TicketDrafted" to "Ticket drafted", "QAFailed" to "QA failed". */
+export function humanizeState(state: string): string {
+  return phrase(state);
+}
+
+/** "dealTeamApprove" to "Deal team approve", "sendBack" to "Send back", "overrideQa" to "Override QA". */
 export function commandLabel(command: string): string {
-  const spaced = command.replace(/([a-z])([A-Z])/g, '$1 $2');
-  return spaced.charAt(0).toUpperCase() + spaced.slice(1).toLowerCase();
+  return phrase(command);
 }
 
 /** "approver" or "deal_team" as words: "approver or deal team". */
 export function rolesLabel(roles: readonly string[]): string {
-  return roles.map((r) => r.replace(/_/g, ' ')).join(' or ');
+  const words: Readonly<Record<string, string>> = ROLE_WORDS;
+  return roles.map((r) => words[r] ?? r.replace(/_/g, ' ')).join(' or ');
 }
 
 /** docs/18 section 1: reports read Locked only; the in-flight states need someone's attention. */
