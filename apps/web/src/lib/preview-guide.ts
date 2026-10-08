@@ -2,6 +2,8 @@ import { useState } from 'react';
 import type { z } from 'zod';
 import type { mockUser } from '@pb/contracts';
 import { previewMode } from '../app/env.js';
+import { ROLE_WORDS } from './roles.js';
+import type { Role } from './roles.js';
 
 /*
  * Who the preview walkthroughs name, and whether Home shows them (components/PreviewGuide.tsx).
@@ -10,27 +12,25 @@ import { previewMode } from '../app/env.js';
  */
 
 type MockUser = z.infer<typeof mockUser>;
-type Role = MockUser['roles'][number];
 
 /** tools/synthetic seats this deal team user on the wall around the walled deal (scenario walled_deal). */
 export const WALL_MEMBER_ID = 'deal.three';
 
-/** The role in words, and how a step names someone in it while the list loads or names no one. */
-const ROLES: Readonly<Record<Role, { word: string; nobody: string }>> = {
-  viewer: { word: 'viewer', nobody: 'the viewer' },
-  deal_team: { word: 'deal team', nobody: 'a deal team user' },
-  operations: { word: 'operations', nobody: 'an operations user' },
-  approver: { word: 'approver', nobody: 'the approver' },
-  investor_relations: { word: 'investor relations', nobody: 'an investor relations user' },
-  platform_admin: { word: 'platform admin', nobody: 'the platform admin' },
-  auditor: { word: 'auditor', nobody: 'the auditor' },
-  service: { word: 'service', nobody: 'a service account' },
+/** How a step names someone in a role while the list loads or names no one. */
+const NOBODY: Readonly<Record<Role, string>> = {
+  viewer: 'the viewer',
+  deal_team: 'a deal team user',
+  operations: 'an operations user',
+  approver: 'the approver',
+  investor_relations: 'an investor relations user',
+  platform_admin: 'the platform admin',
+  auditor: 'the auditor',
+  service: 'a service account',
 };
 
 /** "Avery Mbeki (operations)", or "an operations user" while the list loads or names no one. */
 function person(user: MockUser | undefined, role: Role): string {
-  const { word, nobody } = ROLES[role];
-  return user === undefined ? nobody : `${user.displayName} (${word})`;
+  return user === undefined ? NOBODY[role] : `${user.displayName} (${ROLE_WORDS[role]})`;
 }
 
 export interface GuidePeople {

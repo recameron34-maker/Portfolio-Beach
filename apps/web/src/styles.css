@@ -398,9 +398,10 @@ p:last-child {
   text-transform: none;
   color: var(--pb-muted);
 }
+/* Two cards side by side once each can be 440px wide (room for a four-column table); else stacked */
 .pb-two-col {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(340px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 440px), 1fr));
   gap: 16px;
   align-items: start;
   margin-bottom: 16px;
@@ -415,6 +416,17 @@ p:last-child {
   grid-template-columns: repeat(auto-fit, minmax(172px, 1fr));
   gap: 12px;
   margin-bottom: 16px;
+}
+/* Home: four columns with Current NAV across two, so seven tiles fill two even rows */
+.pb-home-tiles {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+.pb-stat-tile.is-wide {
+  grid-column: span 2;
+}
+.pb-stat-tile.is-wide .pb-sparkline {
+  width: 126px;
+  height: 36px;
 }
 .pb-stat-tile {
   display: flex;
@@ -480,6 +492,9 @@ p:last-child {
 .pb-table-wrap + .pb-table-wrap,
 .pb-table-wrap + .pb-notice {
   margin-top: 12px;
+}
+.pb-table-wrap + .pb-meta {
+  margin-top: 10px;
 }
 .pb-table {
   width: 100%;
@@ -1015,10 +1030,9 @@ p:last-child {
 }
 .pb-attention > li {
   display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: space-between;
-  gap: 4px 12px;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
   padding: 8px 0;
   border-top: 1px solid var(--pb-hairline);
 }
@@ -1432,6 +1446,12 @@ p:last-child {
     padding: 20px 20px 48px;
   }
 }
+/* Below this the sidebar leaves too little room for four of Home's tiles across */
+@media (max-width: 960px) {
+  .pb-home-tiles {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
 @media (max-width: 760px) {
   .pb-shell {
     grid-template-columns: minmax(0, 1fr);
@@ -1566,6 +1586,9 @@ p:last-child {
 @media (max-width: 480px) {
   .pb-tiles {
     grid-template-columns: minmax(0, 1fr);
+  }
+  .pb-stat-tile.is-wide {
+    grid-column: auto;
   }
 }
 @media print {

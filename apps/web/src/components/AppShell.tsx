@@ -24,6 +24,7 @@ import { clearCredential, setCredential } from '../app/session.js';
 import { ApiError } from '../api/client.js';
 import { useSignOutOnRejectedCredential } from '../app/useSignOutOnRejectedCredential.js';
 import { useTaxonomyLabels } from '../app/useTaxonomyLabels.js';
+import { userLabel } from '../lib/roles.js';
 import { PageSkeleton } from './ui.js';
 
 /** Icons keyed by route so nav.ts (the docs/06 list) stays data only. */
@@ -80,7 +81,7 @@ export function RoleSwitcher(): ReactNode {
       data-testid="role-switcher"
       className="pb-header-switcher"
       size="small"
-      value={`${me.data.displayName} (${me.data.roles.join(', ')})`}
+      value={userLabel(me.data)}
       selectedOptions={[current]}
       onOptionSelect={(_e, data) => {
         const next = data.optionValue;
@@ -90,12 +91,8 @@ export function RoleSwitcher(): ReactNode {
       }}
     >
       {users.data.users.map((u) => (
-        <Option
-          key={u.externalId}
-          value={u.externalId}
-          text={`${u.displayName} (${u.roles.join(', ')})`}
-        >
-          {u.displayName} ({u.roles.join(', ')})
+        <Option key={u.externalId} value={u.externalId} text={userLabel(u)}>
+          {userLabel(u)}
         </Option>
       ))}
     </Dropdown>

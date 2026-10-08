@@ -51,10 +51,11 @@ function Tiles({ summary }: { summary: AnalyticsSummary }): ReactNode {
     .map((p) => toNumber(p.value))
     .filter((v): v is number => v !== null);
   return (
-    <div className="pb-tiles" data-testid="home-tiles">
+    <div className="pb-tiles pb-home-tiles" data-testid="home-tiles">
       <StatTile label="Active positions" value={String(summary.activeInvestments)} />
       <StatTile label="Invested capital" value={formatMoneyM(a.invested)} hint="Active positions" />
       <StatTile
+        wide
         label="Current NAV"
         value={formatMoneyM(a.nav)}
         hint="Latest Locked valuations"

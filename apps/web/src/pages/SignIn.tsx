@@ -7,6 +7,7 @@ import { setCredential } from '../app/session.js';
 import { BeachBackground } from '../components/BeachBackground.js';
 import { PreviewGuide } from '../components/PreviewGuide.js';
 import { Card, ErrorState, SectionHeader } from '../components/ui.js';
+import { userLabel } from '../lib/roles.js';
 
 /** Prototype sign-in: pick a synthetic user. Entra ID single sign-on replaces this after merge (SEC-4.1). */
 export function SignInPage(): ReactNode {
@@ -46,7 +47,7 @@ export function SignInPage(): ReactNode {
                 void navigate({ to: '/' });
               }}
             >
-              {u.displayName} ({u.roles.join(', ')})
+              {userLabel(u)}
             </Button>
           ))}
         </div>

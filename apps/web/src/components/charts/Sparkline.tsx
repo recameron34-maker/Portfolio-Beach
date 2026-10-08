@@ -29,6 +29,7 @@ export function Sparkline({ values, label }: { values: number[]; label: string }
         strokeWidth={2}
         strokeLinejoin="round"
         strokeLinecap="round"
+        vectorEffect="non-scaling-stroke"
       />
       <circle cx={x(points.length - 1)} cy={y(last)} r={3} fill="var(--pb-brand-accent)" />
     </svg>

@@ -55,19 +55,27 @@ export function StatTile({
   hint,
   tone,
   figure,
+  wide = false,
 }: {
   label: string;
   value: string;
   hint?: string | undefined;
   tone?: 'good' | 'watch' | 'bad' | undefined;
   figure?: ReactNode;
+  /** Spans two grid columns, for the headline figure of a row of tiles. */
+  wide?: boolean;
 }): ReactNode {
   const missing = value === MISSING || value === 'NM';
   const number = (
     <span className={missing ? 'pb-stat-value is-missing' : 'pb-stat-value'}>{value}</span>
   );
   return (
-    <div className="pb-stat-tile" role="group" aria-label={label} data-tone={tone}>
+    <div
+      className={wide ? 'pb-stat-tile is-wide' : 'pb-stat-tile'}
+      role="group"
+      aria-label={label}
+      data-tone={tone}
+    >
       <span className="pb-stat-label">{label}</span>
       {figure !== undefined && figure !== null ? (
         <span className="pb-stat-row">
