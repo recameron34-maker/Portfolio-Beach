@@ -14,7 +14,6 @@ import {
   TableWrap,
 } from '../../components/ui.js';
 import { formatDate, formatDateTime } from '../../lib/format.js';
-import { retryUnlessUnavailable } from '../../lib/unavailable.js';
 import { canReadAudit, TIMELINE_LIMIT, timelineEntries, useDealDetail, useDealId } from './data.js';
 import './deal.css';
 
@@ -125,10 +124,7 @@ function AuditCard({ id }: { id: string }): ReactNode {
 export function ActivityTab(): ReactNode {
   const id = useDealId();
   const detail = useDealDetail();
-  const notices = useQuery({
-    ...capitalNoticesQuery({ investmentId: id }),
-    retry: retryUnlessUnavailable,
-  });
+  const notices = useQuery(capitalNoticesQuery({ investmentId: id }));
   const d = detail.data;
   if (d === undefined) return detail.isPending ? <PageSkeleton rows={8} /> : null;
   const entries = timelineEntries(d, notices.data?.items ?? []);

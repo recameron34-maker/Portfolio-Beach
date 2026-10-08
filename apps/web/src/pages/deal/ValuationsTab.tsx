@@ -26,7 +26,6 @@ import {
   moneyLabel,
 } from '../../lib/format.js';
 import { humanizeState, valuationTone } from '../../lib/states.js';
-import { retryUnlessUnavailable } from '../../lib/unavailable.js';
 import {
   datePart,
   lockedSeries,
@@ -212,7 +211,7 @@ function RecordedVersionsCard({ detail }: { detail: InvestmentDetail }): ReactNo
 export function ValuationsTab(): ReactNode {
   const id = useDealId();
   const detail = useDealDetail();
-  const q = useQuery({ ...valuationsQuery({ investmentId: id }), retry: retryUnlessUnavailable });
+  const q = useQuery(valuationsQuery({ investmentId: id }));
   if (q.isPending) return <PageSkeleton rows={6} />;
   if (q.isLoadingError) {
     return (

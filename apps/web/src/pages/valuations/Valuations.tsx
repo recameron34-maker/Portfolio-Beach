@@ -698,11 +698,7 @@ function Board({ page, roles }: { page: ValuationPage; roles: readonly string[] 
  */
 export function ValuationsPage(): ReactNode {
   const me = useQuery(meQuery);
-  const board = useQuery({
-    ...valuationsQuery({}),
-    placeholderData: keepPreviousData,
-    retry: retryUnlessUnavailable,
-  });
+  const board = useQuery({ ...valuationsQuery({}), placeholderData: keepPreviousData });
   if (board.isPending) return <PageSkeleton tiles={4} rows={8} />;
   if (board.isError) {
     return (

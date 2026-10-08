@@ -17,7 +17,6 @@ import {
 } from '../../components/ui.js';
 import { formatDate, formatMoneyM, labelOf } from '../../lib/format.js';
 import { dueLabel, dueTone, humanizeState, noticeTone } from '../../lib/states.js';
-import { retryUnlessUnavailable } from '../../lib/unavailable.js';
 import { ALERT_DAYS_BEFORE_DUE, isSettled, useDealDetail, useDealId } from './data.js';
 import './deal.css';
 
@@ -128,10 +127,7 @@ function CapitalLink(): ReactNode {
 export function CapitalTab(): ReactNode {
   const id = useDealId();
   const detail = useDealDetail();
-  const q = useQuery({
-    ...capitalNoticesQuery({ investmentId: id }),
-    retry: retryUnlessUnavailable,
-  });
+  const q = useQuery(capitalNoticesQuery({ investmentId: id }));
   const d = detail.data;
   if (d === undefined) return detail.isPending ? <PageSkeleton tiles={2} rows={4} /> : null;
   const n = q.data?.items.length ?? 0;

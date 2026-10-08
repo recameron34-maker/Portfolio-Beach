@@ -23,7 +23,6 @@ import {
 } from '../../components/ui.js';
 import { formatDate, labelOf } from '../../lib/format.js';
 import { dueLabel, dueTone, humanizeState, noticeTone } from '../../lib/states.js';
-import { retryUnlessUnavailable } from '../../lib/unavailable.js';
 import {
   byDueDate,
   dayCount,
@@ -275,11 +274,7 @@ function NoticesCard({ page }: { page: CapitalNoticePage }): ReactNode {
  * their due-date alerts, what needs attention now, and every notice with client-side filters.
  */
 export function CapitalActivityPage(): ReactNode {
-  const q = useQuery({
-    ...capitalNoticesQuery({}),
-    placeholderData: keepPreviousData,
-    retry: retryUnlessUnavailable,
-  });
+  const q = useQuery({ ...capitalNoticesQuery({}), placeholderData: keepPreviousData });
   if (q.isPending) return <PageSkeleton tiles={4} rows={8} />;
   if (q.isError) {
     return (
