@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { D } from '@pb/calc';
-import { sponsorDetail } from '@pb/contracts';
+import { commitmentList, sponsorDetail } from '@pb/contracts';
 import type { SponsorDetail } from '@pb/contracts';
 import { startHarness } from './harness.js';
 import type { Harness } from './harness.js';
@@ -253,13 +253,24 @@ describe('sponsor 360 (M6): GET /api/v1/sponsors/{id}', () => {
       expect(c.recallable).toBeNull();
       expect(c.unfunded).toBeNull();
     }
-    // Ordered by vehicle name then fund name.
+    // The shared commitment loader's order: vehicle, sponsor, fund and client name, then id.
     expect(gamma.commitments.map((c) => [c.vehicleName, c.sponsorFundName])).toEqual([
       ['Beach Primary Program', 'Skerry Fund I'],
       ['Beach Primary Program', 'Skerry Growth Fund II'],
       ['Client Gamma Separate Account', 'Skerry Fund I'],
       ['Client Gamma Separate Account', 'Skerry Growth Fund II'],
     ]);
+    // One loader: the sponsor's rows are exactly the commitments board rows for its funds.
+    const board = commitmentList.parse(
+      (
+        await h
+          .http()
+          .get(`/api/v1/commitments?asOf=${h.dataset.asOf}`)
+          .set('authorization', h.as('ir.two'))
+          .expect(200)
+      ).body,
+    );
+    expect(gamma.commitments).toEqual(board.items.filter((c) => c.sponsorId === skerry.id));
     // Totals follow the caller's view.
     expect(viewer.totalCommitted).toBe('71000000');
     expect(gamma.totalCommitted).toBe('93000000');

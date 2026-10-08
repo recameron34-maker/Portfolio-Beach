@@ -52,9 +52,9 @@ export interface PositionMetrics {
 export const str = (d: Decimal | null): string | null =>
   d === null ? null : d.toFixed(10).replace(/\.?0+$/, '');
 
-function kindOf(flowType: string): FlowKind {
-  const k = flowType.replace('flow_type.', '');
-  return k as FlowKind;
+/** The flow kind packages/calc expects: the taxonomy code without its domain prefix. */
+export function kindOf(flowType: string): FlowKind {
+  return flowType.replace('flow_type.', '') as FlowKind;
 }
 
 /** Latest Locked valuation on or before the as-of date: the NAV date rule (docs/03 section 4). */

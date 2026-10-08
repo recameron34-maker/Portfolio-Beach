@@ -1,11 +1,11 @@
-import { and, asc, eq, inArray, isNull } from 'drizzle-orm';
+import { and, asc, eq, inArray, isNull, lte } from 'drizzle-orm';
 import type { SQL } from 'drizzle-orm';
 import { summarizeFlows, unfunded } from '@pb/calc';
-import type { FlowKind, TypedCashFlow } from '@pb/calc';
+import type { TypedCashFlow } from '@pb/calc';
 import type { FundCommitmentRow } from '@pb/contracts';
 import { schema } from '@pb/db';
 import type { Tx } from '@pb/db';
-import { str } from '../portfolio/metrics.js';
+import { kindOf, str } from './metrics.js';
 
 const compareText = (a: string, b: string): number => (a < b ? -1 : a > b ? 1 : 0);
 
@@ -16,16 +16,15 @@ const compareClientName = (a: string | null, b: string | null): number => {
   return compareText(a, b);
 };
 
-/** `flow_type.contribution` to the calc kind; codes keep their domain prefix everywhere else. */
-const kindOf = (flowType: string): FlowKind => flowType.replace('flow_type.', '') as FlowKind;
-
 /**
- * Approved, commitment-keyed cash flows (investment_id is null) for a set of commitments, oldest
- * first, in one query. Row-level security on mon.cash_flow follows the commitment's visibility.
+ * Approved, commitment-keyed cash flows (investment_id is null) on or before the as-of date for a
+ * set of commitments, oldest first, in one query. Row-level security on mon.cash_flow follows the
+ * commitment's visibility.
  */
 async function loadCommitmentFlows(
   tx: Tx,
   ids: readonly string[],
+  asOf: string,
 ): Promise<Map<string, TypedCashFlow[]>> {
   const out = new Map<string, TypedCashFlow[]>();
   if (ids.length === 0) return out;
@@ -42,6 +41,7 @@ async function loadCommitmentFlows(
         inArray(schema.cashFlow.commitmentId, [...ids]),
         isNull(schema.cashFlow.investmentId),
         eq(schema.cashFlow.status, 'record_status.approved'),
+        lte(schema.cashFlow.flowDate, asOf),
       ),
     )
     .orderBy(asc(schema.cashFlow.flowDate), asc(schema.cashFlow.id));
@@ -57,14 +57,17 @@ async function loadCommitmentFlows(
 
 /**
  * Vehicle-to-fund commitments the caller can see (core.commitment under RLS: pooled rows for
- * every authenticated user, client-directed rows for callers entitled to that client, SEC-5.2)
+ * every authenticated user, client-directed rows for callers entitled to that client, SEC-5.2),
+ * narrowed by an optional condition over the commitment, its vehicle, sponsor fund or sponsor,
  * with what the approved commitment-keyed cash flows on or before the as-of date say was called,
- * distributed and recalled, and the unfunded balance from @pb/calc (docs/08 section 2).
+ * distributed and recalled, and the unfunded balance from @pb/calc (docs/08 section 2). The one
+ * loader behind the vehicle detail, the commitments board and the sponsor 360.
  *
- * A commitment with no approved flow at all has unknown figures and reports null for the four,
- * never 0 (docs/06 section 3). The numbers are shown as recorded: a commitment called beyond its
- * amount (the equalization scenario books its call to a primary commitment) reads as over-called.
- * Ordered by vehicle, sponsor, fund and client name so a response is byte-stable.
+ * A commitment without an approved flow on or before the as-of date is not calculable: its four
+ * figures are null, never 0 (docs/06 section 3), the same rule as a position's invested capital.
+ * The numbers are shown as recorded: a commitment called beyond its amount (the equalization
+ * scenario books its call to a primary commitment) reads as over-called. Ordered by vehicle,
+ * sponsor, fund and client name (pooled rows first), then id, so a response is byte-stable.
  */
 export async function loadCommitmentRows(
   tx: Tx,
@@ -97,6 +100,7 @@ export async function loadCommitmentRows(
   const flows = await loadCommitmentFlows(
     tx,
     rows.map((r) => r.id),
+    asOf,
   );
   return rows
     .sort(
@@ -108,11 +112,11 @@ export async function loadCommitmentRows(
         compareText(a.id, b.id),
     )
     .map((r) => {
-      const all = flows.get(r.id);
-      if (all === undefined) {
+      const typed = flows.get(r.id);
+      if (typed === undefined) {
         return { ...r, called: null, distributed: null, recallable: null, unfunded: null };
       }
-      const summary = summarizeFlows(all.filter((f) => f.date <= asOf));
+      const summary = summarizeFlows(typed);
       return {
         ...r,
         called: str(summary.contributions),

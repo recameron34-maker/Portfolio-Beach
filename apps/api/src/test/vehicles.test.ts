@@ -343,6 +343,29 @@ describe('vehicles, commitments and clients (M17, decision 0004)', () => {
         r.clientName,
       ]);
     });
+
+    it('reports a commitment with no approved flow by the as-of date as not calculable, never zero', async () => {
+      // Before the primary program's first call: the amounts show, the flow figures do not.
+      const early = commitmentList.parse(
+        (
+          await h
+            .http()
+            .get('/api/v1/commitments?asOf=2013-12-31')
+            .set('authorization', h.as('ops.one'))
+            .expect(200)
+        ).body,
+      );
+      expect(early.items.length).toBe(14);
+      for (const r of early.items) {
+        expect(r.called).toBeNull();
+        expect(r.distributed).toBeNull();
+        expect(r.recallable).toBeNull();
+        expect(r.unfunded).toBeNull();
+      }
+      expect(D(early.totals.amount!).eq('338000000')).toBe(true);
+      expect(early.totals.called).toBeNull();
+      expect(early.totals.unfunded).toBeNull();
+    });
   });
 
   describe('GET /clients', () => {

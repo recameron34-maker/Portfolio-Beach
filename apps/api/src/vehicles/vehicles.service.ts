@@ -17,7 +17,7 @@ import { ProblemError } from '../common/problem.js';
 import { DbService } from '../db/db.service.js';
 import { loadInvestmentsWithMetrics } from '../portfolio/loaders.js';
 import { lockedNavSeries, pooledPositionMetrics, str } from '../portfolio/metrics.js';
-import { loadCommitmentRows } from './commitments.js';
+import { loadCommitmentRows } from '../portfolio/commitments.js';
 
 /** Calculation settings from config/definitions.json (docs/03 section 4); only the keys this service reads. */
 interface Definitions {
