@@ -1,16 +1,308 @@
+import { useState } from 'react';
 import type { ReactNode } from 'react';
-import { PhasePage } from '../../components/ui.js';
+import { Link } from '@tanstack/react-router';
+import { keepPreviousData, useQuery } from '@tanstack/react-query';
+import { Dropdown, Label, Option, Switch } from '@fluentui/react-components';
+import type { CapitalNoticePage, CapitalNoticeRow, CapitalNoticeState } from '@pb/contracts';
+import { CAPITAL_TABS } from '../../app/nav.js';
+import { capitalNoticesQuery, LIST_LIMIT } from '../../app/queries.js';
+import { UnavailableState } from '../../components/UnavailableState.js';
+import {
+  Badge,
+  Card,
+  EmptyState,
+  Field,
+  NumCell,
+  PageHeader,
+  PageSkeleton,
+  SectionHeader,
+  StatTile,
+  TabNav,
+  Toolbar,
+} from '../../components/ui.js';
+import { formatDate, labelOf } from '../../lib/format.js';
+import { dueLabel, dueTone, humanizeState, noticeTone } from '../../lib/states.js';
+import { retryUnlessUnavailable } from '../../lib/unavailable.js';
+import {
+  byDueDate,
+  dayCount,
+  distinctNames,
+  filterNotices,
+  isNoticeState,
+  isSettled,
+  NOTICE_STATES,
+  noticeAmount,
+  noticeCounts,
+  noticeSubject,
+  noticeTypes,
+} from './notices.js';
+import './capital.css';
 
-export function CapitalActivityPage(): ReactNode {
-  return <PhasePage title="Capital Activity" phase="this build" modules="M16 notices" />;
-}
+export { CommitmentsPage } from './Commitments.js';
+export { CapitalNoticePage } from './NoticeDetail.js';
 
-export function CapitalNoticePage(): ReactNode {
-  return <PhasePage title="Capital notice" phase="this build" modules="M16 notice detail" />;
-}
-
-export function CommitmentsPage(): ReactNode {
+/** The due date with its alert, which applies only until the money moves (docs/18 section 3). */
+function DueCell({
+  notice,
+  alertDays,
+}: {
+  notice: CapitalNoticeRow;
+  alertDays: number;
+}): ReactNode {
   return (
-    <PhasePage title="Commitments" phase="this build" modules="M17 commitments and unfunded" />
+    <td>
+      <span className="pb-cap-due">
+        <span className="pb-nowrap">{formatDate(notice.dueDate)}</span>
+        {isSettled(notice.state) ? null : (
+          <Badge tone={dueTone(notice.daysToDue, [alertDays])}>{dueLabel(notice.daysToDue)}</Badge>
+        )}
+      </span>
+    </td>
+  );
+}
+
+function SubjectLink({ notice }: { notice: CapitalNoticeRow }): ReactNode {
+  return (
+    <Link to="/capital-activity/$id" params={{ id: notice.id }}>
+      {noticeSubject(notice)}
+    </Link>
+  );
+}
+
+function StateBadge({ state }: { state: CapitalNoticeState }): ReactNode {
+  return <Badge tone={noticeTone(state)}>{humanizeState(state)}</Badge>;
+}
+
+function Tiles({ page }: { page: CapitalNoticePage }): ReactNode {
+  const c = noticeCounts(page.items, page.alertDaysBeforeDue);
+  return (
+    <div className="pb-tiles" data-testid="notice-tiles">
+      <StatTile
+        label="Overdue"
+        value={String(c.overdue)}
+        hint="Past the due date, not yet funded"
+        tone={c.overdue > 0 ? 'bad' : undefined}
+      />
+      <StatTile
+        label="Due soon"
+        value={String(c.dueSoon)}
+        hint={`Due within ${dayCount(page.alertDaysBeforeDue)}, not yet funded`}
+        tone={c.dueSoon > 0 ? 'watch' : undefined}
+      />
+      <StatTile label="In flight" value={String(c.inFlight)} hint="Not yet reconciled" />
+      <StatTile label="Reconciled" value={String(c.reconciled)} hint="Cash flows promoted" />
+    </div>
+  );
+}
+
+function AttentionCard({ page }: { page: CapitalNoticePage }): ReactNode {
+  const rows = byDueDate(page.attention);
+  return (
+    <Card testId="notice-attention">
+      <SectionHeader aside={rows.length === 0 ? undefined : `${rows.length} notices`}>
+        Needs attention
+      </SectionHeader>
+      {rows.length === 0 ? (
+        <EmptyState
+          title="Nothing needs attention"
+          detail={`No notice is in flight or due within ${dayCount(page.alertDaysBeforeDue)} of ${formatDate(page.asOf)}.`}
+        />
+      ) : (
+        <div className="pb-table-wrap">
+          <table className="pb-table" aria-label="Notices needing attention">
+            <thead>
+              <tr>
+                <th>Due</th>
+                <th>Type</th>
+                <th>Company or fund</th>
+                <th className="num">Amount</th>
+                <th>State</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((n) => (
+                <tr key={n.id}>
+                  <DueCell notice={n} alertDays={page.alertDaysBeforeDue} />
+                  <td>{labelOf(n.noticeType)}</td>
+                  <td>
+                    <span className="pb-cap-subject">
+                      <SubjectLink notice={n} />
+                      {n.scenarioTag === null ? null : (
+                        <Badge plain tone="neutral">
+                          {labelOf(n.scenarioTag)}
+                        </Badge>
+                      )}
+                    </span>
+                  </td>
+                  <NumCell>{noticeAmount(n.amount, n.currency)}</NumCell>
+                  <td>
+                    <StateBadge state={n.state} />
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </Card>
+  );
+}
+
+function NoticesCard({ page }: { page: CapitalNoticePage }): ReactNode {
+  const [state, setState] = useState<CapitalNoticeState | ''>('');
+  const [noticeType, setNoticeType] = useState('');
+  const [vehicle, setVehicle] = useState('');
+  const [includeReconciled, setIncludeReconciled] = useState(true);
+  const rows = filterNotices(page.items, { state, noticeType, vehicle, includeReconciled });
+  const types = noticeTypes(page.items);
+  const vehicles = distinctNames(page.items.map((n) => n.vehicleName));
+  return (
+    <Card testId="notice-board">
+      <SectionHeader aside="Latest due date first">All notices</SectionHeader>
+      <Toolbar>
+        <Field>
+          <Label htmlFor="notice-state">State</Label>
+          <Dropdown
+            id="notice-state"
+            value={state === '' ? 'All states' : humanizeState(state)}
+            selectedOptions={[state]}
+            onOptionSelect={(_e, d) => {
+              const v = d.optionValue ?? '';
+              setState(isNoticeState(v) ? v : '');
+            }}
+          >
+            <Option value="">All states</Option>
+            {NOTICE_STATES.map((s) => (
+              <Option key={s} value={s}>
+                {humanizeState(s)}
+              </Option>
+            ))}
+          </Dropdown>
+        </Field>
+        <Field>
+          <Label htmlFor="notice-type">Type</Label>
+          <Dropdown
+            id="notice-type"
+            value={noticeType === '' ? 'All types' : labelOf(noticeType)}
+            selectedOptions={[noticeType]}
+            onOptionSelect={(_e, d) => setNoticeType(d.optionValue ?? '')}
+          >
+            <Option value="">All types</Option>
+            {types.map((t) => (
+              <Option key={t} value={t}>
+                {labelOf(t)}
+              </Option>
+            ))}
+          </Dropdown>
+        </Field>
+        <Field>
+          <Label htmlFor="notice-vehicle">Vehicle</Label>
+          <Dropdown
+            id="notice-vehicle"
+            value={vehicle === '' ? 'All vehicles' : vehicle}
+            selectedOptions={[vehicle]}
+            onOptionSelect={(_e, d) => setVehicle(d.optionValue ?? '')}
+          >
+            <Option value="">All vehicles</Option>
+            {vehicles.map((v) => (
+              <Option key={v} value={v}>
+                {v}
+              </Option>
+            ))}
+          </Dropdown>
+        </Field>
+        <Switch
+          label="Include reconciled"
+          checked={includeReconciled}
+          onChange={(_e, d) => setIncludeReconciled(d.checked)}
+        />
+      </Toolbar>
+      {rows.length === 0 ? (
+        <EmptyState
+          title="No notices match these filters"
+          detail="Pick another state, type or vehicle, or include reconciled notices."
+        />
+      ) : (
+        <div className="pb-table-wrap">
+          <table className="pb-table" aria-label="Capital notices">
+            <thead>
+              <tr>
+                <th>Due</th>
+                <th>Type</th>
+                <th>Company or fund</th>
+                <th>Vehicle</th>
+                <th>Issued</th>
+                <th className="num">Amount</th>
+                <th className="num">Settled</th>
+                <th>State</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((n) => (
+                <tr key={n.id}>
+                  <DueCell notice={n} alertDays={page.alertDaysBeforeDue} />
+                  <td>{labelOf(n.noticeType)}</td>
+                  <td>
+                    <SubjectLink notice={n} />
+                  </td>
+                  <td>{n.vehicleName}</td>
+                  <td className="pb-nowrap">{formatDate(n.issueDate)}</td>
+                  <NumCell>{noticeAmount(n.amount, n.currency)}</NumCell>
+                  <NumCell>{noticeAmount(n.settledAmount, n.currency)}</NumCell>
+                  <td>
+                    <StateBadge state={n.state} />
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+      <p className="pb-meta" data-testid="notice-count">
+        {rows.length === 1 ? '1 notice shown' : `${rows.length} notices shown`}
+        {page.nextCursor === null ? null : `. Showing the first ${LIST_LIMIT}; more exist.`}
+      </p>
+    </Card>
+  );
+}
+
+/**
+ * The funding tracker (docs/04 M16, docs/18 section 3): calls, distributions and payments with
+ * their due-date alerts, what needs attention now, and every notice with client-side filters.
+ */
+export function CapitalActivityPage(): ReactNode {
+  const q = useQuery({
+    ...capitalNoticesQuery({}),
+    placeholderData: keepPreviousData,
+    retry: retryUnlessUnavailable,
+  });
+  if (q.isPending) return <PageSkeleton tiles={4} rows={8} />;
+  if (q.isError) {
+    return (
+      <>
+        <PageHeader title="Capital activity" />
+        <TabNav label="Capital activity" items={CAPITAL_TABS} />
+        <UnavailableState
+          card
+          error={q.error}
+          subject="Capital notices"
+          errorTitle="Capital notices unavailable"
+          testId="notices-unavailable"
+        />
+      </>
+    );
+  }
+  const page = q.data;
+  return (
+    <>
+      <PageHeader
+        title="Capital activity"
+        meta={`As of ${formatDate(page.asOf)}. Alerts at ${dayCount(page.alertDaysBeforeDue)} before the due date.`}
+      />
+      <TabNav label="Capital activity" items={CAPITAL_TABS} />
+      <Tiles page={page} />
+      <AttentionCard page={page} />
+      <NoticesCard page={page} />
+    </>
   );
 }

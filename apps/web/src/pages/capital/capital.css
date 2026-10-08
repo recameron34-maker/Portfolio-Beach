@@ -1,0 +1,121 @@
+/* Capital activity pages (docs/04 M16, M17). Tokens only; shared table, tile and badge styles live in styles.css. */
+
+/* Due date with its alert badge, and a company or fund with its scenario tag. */
+.pb-cap-due,
+.pb-cap-subject {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+}
+
+/* A negative unfunded keeps its figure at the right edge with the word beside it. */
+.pb-cap-overcalled {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  white-space: nowrap;
+}
+
+/* Commitments total row: the API totals as key numbers. */
+.pb-cap-commitments tfoot th,
+.pb-cap-commitments tfoot td {
+  padding: 8px 10px;
+  border-top: 1px solid var(--pb-border-strong);
+  font-weight: 600;
+  text-align: left;
+}
+.pb-cap-commitments tfoot td.num {
+  text-align: right;
+  color: var(--pb-brand-primary);
+  font-variant-numeric: tabular-nums lining-nums;
+}
+
+/* Notice detail */
+.pb-cap-back {
+  margin: 0 0 6px;
+}
+.pb-cap-hold {
+  margin: 0 0 16px;
+}
+.pb-cap-actions {
+  margin: 0 0 12px;
+}
+.pb-cap-notes {
+  margin: 0 0 12px;
+}
+
+/* Progress strip: the seven states of docs/18 section 3 as an ordered list that wraps. */
+.pb-cap-progress {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 8px;
+  margin: 0 0 16px;
+  padding: 0;
+  list-style: none;
+}
+.pb-cap-progress > li {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+  min-width: 0;
+  padding: 10px 10px 10px;
+  background: var(--pb-bg);
+  border: 1px solid var(--pb-border);
+  border-radius: var(--pb-radius);
+}
+.pb-cap-progress > li[aria-current='step'] {
+  border-color: var(--pb-brand-primary);
+  box-shadow: inset 0 3px 0 var(--pb-brand-accent);
+}
+.pb-cap-step {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  font-size: 13px;
+  line-height: 18px;
+  font-weight: 600;
+  color: var(--pb-text);
+}
+.pb-cap-progress > li[data-status='upcoming'] .pb-cap-step {
+  font-weight: 500;
+  color: var(--pb-muted-strong);
+}
+.pb-cap-step-number {
+  flex: none;
+  display: inline-grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  border: 1px solid var(--pb-border);
+  background: var(--pb-surface-2);
+  color: var(--pb-muted-strong);
+  font-size: 11px;
+  line-height: 1;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.pb-cap-progress > li[data-status='done'] .pb-cap-step-number {
+  border-color: rgba(var(--pb-good-rgb), 0.18);
+  background: var(--pb-good-tint);
+  color: var(--pb-good-ink);
+}
+.pb-cap-progress > li[aria-current='step'] .pb-cap-step-number {
+  border-color: var(--pb-brand-primary);
+  background: var(--pb-brand-primary);
+  color: var(--pb-bg);
+}
+
+@media (max-width: 1240px) {
+  .pb-cap-progress {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+}
+@media (max-width: 560px) {
+  .pb-cap-progress {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}

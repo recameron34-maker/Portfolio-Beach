@@ -28,12 +28,14 @@ export function CommandButtons<S extends string, C extends string>({
   busy,
   context,
   notAllowedTitle,
+  appearance = 'subtle',
   onIssue,
 }: {
   options: readonly CommandOption<S, C>[];
   busy: boolean;
   context?: string | undefined;
   notAllowedTitle?: ((option: CommandOption<S, C>) => string | undefined) | undefined;
+  appearance?: 'subtle' | 'secondary';
   onIssue: (option: CommandOption<S, C>) => void;
 }): ReactNode {
   if (options.length === 0) return <span className="pb-meta">None</span>;
@@ -46,7 +48,7 @@ export function CommandButtons<S extends string, C extends string>({
           <Button
             key={`${o.command}-${o.to}`}
             size="small"
-            appearance="subtle"
+            appearance={appearance}
             disabled={blocked !== null || busy}
             {...(blocked === null ? {} : { title: blocked })}
             {...(context === undefined ? {} : { 'aria-label': `${label}, ${context}` })}
