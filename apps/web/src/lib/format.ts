@@ -80,9 +80,26 @@ export function formatMonthYear(iso: string | null | undefined): string {
   return `${long[Number(m[2]) - 1] ?? '?'} ${m[1]}`;
 }
 
-/** Taxonomy codes ("deal_type.co_invest_equity") to labels for display. */
+/** Labels from GET /api/v1/taxonomy, registered once by the app shell (useTaxonomyLabels). */
+const TAXONOMY_LABELS = new Map<string, string>();
+
+export function registerTaxonomyLabels(terms: Iterable<{ code: string; label: string }>): void {
+  for (const t of terms) TAXONOMY_LABELS.set(t.code, t.label);
+}
+
+/** Test helper: forget the registered labels. */
+export function clearTaxonomyLabels(): void {
+  TAXONOMY_LABELS.clear();
+}
+
+/**
+ * Taxonomy codes ("deal_type.co_invest_equity") to labels for display: the taxonomy's own label
+ * when the shell has loaded it, otherwise one generated from the code.
+ */
 export function labelOf(code: string | null | undefined): string {
   if (code === null || code === undefined) return MISSING;
+  const known = TAXONOMY_LABELS.get(code);
+  if (known !== undefined) return known;
   const tail = code.includes('.') ? code.slice(code.indexOf('.') + 1) : code;
   const words = tail.split('_').join(' ');
   return words.charAt(0).toUpperCase() + words.slice(1);

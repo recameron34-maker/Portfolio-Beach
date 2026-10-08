@@ -169,7 +169,7 @@ export function LineChart({
             </g>
           ))}
           {x.map((label, i) =>
-            i % labelEvery === 0 || i === x.length - 1 ? (
+            (x.length - 1 - i) % labelEvery === 0 ? (
               <text
                 key={label}
                 x={xAt(i)}

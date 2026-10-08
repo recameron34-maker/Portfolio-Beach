@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { compactValue, niceStep, niceTicks, truncateLabel } from './scale.js';
+import { compactValue, labelStride, niceStep, niceTicks, truncateLabel } from './scale.js';
 
 describe('chart scales', () => {
   it('picks 1, 2, 5 steps', () => {
@@ -29,5 +29,15 @@ describe('chart scales', () => {
       'Beach Co-Invest Fund...',
     );
     expect(truncateLabel('Short')).toBe('Short');
+  });
+});
+
+describe('labelStride', () => {
+  it('labels every tick when there is room and thins them in a narrow card', () => {
+    expect(labelStride(4, 600)).toBe(1);
+    expect(labelStride(6, 210)).toBe(2);
+    expect(labelStride(6, 120)).toBe(3);
+    expect(labelStride(0, 300)).toBe(1);
+    expect(labelStride(5, 0)).toBe(1);
   });
 });

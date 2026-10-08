@@ -29,6 +29,7 @@ import {
   QUESTIONS,
 } from '../../lib/assistant.js';
 import type { AssistantInputs, QuestionId } from '../../lib/assistant.js';
+import { AssistantSwitch } from './AssistantSwitch.js';
 
 interface Asked {
   id: QuestionId;
@@ -100,9 +101,12 @@ export function AssistantsPage(): ReactNode {
         }
       />
       {enabled ? null : (
-        <p className="pb-notice" data-testid="assistant-disabled">
-          {FLAG_OFF}
-        </p>
+        <>
+          <p className="pb-notice" data-testid="assistant-disabled">
+            {FLAG_OFF}
+          </p>
+          <AssistantSwitch />
+        </>
       )}
       <Card>
         <SectionHeader aside={`${QUESTIONS.length} fixed questions`}>Questions</SectionHeader>

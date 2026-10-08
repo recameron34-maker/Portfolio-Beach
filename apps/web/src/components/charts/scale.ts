@@ -35,6 +35,15 @@ export function niceTicks(min: number, max: number, count = 5, includeZero = tru
   return ticks;
 }
 
+/**
+ * Every how many ticks a label fits: gridlines stay on every tick, labels keep at least
+ * minLabelPx between them so compact values such as "$100M" never collide in a narrow card.
+ */
+export function labelStride(intervals: number, spanPx: number, minLabelPx = 56): number {
+  if (intervals <= 0 || !(spanPx > 0)) return 1;
+  return Math.max(1, Math.ceil(minLabelPx / (spanPx / intervals)));
+}
+
 /** Linear map from [d0, d1] to [r0, r1]. */
 export function linearScale(
   d0: number,

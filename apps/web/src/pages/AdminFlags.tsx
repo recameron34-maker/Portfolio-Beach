@@ -2,9 +2,9 @@ import { useState } from 'react';
 import type { ReactNode } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Button, Input, Label, Switch } from '@fluentui/react-components';
-import { featureFlag } from '@pb/contracts';
-import { api, ApiError } from '../api/client.js';
+import { ApiError } from '../api/client.js';
 import { previewMode } from '../app/env.js';
+import { patchFlag } from '../app/mutations.js';
 import { ADMIN_TABS } from '../app/nav.js';
 import { flagsQuery, meQuery } from '../app/queries.js';
 import {
@@ -28,10 +28,7 @@ export function AdminFlagsPage(): ReactNode {
   const [message, setMessage] = useState<string | null>(null);
   const toggle = useMutation({
     mutationFn: ({ key, enabled }: { key: string; enabled: boolean }) =>
-      api(`/api/v1/flags/${encodeURIComponent(key)}`, featureFlag, {
-        method: 'PATCH',
-        body: JSON.stringify({ enabled, reason }),
-      }),
+      patchFlag({ key, enabled, reason }),
     onSuccess: (f) => {
       setMessage(
         `${f.key} is now ${f.enabled ? 'on' : 'off'} ${previewMode ? '(simulated in this preview, not audited)' : '(audited)'}.`,

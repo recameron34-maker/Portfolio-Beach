@@ -840,13 +840,28 @@ p:last-child {
 /* ---- Stat tile figure: a sparkline beside the key number ---- */
 .pb-stat-row {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
-  gap: 10px;
+  gap: 4px 10px;
   min-width: 0;
 }
 .pb-stat-row > .pb-sparkline {
   flex: none;
+  max-width: 100%;
+}
+
+/* ---- Assistant switch (preview only): the simulated flag change beside its label ---- */
+.pb-assistant-switch {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  margin: 0 0 16px;
+}
+.pb-assistant-switch > .pb-notice {
+  flex-basis: 100%;
+  margin: 0;
 }
 
 /* ---- Attention list (Home): position, vehicle and its flags ---- */

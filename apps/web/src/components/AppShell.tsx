@@ -23,6 +23,8 @@ import { meQuery, mockUsersQuery } from '../app/queries.js';
 import { clearCredential, setCredential } from '../app/session.js';
 import { ApiError } from '../api/client.js';
 import { useSignOutOnRejectedCredential } from '../app/useSignOutOnRejectedCredential.js';
+import { useTaxonomyLabels } from '../app/useTaxonomyLabels.js';
+import { PageSkeleton } from './ui.js';
 
 /** Icons keyed by route so nav.ts (the docs/06 list) stays data only. */
 const NAV_ICONS: Record<string, ReactNode> = {
@@ -105,6 +107,7 @@ export function AppShell(): ReactNode {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const rejected = me.isError && me.error instanceof ApiError && me.error.status === 401;
+  const labelsReady = useTaxonomyLabels();
   useSignOutOnRejectedCredential(rejected, () => {
     clearCredential();
     queryClient.clear();
@@ -164,9 +167,7 @@ export function AppShell(): ReactNode {
           ))}
         </div>
       </nav>
-      <main className="pb-main">
-        <Outlet />
-      </main>
+      <main className="pb-main">{labelsReady ? <Outlet /> : <PageSkeleton />}</main>
     </div>
   );
 }

@@ -2,7 +2,14 @@ import { useState } from 'react';
 import type { ReactNode } from 'react';
 import { ChartFigure } from './ChartFigure.js';
 import type { TooltipState } from './ChartFigure.js';
-import { compactValue, linearScale, niceTicks, seriesColor, truncateLabel } from './scale.js';
+import {
+  compactValue,
+  labelStride,
+  linearScale,
+  niceTicks,
+  seriesColor,
+  truncateLabel,
+} from './scale.js';
 import type { ValueKind } from './scale.js';
 import { useWidth } from './useWidth.js';
 
@@ -47,6 +54,7 @@ export function StackedBars({
   const hi = ticks[ticks.length - 1] ?? 1;
   const plotW = Math.max(120, width - LABEL_W - PAD_R);
   const x = linearScale(0, hi, LABEL_W, LABEL_W + plotW);
+  const stride = labelStride(ticks.length - 1, plotW);
   const height = data.length * ROW + 28;
   const series = segmentNames.map((name, i) => ({ name, color: seriesColor(i + 1) }));
   const colorOf = (name: string) => seriesColor(segmentNames.indexOf(name) + 1);
@@ -82,7 +90,7 @@ export function StackedBars({
           role="group"
           aria-label={title}
         >
-          {ticks.map((t) => (
+          {ticks.map((t, i) => (
             <g key={t}>
               <line
                 x1={x(t)}
@@ -91,14 +99,16 @@ export function StackedBars({
                 y2={data.length * ROW}
                 className={t === 0 ? 'pb-chart-axis' : 'pb-chart-grid'}
               />
-              <text
-                x={x(t)}
-                y={data.length * ROW + 18}
-                className="pb-chart-tick"
-                textAnchor="middle"
-              >
-                {compactValue(t, kind)}
-              </text>
+              {i % stride === 0 ? (
+                <text
+                  x={x(t)}
+                  y={data.length * ROW + 18}
+                  className="pb-chart-tick"
+                  textAnchor="middle"
+                >
+                  {compactValue(t, kind)}
+                </text>
+              ) : null}
             </g>
           ))}
           {data.map((d, i) => {

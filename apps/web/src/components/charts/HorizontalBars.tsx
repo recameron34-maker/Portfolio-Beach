@@ -2,7 +2,14 @@ import { useState } from 'react';
 import type { ReactNode } from 'react';
 import { ChartFigure } from './ChartFigure.js';
 import type { TooltipState } from './ChartFigure.js';
-import { compactValue, linearScale, niceTicks, seriesColor, truncateLabel } from './scale.js';
+import {
+  compactValue,
+  labelStride,
+  linearScale,
+  niceTicks,
+  seriesColor,
+  truncateLabel,
+} from './scale.js';
 import type { ValueKind } from './scale.js';
 import { useWidth } from './useWidth.js';
 
@@ -52,6 +59,7 @@ export function HorizontalBars({
   const x = linearScale(lo, hi, LABEL_W, LABEL_W + plotW);
   const height = data.length * ROW + 28;
   const zero = x(0);
+  const stride = labelStride(ticks.length - 1, plotW);
   const show = (d: BarDatum, i: number) =>
     setTooltip({
       left: Math.min(x(Math.max(d.value, 0)) + 8, width - 160),
@@ -78,7 +86,7 @@ export function HorizontalBars({
           role="group"
           aria-label={title}
         >
-          {ticks.map((t) => (
+          {ticks.map((t, i) => (
             <g key={t}>
               <line
                 x1={x(t)}
@@ -87,14 +95,16 @@ export function HorizontalBars({
                 y2={data.length * ROW}
                 className={t === 0 ? 'pb-chart-axis' : 'pb-chart-grid'}
               />
-              <text
-                x={x(t)}
-                y={data.length * ROW + 18}
-                className="pb-chart-tick"
-                textAnchor="middle"
-              >
-                {compactValue(t, kind)}
-              </text>
+              {i % stride === 0 ? (
+                <text
+                  x={x(t)}
+                  y={data.length * ROW + 18}
+                  className="pb-chart-tick"
+                  textAnchor="middle"
+                >
+                  {compactValue(t, kind)}
+                </text>
+              ) : null}
             </g>
           ))}
           {data.map((d, i) => {

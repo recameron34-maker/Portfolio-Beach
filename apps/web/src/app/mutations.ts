@@ -1,13 +1,14 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import type { QueryClient, QueryKey, UseMutationResult } from '@tanstack/react-query';
 import type { z } from 'zod';
-import { capitalNoticeRow, previewResetResult, valuationRow } from '@pb/contracts';
+import { capitalNoticeRow, featureFlag, previewResetResult, valuationRow } from '@pb/contracts';
 import type {
   CapitalNoticeCommand,
   CapitalNoticeRow,
   ValuationCommand,
   ValuationRow,
 } from '@pb/contracts';
+import type { z as zod } from 'zod';
 import { api, ApiError } from '../api/client.js';
 import { previewMode } from './env.js';
 
@@ -52,6 +53,31 @@ export function postCapitalNoticeCommand(
   body: CommandBody<CapitalNoticeCommand>,
 ): Promise<CapitalNoticeRow> {
   return post(`/api/v1/capital-notices/${encodeURIComponent(id)}/commands`, capitalNoticeRow, body);
+}
+
+export type FeatureFlag = zod.infer<typeof featureFlag>;
+
+export interface FlagChange {
+  key: string;
+  enabled: boolean;
+  /** Required by the API (at least three characters) and kept in the audit trail. */
+  reason: string;
+}
+
+/** PATCH /api/v1/flags/{key}: platform admins only; audited by the API, simulated in the preview. */
+export function patchFlag({ key, enabled, reason }: FlagChange): Promise<FeatureFlag> {
+  return api(`/api/v1/flags/${encodeURIComponent(key)}`, featureFlag, {
+    method: 'PATCH',
+    body: JSON.stringify({ enabled, reason }),
+  });
+}
+
+export function useFlagChange(): UseMutationResult<FeatureFlag, Error, FlagChange> {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (change: FlagChange) => patchFlag(change),
+    onSuccess: () => void queryClient.invalidateQueries({ queryKey: ['flags'] }),
+  });
 }
 
 export function postPreviewReset(): Promise<{ reset: true }> {

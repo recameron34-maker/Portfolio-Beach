@@ -5,7 +5,7 @@ import { labelOf } from './format.js';
 /** Short labels for the monitoring flags (docs/04 M9); the full message travels with each flag. */
 export const WATCH_FLAG_LABELS: Record<WatchFlagCode, string> = {
   no_locked_valuation: 'No Locked valuation',
-  stale_valuation: 'Stale',
+  stale_valuation: 'Stale valuation',
   missing_prior_year: 'No prior year',
   negative_ebitda: 'Negative EBITDA',
   leverage_above_max: 'Leverage above limit',

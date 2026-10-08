@@ -6,7 +6,9 @@ import {
   formatMonthYear,
   formatMultiple,
   formatPct,
+  clearTaxonomyLabels,
   labelOf,
+  registerTaxonomyLabels,
   MISSING,
 } from './format.js';
 
@@ -36,5 +38,17 @@ describe('number and date display (docs/06 section 3)', () => {
   it('labels taxonomy codes', () => {
     expect(labelOf('deal_type.co_invest_equity')).toBe('Co invest equity');
     expect(labelOf(null)).toBe(MISSING);
+  });
+
+  it('prefers the taxonomy label once registered', () => {
+    registerTaxonomyLabels([
+      { code: 'base_rate.sofr', label: 'SOFR' },
+      { code: 'sector.financials', label: 'Financial services' },
+    ]);
+    expect(labelOf('base_rate.sofr')).toBe('SOFR');
+    expect(labelOf('sector.financials')).toBe('Financial services');
+    expect(labelOf('sector.software')).toBe('Software');
+    clearTaxonomyLabels();
+    expect(labelOf('base_rate.sofr')).toBe('Sofr');
   });
 });
