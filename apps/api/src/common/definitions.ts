@@ -27,3 +27,9 @@ export function configDecimal(value: unknown, key: string): Decimal {
   if (typeof value === 'string' && DECIMAL.test(value)) return D(value);
   throw configError(key);
 }
+
+/** A non-empty list of whole numbers of zero or more, in config order. */
+export function configIntegerList(value: unknown, key: string): number[] {
+  if (!Array.isArray(value) || value.length === 0) throw configError(key);
+  return value.map((item: unknown) => configInteger(item, key));
+}

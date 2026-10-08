@@ -1,10 +1,13 @@
 import { Inject, Injectable } from '@nestjs/common';
-import { and, asc, eq, gte, inArray, lte, ne, or, sql } from 'drizzle-orm';
+import { and, eq, gte, inArray, lte, ne, or } from 'drizzle-orm';
 import type { Principal } from '@pb/adapters';
-import { CALC_VERSION, D, Decimal, addDays, daysBetween } from '@pb/calc';
+import { CALC_VERSION, D, addDays, daysBetween } from '@pb/calc';
+import type { Decimal } from '@pb/calc';
 import type { CapitalNoticeRow, PooledMetrics, WeeklyReport } from '@pb/contracts';
 import { schema } from '@pb/db';
 import type { Tx } from '@pb/db';
+import { DUE_ORDER, buildNoticeRows } from '../capital/notices.js';
+import { configInteger } from '../common/definitions.js';
 import { DEFINITIONS } from '../common/tokens.js';
 import { DbService } from '../db/db.service.js';
 import { loadInvestmentsWithMetrics } from '../portfolio/loaders.js';
@@ -17,7 +20,7 @@ interface Definitions {
   irr?: { displayShortPeriodAs?: string };
   reporting?: {
     weeklyMoversCount?: number;
-    capitalActivityWindowDays?: number;
+    capitalActivityWindowDays?: unknown;
     staleValuationFootnote?: string;
     noValuationFootnote?: string;
   };
@@ -29,7 +32,6 @@ type Mover = WeeklyReport['movers'][number];
 type Stale = WeeklyReport['staleValuations'][number];
 type VehicleRow = WeeklyReport['byVehicle'][number];
 
-const DECIMAL = /^-?\d+(\.\d+)?$/;
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
 const IRR_FLAG_LABEL: Record<NonNullable<PooledMetrics['irrFlag']>, string> = {
@@ -67,7 +69,8 @@ export function quarterEndOnOrBefore(iso: string): string {
 
 /* ---- Display helpers for the template commentary (docs/06 section 3) ---- */
 
-function fmtDate(iso: string): string {
+/** An ISO date for sentences: "2025-03-31" -> "Mar 31, 2025" (also used by the capital notice notes). */
+export function fmtDate(iso: string): string {
   return `${MONTHS[Number(iso.slice(5, 7)) - 1] ?? '?'} ${Number(iso.slice(8, 10))}, ${iso.slice(0, 4)}`;
 }
 
@@ -98,8 +101,11 @@ const joinList = (items: string[]): string =>
     ? (items[0] ?? '')
     : `${items.slice(0, -1).join(', ')} and ${items[items.length - 1]}`;
 
-/** Latest Locked valuation whose period end is the target or up to `tolerance` days before it. */
-function lockedNear(
+/**
+ * Latest Locked valuation whose period end is the target or up to `tolerance` days before it. On
+ * equal period ends the first in input order wins. Also the prior mark on the valuations board.
+ */
+export function lockedNear(
   valuations: readonly ValuationRow[],
   target: string,
   tolerance: number,
@@ -120,23 +126,6 @@ const compareDesc = (a: string | null, b: string | null): number => {
   return D(b).comparedTo(D(a));
 };
 
-/** The jsonb split map with every amount as a decimal string; entries that are not amounts are dropped, never invented. */
-function splitOf(raw: unknown): Record<string, string> {
-  const out: Record<string, string> = {};
-  if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) return out;
-  for (const key of Object.keys(raw).sort()) {
-    const value = (raw as Record<string, unknown>)[key];
-    const text =
-      typeof value === 'number' && Number.isFinite(value)
-        ? new Decimal(value).toFixed()
-        : typeof value === 'string'
-          ? value
-          : null;
-    if (text !== null && DECIMAL.test(text)) out[key] = text;
-  }
-  return out;
-}
-
 @Injectable()
 export class ReportsService {
   constructor(
@@ -154,7 +143,10 @@ export class ReportsService {
     const tolerance = this.definitions.priorYearPeriodEndToleranceDays ?? 7;
     const reporting = this.definitions.reporting ?? {};
     const moversCount = reporting.weeklyMoversCount ?? 5;
-    const windowDays = reporting.capitalActivityWindowDays ?? 30;
+    const windowDays = configInteger(
+      reporting.capitalActivityWindowDays,
+      'reporting.capitalActivityWindowDays',
+    );
     const staleTemplate =
       reporting.staleValuationFootnote ??
       'Carried at the latest Locked valuation of {lockedPeriodEnd}; no Locked mark for {periodEnd}.';
@@ -356,92 +348,18 @@ export class ReportsService {
     return out.sort((a, b) => a.investmentNumber.localeCompare(b.investmentNumber));
   }
 
-  /** Visible notices that are not Reconciled or fall due within the window either side of the as-of date. */
-  private async capitalActivity(
-    tx: Tx,
-    asOf: string,
-    windowDays: number,
-  ): Promise<CapitalNoticeRow[]> {
+  /** Visible notices that are not Reconciled or fall due within the window either side of the as-of date, soonest first. */
+  private capitalActivity(tx: Tx, asOf: string, windowDays: number): Promise<CapitalNoticeRow[]> {
     const n = schema.capitalNotice;
-    const notices = await tx
-      .select({
-        id: n.id,
-        noticeType: n.noticeType,
-        state: n.state,
-        vehicleId: n.vehicleId,
-        vehicleName: schema.vehicle.name,
-        investmentId: n.investmentId,
-        investmentNumber: schema.investment.investmentNumber,
-        companyName: schema.portfolioCompany.name,
-        commitmentId: n.commitmentId,
-        sponsorFundName: schema.sponsorFund.name,
-        issueDate: n.issueDate,
-        dueDate: n.dueDate,
-        amount: n.amount,
-        currency: n.currency,
-        split: n.split,
-        scenarioTag: n.scenarioTag,
-        rowVersion: n.rowVersion,
-      })
-      .from(n)
-      .innerJoin(schema.vehicle, eq(schema.vehicle.id, n.vehicleId))
-      .leftJoin(schema.investment, eq(schema.investment.id, n.investmentId))
-      .leftJoin(
-        schema.portfolioCompany,
-        eq(schema.portfolioCompany.id, schema.investment.portfolioCompanyId),
-      )
-      .leftJoin(schema.commitment, eq(schema.commitment.id, n.commitmentId))
-      .leftJoin(schema.sponsorFund, eq(schema.sponsorFund.id, schema.commitment.sponsorFundId))
-      .where(
-        or(
-          ne(n.state, 'Reconciled'),
-          and(
-            gte(n.dueDate, addDays(asOf, -windowDays)),
-            lte(n.dueDate, addDays(asOf, windowDays)),
-          ),
-        ),
-      )
-      .orderBy(asc(n.dueDate), asc(n.id));
-    if (notices.length === 0) return [];
-    const settledRows = await tx
-      .select({
-        noticeId: schema.cashFlow.sourceNoticeId,
-        total: sql<string>`sum(${schema.cashFlow.amount})::text`,
-      })
-      .from(schema.cashFlow)
-      .where(
-        and(
-          inArray(
-            schema.cashFlow.sourceNoticeId,
-            notices.map((x) => x.id),
-          ),
-          eq(schema.cashFlow.status, 'record_status.approved'),
-        ),
-      )
-      .groupBy(schema.cashFlow.sourceNoticeId);
-    const settled = new Map<string, string>();
-    for (const r of settledRows) if (r.noticeId !== null) settled.set(r.noticeId, r.total);
-    return notices.map((x) => ({
-      id: x.id,
-      noticeType: x.noticeType,
-      state: x.state,
-      vehicleId: x.vehicleId,
-      vehicleName: x.vehicleName,
-      investmentId: x.investmentId,
-      investmentNumber: x.investmentNumber,
-      companyName: x.companyName,
-      commitmentId: x.commitmentId,
-      sponsorFundName: x.sponsorFundName,
-      issueDate: x.issueDate,
-      dueDate: x.dueDate,
-      amount: x.amount,
-      currency: x.currency,
-      split: splitOf(x.split),
-      scenarioTag: x.scenarioTag,
-      settledAmount: settled.get(x.id) ?? null,
-      daysToDue: daysBetween(asOf, x.dueDate),
-      rowVersion: x.rowVersion,
-    }));
+    return buildNoticeRows(
+      tx,
+      asOf,
+      or(
+        ne(n.state, 'Reconciled'),
+        and(gte(n.dueDate, addDays(asOf, -windowDays)), lte(n.dueDate, addDays(asOf, windowDays))),
+      ),
+      { orderBy: DUE_ORDER },
+    );
   }
 
   /** Plain sentences built from the figures above. No model call, no adjectives, no predictions. */
