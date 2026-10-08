@@ -137,8 +137,37 @@ export interface CommandVariables<C extends string> {
   body: CommandBody<C>;
 }
 
-const VALUATION_KEYS: QueryKey[] = [['valuations'], ['investment']];
-const NOTICE_KEYS: QueryKey[] = [['capital-notices'], ['capital-notice'], ['investment']];
+/**
+ * The reads a write can change. A Locked valuation moves NAV wherever it is pooled (grid, one-pager,
+ * performance, vehicle, sponsor, analytics, watchlist, weekly report); a funded notice moves called
+ * and unfunded amounts and the report's capital activity. In the static preview these reads replay
+ * their recordings (metrics are never recomputed), so refreshing them costs nothing; in Phase 3 it
+ * keeps every page true after a write, including the reads held fresh for a minute.
+ */
+const VALUATION_KEYS: QueryKey[] = [
+  ['valuations'],
+  ['investment'],
+  ['investments'],
+  ['investment-performance'],
+  ['vehicle'],
+  ['vehicles'],
+  ['sponsor'],
+  ['analytics-summary'],
+  ['watchlist'],
+  ['weekly-report'],
+  ['audit'],
+];
+const NOTICE_KEYS: QueryKey[] = [
+  ['capital-notices'],
+  ['capital-notice'],
+  ['investment'],
+  ['commitments'],
+  ['vehicle'],
+  ['sponsor'],
+  ['clients'],
+  ['weekly-report'],
+  ['audit'],
+];
 
 function invalidate(queryClient: QueryClient, keys: QueryKey[]): void {
   void Promise.all(keys.map((queryKey) => queryClient.invalidateQueries({ queryKey })));

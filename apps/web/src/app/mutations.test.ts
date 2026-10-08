@@ -137,3 +137,34 @@ describe('describeActionError', () => {
       );
   });
 });
+
+describe('refreshing after a write', () => {
+  it('refreshes every read a Locked valuation or a funded notice can change', async () => {
+    const { QueryClient } = await import('@tanstack/react-query');
+    const { renderHook, waitFor } = await import('@testing-library/react');
+    const { createElement } = await import('react');
+    const { QueryClientProvider } = await import('@tanstack/react-query');
+    const { useValuationCommand } = await import('./mutations.js');
+    setCredential('head.one');
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      json(200, { ...VALUATION_FIXTURE, state: 'Locked' }),
+    );
+    const client = new QueryClient();
+    const spy = vi.spyOn(client, 'invalidateQueries');
+    const { result } = renderHook(() => useValuationCommand(), {
+      wrapper: ({ children }) => createElement(QueryClientProvider, { client }, children),
+    });
+    result.current.mutate({ id: VALUATION_FIXTURE.id, body: { command: 'lock' } });
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    const keys = spy.mock.calls.map(([filters]) => JSON.stringify(filters?.queryKey));
+    for (const key of [
+      'valuations',
+      'investment',
+      'vehicle',
+      'sponsor',
+      'analytics-summary',
+      'weekly-report',
+    ])
+      expect(keys).toContain(JSON.stringify([key]));
+  });
+});

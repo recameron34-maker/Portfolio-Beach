@@ -234,7 +234,7 @@ describe('sponsor 360', () => {
           funds: [],
           positions: [],
           commitments: [fundCommitmentFixture()],
-          metrics: { ...NOT_CALCULABLE, nav: '0' },
+          metrics: NOT_CALCULABLE,
           totalCommitted: '25000000.00',
         }),
       ),
