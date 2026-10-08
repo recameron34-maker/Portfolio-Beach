@@ -9,8 +9,9 @@ Financial calculations for Portfolio Beach, specified in `docs/08_CALCULATIONS_S
 ## Layout
 | File | Covers |
 |---|---|
+| `decimal.ts` | The private Decimal (34 digits, half up), input checks and `toDecimalString`, the contract decimal string |
 | `irr.ts` | XIRR: Newton-Raphson with bisection fallback, multiple-root detection, short-period flag |
-| `multiples.ts` | Paid-in, DPI, RVPI, TVPI, MOIC, unfunded, holding period |
+| `multiples.ts` | Paid-in, DPI, RVPI, TVPI, MOIC, unfunded, holding period, value change |
 | `operating.ts` | EV/EBITDA, net debt/EBITDA, margin, YoY, growth since entry, multiple delta |
 | `periods.ts` | Same quarter prior year, latest approved period, entry snapshot |
 | `units.ts` | Declared-unit conversion to dollars and the unit sanity flag |

@@ -25,6 +25,7 @@ import {
   takahashiAlexander,
   toDollars,
   unfunded,
+  valueChange,
   valueCreationAttribution,
   xirr,
   yieldToMaturity,
@@ -90,6 +91,13 @@ describe('golden fixtures', () => {
             fx.input.recallableDistributions as string,
           );
           expectClose(u, fx.expected.unfunded, tol);
+          break;
+        }
+        case 'value_change': {
+          const cases = fx.input.cases as { current: string | null; prior: string | null }[];
+          const results = fx.expected.results as (string | null)[];
+          expect(results.length).toBe(cases.length);
+          cases.forEach((c, i) => expectClose(valueChange(c.current, c.prior), results[i], tol));
           break;
         }
         case 'operating_ratios': {

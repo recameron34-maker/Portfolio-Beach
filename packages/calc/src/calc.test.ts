@@ -26,10 +26,12 @@ import {
   summarizeFlows,
   takahashiAlexander,
   toDayNumber,
+  toDecimalString,
   toSignedFlows,
   tvpi,
   unfunded,
   unitSanityFlag,
+  valueChange,
   xirr,
   yearOf,
   yieldToMaturity,
@@ -192,6 +194,60 @@ describe('multiples', () => {
         },
       ),
     );
+  });
+  it('value change rebuilds the current value from the prior one', () => {
+    fc.assert(
+      fc.property(
+        fc.integer({ min: 1, max: 900_000_000 }),
+        fc.integer({ min: 0, max: 900_000_000 }),
+        fc.integer({ min: 0, max: 99 }),
+        (prior, current, cents) => {
+          const now = `${current}.${String(cents).padStart(2, '0')}`;
+          const was = String(prior);
+          const change = valueChange(now, was)!;
+          const rebuilt = D(was).times(change.plus(1));
+          // Exact up to rounding at 34 significant digits, relative to the values involved.
+          const bound = D(now).plus(was).times('1e-30');
+          expect(rebuilt.minus(now).abs().lte(bound)).toBe(true);
+          // Up when the value rose, down when it fell, zero when it held.
+          expect(change.comparedTo('0')).toBe(D(now).comparedTo(was));
+        },
+      ),
+    );
+  });
+  it('value change is the same at any scale', () => {
+    fc.assert(
+      fc.property(
+        fc.integer({ min: 1, max: 1_000_000 }),
+        fc.integer({ min: 0, max: 1_000_000 }),
+        fc.integer({ min: 2, max: 10_000 }),
+        (prior, current, k) => {
+          const base = valueChange(String(current), String(prior))!;
+          const scaled = valueChange(String(current * k), String(prior * k))!;
+          expect(scaled.minus(base).abs().lt('1e-30')).toBe(true);
+        },
+      ),
+    );
+  });
+  it('renders results as the contract decimal string, ten places half up, no exponent', () => {
+    expect(toDecimalString(null)).toBeNull();
+    expect(toDecimalString(D('0'))).toBe('0');
+    expect(toDecimalString(D('100'))).toBe('100');
+    expect(toDecimalString(D('10.5000'))).toBe('10.5');
+    expect(toDecimalString(D('-0.08'))).toBe('-0.08');
+    expect(toDecimalString(valueChange('1', '3'))).toBe('-0.6666666667');
+    expect(toDecimalString(D('1').div(3))).toBe('0.3333333333');
+    expect(toDecimalString(D('12345678901234567890123.45'))).toBe('12345678901234567890123.45');
+    expect(toDecimalString(D('0.00000000004'))).toBe('0');
+  });
+  it('value change is null without both values or against a zero base', () => {
+    expect(valueChange('100', '0')).toBeNull();
+    expect(valueChange('0', '0')).toBeNull();
+    expect(valueChange(null, '100')).toBeNull();
+    expect(valueChange('100', null)).toBeNull();
+    expect(valueChange('100', '100')!.isZero()).toBe(true);
+    expect(valueChange('0', '100')!.eq('-1')).toBe(true);
+    expect(() => valueChange('100', 'abc')).toThrow();
   });
   it('returns null when paid-in is zero', () => {
     expect(paidIn('0')).toBeNull();

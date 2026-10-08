@@ -358,7 +358,7 @@ const createBody = (overrides: Record<string, unknown> = {}): Record<string, unk
 });
 
 describe('creating a Draft valuation', () => {
-  it('creates version 1 in Draft with the prior quarter mark and no invented change ratio', async () => {
+  it('creates version 1 in Draft with the prior quarter mark and the change against it', async () => {
     const { f, state } = setup();
     const answer = await send(f, USERS.ops.externalId, 'POST', '/api/v1/valuations', createBody());
     expect(answer.status).toBe(201);
@@ -372,8 +372,9 @@ describe('creating a Draft valuation', () => {
       version: 1,
       state: 'Draft',
       fairValue: '1200.00',
+      // The recorded Locked mark of 2025-03-31, and (1200 - 1000) / 1000 by the @pb/calc rule.
       priorFairValue: '1000.00',
-      changePct: null,
+      changePct: '0.2',
       preparedBy: null,
       rowVersion: 1,
     });
@@ -388,6 +389,41 @@ describe('creating a Draft valuation', () => {
       (await send(f, USERS.ops.externalId, 'POST', '/api/v1/valuations', createBody())).json,
     );
     expect(again.version).toBe(2);
+  });
+
+  it('measures the change against the recorded prior mark, and leaves it null without one', async () => {
+    const { f } = setup();
+    const fall = valuationRow.parse(
+      (
+        await send(
+          f,
+          USERS.ops.externalId,
+          'POST',
+          '/api/v1/valuations',
+          createBody({ fairValue: '850.50' }),
+        )
+      ).json,
+    );
+    // (850.50 - 1000.00) / 1000.00, rendered the way the API renders it.
+    expect([fall.priorFairValue, fall.changePct]).toEqual(['1000.00', '-0.1495']);
+    // The board shows the simulated draft with the same figures.
+    const board = valuationPage.parse(
+      (await send(f, USERS.ops.externalId, 'GET', '/api/v1/valuations?limit=200')).json,
+    );
+    expect(board.items.find((r) => r.id === fall.id)?.changePct).toBe('-0.1495');
+    // No Locked mark is recorded for 2025-06-30, so a 2025-09-30 draft has nothing to compare to.
+    const first = valuationRow.parse(
+      (
+        await send(
+          f,
+          USERS.ops.externalId,
+          'POST',
+          '/api/v1/valuations',
+          createBody({ periodEnd: '2025-09-30' }),
+        )
+      ).json,
+    );
+    expect([first.priorFairValue, first.changePct]).toEqual([null, null]);
   });
 
   it('applies the guard, visibility, activity and lock rules', async () => {

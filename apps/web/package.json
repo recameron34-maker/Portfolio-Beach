@@ -18,6 +18,7 @@
   "dependencies": {
     "@fluentui/react-components": "9.74.9",
     "@fluentui/react-icons": "2.0.343",
+    "@pb/calc": "workspace:*",
     "@pb/contracts": "workspace:*",
     "@pb/workflows": "workspace:*",
     "@tanstack/react-query": "5.104.1",

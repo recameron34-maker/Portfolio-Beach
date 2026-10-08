@@ -1,7 +1,7 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { and, eq, gte, inArray, lte, ne, or } from 'drizzle-orm';
 import type { Principal } from '@pb/adapters';
-import { CALC_VERSION, D, addDays, daysBetween } from '@pb/calc';
+import { CALC_VERSION, D, addDays, daysBetween, valueChange } from '@pb/calc';
 import type { Decimal } from '@pb/calc';
 import type { CapitalNoticeRow, PooledMetrics, WeeklyReport } from '@pb/contracts';
 import { schema } from '@pb/db';
@@ -254,9 +254,9 @@ export class ReportsService {
       const current = lockedNear(p.valuations, periodEnd, tolerance);
       const prior = lockedNear(p.valuations, priorPeriodEnd, tolerance);
       if (current === null || prior === null) continue;
-      const priorValue = D(prior.fairValue);
-      if (priorValue.isZero()) continue;
-      const change = D(current.fairValue).minus(priorValue).div(priorValue);
+      // Not calculable against a zero prior mark: that position is not a mover.
+      const change = valueChange(current.fairValue, prior.fairValue);
+      if (change === null) continue;
       ranked.push({
         mover: {
           investmentId: p.row.id,

@@ -52,3 +52,21 @@ def test_tvpi_is_dpi_plus_rvpi(pi: int, dist: int, nav: int) -> None:
 def test_par_never_falls_on_pik(par: int, bps: int) -> None:
     after = credit.capitalize_pik(Decimal(par), Decimal(bps) / Decimal(10000), "quarterly")
     assert after >= Decimal(par)
+
+
+@given(st.integers(1, 900_000_000), st.integers(0, 900_000_000), st.integers(0, 99))
+def test_value_change_rebuilds_the_current_value(prior: int, current: int, cents: int) -> None:
+    now = Decimal(current) + Decimal(cents) / Decimal(100)
+    change = multiples.value_change(now, Decimal(prior))
+    assert change is not None
+    rebuilt = Decimal(prior) * (change + 1)
+    assert abs(rebuilt - now) <= (now + Decimal(prior)) * Decimal("1e-25")
+    assert (change > 0) == (now > prior)
+    assert (change < 0) == (now < prior)
+
+
+@given(st.integers(0, 1_000_000))
+def test_value_change_is_none_without_a_base(current: int) -> None:
+    assert multiples.value_change(Decimal(current), Decimal(0)) is None
+    assert multiples.value_change(None, Decimal(10)) is None
+    assert multiples.value_change(Decimal(current), None) is None

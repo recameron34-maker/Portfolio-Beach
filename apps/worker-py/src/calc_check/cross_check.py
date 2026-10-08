@@ -50,6 +50,10 @@ def check_case(case: dict[str, Any]) -> list[str]:
         ):
             if not _agree(mine, _dec(ts[name]), tol):
                 problems.append(f"{name} {mine} vs ts {ts[name]}")
+    elif kind == "value_change":
+        change = multiples.value_change(Decimal(inp["current"]), Decimal(inp["prior"]))
+        if not _agree(change, _dec(ts["value"]), tol):
+            problems.append(f"valueChange {change} vs ts {ts['value']}")
     elif kind == "ytm":
         value, _irr, _flows, par = credit.yield_to_maturity(
             inp["asOf"],

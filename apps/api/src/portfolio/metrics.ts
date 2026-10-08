@@ -20,6 +20,7 @@ import {
   netDebtToEbitda,
   sameQuarterPriorYear,
   summarizeFlows,
+  toDecimalString,
   toSignedFlows,
   xirr,
   yoyGrowth,
@@ -52,9 +53,8 @@ export interface PositionMetrics {
   calcVersion: string;
 }
 
-/** Decimal to the contract's decimal string (no exponent, no trailing zeros); null stays null. */
-export const str = (d: Decimal | null): string | null =>
-  d === null ? null : d.toFixed(10).replace(/\.?0+$/, '');
+/** Decimal to the contract's decimal string (@pb/calc toDecimalString); null stays null. */
+export const str = toDecimalString;
 
 /** The flow kind packages/calc expects: the taxonomy code without its domain prefix. */
 export function kindOf(flowType: string): FlowKind {
