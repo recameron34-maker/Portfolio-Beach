@@ -2,7 +2,8 @@ import { useState } from 'react';
 import type { ReactNode } from 'react';
 import { Link } from '@tanstack/react-router';
 import { keepPreviousData, useQuery } from '@tanstack/react-query';
-import { Dropdown, Label, Option, Switch } from '@fluentui/react-components';
+import { Button, Dropdown, Label, Option, Switch } from '@fluentui/react-components';
+import { ChevronLeft16Regular, ChevronRight16Regular } from '@fluentui/react-icons';
 import type { CapitalNoticePage, CapitalNoticeRow, CapitalNoticeState } from '@pb/contracts';
 import { CAPITAL_TABS } from '../../app/nav.js';
 import { capitalNoticesQuery, LIST_LIMIT } from '../../app/queries.js';
@@ -148,12 +149,31 @@ function AttentionCard({ page }: { page: CapitalNoticePage }): ReactNode {
   );
 }
 
+/** Rows per page of the notice register: the full history runs to hundreds of notices. */
+const PAGE_SIZE = 25;
+
 function NoticesCard({ page }: { page: CapitalNoticePage }): ReactNode {
-  const [state, setState] = useState<CapitalNoticeState | ''>('');
-  const [noticeType, setNoticeType] = useState('');
-  const [vehicle, setVehicle] = useState('');
-  const [includeReconciled, setIncludeReconciled] = useState(true);
+  const [state, setStateFilter] = useState<CapitalNoticeState | ''>('');
+  const [noticeType, setNoticeTypeFilter] = useState('');
+  const [vehicle, setVehicleFilter] = useState('');
+  const [includeReconciled, setIncludeReconciledFilter] = useState(true);
+  const [pageIndex, setPageIndex] = useState(0);
+  // Any filter change starts again from the first page.
+  const refilter =
+    <T,>(set: (value: T) => void) =>
+    (value: T): void => {
+      set(value);
+      setPageIndex(0);
+    };
+  const setState = refilter(setStateFilter);
+  const setNoticeType = refilter(setNoticeTypeFilter);
+  const setVehicle = refilter(setVehicleFilter);
+  const setIncludeReconciled = refilter(setIncludeReconciledFilter);
   const rows = filterNotices(page.items, { state, noticeType, vehicle, includeReconciled });
+  const pages = Math.max(1, Math.ceil(rows.length / PAGE_SIZE));
+  const current = Math.min(pageIndex, pages - 1);
+  const from = current * PAGE_SIZE;
+  const shown = rows.slice(from, from + PAGE_SIZE);
   const types = noticeTypes(page.items);
   const vehicles = distinctNames(page.items.map((n) => n.vehicleName));
   return (
@@ -241,7 +261,7 @@ function NoticesCard({ page }: { page: CapitalNoticePage }): ReactNode {
               </tr>
             </thead>
             <tbody>
-              {rows.map((n) => (
+              {shown.map((n) => (
                 <tr key={n.id}>
                   <DueCell notice={n} alertDays={page.alertDaysBeforeDue} />
                   <td>{labelOf(n.noticeType)}</td>
@@ -261,10 +281,42 @@ function NoticesCard({ page }: { page: CapitalNoticePage }): ReactNode {
           </table>
         </TableWrap>
       )}
-      <p className="pb-meta" data-testid="notice-count">
-        {rows.length === 1 ? '1 notice shown' : `${rows.length} notices shown`}
-        {page.nextCursor === null ? null : `. Showing the first ${LIST_LIMIT}; more exist.`}
-      </p>
+      <Toolbar
+        end={
+          pages > 1 ? (
+            <>
+              <Button
+                size="small"
+                appearance="subtle"
+                icon={<ChevronLeft16Regular />}
+                disabled={current === 0}
+                onClick={() => setPageIndex(current - 1)}
+              >
+                Previous
+              </Button>
+              <Button
+                size="small"
+                appearance="subtle"
+                icon={<ChevronRight16Regular />}
+                iconPosition="after"
+                disabled={current >= pages - 1}
+                onClick={() => setPageIndex(current + 1)}
+              >
+                Next
+              </Button>
+            </>
+          ) : undefined
+        }
+      >
+        <p className="pb-meta" data-testid="notice-count">
+          {pages > 1
+            ? `Notices ${from + 1} to ${from + shown.length} of ${rows.length}`
+            : rows.length === 1
+              ? '1 notice shown'
+              : `${rows.length} notices shown`}
+          {page.nextCursor === null ? null : `. Showing the first ${LIST_LIMIT}; more exist.`}
+        </p>
+      </Toolbar>
     </Card>
   );
 }

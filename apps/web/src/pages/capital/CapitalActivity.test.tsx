@@ -116,6 +116,32 @@ describe('capital activity board', () => {
     expect([...new Set(urls)]).toEqual([NOTICES]);
   });
 
+  it('pages a long register 25 notices at a time and starts again when a filter changes', async () => {
+    const base = noticePageFixture().items[0]!;
+    const many = Array.from({ length: 30 }, (_, i) => ({
+      ...base,
+      id: `00000000-0000-4000-8000-${String(900 + i).padStart(12, '0')}`,
+      dueDate: `2024-${String((i % 12) + 1).padStart(2, '0')}-${String((i % 27) + 1).padStart(2, '0')}`,
+      state: 'Reconciled' as const,
+    }));
+    mockApi({ [NOTICES]: ok(noticePageFixture(many)) });
+    renderWithQuery(<CapitalActivityPage />);
+    const table = await screen.findByRole('table', { name: 'Capital notices' });
+    expect(within(table).getAllByRole('row')).toHaveLength(26);
+    expect(screen.getByTestId('notice-count')).toHaveTextContent('Notices 1 to 25 of 30');
+    expect(screen.getByRole('button', { name: 'Previous' })).toBeDisabled();
+    await userEvent.click(screen.getByRole('button', { name: 'Next' }));
+    expect(screen.getByTestId('notice-count')).toHaveTextContent('Notices 26 to 30 of 30');
+    expect(
+      within(screen.getByRole('table', { name: 'Capital notices' })).getAllByRole('row'),
+    ).toHaveLength(6);
+    expect(screen.getByRole('button', { name: 'Next' })).toBeDisabled();
+    // Hiding reconciled notices leaves none; the pager goes away and the count says so.
+    await userEvent.click(screen.getByRole('switch', { name: 'Include reconciled' }));
+    expect(screen.getByTestId('notice-count')).toHaveTextContent('0 notices shown');
+    expect(screen.queryByRole('button', { name: 'Next' })).not.toBeInTheDocument();
+  });
+
   it('says only the first 200 are shown when more exist', async () => {
     mockApi({ [NOTICES]: ok(noticePageFixture(undefined, 'next-page')) });
     renderWithQuery(<CapitalActivityPage />);
