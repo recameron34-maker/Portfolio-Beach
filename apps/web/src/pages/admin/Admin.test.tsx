@@ -20,7 +20,7 @@ vi.mock('@tanstack/react-router', () => ({
   ),
 }));
 
-const EM_DASH = '—';
+const EM_DASH = String.fromCharCode(0x2014);
 
 describe('audit trail page', () => {
   afterEach(() => {

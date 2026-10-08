@@ -1,7 +1,8 @@
 import type { ReactNode } from 'react';
 import { vi } from 'vitest';
+import type { Mock } from 'vitest';
 
-export const navigate = vi.fn();
+export const navigate: Mock = vi.fn();
 
 function hrefOf(to: string, params: Record<string, string> | undefined): string {
   return to.replace(/\$(\w+)/g, (_match, key: string) => params?.[key] ?? '');

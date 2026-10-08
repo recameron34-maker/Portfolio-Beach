@@ -31,7 +31,8 @@ import {
   irrDisplay,
   labelOf,
 } from '../lib/format.js';
-import { humanizeState, irrFlagHint, noticeStateTone, watchFlagLabel } from '../lib/labels.js';
+import { irrFlagHint, watchFlagLabel } from '../lib/labels.js';
+import { humanizeState, noticeTone } from '../lib/states.js';
 
 /** Rows the dashboard shows before pointing at the full list. */
 const ATTENTION_ROWS = 8;
@@ -188,7 +189,7 @@ function NoticesBody({ page }: { page: CapitalNoticePage }): ReactNode {
                 </td>
                 <NumCell>{formatMoneyM(n.amount)}</NumCell>
                 <td>
-                  <Badge tone={noticeStateTone(n.state)}>{humanizeState(n.state)}</Badge>
+                  <Badge tone={noticeTone(n.state)}>{humanizeState(n.state)}</Badge>
                 </td>
               </tr>
             ))}

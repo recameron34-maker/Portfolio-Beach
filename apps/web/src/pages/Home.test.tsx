@@ -15,7 +15,9 @@ import {
 import { renderWithQuery } from '../test/render.js';
 import { HomePage } from './Home.js';
 
-vi.mock('@tanstack/react-router', async () => (await import('../test/router-mock.js')).routerMock());
+vi.mock('@tanstack/react-router', async () =>
+  (await import('../test/router-mock.js')).routerMock(),
+);
 
 const routes = (): MockRoutes => ({
   '/api/v1/auth/me': ok(principalFixture()),

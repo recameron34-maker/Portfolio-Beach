@@ -6,9 +6,8 @@ import { ID, watchlistFixture } from '../../test/fixtures.js';
 import { renderWithQuery } from '../../test/render.js';
 import { WatchlistPage } from './Watchlist.js';
 
-vi.mock(
-  '@tanstack/react-router',
-  async () => (await import('../../test/router-mock.js')).routerMock(),
+vi.mock('@tanstack/react-router', async () =>
+  (await import('../../test/router-mock.js')).routerMock(),
 );
 
 const WATCHLIST = '/api/v1/monitoring/watchlist';

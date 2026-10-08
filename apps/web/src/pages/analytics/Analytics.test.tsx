@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { cleanup, render, screen, within } from '@testing-library/react';
+import { cleanup, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { failing, mockApi, ok } from '../../test/api-mock.js';
 import {
@@ -18,9 +18,8 @@ import {
   RealizationsTab,
 } from './Analytics.js';
 
-vi.mock(
-  '@tanstack/react-router',
-  async () => (await import('../../test/router-mock.js')).routerMock(),
+vi.mock('@tanstack/react-router', async () =>
+  (await import('../../test/router-mock.js')).routerMock(),
 );
 
 const ANALYTICS = '/api/v1/analytics/summary';
@@ -112,9 +111,7 @@ describe('analytics tabs', () => {
       `/portfolio/${ID.inv3}`,
     );
     expect(within(top).getByText('17.0%')).toBeInTheDocument();
-    expect(
-      screen.getByRole('img', { name: 'Ashby Renewables Group: $79.1M' }),
-    ).toBeInTheDocument();
+    expect(screen.getByRole('img', { name: 'Ashby Renewables Group: $79.1M' })).toBeInTheDocument();
   });
 
   it('credit book: the positions table, and an empty state per position while performance is not implemented', async () => {
@@ -131,7 +128,8 @@ describe('analytics tabs', () => {
       'href',
       `/portfolio/${ID.inv2}`,
     );
-    expect(within(book).getByText('$9.9M')).toBeInTheDocument();
+    // Funded and fair value are both $9.9M for this position.
+    expect(within(book).getAllByText('$9.9M').length).toBeGreaterThan(0);
     expect(within(book).getByText('3.1%')).toBeInTheDocument();
     const card = await screen.findByTestId('credit-INV-0013');
     expect(
@@ -196,9 +194,7 @@ describe('analytics tabs', () => {
     });
     renderWithQuery(<RealizationsTab />);
     const tiles = await screen.findByTestId('realizations-tiles');
-    expect(within(tiles).getByRole('group', { name: 'Realized positions' })).toHaveTextContent(
-      '1',
-    );
+    expect(within(tiles).getByRole('group', { name: 'Realized positions' })).toHaveTextContent('1');
     expect(within(tiles).getByRole('group', { name: 'Gross MOIC' })).toHaveTextContent('1.87x');
     const table = await screen.findByRole('table', { name: 'Realized positions' });
     const row = within(table).getByRole('link', { name: 'Penrose Foods Holdings' }).closest('tr');
@@ -221,8 +217,9 @@ describe('analytics tabs', () => {
     expect(await screen.findByText('No realized positions')).toBeInTheDocument();
   });
 
-  it('clients: renders the shared client look-through', () => {
-    render(<ClientAnalyticsTab />);
-    expect(screen.getByText('Client look-through is being built')).toBeInTheDocument();
+  it('clients: renders the shared client look-through, which degrades while clients are unavailable', async () => {
+    mockApi({ '/api/v1/clients': failing(501, '/api/v1/clients') });
+    renderWithQuery(<ClientAnalyticsTab />);
+    expect(await screen.findByText('Client look-through is not available yet')).toBeInTheDocument();
   });
 });

@@ -11,6 +11,7 @@ import {
   Badge,
   Card,
   EmptyState,
+  NumCell,
   PageHeader,
   PageSkeleton,
   SectionHeader,
@@ -26,12 +27,9 @@ import {
   labelOf,
   MISSING,
 } from '../../lib/format.js';
-import { Unavailable } from '../admin/Unavailable.js';
-import { changeBadge, humanizeState, noticeTone, numClass } from './report-ui.js';
-
-function Num({ value }: { value: string }): ReactNode {
-  return <td className={numClass(value)}>{value}</td>;
-}
+import { UnavailableState } from '../../components/UnavailableState.js';
+import { humanizeState, noticeTone } from '../../lib/states.js';
+import { changeBadge } from './report-ui.js';
 
 function SummaryTiles({ report }: { report: WeeklyReport }): ReactNode {
   const s = report.summary;
@@ -84,11 +82,11 @@ function ByVehicle({ report }: { report: WeeklyReport }): ReactNode {
                 <tr key={v.vehicleId}>
                   <td>{v.vehicleName}</td>
                   <td>{labelOf(v.vehicleType)}</td>
-                  <Num value={String(v.count)} />
-                  <Num value={formatMoneyM(v.invested)} />
-                  <Num value={formatMoneyM(v.distributions)} />
-                  <Num value={formatMoneyM(v.nav)} />
-                  <Num value={formatMoic(v.grossMoic)} />
+                  <NumCell>{String(v.count)}</NumCell>
+                  <NumCell>{formatMoneyM(v.invested)}</NumCell>
+                  <NumCell>{formatMoneyM(v.distributions)}</NumCell>
+                  <NumCell>{formatMoneyM(v.nav)}</NumCell>
+                  <NumCell>{formatMoic(v.grossMoic)}</NumCell>
                 </tr>
               ))}
               <tr>
@@ -96,11 +94,11 @@ function ByVehicle({ report }: { report: WeeklyReport }): ReactNode {
                   <strong>Total</strong>
                 </td>
                 <td />
-                <Num value={String(s.activeInvestments)} />
-                <Num value={formatMoneyM(s.invested)} />
-                <Num value={formatMoneyM(s.distributions)} />
-                <Num value={formatMoneyM(s.nav)} />
-                <Num value={formatMoic(s.grossMoic)} />
+                <NumCell>{String(s.activeInvestments)}</NumCell>
+                <NumCell>{formatMoneyM(s.invested)}</NumCell>
+                <NumCell>{formatMoneyM(s.distributions)}</NumCell>
+                <NumCell>{formatMoneyM(s.nav)}</NumCell>
+                <NumCell>{formatMoic(s.grossMoic)}</NumCell>
               </tr>
             </tbody>
           </table>
@@ -142,9 +140,9 @@ function Movers({ report }: { report: WeeklyReport }): ReactNode {
                       <span className="pb-key">{m.investmentNumber}</span> {m.companyName}
                     </td>
                     <td>{formatDate(m.periodEnd)}</td>
-                    <Num value={formatMoneyM(m.priorFairValue)} />
-                    <Num value={formatMoneyM(m.fairValue)} />
-                    <Num value={formatPct(m.changePct)} />
+                    <NumCell>{formatMoneyM(m.priorFairValue)}</NumCell>
+                    <NumCell>{formatMoneyM(m.fairValue)}</NumCell>
+                    <NumCell>{formatPct(m.changePct)}</NumCell>
                     <td>
                       {badge === null ? MISSING : <Badge tone={badge.tone}>{badge.word}</Badge>}
                     </td>
@@ -230,7 +228,7 @@ function CapitalActivity({ report }: { report: WeeklyReport }): ReactNode {
                     {formatDate(n.dueDate)}
                     {n.daysToDue < 0 ? <span className="pb-meta"> (overdue)</span> : null}
                   </td>
-                  <Num value={formatMoneyM(n.amount)} />
+                  <NumCell>{formatMoneyM(n.amount)}</NumCell>
                   <td>
                     <Badge tone={noticeTone(n.state)}>{humanizeState(n.state)}</Badge>
                   </td>
@@ -294,7 +292,9 @@ export function WeeklyReportPage(): ReactNode {
   if (q.isPending) return <PageSkeleton tiles={8} rows={6} />;
   if (q.isError) {
     return (
-      <Unavailable
+      <UnavailableState
+        card
+        subject="The weekly report"
         error={q.error}
         forbidden={{
           title: 'The weekly report is not available to your role',

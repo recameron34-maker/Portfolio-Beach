@@ -19,9 +19,9 @@ import {
   SectionHeader,
   TabNav,
 } from '../../components/ui.js';
-import { formatDateTime } from '../reporting/report-ui.js';
+import { UnavailableState } from '../../components/UnavailableState.js';
+import { formatDateTime } from '../../lib/format.js';
 import { ROLE_ROWS, ROLE_SOURCE } from './roles.js';
-import { Unavailable } from './Unavailable.js';
 
 /* ---- Audit trail (SEC-11) ---- */
 
@@ -88,7 +88,9 @@ export function AuditPage(): ReactNode {
       <TabNav label="Admin" items={ADMIN_TABS} />
       {q.isPending ? <PageSkeleton rows={8} /> : null}
       {q.isError ? (
-        <Unavailable
+        <UnavailableState
+          card
+          subject="The audit trail"
           error={q.error}
           forbidden={{
             title:
@@ -186,7 +188,9 @@ export function AccessPage(): ReactNode {
       <TabNav label="Admin" items={ADMIN_TABS} />
       {walls.isPending ? <PageSkeleton rows={3} /> : null}
       {walls.isError ? (
-        <Unavailable
+        <UnavailableState
+          card
+          subject="Walls"
           error={walls.error}
           forbidden={{ title: 'No walls are visible to you' }}
           notReady={{ title: 'Walls are not available yet' }}

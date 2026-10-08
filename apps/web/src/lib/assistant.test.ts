@@ -22,7 +22,7 @@ import {
 } from './assistant.js';
 import type { AssistantInputs, QuestionId } from './assistant.js';
 
-const EM_DASH = '—';
+const EM_DASH = String.fromCharCode(0x2014);
 
 const inputs = (): AssistantInputs => ({
   analytics: analyticsFixture(),

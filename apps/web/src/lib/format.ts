@@ -93,3 +93,10 @@ export function irrDisplay(row: { grossIrr: string | null; irrFlag: string | nul
   if (row.irrFlag === 'short_period' || row.irrFlag === 'multiple_irr') return 'NM';
   return formatPct(row.grossIrr);
 }
+
+/** "2025-06-30T12:00:00.000Z" to "Jun 30, 2025 12:00:00 UTC" through formatDate; the raw text when not ISO. */
+export function formatDateTime(iso: string): string {
+  const m = /^(\d{4}-\d{2}-\d{2})T(\d{2}:\d{2}:\d{2})/.exec(iso);
+  if (m === null) return iso;
+  return `${formatDate(m[1] ?? '')} ${m[2] ?? ''} UTC`;
+}

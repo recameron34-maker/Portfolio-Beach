@@ -3,9 +3,8 @@ import { keepPreviousData, useQuery } from '@tanstack/react-query';
 import type { ClientSummary } from '@pb/contracts';
 import { clientsQuery } from '../app/queries.js';
 import { formatDate, formatMoic, formatMoneyM, formatPct, labelOf } from '../lib/format.js';
-import { numClass } from '../pages/reporting/report-ui.js';
-import { Unavailable } from '../pages/admin/Unavailable.js';
-import { Badge, Card, EmptyState, PageSkeleton, SectionHeader, StatTile } from './ui.js';
+import { UnavailableState } from './UnavailableState.js';
+import { Badge, Card, EmptyState, NumCell, PageSkeleton, SectionHeader, StatTile } from './ui.js';
 
 const ENTITLED =
   'Client data is visible to operations, approvers, auditors and the investor relations users entitled to each client (SEC-5.4).';
@@ -66,9 +65,7 @@ function ClientCard({ client }: { client: ClientSummary }): ReactNode {
                   <td>{v.vehicleName}</td>
                   <td>{labelOf(v.vehicleType)}</td>
                   {cells.map((c, i) => (
-                    <td key={i} className={numClass(c)}>
-                      {c}
-                    </td>
+                    <NumCell key={i}>{c}</NumCell>
                   ))}
                 </tr>
               );
@@ -93,7 +90,9 @@ export function ClientLookThrough(): ReactNode {
   if (q.isPending) return <PageSkeleton tiles={5} rows={3} />;
   if (q.isError) {
     return (
-      <Unavailable
+      <UnavailableState
+        card
+        subject="Client look-through"
         error={q.error}
         forbidden={{ title: 'No entitled clients', detail: ENTITLED }}
         notReady={{

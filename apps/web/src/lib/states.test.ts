@@ -27,6 +27,10 @@ describe('state words', () => {
     expect(valuationTone('Draft')).toBe('neutral');
     expect(noticeTone('Reconciled')).toBe('good');
     expect(noticeTone('Extracted')).toBe('watch');
+    expect(noticeTone('Received')).toBe('neutral');
+    expect(noticeTone('TicketApproved')).toBe('brand');
+    expect(noticeTone('Unknown')).toBe('neutral');
+    expect(humanizeState('TicketDrafted')).toBe('Ticket drafted');
   });
 
   it('grades due dates against the configured alert window', () => {

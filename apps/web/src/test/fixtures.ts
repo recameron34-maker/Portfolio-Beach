@@ -126,19 +126,51 @@ export function analyticsFixture(overrides: Partial<AnalyticsSummary> = {}): Ana
     }),
     exposures: {
       sector: [
-        bucket('sector.energy_transition', 'Energy transition', 1, '93789963.35', '125141028.86', '0.27'),
+        bucket(
+          'sector.energy_transition',
+          'Energy transition',
+          1,
+          '93789963.35',
+          '125141028.86',
+          '0.27',
+        ),
         bucket('sector.software', 'Software', 1, '6900000.00', '27400000.00', '0.06'),
       ],
-      geography: [bucket('geography.north_america', 'North America', 2, '100689963.35', '152541028.86', '0.33')],
+      geography: [
+        bucket(
+          'geography.north_america',
+          'North America',
+          2,
+          '100689963.35',
+          '152541028.86',
+          '0.33',
+        ),
+      ],
       dealType: [
-        bucket('deal_type.co_invest_equity', 'Co-investment (equity)', 1, '6900000.00', '27400000.00', '0.06'),
-        bucket('deal_type.private_credit', 'Private credit', 1, '18968583.11', '18837699.89', '0.04'),
+        bucket(
+          'deal_type.co_invest_equity',
+          'Co-investment (equity)',
+          1,
+          '6900000.00',
+          '27400000.00',
+          '0.06',
+        ),
+        bucket(
+          'deal_type.private_credit',
+          'Private credit',
+          1,
+          '18968583.11',
+          '18837699.89',
+          '0.04',
+        ),
       ],
       vehicle: [
         bucket(ID.vehicle1, 'Beach CV Opportunities I', 1, '75353708.54', '105893922.44', '0.23'),
         bucket(ID.vehicle2, 'Beach Credit Partners I', 1, '18968583.11', '18837699.89', '0.04'),
       ],
-      sponsor: [bucket(ID.sponsor1, 'Kelpwood Capital Partners', 2, '156361407.64', '189713276.90', '0.41')],
+      sponsor: [
+        bucket(ID.sponsor1, 'Kelpwood Capital Partners', 2, '156361407.64', '189713276.90', '0.41'),
+      ],
       vintage: [bucket('2019', '2019', 2, '145263025.40', '189717241.63', '0.41')],
     },
     navSeries: [

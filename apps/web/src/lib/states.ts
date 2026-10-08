@@ -27,11 +27,22 @@ export function valuationTone(state: string): Tone {
   return 'neutral';
 }
 
-/** docs/18 section 3: a notice is settled once Funded and closed once Reconciled. */
+/**
+ * docs/18 section 3: steps waiting on a person read as watch, an approved ticket as brand, settled
+ * notices as good. Received waits on the extraction service, so it is neutral like an unknown code.
+ */
+const NOTICE_TONES: Readonly<Record<string, Tone>> = {
+  Received: 'neutral',
+  Extracted: 'watch',
+  Reviewed: 'watch',
+  TicketDrafted: 'watch',
+  TicketApproved: 'brand',
+  Funded: 'good',
+  Reconciled: 'good',
+};
+
 export function noticeTone(state: string): Tone {
-  if (state === 'Reconciled' || state === 'Funded') return 'good';
-  if (state === 'TicketApproved') return 'brand';
-  return 'watch';
+  return NOTICE_TONES[state] ?? 'neutral';
 }
 
 /** Urgency of a due date against the alert window (config capitalActivity.alertDaysBeforeDue). */

@@ -111,6 +111,8 @@ describe('describeActionError', () => {
 
   it('never contains an em dash', () => {
     for (const status of [400, 401, 403, 404, 409, 412, 422, 501, 500])
-      expect(describeActionError(problem(status, 'detail'))).not.toMatch(/—/);
+      expect(describeActionError(problem(status, 'detail'))).not.toContain(
+        String.fromCharCode(0x2014),
+      );
   });
 });

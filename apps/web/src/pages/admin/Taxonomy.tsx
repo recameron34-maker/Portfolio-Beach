@@ -18,7 +18,7 @@ import {
   Toolbar,
 } from '../../components/ui.js';
 import { labelOf } from '../../lib/format.js';
-import { Unavailable } from './Unavailable.js';
+import { UnavailableState } from '../../components/UnavailableState.js';
 
 type Domain = Taxonomy['domains'][number];
 type Term = Domain['terms'][number];
@@ -103,7 +103,9 @@ export function TaxonomyPage(): ReactNode {
       <TabNav label="Admin" items={ADMIN_TABS} />
       {q.isPending ? <PageSkeleton rows={8} /> : null}
       {q.isError ? (
-        <Unavailable
+        <UnavailableState
+          card
+          subject="The taxonomy"
           error={q.error}
           forbidden={{ title: 'The taxonomy is not available to your role' }}
           notReady={{ title: 'The taxonomy is not available yet' }}

@@ -22,27 +22,6 @@ export function watchFlagLabel(code: string): string {
   return (WATCH_FLAG_LABELS as Record<string, string | undefined>)[code] ?? labelOf(code);
 }
 
-/** "TicketDrafted" to "Ticket drafted" for workflow states shown as words. */
-export function humanizeState(state: string): string {
-  const spaced = state.replace(/([a-z])([A-Z])/g, '$1 $2');
-  return spaced.charAt(0) + spaced.slice(1).toLowerCase();
-}
-
-/** Capital notice states (docs/18): open work is watch, approved tickets brand, settled good. */
-const NOTICE_TONES: Record<string, Tone> = {
-  Received: 'neutral',
-  Extracted: 'watch',
-  Reviewed: 'watch',
-  TicketDrafted: 'watch',
-  TicketApproved: 'brand',
-  Funded: 'accent',
-  Reconciled: 'good',
-};
-
-export function noticeStateTone(state: string): Tone {
-  return NOTICE_TONES[state] ?? 'neutral';
-}
-
 /** Covenant and payment status codes: compliant or current is good, breach or default is bad, anything else watch. */
 export function creditStatusTone(code: string | null): Tone {
   if (code === null) return 'neutral';

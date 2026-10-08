@@ -12,9 +12,9 @@ import {
   PageHeader,
   PageSkeleton,
   SectionHeader,
+  NumCell,
   StatTile,
 } from '../components/ui.js';
-import type { Tone } from '../components/ui.js';
 import {
   formatDate,
   formatMoic,
@@ -26,28 +26,8 @@ import {
   labelOf,
   MISSING,
 } from '../lib/format.js';
-
-const Num = ({ v }: { v: string }): ReactNode => (
-  <td className={v === MISSING ? 'num is-missing' : 'num'}>{v}</td>
-);
-
-function valuationTone(state: string): Tone {
-  if (state === 'Locked') return 'good';
-  if (state === 'DealTeamApproved' || state === 'OpsPrepared' || state === 'Reopened')
-    return 'watch';
-  return 'neutral';
-}
-
-/** OpsPrepared to "Ops prepared". */
-function humanize(state: string): string {
-  const spaced = state.replace(/([a-z])([A-Z])/g, '$1 $2');
-  return spaced.charAt(0) + spaced.slice(1).toLowerCase();
-}
-
-function statusTone(code: string | null): Tone {
-  const tail = code === null ? '' : code.slice(code.indexOf('.') + 1);
-  return tail === 'compliant' || tail === 'current' ? 'good' : 'watch';
-}
+import { creditStatusTone } from '../lib/labels.js';
+import { humanizeState, valuationTone } from '../lib/states.js';
 
 function OperatingTable({ detail }: { detail: InvestmentDetail }): ReactNode {
   const o = detail.operating;
@@ -69,39 +49,39 @@ function OperatingTable({ detail }: { detail: InvestmentDetail }): ReactNode {
         <tbody>
           <tr>
             <td>Revenue (LTM)</td>
-            <Num v={formatMoneyM(o.revenueLtm)} />
-            <Num v={MISSING} />
-            <Num v={formatPct(o.revenueYoy)} />
+            <NumCell>{formatMoneyM(o.revenueLtm)}</NumCell>
+            <NumCell>{MISSING}</NumCell>
+            <NumCell>{formatPct(o.revenueYoy)}</NumCell>
           </tr>
           <tr>
             <td>EBITDA (LTM)</td>
-            <Num v={formatMoneyM(o.ebitdaLtm)} />
-            <Num v={MISSING} />
-            <Num v={formatPct(o.ebitdaYoy)} />
+            <NumCell>{formatMoneyM(o.ebitdaLtm)}</NumCell>
+            <NumCell>{MISSING}</NumCell>
+            <NumCell>{formatPct(o.ebitdaYoy)}</NumCell>
           </tr>
           <tr>
             <td>EBITDA margin</td>
-            <Num v={formatPct(o.ebitdaMargin)} />
-            <Num v={MISSING} />
-            <Num v={MISSING} />
+            <NumCell>{formatPct(o.ebitdaMargin)}</NumCell>
+            <NumCell>{MISSING}</NumCell>
+            <NumCell>{MISSING}</NumCell>
           </tr>
           <tr>
             <td>Enterprise value</td>
-            <Num v={formatMoneyM(o.ev)} />
-            <Num v={MISSING} />
-            <Num v={MISSING} />
+            <NumCell>{formatMoneyM(o.ev)}</NumCell>
+            <NumCell>{MISSING}</NumCell>
+            <NumCell>{MISSING}</NumCell>
           </tr>
           <tr>
             <td>EV / EBITDA</td>
-            <Num v={formatMultiple(o.evToEbitda)} />
-            <Num v={MISSING} />
-            <Num v={MISSING} />
+            <NumCell>{formatMultiple(o.evToEbitda)}</NumCell>
+            <NumCell>{MISSING}</NumCell>
+            <NumCell>{MISSING}</NumCell>
           </tr>
           <tr>
             <td>Net debt / EBITDA</td>
-            <Num v={formatMultiple(o.netDebtToEbitda)} />
-            <Num v={MISSING} />
-            <Num v={MISSING} />
+            <NumCell>{formatMultiple(o.netDebtToEbitda)}</NumCell>
+            <NumCell>{MISSING}</NumCell>
+            <NumCell>{MISSING}</NumCell>
           </tr>
         </tbody>
       </table>
@@ -138,10 +118,10 @@ function CreditTerms({ detail }: { detail: InvestmentDetail }): ReactNode {
             label: 'Covenant / payment status',
             value: (
               <>
-                <Badge tone={statusTone(l?.covenantStatus ?? null)}>
+                <Badge tone={creditStatusTone(l?.covenantStatus ?? null)}>
                   {labelOf(l?.covenantStatus ?? null)}
                 </Badge>{' '}
-                <Badge tone={statusTone(l?.paymentStatus ?? null)}>
+                <Badge tone={creditStatusTone(l?.paymentStatus ?? null)}>
                   {labelOf(l?.paymentStatus ?? null)}
                 </Badge>
               </>
@@ -261,10 +241,10 @@ export function InvestmentDetailPage(): ReactNode {
                     <td>{formatDate(v.periodEnd)}</td>
                     <td>{v.version}</td>
                     <td>
-                      <Badge tone={valuationTone(v.state)}>{humanize(v.state)}</Badge>
+                      <Badge tone={valuationTone(v.state)}>{humanizeState(v.state)}</Badge>
                     </td>
                     <td>{labelOf(v.method)}</td>
-                    <Num v={formatMoneyM(v.fairValue)} />
+                    <NumCell>{formatMoneyM(v.fairValue)}</NumCell>
                   </tr>
                 ))}
             </tbody>
@@ -287,7 +267,7 @@ export function InvestmentDetailPage(): ReactNode {
                 <tr key={`${f.date}-${i}`}>
                   <td>{formatDate(f.date)}</td>
                   <td>{labelOf(f.flowType)}</td>
-                  <Num v={formatMoneyM(f.amount)} />
+                  <NumCell>{formatMoneyM(f.amount)}</NumCell>
                 </tr>
               ))}
             </tbody>

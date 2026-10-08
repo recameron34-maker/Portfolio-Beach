@@ -1,12 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { ApiError } from '../api/client.js';
-import {
-  creditStatusTone,
-  humanizeState,
-  irrFlagHint,
-  noticeStateTone,
-  watchFlagLabel,
-} from './labels.js';
+import { creditStatusTone, irrFlagHint, watchFlagLabel } from './labels.js';
 import { isUnavailable, retryUnlessUnavailable, unavailable } from './unavailable.js';
 
 describe('labels', () => {
@@ -14,14 +8,6 @@ describe('labels', () => {
     expect(watchFlagLabel('leverage_above_max')).toBe('Leverage above limit');
     expect(watchFlagLabel('no_locked_valuation')).toBe('No Locked valuation');
     expect(watchFlagLabel('something_new')).toBe('Something new');
-  });
-
-  it('turns workflow states into words and tones', () => {
-    expect(humanizeState('TicketDrafted')).toBe('Ticket drafted');
-    expect(humanizeState('Reconciled')).toBe('Reconciled');
-    expect(noticeStateTone('Reconciled')).toBe('good');
-    expect(noticeStateTone('TicketApproved')).toBe('brand');
-    expect(noticeStateTone('Unknown')).toBe('neutral');
   });
 
   it('tones covenant and payment codes', () => {
@@ -34,7 +20,9 @@ describe('labels', () => {
 
   it('explains an IRR flag in plain words', () => {
     expect(irrFlagHint(null)).toBeUndefined();
-    expect(irrFlagHint('short_period')).toBe('Not meaningful: held for less than the minimum period');
+    expect(irrFlagHint('short_period')).toBe(
+      'Not meaningful: held for less than the minimum period',
+    );
     expect(irrFlagHint('no_root')).toBe('Not calculable: no rate fits the cash flows');
     expect(irrFlagHint('other_flag')).toBe('Not calculable: other flag');
   });
