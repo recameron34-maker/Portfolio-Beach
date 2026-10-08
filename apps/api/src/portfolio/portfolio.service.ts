@@ -1,5 +1,5 @@
 import { Inject, Injectable } from '@nestjs/common';
-import { and, asc, desc, eq, gt, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, gt } from 'drizzle-orm';
 import type { Principal } from '@pb/adapters';
 import type { InvestmentDetail, InvestmentPage } from '@pb/contracts';
 import { schema } from '@pb/db';
@@ -10,6 +10,12 @@ import { ProblemError } from '../common/problem.js';
 import { DbService } from '../db/db.service.js';
 import { loadFlowsAndValuations, loadInvestmentRows, summarizeInvestment } from './loaders.js';
 import { creditView, operatingView } from './metrics.js';
+import {
+  sponsorActiveInvestments,
+  sponsorFundCount,
+  vehicleActiveInvestments,
+  vehicleLpCommitmentTotal,
+} from '../common/subqueries.js';
 
 export interface ListOptions {
   limit: number;
@@ -30,13 +36,6 @@ interface Definitions {
 const INVESTMENT_CURSOR = /^([A-Z0-9-]{1,32})$/;
 /** The sponsor list's cursor is the last row's name, its sort key; any name, compared as a parameter. */
 const SPONSOR_CURSOR = /^(.*)$/s;
-
-/**
- * Fully qualified outer-table columns for correlated subqueries. In a single-table select Drizzle
- * renders a column as a bare `"id"`, which inside the subquery would bind to the inner table.
- */
-const OUTER_SPONSOR_ID = sql.raw('"core"."sponsor"."id"');
-const OUTER_VEHICLE_ID = sql.raw('"core"."vehicle"."id"');
 
 @Injectable()
 export class PortfolioService {
@@ -216,8 +215,8 @@ export class PortfolioService {
           name: schema.sponsor.name,
           tier: schema.sponsor.tier,
           hqGeography: schema.sponsor.hqGeography,
-          fundCount: sql<number>`(select count(*)::int from core.sponsor_fund f where f.sponsor_id = ${OUTER_SPONSOR_ID})`,
-          activeInvestments: sql<number>`(select count(*)::int from core.investment i where i.sponsor_id = ${OUTER_SPONSOR_ID} and i.is_active)`,
+          fundCount: sponsorFundCount,
+          activeInvestments: sponsorActiveInvestments,
         })
         .from(schema.sponsor)
         .where(after === null ? undefined : gt(schema.sponsor.name, after))
@@ -252,11 +251,8 @@ export class PortfolioService {
           name: schema.vehicle.name,
           vehicleType: schema.vehicle.vehicleType,
           vintage: schema.vehicle.vintage,
-          activeInvestments: sql<number>`(select count(*)::int from core.investment i where i.vehicle_id = ${OUTER_VEHICLE_ID} and i.is_active)`,
-          // RLS decides which LP commitments the caller can see; none visible yields null, never 0.
-          lpCommitmentsTotal: sql<
-            string | null
-          >`(select sum(l.amount)::text from core.lp_commitment l where l.vehicle_id = ${OUTER_VEHICLE_ID})`,
+          activeInvestments: vehicleActiveInvestments,
+          lpCommitmentsTotal: vehicleLpCommitmentTotal,
         })
         .from(schema.vehicle)
         .orderBy(desc(schema.vehicle.vintage), asc(schema.vehicle.name));

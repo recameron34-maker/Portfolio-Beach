@@ -34,6 +34,7 @@ import {
   str,
 } from '../portfolio/metrics.js';
 import type { FlowRow, OperatingRow, ValuationRow } from '../portfolio/metrics.js';
+import { compareDecimalDesc, compareText, sumCalculable } from '../common/order.js';
 
 /** Calculation settings from config/definitions.json (docs/03 section 4); only the keys this service reads. */
 interface Definitions {
@@ -86,30 +87,11 @@ const OUTFLOW_TYPES = new Set(['flow_type.contribution', 'flow_type.fee', 'flow_
 
 /* ---- pure helpers ---- */
 
-const compareText = (a: string, b: string): number => (a < b ? -1 : a > b ? 1 : 0);
-
-/** Descending by value with "not calculable" last. */
-function compareNavDesc(a: Decimal | null, b: Decimal | null): number {
-  if (a === null) return b === null ? 0 : 1;
-  if (b === null) return -1;
-  return b.cmp(a);
-}
-
 const navOf = (p: Position): Decimal | null => (p.summary.nav === null ? null : D(p.summary.nav));
 
 /** Share of a total as a rate; null when either side is not calculable or the total is zero. */
 function navShareOf(nav: Decimal | null, total: Decimal | null): string | null {
   return nav === null || total === null || total.isZero() ? null : str(nav.div(total));
-}
-
-/** Sum of the positions' NAV; null when none of them has a calculable NAV. */
-function sumNav(positions: readonly Position[]): Decimal | null {
-  let total: Decimal | null = null;
-  for (const p of positions) {
-    const nav = navOf(p);
-    if (nav !== null) total = (total ?? ZERO).plus(nav);
-  }
-  return total;
 }
 
 /** The latest Locked valuation strictly before a period end (the previous Locked mark). */
@@ -144,7 +126,7 @@ function exposures(
     groups.set(key, g);
   }
   return [...groups.entries()]
-    .sort(([, a], [, b]) => compareNavDesc(a.nav, b.nav) || compareText(a.label, b.label))
+    .sort(([, a], [, b]) => compareDecimalDesc(a.nav, b.nav) || compareText(a.label, b.label))
     .map(([key, g]) => ({
       key,
       label: g.label,
@@ -180,12 +162,12 @@ export function vehicleByDealType(
     .map(([key, v]) => ({
       key,
       label: v.label,
-      nav: sumNav(v.positions),
+      nav: sumCalculable(v.positions, navOf),
       segments: exposures(v.positions, totalNav, dealTypeOf).sort(
         (a, b) => rankOf(a.key) - rankOf(b.key) || compareText(a.key, b.key),
       ),
     }))
-    .sort((a, b) => compareNavDesc(a.nav, b.nav) || compareText(a.label, b.label))
+    .sort((a, b) => compareDecimalDesc(a.nav, b.nav) || compareText(a.label, b.label))
     .map(({ key, label, segments }) => ({ key, label, segments }));
 }
 
@@ -231,7 +213,7 @@ function topPositions(
     .map((p) => ({ p, nav: navOf(p) }))
     .sort(
       (a, b) =>
-        compareNavDesc(a.nav, b.nav) ||
+        compareDecimalDesc(a.nav, b.nav) ||
         compareText(a.p.row.investmentNumber, b.p.row.investmentNumber),
     )
     .slice(0, limit)
@@ -546,7 +528,7 @@ export class AnalyticsService {
       const labels = await loadLabels(tx);
       const active = positions.filter((p) => p.row.isActive);
       const realized = positions.filter((p) => !p.row.isActive);
-      const activeNav = sumNav(active);
+      const activeNav = sumCalculable(active, navOf);
       const input = (
         p: Position,
       ): { flows: FlowRow[]; valuations: ValuationRow[]; isActive: boolean } => ({

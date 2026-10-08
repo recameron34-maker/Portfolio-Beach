@@ -6,8 +6,7 @@ import type { FundCommitmentRow } from '@pb/contracts';
 import { schema } from '@pb/db';
 import type { Tx } from '@pb/db';
 import { kindOf, str } from './metrics.js';
-
-const compareText = (a: string, b: string): number => (a < b ? -1 : a > b ? 1 : 0);
+import { compareText } from '../common/order.js';
 
 /** Pooled rows (no client) sort ahead of client-directed rows of the same vehicle and fund. */
 const compareClientName = (a: string | null, b: string | null): number => {

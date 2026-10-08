@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { asc, eq, inArray, sql } from 'drizzle-orm';
+import { asc, eq, inArray } from 'drizzle-orm';
 import type { Principal } from '@pb/adapters';
 import { CALC_VERSION, ZERO } from '@pb/calc';
 import type { Decimal } from '@pb/calc';
@@ -10,13 +10,12 @@ import { DbService } from '../db/db.service.js';
 import { loadCommitmentRows } from '../portfolio/commitments.js';
 import { loadInvestmentRows, loadInvestmentsWithMetrics } from '../portfolio/loaders.js';
 import { pooledPositionMetrics, str } from '../portfolio/metrics.js';
-
-/**
- * Fully qualified outer-table columns for correlated subqueries: in a single-table select Drizzle
- * renders a column as a bare `"id"`, which inside the subquery would bind to the inner table.
- */
-const OUTER_SPONSOR_ID = sql.raw('"core"."sponsor"."id"');
-const OUTER_FUND_ID = sql.raw('"core"."sponsor_fund"."id"');
+import {
+  fundHoldingCount,
+  fundPositionCount,
+  sponsorActiveInvestments,
+  sponsorFundCount,
+} from '../common/subqueries.js';
 
 @Injectable()
 export class SponsorsService {
@@ -46,8 +45,8 @@ export class SponsorsService {
             tier: s.tier,
             hqGeography: s.hqGeography,
             description: s.description,
-            fundCount: sql<number>`(select count(*)::int from core.sponsor_fund f where f.sponsor_id = ${OUTER_SPONSOR_ID})`,
-            activeInvestments: sql<number>`(select count(*)::int from core.investment i where i.sponsor_id = ${OUTER_SPONSOR_ID} and i.is_active)`,
+            fundCount: sponsorFundCount,
+            activeInvestments: sponsorActiveInvestments,
           })
           .from(s)
           .where(eq(s.id, id))
@@ -65,8 +64,8 @@ export class SponsorsService {
           sizeTarget: f.sizeTarget,
           sizeFinal: f.sizeFinal,
           currency: f.currency,
-          holdings: sql<number>`(select count(*)::int from core.fund_holding h where h.sponsor_fund_id = ${OUTER_FUND_ID})`,
-          ourPositions: sql<number>`(select count(*)::int from core.investment i where i.sponsor_fund_id = ${OUTER_FUND_ID})`,
+          holdings: fundHoldingCount,
+          ourPositions: fundPositionCount,
         })
         .from(f)
         .where(eq(f.sponsorId, sponsor.id))

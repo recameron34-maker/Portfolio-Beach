@@ -21,7 +21,7 @@ import {
   yoyGrowth,
 } from '@pb/calc';
 import type { Decimal, PaymentFrequency } from '@pb/calc';
-import { isCalendarDate } from '@pb/contracts';
+import { DECIMAL_PATTERN, isCalendarDate } from '@pb/contracts';
 import type { InvestmentPerformance, QuarterRow } from '@pb/contracts';
 import { schema } from '@pb/db';
 import { configInteger } from '../common/definitions.js';
@@ -98,14 +98,13 @@ interface CreditTermsSource {
   covenants: unknown;
 }
 
-const DECIMAL = /^-?\d+(\.\d+)?$/;
 const FREQUENCIES: readonly PaymentFrequency[] = ['monthly', 'quarterly', 'semiannual', 'annual'];
 
 /* ---- jsonb readers: a value that cannot be read is left out, never replaced by an invented one ---- */
 
 /** A jsonb numeric string or finite number as a decimal string; anything else is not a number. */
 function decimalOf(value: unknown): string | null {
-  if (typeof value === 'string') return DECIMAL.test(value) ? value : null;
+  if (typeof value === 'string') return DECIMAL_PATTERN.test(value) ? value : null;
   if (typeof value === 'number' && Number.isFinite(value)) return str(D(String(value)));
   return null;
 }

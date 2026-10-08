@@ -4,9 +4,9 @@ import { daysBetween } from '@pb/calc';
 import type { CapitalNoticeRow } from '@pb/contracts';
 import { schema } from '@pb/db';
 import type { Tx } from '@pb/db';
+import { DECIMAL_PATTERN } from '@pb/contracts';
 
 const notice = schema.capitalNotice;
-const DECIMAL = /^-?\d+(\.\d+)?$/;
 
 /** The register order: latest due date first, then latest issue date, then id (the list cursor key). */
 export const REGISTER_ORDER: readonly SQL[] = [
@@ -34,7 +34,7 @@ function splitOf(text: string | null): Record<string, string> {
   const values = JSON.parse(text) as Record<string, unknown>;
   for (const key of Object.keys(values).sort()) {
     const value = values[key];
-    if (typeof value === 'string' && DECIMAL.test(value)) out[key] = value;
+    if (typeof value === 'string' && DECIMAL_PATTERN.test(value)) out[key] = value;
   }
   return out;
 }

@@ -22,7 +22,7 @@ import {
   xirr,
   yoyGrowth,
 } from '@pb/calc';
-import type { Decimal, FlowKind, IrrReason, TypedCashFlow } from '@pb/calc';
+import type { Decimal, FlowKind, IrrReason, IrrResult, TypedCashFlow } from '@pb/calc';
 import type { PooledMetrics, SeriesPoint } from '@pb/contracts';
 
 export interface FlowRow {
@@ -71,6 +71,13 @@ export function latestLockedValuation(
   return best;
 }
 
+/** Why a position's or a pool's IRR is missing, or that its period is short (docs/08 section 3). */
+function irrFlagOf(irr: IrrResult | null): PositionMetrics['irrFlag'] {
+  if (irr === null) return 'insufficient_flows';
+  if (irr.value === null) return irr.reason;
+  return irr.shortPeriod ? 'short_period' : null;
+}
+
 /** Gross deal-level metrics from approved cash flows and the latest Locked valuation (docs/08). */
 export function positionMetrics(
   flows: readonly FlowRow[],
@@ -90,10 +97,7 @@ export function positionMetrics(
   const signed = toSignedFlows(typed);
   if (nav !== null) signed.push({ date: asOf, amount: nav.fairValue });
   const irr = signed.length >= 2 ? xirr(signed) : null;
-  let irrFlag: PositionMetrics['irrFlag'] = null;
-  if (irr === null) irrFlag = 'insufficient_flows';
-  else if (irr.value === null) irrFlag = irr.reason ?? 'no_root';
-  else if (irr.shortPeriod) irrFlag = 'short_period';
+  const irrFlag = irrFlagOf(irr);
   return {
     invested: str(invested),
     distributions: invested === null ? null : str(summary.distributions),
@@ -277,10 +281,7 @@ export function pooledPositionMetrics(
   const signed = toSignedFlows(typed);
   if (nav !== null && !nav.isZero()) signed.push({ date: asOf, amount: nav.toFixed(2) });
   const irr = signed.length >= 2 ? xirr(signed) : null;
-  let irrFlag: PositionMetrics['irrFlag'] = null;
-  if (irr === null) irrFlag = 'insufficient_flows';
-  else if (irr.value === null) irrFlag = irr.reason ?? 'no_root';
-  else if (irr.shortPeriod) irrFlag = 'short_period';
+  const irrFlag = irrFlagOf(irr);
   return {
     count: positions.length,
     invested: str(invested),

@@ -21,6 +21,7 @@ import { DEFINITIONS } from '../common/tokens.js';
 import { DbService } from '../db/db.service.js';
 import { loadInvestmentsWithMetrics } from '../portfolio/loaders.js';
 import { latestLockedValuation, pooledPositionMetrics, str } from '../portfolio/metrics.js';
+import { compareDecimalDesc, compareText } from '../common/order.js';
 
 /** Calculation and reporting settings from config/definitions.json; only the keys this service reads. */
 interface Definitions {
@@ -77,12 +78,6 @@ const joinList = (items: string[]): string =>
   items.length <= 1
     ? (items[0] ?? '')
     : `${items.slice(0, -1).join(', ')} and ${items[items.length - 1]}`;
-
-const compareDesc = (a: string | null, b: string | null): number => {
-  if (a === null) return b === null ? 0 : 1;
-  if (b === null) return -1;
-  return D(b).comparedTo(D(a));
-};
 
 @Injectable()
 export class ReportsService {
@@ -235,7 +230,7 @@ export class ReportsService {
       });
     }
     return rows.sort(
-      (a, b) => compareDesc(a.nav, b.nav) || a.vehicleName.localeCompare(b.vehicleName),
+      (a, b) => compareDecimalDesc(a.nav, b.nav) || compareText(a.vehicleName, b.vehicleName),
     );
   }
 
@@ -275,15 +270,15 @@ export class ReportsService {
     ranked.sort(
       (a, b) =>
         b.size.comparedTo(a.size) ||
-        a.mover.investmentNumber.localeCompare(b.mover.investmentNumber),
+        compareText(a.mover.investmentNumber, b.mover.investmentNumber),
     );
     return ranked
       .slice(0, count)
       .map((r) => r.mover)
       .sort(
         (a, b) =>
-          compareDesc(a.changePct, b.changePct) ||
-          a.investmentNumber.localeCompare(b.investmentNumber),
+          compareDecimalDesc(a.changePct, b.changePct) ||
+          compareText(a.investmentNumber, b.investmentNumber),
       );
   }
 
@@ -313,7 +308,7 @@ export class ReportsService {
                 .replaceAll('{periodEnd}', fmtDate(periodEnd)),
       });
     }
-    return out.sort((a, b) => a.investmentNumber.localeCompare(b.investmentNumber));
+    return out.sort((a, b) => compareText(a.investmentNumber, b.investmentNumber));
   }
 
   /** Visible notices that are not Reconciled or fall due within the window either side of the as-of date, soonest first. */

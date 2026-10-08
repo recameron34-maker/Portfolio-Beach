@@ -1,7 +1,7 @@
 import { Inject, Injectable } from '@nestjs/common';
-import { eq, inArray, sql } from 'drizzle-orm';
+import { eq, inArray } from 'drizzle-orm';
 import type { Principal } from '@pb/adapters';
-import { CALC_VERSION, D, ZERO, moic } from '@pb/calc';
+import { CALC_VERSION, D, moic } from '@pb/calc';
 import type { Decimal } from '@pb/calc';
 import type {
   ClientList,
@@ -19,6 +19,8 @@ import { DbService } from '../db/db.service.js';
 import { loadCommitmentRows } from '../portfolio/commitments.js';
 import { loadInvestmentsWithMetrics } from '../portfolio/loaders.js';
 import { lockedNavSeries, pooledPositionMetrics, str } from '../portfolio/metrics.js';
+import { compareText, sumCalculable } from '../common/order.js';
+import { vehicleActiveInvestments, vehicleLpCommitmentTotal } from '../common/subqueries.js';
 
 /** Calculation settings from config/definitions.json (docs/03 section 4); only the keys this service reads. */
 interface Definitions {
@@ -32,12 +34,6 @@ type LpCommitmentRow = NonNullable<VehicleDetail['lpCommitments']>[number];
 type ClientVehicleShare = ClientSummary['vehicles'][number];
 
 /**
- * Fully qualified outer-table column for correlated subqueries: in a single-table select Drizzle
- * renders a column as a bare `"id"`, which inside the subquery would bind to the inner table.
- */
-const OUTER_VEHICLE_ID = sql.raw('"core"."vehicle"."id"');
-
-/**
  * Roles that see every client, mirroring pb.sees_all_clients() in the database (SEC-5.2);
  * platform_admin is deliberately not one of them (SEC-5.4). Everyone else sees client data only
  * through an explicit entitlement.
@@ -47,21 +43,9 @@ const ALL_CLIENT_ROLES: ReadonlySet<string> = new Set(['operations', 'approver',
 const seesClientData = (principal: Principal): boolean =>
   principal.clientIds.length > 0 || principal.roles.some((r) => ALL_CLIENT_ROLES.has(r));
 
-const compareText = (a: string, b: string): number => (a < b ? -1 : a > b ? 1 : 0);
-
 /** Strings from a jsonb list column; anything else in it is not a reporting basis. */
 const stringList = (value: unknown): string[] =>
   Array.isArray(value) ? value.filter((x): x is string => typeof x === 'string') : [];
-
-/** Sum of the calculable figures; null when no row has one (docs/06 section 3), never 0 for unknown. */
-function sumOf<T>(rows: readonly T[], pick: (row: T) => string | null): Decimal | null {
-  let total: Decimal | null = null;
-  for (const row of rows) {
-    const value = pick(row);
-    if (value !== null) total = (total ?? ZERO).plus(value);
-  }
-  return total;
-}
 
 /**
  * Pooled gross metrics over a vehicle's visible positions (docs/08 sections 2 and 3). The primary
@@ -107,14 +91,14 @@ function shareOf(
 
 /** Sums of a client's vehicle shares; the MOIC is only calculable when no vehicle is partly known. */
 function clientTotals(vehicles: readonly ClientVehicleShare[]): ClientSummary['totals'] {
-  const invested = sumOf(vehicles, (v) => v.invested);
-  const distributions = sumOf(vehicles, (v) => v.distributions);
-  const nav = sumOf(vehicles, (v) => v.nav);
+  const invested = sumCalculable(vehicles, (v) => v.invested);
+  const distributions = sumCalculable(vehicles, (v) => v.distributions);
+  const nav = sumCalculable(vehicles, (v) => v.nav);
   const partial = vehicles.some(
     (v) => v.invested !== null && (v.nav === null || v.distributions === null),
   );
   return {
-    commitment: str(sumOf(vehicles, (v) => v.commitment)),
+    commitment: str(sumCalculable(vehicles, (v) => v.commitment)),
     invested: str(invested),
     distributions: str(distributions),
     nav: str(nav),
@@ -183,11 +167,8 @@ export class VehiclesService {
             currency: schema.vehicle.currency,
             closingCount: schema.vehicle.closingCount,
             finalCloseDate: schema.vehicle.finalCloseDate,
-            activeInvestments: sql<number>`(select count(*)::int from core.investment i where i.vehicle_id = ${OUTER_VEHICLE_ID} and i.is_active)`,
-            // RLS decides which LP commitments the caller can see; none visible yields null, never 0.
-            lpCommitmentsTotal: sql<
-              string | null
-            >`(select sum(l.amount)::text from core.lp_commitment l where l.vehicle_id = ${OUTER_VEHICLE_ID})`,
+            activeInvestments: vehicleActiveInvestments,
+            lpCommitmentsTotal: vehicleLpCommitmentTotal,
           })
           .from(schema.vehicle)
           .where(eq(schema.vehicle.id, id))
@@ -245,10 +226,10 @@ export class VehiclesService {
         asOf,
         items,
         totals: {
-          amount: str(sumOf(items, (r) => r.amount)),
-          called: str(sumOf(items, (r) => r.called)),
-          distributed: str(sumOf(items, (r) => r.distributed)),
-          unfunded: str(sumOf(items, (r) => r.unfunded)),
+          amount: str(sumCalculable(items, (r) => r.amount)),
+          called: str(sumCalculable(items, (r) => r.called)),
+          distributed: str(sumCalculable(items, (r) => r.distributed)),
+          unfunded: str(sumCalculable(items, (r) => r.unfunded)),
         },
         calcVersion: CALC_VERSION,
       };

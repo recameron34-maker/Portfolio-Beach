@@ -1,5 +1,6 @@
 import { D } from '@pb/calc';
 import type { Decimal } from '@pb/calc';
+import { DECIMAL_PATTERN } from '@pb/contracts';
 import { ProblemError } from './problem.js';
 
 /*
@@ -8,8 +9,6 @@ import { ProblemError } from './problem.js';
  * default in code (CLAUDE.md rules 9 and 10): the figures it drives would otherwise change without
  * anyone deciding so. Every service reads its keys through these.
  */
-
-const DECIMAL = /^-?\d+(\.\d+)?$/;
 
 /** The problem for a key that is missing or cannot be read. */
 export const configError = (key: string): ProblemError =>
@@ -24,7 +23,7 @@ export function configInteger(value: unknown, key: string): number {
 /** A rate or threshold as a Decimal, from a finite JSON number or a decimal string. */
 export function configDecimal(value: unknown, key: string): Decimal {
   if (typeof value === 'number' && Number.isFinite(value)) return D(String(value));
-  if (typeof value === 'string' && DECIMAL.test(value)) return D(value);
+  if (typeof value === 'string' && DECIMAL_PATTERN.test(value)) return D(value);
   throw configError(key);
 }
 

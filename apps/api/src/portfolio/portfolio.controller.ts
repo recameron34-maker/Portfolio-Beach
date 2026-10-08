@@ -5,11 +5,8 @@ import type { InvestmentDetail, InvestmentPage } from '@pb/contracts';
 import { CurrentPrincipal } from '../auth/principal.js';
 import type { RequestWithPrincipal } from '../auth/principal.js';
 import { ADAPTERS } from '../common/tokens.js';
-import { ProblemError } from '../common/problem.js';
-import { parseOrProblem } from '../common/validate.js';
+import { parseOrProblem, requireUuid } from '../common/validate.js';
 import { PortfolioService } from './portfolio.service.js';
-
-const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 @Controller('api/v1')
 export class PortfolioController {
@@ -39,7 +36,7 @@ export class PortfolioController {
     @Req() req: RequestWithPrincipal,
   ): Promise<InvestmentDetail> {
     // A malformed id is simply not found: existence is never revealed, and the database never sees garbage.
-    if (!UUID.test(id)) throw new ProblemError(404, 'not-found', 'Investment not found');
+    requireUuid(id, 'Investment not found');
     const q = parseOrProblem(asOfQuery, query, 'query');
     return this.portfolio.detail(
       principal,

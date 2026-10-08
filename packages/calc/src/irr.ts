@@ -7,14 +7,17 @@ import { daysBetween } from './dates.js';
 export type IrrReason =
   'insufficient_flows' | 'same_sign' | 'no_root' | 'multiple_irr' | 'no_convergence';
 
-export interface IrrResult {
-  /** Annualized rate as a decimal (0.125 = 12.5%), or null with a reason. */
-  value: Decimal | null;
-  reason?: IrrReason;
-  /** True when the span from first to last flow is under one year (docs/08 section 3). */
-  shortPeriod: boolean;
-  iterations: number;
-}
+/** A rate, or no rate and always the reason why: never a misleading number. */
+export type IrrResult =
+  | {
+      /** Annualized rate as a decimal (0.125 = 12.5%). */
+      value: Decimal;
+      reason?: undefined;
+      /** True when the span from first to last flow is under one year (docs/08 section 3). */
+      shortPeriod: boolean;
+      iterations: number;
+    }
+  | { value: null; reason: IrrReason; shortPeriod: boolean; iterations: number };
 
 export interface IrrOptions {
   /** Day count basis: 365 (default) or 365.25. */

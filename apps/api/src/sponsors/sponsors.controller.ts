@@ -1,15 +1,11 @@
 import { Controller, Get, Inject, Param, Query, Req } from '@nestjs/common';
 import type { AdapterSet, Principal } from '@pb/adapters';
-import { asOfQuery } from '@pb/contracts';
 import type { SponsorDetail, Taxonomy, WallList } from '@pb/contracts';
 import { CurrentPrincipal } from '../auth/principal.js';
 import type { RequestWithPrincipal } from '../auth/principal.js';
 import { ADAPTERS } from '../common/tokens.js';
-import { ProblemError } from '../common/problem.js';
-import { parseOrProblem } from '../common/validate.js';
+import { asOfOrToday, requireUuid } from '../common/validate.js';
 import { SponsorsService } from './sponsors.service.js';
-
-const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 @Controller('api/v1')
 export class SponsorsController {
@@ -18,10 +14,6 @@ export class SponsorsController {
     @Inject(ADAPTERS) private readonly adapters: AdapterSet,
   ) {}
 
-  private asOf(query: unknown): string {
-    return parseOrProblem(asOfQuery, query, 'query').asOf ?? this.adapters.clock.today();
-  }
-
   @Get('sponsors/:id')
   detail(
     @Param('id') id: string,
@@ -29,8 +21,13 @@ export class SponsorsController {
     @CurrentPrincipal() principal: Principal,
     @Req() req: RequestWithPrincipal,
   ): Promise<SponsorDetail> {
-    if (!UUID.test(id)) throw new ProblemError(404, 'not-found', 'Sponsor not found');
-    return this.service.detail(principal, req.id ?? 'unknown', id, this.asOf(query));
+    requireUuid(id, 'Sponsor not found');
+    return this.service.detail(
+      principal,
+      req.id ?? 'unknown',
+      id,
+      asOfOrToday(query, this.adapters.clock),
+    );
   }
 
   @Get('taxonomy')

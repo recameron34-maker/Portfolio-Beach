@@ -1,7 +1,10 @@
 import { z } from 'zod';
 
+/** A decimal amount or rate as text, never a float: the one pattern every reader checks against. */
+export const DECIMAL_PATTERN = /^-?\d+(\.\d+)?$/;
+
 /** Money, rates and multiples travel as decimal strings; the missing placeholder is null (docs/06 section 3). */
-export const decimalString = z.string().regex(/^-?\d+(\.\d+)?$/);
+export const decimalString = z.string().regex(DECIMAL_PATTERN);
 
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
 
