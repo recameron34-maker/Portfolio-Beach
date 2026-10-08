@@ -1,67 +1,56 @@
 /**
  * Preview mode: the built app runs against responses recorded from the real API over the small
  * synthetic dataset, so a static page can show every screen without a server. Only requests to
- * /api and /health are intercepted. Writes are simulated in memory for the page session.
+ * /api and /health are intercepted; everything else (assets, the recordings file) goes to the
+ * network.
  *
- * Keys are `${credential}|${METHOD} ${path}?${sorted query}`; the recorder in scripts/build-preview.mjs
- * uses the same normalization.
+ * Order for each request: the credential check (401), the simulated write routes (routes/), the
+ * recorded response with this session's simulated changes laid over it (overlay.ts), and finally
+ * a 404 problem for anything the recordings do not cover, which is also logged for the probe.
  */
-export interface RecordedResponse {
-  status: number;
-  contentType: string;
-  body: string;
+import { Recordings, parseFixtures } from './fixtures.js';
+import type { PreviewFixtures } from './fixtures.js';
+import { isApiPath, isPublicPath, normalizeKey } from './keys.js';
+import { recordMiss, requestFinished, requestStarted } from './monitor.js';
+import { overlayRecordedBody } from './overlay.js';
+import { problem } from './problems.js';
+import { findSimRoute, runSimRoute } from './routes/index.js';
+import type { SimContext } from './routes/index.js';
+import { createPreviewState, defaultEnv } from './state.js';
+import type { PreviewEnv, PreviewState } from './state.js';
+
+export { normalizeKey } from './keys.js';
+export type { PreviewFixtures, PreviewUser, RecordedResponse } from './fixtures.js';
+
+export interface PreviewFetchOptions {
+  /** Ids and clock for simulated records (tests pass deterministic ones). */
+  env?: Partial<PreviewEnv>;
+  /** The session state; tests pass one to inspect it. A fresh one by default. */
+  state?: PreviewState;
 }
 
-export interface PreviewFixtures {
-  generatedFrom: string;
-  asOf: string;
-  users: { externalId: string; roles: string[] }[];
-  responses: Record<string, RecordedResponse>;
-}
-
-export function normalizeKey(
-  credential: string,
-  method: string,
-  pathname: string,
-  search: string,
-): string {
-  const params = new URLSearchParams(search);
-  const sorted = [...params.entries()].sort(([a], [b]) => a.localeCompare(b));
-  const query =
-    sorted.length === 0
-      ? ''
-      : `?${sorted.map(([k, v]) => `${encodeURIComponent(k)}=${encodeURIComponent(v)}`).join('&')}`;
-  return `${credential}|${method.toUpperCase()} ${pathname}${query}`;
-}
-
-function problem(status: number, code: string, title: string, detail: string): Response {
-  const body = JSON.stringify({
-    type: `https://portfolio-beach.example/problems/${code}`,
-    title,
-    status,
-    detail,
-    request_id: 'preview',
-  });
-  return new Response(body, {
-    status,
-    headers: { 'content-type': 'application/problem+json', 'x-request-id': 'preview' },
-  });
+function requestUrl(input: RequestInfo | URL): URL {
+  const raw = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
+  return new URL(raw, window.location.href);
 }
 
 export function createPreviewFetch(
   fixtures: PreviewFixtures,
   realFetch: typeof fetch,
+  options: PreviewFetchOptions = {},
 ): typeof fetch {
-  const flagOverrides = new Map<string, boolean>();
-  const rolesOf = (credential: string): string[] =>
-    fixtures.users.find((u) => u.externalId === credential)?.roles ?? [];
+  const ctx: SimContext = {
+    recordings: new Recordings(fixtures),
+    state: options.state ?? createPreviewState(),
+    env: { ...defaultEnv, ...options.env },
+  };
+  const known = new Set(fixtures.users.filter((u) => u.roles.length > 0).map((u) => u.externalId));
 
-  return async (input, init) => {
-    const raw = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
-    const url = new URL(raw, window.location.href);
-    if (!url.pathname.startsWith('/api/') && !url.pathname.startsWith('/health/'))
-      return realFetch(input, init);
-
+  async function answer(
+    input: RequestInfo | URL,
+    init: RequestInit | undefined,
+  ): Promise<Response> {
+    const url = requestUrl(input);
     const headers = new Headers(
       init?.headers ?? (input instanceof Request ? input.headers : undefined),
     );
@@ -70,79 +59,58 @@ export function createPreviewFetch(
     const method = (
       init?.method ?? (input instanceof Request ? input.method : 'GET')
     ).toUpperCase();
-    const bodyText = async (): Promise<string> => {
-      if (init?.body !== undefined && init.body !== null) {
-        return typeof init.body === 'string' ? init.body : new Response(init.body).text();
-      }
-      return input instanceof Request ? input.text() : '';
-    };
-    const isPublic =
-      url.pathname === '/api/v1/auth/mock-users' || url.pathname.startsWith('/health/');
-    if (!isPublic && (credential === '' || rolesOf(credential).length === 0)) {
-      return problem(401, 'unauthenticated', 'Authentication required', 'Sign in to continue');
-    }
+    const isPublic = isPublicPath(url.pathname);
+    if (!isPublic && !known.has(credential))
+      return problem(401, 'unauthenticated', 'Sign in to continue', { instance: url.pathname });
 
-    // Simulated write: feature flags (platform admins only, reason required), kept for this page session.
-    const flagMatch = /^\/api\/v1\/flags\/([a-z0-9_.]{3,64})$/.exec(url.pathname);
-    if (method === 'PATCH' && flagMatch !== null) {
-      if (!rolesOf(credential).includes('platform_admin'))
-        return problem(
-          403,
-          'forbidden',
-          'Forbidden',
-          'This operation needs a role you do not hold',
-        );
-      let payload: { enabled?: unknown; reason?: unknown } = {};
-      try {
-        payload = JSON.parse(await bodyText()) as typeof payload;
-      } catch {
-        return problem(400, 'validation', 'Bad request', 'Invalid flag update');
-      }
-      if (
-        typeof payload.enabled !== 'boolean' ||
-        typeof payload.reason !== 'string' ||
-        payload.reason.length < 3
-      ) {
-        return problem(400, 'validation', 'Bad request', 'Invalid flag update');
-      }
-      const list = fixtures.responses[normalizeKey(credential, 'GET', '/api/v1/flags', '')];
-      const flags =
-        list === undefined
-          ? []
-          : (
-              JSON.parse(list.body) as {
-                flags: { key: string; enabled: boolean; description: string }[];
-              }
-            ).flags;
-      const flag = flags.find((f) => f.key === flagMatch[1]);
-      if (flag === undefined) return problem(404, 'not-found', 'Not found', 'Unknown flag');
-      flagOverrides.set(flag.key, payload.enabled);
-      return new Response(JSON.stringify({ ...flag, enabled: payload.enabled }), {
-        status: 200,
-        headers: { 'content-type': 'application/json', 'x-request-id': 'preview' },
-      });
+    const sim = isPublic ? undefined : findSimRoute(method, url.pathname);
+    if (sim !== undefined) {
+      const bodyText = async (): Promise<string> => {
+        if (init?.body !== undefined && init.body !== null)
+          return typeof init.body === 'string' ? init.body : new Response(init.body).text();
+        return input instanceof Request ? input.text() : '';
+      };
+      return runSimRoute(sim.route, sim.params, { credential, url, headers, bodyText }, ctx);
     }
 
     const key = normalizeKey(isPublic ? '' : credential, method, url.pathname, url.search);
-    const recorded = fixtures.responses[key];
+    const recorded = ctx.recordings.byKey(key);
     if (recorded === undefined) {
-      return problem(404, 'not-found', 'Not found', 'This request is outside the recorded preview');
-    }
-    let body = recorded.body;
-    if (url.pathname === '/api/v1/flags' && method === 'GET' && flagOverrides.size > 0) {
-      const parsed = JSON.parse(body) as {
-        flags: { key: string; enabled: boolean; description: string }[];
-      };
-      body = JSON.stringify({
-        flags: parsed.flags.map((f) =>
-          flagOverrides.has(f.key) ? { ...f, enabled: flagOverrides.get(f.key) === true } : f,
-        ),
+      recordMiss(key);
+      return problem(404, 'not-found', 'This request is outside the recorded preview', {
+        instance: url.pathname,
       });
     }
-    return new Response(body, {
+    const text =
+      method === 'GET' && recorded.status === 200 && !isPublic
+        ? overlayRecordedBody(url, recorded.text, {
+            credential,
+            recordings: ctx.recordings,
+            state: ctx.state,
+          })
+        : recorded.text;
+    return new Response(text, {
       status: recorded.status,
       headers: { 'content-type': recorded.contentType, 'x-request-id': 'preview' },
     });
+  }
+
+  return async (input, init) => {
+    const pathname = requestUrl(input).pathname;
+    if (!isApiPath(pathname)) return realFetch(input, init);
+    requestStarted();
+    try {
+      return await answer(input, init);
+    } catch (error) {
+      // A fault in the simulation must show rather than leave a request hanging: it is logged (the
+      // probe fails on console errors) and answered as a problem, never with recorded data.
+      console.error('preview: the shim could not answer', pathname, error);
+      return problem(500, 'internal', 'The preview could not answer this request', {
+        instance: pathname,
+      });
+    } finally {
+      requestFinished();
+    }
   };
 }
 
@@ -151,7 +119,8 @@ export async function installPreviewShim(fixturesUrl: string): Promise<PreviewFi
   const realFetch = window.fetch.bind(window);
   const response = await realFetch(fixturesUrl);
   if (!response.ok) throw new Error(`preview fixtures not found at ${fixturesUrl}`);
-  const fixtures = (await response.json()) as PreviewFixtures;
+  const fixtures = parseFixtures(await response.json());
+  window.__pbPreviewMisses ??= [];
   window.fetch = createPreviewFetch(fixtures, realFetch);
   return fixtures;
 }
