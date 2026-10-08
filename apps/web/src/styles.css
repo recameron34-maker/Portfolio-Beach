@@ -915,6 +915,71 @@ p:last-child {
   vertical-align: middle;
 }
 
+/* ---- Reporting, assistants and admin pages ---- */
+.pb-report-actions {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+}
+.pb-prose {
+  max-width: 78ch;
+}
+.pb-prose p {
+  margin: 0 0 10px;
+  font-size: 14px;
+  line-height: 22px;
+}
+.pb-prose p:last-child {
+  margin-bottom: 0;
+}
+.pb-questions {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 8px;
+  margin: 0 0 14px;
+}
+.pb-questions > button {
+  justify-content: flex-start;
+  text-align: left;
+  min-height: 36px;
+}
+.pb-ask {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: 10px;
+  margin: 0 0 10px;
+}
+.pb-ask > .pb-field {
+  flex: 1 1 320px;
+}
+.pb-mock-line {
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px solid var(--pb-hairline);
+}
+.pb-nowrap {
+  white-space: nowrap;
+}
+.pb-truncated-id {
+  font-variant-numeric: tabular-nums;
+  cursor: help;
+}
+.pb-role-cell {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 8px;
+  min-width: 220px;
+}
+.pb-role-cell > .pb-meta {
+  flex-basis: 100%;
+}
+.pb-wall-description {
+  margin: 0 0 10px;
+}
+
 /* ---- Sign-in page ---- */
 .pb-signin-page {
   position: relative;
@@ -1349,14 +1414,26 @@ p:last-child {
   .pb-header,
   .pb-nav,
   .pb-mock-banner,
-  .pb-scene {
+  .pb-scene,
+  .pb-no-print,
+  .pb-tabs {
     display: none;
   }
   .pb-shell {
     display: block;
   }
+  .pb-main {
+    padding: 0;
+  }
   .pb-card,
   .pb-stat-tile {
     box-shadow: none;
+    break-inside: avoid;
+  }
+  .pb-table-wrap {
+    overflow: visible;
+  }
+  .pb-tiles {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
   }
 }

@@ -5,6 +5,7 @@ import { Button, Input, Label, Switch } from '@fluentui/react-components';
 import { featureFlag } from '@pb/contracts';
 import { api, ApiError } from '../api/client.js';
 import { previewMode } from '../app/env.js';
+import { ADMIN_TABS } from '../app/nav.js';
 import { flagsQuery, meQuery } from '../app/queries.js';
 import {
   Badge,
@@ -14,6 +15,7 @@ import {
   PageHeader,
   PageSkeleton,
   SectionHeader,
+  TabNav,
   Toolbar,
 } from '../components/ui.js';
 
@@ -56,6 +58,7 @@ export function AdminFlagsPage(): ReactNode {
             : 'Read-only for your role.'
         }
       />
+      <TabNav label="Admin" items={ADMIN_TABS} />
       <Card>
         <SectionHeader>Flags</SectionHeader>
         {isAdmin ? (
