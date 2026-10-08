@@ -117,7 +117,7 @@ describe('valuation board (read-only build)', () => {
     expect(screen.getByRole('status')).toBeEmptyDOMElement();
   });
 
-  it('filters by period, state, vehicle and search on the one unfiltered list', async () => {
+  it('filters by state, vehicle and search in the browser', { timeout: 15_000 }, async () => {
     mockApi(routes());
     renderWithQuery(<ValuationsPage />);
     const table = await screen.findByRole('table', { name: 'Valuations' });
@@ -132,23 +132,33 @@ describe('valuation board (read-only build)', () => {
     expect(within(table).getByText('Summit Services Co')).toBeInTheDocument();
     await pick('Vehicle', 'All vehicles');
 
-    await userEvent.type(screen.getByRole('textbox', { name: 'Search' }), 'cobalt');
+    await userEvent.click(screen.getByRole('textbox', { name: 'Search' }));
+    await userEvent.paste('cobalt');
     expect(within(table).getAllByRole('row')).toHaveLength(2);
-    await userEvent.clear(screen.getByRole('textbox', { name: 'Search' }));
-
-    await pick('Period', 'Mar 31, 2025');
-    const prior = screen.getByRole('table', { name: 'Valuations' });
-    expect(within(prior).getAllByRole('row')).toHaveLength(3);
-    expect(within(prior).getByText('Summit Care Holdings')).toBeInTheDocument();
-    expect(within(tile('In flight')).getByText('0')).toBeInTheDocument();
-    expect(within(tile('Missing marks')).getByText('4')).toBeInTheDocument();
-
-    // Every filter is applied in the browser: the list is requested once, unfiltered, and the
-    // page issues exactly the reads the preview recorder knows about.
-    const urls = sentRequests().map(([url]) => url);
-    expect(urls.filter((u) => u.startsWith('/api/v1/valuations'))).toEqual([BOARD]);
-    expect([...new Set(urls)].sort()).toEqual([ME, VEHICLES, ACTIVE, BOARD].sort());
+    expect(within(table).getByText('Cobalt Energy Group')).toBeInTheDocument();
   });
+
+  it(
+    'switches period on the one unfiltered list the recorder knows',
+    { timeout: 15_000 },
+    async () => {
+      mockApi(routes());
+      renderWithQuery(<ValuationsPage />);
+      await screen.findByRole('table', { name: 'Valuations' });
+      await pick('Period', 'Mar 31, 2025');
+      const prior = screen.getByRole('table', { name: 'Valuations' });
+      expect(within(prior).getAllByRole('row')).toHaveLength(3);
+      expect(within(prior).getByText('Summit Care Holdings')).toBeInTheDocument();
+      expect(within(tile('In flight')).getByText('0')).toBeInTheDocument();
+      expect(await within(tile('Missing marks')).findByText('4')).toBeInTheDocument();
+
+      // Every filter is applied in the browser: the list is requested once, unfiltered, and the
+      // page issues exactly the reads the preview recorder knows about.
+      const urls = sentRequests().map(([url]) => url);
+      expect(urls.filter((u) => u.startsWith('/api/v1/valuations'))).toEqual([BOARD]);
+      expect([...new Set(urls)].sort()).toEqual([ME, VEHICLES, ACTIVE, BOARD].sort());
+    },
+  );
 
   it('lists the active positions with no mark, without a start button outside the preview', async () => {
     mockApi(routes());

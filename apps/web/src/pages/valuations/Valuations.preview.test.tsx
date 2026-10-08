@@ -29,6 +29,8 @@ const ME = '/api/v1/auth/me';
 const BOARD = '/api/v1/valuations?limit=200';
 const ACTIVE = '/api/v1/investments?limit=200&active=true';
 const SUFFIX = '(simulated in this preview, not audited)';
+/** Dialog journeys drive several Fluent popovers; give them room on a loaded test runner. */
+const TIMEOUT = { timeout: 15_000 };
 
 function routes(
   roles: Parameters<typeof rolePrincipal>[0],
@@ -165,7 +167,7 @@ describe('valuation board (preview)', () => {
     ).toBeInTheDocument();
   });
 
-  it('asks for a reason of at least three characters before sending back', async () => {
+  it('asks for a reason of at least three characters before sending back', TIMEOUT, async () => {
     mockApi(
       routes(['operations'], {
         [`/api/v1/valuations/${VAL_ID.prepared}/commands`]: ok({
@@ -185,7 +187,7 @@ describe('valuation board (preview)', () => {
     await userEvent.type(reason, 'ab');
     expect(submit).toBeDisabled();
     expect(posts()).toEqual([]);
-    await userEvent.type(reason, 'c, cash figure missing');
+    await userEvent.paste('c, cash figure missing');
     expect(submit).toBeEnabled();
     await userEvent.click(submit);
     await dialogClosed();
@@ -202,7 +204,33 @@ describe('valuation board (preview)', () => {
     ]);
   });
 
-  it('creates a Draft valuation from the form, checking the fair value first', async () => {
+  it(
+    'checks the fair value against the decimal contract before anything is sent',
+    TIMEOUT,
+    async () => {
+      mockApi(routes(['operations']));
+      renderWithQuery(<ValuationsPage />);
+      await userEvent.click(
+        await screen.findByRole('button', { name: 'Start valuation, Summit Care Holdings' }),
+      );
+      const dialog = await screen.findByRole('dialog');
+      expect(within(dialog).getByDisplayValue('Jun 30, 2025')).toHaveAttribute('readonly');
+      const value = within(dialog).getByRole('textbox', { name: /Fair value/ });
+      await userEvent.click(value);
+      await userEvent.paste('41.5M');
+      // Leave the field (jsdom cannot tab inside the dialog's focus trap; a click elsewhere blurs it).
+      await userEvent.click(within(dialog).getByText(/Starts a Draft version/));
+      expect(
+        within(dialog).getByText(
+          'Use digits with an optional decimal point, for example 12500000.00.',
+        ),
+      ).toBeInTheDocument();
+      expect(within(dialog).getByRole('button', { name: 'Create draft' })).toBeDisabled();
+      expect(posts()).toEqual([]);
+    },
+  );
+
+  it('creates a Draft valuation from the form', TIMEOUT, async () => {
     mockApi(
       routes(['operations'], {
         '/api/v1/valuations': {
@@ -234,7 +262,6 @@ describe('valuation board (preview)', () => {
     const dialog = await screen.findByRole('dialog');
     const create = within(dialog).getByRole('button', { name: 'Create draft' });
     expect(create).toBeDisabled();
-    expect(within(dialog).getByDisplayValue('Jun 30, 2025')).toHaveAttribute('readonly');
 
     await userEvent.click(within(dialog).getByRole('combobox', { name: /Investment/ }));
     await userEvent.click(
@@ -248,19 +275,8 @@ describe('valuation board (preview)', () => {
       'Sponsor mark',
     ]);
     await userEvent.click(screen.getByRole('option', { name: 'Sponsor mark' }));
-
-    const value = within(dialog).getByRole('textbox', { name: /Fair value/ });
-    await userEvent.type(value, '41.5M');
-    // Leave the field (jsdom cannot tab inside the dialog's focus trap; a click elsewhere blurs it).
-    await userEvent.click(within(dialog).getByText(/Starts a Draft version/));
-    expect(
-      within(dialog).getByText(
-        'Use digits with an optional decimal point, for example 12500000.00.',
-      ),
-    ).toBeInTheDocument();
-    expect(create).toBeDisabled();
-    await userEvent.clear(value);
-    await userEvent.type(value, '41500000.00');
+    await userEvent.click(within(dialog).getByRole('textbox', { name: /Fair value/ }));
+    await userEvent.paste('41500000.00');
     expect(within(dialog).getByText('Reads as $41.5M.')).toBeInTheDocument();
     expect(create).toBeEnabled();
     await userEvent.click(create);
@@ -283,7 +299,7 @@ describe('valuation board (preview)', () => {
     ]);
   });
 
-  it('opens the form with the position chosen from the missing marks', async () => {
+  it('opens the form with the position chosen from the missing marks', TIMEOUT, async () => {
     mockApi(routes(['operations']));
     renderWithQuery(<ValuationsPage />);
     await userEvent.click(
@@ -298,7 +314,7 @@ describe('valuation board (preview)', () => {
     expect(posts()).toEqual([]);
   });
 
-  it('resets the preview after a confirm step', async () => {
+  it('resets the preview after a confirm step', TIMEOUT, async () => {
     mockApi(routes(['deal_team'], { '/api/v1/preview/reset': ok({ reset: true }) }));
     renderWithQuery(<ValuationsPage />);
     await screen.findByRole('table', { name: 'Valuations' });

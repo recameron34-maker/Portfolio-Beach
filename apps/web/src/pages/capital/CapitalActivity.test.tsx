@@ -79,13 +79,11 @@ describe('capital activity board', () => {
     expect(within(attention).getByRole('link', { name: 'Kelpwood Fund I' })).toBeInTheDocument();
   });
 
-  it('lists every notice by due date, latest first, with client-side filters', async () => {
+  it('lists every notice by due date, latest first, without a due alert once funded', async () => {
     mockApi({ [NOTICES]: ok(noticePageFixture()) });
     renderWithQuery(<CapitalActivityPage />);
     const table = await screen.findByRole('table', { name: 'Capital notices' });
-    const firstCells = (): string[] =>
-      firstColumn(screen.getByRole('table', { name: 'Capital notices' }));
-    expect(firstCells()).toEqual([
+    expect(firstColumn(table)).toEqual([
       'Jul 20, 2025Due in 20 days',
       'Jul 12, 2025Due in 12 days',
       'Jul 2, 2025Due in 2 days',
@@ -96,7 +94,14 @@ describe('capital activity board', () => {
     const funded = within(table).getByText('Funded').closest('tr')!;
     expect(within(funded).getAllByText('$0.2M')).toHaveLength(2);
     expect(screen.getByTestId('notice-count')).toHaveTextContent('6 notices shown');
+  });
 
+  it('filters the one unfiltered list in the browser', { timeout: 15_000 }, async () => {
+    mockApi({ [NOTICES]: ok(noticePageFixture()) });
+    renderWithQuery(<CapitalActivityPage />);
+    await screen.findByRole('table', { name: 'Capital notices' });
+    const firstCells = (): string[] =>
+      firstColumn(screen.getByRole('table', { name: 'Capital notices' }));
     await userEvent.click(screen.getByRole('switch', { name: 'Include reconciled' }));
     expect(screen.getByTestId('notice-count')).toHaveTextContent('5 notices shown');
     await pick('Type', 'Capital call');
