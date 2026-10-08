@@ -12,6 +12,7 @@ import {
 import { AgGridReact } from 'ag-grid-react';
 import type { ColDef, ICellRendererParams } from 'ag-grid-community';
 import type { InvestmentSummary } from '@pb/contracts';
+import { PORTFOLIO_TABS } from '../app/nav.js';
 import { investmentsQuery } from '../app/queries.js';
 import {
   Badge,
@@ -20,6 +21,7 @@ import {
   Field,
   PageHeader,
   SectionHeader,
+  TabNav,
   Toolbar,
 } from '../components/ui.js';
 import { gridThemes } from '../lib/grid.js';
@@ -146,6 +148,7 @@ export function PortfolioPage(): ReactNode {
           ) : undefined
         }
       />
+      <TabNav label="Portfolio" items={PORTFOLIO_TABS} />
       <Card>
         <SectionHeader>Positions</SectionHeader>
         <Toolbar

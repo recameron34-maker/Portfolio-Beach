@@ -48,9 +48,9 @@ describe('charts', () => {
     const svg = screen.getByRole('group', { name: 'NAV and invested' });
     fireEvent.keyDown(svg, { key: 'ArrowRight' });
     fireEvent.keyDown(svg, { key: 'ArrowRight' });
-    expect(screen.getByRole('status')).toHaveTextContent('Q2: NAV $12M, Invested $10M');
+    expect(screen.getByText('Q2: NAV $12M, Invested $10M')).toBeInTheDocument();
     fireEvent.keyDown(svg, { key: 'ArrowRight' });
-    expect(screen.getByRole('status')).toHaveTextContent('Q3: NAV $15M, Invested n/a');
+    expect(screen.getByText('Q3: NAV $15M, Invested n/a')).toBeInTheDocument();
   });
 
   it('stacks segments with a legend in fixed order', () => {

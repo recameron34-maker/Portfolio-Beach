@@ -257,7 +257,7 @@ export function LineChart({
             </g>
           ) : null}
         </svg>
-        <p className="pb-visually-hidden" role="status">
+        <p className="pb-visually-hidden" aria-live="polite" aria-atomic="true">
           {tooltip === null
             ? ''
             : `${tooltip.title}: ${tooltip.rows.map((r) => `${r.name} ${r.value}`).join(', ')}`}
