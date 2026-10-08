@@ -12,8 +12,8 @@ import type {
 } from '@pb/contracts';
 import { schema } from '@pb/db';
 import type { Tx } from '@pb/db';
+import { configDecimal, configError, configInteger } from '../common/definitions.js';
 import { DEFINITIONS } from '../common/tokens.js';
-import { ProblemError } from '../common/problem.js';
 import { DbService } from '../db/db.service.js';
 import { loadInvestmentsWithMetrics } from '../portfolio/loaders.js';
 import type { InvestmentBaseRow } from '../portfolio/loaders.js';
@@ -75,23 +75,6 @@ interface WatchInputs {
 }
 
 const OUTFLOW_TYPES = new Set(['flow_type.contribution', 'flow_type.fee', 'flow_type.expense']);
-const DECIMAL = /^-?\d+(\.\d+)?$/;
-
-/* ---- config readers: a missing or malformed key is a configuration error, never a default ---- */
-
-const configError = (key: string): ProblemError =>
-  new ProblemError(500, 'configuration', `config/definitions.json is missing a usable ${key}`);
-
-function configInteger(value: unknown, key: string): number {
-  if (typeof value !== 'number' || !Number.isInteger(value) || value < 0) throw configError(key);
-  return value;
-}
-
-function configDecimal(value: unknown, key: string): Decimal {
-  if (typeof value === 'number' && Number.isFinite(value)) return D(String(value));
-  if (typeof value === 'string' && DECIMAL.test(value)) return D(value);
-  throw configError(key);
-}
 
 /* ---- pure helpers ---- */
 

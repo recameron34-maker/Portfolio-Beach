@@ -12,12 +12,13 @@ import type {
 } from '@pb/contracts';
 import { schema } from '@pb/db';
 import type { Tx } from '@pb/db';
+import { configInteger } from '../common/definitions.js';
 import { DEFINITIONS } from '../common/tokens.js';
 import { ProblemError } from '../common/problem.js';
 import { DbService } from '../db/db.service.js';
+import { loadCommitmentRows } from '../portfolio/commitments.js';
 import { loadInvestmentsWithMetrics } from '../portfolio/loaders.js';
 import { lockedNavSeries, pooledPositionMetrics, str } from '../portfolio/metrics.js';
-import { loadCommitmentRows } from '../portfolio/commitments.js';
 
 /** Calculation settings from config/definitions.json (docs/03 section 4); only the keys this service reads. */
 interface Definitions {
@@ -61,18 +62,6 @@ const NOT_CALCULABLE: PooledMetrics = {
 };
 
 const compareText = (a: string, b: string): number => (a < b ? -1 : a > b ? 1 : 0);
-
-/** A missing or malformed config key is a configuration error, never a default. */
-function configInteger(value: unknown, key: string): number {
-  if (typeof value !== 'number' || !Number.isInteger(value) || value < 0) {
-    throw new ProblemError(
-      500,
-      'configuration',
-      `config/definitions.json is missing a usable ${key}`,
-    );
-  }
-  return value;
-}
 
 /** Strings from a jsonb list column; anything else in it is not a reporting basis. */
 const stringList = (value: unknown): string[] =>

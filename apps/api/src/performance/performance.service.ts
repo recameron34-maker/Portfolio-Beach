@@ -23,6 +23,7 @@ import {
 import type { Decimal, PaymentFrequency } from '@pb/calc';
 import type { InvestmentPerformance, QuarterRow } from '@pb/contracts';
 import { schema } from '@pb/db';
+import { configInteger } from '../common/definitions.js';
 import { DEFINITIONS } from '../common/tokens.js';
 import { ProblemError } from '../common/problem.js';
 import { DbService } from '../db/db.service.js';
@@ -99,14 +100,6 @@ interface CreditTermsSource {
 const DECIMAL = /^-?\d+(\.\d+)?$/;
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
 const FREQUENCIES: readonly PaymentFrequency[] = ['monthly', 'quarterly', 'semiannual', 'annual'];
-
-const configError = (key: string): ProblemError =>
-  new ProblemError(500, 'configuration', `config/definitions.json is missing a usable ${key}`);
-
-function configInteger(value: unknown, key: string): number {
-  if (typeof value !== 'number' || !Number.isInteger(value) || value < 0) throw configError(key);
-  return value;
-}
 
 /* ---- jsonb readers: a value that cannot be read is left out, never replaced by an invented one ---- */
 

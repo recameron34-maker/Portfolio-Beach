@@ -3,6 +3,7 @@ import { and, asc, desc, eq, gt, sql } from 'drizzle-orm';
 import type { Principal } from '@pb/adapters';
 import type { InvestmentDetail, InvestmentPage } from '@pb/contracts';
 import { schema } from '@pb/db';
+import { configInteger } from '../common/definitions.js';
 import { DEFINITIONS } from '../common/tokens.js';
 import { ProblemError } from '../common/problem.js';
 import { DbService } from '../db/db.service.js';
@@ -18,8 +19,10 @@ export interface ListOptions {
   asOf: string;
 }
 
+/** Calculation settings from config/definitions.json (docs/03 section 4); only the keys this service reads. */
 interface Definitions {
   priorYearPeriodEndToleranceDays?: number;
+  [key: string]: unknown;
 }
 
 const encodeCursor = (investmentNumber: string): string =>
@@ -79,13 +82,21 @@ export class PortfolioService {
     });
   }
 
-  /** 404 for anything the caller cannot see (docs/17 section 3); a successful open is an audited sensitive read (SEC-11.1). */
+  /**
+   * 404 for anything the caller cannot see (docs/17 section 3); a successful open is an audited
+   * sensitive read (SEC-11.1). The prior-year tolerance comes from config; without it the read is
+   * a 500 'configuration' problem before the database is touched, never a default in code.
+   */
   async detail(
     principal: Principal,
     requestId: string,
     id: string,
     asOf: string,
   ): Promise<InvestmentDetail> {
+    const tolerance = configInteger(
+      this.definitions.priorYearPeriodEndToleranceDays,
+      'priorYearPeriodEndToleranceDays',
+    );
     return this.db.run(principal, requestId, async (tx, audit) => {
       const rows = await loadInvestmentRows(tx, { where: eq(schema.investment.id, id), limit: 1 });
       const row = rows[0];
@@ -104,7 +115,6 @@ export class PortfolioService {
         valuations.get(row.id) ?? [],
         asOf,
       );
-      const tolerance = this.definitions.priorYearPeriodEndToleranceDays ?? 7;
 
       const operatingRows = await tx
         .select({
