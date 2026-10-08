@@ -4,18 +4,6 @@ import { formatDate, labelOf } from '../../lib/format.js';
 import { isApproved } from './data.js';
 import './deal.css';
 
-/**
- * A table wider than its card on a phone: it scrolls sideways inside the card, and the scroll area
- * takes keyboard focus so it can be scrolled without a pointer (WCAG 2.1.1).
- */
-export function WideTable({ label, children }: { label: string; children: ReactNode }): ReactNode {
-  return (
-    <div className="pb-table-wrap pb-deal-scroll" role="region" aria-label={label} tabIndex={0}>
-      {children}
-    </div>
-  );
-}
-
 /** A period-end date, optionally marked as the entry snapshot. */
 export function PeriodCell({
   periodEnd,

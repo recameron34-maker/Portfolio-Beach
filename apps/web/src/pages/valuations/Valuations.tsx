@@ -53,6 +53,7 @@ import {
   SectionHeader,
   SimulatedBadge,
   StatTile,
+  TableWrap,
   Toolbar,
 } from '../../components/ui.js';
 import { formatDate, formatMoneyM, formatPct, labelOf, MISSING } from '../../lib/format.js';
@@ -132,7 +133,7 @@ function VersionTable({
   onIssue: (row: ValuationRow, option: ValuationOption) => void;
 }): ReactNode {
   return (
-    <div className="pb-table-wrap">
+    <TableWrap label="Valuations">
       <table className="pb-table pb-val-table" aria-label="Valuations">
         <thead>
           <tr>
@@ -189,7 +190,7 @@ function VersionTable({
           ))}
         </tbody>
       </table>
-    </div>
+    </TableWrap>
   );
 }
 
@@ -275,7 +276,7 @@ function MissingMarksCard({
             detail={`Each active position has at least one valuation version for ${formatDate(period)}.`}
           />
         ) : (
-          <div className="pb-table-wrap">
+          <TableWrap label="Missing marks">
             <table className="pb-table" aria-label="Missing marks">
               <thead>
                 <tr>
@@ -313,7 +314,7 @@ function MissingMarksCard({
                 ))}
               </tbody>
             </table>
-          </div>
+          </TableWrap>
         );
       break;
   }

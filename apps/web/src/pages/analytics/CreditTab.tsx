@@ -15,6 +15,7 @@ import {
   PageSkeleton,
   SectionHeader,
   StatTile,
+  TableWrap,
 } from '../../components/ui.js';
 import {
   formatDate,
@@ -34,7 +35,7 @@ type CreditBlock = NonNullable<InvestmentPerformance['credit']>;
 
 function BookTable({ items }: { items: InvestmentSummary[] }): ReactNode {
   return (
-    <div className="pb-table-wrap">
+    <TableWrap label="Credit positions">
       <table className="pb-table" aria-label="Credit positions">
         <thead>
           <tr>
@@ -79,7 +80,7 @@ function BookTable({ items }: { items: InvestmentSummary[] }): ReactNode {
           ))}
         </tbody>
       </table>
-    </div>
+    </TableWrap>
   );
 }
 
@@ -208,7 +209,7 @@ function AmortizationTable({ credit }: { credit: CreditBlock }): ReactNode {
     return <p className="pb-meta">No scheduled amortization on record.</p>;
   }
   return (
-    <div className="pb-table-wrap">
+    <TableWrap label="Amortization schedule">
       <table className="pb-table" aria-label="Amortization schedule">
         <thead>
           <tr>
@@ -225,7 +226,7 @@ function AmortizationTable({ credit }: { credit: CreditBlock }): ReactNode {
           ))}
         </tbody>
       </table>
-    </div>
+    </TableWrap>
   );
 }
 

@@ -20,6 +20,7 @@ import {
   PageSkeleton,
   SectionHeader,
   StatTile,
+  TableWrap,
   Toolbar,
 } from '../../components/ui.js';
 import {
@@ -44,7 +45,7 @@ import './sponsors.css';
 
 function SponsorsTable({ items }: { items: SponsorSummary[] }): ReactNode {
   return (
-    <div className="pb-table-wrap">
+    <TableWrap label="Sponsors">
       <table className="pb-table" aria-label="Sponsors">
         <thead>
           <tr>
@@ -77,7 +78,7 @@ function SponsorsTable({ items }: { items: SponsorSummary[] }): ReactNode {
           ))}
         </tbody>
       </table>
-    </div>
+    </TableWrap>
   );
 }
 
@@ -270,7 +271,7 @@ function FundsCard({ sponsor }: { sponsor: SponsorDetail }): ReactNode {
           testId="sponsor-funds-empty"
         />
       ) : (
-        <div className="pb-table-wrap">
+        <TableWrap label="Funds">
           <table className="pb-table" aria-label="Funds">
             <thead>
               <tr>
@@ -313,7 +314,7 @@ function FundsCard({ sponsor }: { sponsor: SponsorDetail }): ReactNode {
               ))}
             </tbody>
           </table>
-        </div>
+        </TableWrap>
       )}
     </Card>
   );
@@ -340,7 +341,7 @@ function PositionsCard({ sponsor }: { sponsor: SponsorDetail }): ReactNode {
           testId="sponsor-positions-empty"
         />
       ) : (
-        <div className="pb-table-wrap">
+        <TableWrap label="Our positions">
           <table className="pb-table pb-sponsors-table" aria-label="Our positions">
             <thead>
               <tr>
@@ -392,7 +393,7 @@ function PositionsCard({ sponsor }: { sponsor: SponsorDetail }): ReactNode {
               </tr>
             </tfoot>
           </table>
-        </div>
+        </TableWrap>
       )}
     </Card>
   );
@@ -417,7 +418,7 @@ function CommitmentsCard({ sponsor }: { sponsor: SponsorDetail }): ReactNode {
         />
       ) : (
         <>
-          <div className="pb-table-wrap">
+          <TableWrap label="Commitments">
             <table className="pb-table pb-sponsors-table" aria-label="Commitments">
               <thead>
                 <tr>
@@ -463,7 +464,7 @@ function CommitmentsCard({ sponsor }: { sponsor: SponsorDetail }): ReactNode {
                 </tr>
               </tfoot>
             </table>
-          </div>
+          </TableWrap>
           {noFlows ? (
             <p className="pb-meta pb-sponsors-note">
               A commitment with no recorded cash flow yet shows the missing placeholder ({MISSING})

@@ -21,6 +21,7 @@ import {
   SectionHeader,
   SimulatedBadge,
   StatTile,
+  TableWrap,
 } from '../../components/ui.js';
 import { formatDate, labelOf } from '../../lib/format.js';
 import {
@@ -122,13 +123,7 @@ function CashFlowsCard({ notice }: { notice: CapitalNoticeDetail }): ReactNode {
           detail="They are created when the ticket is approved and funding is confirmed."
         />
       ) : (
-        // No link or button inside, so the frame takes focus for keyboard scrolling on a phone.
-        <div
-          className="pb-table-wrap"
-          tabIndex={0}
-          role="region"
-          aria-label="Cash flows created, scrollable"
-        >
+        <TableWrap label="Cash flows created">
           <table className="pb-table" aria-label="Cash flows created">
             <thead>
               <tr>
@@ -151,7 +146,7 @@ function CashFlowsCard({ notice }: { notice: CapitalNoticeDetail }): ReactNode {
               ))}
             </tbody>
           </table>
-        </div>
+        </TableWrap>
       )}
     </Card>
   );

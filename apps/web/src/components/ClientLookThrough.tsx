@@ -4,7 +4,16 @@ import type { ClientSummary } from '@pb/contracts';
 import { clientsQuery } from '../app/queries.js';
 import { formatDate, formatMoic, formatMoneyM, formatPct, labelOf } from '../lib/format.js';
 import { UnavailableState } from './UnavailableState.js';
-import { Badge, Card, EmptyState, NumCell, PageSkeleton, SectionHeader, StatTile } from './ui.js';
+import {
+  Badge,
+  Card,
+  EmptyState,
+  NumCell,
+  PageSkeleton,
+  SectionHeader,
+  StatTile,
+  TableWrap,
+} from './ui.js';
 
 const ENTITLED =
   'Client data is visible to operations, approvers, auditors and the investor relations users entitled to each client (SEC-5.4).';
@@ -34,7 +43,7 @@ function ClientCard({ client }: { client: ClientSummary }): ReactNode {
         <StatTile label="NAV share" value={formatMoneyM(t.nav)} />
         <StatTile label="Gross MOIC" value={formatMoic(t.grossMoic)} />
       </div>
-      <div className="pb-table-wrap">
+      <TableWrap label={`${client.name} vehicles`}>
         <table className="pb-table" aria-label={`${client.name} vehicles`}>
           <thead>
             <tr>
@@ -72,7 +81,7 @@ function ClientCard({ client }: { client: ClientSummary }): ReactNode {
             })}
           </tbody>
         </table>
-      </div>
+      </TableWrap>
       {client.vehicles.length === 0 ? (
         <p className="pb-meta">This client has no commitment to a firm vehicle on record.</p>
       ) : null}

@@ -14,6 +14,7 @@ import {
   PageHeader,
   PageSkeleton,
   SectionHeader,
+  TableWrap,
   TabNav,
   Toolbar,
 } from '../../components/ui.js';
@@ -40,7 +41,7 @@ function DomainCard({ domain, shown }: { domain: Domain; shown: Term[] }): React
   return (
     <Card testId={`taxonomy-${domain.domain}`}>
       <SectionHeader aside={aside}>{labelOf(domain.domain)}</SectionHeader>
-      <div className="pb-table-wrap">
+      <TableWrap label={`${labelOf(domain.domain)} terms`}>
         <table className="pb-table" aria-label={`${labelOf(domain.domain)} terms`}>
           <thead>
             <tr>
@@ -75,7 +76,7 @@ function DomainCard({ domain, shown }: { domain: Domain; shown: Term[] }): React
             ))}
           </tbody>
         </table>
-      </div>
+      </TableWrap>
     </Card>
   );
 }

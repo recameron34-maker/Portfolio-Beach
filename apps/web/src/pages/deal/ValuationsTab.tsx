@@ -13,6 +13,7 @@ import {
   NumCell,
   PageSkeleton,
   SectionHeader,
+  TableWrap,
 } from '../../components/ui.js';
 import {
   formatDate,
@@ -35,7 +36,6 @@ import {
   versionsNewestFirst,
 } from './data.js';
 import type { VersionPoint } from './data.js';
-import { WideTable } from './parts.js';
 import './deal.css';
 
 /** Single series: the Locked fair value per period. Drafts, versions in review and reopened versions are left out. */
@@ -79,7 +79,7 @@ const COLUMNS = 8;
 function VersionsTable({ page }: { page: ValuationPage }): ReactNode {
   const rows = versionsNewestFirst(page.items);
   return (
-    <WideTable label="Valuation versions">
+    <TableWrap label="Valuation versions">
       <table className="pb-table" aria-label="Valuation versions">
         <thead>
           <tr>
@@ -121,7 +121,7 @@ function VersionsTable({ page }: { page: ValuationPage }): ReactNode {
           ))}
         </tbody>
       </table>
-    </WideTable>
+    </TableWrap>
   );
 }
 
@@ -175,7 +175,7 @@ function RecordedVersionsCard({ detail }: { detail: InvestmentDetail }): ReactNo
           <div className="pb-deal-chart">
             <LockedChart rows={rows} />
           </div>
-          <WideTable label="Valuation versions">
+          <TableWrap label="Valuation versions">
             <table className="pb-table" aria-label="Valuation versions">
               <thead>
                 <tr>
@@ -200,7 +200,7 @@ function RecordedVersionsCard({ detail }: { detail: InvestmentDetail }): ReactNo
                 ))}
               </tbody>
             </table>
-          </WideTable>
+          </TableWrap>
         </>
       )}
       <BoardLink />

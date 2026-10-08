@@ -1,15 +1,5 @@
 /* Deal workspace tabs (pages/deal). Scoped to this folder; colours come only from the theme variables. */
 
-/* A wide table that scrolls sideways inside its card is a focusable region (keyboard scrolling).
-   Positioned so visually hidden text inside the table (absolutely positioned) scrolls and clips
-   with the table instead of widening the page. */
-.pb-deal-scroll {
-  position: relative;
-}
-.pb-deal-scroll:focus-visible {
-  outline-offset: 0;
-}
-
 /* A short explanatory line under a table or chart inside a card. */
 .pb-deal-note {
   margin: 10px 0 0;

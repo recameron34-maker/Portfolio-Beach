@@ -21,6 +21,7 @@ import {
   PageSkeleton,
   SectionHeader,
   StatTile,
+  TableWrap,
 } from '../components/ui.js';
 import {
   formatDate,
@@ -158,7 +159,7 @@ function NoticesBody({ page }: { page: CapitalNoticePage }): ReactNode {
   }
   return (
     <>
-      <div className="pb-table-wrap">
+      <TableWrap label="Capital activity needing attention">
         <table className="pb-table" aria-label="Capital activity needing attention">
           <thead>
             <tr>
@@ -195,7 +196,7 @@ function NoticesBody({ page }: { page: CapitalNoticePage }): ReactNode {
             ))}
           </tbody>
         </table>
-      </div>
+      </TableWrap>
       <p className="pb-meta">
         <Link to="/capital-activity">Open capital activity</Link>
         {page.attention.length > rows.length

@@ -12,6 +12,7 @@ import {
   PageSkeleton,
   SectionHeader,
   StatTile,
+  TableWrap,
 } from '../../components/ui.js';
 import {
   formatDate,
@@ -106,7 +107,7 @@ function CashFlowsCard({ summary }: { summary: AnalyticsSummary }): ReactNode {
         summary={`Cumulative net cash flow ends at ${formatMoneyM(last.cumulativeNet)} in ${last.period}.`}
         testId="performance-cumulative"
       />
-      <div className="pb-table-wrap">
+      <TableWrap label="Cash flows by year">
         <table className="pb-table" aria-label="Cash flows by year">
           <thead>
             <tr>
@@ -129,7 +130,7 @@ function CashFlowsCard({ summary }: { summary: AnalyticsSummary }): ReactNode {
             ))}
           </tbody>
         </table>
-      </div>
+      </TableWrap>
     </Card>
   );
 }
@@ -163,7 +164,7 @@ function TopPositionsCard({ summary }: { summary: AnalyticsSummary }): ReactNode
             summary={`The largest position is ${first.companyName} at ${formatMoneyM(first.nav)}, ${formatPct(first.navShare)} of active NAV.`}
             testId="performance-top-positions"
           />
-          <div className="pb-table-wrap">
+          <TableWrap label="Largest positions">
             <table className="pb-table" aria-label="Largest positions">
               <thead>
                 <tr>
@@ -194,7 +195,7 @@ function TopPositionsCard({ summary }: { summary: AnalyticsSummary }): ReactNode
                 ))}
               </tbody>
             </table>
-          </div>
+          </TableWrap>
         </>
       )}
     </Card>

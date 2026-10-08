@@ -13,6 +13,7 @@ import {
   PageSkeleton,
   SectionHeader,
   StatTile,
+  TableWrap,
 } from '../../components/ui.js';
 import {
   formatDate,
@@ -39,7 +40,7 @@ import {
   useDealDetail,
   useDealId,
 } from './data.js';
-import { PeriodCell, RecordStatusBadge, WideTable } from './parts.js';
+import { PeriodCell, RecordStatusBadge } from './parts.js';
 import './deal.css';
 
 type CreditBlock = NonNullable<InvestmentPerformance['credit']>;
@@ -170,7 +171,7 @@ function QuarterlyCard({
           <div className="pb-deal-chart">
             <LtmChart perf={perf} company={company} />
           </div>
-          <WideTable label="Quarterly financials">
+          <TableWrap label="Quarterly financials">
             <table className="pb-table pb-deal-dense" aria-label="Quarterly financials">
               <thead>
                 <tr>
@@ -213,7 +214,7 @@ function QuarterlyCard({
                 ))}
               </tbody>
             </table>
-          </WideTable>
+          </TableWrap>
           <p className="pb-meta pb-deal-note">
             Year on year compares with the same fiscal quarter one year earlier only; when that
             quarter is missing the change is not calculated ({MISSING}).
@@ -409,7 +410,7 @@ function CreditQuartersCard({
           <div className="pb-deal-chart">
             <CreditChart credit={credit} company={company} />
           </div>
-          <WideTable label="Quarterly credit metrics">
+          <TableWrap label="Quarterly credit metrics">
             <table className="pb-table pb-deal-dense" aria-label="Quarterly credit metrics">
               <thead>
                 <tr>
@@ -465,7 +466,7 @@ function CreditQuartersCard({
                 ))}
               </tbody>
             </table>
-          </WideTable>
+          </TableWrap>
           <p className="pb-meta pb-deal-note">
             Coverage is EBITDA over cash interest, leverage is net debt through the tranche over
             EBITDA, and LTV is net debt through the tranche over enterprise value (docs/08 section
@@ -488,7 +489,7 @@ function AmortizationCard({ credit }: { credit: CreditBlock }): ReactNode {
           detail="No principal repayments are scheduled before maturity."
         />
       ) : (
-        <div className="pb-table-wrap">
+        <TableWrap label="Amortization schedule">
           <table className="pb-table" aria-label="Amortization schedule">
             <thead>
               <tr>
@@ -505,7 +506,7 @@ function AmortizationCard({ credit }: { credit: CreditBlock }): ReactNode {
               ))}
             </tbody>
           </table>
-        </div>
+        </TableWrap>
       )}
     </Card>
   );
@@ -522,7 +523,7 @@ function CallProtectionCard({ credit, asOf }: { credit: CreditBlock; asOf: strin
           detail="The borrower may repay early without a premium."
         />
       ) : (
-        <div className="pb-table-wrap">
+        <TableWrap label="Call protection">
           <table className="pb-table" aria-label="Call protection">
             <thead>
               <tr>
@@ -547,7 +548,7 @@ function CallProtectionCard({ credit, asOf }: { credit: CreditBlock; asOf: strin
               ))}
             </tbody>
           </table>
-        </div>
+        </TableWrap>
       )}
     </Card>
   );
@@ -564,7 +565,7 @@ function CovenantsCard({ credit }: { credit: CreditBlock }): ReactNode {
           detail="Financial covenants and how often they are tested appear here."
         />
       ) : (
-        <div className="pb-table-wrap">
+        <TableWrap label="Covenants">
           <table className="pb-table" aria-label="Covenants">
             <thead>
               <tr>
@@ -583,7 +584,7 @@ function CovenantsCard({ credit }: { credit: CreditBlock }): ReactNode {
               ))}
             </tbody>
           </table>
-        </div>
+        </TableWrap>
       )}
     </Card>
   );
