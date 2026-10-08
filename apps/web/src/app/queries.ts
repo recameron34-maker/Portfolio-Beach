@@ -9,6 +9,7 @@ import {
   dataDictionary,
   dataHealth,
   featureFlagList,
+  healthReady,
   investmentDetail,
   investmentPage,
   investmentPerformance,
@@ -199,4 +200,9 @@ export const taxonomyQuery = queryOptions({
 export const wallsQuery = queryOptions({
   queryKey: ['walls'],
   queryFn: () => api('/api/v1/walls', wallList),
+});
+export const healthReadyQuery = queryOptions({
+  queryKey: ['health-ready'],
+  queryFn: () => api('/health/ready', healthReady),
+  retry: false,
 });
