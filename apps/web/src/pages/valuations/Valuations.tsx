@@ -154,14 +154,14 @@ function VersionTable({
                 <Link to="/portfolio/$id" params={{ id: row.investmentId }}>
                   {row.companyName}
                 </Link>
-                <span className="pb-val-sub">
+                <span className="pb-cell-sub">
                   <span className="pb-key">{row.investmentNumber}</span>
                   <span>{row.vehicleName}</span>
                 </span>
               </td>
               <td className="pb-val-period">
                 <span>{formatDate(row.periodEnd)}</span>
-                <span className="pb-val-sub">
+                <span className="pb-cell-sub">
                   <span>v{row.version}</span>
                   <span>{labelOf(row.method)}</span>
                 </span>
@@ -169,7 +169,7 @@ function VersionTable({
               <td className="pb-val-state">
                 <Badge tone={valuationTone(row.state)}>{humanizeState(row.state)}</Badge>
                 {row.approvedAt === null ? null : (
-                  <span className="pb-val-sub">
+                  <span className="pb-cell-sub">
                     Approved <span>{approvedOn(row.approvedAt)}</span>
                   </span>
                 )}

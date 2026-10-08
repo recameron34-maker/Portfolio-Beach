@@ -936,6 +936,18 @@ p:last-child {
   margin: 0;
 }
 
+/* ---- Table cells with a second line: the figure or name first, its identifying detail muted below ---- */
+.pb-cell-sub {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px 8px;
+  margin-top: 4px;
+  font-size: 12px;
+  line-height: 16px;
+  color: var(--pb-muted);
+}
+
 /* ---- Assistant switch (preview only): the simulated flag change beside its label ---- */
 .pb-assistant-switch {
   display: flex;

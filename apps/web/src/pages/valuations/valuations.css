@@ -44,17 +44,7 @@
 .pb-val-state {
   white-space: nowrap;
 }
-.pb-val-sub {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 2px 8px;
-  margin-top: 4px;
-  font-size: 12px;
-  line-height: 16px;
-  color: var(--pb-muted);
-}
-.pb-val-state > .pb-val-sub {
+.pb-val-state > .pb-cell-sub {
   display: block;
 }
 .pb-val-table .pb-command-buttons {

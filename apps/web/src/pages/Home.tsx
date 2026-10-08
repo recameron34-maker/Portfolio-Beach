@@ -167,7 +167,6 @@ function NoticesBody({ page }: { page: CapitalNoticePage }): ReactNode {
           <thead>
             <tr>
               <th>Notice</th>
-              <th>Company or fund</th>
               <th>Due</th>
               <th className="num">Amount</th>
               <th>State</th>
@@ -180,15 +179,16 @@ function NoticesBody({ page }: { page: CapitalNoticePage }): ReactNode {
                   <Link to="/capital-activity/$id" params={{ id: n.id }}>
                     {labelOf(n.noticeType)}
                   </Link>
+                  <span className="pb-cell-sub">
+                    {n.companyName ?? n.sponsorFundName ?? n.vehicleName}
+                  </span>
                 </td>
-                <td>{n.companyName ?? n.sponsorFundName ?? n.vehicleName}</td>
-                <td>
+                <td className="pb-nowrap">
                   {formatDate(n.dueDate)}
                   {n.daysToDue < 0 ? (
-                    <>
-                      {' '}
+                    <span className="pb-cell-sub">
                       <Badge tone="bad">Overdue</Badge>
-                    </>
+                    </span>
                   ) : null}
                 </td>
                 <NumCell>{formatMoneyM(n.amount)}</NumCell>
