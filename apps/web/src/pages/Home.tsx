@@ -22,7 +22,6 @@ import {
   SectionHeader,
   StatTile,
 } from '../components/ui.js';
-import { moneyLabel } from '../lib/decimal.js';
 import {
   formatDate,
   formatMoic,
@@ -30,6 +29,7 @@ import {
   formatMonthYear,
   irrDisplay,
   labelOf,
+  moneyLabel,
 } from '../lib/format.js';
 import { irrFlagHint, watchFlagLabel } from '../lib/labels.js';
 import { humanizeState, noticeTone } from '../lib/states.js';

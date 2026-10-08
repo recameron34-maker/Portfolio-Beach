@@ -164,6 +164,40 @@ function exposures(
     }));
 }
 
+/**
+ * NAV per vehicle split by deal type (the stacked chart on the Exposure tab): the active
+ * positions with a Locked mark, grouped by vehicle, each vehicle's segments the deal type buckets
+ * of its positions (Decimal sums, shares of the total active NAV). Vehicles by total NAV, largest
+ * first, then name; segments follow the order of the deal type buckets so every bar stacks alike.
+ */
+export function vehicleByDealType(
+  active: readonly Position[],
+  totalNav: Decimal | null,
+  dealTypes: readonly ExposureBucket[],
+  dealTypeOf: (p: Position) => { key: string; label: string },
+): AnalyticsSummary['exposures']['vehicleByDealType'] {
+  const rank = new Map(dealTypes.map((b, i) => [b.key, i]));
+  const rankOf = (key: string): number => rank.get(key) ?? dealTypes.length;
+  const byVehicle = new Map<string, { label: string; positions: Position[] }>();
+  for (const p of active) {
+    if (p.summary.nav === null) continue;
+    const vehicle = byVehicle.get(p.row.vehicleId) ?? { label: p.row.vehicleName, positions: [] };
+    vehicle.positions.push(p);
+    byVehicle.set(p.row.vehicleId, vehicle);
+  }
+  return [...byVehicle.entries()]
+    .map(([key, v]) => ({
+      key,
+      label: v.label,
+      nav: sumNav(v.positions),
+      segments: exposures(v.positions, totalNav, dealTypeOf).sort(
+        (a, b) => rankOf(a.key) - rankOf(b.key) || compareText(a.key, b.key),
+      ),
+    }))
+    .sort((a, b) => compareNavDesc(a.nav, b.nav) || compareText(a.label, b.label))
+    .map(({ key, label, segments }) => ({ key, label, segments }));
+}
+
 /** Approved investment-level flows by calendar year: absolute sums, net and the running net. */
 function flowsByYear(
   positions: readonly Position[],
@@ -532,6 +566,8 @@ export class AnalyticsService {
         code === null
           ? { key: 'unknown', label: 'Not recorded' }
           : { key: code, label: labels.get(code) ?? code };
+      const dealTypeOf = (p: Position): { key: string; label: string } => taxonomy(p.row.dealType);
+      const dealTypes = exposures(active, activeNav, dealTypeOf);
       await audit({ action: 'analytics.read', entity: 'core.investment' });
       return {
         asOf,
@@ -543,7 +579,7 @@ export class AnalyticsService {
         exposures: {
           sector: exposures(active, activeNav, (p) => taxonomy(p.row.sector)),
           geography: exposures(active, activeNav, (p) => taxonomy(p.row.geography)),
-          dealType: exposures(active, activeNav, (p) => taxonomy(p.row.dealType)),
+          dealType: dealTypes,
           vehicle: exposures(active, activeNav, (p) => ({
             key: p.row.vehicleId,
             label: p.row.vehicleName,
@@ -556,6 +592,7 @@ export class AnalyticsService {
             const year = p.row.entryDate.slice(0, 4);
             return { key: year, label: year };
           }),
+          vehicleByDealType: vehicleByDealType(active, activeNav, dealTypes, dealTypeOf),
         },
         navSeries: lockedNavSeries(
           active.map((p) => p.valuations),

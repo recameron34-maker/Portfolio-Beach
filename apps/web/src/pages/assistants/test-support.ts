@@ -341,6 +341,7 @@ export const analyticsFixture = (over: Partial<AnalyticsSummary> = {}): Analytic
     vehicle: [],
     sponsor: [],
     vintage: [],
+    vehicleByDealType: [],
   },
   navSeries: [
     { periodEnd: '2025-03-31', value: '38000000.00' },

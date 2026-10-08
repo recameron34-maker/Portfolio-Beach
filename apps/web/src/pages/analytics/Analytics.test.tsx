@@ -4,6 +4,8 @@ import userEvent from '@testing-library/user-event';
 import { failing, mockApi, ok } from '../../test/api-mock.js';
 import {
   analyticsFixture,
+  CREDIT_BUCKET,
+  CV_BUCKET,
   ID,
   investmentFixture,
   investmentPageFixture,
@@ -23,7 +25,6 @@ vi.mock('@tanstack/react-router', async () =>
 );
 
 const ANALYTICS = '/api/v1/analytics/summary';
-const ACTIVE = '/api/v1/investments?limit=200&active=true';
 const CREDIT = '/api/v1/investments?limit=100&dealType=deal_type.private_credit';
 const REALIZED = '/api/v1/investments?limit=100&active=false';
 
@@ -49,10 +50,7 @@ describe('analytics tabs', () => {
   });
 
   it('exposure: bars and a table for the chosen dimension, plus NAV by vehicle and deal type', async () => {
-    mockApi({
-      [ANALYTICS]: ok(analyticsFixture()),
-      [ACTIVE]: ok(investmentPageFixture([investmentFixture(), creditInvestment()])),
-    });
+    mockApi({ [ANALYTICS]: ok(analyticsFixture()) });
     renderWithQuery(<ExposureTab />);
     expect(await screen.findByRole('group', { name: 'NAV by sector' })).toBeInTheDocument();
     expect(screen.getByRole('group', { name: 'Invested by sector' })).toBeInTheDocument();
@@ -61,16 +59,24 @@ describe('analytics tabs', () => {
     expect(within(table).getByText('27.0%')).toBeInTheDocument();
     expect(within(table).getByText('$125.1M')).toBeInTheDocument();
 
+    // Drawn from the summary's own breakdown: the browser fetches no positions to sum.
     const stacked = await screen.findByRole('group', { name: 'NAV by vehicle and deal type' });
     expect(
       within(stacked).getByRole('img', {
-        name: 'Beach Co-Invest Fund I: Co-investment (equity) $27.4M',
+        name: 'Beach CV Opportunities I: Continuation vehicle (single asset) $105.9M',
       }),
     ).toBeInTheDocument();
     expect(
-      within(stacked).getByRole('img', { name: 'Beach Credit Partners I: Private credit $9.9M' }),
+      within(stacked).getByRole('img', { name: 'Beach Credit Partners I: Private credit $18.8M' }),
     ).toBeInTheDocument();
     expect(screen.getByRole('list', { name: 'Legend' })).toHaveTextContent('Private credit');
+    expect(screen.queryByText(/no Locked valuation and/)).not.toBeInTheDocument();
+    const requested = vi
+      .mocked(fetch)
+      .mock.calls.map(([input]) =>
+        typeof input === 'string' ? input : input instanceof URL ? input.href : input.url,
+      );
+    expect(requested.some((url) => url.includes('/api/v1/investments'))).toBe(false);
 
     await userEvent.click(screen.getByRole('combobox'));
     await userEvent.click(await screen.findByRole('option', { name: 'Vehicle' }));
@@ -80,13 +86,60 @@ describe('analytics tabs', () => {
     );
   });
 
-  it('exposure: skips the client-side breakdown when more positions exist than one page holds', async () => {
+  it('exposure: stacks each vehicle in the API order and notes positions without a Locked valuation', async () => {
+    const coInvest = {
+      key: 'deal_type.co_invest_equity',
+      label: 'Co-investment (equity)',
+      count: 1,
+      invested: '6900000.00',
+      nav: '27400000.00',
+      navShare: '0.06',
+    };
+    const cv = { ...CV_BUCKET, invested: '68453708.54', nav: '78493922.44', navShare: '0.17' };
+    const base = analyticsFixture();
     mockApi({
-      [ANALYTICS]: ok(analyticsFixture()),
-      [ACTIVE]: ok(investmentPageFixture([investmentFixture()], 'next-page')),
+      [ANALYTICS]: ok(
+        analyticsFixture({
+          activeInvestments: 4,
+          exposures: {
+            ...base.exposures,
+            dealType: [CV_BUCKET, coInvest, CREDIT_BUCKET],
+            vehicleByDealType: [
+              { key: ID.vehicle1, label: 'Beach CV Opportunities I', segments: [cv, coInvest] },
+              { key: ID.vehicle2, label: 'Beach Credit Partners I', segments: [CREDIT_BUCKET] },
+            ],
+          },
+        }),
+      ),
     });
     renderWithQuery(<ExposureTab />);
-    expect(await screen.findByText('Too many positions to break down here')).toBeInTheDocument();
+    const stacked = await screen.findByRole('group', { name: 'NAV by vehicle and deal type' });
+    expect(
+      within(stacked).getByRole('img', {
+        name: 'Beach CV Opportunities I: Continuation vehicle (single asset) $78.5M, Co-investment (equity) $27.4M',
+      }),
+    ).toBeInTheDocument();
+    const legend = within(screen.getByRole('list', { name: 'Legend' })).getAllByRole('listitem');
+    expect(legend.map((item) => item.textContent)).toEqual([
+      'Continuation vehicle (single asset)',
+      'Co-investment (equity)',
+      'Private credit',
+    ]);
+    // Four active positions, three with a Locked valuation in the breakdown.
+    expect(
+      screen.getByText('1 active position has no Locked valuation and is not included.'),
+    ).toBeInTheDocument();
+  });
+
+  it('exposure: says so when no active position has a Locked valuation', async () => {
+    const base = analyticsFixture();
+    mockApi({
+      [ANALYTICS]: ok(
+        analyticsFixture({ exposures: { ...base.exposures, vehicleByDealType: [] } }),
+      ),
+    });
+    renderWithQuery(<ExposureTab />);
+    expect(await screen.findByText('No Locked valuations')).toBeInTheDocument();
     expect(
       screen.queryByRole('group', { name: 'NAV by vehicle and deal type' }),
     ).not.toBeInTheDocument();

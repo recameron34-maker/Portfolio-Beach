@@ -29,6 +29,14 @@ export function formatMoneyM(value: string | null | undefined): string {
   return `${sign}$${withGrouping(Math.abs(millions), 1)}M`;
 }
 
+/**
+ * $M label for a number the chart kit hands back (axis tooltips and table twins). The number is
+ * the API's decimal string passed through Number for geometry, never the result of arithmetic.
+ */
+export function moneyLabel(value: number): string {
+  return formatMoneyM(value.toFixed(2));
+}
+
 /** MOIC with two decimals and an "x". */
 export function formatMoic(value: string | null | undefined): string {
   if (value === null || value === undefined || value === '') return MISSING;

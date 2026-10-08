@@ -97,6 +97,24 @@ const bucket = (
   navShare: string,
 ): ExposureBucket => ({ key, label, count, invested, nav, navShare });
 
+/** The two active positions behind the analytics fixture, one per vehicle and deal type. */
+export const CV_BUCKET = bucket(
+  'deal_type.cv_single_asset',
+  'Continuation vehicle (single asset)',
+  1,
+  '75353708.54',
+  '105893922.44',
+  '0.23',
+);
+export const CREDIT_BUCKET = bucket(
+  'deal_type.private_credit',
+  'Private credit',
+  1,
+  '18968583.11',
+  '18837699.89',
+  '0.04',
+);
+
 export function analyticsFixture(overrides: Partial<AnalyticsSummary> = {}): AnalyticsSummary {
   return {
     asOf: AS_OF,
@@ -146,24 +164,7 @@ export function analyticsFixture(overrides: Partial<AnalyticsSummary> = {}): Ana
           '0.33',
         ),
       ],
-      dealType: [
-        bucket(
-          'deal_type.co_invest_equity',
-          'Co-investment (equity)',
-          1,
-          '6900000.00',
-          '27400000.00',
-          '0.06',
-        ),
-        bucket(
-          'deal_type.private_credit',
-          'Private credit',
-          1,
-          '18968583.11',
-          '18837699.89',
-          '0.04',
-        ),
-      ],
+      dealType: [CV_BUCKET, CREDIT_BUCKET],
       vehicle: [
         bucket(ID.vehicle1, 'Beach CV Opportunities I', 1, '75353708.54', '105893922.44', '0.23'),
         bucket(ID.vehicle2, 'Beach Credit Partners I', 1, '18968583.11', '18837699.89', '0.04'),
@@ -172,6 +173,11 @@ export function analyticsFixture(overrides: Partial<AnalyticsSummary> = {}): Ana
         bucket(ID.sponsor1, 'Kelpwood Capital Partners', 2, '156361407.64', '189713276.90', '0.41'),
       ],
       vintage: [bucket('2019', '2019', 2, '145263025.40', '189717241.63', '0.41')],
+      // Each vehicle's segments sum to its bucket in `vehicle`, as the API guarantees.
+      vehicleByDealType: [
+        { key: ID.vehicle1, label: 'Beach CV Opportunities I', segments: [CV_BUCKET] },
+        { key: ID.vehicle2, label: 'Beach Credit Partners I', segments: [CREDIT_BUCKET] },
+      ],
     },
     navSeries: [
       { periodEnd: '2024-12-31', value: '405983675.45' },

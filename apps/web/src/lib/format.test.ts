@@ -8,6 +8,7 @@ import {
   formatPct,
   labelOf,
   MISSING,
+  moneyLabel,
 } from './format.js';
 
 describe('number and date display (docs/06 section 3)', () => {
@@ -32,6 +33,11 @@ describe('number and date display (docs/06 section 3)', () => {
     expect(formatMonthYear('2026-01-15')).toBe('January 2026');
     expect(formatDate(null)).toBe(MISSING);
     expect(formatDate('garbage')).toBe(MISSING);
+  });
+  it('labels chart numbers in $M from the API figure, never from arithmetic', () => {
+    expect(moneyLabel(346917161.92)).toBe('$346.9M');
+    expect(moneyLabel(-28891502.17)).toBe('-$28.9M');
+    expect(moneyLabel(0)).toBe('$0.0M');
   });
   it('labels taxonomy codes', () => {
     expect(labelOf('deal_type.co_invest_equity')).toBe('Co invest equity');

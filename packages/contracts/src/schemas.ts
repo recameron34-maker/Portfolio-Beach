@@ -264,6 +264,19 @@ export const exposureBucket = z.object({
 });
 export type ExposureBucket = z.infer<typeof exposureBucket>;
 
+/**
+ * One vehicle's NAV split by deal type (the stacked chart on the Exposure tab). Segments are
+ * exposure buckets keyed by deal type code with taxonomy labels; their NAV shares are of the total
+ * active NAV, like every other bucket.
+ */
+export const vehicleDealTypeRow = z.object({
+  /** The vehicle id, the same key as the vehicle's bucket in exposures.vehicle. */
+  key: uuid,
+  label: z.string(),
+  segments: z.array(exposureBucket),
+});
+export type VehicleDealTypeRow = z.infer<typeof vehicleDealTypeRow>;
+
 export const asOfQuery = z.object({ asOf: isoDate.optional() }).strict();
 
 /* ---- Analytics (M12 portfolio analysis, M13 in-app analytics) ---- */
@@ -285,6 +298,13 @@ export const analyticsSummary = z.object({
     vehicle: z.array(exposureBucket),
     sponsor: z.array(exposureBucket),
     vintage: z.array(exposureBucket),
+    /**
+     * NAV per vehicle and deal type over the active positions with a Locked mark, as Decimal sums
+     * (a position without one is left out). Vehicles by total NAV, largest first, then name;
+     * each vehicle's segments in the order of the dealType buckets. Segment NAVs sum to the
+     * vehicle's NAV in `vehicle`; a vehicle with no Locked mark at all has no row.
+     */
+    vehicleByDealType: z.array(vehicleDealTypeRow),
   }),
   /** Sum of Locked fair values per quarter end over visible positions, oldest first. */
   navSeries: z.array(seriesPoint),
