@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  chartLabels,
   compactValue,
   labelBudget,
   labelColumn,
@@ -78,6 +79,26 @@ describe('category labels', () => {
         else expect(short.endsWith(label.slice(-1)), `${label} at ${max}`).toBe(true);
       }
     }
+  });
+
+  it('keeps the start of labels that differ only in the middle, so no two bars read the same', () => {
+    expect(
+      chartLabels(['Seagrass Fund II', 'Seagrass Growth Fund II', 'Skerry Fund I'], 15),
+    ).toEqual(['Seagrass Fun...', 'Seagrass Gro...', 'Skerry Fund I']);
+    expect(
+      chartLabels(['Juniper Financial Group', 'Cobalt Energy Group', 'Juniper Payments Group'], 15),
+    ).toEqual(['Juniper Fina...', 'Cobalt...Group', 'Juniper Paym...']);
+    // Labels that differ at the end keep the middle cut.
+    expect(chartLabels(['Beach Co-Invest Fund II', 'Beach Co-Invest Fund III'], 15)).toEqual([
+      'Beach...Fund II',
+      'Beac...Fund III',
+    ]);
+    // When the starts cannot tell them apart either, the middle cuts stay.
+    expect(chartLabels(['Alpha Beta Gamma Omega', 'Alpha Beta Delta Omega'], 10)).toEqual([
+      'Al...Omega',
+      'Al...Omega',
+    ]);
+    expect(chartLabels([], 15)).toEqual([]);
   });
 
   it('keeps a value label inside the chart, reading back from the edge when it would spill', () => {

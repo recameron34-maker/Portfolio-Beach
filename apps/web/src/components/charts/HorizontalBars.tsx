@@ -3,6 +3,7 @@ import type { ReactNode } from 'react';
 import { ChartFigure } from './ChartFigure.js';
 import type { TooltipState } from './ChartFigure.js';
 import {
+  chartLabels,
   compactValue,
   LABEL_GAP,
   labelBudget,
@@ -11,7 +12,6 @@ import {
   linearScale,
   niceTicks,
   seriesColor,
-  truncateMiddle,
   valueLabelPosition,
 } from './scale.js';
 import type { ValueKind } from './scale.js';
@@ -62,7 +62,10 @@ export function HorizontalBars({
   const lo = ticks[0] ?? 0;
   const hi = ticks[ticks.length - 1] ?? 1;
   const labelW = labelColumn(width);
-  const budget = labelBudget(labelW);
+  const shortLabels = chartLabels(
+    data.map((d) => d.label),
+    labelBudget(labelW),
+  );
   const plotW = Math.max(MIN_PLOT, width - labelW - PAD_R);
   const x = linearScale(lo, hi, labelW, labelW + plotW);
   const height = data.length * ROW + 28;
@@ -147,7 +150,7 @@ export function HorizontalBars({
                   className="pb-chart-label"
                   textAnchor="end"
                 >
-                  {truncateMiddle(d.label, budget)}
+                  {shortLabels[i]}
                 </text>
                 <path d={path} fill={fill} />
                 <text

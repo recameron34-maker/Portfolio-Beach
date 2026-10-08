@@ -5,6 +5,24 @@ import { HorizontalBars } from './HorizontalBars.js';
 import { LineChart } from './LineChart.js';
 import { StackedBars } from './StackedBars.js';
 
+/** Every chart canvas measures this many pixels wide (useWidth reads a ResizeObserver). */
+function measureAs(width: number): void {
+  vi.stubGlobal(
+    'ResizeObserver',
+    class {
+      private readonly callback: (entries: { contentRect: { width: number } }[]) => void;
+      constructor(callback: (entries: { contentRect: { width: number } }[]) => void) {
+        this.callback = callback;
+      }
+      observe(): void {
+        this.callback([{ contentRect: { width } }]);
+      }
+      unobserve = vi.fn();
+      disconnect = vi.fn();
+    },
+  );
+}
+
 describe('charts', () => {
   afterEach(() => {
     cleanup();
@@ -58,20 +76,7 @@ describe('charts', () => {
 
   it('at phone width keeps the ends of similar labels, the full names elsewhere and the values inside', async () => {
     const width = 316;
-    vi.stubGlobal(
-      'ResizeObserver',
-      class {
-        private readonly callback: (entries: { contentRect: { width: number } }[]) => void;
-        constructor(callback: (entries: { contentRect: { width: number } }[]) => void) {
-          this.callback = callback;
-        }
-        observe(): void {
-          this.callback([{ contentRect: { width } }]);
-        }
-        unobserve = vi.fn();
-        disconnect = vi.fn();
-      },
-    );
+    measureAs(width);
     const { container } = render(
       <HorizontalBars
         title="NAV by vehicle"
@@ -123,5 +128,39 @@ describe('charts', () => {
     expect(
       screen.getByRole('img', { name: 'Fund I: Healthcare $3.0M, Software $2.0M' }),
     ).toBeTruthy();
+  });
+
+  it('at phone width gives stacked bars distinct short labels and keeps the ticks inside', () => {
+    const width = 300;
+    measureAs(width);
+    const segments = (a: number) => [
+      { name: 'Healthcare', value: a, display: `$${a}.0M` },
+      { name: 'Software', value: 2, display: '$2.0M' },
+    ];
+    const { container } = render(
+      <StackedBars
+        title="Exposure by vehicle"
+        data={[
+          { label: 'Seagrass Fund II', segments: segments(3) },
+          { label: 'Seagrass Growth Fund II', segments: segments(4) },
+          { label: 'Beach Co-Invest Fund III', segments: segments(5) },
+        ]}
+        segmentNames={['Healthcare', 'Software']}
+        kind="money"
+        summary="three bars, two segments"
+      />,
+    );
+    const labels = [...container.querySelectorAll('.pb-chart-label')].map((t) => t.textContent);
+    expect(new Set(labels).size).toBe(3);
+    for (const label of labels) expect((label ?? '').length).toBeLessThanOrEqual(14);
+    expect(
+      screen.getByRole('img', {
+        name: 'Seagrass Growth Fund II: Healthcare $4.0M, Software $2.0M',
+      }),
+    ).toBeTruthy();
+    for (const tick of container.querySelectorAll('.pb-chart-tick')) {
+      const half = ((tick.textContent ?? '').length * 6.6) / 2;
+      expect(Number(tick.getAttribute('x')) + half).toBeLessThanOrEqual(width);
+    }
   });
 });

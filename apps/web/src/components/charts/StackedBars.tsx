@@ -3,6 +3,7 @@ import type { ReactNode } from 'react';
 import { ChartFigure } from './ChartFigure.js';
 import type { TooltipState } from './ChartFigure.js';
 import {
+  chartLabels,
   compactValue,
   LABEL_GAP,
   labelBudget,
@@ -11,7 +12,6 @@ import {
   linearScale,
   niceTicks,
   seriesColor,
-  truncateMiddle,
 } from './scale.js';
 import type { ValueKind } from './scale.js';
 import { useWidth } from './useWidth.js';
@@ -58,7 +58,10 @@ export function StackedBars({
   const ticks = niceTicks(0, Math.max(0, ...totals), 4);
   const hi = ticks[ticks.length - 1] ?? 1;
   const labelW = labelColumn(width);
-  const budget = labelBudget(labelW);
+  const shortLabels = chartLabels(
+    data.map((d) => d.label),
+    labelBudget(labelW),
+  );
   const plotW = Math.max(MIN_PLOT, width - labelW - PAD_R);
   const x = linearScale(0, hi, labelW, labelW + plotW);
   const stride = labelStride(ticks.length - 1, plotW);
@@ -141,7 +144,7 @@ export function StackedBars({
                   className="pb-chart-label"
                   textAnchor="end"
                 >
-                  {truncateMiddle(d.label, budget)}
+                  {shortLabels[i]}
                 </text>
                 {positives.map((s, si) => {
                   const start = x(cursor);

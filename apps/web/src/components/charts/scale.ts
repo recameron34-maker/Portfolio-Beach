@@ -123,6 +123,38 @@ export function truncateMiddle(label: string, max: number): string {
   return `${label.slice(0, room - tail.length).trimEnd()}${ELLIPSIS}${tail}`;
 }
 
+/** Keeps the start of a label and cuts its end, for labels that differ only in the middle. */
+function truncateEnd(label: string, max: number): string {
+  if (label.length <= max) return label;
+  return `${label.slice(0, Math.max(1, max - ELLIPSIS.length)).trimEnd()}${ELLIPSIS}`;
+}
+
+/**
+ * The category labels of one chart, each at most max characters and, where the room allows, no
+ * two alike. Labels are cut in the middle (truncateMiddle); labels whose cuts come out the same
+ * because they differ only in the middle ("Seagrass Fund II", "Seagrass Growth Fund II") keep
+ * their start instead, where they differ. Same order as the input.
+ */
+export function chartLabels(labels: readonly string[], max: number): string[] {
+  const cuts = labels.map((label) => truncateMiddle(label, max));
+  const groups = new Map<string, Set<string>>();
+  cuts.forEach((cut, i) => {
+    const group = groups.get(cut) ?? new Set<string>();
+    group.add(labels[i] ?? '');
+    groups.set(cut, group);
+  });
+  const starts = new Map<string, string>();
+  for (const group of groups.values()) {
+    if (group.size < 2) continue;
+    const kept = [...group].map((label) => truncateEnd(label, max));
+    // Only when the starts tell every label of the group apart; otherwise the ends stay.
+    if (new Set(kept).size === group.size) {
+      [...group].forEach((label, i) => starts.set(label, kept[i] ?? label));
+    }
+  }
+  return labels.map((label, i) => starts.get(label) ?? cuts[i] ?? label);
+}
+
 /**
  * Where a bar's value label goes: just past the bar's end, but never past the right edge of the
  * chart; when it would be, it is anchored at the edge instead and reads back from it.
