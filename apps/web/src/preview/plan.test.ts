@@ -27,11 +27,7 @@ import {
   watchlistQuery,
   weeklyReportQuery,
 } from '../app/queries.js';
-import {
-  ACTIVE_POSITIONS,
-  CREDIT_POSITIONS,
-  REALIZED_POSITIONS,
-} from '../pages/analytics/constants.js';
+import { CREDIT_POSITIONS, REALIZED_POSITIONS } from '../pages/analytics/constants.js';
 import { getKey, isPublicPath, normalizeKey } from './keys.js';
 import { NOTICES_PATH, VALUATIONS_PATH } from './state.js';
 
@@ -146,7 +142,6 @@ describe('the recording plan', () => {
       capitalNoticesQuery({ investmentId: INV }),
       auditQuery(),
       auditQuery({ entityId: INV }),
-      investmentsQuery(ACTIVE_POSITIONS),
       investmentsQuery(CREDIT_POSITIONS),
       investmentsQuery(REALIZED_POSITIONS),
     ];

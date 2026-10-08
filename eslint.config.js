@@ -26,6 +26,7 @@ export default tseslint.config(
       '.bundle/**',
       '.synthetic/**',
       '.pglite/**',
+      '.claude/worktrees/**',
       'apps/worker-py/**',
       'apps/web/dist/**',
       'apps/web/dist-types/**',

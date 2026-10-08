@@ -10,3 +10,4 @@ uv.lock
 *.md
 apps/worker-py/.venv
 apps/web/src/routeTree.gen.ts
+.claude/worktrees
