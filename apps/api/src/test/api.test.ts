@@ -87,6 +87,33 @@ describe('Portfolio Beach API', () => {
       expect(problem.errors?.map((e) => e.path).sort()).toEqual(['(root)', 'limit']);
       expect(JSON.stringify(problem)).not.toContain('500');
     });
+    it('answers an impossible calendar date with a 400 validation problem, never a 500', async () => {
+      const sponsorId = h.dataset.sponsors[0]!.id;
+      const vehicleId = h.dataset.vehicles[0]!.id;
+      const cases: [string, string][] = [
+        ['/api/v1/analytics/summary?asOf=2025-02-30', 'asOf'],
+        ['/api/v1/valuations?periodEnd=2025-02-30', 'periodEnd'],
+        ['/api/v1/capital-notices?dueFrom=2025-13-01', 'dueFrom'],
+        ['/api/v1/capital-notices?dueTo=2023-02-29', 'dueTo'],
+        [`/api/v1/sponsors/${sponsorId}?asOf=2025-04-31`, 'asOf'],
+        [`/api/v1/vehicles/${vehicleId}?asOf=2025-06-31`, 'asOf'],
+        ['/api/v1/investments?asOf=2025-02-29', 'asOf'],
+      ];
+      for (const [path, field] of cases) {
+        const res = await h.http().get(path).set('authorization', h.as('viewer')).expect(400);
+        const problem = problemDetails.parse(res.body);
+        expect(problem.type, path).toBe('https://portfolio-beach.example/problems/validation');
+        expect(problem.errors, path).toEqual([
+          { path: field, message: 'Not a real calendar date' },
+        ]);
+      }
+      // A real leap day is a date like any other.
+      await h
+        .http()
+        .get('/api/v1/analytics/summary?asOf=2024-02-29')
+        .set('authorization', h.as('viewer'))
+        .expect(200);
+    });
     it('sets security headers', async () => {
       const res = await h.http().get('/health/live').expect(200);
       expect(res.headers['x-content-type-options']).toBe('nosniff');
@@ -145,6 +172,37 @@ describe('Portfolio Beach API', () => {
         `select count(*)::int as n from audit.event where action = 'investment.read' and entity_id = '${walledId()}' and request_id = 'req-open-walled-1'`,
       );
       expect(audit[0]?.n).toBe(1);
+    });
+
+    it("carries each position's vehicle and sponsor ids on the grid row and the detail alike", async () => {
+      const page = investmentPage.parse(
+        (
+          await h
+            .http()
+            .get('/api/v1/investments?limit=200')
+            .set('authorization', h.as('operations'))
+            .expect(200)
+        ).body,
+      );
+      expect(page.items.length).toBe(h.dataset.investments.length - 1);
+      for (const row of page.items) {
+        const seeded = h.dataset.investments.find((i) => i.id === row.id)!;
+        expect([row.vehicleId, row.sponsorId]).toEqual([seeded.vehicleId, seeded.sponsorId]);
+        expect(h.dataset.vehicles.find((v) => v.id === row.vehicleId)?.name).toBe(row.vehicleName);
+        expect(h.dataset.sponsors.find((s) => s.id === row.sponsorId)?.name).toBe(row.sponsorName);
+      }
+      // The detail inherits the summary row, ids included: one source for both.
+      const first = page.items[0]!;
+      const detail = investmentDetail.parse(
+        (
+          await h
+            .http()
+            .get(`/api/v1/investments/${first.id}`)
+            .set('authorization', h.as('operations'))
+            .expect(200)
+        ).body,
+      );
+      expect([detail.vehicleId, detail.sponsorId]).toEqual([first.vehicleId, first.sponsorId]);
     });
 
     it('computes metrics with the calc library and flags multiple-root IRRs', async () => {

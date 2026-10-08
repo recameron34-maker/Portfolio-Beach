@@ -18,6 +18,7 @@ export const VS_ID = {
   sponsorKelpwood: ID.sponsor1,
   sponsorMarram: '00000000-0000-4000-8000-0000000000c2',
   sponsorCliffside: '00000000-0000-4000-8000-0000000000c3',
+  sponsorSkerry: '00000000-0000-4000-8000-0000000000c4',
   fundOne: '00000000-0000-4000-8000-0000000000f1',
   fundThree: '00000000-0000-4000-8000-0000000000f3',
   clientAlpha: '00000000-0000-4000-8000-0000000001a1',
@@ -131,8 +132,10 @@ export function vehicleDetailFixture(overrides: Partial<VehicleDetail> = {}): Ve
         id: ID.inv3,
         investmentNumber: 'INV-0012',
         companyName: 'Ashby Renewables Group',
+        sponsorId: VS_ID.sponsorSkerry,
         sponsorName: 'Skerry Partners',
         sponsorFundName: 'Skerry Fund I',
+        vehicleId: VS_ID.vehicleCv,
         vehicleName: 'Beach CV Opportunities I',
         dealType: 'deal_type.cv_single_asset',
         entryDate: '2019-04-27',
@@ -146,8 +149,10 @@ export function vehicleDetailFixture(overrides: Partial<VehicleDetail> = {}): Ve
         id: ID.inv2,
         investmentNumber: 'INV-0017',
         companyName: 'Penrose Foods Holdings',
+        sponsorId: VS_ID.sponsorMarram,
         sponsorName: 'Marram Equity Partners',
         sponsorFundName: 'Marram Fund III',
+        vehicleId: VS_ID.vehicleCv,
         vehicleName: 'Beach CV Opportunities I',
         dealType: 'deal_type.cv_single_asset',
         entryDate: '2018-09-01',
@@ -275,6 +280,7 @@ export function sponsorPageFixture(
 export function sponsorDetailFixture(overrides: Partial<SponsorDetail> = {}): SponsorDetail {
   return {
     ...sponsorSummaryFixture({ activeInvestments: 1 }),
+    asOf: AS_OF,
     description: 'Control buyouts and growth investments in the middle market.',
     funds: [
       {
@@ -307,6 +313,7 @@ export function sponsorDetailFixture(overrides: Partial<SponsorDetail> = {}): Sp
     positions: [
       investmentFixture({
         sponsorFundName: 'Kelpwood Fund III',
+        vehicleId: VS_ID.vehicleCoInvest,
         invested: '6935771.67',
         distributions: '2150089.22',
         nav: '8746412.16',
@@ -318,6 +325,7 @@ export function sponsorDetailFixture(overrides: Partial<SponsorDetail> = {}): Sp
         investmentNumber: 'INV-0011',
         companyName: 'Cobalt Components Corp',
         sponsorFundName: 'Kelpwood Fund I',
+        vehicleId: VS_ID.vehicleCoInvest,
         vehicleName: 'Beach Co-Invest Fund I',
         entryDate: '2017-01-25',
         exitDate: '2023-01-25',

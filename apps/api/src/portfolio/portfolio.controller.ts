@@ -1,6 +1,6 @@
 import { Controller, Get, Inject, Param, Query, Req } from '@nestjs/common';
 import type { AdapterSet, Principal } from '@pb/adapters';
-import { investmentListQuery, pageQuery } from '@pb/contracts';
+import { asOfQuery, investmentListQuery, pageQuery } from '@pb/contracts';
 import type { InvestmentDetail, InvestmentPage } from '@pb/contracts';
 import { CurrentPrincipal } from '../auth/principal.js';
 import type { RequestWithPrincipal } from '../auth/principal.js';
@@ -40,7 +40,7 @@ export class PortfolioController {
   ): Promise<InvestmentDetail> {
     // A malformed id is simply not found: existence is never revealed, and the database never sees garbage.
     if (!UUID.test(id)) throw new ProblemError(404, 'not-found', 'Investment not found');
-    const q = parseOrProblem(investmentListQuery.pick({ asOf: true }), query, 'query');
+    const q = parseOrProblem(asOfQuery, query, 'query');
     return this.portfolio.detail(
       principal,
       req.id ?? 'unknown',

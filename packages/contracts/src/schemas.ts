@@ -2,7 +2,35 @@ import { z } from 'zod';
 
 /** Money, rates and multiples travel as decimal strings; the missing placeholder is null (docs/06 section 3). */
 export const decimalString = z.string().regex(/^-?\d+(\.\d+)?$/);
-export const isoDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
+
+const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
+
+/**
+ * True when a YYYY-MM-DD string names a real day: set as a UTC date, it reads back unchanged, so
+ * 2025-02-30 (which UTC rolls over to March 2) and 2025-13-01 are not days.
+ */
+export function isCalendarDate(value: string): boolean {
+  if (!ISO_DATE.test(value)) return false;
+  const day = new Date(0);
+  day.setUTCFullYear(
+    Number(value.slice(0, 4)),
+    Number(value.slice(5, 7)) - 1,
+    Number(value.slice(8)),
+  );
+  return day.toISOString().slice(0, 10) === value;
+}
+
+/**
+ * A calendar date (YYYY-MM-DD) that exists, so an impossible date is a 400 'validation' at the
+ * boundary instead of an error deep in Postgres or packages/calc. The calendar check judges only
+ * strings of the right shape (the pattern reports the rest), and the OpenAPI document carries
+ * format date.
+ */
+export const isoDate = z
+  .string()
+  .regex(ISO_DATE)
+  .refine((value) => !ISO_DATE.test(value) || isCalendarDate(value), 'Not a real calendar date')
+  .meta({ format: 'date' });
 export const uuid = z.string().uuid();
 
 export const appRole = z.enum([
@@ -77,13 +105,18 @@ export const investmentListQuery = pageQuery.extend({
   asOf: isoDate.optional(),
 });
 
-/** One row of the portfolio grid (M9 metrics from packages/calc, null where not calculable). */
+/**
+ * One row of the portfolio grid (M9 metrics from packages/calc, null where not calculable). The
+ * vehicle and sponsor ids let a page link a position to its vehicle and sponsor.
+ */
 export const investmentSummary = z.object({
   id: uuid,
   investmentNumber: z.string(),
   companyName: z.string(),
+  sponsorId: uuid,
   sponsorName: z.string(),
   sponsorFundName: z.string().nullable(),
+  vehicleId: uuid,
   vehicleName: z.string(),
   dealType: z.string(),
   sector: z.string().nullable(),
@@ -120,11 +153,10 @@ export const investmentPage = z.object({
 });
 export type InvestmentPage = z.infer<typeof investmentPage>;
 
+/** The summary row (vehicle and sponsor ids included) plus the detail the workspace tabs read. */
 export const investmentDetail = investmentSummary.extend({
   companyId: uuid,
-  sponsorId: uuid,
   sponsorFundId: uuid.nullable(),
-  vehicleId: uuid,
   companyDescription: z.string().nullable(),
   latestPeriodEnd: isoDate.nullable(),
   cashFlows: z.array(z.object({ date: isoDate, flowType: z.string(), amount: decimalString })),
@@ -442,6 +474,8 @@ export const sponsorFundRow = z.object({
 });
 
 export const sponsorDetail = sponsorSummary.extend({
+  /** The date the positions, commitment flows and pooled metrics are calculated as of. */
+  asOf: isoDate,
   description: z.string().nullable(),
   funds: z.array(sponsorFundRow),
   positions: z.array(investmentSummary),

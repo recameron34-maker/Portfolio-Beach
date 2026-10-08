@@ -1,0 +1,30 @@
+{
+  "id": "18_value_change",
+  "function": "value_change",
+  "note": "Mark-to-mark value change (current - prior) / prior, by hand: up 12%, down 8%, unchanged, a full write-down, a third of the base lost, a zero base (null, never infinite) and a missing current or prior value (null).",
+  "input": {
+    "cases": [
+      { "current": "11200000.00", "prior": "10000000.00" },
+      { "current": "7360000.00", "prior": "8000000.00" },
+      { "current": "26800000.00", "prior": "26800000.00" },
+      { "current": "0", "prior": "25100000.00" },
+      { "current": "1000000", "prior": "1500000" },
+      { "current": "1500000.00", "prior": "0" },
+      { "current": null, "prior": "10000000.00" },
+      { "current": "10000000.00", "prior": null }
+    ]
+  },
+  "expected": {
+    "results": [
+      "0.12",
+      "-0.08",
+      "0",
+      "-1",
+      "-0.3333333333333333333333333333333333",
+      null,
+      null,
+      null
+    ]
+  },
+  "tolerance": "1e-20"
+}

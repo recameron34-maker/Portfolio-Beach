@@ -3,7 +3,7 @@ import { and, asc, desc, eq, gt, inArray, lt, lte, or } from 'drizzle-orm';
 import type { SQL } from 'drizzle-orm';
 import { alias } from 'drizzle-orm/pg-core';
 import type { Principal } from '@pb/adapters';
-import { D, addDays } from '@pb/calc';
+import { addDays, valueChange } from '@pb/calc';
 import type { ValuationPage, valuationListQuery } from '@pb/contracts';
 import { schema } from '@pb/db';
 import type { z } from 'zod';
@@ -11,9 +11,9 @@ import { decodeCursor, encodeCursor } from '../common/cursor.js';
 import { configInteger } from '../common/definitions.js';
 import { DEFINITIONS } from '../common/tokens.js';
 import { DbService } from '../db/db.service.js';
-import { str } from '../portfolio/metrics.js';
+import { lockedNear } from '../portfolio/marks.js';
+import { latestQuarterEndOnOrBefore, str } from '../portfolio/metrics.js';
 import type { ValuationRow } from '../portfolio/metrics.js';
-import { lockedNear, quarterEndOnOrBefore } from '../reports/reports.service.js';
 
 export type ValuationListOptions = Omit<z.infer<typeof valuationListQuery>, 'asOf'> & {
   asOf: string;
@@ -32,12 +32,6 @@ const approver = alias(schema.appUser, 'approver');
 
 /** The cursor is "periodEnd|investmentNumber|version" of the last row, the page's sort key. */
 const CURSOR = /^(\d{4}-\d{2}-\d{2})\|(.+)\|(\d{1,9})$/s;
-
-/** (fair value - prior) / prior; null when there is no prior Locked mark or it is zero (docs/06 section 3). */
-function changeOf(fairValue: string, prior: string | null): string | null {
-  if (prior === null || D(prior).isZero()) return null;
-  return str(D(fairValue).minus(prior).div(prior));
-}
 
 @Injectable()
 export class ValuationsService {
@@ -160,7 +154,7 @@ export class ValuationsService {
       return {
         items: page.map(({ approvedAt, ...r }) => {
           // The previous calendar quarter end; a sponsor reporting a few days early still counts.
-          const previousQuarterEnd = quarterEndOnOrBefore(addDays(r.periodEnd, -1));
+          const previousQuarterEnd = latestQuarterEndOnOrBefore(addDays(r.periodEnd, -1));
           const prior = lockedNear(
             lockedByInvestment.get(r.investmentId) ?? [],
             previousQuarterEnd,
@@ -180,7 +174,8 @@ export class ValuationsService {
             method: r.method,
             fairValue: r.fairValue,
             priorFairValue,
-            changePct: changeOf(r.fairValue, priorFairValue),
+            // Null without a prior Locked mark or against a zero one (docs/08 section 2).
+            changePct: str(valueChange(r.fairValue, priorFairValue)),
             lockHash: r.lockHash,
             preparedBy: r.preparedBy,
             dealTeamApprovedBy: r.dealTeamApprovedBy,

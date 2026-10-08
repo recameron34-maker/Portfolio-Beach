@@ -2,7 +2,9 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { D } from '@pb/calc';
 import { analyticsSummary, investmentPage, watchlist as watchlistSchema } from '@pb/contracts';
 import type { AnalyticsSummary, ExposureBucket, Watchlist } from '@pb/contracts';
-import { vehicleByDealType } from '../analytics/analytics.service.js';
+import { evaluateFlags, vehicleByDealType } from '../analytics/analytics.service.js';
+import type { Thresholds } from '../analytics/analytics.service.js';
+import type { ValuationRow } from '../portfolio/metrics.js';
 import { startHarness } from './harness.js';
 import type { Harness } from './harness.js';
 import { expectedNavSeries } from './nav-oracle.js';
@@ -456,5 +458,53 @@ describe('vehicleByDealType (the stacked NAV by vehicle and deal type)', () => {
         dealTypeOf,
       ),
     ).toEqual([]);
+  });
+});
+
+describe('the markdown flag measures the change with the one value change rule', () => {
+  const thresholds: Thresholds = {
+    raw: {},
+    netDebtToEbitdaMax: D('6'),
+    ebitdaYoYDeclinePct: D('0.15'),
+    markdownPct: D('0.2'),
+    missingFinancialsDays: 75,
+    maturityWithinMonths: 12,
+    priorYearToleranceDays: 7,
+  };
+  const lockedMark = (periodEnd: string, fairValue: string): ValuationRow => ({
+    periodEnd,
+    version: 1,
+    state: 'Locked',
+    fairValue,
+    method: 'valuation_method.sponsor_mark',
+  });
+  const flagsFor = (prior: string, current: string): ReturnType<typeof evaluateFlags> =>
+    evaluateFlags(
+      {
+        valuations: [lockedMark('2025-03-31', prior), lockedMark('2025-06-30', current)],
+        operating: [],
+        credit: null,
+      },
+      '2025-06-30',
+      thresholds,
+      new Map(),
+    );
+
+  it('flags a fall beyond the limit with the change as a decimal string', () => {
+    expect(flagsFor('1000.00', '700.00')).toEqual([
+      {
+        code: 'markdown',
+        severity: 'watch',
+        message: 'Locked fair value for 2025-06-30 is 30.0% below 2025-03-31 (limit 20.0%)',
+        value: '-0.3',
+        threshold: '-0.2',
+      },
+    ]);
+  });
+
+  it('does not flag a fall within the limit, a rise, or a mark against a zero prior', () => {
+    expect(flagsFor('1000.00', '800.00')).toEqual([]);
+    expect(flagsFor('1000.00', '1200.00')).toEqual([]);
+    expect(flagsFor('0', '500.00')).toEqual([]);
   });
 });

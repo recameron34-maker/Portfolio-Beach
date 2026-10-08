@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { problemDetails } from '@pb/contracts';
-import { configDecimal, configInteger } from '../common/definitions.js';
+import { configDecimal, configInteger, configString } from '../common/definitions.js';
 import { ProblemError } from '../common/problem.js';
 import { startHarness } from './harness.js';
 import type { Harness } from './harness.js';
@@ -27,6 +27,21 @@ describe('config readers: a missing or malformed key is a configuration problem'
       expect(problem.getStatus()).toBe(500);
       expect(problem.code).toBe('configuration');
       expect(problem.message).toBe(MISSING_TOLERANCE);
+    }
+  });
+
+  it('reads labels and templates as strings with text in them, never anything else', () => {
+    expect(configString('NM', 'irr.displayShortPeriodAs')).toBe('NM');
+    expect(configString('Carried at {lockedPeriodEnd}.', 'k')).toBe(
+      'Carried at {lockedPeriodEnd}.',
+    );
+    for (const bad of [undefined, null, '', '   ', 7, {}, ['NM']]) {
+      const problem = problemOf(() => configString(bad, 'reporting.noValuationFootnote'));
+      expect(problem.getStatus()).toBe(500);
+      expect(problem.code).toBe('configuration');
+      expect(problem.message).toBe(
+        'config/definitions.json is missing a usable reporting.noValuationFootnote',
+      );
     }
   });
 
@@ -83,6 +98,8 @@ describe('an API whose config lacks priorYearPeriodEndToleranceDays', () => {
       `/api/v1/vehicles/${vehicleId}`,
       '/api/v1/analytics/summary',
       '/api/v1/monitoring/watchlist',
+      '/api/v1/reports/weekly',
+      '/api/v1/valuations',
     ]) {
       const res = await get(path).expect(500);
       expect(problemDetails.parse(res.body).detail, path).toBe(MISSING_TOLERANCE);
@@ -90,5 +107,40 @@ describe('an API whose config lacks priorYearPeriodEndToleranceDays', () => {
     // The grid needs no tolerance and still answers; walls and 404s are unaffected.
     await get('/api/v1/investments?limit=5').expect(200);
     await get('/api/v1/investments/not-a-uuid').expect(404);
+  });
+});
+
+/**
+ * The weekly report reads every setting through the readers: without the reporting block or the
+ * IRR display label it answers a 500 that names the key, where it used to fall back to numbers and
+ * sentences written in code.
+ */
+describe.each([
+  ['reporting', 'reporting.weeklyMoversCount'],
+  ['irr', 'irr.displayShortPeriodAs'],
+])('an API whose config lacks %s', (dropped, key) => {
+  let h: Harness;
+  beforeAll(async () => {
+    h = await startHarness({ withoutDefinitions: [dropped] });
+  });
+  afterAll(async () => {
+    await h.close();
+  });
+
+  it('answers the weekly report with a 500 configuration problem naming the key', async () => {
+    const res = await h
+      .http()
+      .get('/api/v1/reports/weekly')
+      .set('authorization', h.as('viewer'))
+      .expect(500);
+    const problem = problemDetails.parse(res.body);
+    expect(problem.type).toBe('https://portfolio-beach.example/problems/configuration');
+    expect(problem.detail).toBe(`config/definitions.json is missing a usable ${key}`);
+    // Views that do not read the key still answer.
+    await h
+      .http()
+      .get('/api/v1/analytics/summary')
+      .set('authorization', h.as('viewer'))
+      .expect(200);
   });
 });

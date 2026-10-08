@@ -1,36 +1,21 @@
-import { Inject, Injectable } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 import { and, desc, eq, lt, sql } from 'drizzle-orm';
 import type { SQL } from 'drizzle-orm';
 import type { Principal } from '@pb/adapters';
 import type { AuditPage, auditQuery } from '@pb/contracts';
 import { schema } from '@pb/db';
 import type { z } from 'zod';
-
-export type AuditListOptions = z.infer<typeof auditQuery>;
-import { DEFINITIONS } from '../common/tokens.js';
-import { ProblemError } from '../common/problem.js';
+import { decodeCursor, encodeCursor } from '../common/cursor.js';
 import { DbService } from '../db/db.service.js';
 
-/** Calculation settings from config/definitions.json (docs/03 section 4); only the keys this service reads. */
-interface Definitions {
-  priorYearPeriodEndToleranceDays?: number;
-  [key: string]: unknown;
-}
+export type AuditListOptions = z.infer<typeof auditQuery>;
 
-/** The cursor is the last event id (a bigint, carried as a decimal string) in base64url. */
-const encodeCursor = (id: string): string => Buffer.from(id, 'utf8').toString('base64url');
-const decodeCursor = (cursor: string): string => {
-  const value = Buffer.from(cursor, 'base64url').toString('utf8');
-  if (!/^\d{1,19}$/.test(value)) throw new ProblemError(400, 'validation', 'Invalid cursor');
-  return value;
-};
+/** The cursor is the last event id (a bigint, carried as a decimal string), the page's sort key. */
+const CURSOR = /^(\d{1,19})$/;
 
 @Injectable()
 export class AuditService {
-  constructor(
-    private readonly db: DbService,
-    @Inject(DEFINITIONS) private readonly definitions: Definitions,
-  ) {}
+  constructor(private readonly db: DbService) {}
 
   /**
    * The audit trail, newest first, as who did what and when (SEC-11.1). RLS limits the rows to
@@ -45,8 +30,10 @@ export class AuditService {
     const e = schema.auditEvent;
     return this.db.run(principal, requestId, async (tx) => {
       const conditions: SQL[] = [];
-      if (opts.cursor !== undefined)
-        conditions.push(lt(e.id, sql`${decodeCursor(opts.cursor)}::bigint`));
+      if (opts.cursor !== undefined) {
+        const [after = ''] = decodeCursor(opts.cursor, CURSOR);
+        conditions.push(lt(e.id, sql`${after}::bigint`));
+      }
       if (opts.entity !== undefined) conditions.push(eq(e.entity, opts.entity));
       if (opts.entityId !== undefined) conditions.push(eq(e.entityId, opts.entityId));
       if (opts.action !== undefined) conditions.push(eq(e.action, opts.action));
@@ -71,7 +58,7 @@ export class AuditService {
       const last = page[page.length - 1];
       return {
         items: page,
-        nextCursor: rows.length > opts.limit && last !== undefined ? encodeCursor(last.id) : null,
+        nextCursor: rows.length > opts.limit && last !== undefined ? encodeCursor([last.id]) : null,
       };
     });
   }

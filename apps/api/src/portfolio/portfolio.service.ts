@@ -3,6 +3,7 @@ import { and, asc, desc, eq, gt, sql } from 'drizzle-orm';
 import type { Principal } from '@pb/adapters';
 import type { InvestmentDetail, InvestmentPage } from '@pb/contracts';
 import { schema } from '@pb/db';
+import { decodeCursor, encodeCursor } from '../common/cursor.js';
 import { configInteger } from '../common/definitions.js';
 import { DEFINITIONS } from '../common/tokens.js';
 import { ProblemError } from '../common/problem.js';
@@ -25,13 +26,10 @@ interface Definitions {
   [key: string]: unknown;
 }
 
-const encodeCursor = (investmentNumber: string): string =>
-  Buffer.from(investmentNumber, 'utf8').toString('base64url');
-const decodeCursor = (cursor: string): string => {
-  const value = Buffer.from(cursor, 'base64url').toString('utf8');
-  if (!/^[A-Z0-9-]{1,32}$/.test(value)) throw new ProblemError(400, 'validation', 'Invalid cursor');
-  return value;
-};
+/** The grid's cursor is the last row's investment number, its sort key. */
+const INVESTMENT_CURSOR = /^([A-Z0-9-]{1,32})$/;
+/** The sponsor list's cursor is the last row's name, its sort key; any name, compared as a parameter. */
+const SPONSOR_CURSOR = /^(.*)$/s;
 
 /**
  * Fully qualified outer-table columns for correlated subqueries. In a single-table select Drizzle
@@ -50,8 +48,10 @@ export class PortfolioService {
   async list(principal: Principal, requestId: string, opts: ListOptions): Promise<InvestmentPage> {
     return this.db.run(principal, requestId, async (tx) => {
       const conditions = [];
-      if (opts.cursor !== undefined)
-        conditions.push(gt(schema.investment.investmentNumber, decodeCursor(opts.cursor)));
+      if (opts.cursor !== undefined) {
+        const [after = ''] = decodeCursor(opts.cursor, INVESTMENT_CURSOR);
+        conditions.push(gt(schema.investment.investmentNumber, after));
+      }
       if (opts.vehicleId !== undefined)
         conditions.push(eq(schema.investment.vehicleId, opts.vehicleId));
       if (opts.dealType !== undefined)
@@ -75,7 +75,7 @@ export class PortfolioService {
         items,
         nextCursor:
           rows.length > opts.limit && last !== undefined
-            ? encodeCursor(last.investmentNumber)
+            ? encodeCursor([last.investmentNumber])
             : null,
         asOf: opts.asOf,
       };
@@ -168,11 +168,10 @@ export class PortfolioService {
       await audit({ action: 'investment.read', entity: 'core.investment', entityId: row.id });
       const latestPeriodEnd = credit?.latest?.periodEnd ?? operating?.periodEnd ?? null;
       return {
+        // The summary row carries the vehicle and sponsor ids; the detail adds the rest.
         ...summary,
         companyId: row.companyId,
-        sponsorId: row.sponsorId,
         sponsorFundId: row.sponsorFundId,
-        vehicleId: row.vehicleId,
         companyDescription: description?.description ?? null,
         latestPeriodEnd,
         cashFlows: (flows.get(row.id) ?? []).map((f) => ({
@@ -210,7 +209,7 @@ export class PortfolioService {
     nextCursor: string | null;
   }> {
     return this.db.run(principal, requestId, async (tx) => {
-      const after = cursor === undefined ? null : Buffer.from(cursor, 'base64url').toString('utf8');
+      const after = cursor === undefined ? null : (decodeCursor(cursor, SPONSOR_CURSOR)[0] ?? '');
       const rows = await tx
         .select({
           id: schema.sponsor.id,
@@ -228,10 +227,7 @@ export class PortfolioService {
       const last = page[page.length - 1];
       return {
         items: page,
-        nextCursor:
-          rows.length > limit && last !== undefined
-            ? Buffer.from(last.name, 'utf8').toString('base64url')
-            : null,
+        nextCursor: rows.length > limit && last !== undefined ? encodeCursor([last.name]) : null,
       };
     });
   }

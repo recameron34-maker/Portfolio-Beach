@@ -12,7 +12,7 @@ import { D } from '../decimal.js';
 import type { Decimal } from '../decimal.js';
 import { addDays } from '../dates.js';
 import { xirr } from '../irr.js';
-import { dpi, rvpi, tvpi } from '../multiples.js';
+import { dpi, rvpi, tvpi, valueChange } from '../multiples.js';
 import { yieldToMaturity } from '../credit.js';
 import type { PaymentFrequency } from '../credit.js';
 import { valueCreationAttribution } from '../attribution.js';
@@ -169,6 +169,20 @@ function run(seed: number, perKind: number): Case[] {
       tolerance: '1e-9',
       input,
       result: { ksPme: str(ks), directAlpha: str(da.value) },
+    });
+  }
+
+  // Last, so the kinds above keep drawing the same random numbers for a given seed.
+  const cents = (): string => String(int(0, 99)).padStart(2, '0');
+  for (let i = 0; i < perKind; i++) {
+    const prior = rnd() < 0.1 ? '0' : `${int(1, 50_000_000)}.${cents()}`;
+    const current = `${int(0, 80_000_000)}.${cents()}`;
+    cases.push({
+      id: id++,
+      kind: 'value_change',
+      tolerance: '1e-20',
+      input: { current, prior },
+      result: { value: str(valueChange(current, prior)) },
     });
   }
   return cases;

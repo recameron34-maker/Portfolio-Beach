@@ -47,20 +47,6 @@ const ALL_CLIENT_ROLES: ReadonlySet<string> = new Set(['operations', 'approver',
 const seesClientData = (principal: Principal): boolean =>
   principal.clientIds.length > 0 || principal.roles.some((r) => ALL_CLIENT_ROLES.has(r));
 
-/** A vehicle without a visible position has nothing to pool: nothing is calculable, never zero. */
-const NOT_CALCULABLE: PooledMetrics = {
-  count: 0,
-  invested: null,
-  distributions: null,
-  nav: null,
-  dpi: null,
-  rvpi: null,
-  tvpi: null,
-  grossMoic: null,
-  grossIrr: null,
-  irrFlag: 'insufficient_flows',
-};
-
 const compareText = (a: string, b: string): number => (a < b ? -1 : a > b ? 1 : 0);
 
 /** Strings from a jsonb list column; anything else in it is not a reporting basis. */
@@ -79,10 +65,10 @@ function sumOf<T>(rows: readonly T[], pick: (row: T) => string | null): Decimal 
 
 /**
  * Pooled gross metrics over a vehicle's visible positions (docs/08 sections 2 and 3). The primary
- * program holds commitments rather than investments, so it has no pooled figures at all.
+ * program holds commitments rather than investments, so it pools no position and every figure is
+ * not calculable (pooledPositionMetrics decides that for every view).
  */
 function pooled(positions: readonly Position[], asOf: string): PooledMetrics {
-  if (positions.length === 0) return NOT_CALCULABLE;
   return pooledPositionMetrics(
     positions.map((p) => ({ flows: p.flows, valuations: p.valuations, isActive: p.row.isActive })),
     asOf,
@@ -336,7 +322,7 @@ export class VehiclesService {
           .sort((a, b) => compareText(a.vehicleName, b.vehicleName))
           .map(({ clientId: _c, ...r }) => ({
             ...r,
-            ...shareOf(metricsByVehicle.get(r.vehicleId) ?? NOT_CALCULABLE, r.ownershipPct),
+            ...shareOf(metricsByVehicle.get(r.vehicleId) ?? pooled([], asOf), r.ownershipPct),
           }));
         return {
           id: c.id,

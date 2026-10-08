@@ -6,6 +6,7 @@ All financial math lives in `packages/calc` (TypeScript) and is cross-checked by
 - Cash flows: `{date, amount}` from the investor's perspective: contributions (fundings) negative, distributions, interest, principal and fees received positive. Terminal value (NAV, or fair value plus accrued interest for credit) is a positive flow on the valuation date.
 - Dates are calendar dates (no time). Day count for XIRR: actual/365 (configurable to actual/365.25).
 - Rounding: keep full precision internally; round only for display (`docs/06`). Use round half away from zero at display.
+- Results travel as decimal strings rounded half up to ten places, with no exponent and no trailing zeros (`toDecimalString`); the API and the preview simulation both render through it, so the same inputs give the same string.
 
 ## 2. Return metrics
 | Metric | Formula | Returns null when |
@@ -17,6 +18,7 @@ All financial math lives in `packages/calc` (TypeScript) and is cross-checked by
 | MOIC (gross, deal level) | (realized proceeds + unrealized value) / invested capital | invested = 0 |
 | Unfunded | commitment - contributions + recallable distributions | commitment missing |
 | Holding period (years) | (exit or as-of date - first contribution date) / 365 | no contribution |
+| Value change (`valueChange`) | (current value - prior value) / prior value, such as a Locked fair value against the previous quarter end's (valuation board, weekly report movers, watchlist markdown) | either value missing, or prior = 0 |
 
 ## 3. IRR (XIRR)
 - Solve NPV(r) = sum(amount_i / (1 + r)^((d_i - d_0)/365)) = 0.
@@ -72,7 +74,9 @@ All financial math lives in `packages/calc` (TypeScript) and is cross-checked by
 14. Private credit: all-in coupon, current yield and yield to maturity for a unitranche loan with a floor, OID and a bullet maturity.
 15. PIK: par roll-forward over four quarters with PIK capitalized; cash-on-cash excludes PIK.
 16. Credit ratios: interest coverage, leverage through the tranche, LTV and DSCR, including the null cases (EBITDA, interest or EV at or below zero).
-Property-based tests (fast-check / Hypothesis): IRR of flows scaled by k is unchanged; TVPI = DPI + RVPI; NPV at the solved IRR is within tolerance; par after PIK capitalization is never below par before it.
+17. Takahashi-Alexander liquidity forecast over the fund life (section 8).
+18. Value change: up, down, unchanged, a full write-down, a repeating decimal, a zero prior and a missing current or prior value (null).
+Property-based tests (fast-check / Hypothesis): IRR of flows scaled by k is unchanged; TVPI = DPI + RVPI; NPV at the solved IRR is within tolerance; par after PIK capitalization is never below par before it; prior x (1 + value change) gives back the current value, the change has the sign of current - prior, and scaling both values leaves it unchanged. The random cross-check also recomputes value changes in Python.
 
 ## 10. Private credit metrics
 Inputs come from `mon.credit_terms` and `mon.credit_performance` (`docs/03`). All rates are annual decimals.

@@ -1,9 +1,10 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { D } from '@pb/calc';
-import { commitmentList, sponsorDetail } from '@pb/contracts';
+import { commitmentList, sponsorDetail, vehicleDetail } from '@pb/contracts';
 import type { SponsorDetail } from '@pb/contracts';
 import { startHarness } from './harness.js';
 import type { Harness } from './harness.js';
+import { NOTHING_POOLED } from './pools.js';
 
 /** Decimal to the contract's decimal string, the same rendering the API uses. */
 const str = (d: ReturnType<typeof D>): string => d.toFixed(10).replace(/\.?0+$/, '');
@@ -64,6 +65,7 @@ describe('sponsor 360 (M6): GET /api/v1/sponsors/{id}', () => {
     expect(d.hqGeography).toBe(kelpwood.hqGeography);
     expect(d.description).toBe(kelpwood.description);
     expect(d.calcVersion).toBe('0.1.0');
+    expect(d.asOf).toBe(h.dataset.asOf);
 
     // Positions: every investment with the sponsor, ordered by investment number, with metrics.
     const expectedNumbers = h.dataset.investments
@@ -73,6 +75,11 @@ describe('sponsor 360 (M6): GET /api/v1/sponsors/{id}', () => {
     expect(d.positions.length).toBe(7);
     expect(d.positions.map((p) => p.investmentNumber)).toEqual(expectedNumbers);
     expect(d.positions.every((p) => p.sponsorName === kelpwood.name)).toBe(true);
+    // Each position links back to this sponsor and to its own vehicle.
+    expect(d.positions.every((p) => p.sponsorId === kelpwood.id)).toBe(true);
+    for (const p of d.positions) {
+      expect(p.vehicleId).toBe(h.dataset.investments.find((i) => i.id === p.id)?.vehicleId);
+    }
     expect(d.positions.filter((p) => p.invested !== null).length).toBe(7);
     expect(d.activeInvestments).toBe(
       h.dataset.investments.filter((i) => i.sponsorId === kelpwood.id && i.isActive).length,
@@ -158,6 +165,16 @@ describe('sponsor 360 (M6): GET /api/v1/sponsors/{id}', () => {
     expect(audit[0]?.n).toBe(1);
   });
 
+  it('defaults the as-of date to the clock and names it in the response', async () => {
+    const kelpwood = sponsorNamed('Kelpwood Capital Partners');
+    const res = await h
+      .http()
+      .get(`/api/v1/sponsors/${kelpwood.id}`)
+      .set('authorization', h.as('viewer.one'))
+      .expect(200);
+    expect(sponsorDetail.parse(res.body).asOf).toBe(h.dataset.asOf);
+  });
+
   it('is byte-stable across calls (the preview records responses)', async () => {
     const kelpwood = sponsorNamed('Kelpwood Capital Partners');
     const get = async (): Promise<string> =>
@@ -190,10 +207,28 @@ describe('sponsor 360 (M6): GET /api/v1/sponsors/{id}', () => {
     expect(d.funds.find((f) => f.name === 'Dunecrest Fund IV')?.ourCommitment).toBe('17000000');
     expect(d.funds.find((f) => f.name === 'Dunecrest Fund IV')?.aliases).toEqual(['DF IV']);
     expect(d.totalCommitted).toBe(str(seeded.reduce((acc, c) => acc.plus(c.amount), D('0'))));
-    expect(d.metrics.count).toBe(0);
-    expect(d.metrics.invested).toBeNull();
-    expect(d.metrics.grossMoic).toBeNull();
-    expect(d.metrics.grossIrr).toBeNull();
+    // Nothing to pool: every figure is null, NAV included, never 0 (docs/06 section 3).
+    expect(d.metrics).toEqual(NOTHING_POOLED);
+  });
+
+  it('answers a sponsor without positions exactly as a vehicle without positions', async () => {
+    const dunecrest = sponsorNamed('Dunecrest Private Equity');
+    const primary = h.dataset.vehicles.find(
+      (v) => v.vehicleType === 'vehicle_type.primary_program',
+    );
+    const vehicle = vehicleDetail.parse(
+      (
+        await h
+          .http()
+          .get(`/api/v1/vehicles/${primary!.id}?asOf=${h.dataset.asOf}`)
+          .set('authorization', h.as('viewer.one'))
+          .expect(200)
+      ).body,
+    );
+    const sponsor = await detailFor('viewer.one', dunecrest.id, 'req-sponsor-empty-pool');
+    expect(vehicle.positions).toEqual([]);
+    expect(sponsor.metrics).toEqual(vehicle.metrics);
+    expect(sponsor.metrics).toEqual(NOTHING_POOLED);
   });
 
   it('returns 404, never 403, for an unknown or malformed id', async () => {
@@ -285,6 +320,8 @@ describe('sponsor 360 (M6): GET /api/v1/sponsors/{id}', () => {
     const kelpwood = sponsorNamed('Kelpwood Capital Partners');
     // Before the primary program's first call (2014 vintage) and before every Kelpwood entry date.
     const early = await detailFor('viewer.one', kelpwood.id, 'req-sponsor-early', '2013-12-31');
+    // The response names the date it was calculated as of, like the vehicle detail.
+    expect(early.asOf).toBe('2013-12-31');
     expect(early.positions.length).toBe(7);
     expect(early.positions.every((p) => p.invested === null && p.nav === null)).toBe(true);
     expect(early.metrics.invested).toBeNull();

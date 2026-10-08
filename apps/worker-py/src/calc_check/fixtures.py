@@ -71,6 +71,13 @@ def _xirr_and_unfunded(inp: dict[str, Any], exp: dict[str, Any], tol: str) -> No
     close(u, exp["unfunded"], tol, "unfunded")
 
 
+def _value_change(inp: dict[str, Any], exp: dict[str, Any], tol: str) -> None:
+    for c, e in zip(inp["cases"], exp["results"], strict=True):
+        current = None if c["current"] is None else Decimal(c["current"])
+        prior = None if c["prior"] is None else Decimal(c["prior"])
+        close(multiples.value_change(current, prior), e, tol, "valueChange")
+
+
 def _operating(inp: dict[str, Any], exp: dict[str, Any], tol: str) -> None:
     for c, e in zip(inp["cases"], exp["results"], strict=True):
         ev, nd, eb, rv = (Decimal(c[k]) for k in ("ev", "netDebt", "ebitda", "revenue"))
@@ -267,6 +274,7 @@ def _ta(inp: dict[str, Any], exp: dict[str, Any], tol: str) -> None:
 HANDLERS: dict[str, Callable[[dict[str, Any], dict[str, Any], str], None]] = {
     "xirr": _xirr,
     "xirr_and_unfunded": _xirr_and_unfunded,
+    "value_change": _value_change,
     "operating_ratios": _operating,
     "same_quarter_prior_year": _prior_year,
     "latest_period": _latest,

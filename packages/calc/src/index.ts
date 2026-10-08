@@ -1,5 +1,5 @@
 export { CALC_VERSION } from './version.js';
-export { Decimal, D, CalcError, ZERO, ONE } from './decimal.js';
+export { Decimal, D, CalcError, ZERO, ONE, toDecimalString } from './decimal.js';
 export type { DecimalInput } from './decimal.js';
 export type { Decimal as DecimalValue } from './decimal.js';
 export * from './dates.js';

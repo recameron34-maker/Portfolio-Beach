@@ -1,7 +1,7 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { asc, eq, inArray } from 'drizzle-orm';
 import type { Principal } from '@pb/adapters';
-import { CALC_VERSION, D, ZERO, addMonths, daysBetween, latestPeriod } from '@pb/calc';
+import { CALC_VERSION, D, ZERO, addMonths, daysBetween, latestPeriod, valueChange } from '@pb/calc';
 import type { Decimal } from '@pb/calc';
 import type {
   AnalyticsSummary,
@@ -46,7 +46,7 @@ interface Position {
 }
 
 /** Watchlist thresholds, parsed once per request from config; never hard-coded. */
-interface Thresholds {
+export interface Thresholds {
   raw: Record<string, number | string>;
   netDebtToEbitdaMax: Decimal;
   ebitdaYoYDeclinePct: Decimal;
@@ -57,7 +57,7 @@ interface Thresholds {
 }
 
 /** The credit side of a position: facility maturity plus the status columns of each performance row. */
-interface CreditInputs {
+export interface CreditInputs {
   maturityDate: string | null;
   rows: {
     periodEnd: string;
@@ -68,7 +68,7 @@ interface CreditInputs {
   }[];
 }
 
-interface WatchInputs {
+export interface WatchInputs {
   valuations: readonly ValuationRow[];
   operating: readonly OperatingRow[];
   credit: CreditInputs | null;
@@ -242,7 +242,7 @@ function topPositions(
  * Monitoring flags for one active position (docs/04 M9). Every threshold comes from config. A
  * figure that is not calculable never raises a flag on its own; only an explicit data gap does.
  */
-function evaluateFlags(
+export function evaluateFlags(
   input: WatchInputs,
   asOf: string,
   t: Thresholds,
@@ -324,10 +324,11 @@ function evaluateFlags(
 
   if (locked !== null) {
     const previous = previousLocked(input.valuations, locked.periodEnd);
+    // A markdown is measured against a positive prior mark, with the one value change rule.
     if (previous !== null && D(previous.fairValue).gt(0)) {
-      const change = D(locked.fairValue).div(previous.fairValue).minus(1);
+      const change = valueChange(locked.fairValue, previous.fairValue);
       const limit = t.markdownPct.neg();
-      if (change.lt(limit)) {
+      if (change?.lt(limit)) {
         flags.push({
           code: 'markdown',
           severity: 'watch',

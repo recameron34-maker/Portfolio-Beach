@@ -214,8 +214,19 @@ export function activePositions(): InvestmentSummary[] {
     companyName: string,
     vehicleName: string,
     dealType = 'deal_type.co_invest_equity',
-  ): InvestmentSummary =>
-    investmentFixture({ id, investmentNumber, companyName, vehicleName, dealType });
+  ): InvestmentSummary => {
+    // Each position links to the vehicle of the same name in vehicleListFixture.
+    const vehicle = vehicleListFixture().items.find((v) => v.name === vehicleName);
+    if (vehicle === undefined) throw new Error(`no vehicle fixture named ${vehicleName}`);
+    return investmentFixture({
+      id,
+      investmentNumber,
+      companyName,
+      vehicleId: vehicle.id,
+      vehicleName,
+      dealType,
+    });
+  };
   return [
     at(POSITION_ID.meridian, 'INV-0001', 'Meridian Data Partners', 'Beach Co-Invest Fund I'),
     at(

@@ -1,28 +1,34 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { and, eq, gte, inArray, lte, ne, or } from 'drizzle-orm';
 import type { Principal } from '@pb/adapters';
-import { CALC_VERSION, D, addDays, daysBetween } from '@pb/calc';
+import { CALC_VERSION, D, addDays, daysBetween, valueChange } from '@pb/calc';
 import type { Decimal } from '@pb/calc';
 import type { CapitalNoticeRow, PooledMetrics, WeeklyReport } from '@pb/contracts';
 import { schema } from '@pb/db';
 import type { Tx } from '@pb/db';
 import { DUE_ORDER, buildNoticeRows } from '../capital/notices.js';
-import { configInteger } from '../common/definitions.js';
+import { fmtDate } from '../common/dates.js';
+import { configInteger, configString } from '../common/definitions.js';
 import { DEFINITIONS } from '../common/tokens.js';
 import { DbService } from '../db/db.service.js';
 import { loadInvestmentsWithMetrics } from '../portfolio/loaders.js';
-import { latestLockedValuation, pooledPositionMetrics, str } from '../portfolio/metrics.js';
-import type { ValuationRow } from '../portfolio/metrics.js';
+import { lockedNear } from '../portfolio/marks.js';
+import {
+  latestLockedValuation,
+  latestQuarterEndOnOrBefore,
+  pooledPositionMetrics,
+  str,
+} from '../portfolio/metrics.js';
 
 /** Calculation and reporting settings from config/definitions.json; only the keys this service reads. */
 interface Definitions {
-  priorYearPeriodEndToleranceDays?: number;
-  irr?: { displayShortPeriodAs?: string };
+  priorYearPeriodEndToleranceDays?: unknown;
+  irr?: { displayShortPeriodAs?: unknown };
   reporting?: {
-    weeklyMoversCount?: number;
+    weeklyMoversCount?: unknown;
     capitalActivityWindowDays?: unknown;
-    staleValuationFootnote?: string;
-    noValuationFootnote?: string;
+    staleValuationFootnote?: unknown;
+    noValuationFootnote?: unknown;
   };
   [key: string]: unknown;
 }
@@ -31,8 +37,6 @@ type Position = Awaited<ReturnType<typeof loadInvestmentsWithMetrics>>[number];
 type Mover = WeeklyReport['movers'][number];
 type Stale = WeeklyReport['staleValuations'][number];
 type VehicleRow = WeeklyReport['byVehicle'][number];
-
-const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
 const IRR_FLAG_LABEL: Record<NonNullable<PooledMetrics['irrFlag']>, string> = {
   short_period: 'held under one year',
@@ -43,36 +47,7 @@ const IRR_FLAG_LABEL: Record<NonNullable<PooledMetrics['irrFlag']>, string> = {
   no_convergence: 'IRR did not converge',
 };
 
-/* ---- Calendar helpers on ISO strings (no JS Date, docs/17 section 4) ---- */
-
-function quarterEnd(year: number, quarter: number): string {
-  const month = quarter * 3 + 3;
-  const day = month === 6 || month === 9 ? 30 : 31;
-  return `${year}-${String(month).padStart(2, '0')}-${day}`;
-}
-
-/** Latest calendar quarter end (03-31, 06-30, 09-30, 12-31) on or before the date. */
-export function quarterEndOnOrBefore(iso: string): string {
-  let year = Number(iso.slice(0, 4));
-  let quarter = Math.floor((Number(iso.slice(5, 7)) - 1) / 3);
-  let candidate = quarterEnd(year, quarter);
-  if (candidate > iso) {
-    quarter -= 1;
-    if (quarter < 0) {
-      quarter = 3;
-      year -= 1;
-    }
-    candidate = quarterEnd(year, quarter);
-  }
-  return candidate;
-}
-
 /* ---- Display helpers for the template commentary (docs/06 section 3) ---- */
-
-/** An ISO date for sentences: "2025-03-31" -> "Mar 31, 2025" (also used by the capital notice notes). */
-export function fmtDate(iso: string): string {
-  return `${MONTHS[Number(iso.slice(5, 7)) - 1] ?? '?'} ${Number(iso.slice(8, 10))}, ${iso.slice(0, 4)}`;
-}
 
 const group = (whole: string): string => whole.replace(/\B(?=(\d{3})+(?!\d))/g, ',');
 
@@ -101,25 +76,6 @@ const joinList = (items: string[]): string =>
     ? (items[0] ?? '')
     : `${items.slice(0, -1).join(', ')} and ${items[items.length - 1]}`;
 
-/**
- * Latest Locked valuation whose period end is the target or up to `tolerance` days before it. On
- * equal period ends the first in input order wins. Also the prior mark on the valuations board.
- */
-export function lockedNear(
-  valuations: readonly ValuationRow[],
-  target: string,
-  tolerance: number,
-): ValuationRow | null {
-  let best: ValuationRow | null = null;
-  for (const v of valuations) {
-    if (v.state !== 'Locked') continue;
-    const gap = daysBetween(v.periodEnd, target);
-    if (gap < 0 || gap > tolerance) continue;
-    if (best === null || v.periodEnd > best.periodEnd) best = v;
-  }
-  return best;
-}
-
 const compareDesc = (a: string | null, b: string | null): number => {
   if (a === null) return b === null ? 0 : 1;
   if (b === null) return -1;
@@ -140,22 +96,32 @@ export class ReportsService {
    * only, so nothing is audited; every number is a decimal string or null.
    */
   async weekly(principal: Principal, requestId: string, asOf: string): Promise<WeeklyReport> {
-    const tolerance = this.definitions.priorYearPeriodEndToleranceDays ?? 7;
-    const reporting = this.definitions.reporting ?? {};
-    const moversCount = reporting.weeklyMoversCount ?? 5;
+    // Every setting through the config readers: a missing key is a 500 'configuration' problem
+    // before the database is touched, never a default written here (CLAUDE.md rules 9 and 10).
+    const tolerance = configInteger(
+      this.definitions.priorYearPeriodEndToleranceDays,
+      'priorYearPeriodEndToleranceDays',
+    );
+    const reporting = this.definitions.reporting;
+    const moversCount = configInteger(reporting?.weeklyMoversCount, 'reporting.weeklyMoversCount');
     const windowDays = configInteger(
-      reporting.capitalActivityWindowDays,
+      reporting?.capitalActivityWindowDays,
       'reporting.capitalActivityWindowDays',
     );
-    const staleTemplate =
-      reporting.staleValuationFootnote ??
-      'Carried at the latest Locked valuation of {lockedPeriodEnd}; no Locked mark for {periodEnd}.';
-    const noValuationFootnote =
-      reporting.noValuationFootnote ??
-      'No Locked valuation on record; NAV is not calculable this quarter.';
-    const shortPeriodAs = this.definitions.irr?.displayShortPeriodAs ?? 'NM';
-    const periodEnd = quarterEndOnOrBefore(asOf);
-    const priorPeriodEnd = quarterEndOnOrBefore(addDays(periodEnd, -1));
+    const staleTemplate = configString(
+      reporting?.staleValuationFootnote,
+      'reporting.staleValuationFootnote',
+    );
+    const noValuationFootnote = configString(
+      reporting?.noValuationFootnote,
+      'reporting.noValuationFootnote',
+    );
+    const shortPeriodAs = configString(
+      this.definitions.irr?.displayShortPeriodAs,
+      'irr.displayShortPeriodAs',
+    );
+    const periodEnd = latestQuarterEndOnOrBefore(asOf);
+    const priorPeriodEnd = latestQuarterEndOnOrBefore(addDays(periodEnd, -1));
 
     return this.db.run(principal, requestId, async (tx) => {
       const positions = await loadInvestmentsWithMetrics(
@@ -288,9 +254,9 @@ export class ReportsService {
       const current = lockedNear(p.valuations, periodEnd, tolerance);
       const prior = lockedNear(p.valuations, priorPeriodEnd, tolerance);
       if (current === null || prior === null) continue;
-      const priorValue = D(prior.fairValue);
-      if (priorValue.isZero()) continue;
-      const change = D(current.fairValue).minus(priorValue).div(priorValue);
+      // Not calculable against a zero prior mark: that position is not a mover.
+      const change = valueChange(current.fairValue, prior.fairValue);
+      if (change === null) continue;
       ranked.push({
         mover: {
           investmentId: p.row.id,

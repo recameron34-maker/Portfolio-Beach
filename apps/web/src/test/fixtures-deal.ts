@@ -28,6 +28,8 @@ export const DEAL_IDS = {
   company: '00000000-0000-4000-8000-0000000000e1',
   fundIv: '00000000-0000-4000-8000-0000000000f1',
   fundI: '00000000-0000-4000-8000-0000000000f2',
+  vehicleSma: '00000000-0000-4000-8000-0000000000b4',
+  vehicleCv: '00000000-0000-4000-8000-0000000000b5',
   notice2: '00000000-0000-4000-8000-0000000000d2',
   notice3: '00000000-0000-4000-8000-0000000000d3',
   valuation1: '00000000-0000-4000-8000-000000000101',
@@ -52,11 +54,10 @@ const METHOD = 'valuation_method.sponsor_mark';
 /** An equity co-investment with four valuation versions, one of them reopened, and two cash flows. */
 export function dealDetailFixture(overrides: Partial<InvestmentDetail> = {}): InvestmentDetail {
   return {
+    // The summary row carries the vehicle and sponsor ids (ID.vehicle1, ID.sponsor1).
     ...investmentFixture(),
     companyId: DEAL_IDS.company,
-    sponsorId: ID.sponsor1,
     sponsorFundId: DEAL_IDS.fundIv,
-    vehicleId: ID.vehicle1,
     companyDescription: 'Synthetic portfolio company.',
     latestPeriodEnd: AS_OF,
     cashFlows: [
@@ -381,6 +382,7 @@ export function sponsorDetailFixture(overrides: Partial<SponsorDetail> = {}): Sp
     hqGeography: 'geography.north_america',
     fundCount: 2,
     activeInvestments: 2,
+    asOf: AS_OF,
     description: 'Control buyouts and growth investments in the middle market.',
     funds: [
       {
@@ -416,12 +418,14 @@ export function sponsorDetailFixture(overrides: Partial<SponsorDetail> = {}): Sp
         id: ID.inv2,
         investmentNumber: 'INV-0002',
         companyName: 'Juniper Financial Group',
+        vehicleId: DEAL_IDS.vehicleSma,
         vehicleName: 'Client Gamma Separate Account',
       }),
       investmentFixture({
         id: ID.inv3,
         investmentNumber: 'INV-0017',
         companyName: 'Penrose Foods Holdings',
+        vehicleId: DEAL_IDS.vehicleCv,
         vehicleName: 'Beach CV Opportunities I',
         dealType: 'deal_type.cv_single_asset',
         isActive: false,

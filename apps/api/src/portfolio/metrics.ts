@@ -20,6 +20,7 @@ import {
   netDebtToEbitda,
   sameQuarterPriorYear,
   summarizeFlows,
+  toDecimalString,
   toSignedFlows,
   xirr,
   yoyGrowth,
@@ -52,9 +53,8 @@ export interface PositionMetrics {
   calcVersion: string;
 }
 
-/** Decimal to the contract's decimal string (no exponent, no trailing zeros); null stays null. */
-export const str = (d: Decimal | null): string | null =>
-  d === null ? null : d.toFixed(10).replace(/\.?0+$/, '');
+/** Decimal to the contract's decimal string (@pb/calc toDecimalString); null stays null. */
+export const str = toDecimalString;
 
 /** The flow kind packages/calc expects: the taxonomy code without its domain prefix. */
 export function kindOf(flowType: string): FlowKind {
@@ -232,11 +232,29 @@ export interface PositionInput {
  * flows are pooled, NAV is the sum of each active position's latest Locked mark, and the IRR runs
  * over the pooled flows plus the summed NAV as a terminal flow (docs/08 sections 2 and 3). Pooled
  * flows can change sign more than once, so the IRR flag matters. Never a JS number for money.
+ *
+ * A set with no position at all (the primary program, a sponsor the caller holds nothing with, a
+ * reader behind every wall) has nothing to pool: every figure is null, never 0, and the IRR flag
+ * says why (docs/06 section 3). Every view that pools gets that answer from here alone.
  */
 export function pooledPositionMetrics(
   positions: readonly PositionInput[],
   asOf: string,
 ): PooledMetrics {
+  if (positions.length === 0) {
+    return {
+      count: 0,
+      invested: null,
+      distributions: null,
+      nav: null,
+      dpi: null,
+      rvpi: null,
+      tvpi: null,
+      grossMoic: null,
+      grossIrr: null,
+      irrFlag: 'insufficient_flows',
+    };
+  }
   const typed: TypedCashFlow[] = [];
   let navSum = ZERO;
   let anyNav = false;

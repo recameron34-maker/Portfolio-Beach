@@ -1,3 +1,4 @@
+import { toDecimalString, valueChange } from '@pb/calc';
 import { investmentDetail, valuationCommandBody, valuationCreateBody } from '@pb/contracts';
 import type { InvestmentDetail, ValuationRow } from '@pb/contracts';
 import { attempt, valuationMachine } from '@pb/workflows';
@@ -151,9 +152,9 @@ export const createValuationRoute = defineSimRoute({
       method,
       fairValue,
       priorFairValue: prior?.fairValue ?? null,
-      // The change ratio belongs to @pb/calc (docs/08), which the preview chunk does not bundle;
-      // it stays null (shown as the missing placeholder) rather than a float approximation.
-      changePct: null,
+      // The API's rule from @pb/calc (docs/08 section 2), which only this lazily loaded chunk
+      // bundles: null without a recorded prior Locked mark or against a zero one.
+      changePct: toDecimalString(valueChange(fairValue, prior?.fairValue ?? null)),
     };
     sims.set(row.id, {
       row,
