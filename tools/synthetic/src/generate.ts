@@ -61,6 +61,34 @@ function fixed(value: number): string {
  * Builds a complete, internally consistent synthetic dataset. Every number is derived from the
  * seed, so tests can rely on exact values, and every deliberate defect carries a scenario tag.
  */
+/**
+ * Three plain statements about a quarter, read from its own generated figures against the quarter
+ * before (or the entry snapshot), so a highlight never contradicts the numbers beside it. No random
+ * draws: adding or changing a sentence leaves every other seeded value as it was.
+ */
+function quarterHighlights(
+  before: { revenue: number; margin: number; netDebt: number },
+  now: { revenue: number; margin: number; netDebt: number },
+): string[] {
+  const money = (v: number): string => `$${(v / 1_000_000).toFixed(1)}M`;
+  const revenueChange = before.revenue === 0 ? 0 : now.revenue / before.revenue - 1;
+  const revenue =
+    Math.abs(revenueChange) < 0.0005
+      ? `LTM revenue was flat at ${money(now.revenue)}.`
+      : `LTM revenue ${revenueChange > 0 ? 'rose' : 'fell'} ${(Math.abs(revenueChange) * 100).toFixed(1)}% from the prior quarter to ${money(now.revenue)}.`;
+  const points = (now.margin - before.margin) * 100;
+  const margin =
+    Math.abs(points) < 0.05
+      ? `EBITDA margin was unchanged at ${(now.margin * 100).toFixed(1)}%.`
+      : `EBITDA margin was ${(now.margin * 100).toFixed(1)}%, ${points > 0 ? 'up' : 'down'} ${Math.abs(points).toFixed(1)} points.`;
+  const debtChange = now.netDebt - before.netDebt;
+  const debt =
+    Math.abs(debtChange) < 50_000
+      ? `Net debt was unchanged at ${money(now.netDebt)}.`
+      : `Net debt ${debtChange < 0 ? 'fell' : 'rose'} to ${money(now.netDebt)}.`;
+  return [revenue, margin, debt];
+}
+
 export function generateDataset(options: GenerateOptions = {}): SyntheticDataset {
   const profile: Profile = PROFILES[options.profile ?? 'default'] ?? PROFILES.default!;
   const seed = options.seed ?? 42;
@@ -638,6 +666,7 @@ export function generateDataset(options: GenerateOptions = {}): SyntheticDataset
     let netDebt = entryNetDebt;
     const drift = Number(rng.decimal(-0.03, 0.09, 3));
     for (const [k, periodEnd] of keep.entries()) {
+      const before = { revenue, margin, netDebt };
       revenue *= 1 + drift / 4 + (rng.next() - 0.5) * 0.04;
       margin = Math.min(0.45, Math.max(-0.1, margin + (rng.next() - 0.5) * 0.01));
       netDebt = Math.max(0, netDebt * (0.985 + (rng.next() - 0.5) * 0.02));
@@ -655,11 +684,7 @@ export function generateDataset(options: GenerateOptions = {}): SyntheticDataset
         netDebt: fixed(netDebt),
         cash: fixed(ev * 0.03),
         totalEquity: fixed(ev - netDebt),
-        highlights: [
-          'LTM revenue grew with new customer wins.',
-          'Performance was driven by pricing and volume.',
-          'Management completed one add-on acquisition.',
-        ],
+        highlights: quarterHighlights(before, { revenue, margin, netDebt }),
         commentary: null,
         isEntrySnapshot: false,
         status: 'record_status.approved',
