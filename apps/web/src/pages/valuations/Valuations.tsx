@@ -20,11 +20,11 @@ import { Add16Regular, Search16Regular } from '@fluentui/react-icons';
 import type {
   InvestmentPage,
   InvestmentSummary,
+  ValuationCommand,
   ValuationPage,
   ValuationRow,
   ValuationState,
 } from '@pb/contracts';
-import type { ValuationCommand } from '@pb/contracts';
 import { valuationMachine } from '@pb/workflows';
 import { previewMode } from '../../app/env.js';
 import {
@@ -296,7 +296,7 @@ function MissingMarksCard({
                       <td>
                         <Button
                           size="small"
-                          appearance="subtle"
+                          appearance="outline"
                           aria-label={`Start valuation, ${p.companyName}`}
                           onClick={() => onStart(p.id)}
                         >

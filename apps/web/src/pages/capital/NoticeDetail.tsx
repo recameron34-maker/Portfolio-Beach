@@ -2,8 +2,7 @@ import { useState } from 'react';
 import type { ReactNode } from 'react';
 import { Link, useParams } from '@tanstack/react-router';
 import { useQuery } from '@tanstack/react-query';
-import type { CapitalNoticeDetail, CapitalNoticeState } from '@pb/contracts';
-import type { CapitalNoticeCommand } from '@pb/contracts';
+import type { CapitalNoticeCommand, CapitalNoticeDetail, CapitalNoticeState } from '@pb/contracts';
 import { capitalNoticeMachine } from '@pb/workflows';
 import { ApiError } from '../../api/client.js';
 import { previewMode } from '../../app/env.js';
@@ -195,7 +194,9 @@ function WorkflowCard({
       <SectionHeader aside={previewMode ? <SimulatedBadge /> : undefined}>Workflow</SectionHeader>
       <ActionStatus latest={onLog.latest} testId="notice-action-status" />
       {options.length === 0 ? (
-        <p className="pb-meta">Reconciled is the last step; nothing further to do.</p>
+        <p className="pb-meta">
+          {humanizeState(notice.state)} is the last step; nothing further to do.
+        </p>
       ) : (
         <div className="pb-cap-actions">
           <CommandButtons
