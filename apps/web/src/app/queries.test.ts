@@ -80,12 +80,11 @@ describe('query options', () => {
   it('asks for the same URLs as before', async () => {
     mockApi({});
     const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-    const reads = [
-      valuationsQuery({ investmentId: 'inv-1' }),
-      capitalNoticesQuery({ investmentId: 'inv-1' }),
-      capitalNoticeQuery('notice-1'),
-    ];
-    for (const q of reads) await expect(client.fetchQuery(q)).rejects.toThrow();
+    await expect(client.fetchQuery(valuationsQuery({ investmentId: 'inv-1' }))).rejects.toThrow();
+    await expect(
+      client.fetchQuery(capitalNoticesQuery({ investmentId: 'inv-1' })),
+    ).rejects.toThrow();
+    await expect(client.fetchQuery(capitalNoticeQuery('notice-1'))).rejects.toThrow();
     expect(requested()).toEqual([
       '/api/v1/valuations?limit=200&investmentId=inv-1',
       '/api/v1/capital-notices?limit=200&investmentId=inv-1',
