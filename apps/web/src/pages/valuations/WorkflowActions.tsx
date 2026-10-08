@@ -35,7 +35,7 @@ export function CommandButtons<S extends string, C extends string>({
   busy: boolean;
   context?: string | undefined;
   notAllowedTitle?: ((option: CommandOption<S, C>) => string | undefined) | undefined;
-  appearance?: 'subtle' | 'secondary';
+  appearance?: 'subtle' | 'outline' | 'secondary';
   onIssue: (option: CommandOption<S, C>) => void;
 }): ReactNode {
   if (options.length === 0) return <span className="pb-meta">None</span>;

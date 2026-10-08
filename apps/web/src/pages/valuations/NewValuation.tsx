@@ -90,7 +90,7 @@ export function NewValuationDialog({
                 </Dropdown>
               </FluentField>
               <FluentField label="Period end" hint="The period selected on the board.">
-                <Input readOnly value={formatDate(period)} />
+                <Input readOnly appearance="filled-darker" value={formatDate(period)} />
               </FluentField>
               <FluentField label="Method" required>
                 <Dropdown

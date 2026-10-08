@@ -174,6 +174,7 @@ function VersionTable({
                 <CommandButtons
                   options={commandOptions(valuationMachine, row.state, roles)}
                   busy={busy}
+                  appearance="outline"
                   context={versionLabel(row)}
                   onIssue={(option) => onIssue(row, option)}
                 />
