@@ -275,6 +275,7 @@ export function sponsorPageFixture(
 export function sponsorDetailFixture(overrides: Partial<SponsorDetail> = {}): SponsorDetail {
   return {
     ...sponsorSummaryFixture({ activeInvestments: 1 }),
+    asOf: AS_OF,
     description: 'Control buyouts and growth investments in the middle market.',
     funds: [
       {

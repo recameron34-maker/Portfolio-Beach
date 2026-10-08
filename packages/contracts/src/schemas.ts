@@ -442,6 +442,8 @@ export const sponsorFundRow = z.object({
 });
 
 export const sponsorDetail = sponsorSummary.extend({
+  /** The date the positions, commitment flows and pooled metrics are calculated as of. */
+  asOf: isoDate,
   description: z.string().nullable(),
   funds: z.array(sponsorFundRow),
   positions: z.array(investmentSummary),

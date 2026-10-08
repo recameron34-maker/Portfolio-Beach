@@ -65,6 +65,7 @@ describe('sponsor 360 (M6): GET /api/v1/sponsors/{id}', () => {
     expect(d.hqGeography).toBe(kelpwood.hqGeography);
     expect(d.description).toBe(kelpwood.description);
     expect(d.calcVersion).toBe('0.1.0');
+    expect(d.asOf).toBe(h.dataset.asOf);
 
     // Positions: every investment with the sponsor, ordered by investment number, with metrics.
     const expectedNumbers = h.dataset.investments
@@ -157,6 +158,16 @@ describe('sponsor 360 (M6): GET /api/v1/sponsors/{id}', () => {
       `select count(*)::int as n from audit.event where action = 'sponsor.read' and entity_id = '${kelpwood.id}' and request_id = 'req-sponsor-kelpwood-1'`,
     );
     expect(audit[0]?.n).toBe(1);
+  });
+
+  it('defaults the as-of date to the clock and names it in the response', async () => {
+    const kelpwood = sponsorNamed('Kelpwood Capital Partners');
+    const res = await h
+      .http()
+      .get(`/api/v1/sponsors/${kelpwood.id}`)
+      .set('authorization', h.as('viewer.one'))
+      .expect(200);
+    expect(sponsorDetail.parse(res.body).asOf).toBe(h.dataset.asOf);
   });
 
   it('is byte-stable across calls (the preview records responses)', async () => {
@@ -304,6 +315,8 @@ describe('sponsor 360 (M6): GET /api/v1/sponsors/{id}', () => {
     const kelpwood = sponsorNamed('Kelpwood Capital Partners');
     // Before the primary program's first call (2014 vintage) and before every Kelpwood entry date.
     const early = await detailFor('viewer.one', kelpwood.id, 'req-sponsor-early', '2013-12-31');
+    // The response names the date it was calculated as of, like the vehicle detail.
+    expect(early.asOf).toBe('2013-12-31');
     expect(early.positions.length).toBe(7);
     expect(early.positions.every((p) => p.invested === null && p.nav === null)).toBe(true);
     expect(early.metrics.invested).toBeNull();

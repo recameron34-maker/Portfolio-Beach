@@ -381,6 +381,7 @@ export function sponsorDetailFixture(overrides: Partial<SponsorDetail> = {}): Sp
     hqGeography: 'geography.north_america',
     fundCount: 2,
     activeInvestments: 2,
+    asOf: AS_OF,
     description: 'Control buyouts and growth investments in the middle market.',
     funds: [
       {

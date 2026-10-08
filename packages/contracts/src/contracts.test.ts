@@ -3,6 +3,21 @@ import { buildOpenApi } from './openapi.js';
 import { ROUTES } from './routes.js';
 import { investmentListQuery, investmentSummary, problemDetails } from './schemas.js';
 
+interface ObjectSchema {
+  properties?: Record<string, Record<string, unknown>>;
+  required?: string[];
+}
+
+/** The JSON schema of a GET route's success response in the generated document. */
+function responseSchema(doc: ReturnType<typeof buildOpenApi>, path: string): ObjectSchema {
+  const get = doc.paths[path]?.get as
+    | { responses: Record<string, { content: Record<string, { schema: ObjectSchema }> }> }
+    | undefined;
+  const schema = get?.responses['200']?.content['application/json']?.schema;
+  if (schema === undefined) throw new Error(`no 200 response schema for GET ${path}`);
+  return schema;
+}
+
 describe('contracts', () => {
   it('builds a valid-looking OpenAPI 3.1 document for every route', () => {
     const doc = buildOpenApi('0.1.0');
@@ -17,6 +32,15 @@ describe('contracts', () => {
     expect(patch['x-roles']).toEqual(['platform_admin']);
     expect(patch.requestBody).toBeDefined();
     expect(doc.components.schemas.ProblemDetails).toBeDefined();
+  });
+
+  it('documents the as-of date of the sponsor 360 like the vehicle detail', () => {
+    const doc = buildOpenApi('0.1.0');
+    for (const path of ['/api/v1/sponsors/{id}', '/api/v1/vehicles/{id}']) {
+      const schema = responseSchema(doc, path);
+      expect(schema.required, path).toContain('asOf');
+      expect(schema.properties?.asOf, path).toBeDefined();
+    }
   });
 
   it('rejects unknown query fields and caps the page size at 200', () => {

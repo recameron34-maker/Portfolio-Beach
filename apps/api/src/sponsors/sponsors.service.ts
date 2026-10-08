@@ -126,6 +126,7 @@ export class SponsorsService {
         hqGeography: sponsor.hqGeography,
         fundCount: sponsor.fundCount,
         activeInvestments: sponsor.activeInvestments,
+        asOf,
         description: sponsor.description,
         funds: funds.map((r) => ({
           id: r.id,
