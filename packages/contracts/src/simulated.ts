@@ -50,6 +50,28 @@ export const capitalNoticeCommandBody = z
 
 export const previewResetResult = z.object({ reset: z.literal(true) });
 
+/** One refused workflow command as an RFC 9457 problem (docs/17 section 3). */
+export interface WorkflowRefusal {
+  status: 403 | 409 | 422;
+  /** The problem `type` code, appended to the problem base URL. */
+  code: string;
+  title: string;
+}
+
+/**
+ * How a refusal from `attempt()` in @pb/workflows answers over HTTP, keyed by its failure code. The
+ * API's workflow controllers and the preview simulation share this one mapping so they cannot
+ * drift: a role the table does not allow is 403, a command the table does not list from the
+ * current state is 409, a failed precondition (segregation of duties, missing reason, unverified
+ * wire) is 422. 412 stays reserved for a stale If-Match row version.
+ */
+export const WORKFLOW_REFUSALS = {
+  role: { status: 403, code: 'forbidden', title: 'Forbidden' },
+  forbidden: { status: 409, code: 'workflow-transition', title: 'Conflict' },
+  precondition: { status: 422, code: 'workflow-precondition', title: 'Unprocessable' },
+} as const satisfies Record<'role' | 'forbidden' | 'precondition', WorkflowRefusal>;
+export type WorkflowRefusalCode = keyof typeof WORKFLOW_REFUSALS;
+
 export const SIMULATED_ROUTES: readonly RouteDefinition[] = [
   {
     method: 'POST',
