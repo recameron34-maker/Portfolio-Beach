@@ -214,7 +214,7 @@ describe('weekly report (M12)', () => {
     expect(report.commentary.paragraphs[1]).toMatch(/^NAV by vehicle: /);
     for (const v of report.byVehicle)
       expect(report.commentary.paragraphs[1]).toContain(`${v.vehicleName} $`);
-    expect(JSON.stringify(report)).not.toContain('—');
+    expect(JSON.stringify(report)).not.toContain('-');
     // Reading the report is not a sensitive read, so nothing is audited.
     const audited = await h.runtime.db.query<{ n: number }>(
       "select count(*)::int as n from audit.event where action like 'report%'",

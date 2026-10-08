@@ -34,7 +34,7 @@ Status: N = not started, P = partial, B = built. Phase 0 built the foundations (
 | # | Capability | Module | Status |
 |---|---|---|---|
 | C1 | Capture capital call and distribution notices (ILPA template aware) | M16 | N |
-| C2 | Due date tracker with alerts; preferred funding date | M16 | N |
+| C2 | Due date tracker with alerts; preferred funding date | M16 | P (capital notice list with an attention panel and days to due from config; alert dispatch pending) |
 | C3 | Wire instruction register + change-triggered callback verification (two people) | M16 | N |
 | C4 | Cash Flow rows from approved notices (feeds IRR, unfunded, weekly report) | M16 | N |
 | C5 | Equalization, recallable, interest and expense true-up handling; unfunded reconciliation | M16 | N |
@@ -45,14 +45,14 @@ Status: N = not started, P = partial, B = built. Phase 0 built the foundations (
 ## D. Commitments and primary program (New)
 | # | Capability | Module | Status |
 |---|---|---|---|
-| D1 | Commitment record incl. target / hard cap / final fund size updates | M17 | N |
+| D1 | Commitment record incl. target / hard cap / final fund size updates | M17 | P (commitment views with called, distributed, recallable and unfunded; edits pending) |
 | D2 | Monthly new commitment report with approval | M17 | N |
-| D3 | GP track record by vintage (promised vs. delivered), re-up history | M17 | N |
+| D3 | GP track record by vintage (promised vs. delivered), re-up history | M17 | P (sponsor 360 lists funds, aliases, our positions and commitments; promised vs delivered pending) |
 | D4 | Portfolio construction targets, vintage pacing, sizing, exposure | M17 | N |
 | D5 | Advisory board / LPAC seats, votes and consents | M17 | N |
 | D6 | Fund-of-funds market reference data (terms, sleeve mix) | M17 | N |
 | D7 | Commitment linking and multi-client dedup | M1 | P (one canonical fund, many commitments; vehicle and client-directed commitments modeled and seeded) |
-| D8 | LP commitments to firm vehicles, ownership after each close, client look-through of every position | M1, M17 | P (table, RLS entitlement, ownership gap check on Data Health; look-through views pending) |
+| D8 | LP commitments to firm vehicles, ownership after each close, client look-through of every position | M1, M17 | P (table, RLS entitlement, ownership gap check, vehicle detail and client look-through read views under entitlement) |
 
 ## E. Portfolio monitoring and valuation
 | # | Capability | Module | Status |
@@ -61,21 +61,21 @@ Status: N = not started, P = partial, B = built. Phase 0 built the foundations (
 | E2 | Quarterly extraction (15 fields + commentary) | M4 | N |
 | E3 | Review by exception with page citations | M4 | N |
 | E4 | Primary fund report extraction | M4 | N |
-| E5 | Deal workspace one-pager (Overview, Performance, Sponsor & Contacts, Tasks, Documents) | M5, M9 | P (Overview and Performance for equity and credit; other tabs with their modules) |
-| E6 | Entry vs. current multiple analysis, leverage, growth | M9 | P (current ratios, exact prior-year YoY and credit leverage in the API and one-pager; entry comparison pending) |
-| E7 | Watchlist rules and alerts | M9 | N |
-| E8 | Realization outlook (next 18 months) changed only by explicit edit | M9 | N |
-| E9 | Valuation staging, approvals, lock / reopen, batch approve | M10 | P (state machine, lock immutability, one Locked per period and segregation of duties enforced in the database and workflow tables; screens pending) |
+| E5 | Deal workspace one-pager (Overview, Performance, Sponsor & Contacts, Tasks, Documents) | M5, M9 | P (workspace tabs: Overview, Performance, Sponsor, Valuations, Capital activity, Activity; Diligence, Closing, Documents and Tasks arrive with their modules) |
+| E6 | Entry vs. current multiple analysis, leverage, growth | M9 | P (quarterly series with ratios, prior-year YoY and since-entry comparison in the performance endpoint and tab) |
+| E7 | Watchlist rules and alerts | M9 | P (rules from config thresholds evaluated in the API and shown on the watchlist and home; alert dispatch pending) |
+| E8 | Realization outlook (next 18 months) changed only by explicit edit | M9 | P (read on the performance tab; the edit workflow is pending) |
+| E9 | Valuation staging, approvals, lock / reopen, batch approve | M10 | P (state machine and database rules in place; valuation board read view; approvals and locks are simulated in the static preview only, decision 0006) |
 | E10 | Deal change requests routed to Ops | M11 | N |
 | E11 | **New:** NAV roll-forward when sponsor marks are late, with automatic footnote | M9, M19 | N |
 | E12 | Sublines: balance, usage, paydowns, documented support for paydown sources | M12 | N |
-| E13 | Private credit monitoring: terms, par / cost / fair value, PIK, coverage, leverage, LTV, DSCR, covenant and payment status, maturity ladder | M9 | P (tables, calculations, synthetic scenarios, API and one-pager; watchlist and maturity ladder pending) |
+| E13 | Private credit monitoring: terms, par / cost / fair value, PIK, coverage, leverage, LTV, DSCR, covenant and payment status, maturity ladder | M9 | P (tables, calculations, scenarios, API, one-pager, credit book view and watchlist flags; DSCR inputs and the ladder view pending) |
 
 ## F. Reporting
 | # | Capability | Module | Status |
 |---|---|---|---|
-| F1 | Weekly report generated from data; live Power BI version | M12 | N |
-| F2 | Portfolio analysis page (sector, vintage, sponsor, average check size, deal type, concentration) | M12 | N |
+| F1 | Weekly report generated from data; live Power BI version | M12 | P (report assembled server side from the figures with template commentary and footnotes; Office output and Power BI pending) |
+| F2 | Portfolio analysis page (sector, vintage, sponsor, average check size, deal type, concentration) | M12 | P (exposures, NAV and cash-flow series, top positions from the analytics endpoint; average check and concentration limits pending) |
 | F3 | Internal quarterly co-invest reports updated from last quarter, stable visuals, separate change log | M14 | N (designed) |
 | F4 | **New:** report QA engine (roll-forward, QTD basis, prior-report tie-out, sign check) | M14 | N |
 | F5 | Mover commentary in house style; recalculated after data corrections | M14 | N |
@@ -84,7 +84,7 @@ Status: N = not started, P = partial, B = built. Phase 0 built the foundations (
 | F8 | **New:** disclosure library and approved statistics register | M19 | N |
 | F9 | Reporting package tracker, distribution log | M14, M19 | N |
 | F10 | Ad hoc client / DDQ answer library | M14 | N |
-| F12 | Reporting views with row-level security; in-app analytics; Power BI model (post-merge) | M13 | N |
+| F12 | Reporting views with row-level security; in-app analytics; Power BI model (post-merge) | M13 | P (in-app analytics under RLS; Power BI post-merge) |
 | F11 | IRR workbook reviewer agent | M15 | N (designed) |
 
 ## G. Relationships and market knowledge
@@ -92,7 +92,7 @@ Status: N = not started, P = partial, B = built. Phase 0 built the foundations (
 |---|---|---|---|
 | G1 | Zero-entry email capture with AI summary (own mailbox) | M6 | N |
 | G2 | Sent items and meeting capture | M6 | N |
-| G3 | Relationship score, warm paths, Sponsor 360 | M6 | N |
+| G3 | Relationship score, warm paths, Sponsor 360 | M6 | P (Sponsor 360 on firm-side data: funds, aliases, positions, commitments; contacts, interactions and the score arrive with M6) |
 | G4 | **New:** GP coverage map with delegates during leave | M18 | N |
 | G5 | **New:** AGM calendar, RSVP, travel-by date, attendees | M18 | N |
 | G6 | **New:** AGM notes agent (statements about the GP, not a recap) | M18 | N |
@@ -104,12 +104,12 @@ Status: N = not started, P = partial, B = built. Phase 0 built the foundations (
 |---|---|---|---|
 | H1 | Task and notification hub, missed-items digest | M15 | N |
 | H2 | **New:** Weekly team meeting pack auto-generated | M18 | N |
-| H3 | Audit trail and ODD evidence export | M15 | P (append-only audit.event and full-row history in place; evidence export pending) |
+| H3 | Audit trail and ODD evidence export | M15 | P (append-only audit.event, full-row history and an audit trail view for the four permitted roles; evidence export pending) |
 | H4 | Exceptions dashboard (the look-through data provider, the accounting system, extraction, reports) | M2, M15 | N |
 | H5 | Systems issue intake (problem, lane, scores, decision log) | M15 | N |
 | H6 | Data clearance gates enforced in code | docs/10 | P (employer-data and style guards in CI, production guard against mocks; connector gates with the connectors) |
 | H7 | Backup admin, runbooks, cost tracking | M15 | N |
-| H8 | Ask Portfolio Beach (permission-aware Q&A) | M15 | N |
+| H8 | Ask Portfolio Beach (permission-aware Q&A) | M15 | P (mock assistant in the preview answers fixed questions from the current user's own figures by template, labelled as mock; no model call) |
 
 ## Out of scope (confirmed)
 Fund-accounting general ledger, investor onboarding / KYC, fixing the look-through data provider or the document collection service themselves, the accounting system licensing, and personal (non-firm) tax or accounting workflows.
@@ -119,7 +119,7 @@ Fund-accounting general ledger, investor onboarding / KYC, fixing the look-throu
 |---|---|---|---|
 | I1 | Click-to-source on every reported number | M4, SEC-9.4 | N |
 | I2 | 100+ automated validations; restatement history | M2 | N |
-| I3 | Look-through exposures on our taxonomy | M20 | N |
+| I3 | Look-through exposures on our taxonomy | M20 | P (exposure buckets by sector, geography, deal type, vehicle, sponsor and vintage; client look-through by ownership) |
 | I4 | Benchmarking, PME, quartiles | M20 | N |
 | I5 | Liquidity and cash flow forecasting | M20 | N |
 | I6 | Value creation attribution; exit analytics | M20 | N |

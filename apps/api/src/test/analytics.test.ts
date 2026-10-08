@@ -244,7 +244,7 @@ describe('analytics summary (M12, M13) and monitoring watchlist (M9)', () => {
       expect(maturity?.message).toMatch(/matured on \d{4}-\d{2}-\d{2}/);
       for (const item of w.items) {
         expect(item.flags.length).toBeGreaterThan(0);
-        for (const f of item.flags) expect(f.message).not.toMatch(/[—–]/);
+        for (const f of item.flags) expect(f.message).not.toMatch(/[-–]/);
       }
     });
 

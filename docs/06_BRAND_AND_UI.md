@@ -15,6 +15,8 @@ The prototype ships with its **own neutral theme**. A deploying firm's brand is 
 | `status.good / watch / bad` | #2E7D32 / #B7791F / #C62828 | Status |
 Fonts: system UI stack (`"Segoe UI", system-ui, sans-serif`); serif accent for page titles (`Georgia, serif`). Check WCAG AA contrast for all pairs.
 
+Derived tokens (`apps/web/src/app/theme.ts`, decision 0007) are formulas over the values above and are the only other colours the web app may use: tints for hover and selection, inks for status text, the sign-in scene. Usage rules: `--pb-muted` only on the page background; secondary text on any tinted surface uses `--pb-muted-strong`; the accent is never text (use `--pb-accent-ink` when accent-coloured text is unavoidable); status colours as text only through `--pb-good-ink`, `--pb-watch-ink` and `--pb-bad-ink`, with the raw values kept for dots, borders and fills. Chart series come from `chartSeries` (validated for colour-vision safety) and are never used for text.
+
 ## 2. Layout rules
 - White background, white cards with thin borders; brand color only for headers, table header rows and key numbers.
 - Tinted panels only on the deal one-pager tab. Always scope styles to a feature folder.
