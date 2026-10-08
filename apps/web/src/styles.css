@@ -383,10 +383,14 @@ p:last-child {
   padding-bottom: 5px;
   border-bottom: 2px solid var(--pb-brand-accent);
 }
+/* The aside wraps inside its half of the header (chips on a phone) instead of widening the card. */
 .pb-section-aside {
   display: inline-flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
   align-items: center;
-  gap: 8px;
+  gap: 4px 8px;
+  min-width: 0;
   font-size: 12px;
   line-height: 16px;
   font-weight: 500;

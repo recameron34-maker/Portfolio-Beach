@@ -1,5 +1,6 @@
-/* Valuation board (docs/04 M10). Tokens only; shared table, tile and badge styles live in styles.css.
-   styles.css loads after page styles, so every override of a shared class uses two classes. */
+/* Valuation board (docs/04 M10). Tokens only; shared table, tile and badge styles live in styles.css,
+   which loads first, so a page class wins over a shared class of the same specificity. Filters keep
+   .pb-toolbar in front to outrank Fluent's own classes. */
 .pb-val-gates {
   display: grid;
   gap: 6px;
@@ -33,23 +34,23 @@
 /* Thirteen columns are more than a laptop screen holds. Cells stay on one line (names and codes may
    take two), the table scrolls sideways in its frame, and the investment number and company stay
    pinned on the left, so scrolling right puts the values, the change and the actions side by side. */
-.pb-table.pb-val-table th,
-.pb-table.pb-val-table td {
+.pb-val-table th,
+.pb-val-table td {
   white-space: nowrap;
 }
-.pb-table.pb-val-table td.pb-val-name {
+.pb-val-table td.pb-val-name {
   min-width: 152px;
   white-space: normal;
 }
-.pb-table.pb-val-table td.pb-val-wrap {
+.pb-val-table td.pb-val-wrap {
   min-width: 104px;
   white-space: normal;
 }
-.pb-table.pb-val-table .pb-command-buttons {
+.pb-val-table .pb-command-buttons {
   flex-direction: column;
   align-items: flex-start;
 }
-.pb-table.pb-val-table tr > :first-child {
+.pb-val-table tr > :first-child {
   position: sticky;
   left: 0;
   z-index: 1;
@@ -57,27 +58,27 @@
   min-width: 100px;
   background: var(--pb-bg);
 }
-.pb-table.pb-val-table thead tr > :first-child {
+.pb-val-table thead tr > :first-child {
   background: var(--pb-brand-primary);
 }
-.pb-table.pb-val-table tbody tr:hover > :first-child {
+.pb-val-table tbody tr:hover > :first-child {
   background: var(--pb-primary-tint-4);
 }
 @media (min-width: 761px) {
-  .pb-table.pb-val-table tr > :nth-child(2) {
+  .pb-val-table tr > :nth-child(2) {
     position: sticky;
     left: 100px;
     z-index: 1;
     background: var(--pb-bg);
     box-shadow: inset -1px 0 0 var(--pb-border);
   }
-  .pb-table.pb-val-table thead tr > :nth-child(2) {
+  .pb-val-table thead tr > :nth-child(2) {
     background: var(--pb-brand-primary);
     box-shadow:
       inset 1px 0 0 rgba(var(--pb-bg-rgb), 0.18),
       inset -1px 0 0 rgba(var(--pb-bg-rgb), 0.18);
   }
-  .pb-table.pb-val-table tbody tr:hover > :nth-child(2) {
+  .pb-val-table tbody tr:hover > :nth-child(2) {
     background: var(--pb-primary-tint-4);
   }
 }
@@ -86,10 +87,10 @@
   .pb-toolbar .pb-val-filter.is-wide {
     width: 100%;
   }
-  .pb-table.pb-val-table tr > :first-child {
+  .pb-val-table tr > :first-child {
     box-shadow: inset -1px 0 0 var(--pb-border);
   }
-  .pb-table.pb-val-table thead tr > :first-child {
+  .pb-val-table thead tr > :first-child {
     box-shadow: inset -1px 0 0 rgba(var(--pb-bg-rgb), 0.18);
   }
 }

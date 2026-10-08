@@ -1,5 +1,7 @@
 /* Capital activity pages (docs/04 M16, M17). Tokens only; shared table, tile and badge styles live in
-   styles.css. styles.css loads after page styles, so every override of a shared class uses two classes. */
+   styles.css, which loads first, so a page class wins over a shared class of the same specificity.
+   Filters keep .pb-toolbar in front to outrank Fluent's own classes; the total row keeps two classes
+   to outrank .pb-table th[scope='row']. */
 
 /* Filters sized to their content, so a toolbar holds one row on a laptop screen. */
 .pb-toolbar .pb-cap-filter {
@@ -21,26 +23,26 @@
 
 /* Commitments: twelve columns scroll sideways in their frame with the sponsor fund pinned on the
    left; figures stay on one line and a negative unfunded carries its word underneath. */
-.pb-table.pb-cap-commitments th,
-.pb-table.pb-cap-commitments td {
+.pb-cap-commitments th,
+.pb-cap-commitments td {
   white-space: nowrap;
 }
-.pb-table.pb-cap-commitments td.pb-cap-name {
+.pb-cap-commitments td.pb-cap-name {
   min-width: 128px;
   white-space: normal;
 }
-.pb-table.pb-cap-commitments tr > :first-child {
+.pb-cap-commitments tr > :first-child {
   position: sticky;
   left: 0;
   z-index: 1;
   background: var(--pb-bg);
   box-shadow: inset -1px 0 0 var(--pb-border);
 }
-.pb-table.pb-cap-commitments thead tr > :first-child {
+.pb-cap-commitments thead tr > :first-child {
   background: var(--pb-brand-primary);
   box-shadow: inset -1px 0 0 rgba(var(--pb-bg-rgb), 0.18);
 }
-.pb-table.pb-cap-commitments tbody tr:hover > :first-child {
+.pb-cap-commitments tbody tr:hover > :first-child {
   background: var(--pb-primary-tint-4);
 }
 .pb-cap-overcalled {
@@ -66,16 +68,16 @@
 }
 
 /* Notice detail */
-.pb-meta.pb-cap-back {
+.pb-cap-back {
   margin: 0 0 6px;
 }
-.pb-notice.pb-cap-hold {
+.pb-cap-hold {
   margin: 0 0 16px;
 }
 .pb-cap-actions {
   margin: 0 0 12px;
 }
-.pb-list.pb-cap-notes {
+.pb-cap-notes {
   margin: 0 0 12px;
 }
 

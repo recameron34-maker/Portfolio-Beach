@@ -1,4 +1,5 @@
-/* Sponsor pages (pages/sponsors/Sponsors.tsx). Tokens only; scoped to pb-sponsors-* classes. */
+/* Sponsor pages (pages/sponsors/Sponsors.tsx). Tokens only; scoped to pb-sponsors-* classes.
+   styles.css loads first, so a page class wins over a shared class of the same specificity. */
 
 /* Back to the directory, above the banner. */
 .pb-sponsors-back {
@@ -30,23 +31,23 @@
 
 /* Six tiles: three by two on a laptop, one row on a wide screen, pairs on a phone. */
 @media (min-width: 1100px) {
-  .pb-tiles.pb-sponsors-tiles {
+  .pb-sponsors-tiles {
     grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 }
 @media (min-width: 1440px) {
-  .pb-tiles.pb-sponsors-tiles {
+  .pb-sponsors-tiles {
     grid-template-columns: repeat(6, minmax(0, 1fr));
   }
 }
 @media (max-width: 480px) {
-  .pb-tiles.pb-sponsors-tiles {
+  .pb-sponsors-tiles {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
 
 /* Alias chips inside a table cell keep the row height. */
-.pb-chips.pb-sponsors-aliases {
+.pb-sponsors-aliases {
   flex-wrap: nowrap;
   gap: 4px;
   margin: 0;
