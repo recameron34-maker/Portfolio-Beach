@@ -1,12 +1,17 @@
 import { Inject, Injectable } from '@nestjs/common';
-import { asc, eq, inArray } from 'drizzle-orm';
+import { and, asc, eq, inArray, lte, sql } from 'drizzle-orm';
+import type { SQL } from 'drizzle-orm';
 import type { Principal } from '@pb/adapters';
-import type { SponsorDetail, Taxonomy, WallList } from '@pb/contracts';
+import { CALC_VERSION, ZERO, summarizeFlows, unfunded } from '@pb/calc';
+import type { Decimal, FlowKind, TypedCashFlow } from '@pb/calc';
+import type { FundCommitmentRow, SponsorDetail, Taxonomy, WallList } from '@pb/contracts';
 import { schema } from '@pb/db';
+import type { Tx } from '@pb/db';
 import { DEFINITIONS } from '../common/tokens.js';
 import { ProblemError } from '../common/problem.js';
 import { DbService } from '../db/db.service.js';
-import { loadInvestmentRows } from '../portfolio/loaders.js';
+import { loadInvestmentRows, loadInvestmentsWithMetrics } from '../portfolio/loaders.js';
+import { pooledPositionMetrics, str } from '../portfolio/metrics.js';
 
 /** Calculation settings from config/definitions.json (docs/03 section 4); only the keys this service reads. */
 interface Definitions {
@@ -14,9 +19,94 @@ interface Definitions {
   [key: string]: unknown;
 }
 
-const notImplemented = (): never => {
-  throw new ProblemError(501, 'not-implemented', 'This endpoint is not implemented yet');
-};
+/**
+ * Fully qualified outer-table columns for correlated subqueries: in a single-table select Drizzle
+ * renders a column as a bare `"id"`, which inside the subquery would bind to the inner table.
+ */
+const OUTER_SPONSOR_ID = sql.raw('"core"."sponsor"."id"');
+const OUTER_FUND_ID = sql.raw('"core"."sponsor_fund"."id"');
+
+/** The flow kind packages/calc expects: the taxonomy code without its domain prefix. */
+const kindOf = (flowType: string): FlowKind => flowType.replace('flow_type.', '') as FlowKind;
+
+/**
+ * Commitment rows (vehicle to sponsor fund) the caller can see, with called, distributed and
+ * recallable from the commitment-keyed approved flows on or before the as-of date and unfunded
+ * from @pb/calc (docs/08 section 2). A commitment without a flow by that date is not calculable:
+ * its four figures are null, never zero. Ordered by vehicle name, fund name, then id.
+ */
+async function loadFundCommitmentRows(
+  tx: Tx,
+  asOf: string,
+  where: SQL,
+): Promise<FundCommitmentRow[]> {
+  const c = schema.commitment;
+  const rows = await tx
+    .select({
+      id: c.id,
+      vehicleId: c.vehicleId,
+      vehicleName: schema.vehicle.name,
+      vehicleType: schema.vehicle.vehicleType,
+      sponsorId: schema.sponsor.id,
+      sponsorName: schema.sponsor.name,
+      sponsorFundId: c.sponsorFundId,
+      sponsorFundName: schema.sponsorFund.name,
+      vintage: schema.sponsorFund.vintage,
+      strategy: schema.sponsorFund.strategy,
+      clientName: schema.client.name,
+      amount: c.amount,
+      commitmentDate: c.commitmentDate,
+    })
+    .from(c)
+    .innerJoin(schema.vehicle, eq(schema.vehicle.id, c.vehicleId))
+    .innerJoin(schema.sponsorFund, eq(schema.sponsorFund.id, c.sponsorFundId))
+    .innerJoin(schema.sponsor, eq(schema.sponsor.id, schema.sponsorFund.sponsorId))
+    .leftJoin(schema.client, eq(schema.client.id, c.clientId))
+    .where(where)
+    .orderBy(asc(schema.vehicle.name), asc(schema.sponsorFund.name), asc(c.id));
+  if (rows.length === 0) return [];
+  const f = schema.cashFlow;
+  const flows = await tx
+    .select({
+      commitmentId: f.commitmentId,
+      flowDate: f.flowDate,
+      flowType: f.flowType,
+      amount: f.amount,
+    })
+    .from(f)
+    .where(
+      and(
+        inArray(
+          f.commitmentId,
+          rows.map((r) => r.id),
+        ),
+        eq(f.status, 'record_status.approved'),
+        lte(f.flowDate, asOf),
+      ),
+    )
+    .orderBy(asc(f.flowDate), asc(f.id));
+  const byCommitment = new Map<string, TypedCashFlow[]>();
+  for (const flow of flows) {
+    if (flow.commitmentId === null) continue;
+    const typed = { date: flow.flowDate, kind: kindOf(flow.flowType), amount: flow.amount };
+    const list = byCommitment.get(flow.commitmentId);
+    if (list === undefined) byCommitment.set(flow.commitmentId, [typed]);
+    else list.push(typed);
+  }
+  return rows.map((r) => {
+    const typed = byCommitment.get(r.id);
+    if (typed === undefined)
+      return { ...r, called: null, distributed: null, recallable: null, unfunded: null };
+    const summary = summarizeFlows(typed);
+    return {
+      ...r,
+      called: str(summary.contributions),
+      distributed: str(summary.distributions),
+      recallable: str(summary.recallable),
+      unfunded: str(unfunded(r.amount, summary.contributions, summary.recallable)),
+    };
+  });
+}
 
 @Injectable()
 export class SponsorsService {
@@ -25,14 +115,127 @@ export class SponsorsService {
     @Inject(DEFINITIONS) private readonly definitions: Definitions,
   ) {}
 
-  // eslint-disable-next-line @typescript-eslint/require-await
+  /**
+   * Sponsor 360 (docs/04 M6): the directory row's counts, every fund with its aliases, holdings,
+   * our positions and our commitment, the visible positions with their metrics pooled, and the
+   * commitment rows to the sponsor's funds. RLS applies walls to sponsors and investments and
+   * client entitlements to separate-account commitments (SEC-5.1 to SEC-5.3), so a sponsor the
+   * caller cannot see is a 404 and every count and sum covers the caller's view only. The open is
+   * an audited sensitive read: tier and description are Restricted (SEC-11.1).
+   */
   async detail(
-    _principal: Principal,
-    _requestId: string,
-    _id: string,
-    _asOf: string,
+    principal: Principal,
+    requestId: string,
+    id: string,
+    asOf: string,
   ): Promise<SponsorDetail> {
-    return notImplemented();
+    return this.db.run(principal, requestId, async (tx, audit) => {
+      const s = schema.sponsor;
+      const sponsor = (
+        await tx
+          .select({
+            id: s.id,
+            name: s.name,
+            tier: s.tier,
+            hqGeography: s.hqGeography,
+            description: s.description,
+            fundCount: sql<number>`(select count(*)::int from core.sponsor_fund f where f.sponsor_id = ${OUTER_SPONSOR_ID})`,
+            activeInvestments: sql<number>`(select count(*)::int from core.investment i where i.sponsor_id = ${OUTER_SPONSOR_ID} and i.is_active)`,
+          })
+          .from(s)
+          .where(eq(s.id, id))
+          .limit(1)
+      )[0];
+      if (sponsor === undefined) throw new ProblemError(404, 'not-found', 'Sponsor not found');
+
+      const f = schema.sponsorFund;
+      const funds = await tx
+        .select({
+          id: f.id,
+          name: f.name,
+          vintage: f.vintage,
+          strategy: f.strategy,
+          sizeTarget: f.sizeTarget,
+          sizeFinal: f.sizeFinal,
+          currency: f.currency,
+          holdings: sql<number>`(select count(*)::int from core.fund_holding h where h.sponsor_fund_id = ${OUTER_FUND_ID})`,
+          ourPositions: sql<number>`(select count(*)::int from core.investment i where i.sponsor_fund_id = ${OUTER_FUND_ID})`,
+        })
+        .from(f)
+        .where(eq(f.sponsorId, sponsor.id))
+        .orderBy(asc(f.vintage), asc(f.name), asc(f.id));
+      const a = schema.fundAlias;
+      const aliases =
+        funds.length === 0
+          ? []
+          : await tx
+              .select({ sponsorFundId: a.sponsorFundId, alias: a.alias })
+              .from(a)
+              .where(
+                inArray(
+                  a.sponsorFundId,
+                  funds.map((r) => r.id),
+                ),
+              )
+              .orderBy(asc(a.alias));
+
+      const commitments = await loadFundCommitmentRows(
+        tx,
+        asOf,
+        eq(schema.sponsorFund.sponsorId, sponsor.id),
+      );
+      const positions = await loadInvestmentsWithMetrics(
+        tx,
+        asOf,
+        eq(schema.investment.sponsorId, sponsor.id),
+      );
+      await audit({ action: 'sponsor.read', entity: 'core.sponsor', entityId: sponsor.id });
+
+      // Our commitment per fund and in total: sums of the visible commitment rows, null when none.
+      const committedByFund = new Map<string, Decimal>();
+      let totalCommitted: Decimal | null = null;
+      for (const c of commitments) {
+        committedByFund.set(
+          c.sponsorFundId,
+          (committedByFund.get(c.sponsorFundId) ?? ZERO).plus(c.amount),
+        );
+        totalCommitted = (totalCommitted ?? ZERO).plus(c.amount);
+      }
+      return {
+        id: sponsor.id,
+        name: sponsor.name,
+        tier: sponsor.tier,
+        hqGeography: sponsor.hqGeography,
+        fundCount: sponsor.fundCount,
+        activeInvestments: sponsor.activeInvestments,
+        description: sponsor.description,
+        funds: funds.map((r) => ({
+          id: r.id,
+          name: r.name,
+          vintage: r.vintage,
+          strategy: r.strategy,
+          sizeTarget: r.sizeTarget,
+          sizeFinal: r.sizeFinal,
+          currency: r.currency,
+          aliases: aliases.filter((x) => x.sponsorFundId === r.id).map((x) => x.alias),
+          holdings: r.holdings,
+          ourPositions: r.ourPositions,
+          ourCommitment: str(committedByFund.get(r.id) ?? null),
+        })),
+        positions: positions.map((p) => p.summary),
+        commitments,
+        metrics: pooledPositionMetrics(
+          positions.map((p) => ({
+            flows: p.flows,
+            valuations: p.valuations,
+            isActive: p.row.isActive,
+          })),
+          asOf,
+        ),
+        totalCommitted: str(totalCommitted),
+        calcVersion: CALC_VERSION,
+      };
+    });
   }
 
   /** Every taxonomy term grouped by domain: domains alphabetical, terms by sort order then code (codes keep their prefix). */
