@@ -7,11 +7,11 @@ import type { CapitalNoticeDetail, CapitalNoticePage, capitalNoticeListQuery } f
 import { schema } from '@pb/db';
 import type { z } from 'zod';
 import { decodeCursor, encodeCursor } from '../common/cursor.js';
+import { fmtDate } from '../common/dates.js';
 import { configInteger, configIntegerList } from '../common/definitions.js';
 import { ProblemError } from '../common/problem.js';
 import { DEFINITIONS } from '../common/tokens.js';
 import { DbService } from '../db/db.service.js';
-import { fmtDate } from '../reports/reports.service.js';
 import { DUE_ORDER, REGISTER_ORDER, buildNoticeRows } from './notices.js';
 
 export type CapitalNoticeListOptions = Omit<z.infer<typeof capitalNoticeListQuery>, 'asOf'> & {

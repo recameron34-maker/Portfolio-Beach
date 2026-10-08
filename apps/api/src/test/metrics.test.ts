@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { addDays } from '@pb/calc';
 import {
   latestQuarterEndOnOrBefore,
   lockedNavSeries,
@@ -59,6 +60,46 @@ describe('latestQuarterEndOnOrBefore', () => {
     expect(latestQuarterEndOnOrBefore('2025-05-15')).toBe('2025-03-31');
     expect(latestQuarterEndOnOrBefore('2025-01-01')).toBe('2024-12-31');
     expect(latestQuarterEndOnOrBefore('2024-12-31')).toBe('2024-12-31');
+    expect(latestQuarterEndOnOrBefore('2025-10-01')).toBe('2025-09-30');
+  });
+
+  it('holds on every quarter boundary, leap days and century years included', () => {
+    for (const year of [1900, 2000, 2023, 2024, 2025, 2100]) {
+      const ends = [`${year}-03-31`, `${year}-06-30`, `${year}-09-30`, `${year}-12-31`];
+      ends.forEach((end, i) => {
+        const before = i === 0 ? `${year - 1}-12-31` : ends[i - 1]!;
+        expect(latestQuarterEndOnOrBefore(end)).toBe(end);
+        expect(latestQuarterEndOnOrBefore(addDays(end, 1))).toBe(end);
+        expect(latestQuarterEndOnOrBefore(addDays(end, -1))).toBe(before);
+      });
+    }
+    expect(latestQuarterEndOnOrBefore('2024-02-29')).toBe('2023-12-31');
+    expect(latestQuarterEndOnOrBefore('2000-02-29')).toBe('1999-12-31');
+    expect(latestQuarterEndOnOrBefore('1900-03-01')).toBe('1899-12-31');
+  });
+
+  it('agrees with a month-day table on every day of four boundary windows', () => {
+    // An independent oracle: the latest of 12-31, 09-30, 06-30 and 03-31 not after the month-day.
+    const oracle = (iso: string): string => {
+      const year = Number(iso.slice(0, 4));
+      const monthDay = iso.slice(5);
+      const end = ['12-31', '09-30', '06-30', '03-31'].find((md) => md <= monthDay);
+      return end === undefined ? `${year - 1}-12-31` : `${iso.slice(0, 4)}-${end}`;
+    };
+    const windows: [string, string][] = [
+      ['1899-12-01', '1900-04-30'],
+      ['1999-12-01', '2001-01-31'],
+      ['2023-12-01', '2026-01-31'],
+      ['2099-12-01', '2100-04-30'],
+    ];
+    let days = 0;
+    for (const [from, to] of windows) {
+      for (let d = from; d <= to; d = addDays(d, 1)) {
+        expect(latestQuarterEndOnOrBefore(d), d).toBe(oracle(d));
+        days += 1;
+      }
+    }
+    expect(days).toBeGreaterThan(1500);
   });
 });
 

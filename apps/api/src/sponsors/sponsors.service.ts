@@ -1,22 +1,15 @@
-import { Inject, Injectable } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 import { asc, eq, inArray, sql } from 'drizzle-orm';
 import type { Principal } from '@pb/adapters';
 import { CALC_VERSION, ZERO } from '@pb/calc';
 import type { Decimal } from '@pb/calc';
 import type { SponsorDetail, Taxonomy, WallList } from '@pb/contracts';
 import { schema } from '@pb/db';
-import { DEFINITIONS } from '../common/tokens.js';
 import { ProblemError } from '../common/problem.js';
 import { DbService } from '../db/db.service.js';
 import { loadCommitmentRows } from '../portfolio/commitments.js';
 import { loadInvestmentRows, loadInvestmentsWithMetrics } from '../portfolio/loaders.js';
 import { pooledPositionMetrics, str } from '../portfolio/metrics.js';
-
-/** Calculation settings from config/definitions.json (docs/03 section 4); only the keys this service reads. */
-interface Definitions {
-  priorYearPeriodEndToleranceDays?: number;
-  [key: string]: unknown;
-}
 
 /**
  * Fully qualified outer-table columns for correlated subqueries: in a single-table select Drizzle
@@ -27,10 +20,7 @@ const OUTER_FUND_ID = sql.raw('"core"."sponsor_fund"."id"');
 
 @Injectable()
 export class SponsorsService {
-  constructor(
-    private readonly db: DbService,
-    @Inject(DEFINITIONS) private readonly definitions: Definitions,
-  ) {}
+  constructor(private readonly db: DbService) {}
 
   /**
    * Sponsor 360 (docs/04 M6): the directory row's counts, every fund with its aliases, holdings,

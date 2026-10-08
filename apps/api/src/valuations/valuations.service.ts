@@ -11,9 +11,9 @@ import { decodeCursor, encodeCursor } from '../common/cursor.js';
 import { configInteger } from '../common/definitions.js';
 import { DEFINITIONS } from '../common/tokens.js';
 import { DbService } from '../db/db.service.js';
-import { str } from '../portfolio/metrics.js';
+import { lockedNear } from '../portfolio/marks.js';
+import { latestQuarterEndOnOrBefore, str } from '../portfolio/metrics.js';
 import type { ValuationRow } from '../portfolio/metrics.js';
-import { lockedNear, quarterEndOnOrBefore } from '../reports/reports.service.js';
 
 export type ValuationListOptions = Omit<z.infer<typeof valuationListQuery>, 'asOf'> & {
   asOf: string;
@@ -160,7 +160,7 @@ export class ValuationsService {
       return {
         items: page.map(({ approvedAt, ...r }) => {
           // The previous calendar quarter end; a sponsor reporting a few days early still counts.
-          const previousQuarterEnd = quarterEndOnOrBefore(addDays(r.periodEnd, -1));
+          const previousQuarterEnd = latestQuarterEndOnOrBefore(addDays(r.periodEnd, -1));
           const prior = lockedNear(
             lockedByInvestment.get(r.investmentId) ?? [],
             previousQuarterEnd,

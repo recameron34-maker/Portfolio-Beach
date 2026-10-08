@@ -2,7 +2,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { D, addDays, daysBetween } from '@pb/calc';
 import { problemDetails, valuationPage } from '@pb/contracts';
 import type { ValuationPage, ValuationRow } from '@pb/contracts';
-import { quarterEndOnOrBefore } from '../reports/reports.service.js';
+import { latestQuarterEndOnOrBefore } from '../portfolio/metrics.js';
 import { startHarness } from './harness.js';
 import type { Harness } from './harness.js';
 
@@ -203,7 +203,7 @@ describe('valuation board (M10)', () => {
       expect(rows.length).toBe(seeded(true).length);
       let withPrior = 0;
       for (const r of rows) {
-        const target = quarterEndOnOrBefore(addDays(r.periodEnd, -1));
+        const target = latestQuarterEndOnOrBefore(addDays(r.periodEnd, -1));
         const candidates = h.dataset.valuations
           .filter(
             (v) =>

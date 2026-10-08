@@ -2,7 +2,6 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { D, ZERO, addDays, daysBetween } from '@pb/calc';
 import { investmentPage, weeklyReport } from '@pb/contracts';
 import type { WeeklyReport } from '@pb/contracts';
-import { quarterEndOnOrBefore } from '../reports/reports.service.js';
 import { startHarness } from './harness.js';
 import type { Harness } from './harness.js';
 
@@ -28,14 +27,6 @@ describe('weekly report (M12)', () => {
   const walled = (): Set<string> => new Set(h.dataset.scenarios.walled_deal ?? []);
   const visibleActive = () =>
     h.dataset.investments.filter((i) => i.isActive && !walled().has(i.id));
-
-  it('finds the latest calendar quarter end on or before a date', () => {
-    expect(quarterEndOnOrBefore('2025-06-30')).toBe('2025-06-30');
-    expect(quarterEndOnOrBefore('2025-05-15')).toBe('2025-03-31');
-    expect(quarterEndOnOrBefore('2025-01-01')).toBe('2024-12-31');
-    expect(quarterEndOnOrBefore('2025-10-01')).toBe('2025-09-30');
-    expect(quarterEndOnOrBefore('2025-12-31')).toBe('2025-12-31');
-  });
 
   it('defaults the as-of date from the clock, names the reader and pools the visible active positions', async () => {
     const report = await get('viewer');

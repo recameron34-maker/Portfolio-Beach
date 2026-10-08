@@ -28,6 +28,12 @@ export function configDecimal(value: unknown, key: string): Decimal {
   throw configError(key);
 }
 
+/** A label or a sentence template, such as a footnote: a string with some text in it. */
+export function configString(value: unknown, key: string): string {
+  if (typeof value !== 'string' || value.trim() === '') throw configError(key);
+  return value;
+}
+
 /** A non-empty list of whole numbers of zero or more, in config order. */
 export function configIntegerList(value: unknown, key: string): number[] {
   if (!Array.isArray(value) || value.length === 0) throw configError(key);
