@@ -1,19 +1,141 @@
 import { Inject, Injectable } from '@nestjs/common';
+import { and, asc, eq, gte, inArray, lte, ne, or, sql } from 'drizzle-orm';
 import type { Principal } from '@pb/adapters';
-import type { WeeklyReport } from '@pb/contracts';
+import { CALC_VERSION, D, Decimal, addDays, daysBetween } from '@pb/calc';
+import type { CapitalNoticeRow, PooledMetrics, WeeklyReport } from '@pb/contracts';
+import { schema } from '@pb/db';
+import type { Tx } from '@pb/db';
 import { DEFINITIONS } from '../common/tokens.js';
-import { ProblemError } from '../common/problem.js';
 import { DbService } from '../db/db.service.js';
+import { loadInvestmentsWithMetrics } from '../portfolio/loaders.js';
+import { latestLockedValuation, pooledPositionMetrics, str } from '../portfolio/metrics.js';
+import type { ValuationRow } from '../portfolio/metrics.js';
 
-/** Calculation settings from config/definitions.json (docs/03 section 4); only the keys this service reads. */
+/** Calculation and reporting settings from config/definitions.json; only the keys this service reads. */
 interface Definitions {
   priorYearPeriodEndToleranceDays?: number;
+  irr?: { displayShortPeriodAs?: string };
+  reporting?: {
+    weeklyMoversCount?: number;
+    capitalActivityWindowDays?: number;
+    staleValuationFootnote?: string;
+    noValuationFootnote?: string;
+  };
   [key: string]: unknown;
 }
 
-const notImplemented = (): never => {
-  throw new ProblemError(501, 'not-implemented', 'This endpoint is not implemented yet');
+type Position = Awaited<ReturnType<typeof loadInvestmentsWithMetrics>>[number];
+type Mover = WeeklyReport['movers'][number];
+type Stale = WeeklyReport['staleValuations'][number];
+type VehicleRow = WeeklyReport['byVehicle'][number];
+
+const DECIMAL = /^-?\d+(\.\d+)?$/;
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+const IRR_FLAG_LABEL: Record<NonNullable<PooledMetrics['irrFlag']>, string> = {
+  short_period: 'held under one year',
+  multiple_irr: 'more than one IRR root',
+  no_root: 'no IRR root',
+  same_sign: 'cash flows of one sign only',
+  insufficient_flows: 'too few cash flows',
+  no_convergence: 'IRR did not converge',
 };
+
+/* ---- Calendar helpers on ISO strings (no JS Date, docs/17 section 4) ---- */
+
+function quarterEnd(year: number, quarter: number): string {
+  const month = quarter * 3 + 3;
+  const day = month === 6 || month === 9 ? 30 : 31;
+  return `${year}-${String(month).padStart(2, '0')}-${day}`;
+}
+
+/** Latest calendar quarter end (03-31, 06-30, 09-30, 12-31) on or before the date. */
+export function quarterEndOnOrBefore(iso: string): string {
+  let year = Number(iso.slice(0, 4));
+  let quarter = Math.floor((Number(iso.slice(5, 7)) - 1) / 3);
+  let candidate = quarterEnd(year, quarter);
+  if (candidate > iso) {
+    quarter -= 1;
+    if (quarter < 0) {
+      quarter = 3;
+      year -= 1;
+    }
+    candidate = quarterEnd(year, quarter);
+  }
+  return candidate;
+}
+
+/* ---- Display helpers for the template commentary (docs/06 section 3) ---- */
+
+function fmtDate(iso: string): string {
+  return `${MONTHS[Number(iso.slice(5, 7)) - 1] ?? '?'} ${Number(iso.slice(8, 10))}, ${iso.slice(0, 4)}`;
+}
+
+const group = (whole: string): string => whole.replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+
+/** Dollars as $M with one decimal from a decimal string: "390009856.77" -> "$390.0M". */
+function fmtMoneyM(value: string): string {
+  const millions = D(value).div('1000000');
+  const [whole, frac] = millions.abs().toFixed(1).split('.');
+  return `${millions.isNegative() ? '-' : ''}$${group(whole ?? '0')}.${frac ?? '0'}M`;
+}
+
+const fmtMoic = (value: string): string => `${D(value).toFixed(2)}x`;
+
+/** Percentage with one decimal: "0.0530" -> "5.3%". */
+const fmtPct = (value: string): string => `${D(value).mul('100').toFixed(1)}%`;
+
+/** Signed percentage with one decimal for changes: "0.1234" -> "+12.3%". */
+function fmtSignedPct(value: string): string {
+  const pct = D(value).mul('100');
+  return `${pct.isNegative() ? '-' : '+'}${pct.abs().toFixed(1)}%`;
+}
+
+const plural = (n: number, noun: string): string => `${n} ${noun}${n === 1 ? '' : 's'}`;
+
+const joinList = (items: string[]): string =>
+  items.length <= 1
+    ? (items[0] ?? '')
+    : `${items.slice(0, -1).join(', ')} and ${items[items.length - 1]}`;
+
+/** Latest Locked valuation whose period end is the target or up to `tolerance` days before it. */
+function lockedNear(
+  valuations: readonly ValuationRow[],
+  target: string,
+  tolerance: number,
+): ValuationRow | null {
+  let best: ValuationRow | null = null;
+  for (const v of valuations) {
+    if (v.state !== 'Locked') continue;
+    const gap = daysBetween(v.periodEnd, target);
+    if (gap < 0 || gap > tolerance) continue;
+    if (best === null || v.periodEnd > best.periodEnd) best = v;
+  }
+  return best;
+}
+
+const compareDesc = (a: string | null, b: string | null): number => {
+  if (a === null) return b === null ? 0 : 1;
+  if (b === null) return -1;
+  return D(b).comparedTo(D(a));
+};
+
+/** The jsonb split map with every amount as a decimal string; entries that are not amounts are dropped, never invented. */
+function splitOf(raw: unknown): Record<string, string> {
+  const out: Record<string, string> = {};
+  if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) return out;
+  for (const key of Object.keys(raw).sort()) {
+    const value = (raw as Record<string, unknown>)[key];
+    const text =
+      typeof value === 'number' && Number.isFinite(value)
+        ? new Decimal(value).toFixed()
+        : typeof value === 'string'
+          ? value
+          : null;
+    if (text !== null && DECIMAL.test(text)) out[key] = text;
+  }
+  return out;
+}
 
 @Injectable()
 export class ReportsService {
@@ -22,8 +144,377 @@ export class ReportsService {
     @Inject(DEFINITIONS) private readonly definitions: Definitions,
   ) {}
 
-  // eslint-disable-next-line @typescript-eslint/require-await
-  async weekly(_principal: Principal, _requestId: string, _asOf: string): Promise<WeeklyReport> {
-    return notImplemented();
+  /**
+   * The weekly report assembled from visible figures only: pooled metrics over active positions,
+   * a vehicle breakdown, quarter-over-quarter movers, stale marks, capital activity around the
+   * as-of date and template commentary written from those numbers (M12). Reads visible data
+   * only, so nothing is audited; every number is a decimal string or null.
+   */
+  async weekly(principal: Principal, requestId: string, asOf: string): Promise<WeeklyReport> {
+    const tolerance = this.definitions.priorYearPeriodEndToleranceDays ?? 7;
+    const reporting = this.definitions.reporting ?? {};
+    const moversCount = reporting.weeklyMoversCount ?? 5;
+    const windowDays = reporting.capitalActivityWindowDays ?? 30;
+    const staleTemplate =
+      reporting.staleValuationFootnote ??
+      'Carried at the latest Locked valuation of {lockedPeriodEnd}; no Locked mark for {periodEnd}.';
+    const noValuationFootnote =
+      reporting.noValuationFootnote ??
+      'No Locked valuation on record; NAV is not calculable this quarter.';
+    const shortPeriodAs = this.definitions.irr?.displayShortPeriodAs ?? 'NM';
+    const periodEnd = quarterEndOnOrBefore(asOf);
+    const priorPeriodEnd = quarterEndOnOrBefore(addDays(periodEnd, -1));
+
+    return this.db.run(principal, requestId, async (tx) => {
+      const positions = await loadInvestmentsWithMetrics(
+        tx,
+        asOf,
+        eq(schema.investment.isActive, true),
+      );
+      const asInputs = (set: readonly Position[]): Parameters<typeof pooledPositionMetrics>[0] =>
+        set.map((p) => ({ flows: p.flows, valuations: p.valuations, isActive: p.row.isActive }));
+      const pooled = pooledPositionMetrics(asInputs(positions), asOf);
+      const summary = { ...pooled, activeInvestments: positions.length };
+
+      const byVehicle = await this.vehicleRows(tx, positions, asOf, asInputs);
+      const movers = this.movers(positions, periodEnd, priorPeriodEnd, tolerance, moversCount);
+      const staleValuations = this.stale(
+        positions,
+        asOf,
+        periodEnd,
+        tolerance,
+        staleTemplate,
+        noValuationFootnote,
+      );
+      const capitalActivity = await this.capitalActivity(tx, asOf, windowDays);
+
+      const flagged = positions
+        .filter((p) => p.summary.irrFlag !== null)
+        .map((p) => `${p.row.investmentNumber} (${IRR_FLAG_LABEL[p.summary.irrFlag!]})`);
+      const footnotes = staleValuations.map((s) => {
+        const p = positions.find((x) => x.row.id === s.investmentId);
+        return `${s.investmentNumber} ${p?.row.companyName ?? ''}: ${s.footnote}`.replace(
+          '  ',
+          ' ',
+        );
+      });
+      if (flagged.length > 0)
+        footnotes.push(`Gross IRR is shown as ${shortPeriodAs} for ${joinList(flagged)}.`);
+      if (summary.irrFlag !== null)
+        footnotes.push(
+          `The portfolio gross IRR is shown as ${shortPeriodAs} (${IRR_FLAG_LABEL[summary.irrFlag]}).`,
+        );
+      footnotes.push('Figures are gross, before fees and carry.');
+
+      return {
+        asOf,
+        periodEnd,
+        preparedFor: principal.displayName,
+        summary,
+        byVehicle,
+        movers,
+        staleValuations,
+        capitalActivity,
+        commentary: {
+          paragraphs: this.commentary({
+            asOf,
+            periodEnd,
+            priorPeriodEnd,
+            windowDays,
+            summary,
+            byVehicle,
+            movers,
+            staleValuations,
+            capitalActivity,
+          }),
+          source: 'template',
+          aiDraft: false,
+        },
+        footnotes,
+        calcVersion: CALC_VERSION,
+      };
+    });
+  }
+
+  /** One row per visible vehicle holding an active position, pooled per vehicle, NAV descending. */
+  private async vehicleRows(
+    tx: Tx,
+    positions: readonly Position[],
+    asOf: string,
+    asInputs: (set: readonly Position[]) => Parameters<typeof pooledPositionMetrics>[0],
+  ): Promise<VehicleRow[]> {
+    const groups = new Map<string, Position[]>();
+    for (const p of positions) {
+      const set = groups.get(p.row.vehicleId);
+      if (set === undefined) groups.set(p.row.vehicleId, [p]);
+      else set.push(p);
+    }
+    if (groups.size === 0) return [];
+    const vehicles = await tx
+      .select({
+        id: schema.vehicle.id,
+        name: schema.vehicle.name,
+        vehicleType: schema.vehicle.vehicleType,
+      })
+      .from(schema.vehicle)
+      .where(inArray(schema.vehicle.id, [...groups.keys()]));
+    const rows: VehicleRow[] = [];
+    for (const v of vehicles) {
+      const set = groups.get(v.id);
+      if (set === undefined) continue;
+      const m = pooledPositionMetrics(asInputs(set), asOf);
+      rows.push({
+        vehicleId: v.id,
+        vehicleName: v.name,
+        vehicleType: v.vehicleType,
+        count: m.count,
+        invested: m.invested,
+        distributions: m.distributions,
+        nav: m.nav,
+        grossMoic: m.grossMoic,
+      });
+    }
+    return rows.sort(
+      (a, b) => compareDesc(a.nav, b.nav) || a.vehicleName.localeCompare(b.vehicleName),
+    );
+  }
+
+  /**
+   * Largest Locked fair value changes between the prior quarter end and the period end, up and
+   * down together. Both marks may sit up to the prior-year tolerance before their quarter end so
+   * sponsors whose period ends are shifted by a few days still compare like for like.
+   */
+  private movers(
+    positions: readonly Position[],
+    periodEnd: string,
+    priorPeriodEnd: string,
+    tolerance: number,
+    count: number,
+  ): Mover[] {
+    const ranked: { mover: Mover; size: Decimal }[] = [];
+    for (const p of positions) {
+      const current = lockedNear(p.valuations, periodEnd, tolerance);
+      const prior = lockedNear(p.valuations, priorPeriodEnd, tolerance);
+      if (current === null || prior === null) continue;
+      const priorValue = D(prior.fairValue);
+      if (priorValue.isZero()) continue;
+      const change = D(current.fairValue).minus(priorValue).div(priorValue);
+      ranked.push({
+        mover: {
+          investmentId: p.row.id,
+          investmentNumber: p.row.investmentNumber,
+          companyName: p.row.companyName,
+          periodEnd: current.periodEnd,
+          priorFairValue: prior.fairValue,
+          fairValue: current.fairValue,
+          changePct: str(change),
+        },
+        size: change.abs(),
+      });
+    }
+    ranked.sort(
+      (a, b) =>
+        b.size.comparedTo(a.size) ||
+        a.mover.investmentNumber.localeCompare(b.mover.investmentNumber),
+    );
+    return ranked
+      .slice(0, count)
+      .map((r) => r.mover)
+      .sort(
+        (a, b) =>
+          compareDesc(a.changePct, b.changePct) ||
+          a.investmentNumber.localeCompare(b.investmentNumber),
+      );
+  }
+
+  /** Active positions whose latest Locked mark is older than the period end (beyond the tolerance) or missing. */
+  private stale(
+    positions: readonly Position[],
+    asOf: string,
+    periodEnd: string,
+    tolerance: number,
+    staleTemplate: string,
+    noValuationFootnote: string,
+  ): Stale[] {
+    const out: Stale[] = [];
+    for (const p of positions) {
+      const latest = latestLockedValuation(p.valuations, asOf);
+      if (latest !== null && daysBetween(latest.periodEnd, periodEnd) <= tolerance) continue;
+      out.push({
+        investmentId: p.row.id,
+        investmentNumber: p.row.investmentNumber,
+        companyName: p.row.companyName,
+        latestLockedPeriodEnd: latest?.periodEnd ?? null,
+        footnote:
+          latest === null
+            ? noValuationFootnote
+            : staleTemplate
+                .replaceAll('{lockedPeriodEnd}', fmtDate(latest.periodEnd))
+                .replaceAll('{periodEnd}', fmtDate(periodEnd)),
+      });
+    }
+    return out.sort((a, b) => a.investmentNumber.localeCompare(b.investmentNumber));
+  }
+
+  /** Visible notices that are not Reconciled or fall due within the window either side of the as-of date. */
+  private async capitalActivity(
+    tx: Tx,
+    asOf: string,
+    windowDays: number,
+  ): Promise<CapitalNoticeRow[]> {
+    const n = schema.capitalNotice;
+    const notices = await tx
+      .select({
+        id: n.id,
+        noticeType: n.noticeType,
+        state: n.state,
+        vehicleId: n.vehicleId,
+        vehicleName: schema.vehicle.name,
+        investmentId: n.investmentId,
+        investmentNumber: schema.investment.investmentNumber,
+        companyName: schema.portfolioCompany.name,
+        commitmentId: n.commitmentId,
+        sponsorFundName: schema.sponsorFund.name,
+        issueDate: n.issueDate,
+        dueDate: n.dueDate,
+        amount: n.amount,
+        currency: n.currency,
+        split: n.split,
+        scenarioTag: n.scenarioTag,
+        rowVersion: n.rowVersion,
+      })
+      .from(n)
+      .innerJoin(schema.vehicle, eq(schema.vehicle.id, n.vehicleId))
+      .leftJoin(schema.investment, eq(schema.investment.id, n.investmentId))
+      .leftJoin(
+        schema.portfolioCompany,
+        eq(schema.portfolioCompany.id, schema.investment.portfolioCompanyId),
+      )
+      .leftJoin(schema.commitment, eq(schema.commitment.id, n.commitmentId))
+      .leftJoin(schema.sponsorFund, eq(schema.sponsorFund.id, schema.commitment.sponsorFundId))
+      .where(
+        or(
+          ne(n.state, 'Reconciled'),
+          and(
+            gte(n.dueDate, addDays(asOf, -windowDays)),
+            lte(n.dueDate, addDays(asOf, windowDays)),
+          ),
+        ),
+      )
+      .orderBy(asc(n.dueDate), asc(n.id));
+    if (notices.length === 0) return [];
+    const settledRows = await tx
+      .select({
+        noticeId: schema.cashFlow.sourceNoticeId,
+        total: sql<string>`sum(${schema.cashFlow.amount})::text`,
+      })
+      .from(schema.cashFlow)
+      .where(
+        and(
+          inArray(
+            schema.cashFlow.sourceNoticeId,
+            notices.map((x) => x.id),
+          ),
+          eq(schema.cashFlow.status, 'record_status.approved'),
+        ),
+      )
+      .groupBy(schema.cashFlow.sourceNoticeId);
+    const settled = new Map<string, string>();
+    for (const r of settledRows) if (r.noticeId !== null) settled.set(r.noticeId, r.total);
+    return notices.map((x) => ({
+      id: x.id,
+      noticeType: x.noticeType,
+      state: x.state,
+      vehicleId: x.vehicleId,
+      vehicleName: x.vehicleName,
+      investmentId: x.investmentId,
+      investmentNumber: x.investmentNumber,
+      companyName: x.companyName,
+      commitmentId: x.commitmentId,
+      sponsorFundName: x.sponsorFundName,
+      issueDate: x.issueDate,
+      dueDate: x.dueDate,
+      amount: x.amount,
+      currency: x.currency,
+      split: splitOf(x.split),
+      scenarioTag: x.scenarioTag,
+      settledAmount: settled.get(x.id) ?? null,
+      daysToDue: daysBetween(asOf, x.dueDate),
+      rowVersion: x.rowVersion,
+    }));
+  }
+
+  /** Plain sentences built from the figures above. No model call, no adjectives, no predictions. */
+  private commentary(input: {
+    asOf: string;
+    periodEnd: string;
+    priorPeriodEnd: string;
+    windowDays: number;
+    summary: WeeklyReport['summary'];
+    byVehicle: readonly VehicleRow[];
+    movers: readonly Mover[];
+    staleValuations: readonly Stale[];
+    capitalActivity: readonly CapitalNoticeRow[];
+  }): string[] {
+    const { summary: s } = input;
+    const opening = `As of ${fmtDate(input.asOf)} the portfolio holds ${plural(s.activeInvestments, 'active position')}`;
+    let figures: string;
+    if (s.nav !== null && s.invested !== null)
+      figures = ` with NAV of ${fmtMoneyM(s.nav)} on ${fmtMoneyM(s.invested)} invested`;
+    else if (s.nav !== null) figures = ` with NAV of ${fmtMoneyM(s.nav)}`;
+    else if (s.invested !== null)
+      figures = ` with ${fmtMoneyM(s.invested)} invested; NAV is not calculable this quarter`;
+    else figures = '';
+    const moic = s.grossMoic === null ? '.' : `, a gross MOIC of ${fmtMoic(s.grossMoic)}.`;
+    const first = [`${opening}${figures}${moic}`];
+    if (s.distributions !== null)
+      first.push(`Distributions to date total ${fmtMoneyM(s.distributions)}.`);
+    if (s.grossIrr !== null) first.push(`The pooled gross IRR is ${fmtPct(s.grossIrr)}.`);
+
+    const vehicles =
+      input.byVehicle.length === 0
+        ? 'No vehicle holds an active position.'
+        : `NAV by vehicle: ${input.byVehicle
+            .map(
+              (v) =>
+                `${v.vehicleName} ${v.nav === null ? 'not calculable' : fmtMoneyM(v.nav)} (${plural(v.count, 'position')})`,
+            )
+            .join('; ')}.`;
+
+    const movers =
+      input.movers.length === 0
+        ? `No position has Locked valuations for both ${fmtDate(input.priorPeriodEnd)} and ${fmtDate(input.periodEnd)}.`
+        : `Largest Locked valuation changes from ${fmtDate(input.priorPeriodEnd)} to ${fmtDate(input.periodEnd)}: ${joinList(
+            input.movers.map(
+              (m) =>
+                `${m.companyName} (${m.investmentNumber}) ${m.changePct === null ? 'not calculable' : fmtSignedPct(m.changePct)}`,
+            ),
+          )}.`;
+
+    const stale =
+      input.staleValuations.length === 0
+        ? `Every active position has a Locked valuation for ${fmtDate(input.periodEnd)}.`
+        : `Positions without a Locked valuation for ${fmtDate(input.periodEnd)}: ${joinList(
+            input.staleValuations.map(
+              (x) =>
+                `${x.companyName} (${x.investmentNumber}, ${
+                  x.latestLockedPeriodEnd === null
+                    ? 'no Locked mark on record'
+                    : `carried at ${fmtDate(x.latestLockedPeriodEnd)}`
+                })`,
+            ),
+          )}.`;
+
+    const open = input.capitalActivity.filter((c) => c.state !== 'Reconciled').length;
+    const capital =
+      input.capitalActivity.length === 0
+        ? `No capital notices are open or due within ${input.windowDays} days of ${fmtDate(input.asOf)}.`
+        : `Capital activity: ${plural(input.capitalActivity.length, 'notice')} ${
+            input.capitalActivity.length === 1 ? 'is' : 'are'
+          } open or due within ${input.windowDays} days of ${fmtDate(input.asOf)}, of which ${open} ${
+            open === 1 ? 'is' : 'are'
+          } not yet Reconciled.`;
+
+    return [first.join(' '), vehicles, movers, stale, capital];
   }
 }
