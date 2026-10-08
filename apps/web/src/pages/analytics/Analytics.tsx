@@ -1,7 +1,13 @@
 import type { ReactNode } from 'react';
 import { Outlet } from '@tanstack/react-router';
 import { ANALYTICS_TABS } from '../../app/nav.js';
-import { PageHeader, PhasePage, TabNav } from '../../components/ui.js';
+import { ClientLookThrough } from '../../components/ClientLookThrough.js';
+import { PageHeader, TabNav } from '../../components/ui.js';
+
+export { ExposureTab } from './ExposureTab.js';
+export { PerformanceAnalyticsTab } from './PerformanceTab.js';
+export { CreditTab } from './CreditTab.js';
+export { RealizationsTab } from './RealizationsTab.js';
 
 export function AnalyticsLayout(): ReactNode {
   return (
@@ -16,22 +22,7 @@ export function AnalyticsLayout(): ReactNode {
   );
 }
 
-export function ExposureTab(): ReactNode {
-  return <PhasePage title="Exposure" phase="this build" modules="M13 exposures" />;
-}
-
-export function PerformanceAnalyticsTab(): ReactNode {
-  return <PhasePage title="Performance" phase="this build" modules="M13 performance" />;
-}
-
-export function CreditTab(): ReactNode {
-  return <PhasePage title="Credit book" phase="this build" modules="M13 credit" />;
-}
-
-export function RealizationsTab(): ReactNode {
-  return <PhasePage title="Realizations" phase="this build" modules="M13 realizations" />;
-}
-
+/** The client look-through is shared with Reporting and built there; Analytics renders the same component. */
 export function ClientAnalyticsTab(): ReactNode {
-  return <PhasePage title="Clients" phase="this build" modules="M14 client exposures" />;
+  return <ClientLookThrough />;
 }

@@ -45,26 +45,47 @@ export function Card({
   );
 }
 
-/** Stat tile: a label and a key number in the brand colour. Plain spans: Fluent Text would inject its own sizes at runtime. */
+/**
+ * Stat tile: a label and a key number in the brand colour, optionally with a small figure (a
+ * sparkline) beside the number. Plain spans: Fluent Text would inject its own sizes at runtime.
+ */
 export function StatTile({
   label,
   value,
   hint,
   tone,
+  figure,
 }: {
   label: string;
   value: string;
   hint?: string | undefined;
   tone?: 'good' | 'watch' | 'bad' | undefined;
+  figure?: ReactNode;
 }): ReactNode {
   const missing = value === MISSING || value === 'NM';
+  const number = (
+    <span className={missing ? 'pb-stat-value is-missing' : 'pb-stat-value'}>{value}</span>
+  );
   return (
     <div className="pb-stat-tile" role="group" aria-label={label} data-tone={tone}>
       <span className="pb-stat-label">{label}</span>
-      <span className={missing ? 'pb-stat-value is-missing' : 'pb-stat-value'}>{value}</span>
+      {figure !== undefined && figure !== null ? (
+        <span className="pb-stat-row">
+          {number}
+          {figure}
+        </span>
+      ) : (
+        number
+      )}
       {hint !== undefined ? <span className="pb-stat-hint">{hint}</span> : null}
     </div>
   );
+}
+
+/** A right-aligned numeric table cell; the missing placeholder and NM render muted. */
+export function NumCell({ children }: { children: string }): ReactNode {
+  const missing = children === MISSING || children === 'NM';
+  return <td className={missing ? 'num is-missing' : 'num'}>{children}</td>;
 }
 
 export function AiDraftBadge(): ReactNode {

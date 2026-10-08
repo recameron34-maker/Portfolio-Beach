@@ -837,6 +837,66 @@ p:last-child {
   text-align: right;
 }
 
+/* ---- Stat tile figure: a sparkline beside the key number ---- */
+.pb-stat-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  min-width: 0;
+}
+.pb-stat-row > .pb-sparkline {
+  flex: none;
+}
+
+/* ---- Attention list (Home): position, vehicle and its flags ---- */
+.pb-attention {
+  list-style: none;
+  margin: 0 0 10px;
+  padding: 0;
+}
+.pb-attention > li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 4px 12px;
+  padding: 8px 0;
+  border-top: 1px solid var(--pb-hairline);
+}
+.pb-attention > li:first-child {
+  border-top: 0;
+  padding-top: 0;
+}
+.pb-attention-main {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 2px 10px;
+  min-width: 0;
+}
+.pb-attention .pb-chips {
+  margin: 0;
+}
+
+/* ---- Flag list inside a table cell (Watchlist): a badge and its message per flag ---- */
+.pb-flag-list {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.pb-flag-list > li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px 8px;
+}
+.pb-flag-list .pb-meta {
+  line-height: 18px;
+}
+
 /* ---- AG Grid companions ---- */
 .pb-grid {
   height: clamp(360px, calc(100vh - 340px), 760px);
