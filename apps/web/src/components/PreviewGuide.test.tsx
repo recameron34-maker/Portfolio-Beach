@@ -137,6 +137,23 @@ describe('preview guide', () => {
     expect(within(guide).queryByRole('button', { name: 'Hide guide' })).toBeNull();
   });
 
+  it('folds the walkthroughs on Home at phone width, keeping the reset', async () => {
+    vi.stubGlobal('matchMedia', (query: string) => ({
+      matches: query === '(max-width: 760px)',
+      addEventListener: () => undefined,
+      removeEventListener: () => undefined,
+    }));
+    mockApi({ '/api/v1/auth/mock-users': ok(USERS) });
+    renderWithQuery(<PreviewGuide variant="home" onHide={() => undefined} />);
+    const guide = screen.getByTestId('preview-guide');
+    expect(guide.querySelectorAll('details > summary')).toHaveLength(5);
+    expect(guide.querySelector('.pb-guide-list')).toBeNull();
+    await waitFor(() =>
+      expect(screen.getByTestId('guide-walls')).toHaveTextContent('Vera Viewer (viewer)'),
+    );
+    expect(within(guide).getByRole('button', { name: 'Reset preview' })).toBeVisible();
+  });
+
   it('resets the simulated changes from Home and says so', async () => {
     mockApi({
       '/api/v1/auth/mock-users': ok(USERS),

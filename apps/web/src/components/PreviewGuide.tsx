@@ -6,6 +6,7 @@ import { Button } from '@fluentui/react-components';
 import { previewMode } from '../app/env.js';
 import { describeActionError, usePreviewReset } from '../app/mutations.js';
 import { mockUsersQuery } from '../app/queries.js';
+import { useNarrowScreen } from '../lib/media.js';
 import { guidePeople } from '../lib/preview-guide.js';
 import type { GuidePeople } from '../lib/preview-guide.js';
 import { Card, SectionHeader, SimulatedBadge } from './ui.js';
@@ -160,6 +161,8 @@ function Guide({
   const users = useQuery(mockUsersQuery);
   const items = walkthroughs(guidePeople(users.data?.users ?? []));
   const compact = variant === 'sign-in';
+  // On a phone the open walkthroughs run longer than a screen, so Home folds them like sign-in.
+  const folded = useNarrowScreen() || compact;
   return (
     <Card testId="preview-guide">
       <div className="pb-guide-head">
@@ -175,7 +178,7 @@ function Guide({
           ? 'Five short walkthroughs on synthetic data. Sign in as the user a step names; after that, switch users with the user menu at the top of any page.'
           : 'Five short walkthroughs on synthetic data. Switch users with the user menu at the top of any page.'}
       </p>
-      {compact ? (
+      {folded ? (
         <div className="pb-guide-compact">
           {items.map((w) => (
             <details key={w.id} data-testid={`guide-${w.id}`}>
