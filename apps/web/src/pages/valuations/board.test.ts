@@ -23,6 +23,7 @@ import {
   filterRows,
   isFairValue,
   latestFirst,
+  lastMethodOf,
   methodCodes,
   missingMarks,
   periodCounts,
@@ -141,5 +142,18 @@ describe('valuation board helpers', () => {
     expect(blockedTitle({ allowed: false, roles: ['approver'] })).toBe(PHASE_3_TITLE);
     expect(isReason('ab ')).toBe(false);
     expect(isReason(' abc ')).toBe(true);
+  });
+});
+
+describe('lastMethodOf', () => {
+  it('takes the method of the latest period and the highest version, or null', () => {
+    const rows = valuationRows();
+    const first = rows[0]!;
+    const sameInvestment = rows.filter((r) => r.investmentId === first.investmentId);
+    const latest = [...sameInvestment].sort(
+      (a, b) => b.periodEnd.localeCompare(a.periodEnd) || b.version - a.version,
+    )[0]!;
+    expect(lastMethodOf(rows, first.investmentId)).toBe(latest.method);
+    expect(lastMethodOf(rows, '00000000-0000-4000-8000-000000000000')).toBeNull();
   });
 });

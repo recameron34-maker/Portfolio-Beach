@@ -65,6 +65,7 @@ import {
   approvedOn,
   filterRows,
   isValuationState,
+  lastMethodOf,
   latestFirst,
   methodCodes,
   missingMarks,
@@ -665,6 +666,7 @@ function Board({ page, roles }: { page: ValuationPage; roles: readonly string[] 
           positions={positions}
           period={period}
           methods={methodCodes(page.items)}
+          methodFor={(id) => lastMethodOf(page.items, id)}
           initialInvestmentId={newFor.investmentId}
           onCancel={() => setNewFor(null)}
           onSubmit={(body, position) => {

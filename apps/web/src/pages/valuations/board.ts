@@ -119,6 +119,24 @@ export function methodCodes(rows: readonly ValuationRow[]): string[] {
   return [...new Set(rows.map((r) => r.method))].sort();
 }
 
+/**
+ * The method of a position's most recent version (latest period, then highest version), so a new
+ * valuation starts from the method the position was last marked with; null when it has none.
+ */
+export function lastMethodOf(rows: readonly ValuationRow[], investmentId: string): string | null {
+  let best: ValuationRow | null = null;
+  for (const r of rows) {
+    if (r.investmentId !== investmentId) continue;
+    if (
+      best === null ||
+      r.periodEnd > best.periodEnd ||
+      (r.periodEnd === best.periodEnd && r.version > best.version)
+    )
+      best = r;
+  }
+  return best === null ? null : best.method;
+}
+
 /** Vehicle names for the filter: the vehicle list when it loaded, otherwise the names on the rows. */
 export function vehicleNames(
   vehicles: readonly VehicleSummary[] | undefined,

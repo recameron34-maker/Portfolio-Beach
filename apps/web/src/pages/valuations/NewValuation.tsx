@@ -29,6 +29,7 @@ export function NewValuationDialog({
   positions,
   period,
   methods,
+  methodFor,
   initialInvestmentId,
   onCancel,
   onSubmit,
@@ -36,12 +37,16 @@ export function NewValuationDialog({
   positions: readonly InvestmentSummary[];
   period: string;
   methods: readonly string[];
+  /** The method the position was last marked with, offered as the default. */
+  methodFor: (investmentId: string) => string | null;
   initialInvestmentId: string | null;
   onCancel: () => void;
   onSubmit: (body: ValuationCreateBody, position: InvestmentSummary) => void;
 }): ReactNode {
   const [investmentId, setInvestmentId] = useState(initialInvestmentId ?? '');
-  const [method, setMethod] = useState('');
+  const [method, setMethod] = useState(
+    initialInvestmentId === null ? '' : (methodFor(initialInvestmentId) ?? ''),
+  );
   const [fairValue, setFairValue] = useState('');
   const [touched, setTouched] = useState(false);
   const position = positions.find((p) => p.id === investmentId);
@@ -80,7 +85,12 @@ export function NewValuationDialog({
                   placeholder="Choose an active position"
                   value={position === undefined ? '' : positionLabel(position)}
                   selectedOptions={investmentId === '' ? [] : [investmentId]}
-                  onOptionSelect={(_e, d) => setInvestmentId(d.optionValue ?? '')}
+                  onOptionSelect={(_e, d) => {
+                    const id = d.optionValue ?? '';
+                    setInvestmentId(id);
+                    const last = id === '' ? null : methodFor(id);
+                    if (last !== null) setMethod(last);
+                  }}
                 >
                   {positions.map((p) => (
                     <Option key={p.id} value={p.id} text={positionLabel(p)}>
