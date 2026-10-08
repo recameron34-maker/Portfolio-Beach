@@ -75,9 +75,14 @@ import {
   versionLabel,
 } from './board.js';
 import { NewValuationDialog } from './NewValuation.js';
-import { ActionLogCard, ActionStatus, CommandButtons, ReasonDialog } from './WorkflowActions.js';
-import { blockedTitle, resultSuffix, useActionLog } from './workflow.js';
-import type { ActionLog } from './workflow.js';
+import {
+  ActionLogCard,
+  ActionStatus,
+  CommandButtons,
+  ReasonDialog,
+} from '../../components/WorkflowActions.js';
+import { blockedTitle, resultSuffix, useActionLog } from '../../lib/workflow.js';
+import type { ActionLog } from '../../lib/workflow.js';
 import './valuations.css';
 
 type ValuationOption = CommandOption<ValuationState, ValuationCommand>;

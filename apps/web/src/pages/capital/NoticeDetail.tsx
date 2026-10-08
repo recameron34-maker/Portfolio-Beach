@@ -37,9 +37,9 @@ import {
   ActionStatus,
   CommandButtons,
   ReasonDialog,
-} from '../valuations/WorkflowActions.js';
-import { resultSuffix, useActionLog } from '../valuations/workflow.js';
-import type { ActionLog } from '../valuations/workflow.js';
+} from '../../components/WorkflowActions.js';
+import { resultSuffix, useActionLog } from '../../lib/workflow.js';
+import type { ActionLog } from '../../lib/workflow.js';
 import {
   ALERT_DAYS_BEFORE_DUE,
   cashFlowTone,
