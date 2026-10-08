@@ -14,7 +14,6 @@ import {
   PageSkeleton,
   SectionHeader,
 } from '../../components/ui.js';
-import { moneyLabel } from '../../lib/decimal.js';
 import {
   formatDate,
   formatMoneyM,
@@ -22,6 +21,7 @@ import {
   formatPct,
   labelOf,
   MISSING,
+  moneyLabel,
 } from '../../lib/format.js';
 import { humanizeState, valuationTone } from '../../lib/states.js';
 import { retryUnlessUnavailable } from '../../lib/unavailable.js';

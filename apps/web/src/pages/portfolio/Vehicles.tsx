@@ -25,7 +25,6 @@ import {
   StatTile,
   TabNav,
 } from '../../components/ui.js';
-import { moneyLabel } from '../../lib/decimal.js';
 import {
   formatDate,
   formatMoic,
@@ -34,6 +33,7 @@ import {
   irrDisplay,
   labelOf,
   MISSING,
+  moneyLabel,
 } from '../../lib/format.js';
 import { irrFlagHint } from '../../lib/labels.js';
 import {

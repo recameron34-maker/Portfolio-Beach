@@ -14,7 +14,6 @@ import {
   SectionHeader,
   StatTile,
 } from '../../components/ui.js';
-import { moneyLabel } from '../../lib/decimal.js';
 import {
   formatDate,
   formatMoneyM,
@@ -23,6 +22,7 @@ import {
   formatPct,
   labelOf,
   MISSING,
+  moneyLabel,
 } from '../../lib/format.js';
 import { creditStatusTone } from '../../lib/labels.js';
 import {
