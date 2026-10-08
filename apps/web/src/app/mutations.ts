@@ -10,6 +10,7 @@ import type {
 } from '@pb/contracts';
 import type { z as zod } from 'zod';
 import { api, ApiError } from '../api/client.js';
+import { commandLabel, humanizeState } from '../lib/states.js';
 import { previewMode } from './env.js';
 
 /**
@@ -87,6 +88,20 @@ export function postPreviewReset(): Promise<{ reset: true }> {
 const NOT_IN_THIS_BUILD = 'Workflow actions arrive with Phase 3; this build reads only.';
 
 /**
+ * The transition tables word their refusals for engineers ("valuation: lock from DealTeamApproved
+ * requires one of: approver"). The user needs the rule only: drop the machine name, spell out state
+ * and command names and start with a capital ("Lock from Deal team approved requires one of:
+ * approver", "Confirm funding is not allowed from Ticket drafted").
+ */
+export function plainRule(detail: string): string {
+  const rule = detail
+    .replace(/^[a-z_]+: /, '')
+    .replace(/\b[A-Z][a-z]+(?:[A-Z][a-z]+)+\b/g, (state) => humanizeState(state))
+    .replace(/\b[a-z]+(?:[A-Z][a-z]+)+\b/g, (command) => commandLabel(command).toLowerCase());
+  return rule.charAt(0).toUpperCase() + rule.slice(1);
+}
+
+/**
  * One sentence the user can act on, from an RFC 9457 problem (docs/17 section 3). The status codes
  * follow the mapping the workflow controller and the preview simulation share: 403 role, 409
  * transition not in the table, 422 precondition, 412 stale row version. Values are never echoed.
@@ -94,7 +109,7 @@ const NOT_IN_THIS_BUILD = 'Workflow actions arrive with Phase 3; this build read
 export function describeActionError(error: unknown): string {
   if (!(error instanceof ApiError))
     return error instanceof Error ? error.message : 'The action failed.';
-  const detail = error.problem.detail ?? error.problem.title;
+  const detail = plainRule(error.problem.detail ?? error.problem.title);
   switch (error.status) {
     case 400:
       return `The request was not valid. ${detail}`;

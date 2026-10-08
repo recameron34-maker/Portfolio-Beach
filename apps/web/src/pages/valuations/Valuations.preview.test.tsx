@@ -159,7 +159,7 @@ describe('valuation board (preview)', () => {
       button('Deal team approve, Silverline Staffing Holdings, Jun 30, 2025 v1'),
     );
     const notice = await within(screen.getByRole('status')).findByText(
-      'Deal team approve for Silverline Staffing Holdings, Jun 30, 2025 v1: Blocked by a rule. valuation: the preparer cannot approve their own valuation (SEC-5.6)',
+      'Deal team approve for Silverline Staffing Holdings, Jun 30, 2025 v1: Blocked by a rule. The preparer cannot approve their own valuation (SEC-5.6)',
     );
     expect(notice).toHaveClass('pb-notice', 'pb-notice-bad');
     expect(

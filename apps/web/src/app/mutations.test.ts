@@ -1,7 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ValuationRow } from '@pb/contracts';
 import { ApiError } from '../api/client.js';
-import { describeActionError, postPreviewReset, postValuationCommand } from './mutations.js';
+import {
+  describeActionError,
+  plainRule,
+  postPreviewReset,
+  postValuationCommand,
+} from './mutations.js';
 import { clearCredential, setCredential } from './session.js';
 
 /** A contract-shaped valuation row; page tests can copy it. */
@@ -92,13 +97,13 @@ describe('workflow mutations', () => {
 describe('describeActionError', () => {
   it('turns each refusal status into one plain sentence without echoing values', () => {
     expect(describeActionError(problem(403, 'lock requires one of: approver'))).toBe(
-      'Your role cannot do this. lock requires one of: approver',
+      'Your role cannot do this. Lock requires one of: approver',
     );
     expect(describeActionError(problem(409, 'lock is not allowed from Draft'))).toBe(
-      'Not allowed from the current state. lock is not allowed from Draft',
+      'Not allowed from the current state. Lock is not allowed from Draft',
     );
     expect(describeActionError(problem(422, 'the preparer cannot approve (SEC-5.6)'))).toBe(
-      'Blocked by a rule. the preparer cannot approve (SEC-5.6)',
+      'Blocked by a rule. The preparer cannot approve (SEC-5.6)',
     );
     expect(describeActionError(problem(412, 'stale'))).toMatch(/changed this record first/);
     expect(describeActionError(problem(400, 'command: invalid'))).toMatch(/not valid/);
@@ -107,6 +112,21 @@ describe('describeActionError', () => {
     expect(describeActionError(problem(404, 'Cannot POST'))).toMatch(/Phase 3/);
     expect(describeActionError(new Error('network down'))).toBe('network down');
     expect(describeActionError('odd')).toBe('The action failed.');
+  });
+
+  it('words a transition-table refusal for the user, not the engineer', () => {
+    expect(plainRule('valuation: lock from DealTeamApproved requires one of: approver')).toBe(
+      'Lock from Deal team approved requires one of: approver',
+    );
+    expect(plainRule('capital_notice: confirmFunding is not allowed from TicketDrafted')).toBe(
+      'Confirm funding is not allowed from Ticket drafted',
+    );
+    expect(plainRule('Valuation not found')).toBe('Valuation not found');
+    expect(
+      describeActionError(
+        problem(422, 'capital_notice: the ticket preparer cannot approve it (SEC-12.3)'),
+      ),
+    ).toBe('Blocked by a rule. The ticket preparer cannot approve it (SEC-12.3)');
   });
 
   it('never contains an em dash', () => {

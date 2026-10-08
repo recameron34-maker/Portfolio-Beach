@@ -120,7 +120,7 @@ describe('capital notice detail (preview)', () => {
     await userEvent.click(await screen.findByRole('button', { name: 'Approve ticket' }));
     expect(
       await within(screen.getByRole('status')).findByText(
-        'Approve ticket: Blocked by a rule. capital_notice: the wire instruction is not verified (SEC-12.2)',
+        'Approve ticket: Blocked by a rule. The wire instruction is not verified (SEC-12.2)',
       ),
     ).toHaveClass('pb-notice-bad');
     expect(sentPosts()).toEqual([[commandsPath(NOTICE_ID.drafted), { command: 'approveTicket' }]]);
