@@ -92,7 +92,9 @@ function CommitmentsTable({
   const hasClient = rows.some((r) => r.clientName !== null);
   const t = list.totals;
   return (
-    <div className="pb-table-wrap">
+    // The frame scrolls sideways and holds no link or button, so it takes focus itself: keyboard
+    // users can then scroll it with the arrow keys (WCAG 2.1.1).
+    <div className="pb-table-wrap" tabIndex={0} role="region" aria-label="Commitments, scrollable">
       <table className="pb-table pb-cap-commitments" aria-label="Commitments">
         <thead>
           <tr>

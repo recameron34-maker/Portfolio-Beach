@@ -22,6 +22,7 @@ import {
   approvedOn,
   filterRows,
   isFairValue,
+  latestFirst,
   methodCodes,
   missingMarks,
   periodCounts,
@@ -121,6 +122,14 @@ describe('valuation board helpers', () => {
     expect(isFairValue('0')).toBe(true);
     for (const bad of ['', '-5', '12,500,000', '1e6', '12.', '.5', '$12M', ' 12'])
       expect(isFairValue(bad), bad).toBe(false);
+  });
+
+  it('orders periods latest first whatever order they arrive in', () => {
+    expect(latestFirst(['2024-12-31', AS_OF, PRIOR_PERIOD, AS_OF])).toEqual([
+      AS_OF,
+      PRIOR_PERIOD,
+      '2024-12-31',
+    ]);
   });
 
   it('names a version the way messages and buttons do', () => {

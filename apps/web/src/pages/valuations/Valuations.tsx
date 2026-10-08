@@ -65,6 +65,7 @@ import {
   approvedOn,
   filterRows,
   isValuationState,
+  latestFirst,
   methodCodes,
   missingMarks,
   periodCounts,
@@ -448,8 +449,9 @@ function Board({ page, roles }: { page: ValuationPage; roles: readonly string[] 
   const actions = useBoardActions(log);
 
   const isOps = roles.includes('operations');
+  const periods = latestFirst([...page.periods, ...page.items.map((r) => r.periodEnd)]);
   const period =
-    periodChoice !== null && page.periods.includes(periodChoice) ? periodChoice : page.periods[0];
+    periodChoice !== null && periods.includes(periodChoice) ? periodChoice : periods[0];
   const positions = active.data?.items ?? [];
   const newBlocked = blockedTitle({ allowed: isOps, roles: ['operations'] });
   const newTitle =
@@ -555,7 +557,7 @@ function Board({ page, roles }: { page: ValuationPage; roles: readonly string[] 
                 if (d.optionValue !== undefined) setPeriodChoice(d.optionValue);
               }}
             >
-              {page.periods.map((p) => (
+              {periods.map((p) => (
                 <Option key={p} value={p}>
                   {formatDate(p)}
                 </Option>

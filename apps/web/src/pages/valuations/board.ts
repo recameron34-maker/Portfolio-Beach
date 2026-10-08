@@ -31,6 +31,11 @@ export const IN_FLIGHT_STATES: readonly ValuationState[] = [
   'DealTeamApproved',
 ];
 
+/** Period ends latest first (ISO dates sort as text), whatever order they arrive in. */
+export function latestFirst(periods: readonly string[]): string[] {
+  return [...new Set(periods)].sort().reverse();
+}
+
 export function isValuationState(value: string): value is ValuationState {
   return (VALUATION_STATES as readonly string[]).includes(value);
 }

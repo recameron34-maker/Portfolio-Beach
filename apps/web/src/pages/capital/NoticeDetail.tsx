@@ -123,7 +123,13 @@ function CashFlowsCard({ notice }: { notice: CapitalNoticeDetail }): ReactNode {
           detail="They are created when the ticket is approved and funding is confirmed."
         />
       ) : (
-        <div className="pb-table-wrap">
+        // No link or button inside, so the frame takes focus for keyboard scrolling on a phone.
+        <div
+          className="pb-table-wrap"
+          tabIndex={0}
+          role="region"
+          aria-label="Cash flows created, scrollable"
+        >
           <table className="pb-table" aria-label="Cash flows created">
             <thead>
               <tr>
