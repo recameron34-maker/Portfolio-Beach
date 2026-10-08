@@ -5,6 +5,7 @@ import { Button, Spinner } from '@fluentui/react-components';
 import { mockUsersQuery } from '../app/queries.js';
 import { setCredential } from '../app/session.js';
 import { BeachBackground } from '../components/BeachBackground.js';
+import { PreviewGuide } from '../components/PreviewGuide.js';
 import { Card, ErrorState, SectionHeader } from '../components/ui.js';
 
 /** Prototype sign-in: pick a synthetic user. Entra ID single sign-on replaces this after merge (SEC-4.1). */
@@ -64,6 +65,7 @@ export function SignInPage(): ReactNode {
       </div>
       <main className="pb-signin" aria-label="Sign in">
         {body}
+        <PreviewGuide variant="sign-in" />
       </main>
       <p className="pb-signin-legal">
         Synthetic data only. No employer information is present anywhere in this system.

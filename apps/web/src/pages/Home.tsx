@@ -1,7 +1,7 @@
 import type { ReactNode } from 'react';
 import { Link } from '@tanstack/react-router';
 import { keepPreviousData, useQuery } from '@tanstack/react-query';
-import { Spinner } from '@fluentui/react-components';
+import { Button, Spinner } from '@fluentui/react-components';
 import type { AnalyticsSummary, CapitalNoticePage, Watchlist, WatchlistItem } from '@pb/contracts';
 import {
   analyticsQuery,
@@ -11,6 +11,7 @@ import {
   watchlistQuery,
 } from '../app/queries.js';
 import { HorizontalBars, LineChart, Sparkline } from '../components/charts/index.js';
+import { PreviewGuide } from '../components/PreviewGuide.js';
 import { UnavailableState } from '../components/UnavailableState.js';
 import {
   Badge,
@@ -34,6 +35,7 @@ import {
   moneyLabel,
 } from '../lib/format.js';
 import { irrFlagHint, watchFlagLabel } from '../lib/labels.js';
+import { usePreviewGuide } from '../lib/preview-guide.js';
 import { humanizeState, noticeTone } from '../lib/states.js';
 
 /** Rows the dashboard shows before pointing at the full list. */
@@ -367,6 +369,7 @@ function StartHereCard(): ReactNode {
 export function HomePage(): ReactNode {
   const me = useQuery(meQuery);
   const analytics = useQuery({ ...analyticsQuery, placeholderData: keepPreviousData });
+  const guide = usePreviewGuide();
   if (me.isPending || analytics.isPending) return <PageSkeleton tiles={7} rows={3} />;
   const summary = analytics.data;
   const name = me.data?.displayName;
@@ -380,7 +383,22 @@ export function HomePage(): ReactNode {
             Figures cover the positions you are entitled to see.
           </>
         }
+        actions={
+          guide.hidden ? (
+            <Button
+              size="small"
+              appearance="secondary"
+              autoFocus={guide.focus === 'show'}
+              onClick={guide.show}
+            >
+              Show the preview guide
+            </Button>
+          ) : undefined
+        }
       />
+      {guide.open ? (
+        <PreviewGuide variant="home" onHide={guide.hide} focusHide={guide.focus === 'hide'} />
+      ) : null}
       {summary !== undefined ? (
         <Tiles summary={summary} />
       ) : (

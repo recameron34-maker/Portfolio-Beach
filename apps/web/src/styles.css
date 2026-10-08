@@ -862,6 +862,80 @@ p:last-child {
   max-width: 100%;
 }
 
+/* ---- Preview guide (preview only): walkthroughs for a reviewer, on sign-in and on Home ---- */
+.pb-signin > .pb-card + .pb-card {
+  margin-top: 12px;
+}
+.pb-guide-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 4px 12px;
+  margin: 0 0 14px;
+}
+.pb-guide-head > .pb-section-header {
+  margin: 0;
+}
+.pb-guide-intro {
+  margin: -4px 0 12px;
+}
+.pb-guide-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 280px), 1fr));
+  gap: 16px 28px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.pb-guide-list h3 {
+  margin: 0 0 6px;
+  font-size: 13px;
+  line-height: 20px;
+  font-weight: 600;
+  color: var(--pb-text);
+}
+.pb-guide-steps {
+  margin: 0;
+  padding-left: 18px;
+  font-size: 13px;
+  line-height: 20px;
+}
+.pb-guide-steps > li + li {
+  margin-top: 4px;
+}
+.pb-guide-compact > details {
+  border-top: 1px solid var(--pb-hairline);
+}
+.pb-guide-compact summary {
+  padding: 8px 0;
+  font-size: 13px;
+  line-height: 20px;
+  font-weight: 600;
+  color: var(--pb-brand-primary);
+  cursor: pointer;
+}
+.pb-guide-compact .pb-guide-steps {
+  padding-bottom: 10px;
+}
+.pb-guide-foot {
+  margin-top: 16px;
+  padding-top: 12px;
+  border-top: 1px solid var(--pb-hairline);
+}
+.pb-guide-reset {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+}
+.pb-guide-result {
+  margin: 8px 0 0;
+}
+.pb-guide-result:empty {
+  margin: 0;
+}
+
 /* ---- Assistant switch (preview only): the simulated flag change beside its label ---- */
 .pb-assistant-switch {
   display: flex;
