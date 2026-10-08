@@ -36,8 +36,8 @@ Status: N = not started, P = partial, B = built. Phase 0 built the foundations (
 | C1 | Capture capital call and distribution notices (ILPA template aware) | M16 | N |
 | C2 | Due date tracker with alerts; preferred funding date | M16 | P (capital notice list with an attention panel and days to due from config; alert dispatch pending) |
 | C3 | Wire instruction register + change-triggered callback verification (two people) | M16 | N |
-| C4 | Cash Flow rows from approved notices (feeds IRR, unfunded, weekly report) | M16 | N |
-| C5 | Equalization, recallable, interest and expense true-up handling; unfunded reconciliation | M16 | N |
+| C4 | Cash Flow rows from approved notices (feeds IRR, unfunded, weekly report) | M16 | P (seeded flows carry their source notice; the notice detail shows the lineage and the settled amount; creating flows through staging and approval is Phase 3) |
+| C5 | Equalization, recallable, interest and expense true-up handling; unfunded reconciliation | M16 | P (unfunded with recallable distributions from packages/calc on the commitments board, including the equalization sequence; true-up handling pending) |
 | C6 | Follow-on, preemptive rights and other LP elections with deadlines | M11, M16 | N |
 | C7 | Deal economics received (e.g., shared monitoring fees, fee offsets) | M11 | N |
 | C8 | Interest, principal and PIK notices on credit positions create the right cash flows and par changes | M16 | N |
@@ -67,7 +67,7 @@ Status: N = not started, P = partial, B = built. Phase 0 built the foundations (
 | E8 | Realization outlook (next 18 months) changed only by explicit edit | M9 | P (read on the performance tab; the edit workflow is pending) |
 | E9 | Valuation staging, approvals, lock / reopen, batch approve | M10 | P (state machine and database rules in place; valuation board read view; approvals and locks are simulated in the static preview only, decision 0006) |
 | E10 | Deal change requests routed to Ops | M11 | N |
-| E11 | **New:** NAV roll-forward when sponsor marks are late, with automatic footnote | M9, M19 | N |
+| E11 | **New:** NAV roll-forward when sponsor marks are late, with automatic footnote | M9, M19 | P (the weekly report footnotes a position carried at an earlier Locked mark, wording from config; the roll-forward itself is pending) |
 | E12 | Sublines: balance, usage, paydowns, documented support for paydown sources | M12 | N |
 | E13 | Private credit monitoring: terms, par / cost / fair value, PIK, coverage, leverage, LTV, DSCR, covenant and payment status, maturity ladder | M9 | P (tables, calculations, scenarios, API, one-pager, credit book view and watchlist flags; DSCR inputs and the ladder view pending) |
 
@@ -130,7 +130,7 @@ Fund-accounting general ledger, investor onboarding / KYC, fixing the look-throu
 | I11 | Cooling-contact alerts and AI relationship summaries | M6 | N |
 | I12 | Client / LP request routing with templated drafts | M14 | N |
 | I13 | Information barriers (walled deals) in search and AI | SEC-5.3 | P (walls enforced by RLS, the API and the UI with tests; search and AI retrieval arrive in Phases 2 and 6) |
-| I14 | Self-serve client view: investments, dates, performance, calls, distributions | M14, M16 | N |
+| I14 | Self-serve client view: investments, dates, performance, calls, distributions | M14, M16 | P (client look-through by ownership for entitled users under row-level security; calls and distributions per client pending) |
 | I15 | Credit analytics: weighted yield and spread, exposure by seniority and base rate, PIK share of income | M20 | N |
 
 ## J. IT operations by AI agents (docs/15)
