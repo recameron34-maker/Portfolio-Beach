@@ -120,6 +120,16 @@ const ADMIN_PAGES: Visit[] = [
   { path: '/admin/health', ready: heading },
   { path: '/data/taxonomy', ready: heading },
 ];
+/** The rest of the router, so every route is scanned at both widths (the grid once its rows are in). */
+const EARLIER_PAGES: Visit[] = [
+  { path: '/portfolio', ready: (p) => p.getByTestId('portfolio-grid').locator('.ag-row') },
+  { path: '/pipeline', ready: heading },
+  { path: '/documents', ready: heading },
+  { path: '/reporting/disclosures', ready: heading },
+  { path: '/admin/flags', ready: heading },
+  { path: '/data/health', ready: heading },
+  { path: '/data/dictionary', ready: heading },
+];
 const dealTabs = (id: string): Visit[] =>
   DEAL_TABS.map((t) => ({ path: `/portfolio/${id}${t.path}`, ready: banner }));
 
@@ -165,6 +175,12 @@ for (const width of [1280, 390]) {
       test.setTimeout(120_000);
       await signInAs(page, 'ops.one', d);
       await scanPages(page, ADMIN_PAGES);
+    });
+
+    test(`operations: the positions grid and the earlier pages @a11y`, async ({ page }) => {
+      test.setTimeout(120_000);
+      await signInAs(page, 'ops.one', d);
+      await scanPages(page, EARLIER_PAGES);
     });
 
     test(`operations: every deal workspace tab @a11y`, async ({ page }) => {
