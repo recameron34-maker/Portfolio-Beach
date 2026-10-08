@@ -1,6 +1,6 @@
 import { Controller, Get, Inject, Query, Req } from '@nestjs/common';
 import type { AdapterSet, Principal } from '@pb/adapters';
-import { asOfQuery, valuationListQuery } from '@pb/contracts';
+import { valuationListQuery } from '@pb/contracts';
 import type { ValuationPage } from '@pb/contracts';
 import { CurrentPrincipal } from '../auth/principal.js';
 import type { RequestWithPrincipal } from '../auth/principal.js';
@@ -14,10 +14,6 @@ export class ValuationsController {
     private readonly service: ValuationsService,
     @Inject(ADAPTERS) private readonly adapters: AdapterSet,
   ) {}
-
-  private asOf(query: unknown): string {
-    return parseOrProblem(asOfQuery, query, 'query').asOf ?? this.adapters.clock.today();
-  }
 
   @Get('valuations')
   list(
