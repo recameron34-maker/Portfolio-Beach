@@ -164,6 +164,7 @@ function NoticesCard({ page }: { page: CapitalNoticePage }): ReactNode {
           <Label htmlFor="notice-state">State</Label>
           <Dropdown
             id="notice-state"
+            className="pb-cap-filter"
             value={state === '' ? 'All states' : humanizeState(state)}
             selectedOptions={[state]}
             onOptionSelect={(_e, d) => {
@@ -183,6 +184,7 @@ function NoticesCard({ page }: { page: CapitalNoticePage }): ReactNode {
           <Label htmlFor="notice-type">Type</Label>
           <Dropdown
             id="notice-type"
+            className="pb-cap-filter"
             value={noticeType === '' ? 'All types' : labelOf(noticeType)}
             selectedOptions={[noticeType]}
             onOptionSelect={(_e, d) => setNoticeType(d.optionValue ?? '')}
@@ -199,6 +201,7 @@ function NoticesCard({ page }: { page: CapitalNoticePage }): ReactNode {
           <Label htmlFor="notice-vehicle">Vehicle</Label>
           <Dropdown
             id="notice-vehicle"
+            className="pb-cap-filter is-wide"
             value={vehicle === '' ? 'All vehicles' : vehicle}
             selectedOptions={[vehicle]}
             onOptionSelect={(_e, d) => setVehicle(d.optionValue ?? '')}

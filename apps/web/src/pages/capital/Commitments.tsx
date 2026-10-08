@@ -30,10 +30,10 @@ function UnfundedCell({ row }: { row: FundCommitmentRow }): ReactNode {
   return (
     <td className="num">
       <span className="pb-cap-overcalled">
+        {formatMoneyM(row.unfunded)}
         <span title="Called beyond the commitment amount">
           <Badge tone="watch">Over-called</Badge>
         </span>
-        {formatMoneyM(row.unfunded)}
       </span>
     </td>
   );
@@ -55,18 +55,20 @@ function UnfundedCard({ list }: { list: CommitmentList }): ReactNode {
         />
       ) : (
         <>
-          <HorizontalBars
-            title="Unfunded by sponsor fund"
-            subtitle="Commitments with recorded cash flows"
-            data={chart.bars}
-            kind="money"
-            valueColumn="Unfunded"
-            summary={[
-              `Unfunded by sponsor fund across ${chart.bars.length} commitments; the largest is ${largest.label} at ${largest.display}.`,
-              ...caveats,
-            ].join(' ')}
-            testId="unfunded-chart"
-          />
+          <div className="pb-cap-unfunded">
+            <HorizontalBars
+              title="Unfunded by sponsor fund"
+              subtitle="Commitments with recorded cash flows"
+              data={chart.bars}
+              kind="money"
+              valueColumn="Unfunded"
+              summary={[
+                `Unfunded by sponsor fund across ${chart.bars.length} commitments; the largest is ${largest.label} at ${largest.display}.`,
+                ...caveats,
+              ].join(' ')}
+              testId="unfunded-chart"
+            />
+          </div>
           {caveats.length > 0 ? (
             <p className="pb-meta" data-testid="unfunded-caveats">
               {caveats.join(' ')}
@@ -111,13 +113,13 @@ function CommitmentsTable({
         <tbody>
           {rows.map((r) => (
             <tr key={r.id}>
-              <td>{r.sponsorFundName}</td>
-              <td>{r.sponsorName}</td>
-              <td>{r.vehicleName}</td>
+              <td className="pb-cap-name">{r.sponsorFundName}</td>
+              <td className="pb-cap-name">{r.sponsorName}</td>
+              <td className="pb-cap-name">{r.vehicleName}</td>
               <NumCell>{r.vintage === null ? MISSING : String(r.vintage)}</NumCell>
               <td>{labelOf(r.strategy)}</td>
               {hasClient ? (
-                <td className={r.clientName === null ? 'is-missing' : undefined}>
+                <td className={r.clientName === null ? 'is-missing' : 'pb-cap-name'}>
                   {r.clientName ?? MISSING}
                 </td>
               ) : null}
@@ -126,16 +128,15 @@ function CommitmentsTable({
               <NumCell>{formatMoneyM(r.distributed)}</NumCell>
               <NumCell>{formatMoneyM(r.recallable)}</NumCell>
               <UnfundedCell row={r} />
-              <td className="pb-nowrap">{formatDate(r.commitmentDate)}</td>
+              <td>{formatDate(r.commitmentDate)}</td>
             </tr>
           ))}
         </tbody>
         {showTotal ? (
           <tfoot>
             <tr>
-              <th scope="row" colSpan={hasClient ? 6 : 5}>
-                Total
-              </th>
+              <th scope="row">Total</th>
+              <td colSpan={hasClient ? 5 : 4} />
               <NumCell>{formatMoneyM(t.amount)}</NumCell>
               <NumCell>{formatMoneyM(t.called)}</NumCell>
               <NumCell>{formatMoneyM(t.distributed)}</NumCell>
@@ -220,6 +221,7 @@ export function CommitmentsPage(): ReactNode {
             <Label htmlFor="commitment-vehicle">Vehicle</Label>
             <Dropdown
               id="commitment-vehicle"
+              className="pb-cap-filter is-wide"
               value={vehicle === '' ? 'All vehicles' : vehicle}
               selectedOptions={[vehicle]}
               onOptionSelect={(_e, d) => setVehicle(d.optionValue ?? '')}

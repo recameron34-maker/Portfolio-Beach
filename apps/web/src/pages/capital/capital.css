@@ -1,4 +1,14 @@
-/* Capital activity pages (docs/04 M16, M17). Tokens only; shared table, tile and badge styles live in styles.css. */
+/* Capital activity pages (docs/04 M16, M17). Tokens only; shared table, tile and badge styles live in
+   styles.css. styles.css loads after page styles, so every override of a shared class uses two classes. */
+
+/* Filters sized to their content, so a toolbar holds one row on a laptop screen. */
+.pb-toolbar .pb-cap-filter {
+  min-width: 0;
+  width: 190px;
+}
+.pb-toolbar .pb-cap-filter.is-wide {
+  width: 260px;
+}
 
 /* Due date with its alert badge, and a company or fund with its scenario tag. */
 .pb-cap-due,
@@ -9,40 +19,63 @@
   gap: 4px 8px;
 }
 
-/* A negative unfunded keeps its figure at the right edge with the word beside it. */
+/* Commitments: twelve columns scroll sideways in their frame with the sponsor fund pinned on the
+   left; figures stay on one line and a negative unfunded carries its word underneath. */
+.pb-table.pb-cap-commitments th,
+.pb-table.pb-cap-commitments td {
+  white-space: nowrap;
+}
+.pb-table.pb-cap-commitments td.pb-cap-name {
+  min-width: 128px;
+  white-space: normal;
+}
+.pb-table.pb-cap-commitments tr > :first-child {
+  position: sticky;
+  left: 0;
+  z-index: 1;
+  background: var(--pb-bg);
+  box-shadow: inset -1px 0 0 var(--pb-border);
+}
+.pb-table.pb-cap-commitments thead tr > :first-child {
+  background: var(--pb-brand-primary);
+  box-shadow: inset -1px 0 0 rgba(var(--pb-bg-rgb), 0.18);
+}
+.pb-table.pb-cap-commitments tbody tr:hover > :first-child {
+  background: var(--pb-primary-tint-4);
+}
 .pb-cap-overcalled {
   display: inline-flex;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 8px;
-  white-space: nowrap;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 4px;
 }
 
 /* Commitments total row: the API totals as key numbers. */
-.pb-cap-commitments tfoot th,
-.pb-cap-commitments tfoot td {
+.pb-table.pb-cap-commitments tfoot th,
+.pb-table.pb-cap-commitments tfoot td {
   padding: 8px 10px;
   border-top: 1px solid var(--pb-border-strong);
+  border-bottom: 0;
   font-weight: 600;
   text-align: left;
 }
-.pb-cap-commitments tfoot td.num {
+.pb-table.pb-cap-commitments tfoot td.num {
   text-align: right;
   color: var(--pb-brand-primary);
   font-variant-numeric: tabular-nums lining-nums;
 }
 
 /* Notice detail */
-.pb-cap-back {
+.pb-meta.pb-cap-back {
   margin: 0 0 6px;
 }
-.pb-cap-hold {
+.pb-notice.pb-cap-hold {
   margin: 0 0 16px;
 }
 .pb-cap-actions {
   margin: 0 0 12px;
 }
-.pb-cap-notes {
+.pb-list.pb-cap-notes {
   margin: 0 0 12px;
 }
 
@@ -59,9 +92,10 @@
   display: flex;
   flex-direction: column;
   align-items: flex-start;
+  justify-content: space-between;
   gap: 8px;
   min-width: 0;
-  padding: 10px 10px 10px;
+  padding: 10px;
   background: var(--pb-bg);
   border: 1px solid var(--pb-border);
   border-radius: var(--pb-radius);
@@ -114,8 +148,21 @@
     grid-template-columns: repeat(4, minmax(0, 1fr));
   }
 }
+@media (max-width: 760px) {
+  .pb-toolbar .pb-cap-filter,
+  .pb-toolbar .pb-cap-filter.is-wide {
+    width: 100%;
+  }
+}
 @media (max-width: 560px) {
   .pb-cap-progress {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  /* The bar chart needs room for its labels; on a phone it scrolls sideways in its frame. */
+  .pb-cap-unfunded .pb-chart-wrap {
+    overflow-x: auto;
+  }
+  .pb-cap-unfunded .pb-chart-canvas {
+    min-width: 480px;
   }
 }

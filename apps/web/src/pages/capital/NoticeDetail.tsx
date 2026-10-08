@@ -56,6 +56,14 @@ type NoticeOption = CommandOption<CapitalNoticeState, CapitalNoticeCommand>;
 const BANK_DETAILS =
   'Bank details are never extracted from documents or shown here (SEC-12.1). The wire register with callback verification arrives with M16, so ticket approval stays blocked in this build (SEC-12.2).';
 
+function BackLink(): ReactNode {
+  return (
+    <p className="pb-meta pb-cap-back">
+      <Link to="/capital-activity">All capital notices</Link>
+    </p>
+  );
+}
+
 function ProgressStrip({ state }: { state: CapitalNoticeState }): ReactNode {
   return (
     <ol className="pb-cap-progress" aria-label="Notice progress">
@@ -202,7 +210,7 @@ function WorkflowCard({
           ))}
         </ul>
       ) : null}
-      {previewMode ? null : (
+      {previewMode || options.length === 0 ? null : (
         <p className="pb-meta">
           Workflow actions arrive with Phase 3. This build reads only, so every action is shown but
           disabled.
@@ -239,9 +247,7 @@ function NoticeBody({
   const hold = notice.wireChangeHold;
   return (
     <>
-      <p className="pb-meta pb-cap-back">
-        <Link to="/capital-activity">All capital notices</Link>
-      </p>
+      <BackLink />
       <PageHeader
         testId="notice-banner"
         title={`${labelOf(notice.noticeType)}: ${subject}`}
@@ -279,6 +285,21 @@ function NoticeBody({
         <StatTile label="Currency" value={notice.currency} />
       </div>
       <div className="pb-two-col">
+        <WorkflowCard notice={notice} roles={roles} onLog={log} />
+        <Card testId="notice-notes">
+          <SectionHeader>Notes</SectionHeader>
+          {notice.notes.length === 0 ? (
+            <EmptyState title="No notes" />
+          ) : (
+            <ul className="pb-list">
+              {notice.notes.map((note, i) => (
+                <li key={i}>{note}</li>
+              ))}
+            </ul>
+          )}
+        </Card>
+      </div>
+      <div className="pb-two-col">
         <Card testId="notice-split">
           <SectionHeader>Split</SectionHeader>
           {splits.length === 0 ? (
@@ -299,21 +320,6 @@ function NoticeBody({
         </Card>
         <CashFlowsCard notice={notice} />
       </div>
-      <div className="pb-two-col">
-        <WorkflowCard notice={notice} roles={roles} onLog={log} />
-        <Card testId="notice-notes">
-          <SectionHeader>Notes</SectionHeader>
-          {notice.notes.length === 0 ? (
-            <EmptyState title="No notes" />
-          ) : (
-            <ul className="pb-list">
-              {notice.notes.map((note, i) => (
-                <li key={i}>{note}</li>
-              ))}
-            </ul>
-          )}
-        </Card>
-      </div>
       <ActionLogCard entries={log.entries} />
     </>
   );
@@ -328,22 +334,24 @@ export function CapitalNoticePage(): ReactNode {
   if (q.isError) {
     const hidden =
       q.error instanceof ApiError && (q.error.status === 404 || q.error.status === 403);
-    if (hidden) {
-      return (
-        <ErrorState
-          title="Notice not found or not visible to you"
-          detail="There is no capital notice with this id in your view of the portfolio."
-        />
-      );
-    }
     return (
-      <UnavailableState
-        card
-        error={q.error}
-        subject="This capital notice"
-        errorTitle="Capital notice unavailable"
-        testId="notice-unavailable"
-      />
+      <>
+        <BackLink />
+        {hidden ? (
+          <ErrorState
+            title="Notice not found or not visible to you"
+            detail="There is no capital notice with this id in your view of the portfolio."
+          />
+        ) : (
+          <UnavailableState
+            card
+            error={q.error}
+            subject="This capital notice"
+            errorTitle="Capital notice unavailable"
+            testId="notice-unavailable"
+          />
+        )}
+      </>
     );
   }
   return <NoticeBody notice={q.data} roles={me.data?.roles ?? []} />;

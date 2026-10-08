@@ -151,23 +151,23 @@ function VersionTable({
               <td>
                 <span className="pb-key">{row.investmentNumber}</span>
               </td>
-              <td>
+              <td className="pb-val-name">
                 <Link to="/portfolio/$id" params={{ id: row.investmentId }}>
                   {row.companyName}
                 </Link>
               </td>
-              <td>{row.vehicleName}</td>
-              <td>{labelOf(row.dealType)}</td>
-              <td className="pb-nowrap">{formatDate(row.periodEnd)}</td>
-              <td className="pb-nowrap">v{row.version}</td>
+              <td className="pb-val-name">{row.vehicleName}</td>
+              <td className="pb-val-wrap">{labelOf(row.dealType)}</td>
+              <td>{formatDate(row.periodEnd)}</td>
+              <td>v{row.version}</td>
               <td>
                 <Badge tone={valuationTone(row.state)}>{humanizeState(row.state)}</Badge>
               </td>
-              <td>{labelOf(row.method)}</td>
+              <td className="pb-val-wrap">{labelOf(row.method)}</td>
               <NumCell>{formatMoneyM(row.priorFairValue)}</NumCell>
               <NumCell>{formatMoneyM(row.fairValue)}</NumCell>
               <ChangeCell changePct={row.changePct} />
-              <td className={row.approvedAt === null ? 'pb-nowrap is-missing' : 'pb-nowrap'}>
+              <td className={row.approvedAt === null ? 'is-missing' : undefined}>
                 {approvedOn(row.approvedAt)}
               </td>
               <td>
@@ -547,6 +547,7 @@ function Board({ page, roles }: { page: ValuationPage; roles: readonly string[] 
             <Label htmlFor="valuation-period">Period</Label>
             <Dropdown
               id="valuation-period"
+              className="pb-val-filter"
               value={formatDate(period)}
               selectedOptions={[period]}
               onOptionSelect={(_e, d) => {
@@ -564,6 +565,7 @@ function Board({ page, roles }: { page: ValuationPage; roles: readonly string[] 
             <Label htmlFor="valuation-state">State</Label>
             <Dropdown
               id="valuation-state"
+              className="pb-val-filter"
               value={stateFilter === '' ? 'All states' : humanizeState(stateFilter)}
               selectedOptions={[stateFilter]}
               onOptionSelect={(_e, d) => {
@@ -583,6 +585,7 @@ function Board({ page, roles }: { page: ValuationPage; roles: readonly string[] 
             <Label htmlFor="valuation-vehicle">Vehicle</Label>
             <Dropdown
               id="valuation-vehicle"
+              className="pb-val-filter is-wide"
               value={vehicle === '' ? 'All vehicles' : vehicle}
               selectedOptions={[vehicle]}
               onOptionSelect={(_e, d) => setVehicle(d.optionValue ?? '')}
@@ -599,6 +602,7 @@ function Board({ page, roles }: { page: ValuationPage; roles: readonly string[] 
             <Label htmlFor="valuation-search">Search</Label>
             <Input
               id="valuation-search"
+              className="pb-val-filter"
               contentBefore={<Search16Regular />}
               placeholder="Inv # or company"
               value={search}
