@@ -33,3 +33,14 @@ test('home, portfolio and one-pager @a11y', async ({ page }) => {
   await page.getByTestId('detail-banner').waitFor();
   await expectNoSeriousViolations(page);
 });
+
+test('sign-in scene is static under reduced motion @a11y', async ({ page }) => {
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  await page.goto('/sign-in');
+  await page.getByTestId('mock-user-list').waitFor();
+  const names = await page
+    .locator('.pb-scene-glow, .pb-scene-wave, .pb-scene-tide, .pb-scene-foam')
+    .evaluateAll((els) => els.map((el) => getComputedStyle(el).animationName));
+  expect(names.length).toBeGreaterThan(0);
+  expect(names.every((n) => n === 'none')).toBe(true);
+});

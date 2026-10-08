@@ -1,12 +1,21 @@
 import { useState } from 'react';
 import type { ReactNode } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Button, Input, Label, Spinner, Switch } from '@fluentui/react-components';
+import { Button, Input, Label, Switch } from '@fluentui/react-components';
 import { featureFlag } from '@pb/contracts';
 import { api, ApiError } from '../api/client.js';
 import { previewMode } from '../app/env.js';
 import { flagsQuery, meQuery } from '../app/queries.js';
-import { Card, ErrorState, SectionHeader } from '../components/ui.js';
+import {
+  Badge,
+  Card,
+  ErrorState,
+  Field,
+  PageHeader,
+  PageSkeleton,
+  SectionHeader,
+  Toolbar,
+} from '../components/ui.js';
 
 /** Feature flags and kill switches (docs/17 section 5). Only platform admins can change them; the API and RLS both enforce it. */
 export function AdminFlagsPage(): ReactNode {
@@ -34,24 +43,30 @@ export function AdminFlagsPage(): ReactNode {
           : 'The change failed.',
       ),
   });
-  if (flags.isPending) return <Spinner label="Loading flags" />;
+  if (flags.isPending) return <PageSkeleton rows={6} />;
   if (flags.isError) return <ErrorState title="Flags unavailable" detail={flags.error.message} />;
   const isAdmin = me.data?.roles.includes('platform_admin') ?? false;
   return (
     <>
-      <div className="pb-banner">
-        <h1>Feature flags and kill switches</h1>
-        <span className="pb-meta">
-          {isAdmin
+      <PageHeader
+        title="Feature flags and kill switches"
+        meta={
+          isAdmin
             ? 'You can change flags; every change needs a reason and is audited.'
-            : 'Read-only for your role.'}
-        </span>
-      </div>
+            : 'Read-only for your role.'
+        }
+      />
       <Card>
         <SectionHeader>Flags</SectionHeader>
         {isAdmin ? (
-          <div className="pb-toolbar">
-            <div>
+          <Toolbar
+            end={
+              <Button size="small" appearance="subtle" onClick={() => setReason('')}>
+                Clear reason
+              </Button>
+            }
+          >
+            <Field>
               <Label htmlFor="flag-reason">Reason for the next change</Label>
               <Input
                 id="flag-reason"
@@ -59,43 +74,57 @@ export function AdminFlagsPage(): ReactNode {
                 onChange={(_e, d) => setReason(d.value)}
                 placeholder="Why is this changing?"
               />
-            </div>
-          </div>
+            </Field>
+          </Toolbar>
         ) : null}
-        <table className="pb-table" aria-label="Feature flags">
-          <thead>
-            <tr>
-              <th>Key</th>
-              <th>Description</th>
-              <th>Enabled</th>
-            </tr>
-          </thead>
-          <tbody>
-            {flags.data.flags.map((f) => (
-              <tr key={f.key}>
-                <td>{f.key}</td>
-                <td>{f.description}</td>
-                <td>
-                  <Switch
-                    aria-label={`${f.key} enabled`}
-                    checked={f.enabled}
-                    disabled={!isAdmin || toggle.isPending || reason.trim().length < 3}
-                    onChange={(_e, d) => toggle.mutate({ key: f.key, enabled: d.checked })}
-                  />
-                </td>
+        <div className="pb-table-wrap">
+          <table className="pb-table" aria-label="Feature flags">
+            <thead>
+              <tr>
+                <th>Key</th>
+                <th>Description</th>
+                <th>Enabled</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {flags.data.flags.map((f) => (
+                <tr key={f.key}>
+                  <td>
+                    <span className="pb-key">{f.key}</span>
+                  </td>
+                  <td>
+                    {f.description}
+                    {f.description.includes('Kill switch') ? (
+                      <>
+                        {' '}
+                        <Badge tone="bad" plain>
+                          Kill switch
+                        </Badge>
+                      </>
+                    ) : null}
+                  </td>
+                  <td>
+                    <Switch
+                      aria-label={`${f.key} enabled`}
+                      checked={f.enabled}
+                      disabled={!isAdmin || toggle.isPending || reason.trim().length < 3}
+                      onChange={(_e, d) => toggle.mutate({ key: f.key, enabled: d.checked })}
+                    />
+                    <span className="pb-meta">{f.enabled ? 'On' : 'Off'}</span>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
         {message !== null ? (
-          <p role="status" data-testid="flag-message">
+          <p
+            role="status"
+            data-testid="flag-message"
+            className={toggle.isError ? 'pb-notice pb-notice-bad' : 'pb-notice pb-notice-good'}
+          >
             {message}
           </p>
-        ) : null}
-        {isAdmin ? (
-          <Button size="small" appearance="subtle" onClick={() => setReason('')}>
-            Clear reason
-          </Button>
         ) : null}
       </Card>
     </>

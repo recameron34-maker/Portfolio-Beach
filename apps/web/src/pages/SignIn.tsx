@@ -4,6 +4,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Button, Spinner } from '@fluentui/react-components';
 import { mockUsersQuery } from '../app/queries.js';
 import { setCredential } from '../app/session.js';
+import { BeachBackground } from '../components/BeachBackground.js';
 import { Card, ErrorState, SectionHeader } from '../components/ui.js';
 
 /** Prototype sign-in: pick a synthetic user. Entra ID single sign-on replaces this after merge (SEC-4.1). */
@@ -11,16 +12,22 @@ export function SignInPage(): ReactNode {
   const users = useQuery(mockUsersQuery);
   const navigate = useNavigate();
   const queryClient = useQueryClient();
-  if (users.isPending) return <Spinner label="Loading sign-in options" />;
-  if (users.isError)
-    return (
+  let body: ReactNode;
+  if (users.isPending) {
+    body = (
+      <Card>
+        <Spinner label="Loading sign-in options" />
+      </Card>
+    );
+  } else if (users.isError) {
+    body = (
       <ErrorState
         title="Sign-in unavailable"
         detail="The API did not answer. Start it with pnpm dev and seed synthetic data first."
       />
     );
-  return (
-    <div className="pb-signin">
+  } else {
+    body = (
       <Card>
         <SectionHeader>Sign in (prototype)</SectionHeader>
         <p>
@@ -42,7 +49,25 @@ export function SignInPage(): ReactNode {
             </Button>
           ))}
         </div>
+        <p className="pb-signin-foot">
+          Entra ID single sign-on replaces this picker after merge (SEC-4.1).
+        </p>
       </Card>
+    );
+  }
+  return (
+    <div className="pb-signin-page">
+      <BeachBackground />
+      <div className="pb-signin-lockup">
+        <h1 className="pb-signin-wordmark">Portfolio Beach</h1>
+        <p className="pb-signin-tagline">LP and co-investment portfolio workspace</p>
+      </div>
+      <main className="pb-signin" aria-label="Sign in">
+        {body}
+      </main>
+      <p className="pb-signin-legal">
+        Synthetic data only. No employer information is present anywhere in this system.
+      </p>
     </div>
   );
 }

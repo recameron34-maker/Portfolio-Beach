@@ -1,14 +1,21 @@
 import { Fragment } from 'react';
 import type { ReactNode } from 'react';
 import { Link } from '@tanstack/react-router';
-import { Text } from '@fluentui/react-components';
 import { previewMode } from '../app/env.js';
+import { MISSING } from '../lib/format.js';
 
-/** Section header: small uppercase label with an accent underline (docs/06 section 2). */
-export function SectionHeader({ children }: { children: ReactNode }): ReactNode {
+/** Section header: small uppercase label with an accent underline (docs/06 section 2), optional aside on the right. */
+export function SectionHeader({
+  children,
+  aside,
+}: {
+  children: ReactNode;
+  aside?: ReactNode;
+}): ReactNode {
   return (
     <h2 className="pb-section-header">
       <span>{children}</span>
+      {aside !== undefined ? <span className="pb-section-aside">{aside}</span> : null}
     </h2>
   );
 }
@@ -16,42 +23,46 @@ export function SectionHeader({ children }: { children: ReactNode }): ReactNode 
 export function Card({
   children,
   tinted = false,
+  tone,
   testId,
 }: {
   children: ReactNode;
   tinted?: boolean;
+  tone?: 'error' | undefined;
   testId?: string;
 }): ReactNode {
+  const className = [
+    'pb-card',
+    tinted ? 'pb-card-tinted' : '',
+    tone === 'error' ? 'pb-card-error' : '',
+  ]
+    .filter(Boolean)
+    .join(' ');
   return (
-    <section className={tinted ? 'pb-card pb-card-tinted' : 'pb-card'} data-testid={testId}>
+    <section className={className} data-testid={testId}>
       {children}
     </section>
   );
 }
 
-/** Stat tile: a label and a key number in the brand color. */
+/** Stat tile: a label and a key number in the brand colour. Plain spans: Fluent Text would inject its own sizes at runtime. */
 export function StatTile({
   label,
   value,
   hint,
+  tone,
 }: {
   label: string;
   value: string;
   hint?: string | undefined;
+  tone?: 'good' | 'watch' | 'bad' | undefined;
 }): ReactNode {
+  const missing = value === MISSING || value === 'NM';
   return (
-    <div className="pb-stat-tile" role="group" aria-label={label}>
-      <Text size={200} className="pb-stat-label">
-        {label}
-      </Text>
-      <Text size={700} weight="semibold" className="pb-stat-value">
-        {value}
-      </Text>
-      {hint !== undefined ? (
-        <Text size={200} className="pb-stat-hint">
-          {hint}
-        </Text>
-      ) : null}
+    <div className="pb-stat-tile" role="group" aria-label={label} data-tone={tone}>
+      <span className="pb-stat-label">{label}</span>
+      <span className={missing ? 'pb-stat-value is-missing' : 'pb-stat-value'}>{value}</span>
+      {hint !== undefined ? <span className="pb-stat-hint">{hint}</span> : null}
     </div>
   );
 }
@@ -64,23 +75,13 @@ export function AiDraftBadge(): ReactNode {
   );
 }
 
-export function PlaceholderPage({
-  title,
-  phase,
-  modules,
-}: {
+/** Kept for router.tsx; the phase pages are the single implementation. */
+export function PlaceholderPage(props: {
   title: string;
   phase: string;
   modules: string;
 }): ReactNode {
-  return (
-    <Card>
-      <SectionHeader>{title}</SectionHeader>
-      <p>
-        This area arrives in {phase} ({modules}). See docs/09 for the roadmap and exit criteria.
-      </p>
-    </Card>
-  );
+  return <PhasePage {...props} />;
 }
 
 export function ErrorState({
@@ -91,7 +92,7 @@ export function ErrorState({
   detail?: string | undefined;
 }): ReactNode {
   return (
-    <Card testId="error-state">
+    <Card tone="error" testId="error-state">
       <SectionHeader>{title}</SectionHeader>
       {detail !== undefined ? <p>{detail}</p> : null}
     </Card>
@@ -144,18 +145,20 @@ export function TabNav({
   );
 }
 
-export type Tone = 'neutral' | 'good' | 'watch' | 'bad' | 'brand';
+export type Tone = 'neutral' | 'good' | 'watch' | 'bad' | 'brand' | 'accent';
 
-/** Status with a dot and a word, never color alone (docs/06). */
+/** Status with a dot and a word, never colour alone (docs/06). plain drops the dot for category chips. */
 export function Badge({
   tone = 'neutral',
+  plain = false,
   children,
 }: {
   tone?: Tone;
+  plain?: boolean;
   children: ReactNode;
 }): ReactNode {
   return (
-    <span className={`pb-badge pb-badge-${tone}`}>
+    <span className={`pb-badge pb-badge-${tone}${plain ? ' pb-badge-plain' : ''}`}>
       <span className="pb-badge-dot" aria-hidden="true" />
       {children}
     </span>
@@ -175,25 +178,48 @@ export function KeyValueTable({
   const pairs: { label: string; value: ReactNode }[][] = [];
   for (let i = 0; i < rows.length; i += columns) pairs.push(rows.slice(i, i + columns));
   return (
-    <table className="pb-table pb-kv" aria-label={label}>
-      <tbody>
-        {pairs.map((pair, i) => (
-          <tr key={i}>
-            {pair.map((r) => (
-              <Fragment key={r.label}>
-                <th scope="row">{r.label}</th>
-                <td>{r.value}</td>
-              </Fragment>
-            ))}
-          </tr>
-        ))}
-      </tbody>
-    </table>
+    <div className="pb-table-wrap">
+      <table className="pb-table pb-kv" aria-label={label}>
+        <tbody>
+          {pairs.map((pair, i) => (
+            <tr key={i}>
+              {pair.map((r) => (
+                <Fragment key={r.label}>
+                  <th scope="row">{r.label}</th>
+                  <td>{r.value}</td>
+                </Fragment>
+              ))}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
   );
 }
 
-export function Toolbar({ children }: { children: ReactNode }): ReactNode {
-  return <div className="pb-toolbar">{children}</div>;
+export function Toolbar({ children, end }: { children: ReactNode; end?: ReactNode }): ReactNode {
+  return (
+    <div className="pb-toolbar">
+      {children}
+      {end !== undefined ? <div className="pb-toolbar-end">{end}</div> : null}
+    </div>
+  );
+}
+
+/** Label above a control inside a Toolbar. */
+export function Field({ children }: { children: ReactNode }): ReactNode {
+  return <div className="pb-field">{children}</div>;
+}
+
+/** The horizon mark: the sign-in motif at 56 by 20, decorative. */
+function HorizonMark(): ReactNode {
+  return (
+    <svg className="pb-empty-mark" viewBox="0 0 56 20" aria-hidden="true" focusable="false">
+      <line x1="0" y1="6.5" x2="56" y2="6.5" stroke="currentColor" strokeWidth="1" />
+      <line x1="8" y1="14.5" x2="48" y2="14.5" stroke="currentColor" strokeWidth="1" />
+      <circle cx="28" cy="6.5" r="2.5" fill="currentColor" />
+    </svg>
+  );
 }
 
 /** Nothing to show, said plainly, with the reason and optionally what would make it appear. */
@@ -208,8 +234,35 @@ export function EmptyState({
 }): ReactNode {
   return (
     <div className="pb-empty" data-testid={testId}>
+      <HorizonMark />
       <p className="pb-empty-title">{title}</p>
       {detail !== undefined ? <p className="pb-empty-detail">{detail}</p> : null}
+    </div>
+  );
+}
+
+/** Page-level loading. aria-busy, never role="status": the banner must stay the only status element on app pages. */
+export function PageSkeleton({
+  tiles = 0,
+  rows = 3,
+}: {
+  tiles?: number;
+  rows?: number;
+}): ReactNode {
+  return (
+    <div className="pb-skeleton" aria-busy="true">
+      <span className="pb-visually-hidden">Loading</span>
+      <div className="pb-skeleton-bar is-title" />
+      {tiles > 0 ? (
+        <div className="pb-skeleton-tiles">
+          {Array.from({ length: tiles }, (_, i) => (
+            <div key={i} className="pb-skeleton-tile" />
+          ))}
+        </div>
+      ) : null}
+      {Array.from({ length: rows }, (_, i) => (
+        <div key={i} className="pb-skeleton-bar" />
+      ))}
     </div>
   );
 }

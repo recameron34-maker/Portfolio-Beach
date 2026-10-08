@@ -3,7 +3,15 @@ import { Link } from '@tanstack/react-router';
 import { useQuery } from '@tanstack/react-query';
 import { Spinner } from '@fluentui/react-components';
 import { dataHealthQuery, investmentsQuery, meQuery } from '../app/queries.js';
-import { Card, ErrorState, SectionHeader, StatTile } from '../components/ui.js';
+import {
+  Badge,
+  Card,
+  ErrorState,
+  PageHeader,
+  PageSkeleton,
+  SectionHeader,
+  StatTile,
+} from '../components/ui.js';
 import { formatDate, formatMoic, formatMoneyM } from '../lib/format.js';
 
 function sum(values: (string | null)[]): string | null {
@@ -21,7 +29,7 @@ export function HomePage(): ReactNode {
   const me = useQuery(meQuery);
   const investments = useQuery(investmentsQuery({ active: 'true', limit: 200 }));
   const health = useQuery(dataHealthQuery);
-  if (investments.isPending || me.isPending) return <Spinner label="Loading the portfolio" />;
+  if (investments.isPending || me.isPending) return <PageSkeleton tiles={4} rows={2} />;
   if (investments.isError)
     return <ErrorState title="Portfolio unavailable" detail={investments.error.message} />;
   const items = investments.data.items;
@@ -34,13 +42,15 @@ export function HomePage(): ReactNode {
       : ((Number(nav ?? '0') + Number(distributions ?? '0')) / Number(invested)).toString();
   return (
     <>
-      <div className="pb-banner">
-        <h1>Welcome, {me.data?.displayName}</h1>
-        <span className="pb-meta">
-          As of {formatDate(investments.data.asOf)}. Figures cover the positions you are entitled to
-          see.
-        </span>
-      </div>
+      <PageHeader
+        title={<>Welcome, {me.data?.displayName}</>}
+        meta={
+          <>
+            As of {formatDate(investments.data.asOf)}. Figures cover the positions you are entitled
+            to see.
+          </>
+        }
+      />
       <div className="pb-tiles" data-testid="home-tiles">
         <StatTile label="Active positions" value={String(items.length)} />
         <StatTile label="Invested capital" value={formatMoneyM(invested)} />
@@ -51,33 +61,63 @@ export function HomePage(): ReactNode {
           hint="(distributions + NAV) / invested"
         />
       </div>
-      <Card>
-        <SectionHeader>Data health</SectionHeader>
-        {health.isPending ? <Spinner size="tiny" /> : null}
-        {health.isError ? <p>Data health is unavailable for your role.</p> : null}
-        {health.data !== undefined ? (
-          <p>
-            {health.data.orphanInvestments === 0 ? (
-              <span className="pb-status-good">No orphan investments.</span>
-            ) : (
-              <span className="pb-status-bad">
-                {health.data.orphanInvestments} orphan investments.
+      <div className="pb-two-col">
+        <Card>
+          <SectionHeader
+            aside={
+              health.data !== undefined ? (
+                <>Stale after {health.data.staleAfterDays} days</>
+              ) : undefined
+            }
+          >
+            Data health
+          </SectionHeader>
+          {health.isPending ? <Spinner size="tiny" /> : null}
+          {health.isError ? <p>Data health is unavailable for your role.</p> : null}
+          {health.data !== undefined ? (
+            <>
+              <p className="pb-chips">
+                <Badge tone={health.data.orphanInvestments === 0 ? 'good' : 'bad'}>
+                  {health.data.orphanInvestments === 0
+                    ? 'No orphan investments'
+                    : `${health.data.orphanInvestments} orphan investments`}
+                </Badge>
+                <Badge tone={health.data.openExceptions === 0 ? 'neutral' : 'watch'}>
+                  {health.data.openExceptions} open data exceptions
+                </Badge>
+                <Badge tone={health.data.staleInvestments === 0 ? 'neutral' : 'watch'}>
+                  {health.data.staleInvestments} stale positions
+                </Badge>
+              </p>
+              <p className="pb-meta">
+                Stale means no approved financials in the last {health.data.staleAfterDays} days.{' '}
+                <Link to="/data/health">Open Data Health</Link>.
+              </p>
+            </>
+          ) : null}
+        </Card>
+        <Card>
+          <SectionHeader>Start here</SectionHeader>
+          <ul className="pb-linklist">
+            <li>
+              <Link to="/portfolio">Portfolio grid</Link>
+              <span className="pb-meta">
+                Every position with invested capital, NAV, MOIC and IRR
               </span>
-            )}{' '}
-            {health.data.openExceptions} open data exceptions. {health.data.staleInvestments}{' '}
-            positions without approved financials in the last {health.data.staleAfterDays} days.{' '}
-            <Link to="/data/health">Open Data Health</Link>.
-          </p>
-        ) : null}
-      </Card>
-      <Card>
-        <SectionHeader>Start here</SectionHeader>
-        <p>
-          <Link to="/portfolio">Portfolio grid</Link> shows every position with invested capital,
-          NAV, MOIC and IRR from the calculation library. Open a row for the one-pager with
-          operating ratios, prior-year comparison, credit terms, valuations and cash flows.
-        </p>
-      </Card>
+            </li>
+            <li>
+              <Link to="/data/health">Data Health</Link>
+              <span className="pb-meta">Orphans, open exceptions and stale positions</span>
+            </li>
+            <li>
+              <Link to="/data/dictionary">Data Dictionary</Link>
+              <span className="pb-meta">
+                Field definitions and display rules (docs/03 section 4)
+              </span>
+            </li>
+          </ul>
+        </Card>
+      </div>
     </>
   );
 }
