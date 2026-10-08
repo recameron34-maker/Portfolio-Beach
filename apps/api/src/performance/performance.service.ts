@@ -21,6 +21,7 @@ import {
   yoyGrowth,
 } from '@pb/calc';
 import type { Decimal, PaymentFrequency } from '@pb/calc';
+import { isCalendarDate } from '@pb/contracts';
 import type { InvestmentPerformance, QuarterRow } from '@pb/contracts';
 import { schema } from '@pb/db';
 import { configInteger } from '../common/definitions.js';
@@ -98,7 +99,6 @@ interface CreditTermsSource {
 }
 
 const DECIMAL = /^-?\d+(\.\d+)?$/;
-const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
 const FREQUENCIES: readonly PaymentFrequency[] = ['monthly', 'quarterly', 'semiannual', 'annual'];
 
 /* ---- jsonb readers: a value that cannot be read is left out, never replaced by an invented one ---- */
@@ -110,8 +110,9 @@ function decimalOf(value: unknown): string | null {
   return null;
 }
 
+/** A jsonb date that names a real day (the contracts' calendar check); anything else is left out. */
 const isoDateOf = (value: unknown): string | null =>
-  typeof value === 'string' && ISO_DATE.test(value) ? value : null;
+  typeof value === 'string' && isCalendarDate(value) ? value : null;
 
 const textOf = (value: unknown): string | null => (typeof value === 'string' ? value : null);
 

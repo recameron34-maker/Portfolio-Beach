@@ -93,6 +93,7 @@ export const ROUTES: readonly RouteDefinition[] = [
     tags: ['portfolio'],
     roles: [],
     auth: true,
+    query: s.asOfQuery,
     response: s.investmentDetail,
   },
   {

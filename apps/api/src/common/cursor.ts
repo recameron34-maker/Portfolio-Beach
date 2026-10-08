@@ -1,19 +1,11 @@
-import { parseIso } from '@pb/calc';
+import { isCalendarDate } from '@pb/contracts';
 import { ProblemError } from './problem.js';
 
 /*
  * Page cursors for composite sort keys: the last row's key parts joined with '|' and carried as
- * base64url (docs/17 section 3). Opaque to clients; validated on the way back in.
+ * base64url (docs/17 section 3). Opaque to clients; validated on the way back in, dates by the
+ * same calendar check as every date the contracts accept.
  */
-
-function isCalendarDate(iso: string): boolean {
-  try {
-    parseIso(iso);
-    return true;
-  } catch {
-    return false;
-  }
-}
 
 export const encodeCursor = (parts: readonly (string | number)[]): string =>
   Buffer.from(parts.join('|'), 'utf8').toString('base64url');

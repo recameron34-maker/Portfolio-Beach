@@ -1,11 +1,17 @@
 import { describe, expect, it } from 'vitest';
+import type { z } from 'zod';
 import { buildOpenApi } from './openapi.js';
 import { ROUTES } from './routes.js';
 import {
+  asOfQuery,
+  capitalNoticeListQuery,
   investmentDetail,
   investmentListQuery,
   investmentSummary,
+  isCalendarDate,
+  isoDate,
   problemDetails,
+  valuationListQuery,
 } from './schemas.js';
 
 interface ObjectSchema {
@@ -96,6 +102,76 @@ describe('contracts', () => {
     }
     expect(investmentDetail.shape.vehicleId).toBe(investmentSummary.shape.vehicleId);
     expect(investmentDetail.shape.sponsorId).toBe(investmentSummary.shape.sponsorId);
+  });
+
+  it('accepts only days that exist on the calendar, leap days included', () => {
+    for (const day of ['2025-06-30', '2024-02-29', '2000-02-29', '1999-12-31', '0001-01-01']) {
+      expect(isoDate.safeParse(day).success, day).toBe(true);
+      expect(isCalendarDate(day), day).toBe(true);
+    }
+    for (const day of [
+      '2025-02-30',
+      '2025-02-29',
+      '1900-02-29',
+      '2025-04-31',
+      '2025-06-31',
+      '2025-13-01',
+      '2025-00-10',
+      '2025-01-00',
+      '2025-12-32',
+    ]) {
+      const result = isoDate.safeParse(day);
+      expect(result.success, day).toBe(false);
+      expect(isCalendarDate(day), day).toBe(false);
+      // One plain message, never the value itself.
+      expect(result.error?.issues.map((i) => i.message)).toEqual(['Not a real calendar date']);
+    }
+  });
+
+  it('reports a malformed date once, by its shape, and never runs the calendar on it', () => {
+    for (const bad of ['2025-2-3', '20250630', '2025-06-30T00:00:00Z', '', 'today']) {
+      const result = isoDate.safeParse(bad);
+      expect(result.success, bad).toBe(false);
+      expect(result.error?.issues.length, bad).toBe(1);
+      expect(result.error?.issues[0]?.code, bad).toBe('invalid_format');
+      expect(isCalendarDate(bad), bad).toBe(false);
+    }
+  });
+
+  it('turns an impossible date in any query into a validation failure naming the field', () => {
+    const cases: [z.ZodTypeAny, Record<string, string>, string][] = [
+      [asOfQuery, { asOf: '2025-02-30' }, 'asOf'],
+      [investmentListQuery, { asOf: '2025-04-31' }, 'asOf'],
+      [valuationListQuery, { periodEnd: '2025-02-30' }, 'periodEnd'],
+      [capitalNoticeListQuery, { dueFrom: '2025-13-01' }, 'dueFrom'],
+      [capitalNoticeListQuery, { dueTo: '2023-02-29' }, 'dueTo'],
+    ];
+    for (const [schema, query, field] of cases) {
+      const result = schema.safeParse(query);
+      expect(result.success, field).toBe(false);
+      expect(result.error?.issues.map((i) => i.path.join('.'))).toEqual([field]);
+    }
+  });
+
+  it('documents every date as format date in the OpenAPI document', () => {
+    const doc = buildOpenApi('0.1.0');
+    const dateParams = Object.values(doc.paths)
+      .flatMap((p) => Object.values(p) as { parameters: { name: string; schema: unknown }[] }[])
+      .flatMap((op) => op.parameters)
+      .filter((p) => ['asOf', 'periodEnd', 'dueFrom', 'dueTo'].includes(p.name));
+    // asOf on thirteen routes, periodEnd on one, dueFrom and dueTo on one.
+    expect(dateParams.length).toBe(16);
+    for (const p of dateParams) {
+      expect(p.schema, p.name).toEqual({
+        type: 'string',
+        pattern: '^\\d{4}-\\d{2}-\\d{2}$',
+        format: 'date',
+      });
+    }
+    const row = (responseSchema(doc, '/api/v1/investments').properties?.items?.items ??
+      {}) as ObjectSchema;
+    expect(row.properties?.entryDate?.format).toBe('date');
+    expect(responseSchema(doc, '/api/v1/sponsors/{id}').properties?.asOf?.format).toBe('date');
   });
 
   it('problem details never carry a stack', () => {
