@@ -1,19 +1,173 @@
 import { Inject, Injectable } from '@nestjs/common';
+import { eq, inArray, sql } from 'drizzle-orm';
 import type { Principal } from '@pb/adapters';
-import type { ClientList, CommitmentList, VehicleDetail } from '@pb/contracts';
+import { CALC_VERSION, D, ZERO, moic } from '@pb/calc';
+import type { Decimal } from '@pb/calc';
+import type {
+  ClientList,
+  ClientSummary,
+  CommitmentList,
+  PooledMetrics,
+  VehicleDetail,
+} from '@pb/contracts';
+import { schema } from '@pb/db';
+import type { Tx } from '@pb/db';
 import { DEFINITIONS } from '../common/tokens.js';
 import { ProblemError } from '../common/problem.js';
 import { DbService } from '../db/db.service.js';
+import { loadInvestmentsWithMetrics } from '../portfolio/loaders.js';
+import { lockedNavSeries, pooledPositionMetrics, str } from '../portfolio/metrics.js';
+import { loadCommitmentRows } from './commitments.js';
 
 /** Calculation settings from config/definitions.json (docs/03 section 4); only the keys this service reads. */
 interface Definitions {
-  priorYearPeriodEndToleranceDays?: number;
+  analytics?: { navSeriesQuarters?: number };
   [key: string]: unknown;
 }
 
-const notImplemented = (): never => {
-  throw new ProblemError(501, 'not-implemented', 'This endpoint is not implemented yet');
+type Position = Awaited<ReturnType<typeof loadInvestmentsWithMetrics>>[number];
+type LpCommitmentRow = NonNullable<VehicleDetail['lpCommitments']>[number];
+type ClientVehicleShare = ClientSummary['vehicles'][number];
+
+/**
+ * Fully qualified outer-table column for correlated subqueries: in a single-table select Drizzle
+ * renders a column as a bare `"id"`, which inside the subquery would bind to the inner table.
+ */
+const OUTER_VEHICLE_ID = sql.raw('"core"."vehicle"."id"');
+
+/**
+ * Roles that see every client, mirroring pb.sees_all_clients() in the database (SEC-5.2);
+ * platform_admin is deliberately not one of them (SEC-5.4). Everyone else sees client data only
+ * through an explicit entitlement.
+ */
+const ALL_CLIENT_ROLES: ReadonlySet<string> = new Set(['operations', 'approver', 'auditor']);
+
+const seesClientData = (principal: Principal): boolean =>
+  principal.clientIds.length > 0 || principal.roles.some((r) => ALL_CLIENT_ROLES.has(r));
+
+/** A vehicle without a visible position has nothing to pool: nothing is calculable, never zero. */
+const NOT_CALCULABLE: PooledMetrics = {
+  count: 0,
+  invested: null,
+  distributions: null,
+  nav: null,
+  dpi: null,
+  rvpi: null,
+  tvpi: null,
+  grossMoic: null,
+  grossIrr: null,
+  irrFlag: 'insufficient_flows',
 };
+
+const compareText = (a: string, b: string): number => (a < b ? -1 : a > b ? 1 : 0);
+
+/** A missing or malformed config key is a configuration error, never a default. */
+function configInteger(value: unknown, key: string): number {
+  if (typeof value !== 'number' || !Number.isInteger(value) || value < 0) {
+    throw new ProblemError(
+      500,
+      'configuration',
+      `config/definitions.json is missing a usable ${key}`,
+    );
+  }
+  return value;
+}
+
+/** Strings from a jsonb list column; anything else in it is not a reporting basis. */
+const stringList = (value: unknown): string[] =>
+  Array.isArray(value) ? value.filter((x): x is string => typeof x === 'string') : [];
+
+/** Sum of the calculable figures; null when no row has one (docs/06 section 3), never 0 for unknown. */
+function sumOf<T>(rows: readonly T[], pick: (row: T) => string | null): Decimal | null {
+  let total: Decimal | null = null;
+  for (const row of rows) {
+    const value = pick(row);
+    if (value !== null) total = (total ?? ZERO).plus(value);
+  }
+  return total;
+}
+
+/**
+ * Pooled gross metrics over a vehicle's visible positions (docs/08 sections 2 and 3). The primary
+ * program holds commitments rather than investments, so it has no pooled figures at all.
+ */
+function pooled(positions: readonly Position[], asOf: string): PooledMetrics {
+  if (positions.length === 0) return NOT_CALCULABLE;
+  return pooledPositionMetrics(
+    positions.map((p) => ({ flows: p.flows, valuations: p.valuations, isActive: p.row.isActive })),
+    asOf,
+  );
+}
+
+/**
+ * A client's share of a vehicle's pooled figures: position times lp_commitment.ownership_pct,
+ * computed at read time and never stored (docs/03 section 4, decision 0004). Null when the
+ * percentage is not set yet or the pooled figure is not calculable.
+ */
+function shareOf(
+  metrics: PooledMetrics,
+  ownershipPct: string | null,
+): Pick<ClientVehicleShare, 'invested' | 'distributions' | 'nav' | 'grossMoic'> {
+  if (ownershipPct === null) {
+    return { invested: null, distributions: null, nav: null, grossMoic: null };
+  }
+  const pct = D(ownershipPct);
+  const times = (value: string | null): Decimal | null =>
+    value === null ? null : D(value).times(pct);
+  const invested = times(metrics.invested);
+  const distributions = times(metrics.distributions);
+  const nav = times(metrics.nav);
+  const grossMoic =
+    invested === null || distributions === null || nav === null
+      ? null
+      : moic(distributions, nav, invested);
+  return {
+    invested: str(invested),
+    distributions: str(distributions),
+    nav: str(nav),
+    grossMoic: str(grossMoic),
+  };
+}
+
+/** Sums of a client's vehicle shares; the MOIC is only calculable when no vehicle is partly known. */
+function clientTotals(vehicles: readonly ClientVehicleShare[]): ClientSummary['totals'] {
+  const invested = sumOf(vehicles, (v) => v.invested);
+  const distributions = sumOf(vehicles, (v) => v.distributions);
+  const nav = sumOf(vehicles, (v) => v.nav);
+  const partial = vehicles.some(
+    (v) => v.invested !== null && (v.nav === null || v.distributions === null),
+  );
+  return {
+    commitment: str(sumOf(vehicles, (v) => v.commitment)),
+    invested: str(invested),
+    distributions: str(distributions),
+    nav: str(nav),
+    grossMoic:
+      partial || invested === null || distributions === null || nav === null
+        ? null
+        : str(moic(distributions, nav, invested)),
+  };
+}
+
+/** LP commitments to a vehicle with the client's name; RLS leaves only entitled clients' rows. */
+async function loadLpCommitments(tx: Tx, vehicleId: string): Promise<LpCommitmentRow[]> {
+  const l = schema.lpCommitment;
+  const rows = await tx
+    .select({
+      clientId: l.clientId,
+      clientName: schema.client.name,
+      amount: l.amount,
+      closingNumber: l.closingNumber,
+      ownershipPct: l.ownershipPct,
+      commitmentDate: l.commitmentDate,
+    })
+    .from(l)
+    .innerJoin(schema.client, eq(schema.client.id, l.clientId))
+    .where(eq(l.vehicleId, vehicleId));
+  return rows.sort(
+    (a, b) => a.closingNumber - b.closingNumber || compareText(a.clientName, b.clientName),
+  );
+}
 
 @Injectable()
 export class VehiclesService {
@@ -22,27 +176,184 @@ export class VehiclesService {
     @Inject(DEFINITIONS) private readonly definitions: Definitions,
   ) {}
 
-  // eslint-disable-next-line @typescript-eslint/require-await
+  /**
+   * One vehicle with its visible positions, pooled metrics, fund commitments and, for callers
+   * entitled to client data, its LP commitments. 404 for anything the caller cannot see
+   * (docs/17 section 3). Opening client data is an audited sensitive read (SEC-11.1).
+   */
   async detail(
-    _principal: Principal,
-    _requestId: string,
-    _id: string,
-    _asOf: string,
+    principal: Principal,
+    requestId: string,
+    id: string,
+    asOf: string,
   ): Promise<VehicleDetail> {
-    return notImplemented();
+    const quarters = configInteger(
+      this.definitions.analytics?.navSeriesQuarters,
+      'analytics.navSeriesQuarters',
+    );
+    const entitled = seesClientData(principal);
+    return this.db.run(principal, requestId, async (tx, audit) => {
+      const vehicle = (
+        await tx
+          .select({
+            id: schema.vehicle.id,
+            name: schema.vehicle.name,
+            vehicleType: schema.vehicle.vehicleType,
+            vintage: schema.vehicle.vintage,
+            currency: schema.vehicle.currency,
+            closingCount: schema.vehicle.closingCount,
+            finalCloseDate: schema.vehicle.finalCloseDate,
+            activeInvestments: sql<number>`(select count(*)::int from core.investment i where i.vehicle_id = ${OUTER_VEHICLE_ID} and i.is_active)`,
+            // RLS decides which LP commitments the caller can see; none visible yields null, never 0.
+            lpCommitmentsTotal: sql<
+              string | null
+            >`(select sum(l.amount)::text from core.lp_commitment l where l.vehicle_id = ${OUTER_VEHICLE_ID})`,
+          })
+          .from(schema.vehicle)
+          .where(eq(schema.vehicle.id, id))
+          .limit(1)
+      )[0];
+      if (vehicle === undefined) throw new ProblemError(404, 'not-found', 'Vehicle not found');
+      const positions = await loadInvestmentsWithMetrics(
+        tx,
+        asOf,
+        eq(schema.investment.vehicleId, id),
+      );
+      const fundCommitments = await loadCommitmentRows(
+        tx,
+        asOf,
+        eq(schema.commitment.vehicleId, id),
+      );
+      // Null, never an empty list, for a caller without client data (contract note on vehicleDetail).
+      const lpCommitments = entitled ? await loadLpCommitments(tx, id) : null;
+      if (lpCommitments !== null) {
+        await audit({ action: 'vehicle.read', entity: 'core.vehicle', entityId: id });
+      }
+      return {
+        ...vehicle,
+        asOf,
+        metrics: pooled(positions, asOf),
+        positions: positions.map((p) => p.summary),
+        fundCommitments,
+        lpCommitments,
+        navSeries: lockedNavSeries(
+          positions.map((p) => p.valuations),
+          asOf,
+          quarters,
+        ),
+        calcVersion: CALC_VERSION,
+      };
+    });
   }
 
-  // eslint-disable-next-line @typescript-eslint/require-await
+  /**
+   * Every fund commitment the caller can see (M17): the primary program's pooled commitments for
+   * everyone, a separate account's for callers entitled to that client (SEC-5.2). Totals sum the
+   * calculable rows; disclosing a client-directed row is an audited sensitive read (SEC-11.1).
+   */
   async commitments(
-    _principal: Principal,
-    _requestId: string,
-    _asOf: string,
+    principal: Principal,
+    requestId: string,
+    asOf: string,
   ): Promise<CommitmentList> {
-    return notImplemented();
+    return this.db.run(principal, requestId, async (tx, audit) => {
+      const items = await loadCommitmentRows(tx, asOf);
+      if (items.some((r) => r.clientName !== null)) {
+        await audit({ action: 'commitment.read', entity: 'core.commitment' });
+      }
+      return {
+        asOf,
+        items,
+        totals: {
+          amount: str(sumOf(items, (r) => r.amount)),
+          called: str(sumOf(items, (r) => r.called)),
+          distributed: str(sumOf(items, (r) => r.distributed)),
+          unfunded: str(sumOf(items, (r) => r.unfunded)),
+        },
+        calcVersion: CALC_VERSION,
+      };
+    });
   }
 
-  // eslint-disable-next-line @typescript-eslint/require-await
-  async clients(_principal: Principal, _requestId: string, _asOf: string): Promise<ClientList> {
-    return notImplemented();
+  /**
+   * Client look-through (docs/03 section 4): for every client the caller is entitled to (RLS on
+   * core.client and core.lp_commitment, SEC-5.2), each LP commitment with the client's share of
+   * the vehicle's pooled figures. A caller without entitlements gets an empty list, not 403.
+   * Each vehicle is pooled once per request. The read is audited without values (SEC-11.1).
+   */
+  async clients(principal: Principal, requestId: string, asOf: string): Promise<ClientList> {
+    return this.db.run(principal, requestId, async (tx, audit) => {
+      await audit({ action: 'client.read', entity: 'core.client' });
+      const clients = (
+        await tx
+          .select({
+            id: schema.client.id,
+            name: schema.client.name,
+            reportingBases: schema.client.reportingBases,
+            reportingCadence: schema.client.reportingCadence,
+          })
+          .from(schema.client)
+      ).sort((a, b) => compareText(a.name, b.name) || compareText(a.id, b.id));
+      if (clients.length === 0) return { asOf, items: [], calcVersion: CALC_VERSION };
+
+      const l = schema.lpCommitment;
+      const lpRows = await tx
+        .select({
+          clientId: l.clientId,
+          vehicleId: l.vehicleId,
+          vehicleName: schema.vehicle.name,
+          vehicleType: schema.vehicle.vehicleType,
+          commitment: l.amount,
+          closingNumber: l.closingNumber,
+          ownershipPct: l.ownershipPct,
+          commitmentDate: l.commitmentDate,
+        })
+        .from(l)
+        .innerJoin(schema.vehicle, eq(schema.vehicle.id, l.vehicleId))
+        .where(
+          inArray(
+            l.clientId,
+            clients.map((c) => c.id),
+          ),
+        );
+
+      const vehicleIds = [...new Set(lpRows.map((r) => r.vehicleId))];
+      const positions =
+        vehicleIds.length === 0
+          ? []
+          : await loadInvestmentsWithMetrics(
+              tx,
+              asOf,
+              inArray(schema.investment.vehicleId, vehicleIds),
+            );
+      const byVehicle = new Map<string, Position[]>();
+      for (const p of positions) {
+        const set = byVehicle.get(p.row.vehicleId);
+        if (set === undefined) byVehicle.set(p.row.vehicleId, [p]);
+        else set.push(p);
+      }
+      const metricsByVehicle = new Map<string, PooledMetrics>(
+        vehicleIds.map((v) => [v, pooled(byVehicle.get(v) ?? [], asOf)]),
+      );
+
+      const items: ClientSummary[] = clients.map((c) => {
+        const vehicles: ClientVehicleShare[] = lpRows
+          .filter((r) => r.clientId === c.id)
+          .sort((a, b) => compareText(a.vehicleName, b.vehicleName))
+          .map(({ clientId: _c, ...r }) => ({
+            ...r,
+            ...shareOf(metricsByVehicle.get(r.vehicleId) ?? NOT_CALCULABLE, r.ownershipPct),
+          }));
+        return {
+          id: c.id,
+          name: c.name,
+          reportingBases: stringList(c.reportingBases),
+          reportingCadence: c.reportingCadence,
+          vehicles,
+          totals: clientTotals(vehicles),
+        };
+      });
+      return { asOf, items, calcVersion: CALC_VERSION };
+    });
   }
 }
