@@ -1,7 +1,15 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { and, eq, gte, inArray, lte, ne, or } from 'drizzle-orm';
 import type { Principal } from '@pb/adapters';
-import { CALC_VERSION, D, addDays, daysBetween, valueChange } from '@pb/calc';
+import {
+  CALC_VERSION,
+  D,
+  addDays,
+  daysBetween,
+  valueChange,
+  latestQuarterEndOnOrBefore,
+  lockedNear,
+} from '@pb/calc';
 import type { Decimal } from '@pb/calc';
 import type { CapitalNoticeRow, PooledMetrics, WeeklyReport } from '@pb/contracts';
 import { schema } from '@pb/db';
@@ -12,13 +20,7 @@ import { configInteger, configString } from '../common/definitions.js';
 import { DEFINITIONS } from '../common/tokens.js';
 import { DbService } from '../db/db.service.js';
 import { loadInvestmentsWithMetrics } from '../portfolio/loaders.js';
-import { lockedNear } from '../portfolio/marks.js';
-import {
-  latestLockedValuation,
-  latestQuarterEndOnOrBefore,
-  pooledPositionMetrics,
-  str,
-} from '../portfolio/metrics.js';
+import { latestLockedValuation, pooledPositionMetrics, str } from '../portfolio/metrics.js';
 
 /** Calculation and reporting settings from config/definitions.json; only the keys this service reads. */
 interface Definitions {

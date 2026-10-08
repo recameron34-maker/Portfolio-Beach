@@ -13,6 +13,7 @@ import {
   refusalFixture,
   rolePrincipal,
   valuationPageFixture,
+  POSITION_ID,
   valuationRowFixture,
   valuationRows,
   vehicleListFixture,
@@ -147,5 +148,28 @@ describe('lastMethodOf', () => {
     )[0]!;
     expect(lastMethodOf(rows, first.investmentId)).toBe(latest.method);
     expect(lastMethodOf(rows, '00000000-0000-4000-8000-000000000000')).toBeNull();
+  });
+});
+
+describe('quarters', () => {
+  it('counts a mark dated a few days early in the quarter it reports for', () => {
+    const early = valuationRowFixture({
+      id: '00000000-0000-4000-8000-000000000999',
+      investmentId: POSITION_ID.meridian,
+      periodEnd: '2025-06-27',
+      quarterEnd: '2025-06-30',
+      state: 'Locked',
+    });
+    const rows = [early];
+    const active = activePositions();
+    expect(active.map((p) => p.id)).toContain(POSITION_ID.meridian);
+    expect(periodCounts(rows, '2025-06-30').locked).toBe(1);
+    expect(periodCounts(rows, '2025-06-27').locked).toBe(0);
+    expect(filterRows(rows, { period: '2025-06-30', state: '', vehicle: '', search: '' })).toEqual([
+      early,
+    ]);
+    expect(missingMarks(active, rows, '2025-06-30').map((p) => p.id)).not.toContain(
+      POSITION_ID.meridian,
+    );
   });
 });

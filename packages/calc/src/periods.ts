@@ -63,3 +63,30 @@ export function entrySnapshot<T extends PeriodRow>(rows: readonly T[]): T | null
   }
   return flagged[0] ?? null;
 }
+
+/** The subset of a valuation that choosing the mark for a quarter needs. */
+export interface MarkRow {
+  periodEnd: IsoDate;
+  state: string;
+}
+
+/**
+ * The Locked mark that counts for a quarter end: the latest one whose period end is the target or
+ * up to `toleranceDays` before it, so a sponsor reporting a few days before the quarter end still
+ * counts for that quarter. Never a mark after the target. On equal period ends the first in input
+ * order wins, so callers that list the highest version first get the latest version.
+ */
+export function lockedNear<T extends MarkRow>(
+  marks: readonly T[],
+  target: IsoDate,
+  toleranceDays: number,
+): T | null {
+  let best: T | null = null;
+  for (const m of marks) {
+    if (m.state !== 'Locked') continue;
+    const gap = daysBetween(m.periodEnd, target);
+    if (gap < 0 || gap > toleranceDays) continue;
+    if (best === null || m.periodEnd > best.periodEnd) best = m;
+  }
+  return best;
+}

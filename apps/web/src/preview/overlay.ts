@@ -72,7 +72,7 @@ export function overlayValuationPage(
     added.push(sim.row);
   }
   if (!changed && added.length === 0) return page;
-  const periods = [...new Set([...page.periods, ...added.map((r) => r.periodEnd)])].sort((a, b) =>
+  const periods = [...new Set([...page.periods, ...added.map((r) => r.quarterEnd)])].sort((a, b) =>
     a < b ? 1 : a > b ? -1 : 0,
   );
   return { ...page, items: [...added, ...items], periods };

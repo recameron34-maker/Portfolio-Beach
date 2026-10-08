@@ -3,7 +3,13 @@ import { and, asc, desc, eq, gt, inArray, lt, lte, or } from 'drizzle-orm';
 import type { SQL } from 'drizzle-orm';
 import { alias } from 'drizzle-orm/pg-core';
 import type { Principal } from '@pb/adapters';
-import { addDays, valueChange } from '@pb/calc';
+import {
+  addDays,
+  alignedQuarterEnd,
+  latestQuarterEndOnOrBefore,
+  valueChange,
+  lockedNear,
+} from '@pb/calc';
 import type { ValuationPage, valuationListQuery } from '@pb/contracts';
 import { schema } from '@pb/db';
 import type { z } from 'zod';
@@ -11,8 +17,7 @@ import { decodeCursor, encodeCursor } from '../common/cursor.js';
 import { configInteger } from '../common/definitions.js';
 import { DEFINITIONS } from '../common/tokens.js';
 import { DbService } from '../db/db.service.js';
-import { lockedNear } from '../portfolio/marks.js';
-import { latestQuarterEndOnOrBefore, str } from '../portfolio/metrics.js';
+import { str } from '../portfolio/metrics.js';
 import type { ValuationRow } from '../portfolio/metrics.js';
 
 export type ValuationListOptions = Omit<z.infer<typeof valuationListQuery>, 'asOf'> & {
@@ -169,6 +174,7 @@ export class ValuationsService {
             vehicleName: r.vehicleName,
             dealType: r.dealType,
             periodEnd: r.periodEnd,
+            quarterEnd: alignedQuarterEnd(r.periodEnd, tolerance),
             version: r.version,
             state: r.state,
             method: r.method,
@@ -190,7 +196,10 @@ export class ValuationsService {
             ? encodeCursor([last.periodEnd, last.investmentNumber, last.version])
             : null,
         asOf: opts.asOf,
-        periods: periods.map((p) => p.periodEnd),
+        // Quarter ends, so a sponsor reporting a few days early lands in the quarter it reports for.
+        periods: [...new Set(periods.map((p) => alignedQuarterEnd(p.periodEnd, tolerance)))].sort(
+          (a, b) => (a < b ? 1 : a > b ? -1 : 0),
+        ),
       };
     });
   }

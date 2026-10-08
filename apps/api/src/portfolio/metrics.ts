@@ -2,12 +2,9 @@ import {
   CALC_VERSION,
   D,
   ZERO,
+  alignedQuarterEnd,
   currentYield,
-  daysBetween,
-  daysInMonth,
   dpi,
-  formatIso,
-  parseIso,
   rvpi,
   tvpi,
   ebitdaMargin,
@@ -297,33 +294,6 @@ export function pooledPositionMetrics(
     grossIrr: irr?.value === undefined || irr.value === null ? null : str(irr.value),
     irrFlag,
   };
-}
-
-const quarterEndOf = (year: number, month: number): string =>
-  formatIso({ year, month, day: daysInMonth(year, month) });
-
-/** The calendar quarter end on or before a date. */
-export function latestQuarterEndOnOrBefore(date: string): string {
-  const { year, month } = parseIso(date);
-  const endMonth = Math.ceil(month / 3) * 3;
-  const candidate = quarterEndOf(year, endMonth);
-  if (candidate <= date) return candidate;
-  return endMonth === 3 ? quarterEndOf(year - 1, 12) : quarterEndOf(year, endMonth - 3);
-}
-
-/**
- * The calendar quarter end a period end reports for: the nearest quarter end when it is within
- * the tolerance (docs/08 section 5), otherwise the period end as reported.
- */
-function alignedQuarterEnd(periodEnd: string, toleranceDays: number): string {
-  const floor = latestQuarterEndOnOrBefore(periodEnd);
-  if (floor === periodEnd) return periodEnd;
-  const { year, month } = parseIso(floor);
-  const ceil = month === 12 ? quarterEndOf(year + 1, 3) : quarterEndOf(year, month + 3);
-  const toFloor = daysBetween(floor, periodEnd);
-  const toCeil = daysBetween(periodEnd, ceil);
-  const nearest = toFloor <= toCeil ? floor : ceil;
-  return Math.min(toFloor, toCeil) <= toleranceDays ? nearest : periodEnd;
 }
 
 export interface NavSeriesOptions {

@@ -138,46 +138,45 @@ function VersionTable({
       <table className="pb-table pb-val-table" aria-label="Valuations">
         <thead>
           <tr>
-            <th>Inv #</th>
-            <th>Company</th>
-            <th>Vehicle</th>
-            <th>Deal type</th>
+            <th>Position</th>
             <th>Period</th>
-            <th>Version</th>
             <th>State</th>
-            <th>Method</th>
             <th className="num">Prior fair value</th>
             <th className="num">Fair value</th>
             <th className="num">Change</th>
-            <th>Approved</th>
             <th>Actions</th>
           </tr>
         </thead>
         <tbody>
           {rows.map((row) => (
             <tr key={row.id}>
-              <td>
-                <span className="pb-key">{row.investmentNumber}</span>
-              </td>
-              <td className="pb-val-name">
+              <td className="pb-val-position">
                 <Link to="/portfolio/$id" params={{ id: row.investmentId }}>
                   {row.companyName}
                 </Link>
+                <span className="pb-val-sub">
+                  <span className="pb-key">{row.investmentNumber}</span>
+                  <span>{row.vehicleName}</span>
+                </span>
               </td>
-              <td className="pb-val-name">{row.vehicleName}</td>
-              <td className="pb-val-wrap">{labelOf(row.dealType)}</td>
-              <td>{formatDate(row.periodEnd)}</td>
-              <td>v{row.version}</td>
-              <td>
+              <td className="pb-val-period">
+                <span>{formatDate(row.periodEnd)}</span>
+                <span className="pb-val-sub">
+                  <span>v{row.version}</span>
+                  <span>{labelOf(row.method)}</span>
+                </span>
+              </td>
+              <td className="pb-val-state">
                 <Badge tone={valuationTone(row.state)}>{humanizeState(row.state)}</Badge>
+                {row.approvedAt === null ? null : (
+                  <span className="pb-val-sub">
+                    Approved <span>{approvedOn(row.approvedAt)}</span>
+                  </span>
+                )}
               </td>
-              <td className="pb-val-wrap">{labelOf(row.method)}</td>
               <NumCell>{formatMoneyM(row.priorFairValue)}</NumCell>
               <NumCell>{formatMoneyM(row.fairValue)}</NumCell>
               <ChangeCell changePct={row.changePct} />
-              <td className={row.approvedAt === null ? 'is-missing' : undefined}>
-                {approvedOn(row.approvedAt)}
-              </td>
               <td>
                 <CommandButtons
                   options={commandOptions(valuationMachine, row.state, roles)}
@@ -456,7 +455,7 @@ function Board({ page, roles }: { page: ValuationPage; roles: readonly string[] 
   const actions = useBoardActions(log);
 
   const isOps = roles.includes('operations');
-  const periods = latestFirst([...page.periods, ...page.items.map((r) => r.periodEnd)]);
+  const periods = latestFirst([...page.periods, ...page.items.map((r) => r.quarterEnd)]);
   const period =
     periodChoice !== null && periods.includes(periodChoice) ? periodChoice : periods[0];
   const positions = active.data?.items ?? [];
@@ -518,7 +517,7 @@ function Board({ page, roles }: { page: ValuationPage; roles: readonly string[] 
   }
 
   const counts = periodCounts(page.items, period);
-  const forPeriod = page.items.filter((r) => r.periodEnd === period).length;
+  const forPeriod = page.items.filter((r) => r.quarterEnd === period).length;
   const rows = filterRows(page.items, { period, state: stateFilter, vehicle, search });
   const marks = marksStatus(active, page, period);
   const names = vehicleNames(vehicles.data?.items, page.items);

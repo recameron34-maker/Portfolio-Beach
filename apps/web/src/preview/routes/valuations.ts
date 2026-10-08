@@ -1,4 +1,12 @@
-import { toDecimalString, valueChange } from '@pb/calc';
+import {
+  addDays,
+  alignedQuarterEnd,
+  latestQuarterEndOnOrBefore,
+  lockedNear,
+  toDecimalString,
+  valueChange,
+} from '@pb/calc';
+import definitions from '../../../../../config/definitions.json';
 import { investmentDetail, valuationCommandBody, valuationCreateBody } from '@pb/contracts';
 import type { InvestmentDetail, ValuationRow } from '@pb/contracts';
 import { attempt, valuationMachine } from '@pb/workflows';
@@ -31,15 +39,8 @@ function readDetail(
   );
 }
 
-/** The last calendar quarter end before the quarter that holds the date. */
-export function previousQuarterEnd(isoDate: string): string {
-  const year = Number(isoDate.slice(0, 4));
-  const month = Number(isoDate.slice(5, 7));
-  const quarter = Math.floor((month - 1) / 3);
-  if (quarter === 0) return `${year - 1}-12-31`;
-  const endMonth = quarter * 3;
-  return `${year}-${String(endMonth).padStart(2, '0')}-${endMonth === 3 ? '31' : '30'}`;
-}
+/** How far a period end may sit from its quarter end (config/definitions.json), as in the API. */
+const TOLERANCE_DAYS: number = definitions.priorYearPeriodEndToleranceDays;
 
 /** Fair value strictly above zero, read from the decimal string without floating point. */
 export function isPositiveDecimal(value: string): boolean {
@@ -135,10 +136,14 @@ export const createValuationRoute = defineSimRoute({
         'valuation: a Locked version exists for this investment and period; reopen it to start a new version',
         { instance, simulated: true },
       );
-    const priorPeriod = previousQuarterEnd(periodEnd);
-    const prior = versions
-      .filter((v) => v.periodEnd === priorPeriod && v.state === 'Locked')
-      .sort((a, b) => b.version - a.version)[0];
+    // The API's rule (packages/calc): the Locked mark at the previous quarter end, or up to the
+    // tolerance before it; the highest version first so the latest version wins.
+    const prior =
+      lockedNear(
+        [...versions].sort((a, b) => b.version - a.version),
+        latestQuarterEndOnOrBefore(addDays(periodEnd, -1)),
+        TOLERANCE_DAYS,
+      ) ?? undefined;
     const row: ValuationRow = {
       ...freshFields,
       id: ctx.env.newId(),
@@ -148,6 +153,7 @@ export const createValuationRoute = defineSimRoute({
       vehicleName: detail.vehicleName,
       dealType: detail.dealType,
       periodEnd,
+      quarterEnd: alignedQuarterEnd(periodEnd, TOLERANCE_DAYS),
       version: nextVersion(versions, sims.values(), detail.id, periodEnd),
       method,
       fairValue,

@@ -515,6 +515,12 @@ export const valuationRow = z.object({
   vehicleName: z.string(),
   dealType: z.string(),
   periodEnd: isoDate,
+  /**
+   * The calendar quarter end this version reports for: the period end folded to the nearest
+   * quarter end when within priorYearPeriodEndToleranceDays (a sponsor that closes its books a few
+   * days early), otherwise the period end itself. The same rule as the NAV series.
+   */
+  quarterEnd: isoDate,
   version: z.number().int(),
   state: valuationState,
   method: z.string(),
@@ -536,7 +542,7 @@ export const valuationPage = z.object({
   items: z.array(valuationRow),
   nextCursor: z.string().nullable(),
   asOf: isoDate,
-  /** Distinct period ends visible to the caller, latest first. */
+  /** Distinct quarter ends (quarterEnd) of the versions visible to the caller, latest first. */
   periods: z.array(isoDate),
 });
 export type ValuationPage = z.infer<typeof valuationPage>;

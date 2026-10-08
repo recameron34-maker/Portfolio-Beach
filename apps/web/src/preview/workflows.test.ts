@@ -391,6 +391,30 @@ describe('creating a Draft valuation', () => {
     expect(again.version).toBe(2);
   });
 
+  it('files a draft dated a few days early under its quarter, as the API does', async () => {
+    const { f } = setup();
+    const early = valuationRow.parse(
+      (
+        await send(
+          f,
+          USERS.ops.externalId,
+          'POST',
+          '/api/v1/valuations',
+          createBody({ periodEnd: '2025-06-27' }),
+        )
+      ).json,
+    );
+    // Within the configured tolerance of 2025-06-30, so it reports for that quarter, and its
+    // prior is still the 2025-03-31 Locked mark (packages/calc lockedNear).
+    expect([early.periodEnd, early.quarterEnd]).toEqual(['2025-06-27', '2025-06-30']);
+    expect([early.priorFairValue, early.changePct]).toEqual(['1000.00', '0.2']);
+    const board = valuationPage.parse(
+      (await send(f, USERS.ops.externalId, 'GET', '/api/v1/valuations?limit=200')).json,
+    );
+    expect(board.periods).toContain('2025-06-30');
+    expect(board.periods).not.toContain('2025-06-27');
+  });
+
   it('measures the change against the recorded prior mark, and leaves it null without one', async () => {
     const { f } = setup();
     const fall = valuationRow.parse(

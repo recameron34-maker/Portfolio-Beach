@@ -104,3 +104,31 @@ export function quarterOf(iso: IsoDate): number {
 export function yearOf(iso: IsoDate): number {
   return parseIso(iso).year;
 }
+
+const quarterEndOf = (year: number, month: number): IsoDate =>
+  formatIso({ year, month, day: daysInMonth(year, month) });
+
+/** The calendar quarter end on or before a date. */
+export function latestQuarterEndOnOrBefore(date: IsoDate): IsoDate {
+  const { year, month } = parseIso(date);
+  const endMonth = Math.ceil(month / 3) * 3;
+  const candidate = quarterEndOf(year, endMonth);
+  if (candidate <= date) return candidate;
+  return endMonth === 3 ? quarterEndOf(year - 1, 12) : quarterEndOf(year, endMonth - 3);
+}
+
+/**
+ * The calendar quarter end a period end reports for: the nearest quarter end when the period end
+ * is within toleranceDays of it (a sponsor that closes its books a few days early, the tolerance of
+ * the prior-year match in docs/08 section 5), otherwise the period end as reported.
+ */
+export function alignedQuarterEnd(periodEnd: IsoDate, toleranceDays: number): IsoDate {
+  const floor = latestQuarterEndOnOrBefore(periodEnd);
+  if (floor === periodEnd) return periodEnd;
+  const { year, month } = parseIso(floor);
+  const ceil = month === 12 ? quarterEndOf(year + 1, 3) : quarterEndOf(year, month + 3);
+  const toFloor = daysBetween(floor, periodEnd);
+  const toCeil = daysBetween(periodEnd, ceil);
+  const nearest = toFloor <= toCeil ? floor : ceil;
+  return Math.min(toFloor, toCeil) <= toleranceDays ? nearest : periodEnd;
+}

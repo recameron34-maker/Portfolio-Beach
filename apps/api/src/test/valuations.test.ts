@@ -1,10 +1,11 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { D, addDays, daysBetween } from '@pb/calc';
+import { D, addDays, alignedQuarterEnd, daysBetween, latestQuarterEndOnOrBefore } from '@pb/calc';
 import { problemDetails, valuationPage } from '@pb/contracts';
 import type { ValuationPage, ValuationRow } from '@pb/contracts';
-import { latestQuarterEndOnOrBefore } from '../portfolio/metrics.js';
 import { startHarness } from './harness.js';
 import type { Harness } from './harness.js';
+
+const TOLERANCE = 7;
 
 describe('valuation board (M10)', () => {
   let h: Harness;
@@ -297,15 +298,33 @@ describe('valuation board (M10)', () => {
       expect(member.items.length).toBeGreaterThan(0);
     });
 
-    it('lists the visible period ends, latest first, whatever the page and filters', async () => {
-      const expected = [...new Set(seeded(false).map((v) => v.periodEnd))].sort().reverse();
+    it('lists the visible quarter ends, latest first, whatever the page and filters', async () => {
+      // config/definitions.json priorYearPeriodEndToleranceDays is 7.
+      const expected = [
+        ...new Set(seeded(false).map((v) => alignedQuarterEnd(v.periodEnd, TOLERANCE))),
+      ]
+        .sort()
+        .reverse();
       const plain = await get('viewer', '?limit=1');
       const filtered = await get('viewer', '?state=Reopened');
       expect(plain.periods).toEqual(expected);
       expect(filtered.periods).toEqual(expected);
       expect(plain.periods[0]).toBe('2025-06-30');
-      // A sponsor reporting a few days early keeps its own period ends.
-      expect(plain.periods).toContain('2025-06-27');
+      // A sponsor reporting a few days early lands in the quarter it reports for.
+      expect(plain.periods).not.toContain('2025-06-27');
+    });
+
+    it('gives every version the quarter end it reports for (the NAV series rule)', async () => {
+      const { rows } = await walk('deal.three', 200);
+      for (const r of rows) expect(r.quarterEnd).toBe(alignedQuarterEnd(r.periodEnd, TOLERANCE));
+      const shifted = rows.find(
+        (r) => r.investmentId === idOf('period_end_shift') && r.periodEnd === '2025-06-27',
+      )!;
+      expect(shifted.quarterEnd).toBe('2025-06-30');
+      expect(rows.filter((r) => r.quarterEnd !== r.periodEnd).length).toBeGreaterThan(0);
+      expect(rows.every((r) => latestQuarterEndOnOrBefore(r.quarterEnd) === r.quarterEnd)).toBe(
+        true,
+      );
     });
 
     it('honours an earlier as-of date for the rows and the periods', async () => {

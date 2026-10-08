@@ -67,11 +67,15 @@ export interface PeriodCounts {
   reopened: number;
 }
 
-/** Version counts for one period end (counts of rows, never money). */
+/**
+ * Version counts for one quarter (counts of rows, never money). The board works in quarters: a
+ * sponsor reporting a few days before the quarter end counts for that quarter (quarterEnd, the
+ * API's rule), so its mark is neither missing nor a period of its own.
+ */
 export function periodCounts(rows: readonly ValuationRow[], period: string): PeriodCounts {
   const counts: PeriodCounts = { locked: 0, inFlight: 0, reopened: 0 };
   for (const r of rows) {
-    if (r.periodEnd !== period) continue;
+    if (r.quarterEnd !== period) continue;
     if (r.state === 'Locked') counts.locked += 1;
     else if (r.state === 'Reopened') counts.reopened += 1;
     else counts.inFlight += 1;
@@ -79,13 +83,13 @@ export function periodCounts(rows: readonly ValuationRow[], period: string): Per
   return counts;
 }
 
-/** Active positions with no valuation version of any state for the period, in investment number order. */
+/** Active positions with no valuation version of any state for the quarter, in investment number order. */
 export function missingMarks(
   active: readonly InvestmentSummary[],
   rows: readonly ValuationRow[],
   period: string,
 ): InvestmentSummary[] {
-  const marked = new Set(rows.filter((r) => r.periodEnd === period).map((r) => r.investmentId));
+  const marked = new Set(rows.filter((r) => r.quarterEnd === period).map((r) => r.investmentId));
   return active
     .filter((i) => !marked.has(i.id))
     .sort((a, b) => a.investmentNumber.localeCompare(b.investmentNumber));
@@ -98,13 +102,13 @@ export interface BoardFilters {
   search: string;
 }
 
-/** The rows the table shows: one period, then state, vehicle and a search over number and company. */
+/** The rows the table shows: one quarter, then state, vehicle and a search over number and company. */
 export function filterRows(rows: readonly ValuationRow[], f: BoardFilters): ValuationRow[] {
   const needle = f.search.trim().toLowerCase();
   return rows
     .filter(
       (r) =>
-        r.periodEnd === f.period &&
+        r.quarterEnd === f.period &&
         (f.state === '' || r.state === f.state) &&
         (f.vehicle === '' || r.vehicleName === f.vehicle) &&
         (needle === '' ||

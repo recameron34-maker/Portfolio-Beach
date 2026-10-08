@@ -1,7 +1,16 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { asc, eq, inArray } from 'drizzle-orm';
 import type { Principal } from '@pb/adapters';
-import { CALC_VERSION, D, ZERO, addMonths, daysBetween, latestPeriod, valueChange } from '@pb/calc';
+import {
+  CALC_VERSION,
+  D,
+  ZERO,
+  addMonths,
+  daysBetween,
+  latestPeriod,
+  valueChange,
+  latestQuarterEndOnOrBefore,
+} from '@pb/calc';
 import type { Decimal } from '@pb/calc';
 import type {
   AnalyticsSummary,
@@ -19,7 +28,6 @@ import { loadInvestmentsWithMetrics } from '../portfolio/loaders.js';
 import type { InvestmentBaseRow } from '../portfolio/loaders.js';
 import {
   latestLockedValuation,
-  latestQuarterEndOnOrBefore,
   lockedNavSeries,
   operatingView,
   pooledPositionMetrics,

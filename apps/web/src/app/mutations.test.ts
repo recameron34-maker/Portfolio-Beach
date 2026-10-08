@@ -18,6 +18,7 @@ export const VALUATION_FIXTURE: ValuationRow = {
   vehicleName: 'Beach Co-Invest Fund III',
   dealType: 'deal_type.co_invest_equity',
   periodEnd: '2025-06-30',
+  quarterEnd: '2025-06-30',
   version: 1,
   state: 'OpsPrepared',
   method: 'valuation_method.market_multiple',
