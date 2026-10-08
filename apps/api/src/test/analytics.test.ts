@@ -4,6 +4,7 @@ import { analyticsSummary, watchlist as watchlistSchema } from '@pb/contracts';
 import type { AnalyticsSummary, Watchlist } from '@pb/contracts';
 import { startHarness } from './harness.js';
 import type { Harness } from './harness.js';
+import { expectedNavSeries } from './nav-oracle.js';
 
 describe('analytics summary (M12, M13) and monitoring watchlist (M9)', () => {
   let h: Harness;
@@ -136,6 +137,21 @@ describe('analytics summary (M12, M13) and monitoring watchlist (M9)', () => {
         expect(point.value).not.toBeNull();
       }
       expect(s.navSeries.length).toBe(8);
+      // Point by point, the Locked marks of the visible active positions summed by calendar quarter.
+      const definitions = h.runtime.definitions as {
+        priorYearPeriodEndToleranceDays: number;
+        analytics: { navSeriesQuarters: number };
+      };
+      const expected = expectedNavSeries(
+        h.dataset,
+        new Set(
+          h.dataset.investments.filter((i) => i.isActive && !walled().has(i.id)).map((i) => i.id),
+        ),
+        definitions.analytics.navSeriesQuarters,
+        definitions.priorYearPeriodEndToleranceDays,
+      );
+      expect(s.navSeries.map((p) => p.periodEnd)).toEqual(expected.map((p) => p.periodEnd));
+      s.navSeries.forEach((p, i) => expect(D(p.value!).eq(expected[i]!.value)).toBe(true));
 
       expect(s.flowsByYear.length).toBeGreaterThan(1);
       let running = D('0');

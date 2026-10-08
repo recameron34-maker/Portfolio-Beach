@@ -1,17 +1,7 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { asc, eq, inArray } from 'drizzle-orm';
 import type { Principal } from '@pb/adapters';
-import {
-  CALC_VERSION,
-  D,
-  ZERO,
-  addMonths,
-  daysBetween,
-  daysInMonth,
-  formatIso,
-  latestPeriod,
-  parseIso,
-} from '@pb/calc';
+import { CALC_VERSION, D, ZERO, addMonths, daysBetween, latestPeriod } from '@pb/calc';
 import type { Decimal } from '@pb/calc';
 import type {
   AnalyticsSummary,
@@ -29,6 +19,7 @@ import { loadInvestmentsWithMetrics } from '../portfolio/loaders.js';
 import type { InvestmentBaseRow } from '../portfolio/loaders.js';
 import {
   latestLockedValuation,
+  latestQuarterEndOnOrBefore,
   lockedNavSeries,
   operatingView,
   pooledPositionMetrics,
@@ -130,34 +121,6 @@ function sumNav(positions: readonly Position[]): Decimal | null {
   return total;
 }
 
-const quarterEnd = (year: number, month: number): string =>
-  formatIso({ year, month, day: daysInMonth(year, month) });
-
-/** The calendar quarter end on or before a date. */
-function latestQuarterEndOnOrBefore(asOf: string): string {
-  const { year, month } = parseIso(asOf);
-  const endMonth = Math.ceil(month / 3) * 3;
-  const candidate = quarterEnd(year, endMonth);
-  if (candidate <= asOf) return candidate;
-  return endMonth === 3 ? quarterEnd(year - 1, 12) : quarterEnd(year, endMonth - 3);
-}
-
-/**
- * A sponsor's period end aligned to the calendar quarter end it reports for, when it is within
- * the tolerance (docs/08 section 5); otherwise the period end stays as reported. Keeps a sponsor
- * closing a few days early from showing up as a separate point in a quarterly series.
- */
-function alignedQuarterEnd(periodEnd: string, toleranceDays: number): string {
-  const floor = latestQuarterEndOnOrBefore(periodEnd);
-  if (floor === periodEnd) return periodEnd;
-  const { year, month } = parseIso(floor);
-  const ceil = month === 12 ? quarterEnd(year + 1, 3) : quarterEnd(year, month + 3);
-  const toFloor = daysBetween(floor, periodEnd);
-  const toCeil = daysBetween(periodEnd, ceil);
-  const nearest = toFloor <= toCeil ? floor : ceil;
-  return Math.min(toFloor, toCeil) <= toleranceDays ? nearest : periodEnd;
-}
-
 /** The latest Locked valuation strictly before a period end (the previous Locked mark). */
 function previousLocked(valuations: readonly ValuationRow[], before: string): ValuationRow | null {
   let best: ValuationRow | null = null;
@@ -166,15 +129,6 @@ function previousLocked(valuations: readonly ValuationRow[], before: string): Va
     if (best === null || v.periodEnd > best.periodEnd) best = v;
   }
   return best;
-}
-
-/**
- * The valuation keyed by its aligned quarter end for the NAV series. A mark dated on or before
- * the as-of date is never dropped: if its calendar quarter has not ended yet it keeps its own date.
- */
-function alignToQuarter(v: ValuationRow, asOf: string, toleranceDays: number): ValuationRow {
-  const aligned = alignedQuarterEnd(v.periodEnd, toleranceDays);
-  return aligned === v.periodEnd || aligned > asOf ? v : { ...v, periodEnd: aligned };
 }
 
 /** A rate as a percentage with one decimal for messages, for example 0.225 to "22.5". */
@@ -604,9 +558,9 @@ export class AnalyticsService {
           }),
         },
         navSeries: lockedNavSeries(
-          active.map((p) => p.valuations.map((v) => alignToQuarter(v, asOf, tolerance))),
+          active.map((p) => p.valuations),
           asOf,
-          quarters,
+          { quarters, toleranceDays: tolerance },
         ),
         flowsByYear: flowsByYear(positions, asOf),
         topPositions: topPositions(active, activeNav, top),

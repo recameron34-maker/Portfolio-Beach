@@ -21,6 +21,7 @@ import { loadCommitmentRows } from '../portfolio/commitments.js';
 
 /** Calculation settings from config/definitions.json (docs/03 section 4); only the keys this service reads. */
 interface Definitions {
+  priorYearPeriodEndToleranceDays?: number;
   analytics?: { navSeriesQuarters?: number };
   [key: string]: unknown;
 }
@@ -191,6 +192,10 @@ export class VehiclesService {
       this.definitions.analytics?.navSeriesQuarters,
       'analytics.navSeriesQuarters',
     );
+    const toleranceDays = configInteger(
+      this.definitions.priorYearPeriodEndToleranceDays,
+      'priorYearPeriodEndToleranceDays',
+    );
     const entitled = seesClientData(principal);
     return this.db.run(principal, requestId, async (tx, audit) => {
       const vehicle = (
@@ -239,7 +244,7 @@ export class VehiclesService {
         navSeries: lockedNavSeries(
           positions.map((p) => p.valuations),
           asOf,
-          quarters,
+          { quarters, toleranceDays },
         ),
         calcVersion: CALC_VERSION,
       };

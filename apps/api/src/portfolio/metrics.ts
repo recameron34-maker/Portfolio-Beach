@@ -3,7 +3,11 @@ import {
   D,
   ZERO,
   currentYield,
+  daysBetween,
+  daysInMonth,
   dpi,
+  formatIso,
+  parseIso,
   rvpi,
   tvpi,
   ebitdaMargin,
@@ -277,25 +281,76 @@ export function pooledPositionMetrics(
   };
 }
 
+const quarterEndOf = (year: number, month: number): string =>
+  formatIso({ year, month, day: daysInMonth(year, month) });
+
+/** The calendar quarter end on or before a date. */
+export function latestQuarterEndOnOrBefore(date: string): string {
+  const { year, month } = parseIso(date);
+  const endMonth = Math.ceil(month / 3) * 3;
+  const candidate = quarterEndOf(year, endMonth);
+  if (candidate <= date) return candidate;
+  return endMonth === 3 ? quarterEndOf(year - 1, 12) : quarterEndOf(year, endMonth - 3);
+}
+
 /**
- * Sum of Locked fair values per period end over a set of positions, oldest first, limited to the
- * latest `quarters` period ends on or before the as-of date. A position without a Locked mark for
- * a period simply does not contribute to that point; the caller says so in the chart subtitle.
+ * The calendar quarter end a period end reports for: the nearest quarter end when it is within
+ * the tolerance (docs/08 section 5), otherwise the period end as reported.
+ */
+function alignedQuarterEnd(periodEnd: string, toleranceDays: number): string {
+  const floor = latestQuarterEndOnOrBefore(periodEnd);
+  if (floor === periodEnd) return periodEnd;
+  const { year, month } = parseIso(floor);
+  const ceil = month === 12 ? quarterEndOf(year + 1, 3) : quarterEndOf(year, month + 3);
+  const toFloor = daysBetween(floor, periodEnd);
+  const toCeil = daysBetween(periodEnd, ceil);
+  const nearest = toFloor <= toCeil ? floor : ceil;
+  return Math.min(toFloor, toCeil) <= toleranceDays ? nearest : periodEnd;
+}
+
+export interface NavSeriesOptions {
+  /** How many of the latest points to keep (definitions.analytics.navSeriesQuarters). */
+  quarters: number;
+  /** How far a period end may sit from its calendar quarter end (definitions.priorYearPeriodEndToleranceDays). */
+  toleranceDays: number;
+}
+
+/**
+ * Sum of Locked fair values per calendar quarter end over a set of positions, oldest first,
+ * limited to the latest `quarters` points. Only marks with a period end on or before the as-of
+ * date count (the NAV date rule, docs/03 section 4).
+ *
+ * The one NAV series rule for every view that charts NAV by quarter (analytics, vehicle detail):
+ * a Locked mark whose period end is within `toleranceDays` of a calendar quarter end counts for
+ * that quarter end, the same tolerance as the prior-year match (docs/08 section 5). A sponsor
+ * closing its books a few days early (period_end_shift reports on the 27th or 28th) therefore
+ * lands on the same point as every other position instead of becoming a point of its own. A mark
+ * further from any quarter end keeps its own date, and so does a mark whose quarter end falls
+ * after the as-of date, so the alignment never drops a mark. When two marks of one position fold
+ * into the same point, the later one counts, so no position is counted twice. A position without
+ * a Locked mark for a period simply does not contribute to that point; the caller says so in the
+ * chart subtitle.
  */
 export function lockedNavSeries(
   valuationSets: readonly (readonly ValuationRow[])[],
   asOf: string,
-  quarters = 8,
+  options: NavSeriesOptions,
 ): SeriesPoint[] {
   const totals = new Map<string, Decimal>();
   for (const set of valuationSets) {
+    const marks = new Map<string, ValuationRow>();
     for (const v of set) {
       if (v.state !== 'Locked' || v.periodEnd > asOf) continue;
-      totals.set(v.periodEnd, (totals.get(v.periodEnd) ?? ZERO).plus(v.fairValue));
+      const aligned = alignedQuarterEnd(v.periodEnd, options.toleranceDays);
+      const point = aligned > asOf ? v.periodEnd : aligned;
+      const held = marks.get(point);
+      if (held === undefined || v.periodEnd > held.periodEnd) marks.set(point, v);
     }
+    for (const [point, v] of marks)
+      totals.set(point, (totals.get(point) ?? ZERO).plus(v.fairValue));
   }
-  return [...totals.entries()]
-    .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
-    .slice(-quarters)
-    .map(([periodEnd, value]) => ({ periodEnd, value: str(value) }));
+  const points = [...totals.entries()].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
+  return (options.quarters === 0 ? [] : points.slice(-options.quarters)).map(
+    ([periodEnd, value]) => ({ periodEnd, value: str(value) }),
+  );
 }
