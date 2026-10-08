@@ -56,20 +56,18 @@ function UnfundedCard({ list }: { list: CommitmentList }): ReactNode {
         />
       ) : (
         <>
-          <div className="pb-cap-unfunded">
-            <HorizontalBars
-              title="Unfunded by sponsor fund"
-              subtitle="Commitments with recorded cash flows"
-              data={chart.bars}
-              kind="money"
-              valueColumn="Unfunded"
-              summary={[
-                `Unfunded by sponsor fund across ${chart.bars.length} commitments; the largest is ${largest.label} at ${largest.display}.`,
-                ...caveats,
-              ].join(' ')}
-              testId="unfunded-chart"
-            />
-          </div>
+          <HorizontalBars
+            title="Unfunded by sponsor fund"
+            subtitle="Commitments with recorded cash flows"
+            data={chart.bars}
+            kind="money"
+            valueColumn="Unfunded"
+            summary={[
+              `Unfunded by sponsor fund across ${chart.bars.length} commitments; the largest is ${largest.label} at ${largest.display}.`,
+              ...caveats,
+            ].join(' ')}
+            testId="unfunded-chart"
+          />
           {caveats.length > 0 ? (
             <p className="pb-meta" data-testid="unfunded-caveats">
               {caveats.join(' ')}

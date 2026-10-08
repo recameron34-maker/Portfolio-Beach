@@ -21,7 +21,7 @@ import {
   formatDate,
   formatMoic,
   formatMoneyM,
-  formatMonthYear,
+  formatMonthYearShort,
   formatMultiple,
   formatPct,
   irrDisplay,
@@ -191,7 +191,7 @@ function ValueSeries({ credit, company }: { credit: CreditBlock; company: string
     <LineChart
       title="Fair value and par"
       subtitle="Approved quarters"
-      x={quarters.map((q) => formatMonthYear(q.periodEnd))}
+      x={quarters.map((q) => formatMonthYearShort(q.periodEnd))}
       series={[
         { name: 'Fair value', values: quarters.map((q) => numberOf(q.fairValue)) },
         { name: 'Par', values: quarters.map((q) => numberOf(q.parValue)) },

@@ -28,6 +28,7 @@ import {
   formatMoic,
   formatMoneyM,
   formatMonthYear,
+  formatMonthYearShort,
   irrDisplay,
   labelOf,
   moneyLabel,
@@ -271,7 +272,7 @@ function ChartsRow({ summary }: { summary: AnalyticsSummary }): ReactNode {
           <LineChart
             title="NAV by quarter"
             subtitle={`Locked marks only, last ${points.length} quarters`}
-            x={points.map((p) => formatMonthYear(p.periodEnd))}
+            x={points.map((p) => formatMonthYearShort(p.periodEnd))}
             series={[{ name: 'NAV', values: points.map((p) => toNumber(p.value)) }]}
             kind="money"
             format={moneyLabel}

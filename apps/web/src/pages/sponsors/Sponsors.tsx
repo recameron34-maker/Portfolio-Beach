@@ -215,39 +215,37 @@ function SponsorTiles({ sponsor }: { sponsor: SponsorDetail }): ReactNode {
   );
 }
 
-/** NAV per active position. sponsors.css hides it below 440 pixels, where the positions table carries the same NAVs. */
+/** NAV per active position, Locked marks only. */
 function ExposureCard({ sponsor }: { sponsor: SponsorDetail }): ReactNode {
   const { bars, withoutNav } = navByPosition(sponsor.positions);
   const top = bars[0];
   return (
-    <div className="pb-sponsors-exposure">
-      <Card>
-        <SectionHeader aside="Active positions">Exposure</SectionHeader>
-        {top === undefined ? (
-          <EmptyState
-            title="No active position with a NAV"
-            detail="NAV by position appears once an active position with this sponsor has a Locked valuation."
-            testId="sponsor-nav-empty"
-          />
-        ) : (
-          <HorizontalBars
-            title="NAV by position"
-            subtitle="Locked marks only"
-            data={bars}
-            kind="money"
-            valueColumn="NAV"
-            summary={`NAV by position across ${bars.length} active ${bars.length === 1 ? 'position' : 'positions'}; the largest is ${top.label} at ${top.display}.`}
-            testId="sponsor-nav-by-position"
-          />
-        )}
-        {withoutNav > 0 ? (
-          <p className="pb-meta pb-sponsors-note">
-            {withoutNav} active {withoutNav === 1 ? 'position has' : 'positions have'} no Locked
-            valuation and {withoutNav === 1 ? 'is' : 'are'} not shown.
-          </p>
-        ) : null}
-      </Card>
-    </div>
+    <Card>
+      <SectionHeader aside="Active positions">Exposure</SectionHeader>
+      {top === undefined ? (
+        <EmptyState
+          title="No active position with a NAV"
+          detail="NAV by position appears once an active position with this sponsor has a Locked valuation."
+          testId="sponsor-nav-empty"
+        />
+      ) : (
+        <HorizontalBars
+          title="NAV by position"
+          subtitle="Locked marks only"
+          data={bars}
+          kind="money"
+          valueColumn="NAV"
+          summary={`NAV by position across ${bars.length} active ${bars.length === 1 ? 'position' : 'positions'}; the largest is ${top.label} at ${top.display}.`}
+          testId="sponsor-nav-by-position"
+        />
+      )}
+      {withoutNav > 0 ? (
+        <p className="pb-meta pb-sponsors-note">
+          {withoutNav} active {withoutNav === 1 ? 'position has' : 'positions have'} no Locked
+          valuation and {withoutNav === 1 ? 'is' : 'are'} not shown.
+        </p>
+      ) : null}
+    </Card>
   );
 }
 

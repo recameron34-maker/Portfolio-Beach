@@ -19,6 +19,7 @@ import {
   formatDate,
   formatMoneyM,
   formatMonthYear,
+  formatMonthYearShort,
   formatMultiple,
   formatPct,
   labelOf,
@@ -28,7 +29,6 @@ import {
 import { creditStatusTone } from '../../lib/labels.js';
 import {
   approvedQuarters,
-  axisPeriod,
   datePart,
   HIGHLIGHT_QUARTERS,
   isApproved,
@@ -135,7 +135,7 @@ function LtmChart({ perf, company }: { perf: InvestmentPerformance; company: str
     <LineChart
       title="Revenue and EBITDA, LTM"
       subtitle="Approved quarters"
-      x={quarters.map((q) => axisPeriod(q.periodEnd))}
+      x={quarters.map((q) => formatMonthYearShort(q.periodEnd))}
       series={[
         { name: 'Revenue', values: quarters.map((q) => toNumber(q.revenueLtm)) },
         { name: 'EBITDA', values: quarters.map((q) => toNumber(q.ebitdaLtm)) },
@@ -168,9 +168,7 @@ function QuarterlyCard({
         />
       ) : (
         <>
-          <div className="pb-deal-chart">
-            <LtmChart perf={perf} company={company} />
-          </div>
+          <LtmChart perf={perf} company={company} />
           <TableWrap label="Quarterly financials">
             <table className="pb-table pb-deal-dense" aria-label="Quarterly financials">
               <thead>
@@ -376,7 +374,7 @@ function CreditChart({ credit, company }: { credit: CreditBlock; company: string
     <LineChart
       title="Par and fair value"
       subtitle="By quarter"
-      x={quarters.map((q) => axisPeriod(q.periodEnd))}
+      x={quarters.map((q) => formatMonthYearShort(q.periodEnd))}
       series={[
         { name: 'Par', values: quarters.map((q) => toNumber(q.parValue)) },
         { name: 'Fair value', values: quarters.map((q) => toNumber(q.fairValue)) },
@@ -407,9 +405,7 @@ function CreditQuartersCard({
         />
       ) : (
         <>
-          <div className="pb-deal-chart">
-            <CreditChart credit={credit} company={company} />
-          </div>
+          <CreditChart credit={credit} company={company} />
           <TableWrap label="Quarterly credit metrics">
             <table className="pb-table pb-deal-dense" aria-label="Quarterly credit metrics">
               <thead>

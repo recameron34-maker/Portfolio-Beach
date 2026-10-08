@@ -49,12 +49,8 @@
 }
 
 /* The workspace repeats its tiles above every tab, so on a phone they stay two to a row instead of
-   stacking into one long column before the tab bar. Chart axis ticks step down one size there so
-   the last period label clears its neighbour (the chart kit always prints the last label). */
+   stacking into one long column before the tab bar. */
 @media (max-width: 480px) {
-  .pb-deal-chart .pb-chart-tick {
-    font-size: 11px;
-  }
   .pb-tiles.pb-deal-tiles {
     grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 8px;

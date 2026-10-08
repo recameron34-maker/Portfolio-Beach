@@ -4,11 +4,15 @@ import { ChartFigure } from './ChartFigure.js';
 import type { TooltipState } from './ChartFigure.js';
 import {
   compactValue,
+  LABEL_GAP,
+  labelBudget,
+  labelColumn,
   labelStride,
   linearScale,
   niceTicks,
   seriesColor,
-  truncateLabel,
+  truncateMiddle,
+  valueLabelPosition,
 } from './scale.js';
 import type { ValueKind } from './scale.js';
 import { useWidth } from './useWidth.js';
@@ -23,8 +27,10 @@ export interface BarDatum {
 
 const ROW = 30;
 const BAR = 18;
-const LABEL_W = 170;
+/** Room right of the plot for the value label at the end of the longest bar. */
 const PAD_R = 72;
+/** The plot never shrinks below this; the value labels then hold to the chart's right edge. */
+const MIN_PLOT = 40;
 
 /**
  * Single-series horizontal bars (magnitude by category). Thin marks with a rounded data end,
@@ -55,14 +61,16 @@ export function HorizontalBars({
   const ticks = niceTicks(min, max, 4);
   const lo = ticks[0] ?? 0;
   const hi = ticks[ticks.length - 1] ?? 1;
-  const plotW = Math.max(120, width - LABEL_W - PAD_R);
-  const x = linearScale(lo, hi, LABEL_W, LABEL_W + plotW);
+  const labelW = labelColumn(width);
+  const budget = labelBudget(labelW);
+  const plotW = Math.max(MIN_PLOT, width - labelW - PAD_R);
+  const x = linearScale(lo, hi, labelW, labelW + plotW);
   const height = data.length * ROW + 28;
   const zero = x(0);
   const stride = labelStride(ticks.length - 1, plotW);
   const show = (d: BarDatum, i: number) =>
     setTooltip({
-      left: Math.min(x(Math.max(d.value, 0)) + 8, width - 160),
+      left: Math.max(0, Math.min(x(Math.max(d.value, 0)) + 8, width - 160)),
       top: i * ROW,
       title: d.label,
       rows: [{ name: valueColumn, value: d.display }],
@@ -119,6 +127,7 @@ export function HorizontalBars({
                 : `M${end} ${y}H${start + r}a${r} ${r} 0 0 0 ${-r} ${r}V${y + BAR - r}a${r} ${r} 0 0 0 ${r} ${r}H${end}Z`;
             const fill =
               hasEmphasis && d.emphasis !== true ? 'var(--pb-chart-muted)' : seriesColor(1);
+            const value = valueLabelPosition(end, width);
             return (
               <g
                 key={d.label}
@@ -133,15 +142,20 @@ export function HorizontalBars({
               >
                 <rect x={0} y={i * ROW} width={width} height={ROW} className="pb-chart-hit" />
                 <text
-                  x={LABEL_W - 10}
+                  x={labelW - LABEL_GAP}
                   y={y + BAR / 2 + 4}
                   className="pb-chart-label"
                   textAnchor="end"
                 >
-                  {truncateLabel(d.label)}
+                  {truncateMiddle(d.label, budget)}
                 </text>
                 <path d={path} fill={fill} />
-                <text x={end + 6} y={y + BAR / 2 + 4} className="pb-chart-value">
+                <text
+                  x={value.x}
+                  y={y + BAR / 2 + 4}
+                  className="pb-chart-value"
+                  textAnchor={value.anchor}
+                >
                   {d.display}
                 </text>
               </g>

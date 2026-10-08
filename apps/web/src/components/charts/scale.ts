@@ -79,9 +79,60 @@ export function compactValue(value: number, kind: ValueKind): string {
   }
 }
 
-/** Shortens a category label for an axis; the full label stays in the tooltip and the table. */
-export function truncateLabel(label: string, max = 22): string {
-  return label.length <= max ? label : `${label.slice(0, max - 1).trimEnd()}...`;
+/** Average advance of one character of a 12 px category label: an estimate for fitting, not a measurement. */
+export const LABEL_CHAR_PX = 6.6;
+/** Space between the end of a category label and the plot. */
+export const LABEL_GAP = 10;
+
+/**
+ * Width of the category label column of a bar chart: about 36 percent of the chart, never under
+ * 96 or over 220 pixels, so the bars keep most of a phone-width card.
+ */
+export function labelColumn(width: number): number {
+  return Math.round(Math.min(220, Math.max(96, width * 0.36)));
+}
+
+/** How many characters of a category label fit in a label column (4 px kept clear on the left). */
+export function labelBudget(column: number): number {
+  return Math.max(5, Math.floor((column - LABEL_GAP - 4) / LABEL_CHAR_PX));
+}
+
+const ELLIPSIS = '...';
+
+/**
+ * Shortens a category label to at most max characters by cutting the middle, so labels that share
+ * a long start ("Beach Co-Invest Fund II", "Beach Co-Invest Fund III") keep the ends that tell
+ * them apart. The kept end starts on a word when a word boundary is close. The full label stays
+ * in the tooltip, the aria-label and the table twin.
+ */
+export function truncateMiddle(label: string, max: number): string {
+  if (label.length <= max) return label;
+  const room = max - ELLIPSIS.length;
+  // Too narrow for a start, an ellipsis and an end: the end is what tells similar labels apart.
+  if (room < 2) return label.slice(label.length - Math.max(0, max));
+  let tailStart = label.length - Math.ceil(room / 2);
+  const wordStart = label.lastIndexOf(' ', tailStart - 1) + 1;
+  if (wordStart > 0 && wordStart < tailStart) {
+    // Inside a word: take the whole word when only a letter or two is missing and one character
+    // of the start still fits; otherwise start the end part at the next word.
+    const next = label.indexOf(' ', tailStart);
+    if (tailStart - wordStart <= 2 && label.length - wordStart <= room - 1) tailStart = wordStart;
+    else if (next !== -1 && label.length - (next + 1) >= 2) tailStart = next + 1;
+  }
+  const tail = label.slice(tailStart).trimStart();
+  return `${label.slice(0, room - tail.length).trimEnd()}${ELLIPSIS}${tail}`;
+}
+
+/**
+ * Where a bar's value label goes: just past the bar's end, but never past the right edge of the
+ * chart; when it would be, it is anchored at the edge instead and reads back from it.
+ */
+export function valueLabelPosition(
+  end: number,
+  width: number,
+): { x: number; anchor: 'start' | 'end' } {
+  const x = Math.min(end + 6, width - 4);
+  return { x, anchor: x < end + 6 ? 'end' : 'start' };
 }
 
 /** Series color token by slot (1-based); slots past the palette fold into the last one on purpose. */

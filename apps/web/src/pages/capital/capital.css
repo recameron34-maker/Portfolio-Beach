@@ -158,11 +158,4 @@
   .pb-cap-progress {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
-  /* The bar chart needs room for its labels; on a phone it scrolls sideways in its frame. */
-  .pb-cap-unfunded .pb-chart-wrap {
-    overflow-x: auto;
-  }
-  .pb-cap-unfunded .pb-chart-canvas {
-    min-width: 480px;
-  }
 }

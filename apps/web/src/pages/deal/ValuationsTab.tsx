@@ -19,6 +19,7 @@ import {
   formatDate,
   formatMoneyM,
   formatMonthYear,
+  formatMonthYearShort,
   formatPct,
   labelOf,
   MISSING,
@@ -27,7 +28,6 @@ import {
 import { humanizeState, valuationTone } from '../../lib/states.js';
 import { retryUnlessUnavailable } from '../../lib/unavailable.js';
 import {
-  axisPeriod,
   datePart,
   lockedSeries,
   toNumber,
@@ -55,7 +55,7 @@ function LockedChart({ rows }: { rows: readonly VersionPoint[] }): ReactNode {
     <LineChart
       title="Locked fair value by period"
       subtitle="Locked versions only"
-      x={locked.map((v) => axisPeriod(v.periodEnd))}
+      x={locked.map((v) => formatMonthYearShort(v.periodEnd))}
       series={[{ name: 'Fair value', values: locked.map((v) => toNumber(v.fairValue)) }]}
       kind="money"
       format={moneyLabel}
@@ -141,9 +141,7 @@ function VersionsCard({ page }: { page: ValuationPage }): ReactNode {
         />
       ) : (
         <>
-          <div className="pb-deal-chart">
-            <LockedChart rows={page.items} />
-          </div>
+          <LockedChart rows={page.items} />
           <VersionsTable page={page} />
           {page.nextCursor !== null ? (
             <p className="pb-meta pb-deal-note">
@@ -172,9 +170,7 @@ function RecordedVersionsCard({ detail }: { detail: InvestmentDetail }): ReactNo
         />
       ) : (
         <>
-          <div className="pb-deal-chart">
-            <LockedChart rows={rows} />
-          </div>
+          <LockedChart rows={rows} />
           <TableWrap label="Valuation versions">
             <table className="pb-table" aria-label="Valuation versions">
               <thead>

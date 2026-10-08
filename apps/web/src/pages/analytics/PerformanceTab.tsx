@@ -19,6 +19,7 @@ import {
   formatMoic,
   formatMoneyM,
   formatMonthYear,
+  formatMonthYearShort,
   formatPct,
   irrDisplay,
   moneyLabel,
@@ -38,7 +39,7 @@ function NavTrendCard({ summary }: { summary: AnalyticsSummary }): ReactNode {
         <LineChart
           title="NAV by quarter"
           subtitle={`Locked marks only, last ${points.length} quarters`}
-          x={points.map((p) => formatMonthYear(p.periodEnd))}
+          x={points.map((p) => formatMonthYearShort(p.periodEnd))}
           series={[
             { name: 'NAV', values: points.map((p) => (p.value === null ? null : Number(p.value))) },
           ]}
