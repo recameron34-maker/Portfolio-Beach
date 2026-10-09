@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { cleanup, screen, within } from '@testing-library/react';
+import { act, cleanup, render, screen, within } from '@testing-library/react';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { mockApi, ok, problemFixture } from '../../test/api-mock.js';
 import type { MockResponse } from '../../test/api-mock.js';
 import {
@@ -123,6 +124,30 @@ describe('deal workspace', () => {
       expect(screen.queryByRole('navigation')).not.toBeInTheDocument();
     },
   );
+
+  it('hides a position whose refetch answers 404, even with its data still cached', async () => {
+    // The role switch case: the cache holds the previous user's position, the new user may not see it.
+    let visible = true;
+    mockApi({
+      [DEAL_PATHS.detail]: () =>
+        visible
+          ? { status: 200, body: dealDetailFixture() }
+          : { status: 404, body: problemFixture(404, DEAL_PATHS.detail) },
+    });
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={client}>
+        <DealWorkspace />
+      </QueryClientProvider>,
+    );
+    expect(await screen.findByTestId('detail-banner')).toBeInTheDocument();
+    visible = false;
+    await act(() => client.invalidateQueries());
+    const error = await screen.findByTestId('error-state');
+    expect(error).toHaveTextContent('Position not found or not visible to you');
+    expect(screen.queryByTestId('detail-banner')).not.toBeInTheDocument();
+    expect(screen.queryByRole('navigation')).not.toBeInTheDocument();
+  });
 
   it('shows any other failure as an error with its message', async () => {
     mockApi({ [DEAL_PATHS.detail]: serverError() });

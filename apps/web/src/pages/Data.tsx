@@ -3,7 +3,8 @@ import type { ReactNode } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Input, Label } from '@fluentui/react-components';
 import { Search16Regular } from '@fluentui/react-icons';
-import { dataDictionaryQuery, dataHealthQuery } from '../app/queries.js';
+import type { DataHealth } from '@pb/contracts';
+import { dataDictionaryQuery, dataHealthQuery, meQuery } from '../app/queries.js';
 import {
   Card,
   EmptyState,
@@ -16,12 +17,53 @@ import {
   TableWrap,
   Toolbar,
 } from '../components/ui.js';
-import { formatDate } from '../lib/format.js';
+import { formatDate, formatPct } from '../lib/format.js';
+import { seesAllClients } from '../lib/roles.js';
 import { balanceTiles } from '../lib/tiles.js';
+
+/**
+ * LP ownership per closed vehicle. The API sums the commitments the caller can see, so only a role
+ * that sees every client gets a sum that can be checked against 100%; anyone else is told whose
+ * check it is rather than shown the shortfall of a partial sum as a data error.
+ */
+function OwnershipCard({
+  gaps,
+  checked,
+}: {
+  gaps: DataHealth['vehiclesWithOwnershipGap'];
+  checked: boolean;
+}): ReactNode {
+  return (
+    <Card>
+      <SectionHeader>Client ownership</SectionHeader>
+      {!checked ? (
+        <p className="pb-meta" data-testid="ownership-not-checked">
+          LP ownership is checked against 100% for operations, approvers and auditors, who see every
+          client's commitments. Your view covers only the clients you are entitled to, so it cannot
+          be checked here.
+        </p>
+      ) : gaps.length === 0 ? (
+        <p className="pb-status-good">
+          <span className="pb-dot" aria-hidden="true" />
+          Every closed vehicle's LP ownership sums to 100%.
+        </p>
+      ) : (
+        <ul className="pb-list">
+          {gaps.map((v) => (
+            <li key={v.vehicleName} className="pb-status-bad">
+              {v.vehicleName}: ownership sums to {formatPct(v.ownershipTotal)}
+            </li>
+          ))}
+        </ul>
+      )}
+    </Card>
+  );
+}
 
 export function DataHealthPage(): ReactNode {
   const q = useQuery(dataHealthQuery);
-  if (q.isPending) return <PageSkeleton tiles={4} rows={1} />;
+  const me = useQuery(meQuery);
+  if (q.isPending || me.isPending) return <PageSkeleton tiles={4} rows={1} />;
   if (q.isError) return <ErrorState title="Data health unavailable" detail={q.error.message} />;
   const h = q.data;
   return (
@@ -51,23 +93,10 @@ export function DataHealthPage(): ReactNode {
           hint={`${h.activeInvestments} active positions`}
         />
       </div>
-      <Card>
-        <SectionHeader>Client ownership</SectionHeader>
-        {h.vehiclesWithOwnershipGap.length === 0 ? (
-          <p className="pb-status-good">
-            <span className="pb-dot" aria-hidden="true" />
-            Every closed vehicle's LP ownership sums to 100%.
-          </p>
-        ) : (
-          <ul className="pb-list">
-            {h.vehiclesWithOwnershipGap.map((v) => (
-              <li key={v.vehicleName} className="pb-status-bad">
-                {v.vehicleName}: ownership sums to {v.ownershipTotal}
-              </li>
-            ))}
-          </ul>
-        )}
-      </Card>
+      <OwnershipCard
+        gaps={h.vehiclesWithOwnershipGap}
+        checked={me.data !== undefined && seesAllClients(me.data.roles)}
+      />
     </>
   );
 }

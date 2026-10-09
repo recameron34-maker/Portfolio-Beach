@@ -87,7 +87,9 @@ export function RoleSwitcher(): ReactNode {
         const next = data.optionValue;
         if (next === undefined || next === current) return;
         setCredential(next);
-        void queryClient.invalidateQueries().then(() => navigate({ to: '/' }));
+        // Nothing the previous user could see may survive the switch, cached or on screen.
+        queryClient.clear();
+        void navigate({ to: '/' });
       }}
     >
       {users.data.users.map((u) => (

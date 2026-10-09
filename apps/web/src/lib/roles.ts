@@ -22,3 +22,13 @@ export const ROLE_WORDS: Readonly<Record<Role, string>> = {
 export function userLabel(user: { displayName: string; roles: readonly Role[] }): string {
   return `${user.displayName} (${user.roles.map((r) => ROLE_WORDS[r]).join(', ')})`;
 }
+
+/**
+ * Roles that see every client's LP commitments: pb.sees_all_clients() in packages/db, which row-level
+ * security applies. A check that needs every commitment, such as LP ownership summing to 100%,
+ * means something only for them; anyone else would sum the subset they are entitled to.
+ */
+export const SEES_ALL_CLIENTS: ReadonlySet<Role> = new Set(['operations', 'approver', 'auditor']);
+
+export const seesAllClients = (roles: readonly Role[]): boolean =>
+  roles.some((r) => SEES_ALL_CLIENTS.has(r));

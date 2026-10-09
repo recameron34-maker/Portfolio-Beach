@@ -97,18 +97,17 @@ export function DealWorkspace(): ReactNode {
   // previous key's data would show one position's figures under another position's address.
   const q = useQuery(investmentQuery(id));
   if (q.isPending) return <PageSkeleton tiles={4} rows={6} />;
-  if (q.isLoadingError) {
-    const hidden =
-      q.error instanceof ApiError && (q.error.status === 404 || q.error.status === 403);
-    return hidden ? (
+  // A 404 or 403 hides the position even when a refetch fails over cached data: after an
+  // identity change the cache may still hold what the previous user was allowed to see.
+  if (q.error instanceof ApiError && (q.error.status === 404 || q.error.status === 403))
+    return (
       <ErrorState
         title="Position not found or not visible to you"
         detail="Investment not found in the positions you are entitled to see. The link may be out of date, or the position may sit behind an information wall you are not on."
       />
-    ) : (
-      <ErrorState title="Could not load this position" detail={q.error.message} />
     );
-  }
+  if (q.isLoadingError)
+    return <ErrorState title="Could not load this position" detail={q.error.message} />;
   const d = q.data;
   return (
     <>

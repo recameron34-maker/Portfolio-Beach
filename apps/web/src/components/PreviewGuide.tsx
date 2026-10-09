@@ -29,12 +29,13 @@ function walkthroughs(p: GuidePeople): Walkthrough[] {
           positions listed.
         </>,
         <>
-          Switch to {p.wallMember}, who sits on the information wall, and open the{' '}
-          <Link to="/portfolio">Portfolio</Link> again: the walled deal appears for this user only.
+          Switch to {p.wallMember}, a member of the information wall, and open the{' '}
+          <Link to="/portfolio">Portfolio</Link> again: the walled deal appears only for the wall's
+          members.
         </>,
         <>
-          Switch to {p.investorRelations} and open <Link to="/data/health">Data Health</Link>:
-          client figures cover only the clients this user is entitled to.
+          Switch to {p.investorRelations} and open <Link to="/reporting/clients">Clients</Link>{' '}
+          under Reporting: the look-through covers only the clients this user is entitled to.
         </>,
       ],
     },

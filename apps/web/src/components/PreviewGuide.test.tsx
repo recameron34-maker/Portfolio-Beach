@@ -90,7 +90,7 @@ describe('preview guide', () => {
     const walls = screen.getByTestId('guide-walls');
     await waitFor(() => expect(walls).toHaveTextContent('Sign in as Vera Viewer (viewer)'));
     expect(walls).toHaveTextContent(
-      'Switch to Wade Wall (deal team), who sits on the information wall',
+      'Switch to Wade Wall (deal team), a member of the information wall',
     );
     expect(walls).toHaveTextContent('Switch to Iris Relations (investor relations)');
     const valuations = screen.getByTestId('guide-valuations');
@@ -105,7 +105,7 @@ describe('preview guide', () => {
       'As Abe Admin (platform admin), open Assistants',
     );
     for (const [name, href] of [
-      ['Data Health', '/data/health'],
+      ['Clients', '/reporting/clients'],
       ['Valuations', '/valuations'],
       ['Capital activity', '/capital-activity'],
       ['Analytics', '/analytics'],
