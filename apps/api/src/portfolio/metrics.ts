@@ -22,7 +22,7 @@ import {
   xirr,
   yoyGrowth,
 } from '@pb/calc';
-import type { Decimal, FlowKind, IrrReason, IrrResult, TypedCashFlow } from '@pb/calc';
+import type { CashFlow, Decimal, FlowKind, IrrReason, IrrResult, TypedCashFlow } from '@pb/calc';
 import type { PooledMetrics, SeriesPoint } from '@pb/contracts';
 
 export interface FlowRow {
@@ -46,7 +46,8 @@ export interface PositionMetrics {
   navDate: string | null;
   grossMoic: string | null;
   grossIrr: string | null;
-  irrFlag: 'short_period' | IrrReason | null;
+  /** no_valuation: something still held has no Locked mark, so there is no terminal value. */
+  irrFlag: 'short_period' | 'no_valuation' | IrrReason | null;
   calcVersion: string;
 }
 
@@ -78,6 +79,23 @@ function irrFlagOf(irr: IrrResult | null): PositionMetrics['irrFlag'] {
   return irr.shortPeriod ? 'short_period' : null;
 }
 
+/**
+ * The gross IRR over signed flows that already end in the NAV, and its flag. While something
+ * still held has no Locked mark the NAV is not calculable, and an IRR without it would be an
+ * invented number (CLAUDE.md rule 10), so there is none.
+ */
+function grossIrrOf(
+  signed: readonly CashFlow[],
+  navCalculable: boolean,
+): Pick<PositionMetrics, 'grossIrr' | 'irrFlag'> {
+  if (!navCalculable) return { grossIrr: null, irrFlag: 'no_valuation' };
+  const irr = signed.length >= 2 ? xirr(signed) : null;
+  return {
+    grossIrr: str(irr?.value ?? null),
+    irrFlag: irrFlagOf(irr),
+  };
+}
+
 /** Gross deal-level metrics from approved cash flows and the latest Locked valuation (docs/08). */
 export function positionMetrics(
   flows: readonly FlowRow[],
@@ -91,21 +109,20 @@ export function positionMetrics(
   const summary = summarizeFlows(typed);
   const nav = isActive ? latestLockedValuation(valuations, asOf) : null;
   const invested = summary.contributions.isZero() ? null : summary.contributions;
+  // A realized position holds nothing, so its NAV is 0; an active one without a Locked mark has
+  // no NAV, and nothing that needs one (MOIC, IRR) is calculable either.
   const navValue = nav === null ? (isActive ? null : D('0')) : D(nav.fairValue);
   const grossMoic =
-    invested === null ? null : moic(summary.distributions, navValue ?? D('0'), invested);
+    invested === null || navValue === null ? null : moic(summary.distributions, navValue, invested);
   const signed = toSignedFlows(typed);
   if (nav !== null) signed.push({ date: asOf, amount: nav.fairValue });
-  const irr = signed.length >= 2 ? xirr(signed) : null;
-  const irrFlag = irrFlagOf(irr);
   return {
     invested: str(invested),
     distributions: invested === null ? null : str(summary.distributions),
     nav: str(navValue),
     navDate: nav?.periodEnd ?? null,
     grossMoic: str(grossMoic),
-    grossIrr: irr?.value === undefined || irr.value === null ? null : str(irr.value),
-    irrFlag,
+    ...grossIrrOf(signed, navValue !== null),
     calcVersion: CALC_VERSION,
   };
 }
@@ -258,30 +275,25 @@ export function pooledPositionMetrics(
   }
   const typed: TypedCashFlow[] = [];
   let navSum = ZERO;
-  let anyNav = false;
-  let anyActive = false;
+  let unmarked = false;
   for (const p of positions) {
     for (const f of p.flows) {
       if (f.flowDate <= asOf)
         typed.push({ date: f.flowDate, kind: kindOf(f.flowType), amount: f.amount });
     }
     if (p.isActive) {
-      anyActive = true;
       const nav = latestLockedValuation(p.valuations, asOf);
-      if (nav !== null) {
-        navSum = navSum.plus(nav.fairValue);
-        anyNav = true;
-      }
+      if (nav === null) unmarked = true;
+      else navSum = navSum.plus(nav.fairValue);
     }
   }
   const summary = summarizeFlows(typed);
   const invested = summary.contributions.isZero() ? null : summary.contributions;
-  // Realized sets carry a zero NAV; an active set with no Locked mark is not calculable.
-  const nav: Decimal | null = anyNav ? navSum : anyActive ? null : ZERO;
+  // Realized positions hold nothing (0). One active position with no Locked mark leaves the
+  // pool's NAV unknown: counting it as 0 would understate NAV and invent MOIC and IRR (rule 10).
+  const nav: Decimal | null = unmarked ? null : navSum;
   const signed = toSignedFlows(typed);
   if (nav !== null && !nav.isZero()) signed.push({ date: asOf, amount: nav.toFixed(2) });
-  const irr = signed.length >= 2 ? xirr(signed) : null;
-  const irrFlag = irrFlagOf(irr);
   return {
     count: positions.length,
     invested: str(invested),
@@ -291,9 +303,9 @@ export function pooledPositionMetrics(
     rvpi: invested === null || nav === null ? null : str(rvpi(nav, invested)),
     tvpi:
       invested === null || nav === null ? null : str(tvpi(summary.distributions, nav, invested)),
-    grossMoic: invested === null ? null : str(moic(summary.distributions, nav ?? ZERO, invested)),
-    grossIrr: irr?.value === undefined || irr.value === null ? null : str(irr.value),
-    irrFlag,
+    grossMoic:
+      invested === null || nav === null ? null : str(moic(summary.distributions, nav, invested)),
+    ...grossIrrOf(signed, nav !== null),
   };
 }
 

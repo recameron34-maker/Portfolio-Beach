@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { lockedNavSeries, pooledPositionMetrics } from '../portfolio/metrics.js';
+import { D } from '@pb/calc';
+import { lockedNavSeries, pooledPositionMetrics, positionMetrics } from '../portfolio/metrics.js';
 import type { FlowRow, ValuationRow } from '../portfolio/metrics.js';
 import { NOTHING_POOLED } from './pools.js';
 
@@ -45,6 +46,57 @@ describe('pooledPositionMetrics: one answer for every pooled view', () => {
     expect(unmarked.nav).toBeNull();
     expect(unmarked.rvpi).toBeNull();
     expect(unmarked.tvpi).toBeNull();
+    // Without the NAV, MOIC and IRR would be invented (CLAUDE.md rule 10): none, and the flag says why.
+    expect(unmarked.grossMoic).toBeNull();
+    expect(unmarked.grossIrr).toBeNull();
+    expect(unmarked.irrFlag).toBe('no_valuation');
+  });
+
+  it('leaves the whole pool not calculable while one held position has no Locked mark', () => {
+    const marked = {
+      flows: [flow('2020-01-15', 'contribution', '-100')],
+      valuations: [mark('2025-06-30', '180')],
+      isActive: true,
+    };
+    const unmarked = {
+      flows: [flow('2024-01-15', 'contribution', '-10'), flow('2024-07-30', 'distribution', '2')],
+      valuations: [mark('2025-06-30', '9', 'Draft')],
+      isActive: true,
+    };
+    const alone = pooledPositionMetrics([marked], '2025-06-30');
+    expect(alone.nav).toBe('180');
+    expect(alone.grossMoic).toBe('1.8');
+    expect(alone.grossIrr).not.toBeNull();
+    const pool = pooledPositionMetrics([marked, unmarked], '2025-06-30');
+    // Counting the unmarked position as 0 would understate NAV by its value and invent MOIC.
+    expect(pool.nav).toBeNull();
+    expect(pool.tvpi).toBeNull();
+    expect(pool.grossMoic).toBeNull();
+    expect(pool.grossIrr).toBeNull();
+    expect(pool.irrFlag).toBe('no_valuation');
+    // What needs no NAV still shows.
+    expect(pool.invested).toBe('110');
+    expect(pool.dpi).toBe(D('2').div('110').toFixed(10).replace(/0+$/, ''));
+  });
+});
+
+describe('positionMetrics: a held position without a Locked mark', () => {
+  it('shows no NAV, MOIC or IRR, never a figure as if NAV were 0', () => {
+    const m = positionMetrics(
+      [
+        flow('2023-01-15', 'contribution', '-10000000'),
+        flow('2024-07-30', 'distribution', '2000000'),
+      ],
+      [mark('2025-06-30', '9000000', 'Draft')],
+      '2025-06-30',
+      true,
+    );
+    expect(m.invested).toBe('10000000');
+    expect(m.distributions).toBe('2000000');
+    expect(m.nav).toBeNull();
+    expect(m.grossMoic).toBeNull();
+    expect(m.grossIrr).toBeNull();
+    expect(m.irrFlag).toBe('no_valuation');
   });
 });
 

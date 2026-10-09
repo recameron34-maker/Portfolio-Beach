@@ -1,6 +1,6 @@
 import { CalcError } from './decimal.js';
 import type { IsoDate } from './dates.js';
-import { addYears, compareIso, daysBetween } from './dates.js';
+import { addYears, alignedQuarterEnd, compareIso, daysBetween } from './dates.js';
 
 /** The subset of a monitoring row that period selection needs (docs/08 section 5). */
 export interface PeriodRow {
@@ -71,10 +71,11 @@ export interface MarkRow {
 }
 
 /**
- * The Locked mark that counts for a quarter end: the latest one whose period end is the target or
- * up to `toleranceDays` before it, so a sponsor reporting a few days before the quarter end still
- * counts for that quarter. Never a mark after the target. On equal period ends the first in input
- * order wins, so callers that list the highest version first get the latest version.
+ * The Locked mark that counts for a quarter end: the latest one that reports for it, by the same
+ * rule as alignedQuarterEnd, so a sponsor closing its books a few days before or after the quarter
+ * end counts for that quarter. A caller reading the current quarter leaves out marks after its
+ * as-of date. On equal period ends the first in input order wins, so callers that list the highest
+ * version first get the latest version.
  */
 export function lockedNear<T extends MarkRow>(
   marks: readonly T[],
@@ -83,9 +84,7 @@ export function lockedNear<T extends MarkRow>(
 ): T | null {
   let best: T | null = null;
   for (const m of marks) {
-    if (m.state !== 'Locked') continue;
-    const gap = daysBetween(m.periodEnd, target);
-    if (gap < 0 || gap > toleranceDays) continue;
+    if (m.state !== 'Locked' || alignedQuarterEnd(m.periodEnd, toleranceDays) !== target) continue;
     if (best === null || m.periodEnd > best.periodEnd) best = m;
   }
   return best;

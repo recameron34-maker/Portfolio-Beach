@@ -346,6 +346,57 @@ describe('Portfolio Beach API', () => {
       const sma = irVehicles.items.find((v) => v.vehicleType === 'vehicle_type.client_sma');
       expect(sma?.lpCommitmentsTotal).toBe('150000000.00');
     });
+
+    it('reads status as of the date from entry and exit dates, not from today', async () => {
+      // A position exited since, with a Locked mark from when it was still held.
+      const exited = h.dataset.investments.find(
+        (i) =>
+          i.exitDate !== null &&
+          i.id !== walledId() &&
+          h.dataset.valuations.some(
+            (v) => v.investmentId === i.id && v.state === 'Locked' && v.periodEnd < i.exitDate!,
+          ),
+      )!;
+      const asOf = h.dataset.valuations
+        .filter((v) => v.investmentId === exited.id && v.state === 'Locked')
+        .map((v) => v.periodEnd)
+        .filter((d) => d < exited.exitDate!)
+        .sort()
+        .at(-1)!;
+      const page = investmentPage.parse(
+        (
+          await h
+            .http()
+            .get(`/api/v1/investments?limit=200&asOf=${asOf}`)
+            .set('authorization', h.as('operations'))
+            .expect(200)
+        ).body,
+      );
+      const row = page.items.find((i) => i.id === exited.id)!;
+      expect(row.isActive).toBe(true);
+      expect(row.navDate).toBe(asOf);
+      expect(row.nav).not.toBe('0');
+      // Positions entered after the date did not exist as of it.
+      expect(page.items.every((i) => i.entryDate <= asOf)).toBe(true);
+      const later = h.dataset.investments.filter((i) => i.entryDate > asOf && i.id !== walledId());
+      expect(later.length).toBeGreaterThan(0);
+      await h
+        .http()
+        .get(`/api/v1/investments/${later[0]!.id}?asOf=${asOf}`)
+        .set('authorization', h.as('operations'))
+        .expect(404);
+      // The active filter follows the same dates.
+      const held = investmentPage.parse(
+        (
+          await h
+            .http()
+            .get(`/api/v1/investments?limit=200&asOf=${asOf}&active=true`)
+            .set('authorization', h.as('operations'))
+            .expect(200)
+        ).body,
+      );
+      expect(held.items.map((i) => i.id)).toContain(exited.id);
+    });
   });
 
   describe('data pages (M1)', () => {

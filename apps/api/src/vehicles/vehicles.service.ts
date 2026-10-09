@@ -20,7 +20,7 @@ import { loadCommitmentRows } from '../portfolio/commitments.js';
 import { loadInvestmentsWithMetrics } from '../portfolio/loaders.js';
 import { lockedNavSeries, pooledPositionMetrics, str } from '../portfolio/metrics.js';
 import { compareText, sumCalculable } from '../common/order.js';
-import { vehicleActiveInvestments, vehicleLpCommitmentTotal } from '../common/subqueries.js';
+import { vehicleLpCommitmentTotal } from '../common/subqueries.js';
 
 /** Calculation settings from config/definitions.json (docs/03 section 4); only the keys this service reads. */
 interface Definitions {
@@ -167,7 +167,6 @@ export class VehiclesService {
             currency: schema.vehicle.currency,
             closingCount: schema.vehicle.closingCount,
             finalCloseDate: schema.vehicle.finalCloseDate,
-            activeInvestments: vehicleActiveInvestments,
             lpCommitmentsTotal: vehicleLpCommitmentTotal,
           })
           .from(schema.vehicle)
@@ -192,6 +191,8 @@ export class VehiclesService {
       }
       return {
         ...vehicle,
+        // Held on the as-of date, like every figure below (the vehicle list counts today).
+        activeInvestments: positions.filter((p) => p.row.isActive).length,
         asOf,
         metrics: pooled(positions, asOf),
         positions: positions.map((p) => p.summary),

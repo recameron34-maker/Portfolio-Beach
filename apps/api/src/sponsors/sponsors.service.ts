@@ -114,7 +114,8 @@ export class SponsorsService {
         tier: sponsor.tier,
         hqGeography: sponsor.hqGeography,
         fundCount: sponsor.fundCount,
-        activeInvestments: sponsor.activeInvestments,
+        // Held on the as-of date, like every figure below (the directory counts today).
+        activeInvestments: positions.filter((p) => p.row.isActive).length,
         asOf,
         description: sponsor.description,
         funds: funds.map((r) => ({

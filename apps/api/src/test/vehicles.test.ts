@@ -391,25 +391,42 @@ describe('vehicles, commitments and clients (M17, decision 0004)', () => {
       ]);
     });
 
-    it('reports a commitment with no approved flow by the as-of date as not calculable, never zero', async () => {
-      // Before the primary program's first call: the amounts show, the flow figures do not.
-      const early = commitmentList.parse(
-        (
-          await h
-            .http()
-            .get('/api/v1/commitments?asOf=2013-12-31')
-            .set('authorization', h.as('ops.one'))
-            .expect(200)
-        ).body,
+    it('lists only commitments made by the as-of date, and one with no flow yet as not calculable', async () => {
+      const commitmentsAsOf = async (asOf: string) =>
+        commitmentList.parse(
+          (
+            await h
+              .http()
+              .get(`/api/v1/commitments?asOf=${asOf}`)
+              .set('authorization', h.as('ops.one'))
+              .expect(200)
+          ).body,
+        );
+      // Before any commitment was made there is nothing to list and nothing to total.
+      const before = await commitmentsAsOf('2013-12-31');
+      expect(before.items).toEqual([]);
+      expect(before.totals.amount).toBeNull();
+      expect(before.totals.called).toBeNull();
+      // On the day of the first commitment it is listed with its amount; its first call comes at
+      // the next quarter end, so the flow figures are not calculable, never zero.
+      const first = [...h.dataset.commitments].sort((a, b) =>
+        a.commitmentDate < b.commitmentDate ? -1 : a.commitmentDate > b.commitmentDate ? 1 : 0,
+      )[0]!;
+      const early = await commitmentsAsOf(first.commitmentDate);
+      expect(new Set(early.items.map((r) => r.id))).toEqual(
+        new Set(
+          h.dataset.commitments
+            .filter((c) => c.commitmentDate <= first.commitmentDate)
+            .map((c) => c.id),
+        ),
       );
-      expect(early.items.length).toBe(14);
       for (const r of early.items) {
         expect(r.called).toBeNull();
         expect(r.distributed).toBeNull();
         expect(r.recallable).toBeNull();
         expect(r.unfunded).toBeNull();
       }
-      expect(D(early.totals.amount!).eq('338000000')).toBe(true);
+      expect(D(early.totals.amount!).eq(first.amount)).toBe(early.items.length === 1);
       expect(early.totals.called).toBeNull();
       expect(early.totals.unfunded).toBeNull();
     });

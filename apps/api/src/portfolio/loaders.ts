@@ -1,4 +1,4 @@
-import { and, asc, eq, inArray } from 'drizzle-orm';
+import { and, asc, eq, gt, inArray, isNull, lte, or } from 'drizzle-orm';
 import type { SQL } from 'drizzle-orm';
 import type { InvestmentSummary } from '@pb/contracts';
 import { schema } from '@pb/db';
@@ -44,6 +44,29 @@ export const INVESTMENT_SELECT = {
   sponsorFundId: schema.investment.sponsorFundId,
   companyId: schema.portfolioCompany.id,
 };
+
+/*
+ * Status as of a date, from the entry and exit dates: the is_active column says only how things
+ * stand today. A position exists as of a date once entered, and is held until the day it exits.
+ */
+
+/** Entered on or before the as-of date: the positions that exist as of it. */
+export const enteredBy = (asOf: string): SQL => lte(schema.investment.entryDate, asOf);
+
+/** Held on the as-of date: entered by it and not exited by it. */
+export const heldOn = (asOf: string): SQL | undefined =>
+  and(
+    enteredBy(asOf),
+    or(isNull(schema.investment.exitDate), gt(schema.investment.exitDate, asOf)),
+  );
+
+/** Exited on or before the as-of date. */
+export const realizedBy = (asOf: string): SQL => lte(schema.investment.exitDate, asOf);
+
+/** A row whose isActive says whether it is held on the as-of date rather than today. */
+export function asOfStatus(row: InvestmentBaseRow, asOf: string): InvestmentBaseRow {
+  return { ...row, isActive: row.exitDate === null || row.exitDate > asOf };
+}
 
 /** Visible investments with their company, sponsor, fund and vehicle names, ordered by investment number. */
 export async function loadInvestmentRows(
@@ -139,7 +162,10 @@ export function summarizeInvestment(
   };
 }
 
-/** Everything the aggregate views need for a set of visible investments, loaded in three queries. */
+/**
+ * Everything the aggregate views need for the visible investments that exist as of a date, loaded
+ * in three queries, each row's isActive saying whether it is held on that date.
+ */
 export async function loadInvestmentsWithMetrics(
   tx: Tx,
   asOf: string,
@@ -152,7 +178,9 @@ export async function loadInvestmentsWithMetrics(
     valuations: ValuationRow[];
   }[]
 > {
-  const rows = await loadInvestmentRows(tx, { where });
+  const rows = (await loadInvestmentRows(tx, { where: and(enteredBy(asOf), where) })).map((r) =>
+    asOfStatus(r, asOf),
+  );
   const { flows, valuations } = await loadFlowsAndValuations(
     tx,
     rows.map((r) => r.id),

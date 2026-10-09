@@ -114,6 +114,7 @@ doc.document 1-N doc.extraction_run 1-N stg.extracted_value
 ## 4. Data definitions (single source of truth)
 Stored in `config/definitions.json`, rendered on the Data Dictionary page. Formulas and edge cases are in `docs/08`.
 - **NAV date:** period end of the latest Locked valuation.
+- **Status as of a date:** a position exists from its entry date and is held until its exit date; `is_active` records only how things stand today, so every as-of read derives status from the two dates (`apps/api/src/portfolio/loaders.ts`). Notices count from their issue date, cash flows from their flow date and commitments from their commitment date.
 - **Close date:** the closing record only.
 - **Prior Year:** the same fiscal quarter one year earlier only; otherwise the missing placeholder.
 - **Units:** money stored in dollars; AI output declares units; conversion only in `packages/calc/units.ts`.

@@ -1,15 +1,18 @@
 import { Inject, Injectable } from '@nestjs/common';
-import { asc, eq, inArray } from 'drizzle-orm';
+import { asc, inArray } from 'drizzle-orm';
 import type { Principal } from '@pb/adapters';
 import {
   CALC_VERSION,
   D,
   ZERO,
+  addDays,
   addMonths,
+  alignedQuarterEnd,
   daysBetween,
   latestPeriod,
-  valueChange,
   latestQuarterEndOnOrBefore,
+  lockedNear,
+  valueChange,
 } from '@pb/calc';
 import type { Decimal } from '@pb/calc';
 import type {
@@ -24,7 +27,7 @@ import type { Tx } from '@pb/db';
 import { configDecimal, configError, configInteger } from '../common/definitions.js';
 import { DEFINITIONS } from '../common/tokens.js';
 import { DbService } from '../db/db.service.js';
-import { loadInvestmentsWithMetrics } from '../portfolio/loaders.js';
+import { heldOn, loadInvestmentsWithMetrics } from '../portfolio/loaders.js';
 import type { InvestmentBaseRow } from '../portfolio/loaders.js';
 import {
   latestLockedValuation,
@@ -92,16 +95,6 @@ const navOf = (p: Position): Decimal | null => (p.summary.nav === null ? null : 
 /** Share of a total as a rate; null when either side is not calculable or the total is zero. */
 function navShareOf(nav: Decimal | null, total: Decimal | null): string | null {
   return nav === null || total === null || total.isZero() ? null : str(nav.div(total));
-}
-
-/** The latest Locked valuation strictly before a period end (the previous Locked mark). */
-function previousLocked(valuations: readonly ValuationRow[], before: string): ValuationRow | null {
-  let best: ValuationRow | null = null;
-  for (const v of valuations) {
-    if (v.state !== 'Locked' || v.periodEnd >= before) continue;
-    if (best === null || v.periodEnd > best.periodEnd) best = v;
-  }
-  return best;
 }
 
 /** A rate as a percentage with one decimal for messages, for example 0.225 to "22.5". */
@@ -313,7 +306,15 @@ export function evaluateFlags(
   }
 
   if (locked !== null) {
-    const previous = previousLocked(input.valuations, locked.periodEnd);
+    // The previous quarter's Locked mark, by the valuation board's rule (docs/08 section 2): with
+    // no mark for that quarter there is no markdown to measure, never a jump across quarters.
+    const previous = lockedNear(
+      input.valuations.filter((v) => v.periodEnd <= asOf),
+      latestQuarterEndOnOrBefore(
+        addDays(alignedQuarterEnd(locked.periodEnd, t.priorYearToleranceDays), -1),
+      ),
+      t.priorYearToleranceDays,
+    );
     // A markdown is measured against a positive prior mark, with the one value change rule.
     if (previous !== null && D(previous.fairValue).gt(0)) {
       const change = valueChange(locked.fairValue, previous.fairValue);
@@ -568,8 +569,10 @@ export class AnalyticsService {
           }),
           vehicleByDealType: vehicleByDealType(active, activeNav, dealTypes, dealTypeOf),
         },
+        // Every position, not only those held today: a position exited since still held its
+        // marks at the earlier quarter ends, as each vehicle's own series counts them.
         navSeries: lockedNavSeries(
-          active.map((p) => p.valuations),
+          positions.map((p) => p.valuations),
           asOf,
           { quarters, toleranceDays: tolerance },
         ),
@@ -587,11 +590,7 @@ export class AnalyticsService {
   async watchlist(principal: Principal, requestId: string, asOf: string): Promise<Watchlist> {
     const thresholds = this.thresholds();
     return this.db.run(principal, requestId, async (tx, audit) => {
-      const positions = await loadInvestmentsWithMetrics(
-        tx,
-        asOf,
-        eq(schema.investment.isActive, true),
-      );
+      const positions = await loadInvestmentsWithMetrics(tx, asOf, heldOn(asOf));
       const ids = positions.map((p) => p.row.id);
       const labels = await loadLabels(tx);
       const operating = await loadOperatingRows(tx, ids);

@@ -113,20 +113,32 @@ describe('valuation board (M10)', () => {
   });
 
   describe('board contents', () => {
-    it('shows 14 Locked marks for 2025-06-30 to a wall member and 13 to everyone else', async () => {
+    it('shows 15 Locked marks for the 2025-06-30 quarter to a wall member and 14 to everyone else', async () => {
       const member = await get('deal.three', '?periodEnd=2025-06-30&state=Locked&limit=200');
       const viewer = await get('viewer.one', '?periodEnd=2025-06-30&state=Locked&limit=200');
-      expect(member.items.length).toBe(14);
-      expect(viewer.items.length).toBe(13);
+      expect(member.items.length).toBe(15);
+      expect(viewer.items.length).toBe(14);
       expect(member.items.map((r) => r.investmentId)).toContain(walledId());
       expect(viewer.items.map((r) => r.investmentId)).not.toContain(walledId());
+      // The quarter includes the sponsor that reports on Jun 27 (period_end_shift).
+      expect(member.items.every((r) => r.quarterEnd === '2025-06-30')).toBe(true);
+      expect(member.items.map((r) => r.periodEnd)).toContain('2025-06-27');
       const total = (p: ValuationPage) => p.items.reduce((acc, r) => acc.plus(r.fairValue), D('0'));
       const expected = seeded(true)
-        .filter((v) => v.periodEnd === '2025-06-30' && v.state === 'Locked')
+        .filter(
+          (v) => alignedQuarterEnd(v.periodEnd, TOLERANCE) === '2025-06-30' && v.state === 'Locked',
+        )
         .reduce((acc, v) => acc.plus(v.fairValue), D('0'));
       expect(total(member).equals(expected)).toBe(true);
-      const numbers = member.items.map((r) => r.investmentNumber);
-      expect(numbers).toEqual([...numbers].sort());
+      // Period end descending, then investment number: the early reporter follows the quarter end.
+      const keys = member.items.map((r) => `${r.periodEnd}|${r.investmentNumber}`);
+      expect(keys).toEqual(
+        [...keys].sort((a, b) => {
+          const [pa = '', na = ''] = a.split('|');
+          const [pb = '', nb = ''] = b.split('|');
+          return pa !== pb ? (pa < pb ? 1 : -1) : na < nb ? -1 : na > nb ? 1 : 0;
+        }),
+      );
     });
 
     it('lists the restated quarter as version 2 Locked above version 1 Reopened', async () => {

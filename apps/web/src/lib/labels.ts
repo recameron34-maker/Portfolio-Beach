@@ -39,6 +39,7 @@ const IRR_FLAG_REASONS: Record<string, string> = {
   same_sign: 'the cash flows have the same sign',
   insufficient_flows: 'too few cash flows',
   no_convergence: 'the calculation did not converge',
+  no_valuation: 'a position still held has no Locked valuation',
 };
 
 export function irrFlagHint(flag: string | null): string | undefined {

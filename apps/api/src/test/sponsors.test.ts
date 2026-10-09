@@ -318,20 +318,22 @@ describe('sponsor 360 (M6): GET /api/v1/sponsors/{id}', () => {
 
   it('respects the as-of date for metrics and commitment flows', async () => {
     const kelpwood = sponsorNamed('Kelpwood Capital Partners');
-    // Before the primary program's first call (2014 vintage) and before every Kelpwood entry date.
+    // Before every Kelpwood entry date and before the program committed to its funds.
     const early = await detailFor('viewer.one', kelpwood.id, 'req-sponsor-early', '2013-12-31');
     // The response names the date it was calculated as of, like the vehicle detail.
     expect(early.asOf).toBe('2013-12-31');
-    expect(early.positions.length).toBe(7);
-    expect(early.positions.every((p) => p.invested === null && p.nav === null)).toBe(true);
+    // As of then we held nothing with the sponsor: no position, no commitment, every figure null.
+    expect(early.positions).toEqual([]);
+    expect(early.activeInvestments).toBe(0);
+    expect(early.metrics.count).toBe(0);
     expect(early.metrics.invested).toBeNull();
     expect(early.metrics.nav).toBeNull();
     expect(early.metrics.grossIrr).toBeNull();
     expect(early.metrics.irrFlag).toBe('insufficient_flows');
-    // Nothing called yet: not calculable rather than zero; the commitment amounts still show.
-    expect(early.commitments.length).toBe(2);
-    expect(early.commitments.every((c) => c.called === null && c.unfunded === null)).toBe(true);
-    expect(early.totalCommitted).toBe('47000000');
+    expect(early.commitments).toEqual([]);
+    expect(early.totalCommitted).toBeNull();
+    // The funds themselves are on record whatever the date.
+    expect(early.funds.length).toBe(fundsOf(kelpwood.id).length);
     // At the as-of date the same commitments carry calls.
     const now = await detailFor('viewer.one', kelpwood.id, 'req-sponsor-now');
     expect(now.commitments.every((c) => c.called !== null)).toBe(true);

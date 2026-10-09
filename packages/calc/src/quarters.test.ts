@@ -95,13 +95,24 @@ const mark = (periodEnd: string, fairValue: string, state = 'Locked') => ({
 });
 
 describe('lockedNear: the Locked mark that counts for a quarter end', () => {
-  it('takes the latest Locked mark up to the tolerance before the target, never after it', () => {
-    const marks = [mark('2025-03-24', '1'), mark('2025-03-28', '2'), mark('2025-04-01', '3')];
+  it('takes the latest Locked mark that reports for the quarter, early or late', () => {
+    const marks = [mark('2025-03-24', '1'), mark('2025-03-28', '2')];
     expect(lockedNear(marks, '2025-03-31', 7)?.fairValue).toBe('2');
-    // Exactly the tolerance away still counts; one day more does not.
+    // A sponsor closing a few days late reports for the same quarter, as alignedQuarterEnd says.
+    expect(lockedNear([...marks, mark('2025-04-03', '3')], '2025-03-31', 7)?.fairValue).toBe('3');
+    // Exactly the tolerance away on either side still counts; one day more does not.
     expect(lockedNear([mark('2025-03-24', '1')], '2025-03-31', 7)?.fairValue).toBe('1');
+    expect(lockedNear([mark('2025-04-07', '1')], '2025-03-31', 7)?.fairValue).toBe('1');
     expect(lockedNear([mark('2025-03-23', '1')], '2025-03-31', 7)).toBeNull();
-    expect(lockedNear([mark('2025-04-01', '3')], '2025-03-31', 7)).toBeNull();
+    expect(lockedNear([mark('2025-04-08', '1')], '2025-03-31', 7)).toBeNull();
+  });
+
+  it('agrees with alignedQuarterEnd on every date around a quarter end', () => {
+    for (let offset = -20; offset <= 20; offset += 1) {
+      const periodEnd = addDays('2025-06-30', offset);
+      const counted = lockedNear([mark(periodEnd, '1')], '2025-06-30', 7) !== null;
+      expect(counted, periodEnd).toBe(alignedQuarterEnd(periodEnd, 7) === '2025-06-30');
+    }
   });
 
   it('ignores every state but Locked and keeps the first of equal period ends', () => {

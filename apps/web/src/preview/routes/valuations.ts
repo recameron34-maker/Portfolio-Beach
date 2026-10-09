@@ -75,6 +75,9 @@ export function lockHashOf(row: ValuationRow): Promise<string> {
 
 type VersionEntry = InvestmentDetail['valuations'][number];
 
+/** States a version is still being worked on in (docs/18 section 1). */
+const IN_FLIGHT: ReadonlySet<string> = new Set(['Draft', 'OpsPrepared', 'DealTeamApproved']);
+
 /** A Locked version with no Reopened version after it: the period is closed to new drafts. */
 function closedByLock(versions: readonly VersionEntry[]): boolean {
   return versions.some(
@@ -129,19 +132,39 @@ export const createValuationRoute = defineSimRoute({
       });
     const versions = overlayInvestmentDetail(detail, sims.values()).valuations;
     const { periodEnd, method, fairValue } = req.body;
-    if (closedByLock(versions.filter((v) => v.periodEnd === periodEnd)))
+    if (periodEnd < detail.entryDate)
+      return problem(
+        422,
+        'workflow-precondition',
+        'valuation: the investment was not yet held at this period end',
+        { instance, simulated: true },
+      );
+    // One version chain per quarter: a sponsor reporting a few days early or late is the same
+    // quarter (alignedQuarterEnd), so its versions block a second chain at the quarter end.
+    const quarterEnd = alignedQuarterEnd(periodEnd, TOLERANCE_DAYS);
+    const sameQuarter = versions.filter(
+      (v) => alignedQuarterEnd(v.periodEnd, TOLERANCE_DAYS) === quarterEnd,
+    );
+    if (closedByLock(sameQuarter))
       return problem(
         409,
         'conflict',
-        'valuation: a Locked version exists for this investment and period; reopen it to start a new version',
+        'valuation: a Locked version exists for this investment and quarter; reopen it to start a new version',
         { instance, simulated: true },
       );
-    // The API's rule (packages/calc): the Locked mark at the previous quarter end, or up to the
-    // tolerance before it; the highest version first so the latest version wins.
+    if (sameQuarter.some((v) => IN_FLIGHT.has(v.state)))
+      return problem(
+        409,
+        'conflict',
+        'valuation: a version for this investment and quarter is already in progress; continue that version',
+        { instance, simulated: true },
+      );
+    // The API's rule (packages/calc): the Locked mark that reports for the quarter before this
+    // one; the highest version first so the latest version wins.
     const prior =
       lockedNear(
         [...versions].sort((a, b) => b.version - a.version),
-        latestQuarterEndOnOrBefore(addDays(periodEnd, -1)),
+        latestQuarterEndOnOrBefore(addDays(quarterEnd, -1)),
         TOLERANCE_DAYS,
       ) ?? undefined;
     const row: ValuationRow = {
@@ -153,7 +176,7 @@ export const createValuationRoute = defineSimRoute({
       vehicleName: detail.vehicleName,
       dealType: detail.dealType,
       periodEnd,
-      quarterEnd: alignedQuarterEnd(periodEnd, TOLERANCE_DAYS),
+      quarterEnd,
       version: nextVersion(versions, sims.values(), detail.id, periodEnd),
       method,
       fairValue,

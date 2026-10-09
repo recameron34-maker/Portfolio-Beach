@@ -135,6 +135,7 @@ export const investmentSummary = z.object({
   navDate: isoDate.nullable(),
   grossMoic: decimalString.nullable(),
   grossIrr: decimalString.nullable(),
+  /** Why grossIrr is missing or not meaningful; no_valuation: something still held has no Locked mark. */
   irrFlag: z
     .enum([
       'short_period',
@@ -143,6 +144,7 @@ export const investmentSummary = z.object({
       'same_sign',
       'insufficient_flows',
       'no_convergence',
+      'no_valuation',
     ])
     .nullable(),
   calcVersion: z.string(),
@@ -503,6 +505,10 @@ export const valuationState = z.enum([
 export type ValuationState = z.infer<typeof valuationState>;
 
 export const valuationListQuery = pageQuery.extend({
+  /**
+   * A quarter end selects every version that reports for that quarter (quarterEnd), including a
+   * sponsor reporting a few days either side of it; any other date matches that period end exactly.
+   */
   periodEnd: isoDate.optional(),
   state: valuationState.optional(),
   investmentId: uuid.optional(),

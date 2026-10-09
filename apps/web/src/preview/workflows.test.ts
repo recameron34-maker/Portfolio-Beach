@@ -385,10 +385,9 @@ describe('creating a Draft valuation', () => {
         to: 'Draft',
       }),
     ]);
-    const again = valuationRow.parse(
-      (await send(f, USERS.ops.externalId, 'POST', '/api/v1/valuations', createBody())).json,
-    );
-    expect(again.version).toBe(2);
+    // A new version comes only from a reopen (docs/18 section 1): never a parallel chain.
+    const again = await send(f, USERS.ops.externalId, 'POST', '/api/v1/valuations', createBody());
+    expect(again.status).toBe(409);
   });
 
   it('files a draft dated a few days early under its quarter, as the API does', async () => {
@@ -496,6 +495,31 @@ describe('creating a Draft valuation', () => {
     );
     expect(locked.status).toBe(409);
     expect(problemOf(locked).code).toBe('conflict');
+  });
+
+  it('keeps one version chain per quarter and never values a quarter before entry', async () => {
+    const { f } = setup();
+    const create = (overrides: Record<string, unknown>) =>
+      send(f, USERS.ops.externalId, 'POST', '/api/v1/valuations', createBody(overrides));
+    // A period a few days after the quarter end reports for the quarter a Locked version closes.
+    const late = await create({ investmentId: IDS.lockedPeriod, periodEnd: '2025-07-03' });
+    expect(late.status).toBe(409);
+    expect(problemOf(late).detail).toBe(
+      'valuation: a Locked version exists for this investment and quarter; reopen it to start a new version',
+    );
+    // Beside a Draft in progress for the quarter, a second chain dated a few days early is refused.
+    expect((await create({})).status).toBe(201);
+    const second = await create({ periodEnd: '2025-06-27' });
+    expect(second.status).toBe(409);
+    expect(problemOf(second).detail).toBe(
+      'valuation: a version for this investment and quarter is already in progress; continue that version',
+    );
+    const early = await create({ periodEnd: '2022-12-31' });
+    expect(early.status).toBe(422);
+    expect(problemOf(early)).toEqual({
+      code: 'workflow-precondition',
+      detail: 'valuation: the investment was not yet held at this period end',
+    });
   });
 
   it('rejects an invalid body with paths only, never echoing what was sent', async () => {

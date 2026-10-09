@@ -211,16 +211,15 @@ describe('analytics summary (M12, M13) and monitoring watchlist (M9)', () => {
         expect(point.value).not.toBeNull();
       }
       expect(s.navSeries.length).toBe(8);
-      // Point by point, the Locked marks of the visible active positions summed by calendar quarter.
+      // Point by point, the Locked marks of every visible position summed by calendar quarter: a
+      // position exited since still held its marks at the earlier quarter ends.
       const definitions = h.runtime.definitions as {
         priorYearPeriodEndToleranceDays: number;
         analytics: { navSeriesQuarters: number };
       };
       const expected = expectedNavSeries(
         h.dataset,
-        new Set(
-          h.dataset.investments.filter((i) => i.isActive && !walled().has(i.id)).map((i) => i.id),
-        ),
+        new Set(h.dataset.investments.filter((i) => !walled().has(i.id)).map((i) => i.id)),
         definitions.analytics.navSeriesQuarters,
         definitions.priorYearPeriodEndToleranceDays,
       );
@@ -506,5 +505,31 @@ describe('the markdown flag measures the change with the one value change rule',
     expect(flagsFor('1000.00', '800.00')).toEqual([]);
     expect(flagsFor('1000.00', '1200.00')).toEqual([]);
     expect(flagsFor('0', '500.00')).toEqual([]);
+  });
+
+  const markdownsFor = (valuations: ValuationRow[]) =>
+    evaluateFlags(
+      { valuations, operating: [], credit: null },
+      '2025-06-30',
+      thresholds,
+      new Map(),
+    ).filter((f) => f.code === 'markdown');
+
+  it('measures only against the previous quarter, never across a quarter with no Locked mark', () => {
+    // The roll_forward_break shape: no Locked mark for Mar 31, so there is no markdown to measure.
+    expect(
+      markdownsFor([lockedMark('2024-12-31', '1000.00'), lockedMark('2025-06-30', '700.00')]),
+    ).toEqual([]);
+  });
+
+  it('takes a previous quarter mark reported a few days late, as the valuation board does', () => {
+    const [flag] = markdownsFor([
+      lockedMark('2024-12-31', '5000.00'),
+      lockedMark('2025-04-03', '1000.00'),
+      lockedMark('2025-06-30', '700.00'),
+    ]);
+    expect(flag?.message).toBe(
+      'Locked fair value for 2025-06-30 is 30.0% below 2025-04-03 (limit 20.0%)',
+    );
   });
 });

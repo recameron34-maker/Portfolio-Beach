@@ -1,5 +1,5 @@
 import { Inject, Injectable } from '@nestjs/common';
-import { and, eq, gte, inArray, lte, ne, or } from 'drizzle-orm';
+import { and, gte, inArray, lte, ne, or } from 'drizzle-orm';
 import type { Principal } from '@pb/adapters';
 import {
   CALC_VERSION,
@@ -19,7 +19,7 @@ import { fmtDate } from '../common/dates.js';
 import { configInteger, configString } from '../common/definitions.js';
 import { DEFINITIONS } from '../common/tokens.js';
 import { DbService } from '../db/db.service.js';
-import { loadInvestmentsWithMetrics } from '../portfolio/loaders.js';
+import { heldOn, loadInvestmentsWithMetrics } from '../portfolio/loaders.js';
 import { latestLockedValuation, pooledPositionMetrics, str } from '../portfolio/metrics.js';
 import { compareDecimalDesc, compareText } from '../common/order.js';
 
@@ -48,6 +48,7 @@ const IRR_FLAG_LABEL: Record<NonNullable<PooledMetrics['irrFlag']>, string> = {
   same_sign: 'cash flows of one sign only',
   insufficient_flows: 'too few cash flows',
   no_convergence: 'IRR did not converge',
+  no_valuation: 'a position still held has no Locked valuation',
 };
 
 /* ---- Display helpers for the template commentary (docs/06 section 3) ---- */
@@ -121,18 +122,21 @@ export class ReportsService {
     const priorPeriodEnd = latestQuarterEndOnOrBefore(addDays(periodEnd, -1));
 
     return this.db.run(principal, requestId, async (tx) => {
-      const positions = await loadInvestmentsWithMetrics(
-        tx,
-        asOf,
-        eq(schema.investment.isActive, true),
-      );
+      const positions = await loadInvestmentsWithMetrics(tx, asOf, heldOn(asOf));
       const asInputs = (set: readonly Position[]): Parameters<typeof pooledPositionMetrics>[0] =>
         set.map((p) => ({ flows: p.flows, valuations: p.valuations, isActive: p.row.isActive }));
       const pooled = pooledPositionMetrics(asInputs(positions), asOf);
       const summary = { ...pooled, activeInvestments: positions.length };
 
       const byVehicle = await this.vehicleRows(tx, positions, asOf, asInputs);
-      const movers = this.movers(positions, periodEnd, priorPeriodEnd, tolerance, moversCount);
+      const movers = this.movers(
+        positions,
+        asOf,
+        periodEnd,
+        priorPeriodEnd,
+        tolerance,
+        moversCount,
+      );
       const staleValuations = this.stale(
         positions,
         asOf,
@@ -241,6 +245,7 @@ export class ReportsService {
    */
   private movers(
     positions: readonly Position[],
+    asOf: string,
     periodEnd: string,
     priorPeriodEnd: string,
     tolerance: number,
@@ -248,8 +253,10 @@ export class ReportsService {
   ): Mover[] {
     const ranked: { mover: Mover; size: Decimal }[] = [];
     for (const p of positions) {
-      const current = lockedNear(p.valuations, periodEnd, tolerance);
-      const prior = lockedNear(p.valuations, priorPeriodEnd, tolerance);
+      // A mark that reports for the quarter but is dated after the as-of date is not known yet.
+      const known = p.valuations.filter((v) => v.periodEnd <= asOf);
+      const current = lockedNear(known, periodEnd, tolerance);
+      const prior = lockedNear(known, priorPeriodEnd, tolerance);
       if (current === null || prior === null) continue;
       // Not calculable against a zero prior mark: that position is not a mover.
       const change = valueChange(current.fairValue, prior.fairValue);

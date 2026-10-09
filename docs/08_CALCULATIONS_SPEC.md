@@ -13,11 +13,12 @@ All financial math lives in `packages/calc` (TypeScript) and is cross-checked by
 |---|---|---|
 | Paid-in (PI) | sum of contributions (absolute) | no contributions |
 | DPI | distributions / PI | PI = 0 |
-| RVPI | NAV / PI | PI = 0 |
-| TVPI | (distributions + NAV) / PI | PI = 0 |
-| MOIC (gross, deal level) | (realized proceeds + unrealized value) / invested capital | invested = 0 |
+| RVPI | NAV / PI | PI = 0, or NAV not calculable |
+| TVPI | (distributions + NAV) / PI | PI = 0, or NAV not calculable |
+| MOIC (gross, deal level) | (realized proceeds + unrealized value) / invested capital | invested = 0, or NAV not calculable |
 | Unfunded | commitment - contributions + recallable distributions | commitment missing |
 | Holding period (years) | (exit or as-of date - first contribution date) / 365 | no contribution |
+| NAV (a set of positions) | sum of each held position's latest Locked mark; realized positions hold 0 | any held position has no Locked mark on or before the as-of date (never counted as 0) |
 | Value change (`valueChange`) | (current value - prior value) / prior value, such as a Locked fair value against the previous quarter end's (valuation board, weekly report movers, watchlist markdown) | either value missing, or prior = 0 |
 
 ## 3. IRR (XIRR)
@@ -26,6 +27,7 @@ All financial math lives in `packages/calc` (TypeScript) and is cross-checked by
 - Return `null` when: fewer than 2 flows; all flows the same sign; no sign change that yields a root; or multiple roots detected (more than one sign change and NPV sign test finds several brackets). In the multiple-root case, return `{value: null, reason: "multiple_irr"}`.
 - Periods under 1 year: report IRR but flag `short_period: true` so the UI can show "NM" per config (`irr.minHoldYearsForDisplay`).
 - Gross vs. net is a label on inputs, not a different algorithm.
+- No IRR while the NAV that ends the flows is not calculable (flag `no_valuation`): flows without their terminal value would give an invented rate.
 
 ## 4. Operating metrics
 | Metric | Formula | Null when |

@@ -95,7 +95,7 @@ export async function loadCommitmentRows(
     .innerJoin(schema.sponsorFund, eq(schema.sponsorFund.id, c.sponsorFundId))
     .innerJoin(schema.sponsor, eq(schema.sponsor.id, schema.sponsorFund.sponsorId))
     .leftJoin(schema.client, eq(schema.client.id, c.clientId))
-    .where(where);
+    .where(and(lte(c.commitmentDate, asOf), where));
   const flows = await loadCommitmentFlows(
     tx,
     rows.map((r) => r.id),

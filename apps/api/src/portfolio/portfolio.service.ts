@@ -1,5 +1,6 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { and, asc, desc, eq, gt } from 'drizzle-orm';
+import type { SQL } from 'drizzle-orm';
 import type { Principal } from '@pb/adapters';
 import type { InvestmentDetail, InvestmentPage } from '@pb/contracts';
 import { schema } from '@pb/db';
@@ -8,7 +9,15 @@ import { configInteger } from '../common/definitions.js';
 import { DEFINITIONS } from '../common/tokens.js';
 import { ProblemError } from '../common/problem.js';
 import { DbService } from '../db/db.service.js';
-import { loadFlowsAndValuations, loadInvestmentRows, summarizeInvestment } from './loaders.js';
+import {
+  asOfStatus,
+  enteredBy,
+  heldOn,
+  loadFlowsAndValuations,
+  loadInvestmentRows,
+  realizedBy,
+  summarizeInvestment,
+} from './loaders.js';
 import { creditView, operatingView } from './metrics.js';
 import {
   sponsorActiveInvestments,
@@ -46,7 +55,7 @@ export class PortfolioService {
 
   async list(principal: Principal, requestId: string, opts: ListOptions): Promise<InvestmentPage> {
     return this.db.run(principal, requestId, async (tx) => {
-      const conditions = [];
+      const conditions: (SQL | undefined)[] = [enteredBy(opts.asOf)];
       if (opts.cursor !== undefined) {
         const [after = ''] = decodeCursor(opts.cursor, INVESTMENT_CURSOR);
         conditions.push(gt(schema.investment.investmentNumber, after));
@@ -56,9 +65,9 @@ export class PortfolioService {
       if (opts.dealType !== undefined)
         conditions.push(eq(schema.investment.dealType, opts.dealType));
       if (opts.active !== undefined)
-        conditions.push(eq(schema.investment.isActive, opts.active === 'true'));
+        conditions.push(opts.active === 'true' ? heldOn(opts.asOf) : realizedBy(opts.asOf));
       const rows = await loadInvestmentRows(tx, {
-        where: conditions.length > 0 ? and(...conditions) : undefined,
+        where: and(...conditions),
         limit: opts.limit + 1,
       });
       const page = rows.slice(0, opts.limit);
@@ -67,7 +76,12 @@ export class PortfolioService {
         page.map((r) => r.id),
       );
       const items = page.map((r) =>
-        summarizeInvestment(r, flows.get(r.id) ?? [], valuations.get(r.id) ?? [], opts.asOf),
+        summarizeInvestment(
+          asOfStatus(r, opts.asOf),
+          flows.get(r.id) ?? [],
+          valuations.get(r.id) ?? [],
+          opts.asOf,
+        ),
       );
       const last = page[page.length - 1];
       return {
@@ -97,9 +111,14 @@ export class PortfolioService {
       'priorYearPeriodEndToleranceDays',
     );
     return this.db.run(principal, requestId, async (tx, audit) => {
-      const rows = await loadInvestmentRows(tx, { where: eq(schema.investment.id, id), limit: 1 });
-      const row = rows[0];
-      if (row === undefined) throw new ProblemError(404, 'not-found', 'Investment not found');
+      // Not found before its entry date as well: as of then, the position did not exist.
+      const rows = await loadInvestmentRows(tx, {
+        where: and(eq(schema.investment.id, id), enteredBy(asOf)),
+        limit: 1,
+      });
+      const found = rows[0];
+      if (found === undefined) throw new ProblemError(404, 'not-found', 'Investment not found');
+      const row = asOfStatus(found, asOf);
       const description = (
         await tx
           .select({ description: schema.portfolioCompany.description })

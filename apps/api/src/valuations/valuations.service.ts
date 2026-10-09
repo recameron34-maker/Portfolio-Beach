@@ -1,5 +1,5 @@
 import { Inject, Injectable } from '@nestjs/common';
-import { and, asc, desc, eq, gt, inArray, lt, lte, or } from 'drizzle-orm';
+import { and, asc, desc, eq, gt, gte, inArray, lt, lte, or } from 'drizzle-orm';
 import type { SQL } from 'drizzle-orm';
 import { alias } from 'drizzle-orm/pg-core';
 import type { Principal } from '@pb/adapters';
@@ -81,7 +81,18 @@ export class ValuationsService {
         ),
       );
     }
-    if (opts.periodEnd !== undefined) conditions.push(eq(valuation.periodEnd, opts.periodEnd));
+    if (opts.periodEnd !== undefined) {
+      // A quarter end means the quarter: every period end that alignedQuarterEnd folds into it.
+      const quarter = latestQuarterEndOnOrBefore(opts.periodEnd) === opts.periodEnd;
+      conditions.push(
+        quarter
+          ? and(
+              gte(valuation.periodEnd, addDays(opts.periodEnd, -tolerance)),
+              lte(valuation.periodEnd, addDays(opts.periodEnd, tolerance)),
+            )
+          : eq(valuation.periodEnd, opts.periodEnd),
+      );
+    }
     if (opts.state !== undefined) conditions.push(eq(valuation.state, opts.state));
     if (opts.investmentId !== undefined)
       conditions.push(eq(valuation.investmentId, opts.investmentId));
@@ -158,8 +169,10 @@ export class ValuationsService {
       const last = page[page.length - 1];
       return {
         items: page.map(({ approvedAt, ...r }) => {
-          // The previous calendar quarter end; a sponsor reporting a few days early still counts.
-          const previousQuarterEnd = latestQuarterEndOnOrBefore(addDays(r.periodEnd, -1));
+          // The quarter before the one this version reports for; a sponsor reporting a few days
+          // early or late counts for its quarter on both sides.
+          const quarterEnd = alignedQuarterEnd(r.periodEnd, tolerance);
+          const previousQuarterEnd = latestQuarterEndOnOrBefore(addDays(quarterEnd, -1));
           const prior = lockedNear(
             lockedByInvestment.get(r.investmentId) ?? [],
             previousQuarterEnd,
@@ -174,7 +187,7 @@ export class ValuationsService {
             vehicleName: r.vehicleName,
             dealType: r.dealType,
             periodEnd: r.periodEnd,
-            quarterEnd: alignedQuarterEnd(r.periodEnd, tolerance),
+            quarterEnd,
             version: r.version,
             state: r.state,
             method: r.method,
