@@ -1,4 +1,4 @@
-import { D, addDays, addMonths, compareIso } from '@pb/calc';
+import { D, addDays, addMonths, compareIso, containingQuarterEnd, nextQuarterEnd } from '@pb/calc';
 import type { SyntheticDataset } from '@pb/db';
 import { NameFactory, canonical } from './names.js';
 import { Rng } from './prng.js';
@@ -37,22 +37,6 @@ const TIERS = [
 ];
 
 /** Last day of the calendar quarter containing the date. */
-function quarterEnd(iso: string): string {
-  const [y, m] = iso.split('-').map(Number) as [number, number, number];
-  const qEndMonth = Math.ceil(m / 3) * 3;
-  const lastDay = new Map([
-    [3, 31],
-    [6, 30],
-    [9, 30],
-    [12, 31],
-  ]).get(qEndMonth);
-  return `${y}-${String(qEndMonth).padStart(2, '0')}-${String(lastDay)}`;
-}
-
-function nextQuarterEnd(iso: string): string {
-  return quarterEnd(addMonths(iso, 3));
-}
-
 function fixed(value: number): string {
   return (Math.round(value * 100) / 100).toFixed(2);
 }
@@ -94,6 +78,8 @@ export function generateDataset(options: GenerateOptions = {}): SyntheticDataset
   const seed = options.seed ?? 42;
   const asOf = options.asOf ?? '2025-06-30';
   const rng = new Rng(seed);
+  // Ids for the cost marks below come from their own stream, so adding them moved no other value.
+  const costMarkIds = new Rng(seed ^ 0x2545f491);
   const names = new NameFactory(rng);
   const scenarioLog: Record<string, string[]> = {};
   const tag = (scenario: string, id: string): void => {
@@ -392,7 +378,7 @@ export function generateDataset(options: GenerateOptions = {}): SyntheticDataset
   const realizationOutlooks: SyntheticDataset['realizationOutlooks'] = [];
   // Outlooks were set at the last quarterly review before the as-of date, at noon UTC: a timestamp
   // derived from the dataset's own dates, never the wall clock, so every build is byte-identical.
-  const outlookSetAt = `${quarterEnd(addMonths(asOf, -3))}T12:00:00Z`;
+  const outlookSetAt = `${containingQuarterEnd(addMonths(asOf, -3))}T12:00:00Z`;
   const total = profile.activeInvestments + profile.realizedInvestments;
 
   const vehicleFor = (dealType: string, entryYear: number): string => {
@@ -422,8 +408,9 @@ export function generateDataset(options: GenerateOptions = {}): SyntheticDataset
     fairValue: string,
     method: string,
     version = 1,
+    ids: Rng = rng,
   ): string => {
-    const id = rng.uuid();
+    const id = ids.uuid();
     valuations.push({
       id,
       investmentId,
@@ -510,12 +497,22 @@ export function generateDataset(options: GenerateOptions = {}): SyntheticDataset
       sourceNoticeId: callId,
     });
 
-    const lastPeriod = realized ? quarterEnd(inv.exitDate ?? asOf) : asOf;
+    const lastPeriod = realized ? containingQuarterEnd(inv.exitDate ?? asOf) : asOf;
     const firstPeriod = nextQuarterEnd(entryDate);
     const periods: string[] = [];
     for (let p = firstPeriod; compareIso(p, lastPeriod) <= 0; p = nextQuarterEnd(p))
       periods.push(p);
     const keep = periods.slice(-profile.quartersPerInvestment);
+    // A deal is carried at cost until its sponsor's first mark, which comes a full quarter after
+    // entry here, so the quarter end it entered in gets a Locked mark at cost (valuation_method.cost)
+    // and every quarter end it is held at has a mark. A position whose early history is not kept
+    // gets none.
+    if (keep[0] === firstPeriod) {
+      const entryQuarter = containingQuarterEnd(entryDate);
+      const heldThen = inv.exitDate === null || compareIso(inv.exitDate, entryQuarter) > 0;
+      if (heldThen && compareIso(entryQuarter, asOf) <= 0)
+        lockValuation(inv.id, entryQuarter, fixed(cost), 'valuation_method.cost', 1, costMarkIds);
+    }
 
     if (isCredit) {
       const spread = rng.decimal(0.045, 0.075, 4);
@@ -648,7 +645,7 @@ export function generateDataset(options: GenerateOptions = {}): SyntheticDataset
     quarterlyPerformance.push({
       id: rng.uuid(),
       investmentId: inv.id,
-      periodEnd: quarterEnd(addMonths(entryDate, -3)),
+      periodEnd: containingQuarterEnd(addMonths(entryDate, -3)),
       revenueLtm: fixed(entryRevenue),
       ebitdaLtm: fixed(entryEbitda),
       ev: fixed(entryEv),
@@ -934,7 +931,7 @@ export function generateDataset(options: GenerateOptions = {}): SyntheticDataset
   // roll_forward_break: the quarter before the latest has no valuation at all (missing starting NAV).
   {
     const inv = pickFresh(activeEquity, 'roll_forward_break');
-    const prior = quarterEnd(addMonths(asOf, -3));
+    const prior = containingQuarterEnd(addMonths(asOf, -3));
     const idx = valuations.findIndex((v) => v.investmentId === inv.id && v.periodEnd === prior);
     if (idx >= 0) valuations.splice(idx, 1);
   }
@@ -1041,7 +1038,7 @@ export function generateDataset(options: GenerateOptions = {}): SyntheticDataset
   {
     const c = commitments.find((x) => x.vehicleId === primary.id) ?? commitments[0];
     if (c) {
-      const d = quarterEnd(addMonths(asOf, -6));
+      const d = containingQuarterEnd(addMonths(asOf, -6));
       const eq1 = addNotice({
         noticeType: 'notice_type.capital_call',
         vehicleId: coIII.id,

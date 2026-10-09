@@ -2,7 +2,7 @@ import { useState } from 'react';
 import type { KeyboardEvent, PointerEvent, ReactNode } from 'react';
 import { ChartFigure } from './ChartFigure.js';
 import type { TooltipState } from './ChartFigure.js';
-import { compactValue, linearScale, niceTicks, seriesColor } from './scale.js';
+import { compactValue, knownRuns, linearScale, niceTicks, seriesColor } from './scale.js';
 import type { ValueKind } from './scale.js';
 import { useWidth } from './useWidth.js';
 
@@ -16,7 +16,8 @@ const PAD = { top: 12, right: 96, bottom: 28, left: 56 };
 /**
  * Trend over time for one or more series: 2px lines, end markers with a surface ring, a wash
  * under a single series, a crosshair tooltip that lists every series at the nearest x, keyboard
- * navigation with the arrow keys, direct end labels for up to four series and the table twin.
+ * navigation with the arrow keys, direct end labels for up to four series and the table twin. A
+ * null value is a gap: the line stops before it and starts again after it.
  */
 export function LineChart({
   title,
@@ -182,41 +183,46 @@ export function LineChart({
             ) : null,
           )}
           {series.map((s, si) => {
-            const points = s.values
-              .map((v, i) => (v === null ? null : `${xAt(i)} ${yAt(v)}`))
-              .filter((p): p is string => p !== null);
-            const d = points.length === 0 ? '' : `M${points.join('L')}`;
             const color = seriesColor(si + 1);
-            const firstIdx = s.values.findIndex((v) => v !== null);
-            let lastIdx = -1;
-            for (let j = s.values.length - 1; j >= 0; j--) {
-              if (s.values[j] !== null) {
-                lastIdx = j;
-                break;
-              }
-            }
-            const lastValue = lastIdx >= 0 ? s.values[lastIdx] : null;
+            const base = yAt(Math.max(lo, 0));
+            const runs = knownRuns(s.values);
+            const lastRun = runs[runs.length - 1];
+            const end = lastRun?.[lastRun.length - 1];
             return (
               <g key={s.name}>
-                {series.length === 1 && points.length > 1 && firstIdx >= 0 ? (
-                  <path
-                    d={`${d}L${xAt(lastIdx)} ${yAt(Math.max(lo, 0))}L${xAt(firstIdx)} ${yAt(Math.max(lo, 0))}Z`}
-                    fill={color}
-                    opacity={0.1}
-                  />
-                ) : null}
-                <path
-                  d={d}
-                  fill="none"
-                  stroke={color}
-                  strokeWidth={2}
-                  strokeLinejoin="round"
-                  strokeLinecap="round"
-                />
-                {lastValue !== null && lastValue !== undefined ? (
+                {runs.map((run) => {
+                  const first = run[0];
+                  const last = run[run.length - 1];
+                  if (first === undefined || last === undefined) return null;
+                  const d = `M${run.map((p) => `${xAt(p.i)} ${yAt(p.v)}`).join('L')}`;
+                  return (
+                    <g key={first.i}>
+                      {series.length === 1 && run.length > 1 ? (
+                        <path
+                          d={`${d}L${xAt(last.i)} ${base}L${xAt(first.i)} ${base}Z`}
+                          fill={color}
+                          opacity={0.1}
+                        />
+                      ) : null}
+                      {run.length > 1 ? (
+                        <path
+                          d={d}
+                          fill="none"
+                          stroke={color}
+                          strokeWidth={2}
+                          strokeLinejoin="round"
+                          strokeLinecap="round"
+                        />
+                      ) : (
+                        <circle cx={xAt(first.i)} cy={yAt(first.v)} r={2.5} fill={color} />
+                      )}
+                    </g>
+                  );
+                })}
+                {end !== undefined ? (
                   <circle
-                    cx={xAt(lastIdx)}
-                    cy={yAt(lastValue)}
+                    cx={xAt(end.i)}
+                    cy={yAt(end.v)}
                     r={4}
                     fill={color}
                     stroke="var(--pb-bg)"

@@ -343,7 +343,12 @@ export const analyticsSummary = z.object({
      */
     vehicleByDealType: z.array(vehicleDealTypeRow),
   }),
-  /** Sum of Locked fair values per quarter end over visible positions, oldest first. */
+  /**
+   * NAV at each calendar quarter end, oldest first, the latest `analytics.navSeriesQuarters`
+   * points: every visible position held then at its latest Locked mark for that quarter or an
+   * earlier one. Null for a quarter end at which a held position has no Locked mark yet (docs/08
+   * section 2), never a partial sum.
+   */
   navSeries: z.array(seriesPoint),
   /** Investment-level cash flows grouped by calendar year, oldest first. */
   flowsByYear: z.array(flowSeriesPoint),
@@ -418,6 +423,7 @@ export const vehicleDetail = vehicleSummary.extend({
   fundCommitments: z.array(fundCommitmentRow),
   /** Null when the caller is not entitled to client data (never an empty list in that case). */
   lpCommitments: z.array(lpCommitmentRow).nullable(),
+  /** The analytics NAV series rule over this vehicle's positions (docs/08 section 2). */
   navSeries: z.array(seriesPoint),
   calcVersion: z.string(),
 });

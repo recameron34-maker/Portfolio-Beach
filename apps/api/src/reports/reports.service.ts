@@ -3,7 +3,6 @@ import { and, gte, inArray, lte, ne, or } from 'drizzle-orm';
 import type { Principal } from '@pb/adapters';
 import {
   CALC_VERSION,
-  D,
   addDays,
   daysBetween,
   valueChange,
@@ -22,6 +21,7 @@ import { DbService } from '../db/db.service.js';
 import { heldOn, loadInvestmentsWithMetrics } from '../portfolio/loaders.js';
 import { latestLockedValuation, pooledPositionMetrics, str } from '../portfolio/metrics.js';
 import { compareDecimalDesc, compareText } from '../common/order.js';
+import { fmtMoneyM, fmtMoic, fmtPct, fmtSignedPct, plural, joinList } from '../common/format.js';
 
 /** Calculation and reporting settings from config/definitions.json; only the keys this service reads. */
 interface Definitions {
@@ -50,35 +50,6 @@ const IRR_FLAG_LABEL: Record<NonNullable<PooledMetrics['irrFlag']>, string> = {
   no_convergence: 'IRR did not converge',
   no_valuation: 'a position still held has no Locked valuation',
 };
-
-/* ---- Display helpers for the template commentary (docs/06 section 3) ---- */
-
-const group = (whole: string): string => whole.replace(/\B(?=(\d{3})+(?!\d))/g, ',');
-
-/** Dollars as $M with one decimal from a decimal string: "390009856.77" -> "$390.0M". */
-function fmtMoneyM(value: string): string {
-  const millions = D(value).div('1000000');
-  const [whole, frac] = millions.abs().toFixed(1).split('.');
-  return `${millions.isNegative() ? '-' : ''}$${group(whole ?? '0')}.${frac ?? '0'}M`;
-}
-
-const fmtMoic = (value: string): string => `${D(value).toFixed(2)}x`;
-
-/** Percentage with one decimal: "0.0530" -> "5.3%". */
-const fmtPct = (value: string): string => `${D(value).mul('100').toFixed(1)}%`;
-
-/** Signed percentage with one decimal for changes: "0.1234" -> "+12.3%". */
-function fmtSignedPct(value: string): string {
-  const pct = D(value).mul('100');
-  return `${pct.isNegative() ? '-' : '+'}${pct.abs().toFixed(1)}%`;
-}
-
-const plural = (n: number, noun: string): string => `${n} ${noun}${n === 1 ? '' : 's'}`;
-
-const joinList = (items: string[]): string =>
-  items.length <= 1
-    ? (items[0] ?? '')
-    : `${items.slice(0, -1).join(', ')} and ${items[items.length - 1]}`;
 
 @Injectable()
 export class ReportsService {

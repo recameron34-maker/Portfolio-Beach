@@ -8,5 +8,5 @@ export type { StackDatum, StackSegment } from './StackedBars.js';
 export { LineChart } from './LineChart.js';
 export type { LineSeries } from './LineChart.js';
 export { Sparkline } from './Sparkline.js';
-export { compactValue, niceTicks, seriesColor, truncateMiddle } from './scale.js';
+export { compactValue, knownRuns, niceTicks, seriesColor, truncateMiddle } from './scale.js';
 export type { ValueKind } from './scale.js';

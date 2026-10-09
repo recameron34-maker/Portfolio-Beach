@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   chartLabels,
   compactValue,
+  knownRuns,
   labelBudget,
   labelColumn,
   labelStride,
@@ -115,5 +116,29 @@ describe('labelStride', () => {
     expect(labelStride(6, 120)).toBe(3);
     expect(labelStride(0, 300)).toBe(1);
     expect(labelStride(5, 0)).toBe(1);
+  });
+});
+
+describe('knownRuns', () => {
+  it('splits a series at every missing value so the line shows a gap there', () => {
+    expect(knownRuns([1, 2, null, 4, null, null, 7, 8])).toEqual([
+      [
+        { i: 0, v: 1 },
+        { i: 1, v: 2 },
+      ],
+      [{ i: 3, v: 4 }],
+      [
+        { i: 6, v: 7 },
+        { i: 7, v: 8 },
+      ],
+    ]);
+    expect(knownRuns([null, 0, 5])).toEqual([
+      [
+        { i: 1, v: 0 },
+        { i: 2, v: 5 },
+      ],
+    ]);
+    expect(knownRuns([null, null])).toEqual([]);
+    expect(knownRuns([])).toEqual([]);
   });
 });

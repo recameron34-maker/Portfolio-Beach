@@ -10,7 +10,8 @@ import {
   meQuery,
   watchlistQuery,
 } from '../app/queries.js';
-import { HorizontalBars, LineChart, Sparkline } from '../components/charts/index.js';
+import { HorizontalBars, knownRuns, Sparkline } from '../components/charts/index.js';
+import { NavTrendCard } from '../components/NavTrendCard.js';
 import { PreviewGuide } from '../components/PreviewGuide.js';
 import { UnavailableState } from '../components/UnavailableState.js';
 import {
@@ -24,16 +25,7 @@ import {
   StatTile,
   TableWrap,
 } from '../components/ui.js';
-import {
-  formatDate,
-  formatMoic,
-  formatMoneyM,
-  formatMonthYear,
-  formatMonthYearShort,
-  irrDisplay,
-  labelOf,
-  moneyLabel,
-} from '../lib/format.js';
+import { formatDate, formatMoic, formatMoneyM, irrDisplay, labelOf } from '../lib/format.js';
 import { irrFlagHint, watchFlagLabel } from '../lib/labels.js';
 import { usePreviewGuide } from '../lib/preview-guide.js';
 import { humanizeState, noticeTone } from '../lib/states.js';
@@ -47,9 +39,11 @@ const toNumber = (value: string | null): number | null => (value === null ? null
 
 function Tiles({ summary }: { summary: AnalyticsSummary }): ReactNode {
   const a = summary.active;
-  const navPoints = summary.navSeries
-    .map((p) => toNumber(p.value))
-    .filter((v): v is number => v !== null);
+  // The sparkline shows the latest unbroken run of calculable quarters only, so it never draws
+  // across a quarter whose NAV is not calculable and its label counts what it shows.
+  const series = summary.navSeries.map((p) => toNumber(p.value));
+  const latestRun = knownRuns(series).at(-1) ?? [];
+  const navPoints = latestRun.at(-1)?.i === series.length - 1 ? latestRun.map((p) => p.v) : [];
   return (
     <div className="pb-tiles pb-home-tiles" data-testid="home-tiles">
       <StatTile label="Active positions" value={String(summary.activeInvestments)} />
@@ -243,9 +237,6 @@ function ChartsRow({ summary }: { summary: AnalyticsSummary }): ReactNode {
     display: formatMoneyM(b.nav),
   }));
   const largest = vehicles[0];
-  const points = summary.navSeries;
-  const firstPoint = points[0];
-  const lastPoint = points[points.length - 1];
   return (
     <div className="pb-two-col">
       <Card>
@@ -267,23 +258,7 @@ function ChartsRow({ summary }: { summary: AnalyticsSummary }): ReactNode {
           />
         )}
       </Card>
-      <Card>
-        <SectionHeader aside="Sum of Locked fair values">Trend</SectionHeader>
-        {firstPoint === undefined || lastPoint === undefined ? (
-          <EmptyState title="No Locked valuations" detail="The NAV series needs Locked marks." />
-        ) : (
-          <LineChart
-            title="NAV by quarter"
-            subtitle={`Locked marks only, last ${points.length} quarters`}
-            x={points.map((p) => formatMonthYearShort(p.periodEnd))}
-            series={[{ name: 'NAV', values: points.map((p) => toNumber(p.value)) }]}
-            kind="money"
-            format={moneyLabel}
-            summary={`NAV by quarter over ${points.length} quarters, from ${formatMoneyM(firstPoint.value)} at ${formatMonthYear(firstPoint.periodEnd)} to ${formatMoneyM(lastPoint.value)} at ${formatMonthYear(lastPoint.periodEnd)}.`}
-            testId="home-nav-series"
-          />
-        )}
-      </Card>
+      <NavTrendCard points={summary.navSeries} heading="Trend" testId="home-nav-series" />
     </div>
   );
 }

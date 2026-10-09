@@ -7,7 +7,18 @@ import type {
   WatchlistItem,
   WeeklyReport,
 } from '@pb/contracts';
-import { formatDate, formatMoic, formatMoneyM, formatPct, irrDisplay, labelOf } from './format.js';
+import { ZERO, toDecimalString, valueChange } from '@pb/calc';
+import type { Decimal } from '@pb/calc';
+import {
+  formatDate,
+  formatMoic,
+  formatMoneyM,
+  formatPct,
+  irrDisplay,
+  joinList,
+  labelOf,
+  plural,
+} from './format.js';
 
 /**
  * Ask Portfolio Beach, mock edition (docs/07 agent inventory; config/definitions.json agentModels.default
@@ -252,23 +263,11 @@ const SOURCES = {
   access: { label: 'Admin, Access and walls', to: '/admin/access' },
 } as const satisfies Record<string, AssistantSource>;
 
-const plural = (n: number, noun: string): string => `${n} ${noun}${n === 1 ? '' : 's'}`;
-
-function joinList(items: string[]): string {
-  if (items.length <= 1) return items[0] ?? '';
-  return `${items.slice(0, -1).join(', ')} and ${items[items.length - 1]}`;
-}
-
-/** Sum of decimal strings (money or rates) as a decimal string; null when no input has a value (never an invented zero). */
+/** Sum of decimal strings as a decimal string, in exact decimals; null when no input has a value (never an invented zero). */
 function sumOf(values: (string | null)[]): string | null {
-  let total = 0;
-  let any = false;
-  for (const v of values) {
-    if (v === null) continue;
-    total += Number(v);
-    any = true;
-  }
-  return any ? total.toFixed(6) : null;
+  let total: Decimal | null = null;
+  for (const v of values) if (v !== null) total = (total ?? ZERO).plus(v);
+  return toDecimalString(total);
 }
 
 function missing(what: string, sources: AssistantSource[]): Built {
@@ -323,27 +322,35 @@ function nav(analytics: AnalyticsSummary | null, report: WeeklyReport | null): B
   const paragraphs = [
     `Portfolio NAV is ${formatMoneyM(a.nav)} across ${plural(analytics.activeInvestments, 'active position')} as of ${formatDate(analytics.asOf)}; invested capital is ${formatMoneyM(a.invested)}, distributions to date are ${formatMoneyM(a.distributions)} and the gross MOIC is ${formatMoic(a.grossMoic)}.`,
   ];
-  const points = analytics.navSeries.filter(
-    (p): p is { periodEnd: string; value: string } => p.value !== null,
-  );
-  const last = points[points.length - 1];
-  const prev = points[points.length - 2];
+  // The last two quarter ends of the one NAV series: each counts every position held then, at its
+  // latest Locked mark, so the two cover like with like; a point that is not calculable is said so.
+  const [prev, last] = analytics.navSeries.slice(-2);
   if (last === undefined || prev === undefined) {
     paragraphs.push(
       'Fewer than two quarter-end NAV points are on record, so the quarter-over-quarter move is not calculable.',
     );
-  } else {
-    const prevValue = Number(prev.value);
-    const change =
-      prevValue === 0 ? null : String((Number(last.value) - prevValue) / Math.abs(prevValue));
+  } else if (last.value === null || prev.value === null) {
+    const gap = last.value === null ? last : prev;
     paragraphs.push(
-      `Locked NAV was ${formatMoneyM(prev.value)} at ${formatDate(prev.periodEnd)} and ${formatMoneyM(last.value)} at ${formatDate(last.periodEnd)}, a change of ${formatPct(change)}.`,
+      `The quarter-over-quarter NAV move is not calculable: a position held at ${formatDate(gap.periodEnd)} has no Locked valuation for it yet.`,
+    );
+  } else {
+    // The one mark-to-mark change rule (docs/08 section 2), in exact decimals.
+    const change = toDecimalString(valueChange(last.value, prev.value));
+    paragraphs.push(
+      `NAV was ${formatMoneyM(prev.value)} at ${formatDate(prev.periodEnd)} and ${formatMoneyM(last.value)} at ${formatDate(last.periodEnd)}, a change of ${formatPct(change)}.`,
     );
   }
   if (report !== null && report.movers.length > 0) {
+    // The report lists movers gainers first; the largest moves are the largest either way.
+    const bySize = [...report.movers].sort(
+      (a, b) =>
+        Math.abs(Number(b.changePct)) - Math.abs(Number(a.changePct)) ||
+        (a.investmentNumber < b.investmentNumber ? -1 : 1),
+    );
     paragraphs.push(
       `The largest Locked fair value moves against the prior quarter are ${joinList(
-        report.movers.slice(0, 3).map((m) => `${m.companyName} (${formatPct(m.changePct)})`),
+        bySize.slice(0, 3).map((m) => `${m.companyName} (${formatPct(m.changePct)})`),
       )}.`,
     );
   }
@@ -383,9 +390,9 @@ function capital(notices: CapitalNoticePage | null, report: WeeklyReport | null)
   const lines = rows.slice(0, LIMIT).map(describe);
   const rest = rows.length - LIMIT;
   const tail: string[] = [];
+  // No total: calls are paid out and distributions, interest and repayments come in, so one sum of
+  // the two directions would mean nothing.
   if (rest > 0) tail.push(`${rest} more are listed under Capital Activity.`);
-  if (rows.length > 1)
-    tail.push(`Together they total ${formatMoneyM(sumOf(rows.map((r) => r.amount)))}.`);
   return { paragraphs: [head, ...lines, ...tail], sources, complete: true };
 }
 
@@ -496,13 +503,13 @@ function walls(list: WallList | null): Built {
   const sources = [SOURCES.access];
   if (list === null) return missing('Wall data', sources);
   const rule =
-    "A walled record is visible only to the wall's named members, approvers and platform admins; for everyone else it does not appear in any list, search or answer (SEC-5.3, SEC-8.5).";
+    "A walled record is visible only to the wall's named members. Approvers and platform admins manage walls but see a walled record only when they are members; for everyone else it does not appear in any list, search or answer (SEC-5.3, SEC-8.5).";
   if (list.walls.length === 0) {
     return { paragraphs: ['No wall is visible to you.', rule], sources, complete: true };
   }
   const lines = list.walls.map(
     (w) =>
-      `${w.name}: ${plural(w.members.length, 'member')} (${joinList(w.members.map((m) => m.displayName))}), covering ${plural(w.records.length, 'record')}: ${joinList(
+      `${w.name}: ${plural(w.members.length, 'member')} visible to you (${joinList(w.members.map((m) => m.displayName))}), covering ${plural(w.records.length, 'record')}: ${joinList(
         w.records.map((r) => r.label ?? 'a record you cannot see'),
       )}.`,
   );

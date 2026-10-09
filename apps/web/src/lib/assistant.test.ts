@@ -103,7 +103,7 @@ describe('answers assembled from the recorded figures', () => {
       'Portfolio NAV is $40.0M across 3 active positions as of Jun 30, 2025',
     );
     expect(a.paragraphs[1]).toBe(
-      'Locked NAV was $38.0M at Mar 31, 2025 and $40.0M at Jun 30, 2025, a change of 5.3%.',
+      'NAV was $38.0M at Mar 31, 2025 and $40.0M at Jun 30, 2025, a change of 5.3%.',
     );
     expect(a.paragraphs[2]).toBe(
       'The largest Locked fair value moves against the prior quarter are Harbor Analytics (12.0%) and Dune Logistics (-8.0%).',
@@ -116,6 +116,43 @@ describe('answers assembled from the recorded figures', () => {
       analytics: analyticsFixture({ navSeries: [{ periodEnd: '2025-06-30', value: '1' }] }),
     });
     expect(a.paragraphs[1]).toContain('not calculable');
+  });
+
+  it('says the move is not calculable when a quarter end has a held position with no mark', () => {
+    const a = answerQuestion('nav', {
+      ...inputs(),
+      analytics: analyticsFixture({
+        navSeries: [
+          { periodEnd: '2025-03-31', value: null },
+          { periodEnd: '2025-06-30', value: '40000000' },
+        ],
+      }),
+    });
+    expect(a.paragraphs[1]).toBe(
+      'The quarter-over-quarter NAV move is not calculable: a position held at Mar 31, 2025 has no Locked valuation for it yet.',
+    );
+  });
+
+  it('names the largest moves by size, a markdown as much as a gain', () => {
+    const report = weeklyReportFixture();
+    const mover = (n: number, name: string, changePct: string) => ({
+      ...report.movers[0]!,
+      investmentNumber: `PB-00${n}`,
+      companyName: name,
+      changePct,
+    });
+    // The API lists movers gainers first, as the weekly report prints them.
+    const movers = [
+      mover(41, 'Gain Small', '0.03'),
+      mover(42, 'Gain Mid', '0.05'),
+      mover(43, 'Loss Mid', '-0.06'),
+      mover(44, 'Loss Big', '-0.117'),
+      mover(45, 'Loss Bigger', '-0.15'),
+    ];
+    const a = answerQuestion('nav', { ...inputs(), weeklyReport: { ...report, movers } });
+    expect(a.paragraphs[2]).toBe(
+      'The largest Locked fair value moves against the prior quarter are Loss Bigger (-15.0%), Loss Big (-11.7%) and Loss Mid (-6.0%).',
+    );
   });
 
   it('answers capital activity from the notices, and from the weekly report when the notices are unavailable', () => {
@@ -139,7 +176,7 @@ describe('answers assembled from the recorded figures', () => {
     expect(none.paragraphs[0]).toContain('not available');
   });
 
-  it('marks overdue notices and totals several', () => {
+  it('marks overdue notices and never adds money paid to money received', () => {
     const a = answerQuestion('capital', {
       ...inputs(),
       capitalNotices: capitalNoticesFixture({
@@ -150,7 +187,7 @@ describe('answers assembled from the recorded figures', () => {
       }),
     });
     expect(a.paragraphs[1]).toContain('overdue by 20 days');
-    expect(a.paragraphs[a.paragraphs.length - 1]).toBe('Together they total $3.5M.');
+    expect(a.paragraphs.join(' ')).not.toContain('total');
   });
 
   it('lists stale valuations with their footnotes', () => {
@@ -201,7 +238,7 @@ describe('answers assembled from the recorded figures', () => {
   it('names wall members and never a record label the caller cannot see', () => {
     const a = answerQuestion('walls', inputs());
     expect(a.paragraphs[0]).toBe(
-      'Project Dune: 2 members (Deal Three and Head One), covering 2 records: Dune Logistics and a record you cannot see.',
+      'Project Dune: 2 members visible to you (Deal Three and Head One), covering 2 records: Dune Logistics and a record you cannot see.',
     );
     const none = answerQuestion('walls', { ...inputs(), walls: wallListFixture({ walls: [] }) });
     expect(none.paragraphs[0]).toBe('No wall is visible to you.');

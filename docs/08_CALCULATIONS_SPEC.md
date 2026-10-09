@@ -19,6 +19,7 @@ All financial math lives in `packages/calc` (TypeScript) and is cross-checked by
 | Unfunded | commitment - contributions + recallable distributions | commitment missing |
 | Holding period (years) | (exit or as-of date - first contribution date) / 365 | no contribution |
 | NAV (a set of positions) | sum of each held position's latest Locked mark; realized positions hold 0 | any held position has no Locked mark on or before the as-of date (never counted as 0) |
+| NAV series (one point per calendar quarter end) | at each quarter end, the NAV above over the positions held then (entered on or before it, not exited by it), each at its latest Locked mark for that quarter or an earlier one. A mark within the prior-year tolerance (section 5) of a quarter end counts for that quarter, so a sponsor that closes its books a few days early lands on it; a position whose sponsor missed a quarter is carried at its earlier mark. Only marks on or before the as-of date count, and the series ends at the last quarter end on or before it (`lockedNavSeries`) | a position held at that quarter end has no Locked mark for it or an earlier quarter (the chart shows a gap, never a partial sum) |
 | Value change (`valueChange`) | (current value - prior value) / prior value, such as a Locked fair value against the previous quarter end's (valuation board, weekly report movers, watchlist markdown) | either value missing, or prior = 0 |
 
 ## 3. IRR (XIRR)

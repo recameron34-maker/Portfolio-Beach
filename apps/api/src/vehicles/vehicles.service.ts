@@ -199,7 +199,11 @@ export class VehiclesService {
         fundCommitments,
         lpCommitments,
         navSeries: lockedNavSeries(
-          positions.map((p) => p.valuations),
+          positions.map((p) => ({
+            valuations: p.valuations,
+            entryDate: p.row.entryDate,
+            exitDate: p.row.exitDate,
+          })),
           asOf,
           { quarters, toleranceDays },
         ),

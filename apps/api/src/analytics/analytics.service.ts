@@ -38,6 +38,8 @@ import {
 } from '../portfolio/metrics.js';
 import type { FlowRow, OperatingRow, ValuationRow } from '../portfolio/metrics.js';
 import { compareDecimalDesc, compareText, sumCalculable } from '../common/order.js';
+import { fmtDate } from '../common/dates.js';
+import { fmtMoneyM } from '../common/format.js';
 
 /** Calculation settings from config/definitions.json (docs/03 section 4); only the keys this service reads. */
 interface Definitions {
@@ -240,7 +242,7 @@ export function evaluateFlags(
     flags.push({
       code: 'no_locked_valuation',
       severity: 'bad',
-      message: `No Locked valuation on or before ${asOf}`,
+      message: `No Locked valuation on or before ${fmtDate(asOf)}`,
       value: null,
       threshold: null,
     });
@@ -249,7 +251,7 @@ export function evaluateFlags(
     flags.push({
       code: 'stale_valuation',
       severity: 'watch',
-      message: `Latest Locked valuation is for ${locked.periodEnd}; no Locked mark for ${quarterEnd}`,
+      message: `Latest Locked valuation is for ${fmtDate(locked.periodEnd)}; no Locked mark for ${fmtDate(quarterEnd)}`,
       value: null,
       threshold: null,
     });
@@ -261,7 +263,7 @@ export function evaluateFlags(
       flags.push({
         code: 'missing_prior_year',
         severity: 'watch',
-        message: `No approved quarter one year before ${operating.periodEnd} (within ${t.priorYearToleranceDays} days), so year-on-year growth is not calculable`,
+        message: `No approved quarter one year before ${fmtDate(operating.periodEnd)} (within ${t.priorYearToleranceDays} days), so year-on-year growth is not calculable`,
         value: null,
         threshold: String(t.priorYearToleranceDays),
       });
@@ -270,7 +272,7 @@ export function evaluateFlags(
       flags.push({
         code: 'negative_ebitda',
         severity: 'bad',
-        message: `EBITDA LTM of ${D(operating.ebitdaLtm).toFixed(2)} for ${operating.periodEnd} is at or below zero`,
+        message: `EBITDA LTM of ${fmtMoneyM(operating.ebitdaLtm)} for ${fmtDate(operating.periodEnd)} is at or below zero`,
         value: operating.ebitdaLtm,
         threshold: '0',
       });
@@ -284,7 +286,7 @@ export function evaluateFlags(
         flags.push({
           code: 'leverage_above_max',
           severity: 'bad',
-          message: `Net debt to EBITDA of ${shown}x for ${operating.periodEnd} is above the ${limit}x limit`,
+          message: `Net debt to EBITDA of ${shown}x for ${fmtDate(operating.periodEnd)} is above the ${limit}x limit`,
           value: operating.netDebtToEbitda,
           threshold: str(t.netDebtToEbitdaMax),
         });
@@ -323,7 +325,7 @@ export function evaluateFlags(
         flags.push({
           code: 'markdown',
           severity: 'watch',
-          message: `Locked fair value for ${locked.periodEnd} is ${pct(change.neg())}% below ${previous.periodEnd} (limit ${pct(t.markdownPct)}%)`,
+          message: `Locked fair value for ${fmtDate(locked.periodEnd)} is ${pct(change.neg())}% below ${fmtDate(previous.periodEnd)} (limit ${pct(t.markdownPct)}%)`,
           value: str(change),
           threshold: str(limit),
         });
@@ -344,7 +346,7 @@ export function evaluateFlags(
         flags.push({
           code: 'covenant_breach',
           severity: 'bad',
-          message: `Covenant status is ${labelOf(latest.covenantStatus)} for ${latest.periodEnd}`,
+          message: `Covenant status is ${labelOf(latest.covenantStatus)} for ${fmtDate(latest.periodEnd)}`,
           value: null,
           threshold: null,
         });
@@ -352,7 +354,7 @@ export function evaluateFlags(
         flags.push({
           code: 'covenant_waiver',
           severity: 'watch',
-          message: `Covenant status is ${labelOf(latest.covenantStatus)} for ${latest.periodEnd}`,
+          message: `Covenant status is ${labelOf(latest.covenantStatus)} for ${fmtDate(latest.periodEnd)}`,
           value: null,
           threshold: null,
         });
@@ -361,7 +363,7 @@ export function evaluateFlags(
         flags.push({
           code: 'payment_not_current',
           severity: 'bad',
-          message: `Payment status is ${labelOf(latest.paymentStatus)} for ${latest.periodEnd}`,
+          message: `Payment status is ${labelOf(latest.paymentStatus)} for ${fmtDate(latest.periodEnd)}`,
           value: null,
           threshold: null,
         });
@@ -373,7 +375,7 @@ export function evaluateFlags(
         flags.push({
           code: 'past_maturity',
           severity: 'bad',
-          message: `Facility matured on ${maturity} and the position is still active`,
+          message: `Facility matured on ${fmtDate(maturity)} and the position is still active`,
           value: null,
           threshold: null,
         });
@@ -381,7 +383,7 @@ export function evaluateFlags(
         flags.push({
           code: 'maturity_within_12_months',
           severity: 'watch',
-          message: `Facility matures on ${maturity}, within ${t.maturityWithinMonths} months of ${asOf}`,
+          message: `Facility matures on ${fmtDate(maturity)}, within ${t.maturityWithinMonths} months of ${fmtDate(asOf)}`,
           value: null,
           threshold: String(t.maturityWithinMonths),
         });
@@ -396,7 +398,7 @@ export function evaluateFlags(
       flags.push({
         code: 'stale_valuation',
         severity: 'watch',
-        message: `Latest approved financials are for ${latestFinancials}, ${days} days before ${asOf} (limit ${t.missingFinancialsDays} days)`,
+        message: `Latest approved financials are for ${fmtDate(latestFinancials)}, ${days} days before ${fmtDate(asOf)} (limit ${t.missingFinancialsDays} days)`,
         value: String(days),
         threshold: String(t.missingFinancialsDays),
       });
@@ -572,7 +574,11 @@ export class AnalyticsService {
         // Every position, not only those held today: a position exited since still held its
         // marks at the earlier quarter ends, as each vehicle's own series counts them.
         navSeries: lockedNavSeries(
-          positions.map((p) => p.valuations),
+          positions.map((p) => ({
+            valuations: p.valuations,
+            entryDate: p.row.entryDate,
+            exitDate: p.row.exitDate,
+          })),
           asOf,
           { quarters, toleranceDays: tolerance },
         ),

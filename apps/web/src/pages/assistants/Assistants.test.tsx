@@ -88,7 +88,7 @@ describe('Ask Portfolio Beach (mock assistant)', () => {
       'Answered as the fixed question above for: "who can see project dune"',
     );
     expect(await within(answer).findByTestId('assistant-paragraphs')).toHaveTextContent(
-      'Project Dune: 2 members (Deal Three and Head One), covering 2 records: Dune Logistics and a record you cannot see.',
+      'Project Dune: 2 members visible to you (Deal Three and Head One), covering 2 records: Dune Logistics and a record you cannot see.',
     );
   });
 

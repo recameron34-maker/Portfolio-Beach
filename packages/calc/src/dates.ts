@@ -108,6 +108,17 @@ export function yearOf(iso: IsoDate): number {
 const quarterEndOf = (year: number, month: number): IsoDate =>
   formatIso({ year, month, day: daysInMonth(year, month) });
 
+/** The last day of the calendar quarter that contains a date: 2025-02-10 gives 2025-03-31. */
+export function containingQuarterEnd(date: IsoDate): IsoDate {
+  const { year, month } = parseIso(date);
+  return quarterEndOf(year, Math.ceil(month / 3) * 3);
+}
+
+/** The end of the calendar quarter after the one containing a date: 2025-02-10 and 2025-03-31 give 2025-06-30. */
+export function nextQuarterEnd(date: IsoDate): IsoDate {
+  return containingQuarterEnd(addMonths(date, 3));
+}
+
 /** The calendar quarter end on or before a date. */
 export function latestQuarterEndOnOrBefore(date: IsoDate): IsoDate {
   const { year, month } = parseIso(date);

@@ -100,57 +100,98 @@ describe('positionMetrics: a held position without a Locked mark', () => {
   });
 });
 
-describe('lockedNavSeries: the one NAV series rule', () => {
-  it('folds marks a few days off the calendar quarter end into that quarter end', () => {
-    const shifted = [mark('2025-03-28', '10'), mark('2025-06-27', '11')];
-    const calendar = [mark('2025-03-31', '20.5'), mark('2025-06-30', '21')];
-    const late = [mark('2025-04-03', '5')];
-    expect(lockedNavSeries([shifted, calendar, late], '2025-06-30', RULE)).toEqual([
-      { periodEnd: '2025-03-31', value: '35.5' },
+describe('lockedNavSeries: the NAV date rule at every quarter end', () => {
+  /** A position held from entry until exit, with its valuation versions. */
+  const held = (
+    valuations: ValuationRow[],
+    entryDate = '2020-01-15',
+    exitDate: string | null = null,
+  ) => ({ valuations, entryDate, exitDate });
+
+  it('folds marks a few days off the quarter end into that quarter end', () => {
+    const shifted = held([mark('2025-03-28', '10'), mark('2025-06-27', '11')]);
+    const calendar = held([mark('2025-03-31', '20.5'), mark('2025-06-30', '21')]);
+    expect(lockedNavSeries([shifted, calendar], '2025-06-30', RULE)).toEqual([
+      { periodEnd: '2025-03-31', value: '30.5' },
       { periodEnd: '2025-06-30', value: '32' },
     ]);
   });
 
-  it('keeps a mark further than the tolerance from any quarter end on its own date', () => {
-    expect(
-      lockedNavSeries([[mark('2025-05-15', '7'), mark('2025-06-27', '8')]], '2025-06-30', {
-        quarters: 8,
-        toleranceDays: 2,
-      }),
-    ).toEqual([
-      { periodEnd: '2025-05-15', value: '7' },
-      { periodEnd: '2025-06-27', value: '8' },
+  it('carries a held position at its latest Locked mark, as the NAV tile does, never dropping it', () => {
+    // A sponsor that missed Q2 (stale) and one that reported Q1 a few days late (2025-04-03).
+    const stale = held([mark('2025-03-31', '46')]);
+    const late = held([mark('2025-04-03', '5')]);
+    const current = held([mark('2025-03-31', '10'), mark('2025-06-30', '12')]);
+    expect(lockedNavSeries([stale, late, current], '2025-06-30', RULE)).toEqual([
+      { periodEnd: '2025-03-31', value: '61' },
+      { periodEnd: '2025-06-30', value: '63' },
     ]);
   });
 
-  it('never drops a mark: one whose quarter has not ended by the as-of date keeps its own date', () => {
-    expect(lockedNavSeries([[mark('2025-06-27', '8')]], '2025-06-28', RULE)).toEqual([
-      { periodEnd: '2025-06-27', value: '8' },
+  it('leaves a quarter not calculable while a position held then has no Locked mark at all', () => {
+    const marked = held([mark('2025-03-31', '10'), mark('2025-06-30', '12')]);
+    // Entered in February, first marked at June 30: at March 31 it was held with no mark.
+    const newDeal = held([mark('2025-06-30', '7')], '2025-02-10');
+    expect(lockedNavSeries([marked, newDeal], '2025-06-30', RULE)).toEqual([
+      { periodEnd: '2025-03-31', value: null },
+      { periodEnd: '2025-06-30', value: '19' },
     ]);
   });
 
-  it('counts Locked marks on or before the as-of date only', () => {
-    const set = [
+  it('counts a position only at the quarter ends it was held at', () => {
+    const exited = held(
+      [mark('2024-12-31', '50'), mark('2025-03-31', '55')],
+      '2020-01-15',
+      '2025-05-10',
+    );
+    const entered = held([mark('2025-06-30', '8')], '2025-04-20');
+    const steady = held([
+      mark('2024-12-31', '1'),
+      mark('2025-03-31', '2'),
+      mark('2025-06-30', '3'),
+    ]);
+    expect(lockedNavSeries([exited, entered, steady], '2025-06-30', RULE)).toEqual([
+      { periodEnd: '2024-12-31', value: '51' },
+      { periodEnd: '2025-03-31', value: '57' },
+      { periodEnd: '2025-06-30', value: '11' },
+    ]);
+  });
+
+  it('counts Locked marks on or before the as-of date only, and ends at its last quarter end', () => {
+    const set = held([
       mark('2025-03-31', '1', 'Draft'),
       mark('2025-03-31', '2', 'Reopened'),
       mark('2025-03-31', '3'),
-      // Within the tolerance of 2025-06-30, but reported after the as-of date.
+      // Reports for 2025-06-30, but is dated after the as-of date.
       mark('2025-07-02', '4'),
-    ];
+    ]);
     expect(lockedNavSeries([set], '2025-07-01', RULE)).toEqual([
       { periodEnd: '2025-03-31', value: '3' },
+      { periodEnd: '2025-06-30', value: '3' },
+    ]);
+    // Before the first quarter end a mark reports for, there is no point at all.
+    expect(lockedNavSeries([held([mark('2025-06-27', '8')])], '2025-06-28', RULE)).toEqual([]);
+  });
+
+  it('takes the later of two marks that report for the same quarter, and a mark off any quarter end from the next one', () => {
+    expect(
+      lockedNavSeries(
+        [held([mark('2025-06-27', '10'), mark('2025-06-30', '12')])],
+        '2025-06-30',
+        RULE,
+      ),
+    ).toEqual([{ periodEnd: '2025-06-30', value: '12' }]);
+    expect(lockedNavSeries([held([mark('2025-05-15', '7')])], '2025-09-30', RULE)).toEqual([
+      { periodEnd: '2025-06-30', value: '7' },
+      { periodEnd: '2025-09-30', value: '7' },
     ]);
   });
 
-  it('counts a position once per point: the later of two marks that fold together', () => {
-    expect(
-      lockedNavSeries([[mark('2025-06-27', '10'), mark('2025-06-30', '12')]], '2025-06-30', RULE),
-    ).toEqual([{ periodEnd: '2025-06-30', value: '12' }]);
-  });
-
   it('keeps the latest configured number of points, oldest first', () => {
-    const set = ['2024-09-30', '2024-12-31', '2025-03-31', '2025-06-30'].map((d, i) =>
-      mark(d, String(i + 1)),
+    const set = held(
+      ['2024-09-30', '2024-12-31', '2025-03-31', '2025-06-30'].map((d, i) =>
+        mark(d, String(i + 1)),
+      ),
     );
     expect(lockedNavSeries([set], '2025-06-30', { quarters: 2, toleranceDays: 7 })).toEqual([
       { periodEnd: '2025-03-31', value: '3' },

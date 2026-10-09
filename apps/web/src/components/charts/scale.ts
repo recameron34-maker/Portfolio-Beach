@@ -171,3 +171,25 @@ export function valueLabelPosition(
 export function seriesColor(slot: number): string {
   return `var(--pb-chart-${Math.min(Math.max(slot, 1), 8)})`;
 }
+
+export interface RunPoint {
+  i: number;
+  v: number;
+}
+
+/**
+ * Runs of consecutive known values. A missing value ends a run, so it shows as a gap in the line
+ * and never as a line drawn through a figure that does not exist (CLAUDE.md rule 10).
+ */
+export function knownRuns(values: readonly (number | null)[]): RunPoint[][] {
+  const out: RunPoint[][] = [];
+  let run: RunPoint[] = [];
+  values.forEach((v, i) => {
+    if (v === null) {
+      if (run.length > 0) out.push(run);
+      run = [];
+    } else run.push({ i, v });
+  });
+  if (run.length > 0) out.push(run);
+  return out;
+}

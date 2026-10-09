@@ -3,6 +3,7 @@ import {
   D,
   ZERO,
   alignedQuarterEnd,
+  containingQuarterEnd,
   currentYield,
   dpi,
   rvpi,
@@ -11,10 +12,12 @@ import {
   evToEbitda,
   interestCoverage,
   latestPeriod,
+  latestQuarterEndOnOrBefore,
   leverageThroughTranche,
   loanToValue,
   moic,
   netDebtToEbitda,
+  nextQuarterEnd,
   sameQuarterPriorYear,
   summarizeFlows,
   toDecimalString,
@@ -316,42 +319,59 @@ export interface NavSeriesOptions {
   toleranceDays: number;
 }
 
+/** A position as the NAV series needs it: its valuation versions and the dates it was held between. */
+export interface NavSeriesPosition {
+  valuations: readonly ValuationRow[];
+  entryDate: string;
+  exitDate: string | null;
+}
+
 /**
- * Sum of Locked fair values per calendar quarter end over a set of positions, oldest first,
- * limited to the latest `quarters` points. Only marks with a period end on or before the as-of
- * date count (the NAV date rule, docs/03 section 4).
+ * NAV at each calendar quarter end, oldest first, the latest `quarters` points: the NAV date rule
+ * (docs/03 section 4) applied at every quarter end, the one NAV series rule for every view that
+ * charts NAV by quarter (analytics, vehicle detail).
  *
- * The one NAV series rule for every view that charts NAV by quarter (analytics, vehicle detail):
- * a Locked mark whose period end is within `toleranceDays` of a calendar quarter end counts for
- * that quarter end, the same tolerance as the prior-year match (docs/08 section 5). A sponsor
- * closing its books a few days early (period_end_shift reports on the 27th or 28th) therefore
- * lands on the same point as every other position instead of becoming a point of its own. A mark
- * further from any quarter end keeps its own date, and so does a mark whose quarter end falls
- * after the as-of date, so the alignment never drops a mark. When two marks of one position fold
- * into the same point, the later one counts, so no position is counted twice. A position without
- * a Locked mark for a period simply does not contribute to that point; the caller says so in the
- * chart subtitle.
+ * Every position held on a quarter end (entered on or before it, not exited by it) counts at its
+ * latest Locked mark reporting for that quarter or an earlier one. A mark within `toleranceDays`
+ * of a calendar quarter end reports for it (alignedQuarterEnd, the prior-year tolerance of docs/08
+ * section 5), so a sponsor closing its books a few days early or late lands on the quarter; a mark
+ * further from any quarter end reports from the next one. A position whose sponsor missed a
+ * quarter is carried at its earlier mark, as the NAV tiles carry it, so a missing mark never shows
+ * as a fall. A quarter end at which a held position has no Locked mark at all is not calculable
+ * (null), never a partial sum (CLAUDE.md rule 10). Only marks dated on or before the as-of date
+ * count, and the series ends at the last quarter end on or before it.
  */
 export function lockedNavSeries(
-  valuationSets: readonly (readonly ValuationRow[])[],
+  positions: readonly NavSeriesPosition[],
   asOf: string,
   options: NavSeriesOptions,
 ): SeriesPoint[] {
-  const totals = new Map<string, Decimal>();
-  for (const set of valuationSets) {
-    const marks = new Map<string, ValuationRow>();
-    for (const v of set) {
-      if (v.state !== 'Locked' || v.periodEnd > asOf) continue;
-      const aligned = alignedQuarterEnd(v.periodEnd, options.toleranceDays);
-      const point = aligned > asOf ? v.periodEnd : aligned;
-      const held = marks.get(point);
-      if (held === undefined || v.periodEnd > held.periodEnd) marks.set(point, v);
+  if (options.quarters === 0) return [];
+  const last = latestQuarterEndOnOrBefore(asOf);
+  const marked = positions.map((p) => ({
+    p,
+    marks: p.valuations
+      .filter((v) => v.state === 'Locked' && v.periodEnd <= asOf)
+      .map((v) => ({ v, reportsFor: alignedQuarterEnd(v.periodEnd, options.toleranceDays) })),
+  }));
+  let first: string | null = null;
+  for (const { marks } of marked)
+    for (const { reportsFor } of marks)
+      if (first === null || reportsFor < first) first = reportsFor;
+  if (first === null) return [];
+  const quarterEnds: string[] = [];
+  for (let q = containingQuarterEnd(first); q <= last; q = nextQuarterEnd(q)) quarterEnds.push(q);
+  return quarterEnds.slice(-options.quarters).map((periodEnd) => {
+    let total = ZERO;
+    for (const { p, marks } of marked) {
+      if (p.entryDate > periodEnd || (p.exitDate !== null && p.exitDate <= periodEnd)) continue;
+      let latest: ValuationRow | null = null;
+      for (const { v, reportsFor } of marks)
+        if (reportsFor <= periodEnd && (latest === null || v.periodEnd > latest.periodEnd))
+          latest = v;
+      if (latest === null) return { periodEnd, value: null };
+      total = total.plus(latest.fairValue);
     }
-    for (const [point, v] of marks)
-      totals.set(point, (totals.get(point) ?? ZERO).plus(v.fairValue));
-  }
-  const points = [...totals.entries()].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
-  return (options.quarters === 0 ? [] : points.slice(-options.quarters)).map(
-    ([periodEnd, value]) => ({ periodEnd, value: str(value) }),
-  );
+    return { periodEnd, value: str(total) };
+  });
 }

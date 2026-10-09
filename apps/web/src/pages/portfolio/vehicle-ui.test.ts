@@ -6,19 +6,9 @@ import {
   closingsLabel,
   finalCloseLabel,
   NO_CASH_FLOW_NOTE,
-  quarterLabel,
 } from './vehicle-ui.js';
 
 describe('vehicle page helpers', () => {
-  it('labels a quarter-end date by its calendar quarter', () => {
-    expect(quarterLabel('2025-06-30')).toBe('Q2 2025');
-    expect(quarterLabel('2023-09-30')).toBe('Q3 2023');
-    expect(quarterLabel('2023-12-28')).toBe('Q4 2023');
-    expect(quarterLabel('2024-03-31')).toBe('Q1 2024');
-    expect(quarterLabel('2024-13-31')).toBe('-');
-    expect(quarterLabel('June 2025')).toBe('-');
-  });
-
   it('counts closings and words the final close', () => {
     expect(closingsLabel(1)).toBe('1 closing');
     expect(closingsLabel(2)).toBe('2 closings');

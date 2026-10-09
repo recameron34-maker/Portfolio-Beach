@@ -211,8 +211,8 @@ describe('analytics summary (M12, M13) and monitoring watchlist (M9)', () => {
         expect(point.value).not.toBeNull();
       }
       expect(s.navSeries.length).toBe(8);
-      // Point by point, the Locked marks of every visible position summed by calendar quarter: a
-      // position exited since still held its marks at the earlier quarter ends.
+      // Point by point, every visible position held on each quarter end at its latest Locked mark:
+      // a position exited since still counts at the quarter ends it was held at.
       const definitions = h.runtime.definitions as {
         priorYearPeriodEndToleranceDays: number;
         analytics: { navSeriesQuarters: number };
@@ -224,7 +224,11 @@ describe('analytics summary (M12, M13) and monitoring watchlist (M9)', () => {
         definitions.priorYearPeriodEndToleranceDays,
       );
       expect(s.navSeries.map((p) => p.periodEnd)).toEqual(expected.map((p) => p.periodEnd));
-      s.navSeries.forEach((p, i) => expect(D(p.value!).eq(expected[i]!.value)).toBe(true));
+      s.navSeries.forEach((p, i) =>
+        expect(p.value === null ? null : D(p.value).toString()).toBe(
+          expected[i]!.value?.toString() ?? null,
+        ),
+      );
 
       expect(s.flowsByYear.length).toBeGreaterThan(1);
       let running = D('0');
@@ -311,30 +315,38 @@ describe('analytics summary (M12, M13) and monitoring watchlist (M9)', () => {
       expect(w.items.some((i) => i.investmentNumber === 'INV-0010')).toBe(false);
     });
 
-    it('carries plain messages with figures as decimal strings', async () => {
+    it('writes messages the way docs/06 writes figures, and carries the figures as decimal strings', async () => {
       const w = await watchlistFor('viewer.one');
       const stale = w.items
         .find((i) => i.investmentNumber === 'INV-0007')
         ?.flags.find((f) => f.code === 'stale_valuation');
       expect(stale?.severity).toBe('watch');
       expect(stale?.value).toBeNull();
-      expect(stale?.message).toContain('2025-03-31');
-      expect(stale?.message).toContain(h.dataset.asOf);
+      expect(stale?.message).toBe(
+        'Latest Locked valuation is for Mar 31, 2025; no Locked mark for Jun 30, 2025',
+      );
       const negative = w.items
         .find((i) => i.investmentNumber === 'INV-0004')
         ?.flags.find((f) => f.code === 'negative_ebitda');
       expect(negative?.severity).toBe('bad');
       expect(negative?.threshold).toBe('0');
       expect(D(negative?.value ?? '1').lte(0)).toBe(true);
+      // Money as $M with one decimal, never the raw decimal string.
+      expect(negative?.message).toMatch(
+        /^EBITDA LTM of -\$\d+\.\dM for [A-Z][a-z]{2} \d{1,2}, \d{4} is at or below zero$/,
+      );
       const maturity = w.items
         .find((i) => i.investmentNumber === 'INV-0013')
         ?.flags.find((f) => f.code === 'past_maturity');
       expect(maturity?.severity).toBe('bad');
-      expect(maturity?.message).toMatch(/matured on \d{4}-\d{2}-\d{2}/);
+      expect(maturity?.message).toMatch(/^Facility matured on [A-Z][a-z]{2} \d{1,2}, \d{4} and/);
       for (const item of w.items) {
         expect(item.flags.length).toBeGreaterThan(0);
-        for (const f of item.flags)
+        for (const f of item.flags) {
           expect(f.message).not.toMatch(new RegExp(`[${String.fromCharCode(0x2014, 0x2013)}]`));
+          // No ISO date and no unformatted amount reaches the page.
+          expect(f.message).not.toMatch(/\d{4}-\d{2}-\d{2}|\d{5,}/);
+        }
       }
     });
 
@@ -494,7 +506,7 @@ describe('the markdown flag measures the change with the one value change rule',
       {
         code: 'markdown',
         severity: 'watch',
-        message: 'Locked fair value for 2025-06-30 is 30.0% below 2025-03-31 (limit 20.0%)',
+        message: 'Locked fair value for Jun 30, 2025 is 30.0% below Mar 31, 2025 (limit 20.0%)',
         value: '-0.3',
         threshold: '-0.2',
       },
@@ -529,7 +541,7 @@ describe('the markdown flag measures the change with the one value change rule',
       lockedMark('2025-06-30', '700.00'),
     ]);
     expect(flag?.message).toBe(
-      'Locked fair value for 2025-06-30 is 30.0% below 2025-04-03 (limit 20.0%)',
+      'Locked fair value for Jun 30, 2025 is 30.0% below Apr 3, 2025 (limit 20.0%)',
     );
   });
 });

@@ -170,9 +170,12 @@ describe('valuation board (M10)', () => {
 
     it('has no 2025-06-30 mark for the stale position and no prior for the roll-forward break', async () => {
       const stale = await get('viewer', `?investmentId=${idOf('stale_valuation')}`);
-      expect(stale.items.map((r) => r.periodEnd)).toEqual(['2025-03-31']);
-      expect(stale.items[0]!.priorFairValue).toBeNull();
-      expect(stale.items[0]!.changePct).toBeNull();
+      // Entered in the quarter to Dec 31, 2024: carried at cost then, marked by its sponsor at
+      // Mar 31, 2025, and not since.
+      expect(stale.items.map((r) => r.periodEnd)).toEqual(['2025-03-31', '2024-12-31']);
+      expect(stale.items[1]!.method).toBe('valuation_method.cost');
+      expect(stale.items[0]!.priorFairValue).toBe(stale.items[1]!.fairValue);
+      expect(stale.items[0]!.changePct).not.toBeNull();
       const broken = await get(
         'viewer',
         `?investmentId=${idOf('roll_forward_break')}&periodEnd=2025-06-30`,
@@ -261,8 +264,12 @@ describe('valuation board (M10)', () => {
         for (let i = 1; i < rows.length; i += 1)
           expect(inBoardOrder(rows[i - 1]!, rows[i]!), `row ${i}`).toBe(true);
       }
-      expect(seeded(false).length).toBe(134);
-      expect(seeded(true).length).toBe(142);
+      // Four positions entered within their kept history carry a cost mark at their entry quarter
+      // end; one of them is the walled deal.
+      const costMarks = h.dataset.valuations.filter((v) => v.method === 'valuation_method.cost');
+      expect(costMarks.length).toBe(4);
+      expect(seeded(false).length).toBe(137);
+      expect(seeded(true).length).toBe(146);
     });
 
     it('breaks every tie in the cursor key: small pages reproduce the single-page order', async () => {

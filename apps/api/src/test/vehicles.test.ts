@@ -5,7 +5,8 @@ import { clientList, commitmentList, vehicleDetail, vehicleList } from '@pb/cont
 import type { ClientList, CommitmentList, FundCommitmentRow, VehicleDetail } from '@pb/contracts';
 import { startHarness } from './harness.js';
 import type { Harness } from './harness.js';
-import { containingQuarterEnd, expectedNavSeries } from './nav-oracle.js';
+import { containingQuarterEnd } from '@pb/calc';
+import { expectedNavSeries } from './nav-oracle.js';
 import { NOTHING_POOLED } from './pools.js';
 
 describe('vehicles, commitments and clients (M17, decision 0004)', () => {
@@ -295,7 +296,7 @@ describe('vehicles, commitments and clients (M17, decision 0004)', () => {
         const latest = detail.navSeries[detail.navSeries.length - 1]!;
         expect(latest.periodEnd).toBe(h.dataset.asOf);
         expect(D(latest.value!).eq(detail.metrics.nav!)).toBe(true);
-        // Point by point, the Locked marks of the visible positions summed by calendar quarter.
+        // Point by point, every position held on each quarter end at its latest Locked mark.
         const expected = expectedNavSeries(
           h.dataset,
           new Set(detail.positions.map((p) => p.id)),
@@ -303,7 +304,11 @@ describe('vehicles, commitments and clients (M17, decision 0004)', () => {
           tolerance,
         );
         expect(detail.navSeries.map((p) => p.periodEnd)).toEqual(expected.map((p) => p.periodEnd));
-        detail.navSeries.forEach((p, i) => expect(D(p.value!).eq(expected[i]!.value)).toBe(true));
+        detail.navSeries.forEach((p, i) =>
+          expect(p.value === null ? null : D(p.value).toString()).toBe(
+            expected[i]!.value?.toString() ?? null,
+          ),
+        );
       }
     });
 

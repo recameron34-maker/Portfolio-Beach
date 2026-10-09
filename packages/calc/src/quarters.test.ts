@@ -2,9 +2,11 @@ import { describe, expect, it } from 'vitest';
 import {
   addDays,
   alignedQuarterEnd,
+  containingQuarterEnd,
   daysBetween,
   latestQuarterEndOnOrBefore,
   lockedNear,
+  nextQuarterEnd,
 } from './index.js';
 
 describe('latestQuarterEndOnOrBefore', () => {
@@ -119,5 +121,29 @@ describe('lockedNear: the Locked mark that counts for a quarter end', () => {
     expect(lockedNear([mark('2025-03-31', '9', 'Draft')], '2025-03-31', 7)).toBeNull();
     const twice = [mark('2025-03-31', 'first'), mark('2025-03-31', 'second')];
     expect(lockedNear(twice, '2025-03-31', 7)?.fairValue).toBe('first');
+  });
+});
+
+describe('containingQuarterEnd and nextQuarterEnd', () => {
+  it('names the end of the quarter a date falls in, and of the quarter after it', () => {
+    expect(containingQuarterEnd('2025-02-10')).toBe('2025-03-31');
+    expect(containingQuarterEnd('2025-03-31')).toBe('2025-03-31');
+    expect(containingQuarterEnd('2024-12-01')).toBe('2024-12-31');
+    expect(nextQuarterEnd('2025-02-10')).toBe('2025-06-30');
+    expect(nextQuarterEnd('2025-03-31')).toBe('2025-06-30');
+    expect(nextQuarterEnd('2024-11-30')).toBe('2025-03-31');
+    expect(nextQuarterEnd('2024-08-31')).toBe('2024-12-31');
+  });
+
+  it('steps from quarter end to quarter end without drifting', () => {
+    let q = '2020-03-31';
+    for (let i = 0; i < 24; i++) {
+      const next = nextQuarterEnd(q);
+      expect(latestQuarterEndOnOrBefore(next)).toBe(next);
+      expect(daysBetween(q, next)).toBeGreaterThanOrEqual(90);
+      expect(daysBetween(q, next)).toBeLessThanOrEqual(92);
+      q = next;
+    }
+    expect(q).toBe('2026-03-31');
   });
 });

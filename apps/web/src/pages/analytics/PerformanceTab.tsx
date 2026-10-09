@@ -4,6 +4,7 @@ import { keepPreviousData, useQuery } from '@tanstack/react-query';
 import type { AnalyticsSummary } from '@pb/contracts';
 import { analyticsQuery } from '../../app/queries.js';
 import { HorizontalBars, LineChart } from '../../components/charts/index.js';
+import { NavTrendCard } from '../../components/NavTrendCard.js';
 import { UnavailableState } from '../../components/UnavailableState.js';
 import {
   Card,
@@ -18,41 +19,12 @@ import {
   formatDate,
   formatMoic,
   formatMoneyM,
-  formatMonthYear,
-  formatMonthYearShort,
   formatPct,
   irrDisplay,
   moneyLabel,
 } from '../../lib/format.js';
 import { irrFlagHint } from '../../lib/labels.js';
 import { balanceTiles } from '../../lib/tiles.js';
-
-function NavTrendCard({ summary }: { summary: AnalyticsSummary }): ReactNode {
-  const points = summary.navSeries;
-  const first = points[0];
-  const last = points[points.length - 1];
-  return (
-    <Card>
-      <SectionHeader aside="Active positions, sum of Locked fair values">NAV trend</SectionHeader>
-      {first === undefined || last === undefined ? (
-        <EmptyState title="No Locked valuations" detail="The NAV series needs Locked marks." />
-      ) : (
-        <LineChart
-          title="NAV by quarter"
-          subtitle={`Locked marks only, last ${points.length} quarters`}
-          x={points.map((p) => formatMonthYearShort(p.periodEnd))}
-          series={[
-            { name: 'NAV', values: points.map((p) => (p.value === null ? null : Number(p.value))) },
-          ]}
-          kind="money"
-          format={moneyLabel}
-          summary={`NAV by quarter over ${points.length} quarters, from ${formatMoneyM(first.value)} at ${formatMonthYear(first.periodEnd)} to ${formatMoneyM(last.value)} at ${formatMonthYear(last.periodEnd)}.`}
-          testId="performance-nav-series"
-        />
-      )}
-    </Card>
-  );
-}
 
 function CashFlowsCard({ summary }: { summary: AnalyticsSummary }): ReactNode {
   const years = summary.flowsByYear;
@@ -232,7 +204,7 @@ export function PerformanceAnalyticsTab(): ReactNode {
           hint={irrFlagHint(t.irrFlag) ?? 'Pooled cash flows, XIRR'}
         />
       </div>
-      <NavTrendCard summary={summary} />
+      <NavTrendCard points={summary.navSeries} testId="performance-nav-series" />
       <CashFlowsCard summary={summary} />
       <TopPositionsCard summary={summary} />
     </>

@@ -74,6 +74,25 @@ describe('charts', () => {
     expect(screen.getByText('Q3: NAV $15M, Invested n/a')).toBeInTheDocument();
   });
 
+  it('leaves a gap for a missing value instead of drawing the line through it', async () => {
+    const { container } = render(
+      <LineChart
+        title="NAV by quarter"
+        x={['Q1', 'Q2', 'Q3', 'Q4', 'Q5']}
+        series={[{ name: 'NAV', values: [10, 12, null, 14, 15] }]}
+        kind="money"
+        format={(v) => `$${v}M`}
+        summary="NAV over five quarters, one not calculable"
+      />,
+    );
+    const lines = [...container.querySelectorAll('path[fill="none"]')];
+    expect(lines).toHaveLength(2);
+    for (const line of lines) expect(line.getAttribute('d')?.match(/L/g)).toHaveLength(1);
+    await userEvent.click(screen.getByRole('button', { name: 'Show table' }));
+    const table = screen.getByRole('table', { name: 'NAV by quarter, as a table' });
+    expect(table).toHaveTextContent('Q3-');
+  });
+
   it('at phone width keeps the ends of similar labels, the full names elsewhere and the values inside', async () => {
     const width = 316;
     measureAs(width);

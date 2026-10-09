@@ -99,6 +99,30 @@ export function formatMonthYearShort(iso: string | null | undefined): string {
   return m === null || month === undefined ? MISSING : `${month} ${m[1]}`;
 }
 
+/**
+ * "Q2 2025" from a quarter-end date ("2025-06-30"): the calendar quarter it falls in. Short enough
+ * that every tick of a quarterly chart stays readable at phone width; the missing placeholder when
+ * the value is not an ISO date with a real month.
+ */
+export function formatQuarter(iso: string | null | undefined): string {
+  if (iso === null || iso === undefined) return MISSING;
+  const m = /^(\d{4})-(\d{2})-\d{2}$/.exec(iso);
+  const month = Number(m?.[2]);
+  if (m === null || !(month >= 1 && month <= 12)) return MISSING;
+  return `Q${Math.ceil(month / 3)} ${m[1]}`;
+}
+
+/** "1 quarter", "3 quarters": a count with its noun, plural by adding s. */
+export function plural(n: number, noun: string): string {
+  return `${n} ${noun}${n === 1 ? '' : 's'}`;
+}
+
+/** "A", "A and B", "A, B and C". */
+export function joinList(items: readonly string[]): string {
+  if (items.length <= 1) return items[0] ?? '';
+  return `${items.slice(0, -1).join(', ')} and ${items[items.length - 1]}`;
+}
+
 /** Labels from GET /api/v1/taxonomy, registered once by the app shell (useTaxonomyLabels). */
 const TAXONOMY_LABELS = new Map<string, string>();
 

@@ -11,7 +11,8 @@ import type {
 import { ApiError } from '../../api/client.js';
 import { PORTFOLIO_TABS } from '../../app/nav.js';
 import { vehicleQuery, vehiclesQuery } from '../../app/queries.js';
-import { HorizontalBars, LineChart } from '../../components/charts/index.js';
+import { HorizontalBars } from '../../components/charts/index.js';
+import { NavTrendCard } from '../../components/NavTrendCard.js';
 import { UnavailableState } from '../../components/UnavailableState.js';
 import {
   Badge,
@@ -34,7 +35,6 @@ import {
   irrDisplay,
   labelOf,
   MISSING,
-  moneyLabel,
 } from '../../lib/format.js';
 import { irrFlagHint } from '../../lib/labels.js';
 import {
@@ -43,7 +43,6 @@ import {
   closingsLabel,
   finalCloseLabel,
   NO_CASH_FLOW_NOTE,
-  quarterLabel,
 } from './vehicle-ui.js';
 import './vehicles.css';
 import { balanceTiles } from '../../lib/tiles.js';
@@ -198,38 +197,6 @@ function VehicleTiles({ vehicle }: { vehicle: VehicleDetail }): ReactNode {
         hint={irrFlagHint(m.irrFlag) ?? 'Pooled cash flows, XIRR'}
       />
     </div>
-  );
-}
-
-function NavTrendCard({ vehicle }: { vehicle: VehicleDetail }): ReactNode {
-  const points = vehicle.navSeries;
-  const known = points.filter((p) => p.value !== null);
-  const first = known[0];
-  const last = known[known.length - 1];
-  return (
-    <Card>
-      <SectionHeader aside="Sum of the positions' Locked fair values">NAV trend</SectionHeader>
-      {known.length < 2 || first === undefined || last === undefined ? (
-        <EmptyState
-          title="No NAV trend yet"
-          detail="The series sums Locked fair values by quarter end and needs at least two quarters with Locked marks."
-          testId="vehicle-nav-empty"
-        />
-      ) : (
-        <LineChart
-          title="NAV by quarter"
-          subtitle={`Locked marks only, last ${points.length} quarters`}
-          x={points.map((p) => quarterLabel(p.periodEnd))}
-          series={[
-            { name: 'NAV', values: points.map((p) => (p.value === null ? null : Number(p.value))) },
-          ]}
-          kind="money"
-          format={moneyLabel}
-          summary={`NAV by quarter over ${points.length} quarters, from ${formatMoneyM(first.value)} in ${quarterLabel(first.periodEnd)} to ${formatMoneyM(last.value)} in ${quarterLabel(last.periodEnd)}.`}
-          testId="vehicle-nav-series"
-        />
-      )}
-    </Card>
   );
 }
 
@@ -510,7 +477,13 @@ export function VehicleDetailPage(): ReactNode {
         }
       />
       {pooled ? <VehicleTiles vehicle={v} /> : null}
-      {pooled ? <NavTrendCard vehicle={v} /> : null}
+      {pooled ? (
+        <NavTrendCard
+          points={v.navSeries}
+          testId="vehicle-nav-series"
+          emptyTestId="vehicle-nav-empty"
+        />
+      ) : null}
       <ScheduleCard vehicle={v} />
       <FundCommitmentsCard vehicle={v} />
       <ClientCommitmentsCard vehicle={v} />
