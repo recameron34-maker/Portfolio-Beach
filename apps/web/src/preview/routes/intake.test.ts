@@ -6,8 +6,9 @@ import {
   intakeImportResult,
   problemDetails,
 } from '@pb/contracts';
-import type { IntakeImportResult } from '@pb/contracts';
+import type { IntakeImportResult, IntakeRow } from '@pb/contracts';
 import { accountingExports, generateDataset, previewBook } from '@pb/synthetic';
+import { parseCsv, toCsv } from '@pb/validation';
 import { parseBook } from '../book.js';
 import { createPreviewFetch } from '../shim.js';
 import { createPreviewState } from '../state.js';
@@ -309,6 +310,50 @@ describe('simulated intake (docs/04 M2) over the bundled samples and the book', 
     // Approvers read; a viewer is told the route is not theirs.
     expect((await send(f, 'head.one', 'GET', detailPath(staged.id))).status).toBe(200);
     expect((await send(f, 'viewer.one', 'GET', detailPath(staged.id))).status).toBe(403);
+  });
+
+  it('shows a near-miss candidate only to a reader who may open it; the finding reads the same for everyone (SEC-5.3)', async () => {
+    const { f } = setup();
+    // One row with no number and the walled company's name minus its last character: a near miss
+    // that resolves to the walled position, offered to a person as a candidate, never linked.
+    const nearMiss = walledName.slice(0, -1);
+    const header = parseCsv(sample('accounting-clean.csv').csv).header;
+    const csv = toCsv(header, [
+      ['', nearMiss, book.asOf, '12000000.00', '3000000.00', '30000000.00', '8000000.00', ''],
+    ]);
+    const uploaded = await send(f, 'ops.one', 'POST', IMPORT, { fileName: 'near-miss.csv', csv });
+    expect(uploaded.status, uploaded.text).toBe(201);
+    const outside = intakeImportResult.parse(uploaded.json);
+    expect(outside.rows).toHaveLength(1);
+    expect(outside.hiddenRows).toBe(0);
+    expect(outside.exceptions).toBe(1);
+    const opsRow = outside.rows[0];
+    expect(opsRow?.companyName).toBe(nearMiss);
+    expect(opsRow?.link.status).toBe('unmatched');
+    expect(opsRow?.status).toBe('flagged');
+    // ops.one is outside the wall: the candidate is dropped, and nothing in the answer names the position.
+    expect(opsRow?.link.candidates).toHaveLength(0);
+    const walledNumber = walledInvestment?.investmentNumber ?? '';
+    expect(walledNumber).not.toBe('');
+    for (const answer of [uploaded, await send(f, 'ops.one', 'GET', detailPath(outside.id))]) {
+      expect(answer.text).not.toContain(walledName);
+      expect(answer.text).not.toContain(walledNumber);
+    }
+    // deal.three is on the wall and is offered the candidate, by name and number, as a near miss.
+    const member = intakeFileDetail.parse(
+      (await send(f, 'deal.three', 'GET', detailPath(outside.id))).json,
+    );
+    const memberRow = member.rows[0];
+    expect(memberRow?.id).toBe(opsRow?.id);
+    expect(memberRow?.link.candidates).toEqual([
+      { investmentNumber: walledNumber, companyName: walledName, reason: 'near miss' },
+    ]);
+    // The XREF-01 finding names no candidate, so it is the same text for both readers.
+    const xref = (row: IntakeRow | undefined) =>
+      row?.findings.find((x) => x.ruleId === 'XREF-01')?.message;
+    expect(xref(opsRow)).toBeDefined();
+    expect(xref(memberRow)).toBe(xref(opsRow));
+    expect(memberRow?.findings).toEqual(opsRow?.findings);
   });
 
   it('approve-all promotes the validated rows the caller sees; the wall member finishes the file', async () => {
