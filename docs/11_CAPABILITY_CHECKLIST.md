@@ -105,7 +105,7 @@ Status: N = not started, P = partial, B = built. Phase 0 built the foundations (
 | H1 | Task and notification hub, missed-items digest | M15 | N |
 | H2 | **New:** Weekly team meeting pack auto-generated | M18 | N |
 | H3 | Audit trail and ODD evidence export | M15 | P (append-only audit.event, full-row history and an audit trail view for the four permitted roles; evidence export pending) |
-| H4 | Exceptions dashboard (the look-through data provider, the accounting system, extraction, reports) | M2, M15 | N |
+| H4 | Exceptions dashboard (the look-through data provider, the accounting system, extraction, reports) | M2, M15 | P (the accounting import opens `ops.data_exception` rows for unmatched and guarded names and fair values that do not tie, with candidates; Data Health counts them; the dashboard view pending) |
 | H5 | Systems issue intake (problem, lane, scores, decision log) | M15 | N |
 | H6 | Data clearance gates enforced in code | docs/10 | P (employer-data and style guards in CI, production guard against mocks; connector gates with the connectors) |
 | H7 | Backup admin, runbooks, cost tracking | M15 | N |
@@ -118,7 +118,7 @@ Fund-accounting general ledger, investor onboarding / KYC, fixing the look-throu
 | # | Capability | Module | Status |
 |---|---|---|---|
 | I1 | Click-to-source on every reported number | M4, SEC-9.4 | N |
-| I2 | 100+ automated validations; restatement history | M2 | N |
+| I2 | 100+ automated validations; restatement history | M2 | P (`packages/validation`: 31 accounting import rules across the nine categories, each with a passing and a failing test, run on every staged row; the ops-drop, weekly-report and look-through rule sets and restatement history pending) |
 | I3 | Look-through exposures on our taxonomy | M20 | P (exposure buckets by sector, geography, deal type, vehicle, sponsor and vintage; client look-through by ownership) |
 | I4 | Benchmarking, PME, quartiles | M20 | N |
 | I5 | Liquidity and cash flow forecasting | M20 | N |

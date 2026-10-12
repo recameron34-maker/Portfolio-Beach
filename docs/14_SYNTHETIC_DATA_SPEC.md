@@ -59,10 +59,18 @@ A `small` profile (20 investments) exists for fast unit tests.
 ## 5. Synthetic mail and calendar
 JSON fixtures shaped like Microsoft Graph message and event objects (metadata + body), including personal, privileged and automated messages that must be filtered out.
 
-## 6. Commands
+## 6. Accounting exports (M2 accounting-import)
+`accountingExport(dataset, { scenario })` in `tools/synthetic` writes the generic export of `config/accounting_layout.json`: one row per active equity or CV position for the latest quarter end on or before the as-of date, with the Locked fair value for that quarter, in the layout's column order. Three scenarios, each deterministic:
+- `clean`: every row matches the record, so an import stages only unchanged rows.
+- `update`: one position restated (EBITDA down 4%, revenue up 2%) and the quarter the `missing_prior_year` scenario left out supplied from its neighbours, the rest unchanged.
+- `defects`: update plus one row per defect the validation rules exist for: an unknown investment number, a near-miss company name with no number, a name on the match guard list, a duplicate row, revenue entered in millions, a fair value that does not tie to the Locked mark, a period end two weeks off the quarter, a quarter before entry, and a private credit position in an equity export.
+The export reports what it carries (`expectations`: changed and added investment numbers, flagged rows by rule), so the API tests and the preview walkthrough assert against it rather than against hand-counted rows.
+
+## 7. Commands
 ```
 pnpm synth --profile default --seed 42 --out .synthetic/
 pnpm db:seed:synthetic           # loads .synthetic into the local DB
 pnpm synth:verify                # consistency checks + deny-list scan
+pnpm synth:exports --profile small --seed 42 --out .synthetic/accounting/in   # the three sample exports for the drop folder
 ```
 `.synthetic/` is gitignored; only the generator code is committed.
