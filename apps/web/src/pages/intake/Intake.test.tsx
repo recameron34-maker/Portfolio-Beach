@@ -67,7 +67,7 @@ describe('intake list', () => {
     expect(within(updateRow).getByText('Avery Castellanos')).toBeInTheDocument();
     expect(within(updateRow).getByText('7')).toBeInTheDocument();
     expect(within(updateRow).getByText('Flagged')).toHaveClass('pb-badge-watch');
-    expect(within(updateRow).getByText('3 validated, 2 flagged, 1 promoted')).toBeInTheDocument();
+    expect(within(updateRow).getByText('2 validated, 3 flagged, 1 promoted')).toBeInTheDocument();
     expect(within(updateRow).getByText('3')).toBeInTheDocument();
 
     const clean = within(table).getByText('accounting-export-2025-06-30-clean.csv').closest('tr')!;
@@ -151,6 +151,26 @@ describe('intake list', () => {
     expect(screen.getByRole('button', { name: 'Stage export' })).toBeDisabled();
     expect(sentPosts()).toEqual([]);
     expect(navigate).not.toHaveBeenCalled();
+  });
+
+  it('refuses an empty file in plain words before the button is enabled', async () => {
+    mockApi(routes(['operations'], { [IMPORT]: ok(intakeImportResultFixture()) }));
+    renderWithQuery(<IntakePage />);
+    await screen.findByTestId('intake-upload');
+    await userEvent.upload(fileInput(), new File([], 'export.csv', { type: 'text/csv' }));
+    expect(await screen.findByTestId('intake-upload-status')).toHaveTextContent(
+      'The file is empty.',
+    );
+    const stage = screen.getByRole('button', { name: 'Stage export' });
+    expect(stage).toBeDisabled();
+    await userEvent.click(stage);
+    expect(sentPosts()).toEqual([]);
+    expect(navigate).not.toHaveBeenCalled();
+
+    // A good file chosen next clears the message and enables the button.
+    await userEvent.upload(fileInput(), new File([CSV], 'export.csv', { type: 'text/csv' }));
+    await waitFor(() => expect(stage).toBeEnabled());
+    expect(screen.getByTestId('intake-upload-status')).toBeEmptyDOMElement();
   });
 
   it('words a refused import in the upload card instead of leaving the page', async () => {

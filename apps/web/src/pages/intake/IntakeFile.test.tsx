@@ -97,8 +97,8 @@ describe('intake file', () => {
     expect(screen.queryByTestId('intake-file-findings')).not.toBeInTheDocument();
 
     expect(within(tile('Rows')).getByText('7')).toBeInTheDocument();
-    expect(within(tile('Validated')).getByText('3')).toBeInTheDocument();
-    expect(within(tile('Flagged')).getByText('2')).toBeInTheDocument();
+    expect(within(tile('Validated')).getByText('2')).toBeInTheDocument();
+    expect(within(tile('Flagged')).getByText('3')).toBeInTheDocument();
     expect(tile('Flagged')).toHaveAttribute('data-tone', 'watch');
     expect(within(tile('Promoted')).getByText('1')).toBeInTheDocument();
     expect(tile('Promoted')).toHaveAttribute('data-tone', 'good');
@@ -123,27 +123,44 @@ describe('intake file', () => {
     expect(within(unchanged).getByText('Validated')).toHaveClass('pb-badge-neutral');
     expect(within(unchanged).getByText('-')).toBeInTheDocument();
 
+    // Each change to the cent, so a small restatement never reads as two equal figures; $M in the title.
     const changed = rowOf('Silverline Staffing Holdings');
     expect(within(changed).getByText('Changed')).toHaveClass('pb-badge-watch');
-    expect(within(changed).getByText('Revenue $20.1M to $20.5M')).toBeInTheDocument();
-    expect(within(changed).getByText('EBITDA $4.1M to $4.0M')).toBeInTheDocument();
+    const revenue = within(changed).getByText('Revenue $20,100,000.00 to $20,502,000.00');
+    expect(revenue).toHaveAttribute('title', 'Revenue $20.1M to $20.5M');
+    expect(within(changed).getByText('EBITDA $4,140,000.00 to $3,970,000.00')).toHaveAttribute(
+      'title',
+      'EBITDA $4.1M to $4.0M',
+    );
+    expect(within(changed).queryByText('Revenue $20.1M to $20.5M')).not.toBeInTheDocument();
 
+    // A new quarter shows every figure approval would write, with nothing on record before it.
     const added = rowOf('Cobalt Energy Group');
     expect(within(added).getByText('New')).toHaveClass('pb-badge-brand');
     expect(within(added).getByText('Jun 16, 2024')).toBeInTheDocument();
-    const warning = within(added).getByText('PERIOD-02', { selector: '.pb-badge' });
-    expect(warning).toHaveClass('pb-badge-watch');
-    expect(warning.closest('[title]')).toHaveAttribute('title', 'Period end is not a quarter end');
+    expect(within(added).getByText('Revenue - to $20,100,000.00')).toBeInTheDocument();
+    expect(within(added).getByText('EBITDA - to $4,140,000.00')).toBeInTheDocument();
+    expect(within(added).getByText('EV - to $52,000,000.00')).toBeInTheDocument();
+    expect(within(added).getByText('Net debt - to $12,500,000.00')).toBeInTheDocument();
+    const offQuarter = within(added).getByText('TYPE-03', { selector: '.pb-badge' });
+    expect(offQuarter).toHaveClass('pb-badge-bad');
+    expect(offQuarter.closest('[title]')).toHaveAttribute(
+      'title',
+      'The period end is more than a few days from a calendar quarter end',
+    );
     expect(within(added).getByText('1 finding')).toBeInTheDocument();
     expect(
       within(added).getByText(
-        'PERIOD-02: Period end is not a quarter end (Expected 2024-06-30, actual 2024-06-16)',
+        'TYPE-03: The period end is more than a few days from a calendar quarter end (Expected a quarter end, actual 2024-06-16)',
       ),
     ).toBeInTheDocument();
+    expect(within(added).getByText('Flagged')).toHaveClass('pb-badge-watch');
 
     const unmatched = rowOf('Meridian Data Partner');
     expect(within(unmatched).queryByRole('link')).not.toBeInTheDocument();
     expect(within(unmatched).getByText('no match')).toHaveClass('pb-badge-plain');
+    expect(within(unmatched).getByText('New')).toHaveClass('pb-badge-brand');
+    expect(within(unmatched).getByText('Revenue - to $20,100,000.00')).toBeInTheDocument();
     expect(
       within(unmatched).getByText('Candidates: INV-0001 Meridian Data Partners (near miss)'),
     ).toBeInTheDocument();
@@ -160,7 +177,7 @@ describe('intake file', () => {
 
     const promoted = rowOf('Ashby Renewables Group');
     expect(within(promoted).getByText('Promoted')).toHaveClass('pb-badge-good');
-    expect(within(promoted).getByText('EV $95.0M to $97.5M')).toBeInTheDocument();
+    expect(within(promoted).getByText('EV $95,000,000.00 to $97,500,000.00')).toBeInTheDocument();
     expect(within(promoted).getByText('Approved')).toBeInTheDocument();
     expect(within(promoted).getByText('By Avery Castellanos')).toBeInTheDocument();
     expect(within(promoted).getByText('Promoted Jul 1, 2025')).toBeInTheDocument();
@@ -183,8 +200,8 @@ describe('intake file', () => {
         .slice(1);
 
     await pick('State', 'Flagged');
-    expect(rows()).toHaveLength(2);
-    expect(screen.getByText('2 of 7 rows')).toBeInTheDocument();
+    expect(rows()).toHaveLength(3);
+    expect(screen.getByText('3 of 7 rows')).toBeInTheDocument();
     await pick('State', 'Promoted');
     expect(rows()).toHaveLength(1);
     await pick('State', 'All states');
@@ -205,21 +222,27 @@ describe('intake file', () => {
     await screen.findByRole('table', { name: 'Staged rows' });
     const approve = screen.getByRole('button', { name: 'Approve validated rows' });
     expect(approve).toBeEnabled();
+    expect(approve).not.toHaveAttribute('aria-disabled');
     expect(screen.getByRole('button', { name: 'Reject flagged rows' })).toBeEnabled();
     expect(screen.getByRole('status')).toBeEmptyDOMElement();
 
     await userEvent.click(approve);
-    expect(await screen.findByText('3 rows promoted (audited)')).toBeInTheDocument();
+    expect(await screen.findByText('2 rows promoted (audited)')).toBeInTheDocument();
     expect(screen.getByTestId('intake-action-status')).toHaveClass('pb-action-status');
     expect(sentPosts()).toEqual([[commandsPath(FILE_ID.update), { command: 'approve' }]]);
     expect(within(rowOf('Meridian Data Partners')).getByText('Promoted')).toHaveClass(
       'pb-badge-good',
     );
-    expect(within(tile('Promoted')).getByText('4')).toBeInTheDocument();
+    expect(within(tile('Promoted')).getByText('3')).toBeInTheDocument();
     expect(within(tile('Validated')).getByText('0')).toBeInTheDocument();
+    // Nothing is left to approve: the button says so and stays in the tab order, holding the
+    // focus of whoever pressed it, rather than dropping it to the page body.
     const again = screen.getByRole('button', { name: 'Approve validated rows' });
-    expect(again).toBeDisabled();
+    expect(again).toBe(approve);
+    expect(again).toHaveAttribute('aria-disabled', 'true');
+    expect(again).not.toHaveAttribute('disabled');
     expect(again).toHaveAttribute('title', 'No validated rows you can see to approve');
+    expect(again).toHaveFocus();
   });
 
   it('rejects flagged rows only with a reason', TIMEOUT, async () => {
@@ -227,9 +250,10 @@ describe('intake file', () => {
     mockApi(routes(['operations'], afterCommand(rejectedDetailFixture(reason))));
     renderWithQuery(<IntakeFilePage />);
     await screen.findByRole('table', { name: 'Staged rows' });
-    await userEvent.click(screen.getByRole('button', { name: 'Reject flagged rows' }));
+    const reject = screen.getByRole('button', { name: 'Reject flagged rows' });
+    await userEvent.click(reject);
     const dialog = await screen.findByRole('dialog');
-    expect(dialog).toHaveTextContent('2 flagged rows in accounting-export-2025-06-30-update.csv');
+    expect(dialog).toHaveTextContent('3 flagged rows in accounting-export-2025-06-30-update.csv');
     const submit = within(dialog).getByRole('button', { name: 'Reject flagged rows' });
     expect(submit).toBeDisabled();
     expect(sentPosts()).toEqual([]);
@@ -237,14 +261,45 @@ describe('intake file', () => {
     expect(submit).toBeEnabled();
     await userEvent.click(submit);
     await dialogClosed();
-    expect(await screen.findByText('2 rows rejected (audited)')).toBeInTheDocument();
+    expect(await screen.findByText('3 rows rejected (audited)')).toBeInTheDocument();
     expect(sentPosts()).toEqual([[commandsPath(FILE_ID.update), { command: 'reject', reason }]]);
     expect(within(rowOf('Meridian Data Partner')).getByText('Rejected')).toHaveClass(
       'pb-badge-bad',
     );
     expect(within(rowOf('Meridian Data Partner')).getByText(reason)).toBeInTheDocument();
-    expect(within(tile('Rejected')).getByText('3')).toBeInTheDocument();
+    expect(within(tile('Rejected')).getByText('4')).toBeInTheDocument();
+    // The dialog gives focus back to its trigger, which stays focusable with nothing left to reject.
+    expect(reject).toHaveAttribute('aria-disabled', 'true');
+    expect(reject).not.toHaveAttribute('disabled');
+    await waitFor(() => expect(reject).toHaveFocus());
   });
+
+  it(
+    'counts only the flagged rows the reviewer sees in the reject dialog, as the command will',
+    TIMEOUT,
+    async () => {
+      // The file's own count holds a flagged row behind a wall; the command touches the visible ones.
+      const detail = intakeFileDetailFixture({ hiddenRows: 1 });
+      mockApi(
+        routes(['operations'], {
+          [detailPath(FILE_ID.update)]: ok({
+            ...detail,
+            counts: { ...detail.counts, flagged: detail.counts.flagged + 1 },
+          }),
+        }),
+      );
+      renderWithQuery(<IntakeFilePage />);
+      await screen.findByRole('table', { name: 'Staged rows' });
+      expect(within(tile('Flagged')).getByText('4')).toBeInTheDocument();
+      expect(screen.getByTestId('intake-hidden-rows')).toHaveTextContent(
+        '1 row is linked to positions you cannot see',
+      );
+      await userEvent.click(screen.getByRole('button', { name: 'Reject flagged rows' }));
+      const dialog = await screen.findByRole('dialog');
+      expect(dialog).toHaveTextContent('3 flagged rows in accounting-export-2025-06-30-update.csv');
+      expect(dialog).not.toHaveTextContent('4 flagged rows');
+    },
+  );
 
   it('words a refused command in the status region and keeps the rows as they were', async () => {
     mockApi(
@@ -270,8 +325,10 @@ describe('intake file', () => {
     await screen.findByRole('table', { name: 'Staged rows' });
     expect(screen.getByRole('button', { name: 'Approve validated rows' })).toBeEnabled();
     const reject = screen.getByRole('button', { name: 'Reject flagged rows' });
-    expect(reject).toBeDisabled();
+    expect(reject).toHaveAttribute('aria-disabled', 'true');
     expect(reject).toHaveAttribute('title', 'Needs operations');
+    await userEvent.click(reject);
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
 
     for (const role of ['approver', 'auditor'] as const) {
       cleanup();
@@ -298,6 +355,30 @@ describe('intake file', () => {
     expect(screen.getByTestId('intake-duplicate')).toHaveTextContent(
       'This export was staged before. Its rows are shown as they stand; nothing new was staged.',
     );
+    expect(screen.queryByTestId('intake-no-rows')).not.toBeInTheDocument();
+  });
+
+  it('says every row sits behind a wall when the file has rows and the reviewer sees none', async () => {
+    mockApi(
+      routes(['deal_team'], {
+        [detailPath(FILE_ID.update)]: ok(
+          intakeFileDetailFixture({ rowCount: 3, rows: [], hiddenRows: 3 }),
+        ),
+      }),
+    );
+    renderWithQuery(<IntakeFilePage />);
+    expect(await screen.findByTestId('intake-hidden-rows')).toHaveTextContent(
+      '3 rows are linked to positions you cannot see',
+    );
+    const empty = screen.getByTestId('intake-no-rows');
+    expect(empty).toHaveTextContent('Every row in this file is linked to positions you cannot see');
+    expect(empty).toHaveTextContent(
+      'The tiles above count every row in the file. Someone with access to those positions reviews them.',
+    );
+    expect(screen.queryByText('No rows were staged')).not.toBeInTheDocument();
+    expect(screen.queryByText('The file holds no data lines.')).not.toBeInTheDocument();
+    expect(screen.queryByRole('table', { name: 'Staged rows' })).not.toBeInTheDocument();
+    expect(screen.getByText('0 of 0 rows')).toBeInTheDocument();
   });
 
   it('shows the file findings of a refused file and says no rows were staged', async () => {
@@ -319,13 +400,18 @@ describe('intake file', () => {
     });
     renderWithQuery(<IntakeFilePage />);
     const findings = await screen.findByRole('list', { name: 'File findings' });
-    expect(within(findings).getByText('LAYOUT-01')).toHaveClass('pb-badge-bad');
-    expect(findings).toHaveTextContent('The header is missing a required column');
+    expect(within(findings).getByText('LAYOUT-02')).toHaveClass('pb-badge-bad');
+    expect(findings).toHaveTextContent('The file lacks the column PeriodEnd');
     expect(findings).toHaveTextContent('Expected PeriodEnd');
-    expect(screen.getByText('No rows were staged')).toBeInTheDocument();
+    const empty = screen.getByTestId('intake-no-rows');
+    expect(empty).toHaveTextContent('No rows were staged');
+    expect(empty).toHaveTextContent(
+      'The file was refused before any row was read; the file findings above say why.',
+    );
+    expect(screen.queryByTestId('intake-hidden-rows')).not.toBeInTheDocument();
     expect(screen.queryByRole('table', { name: 'Staged rows' })).not.toBeInTheDocument();
     const approve = screen.getByRole('button', { name: 'Approve validated rows' });
-    expect(approve).toBeDisabled();
+    expect(approve).toHaveAttribute('aria-disabled', 'true');
     expect(approve).toHaveAttribute('title', 'No validated rows you can see to approve');
   });
 

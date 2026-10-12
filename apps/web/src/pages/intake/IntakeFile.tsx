@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import { Link, useParams, useSearch } from '@tanstack/react-router';
 import { useQuery } from '@tanstack/react-query';
@@ -46,6 +46,8 @@ import {
   intakeActions,
   isStagingState,
   linkNote,
+  noRowsState,
+  rejectableRows,
   rowSubject,
 } from './intake.js';
 import './intake.css';
@@ -137,14 +139,21 @@ function SubjectCell({ row }: { row: IntakeRow }): ReactNode {
   );
 }
 
+/**
+ * What approving the row writes: every change, to the cent, whether the quarter is new (every
+ * figure, nothing on record) or restated. The approver must see each figure before it reaches
+ * production (CLAUDE.md rule 5); the millions scale sits in the title.
+ */
 function DiffCell({ diff }: { diff: IntakeRow['diff'] }): ReactNode {
   return (
     <td>
       <Badge tone={DIFF_TONES[diff.kind]}>{DIFF_WORDS[diff.kind]}</Badge>
-      {diff.kind === 'changed' && diff.changes.length > 0 ? (
+      {diff.changes.length > 0 ? (
         <span className="pb-intake-lines">
           {diff.changes.map((c) => (
-            <span key={c.field}>{describeChange(c)}</span>
+            <span key={c.field} title={describeChange(c, 'millions')}>
+              {describeChange(c)}
+            </span>
           ))}
         </span>
       ) : null}
@@ -250,11 +259,26 @@ function RowsCard({
   const [state, setState] = useState<StagingState | ''>('');
   const [search, setSearch] = useState('');
   const [rejecting, setRejecting] = useState(false);
+  const rejectButton = useRef<HTMLButtonElement | null>(null);
+  const returnFocus = useRef(false);
   const log = useActionLog();
   const command = useIntakeCommand();
+  // Fluent's Button infers its ref element from a slot union, so the element is captured by a
+  // typed callback rather than a ref object.
+  const captureRejectButton = useCallback((el: HTMLButtonElement | null): void => {
+    rejectButton.current = el;
+  }, []);
+  // The reason dialog has no trigger of its own, so when it closes, submitted or not, focus goes
+  // back to the button that opened it, once the dialog is out of the document.
+  useEffect(() => {
+    if (rejecting || !returnFocus.current) return;
+    returnFocus.current = false;
+    rejectButton.current?.focus();
+  }, [rejecting]);
   const actions = intakeActions(roles, file.rows);
   const rows = filterRows(file.rows, { state, search });
   const hidden = hiddenRowsNote(file.hiddenRows);
+  const noRows = noRowsState(file);
 
   const issue = (body: IntakeCommandBody): void => {
     const label = body.command === 'approve' ? 'Approve validated rows' : 'Reject flagged rows';
@@ -287,12 +311,15 @@ function RowsCard({
       <Toolbar
         end={
           actions.approve.offered || actions.reject.offered ? (
+            // A command button that cannot act stays focusable (aria-disabled, in the tab order),
+            // so keyboard focus is kept by the button a reviewer just pressed while the command
+            // runs and after it, and the reject dialog has a trigger to return focus to.
             <>
               {actions.approve.offered ? (
                 <Button
                   size="small"
                   appearance="primary"
-                  disabled={!actions.approve.enabled || command.isPending}
+                  disabledFocusable={!actions.approve.enabled || command.isPending}
                   {...(actions.approve.title === null ? {} : { title: actions.approve.title })}
                   onClick={() => issue({ command: 'approve' })}
                 >
@@ -301,11 +328,15 @@ function RowsCard({
               ) : null}
               {actions.reject.offered ? (
                 <Button
+                  ref={captureRejectButton}
                   size="small"
                   appearance="outline"
-                  disabled={!actions.reject.enabled || command.isPending}
+                  disabledFocusable={!actions.reject.enabled || command.isPending}
                   {...(actions.reject.title === null ? {} : { title: actions.reject.title })}
-                  onClick={() => setRejecting(true)}
+                  onClick={() => {
+                    returnFocus.current = true;
+                    setRejecting(true);
+                  }}
                 >
                   Reject flagged rows
                 </Button>
@@ -352,15 +383,8 @@ function RowsCard({
           {hidden}
         </p>
       )}
-      {file.rows.length === 0 ? (
-        <EmptyState
-          title="No rows were staged"
-          detail={
-            file.fileFindings.length > 0
-              ? 'The file was refused before any row was read; the file findings above say why.'
-              : 'The file holds no data lines.'
-          }
-        />
+      {noRows !== null ? (
+        <EmptyState title={noRows.title} detail={noRows.detail} testId="intake-no-rows" />
       ) : rows.length === 0 ? (
         <EmptyState
           title="No rows match these filters"
@@ -372,7 +396,9 @@ function RowsCard({
       {rejecting ? (
         <ReasonDialog
           title="Reject flagged rows"
-          subject={`${plural(file.counts.flagged, 'flagged row')} in ${file.fileName}`}
+          // The rows the command will touch: the flagged rows this reviewer sees, as the gate
+          // counts them; the file's own count also holds rows behind a wall.
+          subject={`${plural(rejectableRows(file.rows).length, 'flagged row')} in ${file.fileName}`}
           onCancel={() => setRejecting(false)}
           onSubmit={(reason) => {
             issue({ command: 'reject', reason });

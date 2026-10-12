@@ -91,12 +91,25 @@ export function intakeRowFixture(overrides: Partial<IntakeRow> = {}): IntakeRow 
   };
 }
 
+/** The diff of a row with no quarter on record: every figure is new, nothing is before it (diffRow). */
+const newDiff = (f: IntakeRow['figures']): IntakeRow['diff'] => ({
+  kind: 'new',
+  changes: [
+    { field: 'revenueLtm', before: null, after: f.revenueLtm },
+    { field: 'ebitdaLtm', before: null, after: f.ebitdaLtm },
+    { field: 'ev', before: null, after: f.ev },
+    { field: 'netDebt', before: null, after: f.netDebt },
+  ],
+});
+
 /**
- * One row of each kind a reviewer meets: unchanged, changed and new rows waiting for approval, an
- * unmatched name with a near-miss candidate, a name on the match guard list, a promoted row with
- * its decision and a rejected row with its reason.
+ * One row of each kind a reviewer meets: unchanged and changed rows waiting for approval, a new
+ * quarter flagged for a period end off the quarter end, an unmatched name with a near-miss
+ * candidate, a name on the match guard list, a promoted row with its decision and a rejected row
+ * with its reason. Rule ids, severities, messages and diff shapes follow packages/validation.
  */
 export function intakeRows(): IntakeRow[] {
+  const cobalt = figures({ fairValue: null });
   return [
     intakeRowFixture(),
     intakeRowFixture({
@@ -124,27 +137,20 @@ export function intakeRows(): IntakeRow[] {
       investmentNumber: 'INV-0007',
       companyName: 'Cobalt Energy Group',
       periodEnd: '2024-06-16',
-      figures: figures({ fairValue: null }),
+      figures: cobalt,
       link: matched(POSITION_ID.cobalt, 'INV-0007', 'Cobalt Energy Group'),
-      diff: {
-        kind: 'new',
-        changes: [
-          { field: 'revenueLtm', before: null, after: '20100000.00' },
-          { field: 'ebitdaLtm', before: null, after: '4140000.00' },
-          { field: 'ev', before: null, after: '52000000.00' },
-          { field: 'netDebt', before: null, after: '12500000.00' },
-        ],
-      },
+      diff: newDiff(cobalt),
       findings: [
         {
-          ruleId: 'PERIOD-02',
-          severity: 'warning',
-          message: 'Period end is not a quarter end',
+          ruleId: 'TYPE-03',
+          severity: 'error',
+          message: 'The period end is more than a few days from a calendar quarter end',
           field: 'PeriodEnd',
-          expected: '2024-06-30',
+          expected: 'a quarter end',
           actual: '2024-06-16',
         },
       ],
+      status: 'flagged',
     }),
     intakeRowFixture({
       id: ROW_ID.unmatched,
@@ -166,15 +172,15 @@ export function intakeRows(): IntakeRow[] {
           },
         ],
       },
-      diff: { kind: 'new', changes: [] },
+      diff: newDiff(figures()),
       findings: [
         {
           ruleId: 'XREF-01',
           severity: 'error',
-          message: 'No investment matches this row by number or exact name',
+          message: 'No investment on record matches the number or the name',
           field: 'CompanyName',
           expected: null,
-          actual: 'Meridian Data Partner',
+          actual: null,
         },
       ],
       status: 'flagged',
@@ -199,15 +205,16 @@ export function intakeRows(): IntakeRow[] {
           },
         ],
       },
-      diff: { kind: 'new', changes: [] },
+      diff: newDiff(figures()),
       findings: [
         {
           ruleId: 'XREF-02',
           severity: 'error',
-          message: 'The name is on the match guard list and is never linked automatically',
+          message:
+            'The name Summit Services Company is on the match guard list against 1 name on record; it is never linked automatically',
           field: 'CompanyName',
           expected: null,
-          actual: 'Summit Services Company',
+          actual: null,
         },
       ],
       status: 'flagged',
@@ -243,7 +250,7 @@ export function intakeRows(): IntakeRow[] {
         {
           ruleId: 'TIE-01',
           severity: 'error',
-          message: 'Fair value does not tie to the Locked mark for the period',
+          message: `FairValue differs from the Locked mark for ${PERIOD} by 4100000.00 dollars`,
           field: 'FairValue',
           expected: '41000000.00',
           actual: '45100000.00',
@@ -256,11 +263,11 @@ export function intakeRows(): IntakeRow[] {
   ];
 }
 
-/** The counts of intakeRows(): three waiting, two flagged, one promoted, one rejected. */
+/** The counts of intakeRows(): two waiting, three flagged, one promoted, one rejected. */
 const UPDATE_COUNTS: IntakeFile['counts'] = {
   new: 0,
-  validated: 3,
-  flagged: 2,
+  validated: 2,
+  flagged: 3,
   approved: 0,
   rejected: 1,
   promoted: 1,
@@ -284,13 +291,13 @@ export function intakeFileFixture(overrides: Partial<IntakeFile> = {}): IntakeFi
   };
 }
 
-/** A header the layout refuses: the file holds no rows and stays new. */
+/** A header the layout refuses (LAYOUT-02, a column the layout needs is missing): no rows, the file stays new. */
 export function fileFindingsFixture(): IntakeFinding[] {
   return [
     {
-      ruleId: 'LAYOUT-01',
+      ruleId: 'LAYOUT-02',
       severity: 'error',
-      message: 'The header is missing a required column',
+      message: 'The file lacks the column PeriodEnd',
       field: 'PeriodEnd',
       expected: 'PeriodEnd',
       actual: null,
@@ -358,7 +365,7 @@ export function approvedDetailFixture(): IntakeFileDetail {
   return intakeFileDetailFixture({
     rows,
     status: 'flagged',
-    counts: { ...UPDATE_COUNTS, validated: 0, promoted: 4 },
+    counts: { ...UPDATE_COUNTS, validated: 0, promoted: 3 },
     rowVersion: 3,
   });
 }
@@ -373,7 +380,7 @@ export function rejectedDetailFixture(reason: string): IntakeFileDetail {
   return intakeFileDetailFixture({
     rows,
     status: 'validated',
-    counts: { ...UPDATE_COUNTS, flagged: 0, rejected: 3 },
+    counts: { ...UPDATE_COUNTS, flagged: 0, rejected: 4 },
     rowVersion: 3,
   });
 }
