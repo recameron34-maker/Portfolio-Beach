@@ -29,8 +29,13 @@ import { asSystemActor, SYSTEM_USER_ID, schema } from '@pb/db';
 import type { Tx } from '@pb/db';
 import {
   ACCOUNTING_RULES,
+  IntakeSettingsError,
   accountingLayout,
+  countsOf,
   diffRow,
+  emptyCounts,
+  fileStatusOf,
+  intakeSettingsFrom,
   linkInvestment,
   naturalKeyOf,
   readAccountingFile,
@@ -41,9 +46,9 @@ import {
 import type {
   AccountingLayout,
   AccountingRow,
-  AccountingRuleConfig,
   CurrentQuarter,
   Finding,
+  IntakeSettings,
   InvestmentDirectoryEntry,
   LinkResult,
   MatchGuardPair,
@@ -52,7 +57,7 @@ import type {
 import { attempt, stagingMachine } from '@pb/workflows';
 import { z } from 'zod';
 import { decodeCursor, encodeCursor } from '../common/cursor.js';
-import { configDecimal, configError, configInteger } from '../common/definitions.js';
+import { configError } from '../common/definitions.js';
 import { ProblemError, workflowProblem } from '../common/problem.js';
 import { ACCOUNTING_LAYOUT, ADAPTERS, DEFINITIONS } from '../common/tokens.js';
 import { requireUuid } from '../common/validate.js';
@@ -78,21 +83,6 @@ import type { AuditEntry } from '../db/db.service.js';
 export type IntakeListOptions = z.infer<typeof intakeFileListQuery>;
 type IntakeCounts = z.infer<typeof intakeCounts>;
 export type IntakeExportList = z.infer<typeof intakeExportList>;
-
-/** Calculation settings from config/definitions.json; only the keys this service reads. */
-interface Definitions {
-  intake?: unknown;
-  priorYearPeriodEndToleranceDays?: unknown;
-  unitSanityBoundsUsd?: unknown;
-  [key: string]: unknown;
-}
-
-interface IntakeSettings {
-  maxRows: number;
-  maxFileBytes: number;
-  toleranceDays: number;
-  rules: AccountingRuleConfig;
-}
 
 const SOURCE = 'accounting';
 const EXCEPTION_SOURCE = 'accounting_import';
@@ -168,43 +158,6 @@ const INSERT_CHUNK = 500;
 /** The link of a row no directory entry answers; links[i] always exists, this only satisfies the index check. */
 const NO_LINK: LinkResult = { status: 'unmatched', by: null, investment: null, candidates: [] };
 
-const emptyCounts = (): IntakeCounts => ({
-  new: 0,
-  validated: 0,
-  flagged: 0,
-  approved: 0,
-  rejected: 0,
-  promoted: 0,
-});
-
-function countsOf(statuses: readonly StagingState[]): IntakeCounts {
-  const counts = emptyCounts();
-  for (const status of statuses) counts[status] += 1;
-  return counts;
-}
-
-/**
- * The file status from its rows (the contract's rule): flagged while any row is flagged, validated
- * while any row waits for approval, promoted once every row is promoted or rejected (rejected when
- * all are), and new only while the file holds no rows (it was refused).
- */
-export function fileStatusOf(counts: IntakeCounts): StagingState {
-  const total = Object.values(counts).reduce((a, b) => a + b, 0);
-  if (total === 0) return 'new';
-  if (counts.flagged > 0) return 'flagged';
-  if (counts.new + counts.validated + counts.approved > 0) return 'validated';
-  return counts.promoted > 0 ? 'promoted' : 'rejected';
-}
-
-/** A config block that must be a plain object, named like a definitions key. */
-function configObject(value: unknown, key: string): Record<string, unknown> {
-  if (typeof value !== 'object' || value === null || Array.isArray(value)) throw configError(key);
-  return value as Record<string, unknown>;
-}
-
-/** A Decimal as plain digits for the rule config, never in exponent form. */
-const digits = (value: Decimal): string => value.toFixed();
-
 function chunk<T>(items: readonly T[], size: number): T[][] {
   const out: T[][] = [];
   for (let i = 0; i < items.length; i += size) out.push(items.slice(i, i + size));
@@ -268,52 +221,21 @@ export class IntakeService {
   constructor(
     private readonly db: DbService,
     @Inject(ADAPTERS) private readonly adapters: AdapterSet,
-    @Inject(DEFINITIONS) private readonly definitions: Definitions,
+    @Inject(DEFINITIONS) private readonly definitions: unknown,
     @Inject(ACCOUNTING_LAYOUT) private readonly rawLayout: unknown,
   ) {}
 
-  /** Every threshold through the strict readers (CLAUDE.md rules 9 and 10): a missing key is a 500, never a default. */
+  /**
+   * Every threshold through the one strict reader the preview shares (CLAUDE.md rules 9 and 10):
+   * a missing key is a 500 naming it, never a default.
+   */
   private settings(): IntakeSettings {
-    const intake = configObject(this.definitions.intake, 'intake');
-    const bounds = configObject(this.definitions.unitSanityBoundsUsd, 'unitSanityBoundsUsd');
-    const toleranceDays = configInteger(
-      this.definitions.priorYearPeriodEndToleranceDays,
-      'priorYearPeriodEndToleranceDays',
-    );
-    const read = (key: string): unknown => intake[key];
-    return {
-      maxRows: configInteger(read('maxRowsPerFile'), 'intake.maxRowsPerFile'),
-      maxFileBytes: configInteger(read('maxFileBytes'), 'intake.maxFileBytes'),
-      toleranceDays,
-      rules: {
-        revenueMinUsd: digits(configDecimal(bounds.revenueMin, 'unitSanityBoundsUsd.revenueMin')),
-        revenueMaxUsd: digits(configDecimal(bounds.revenueMax, 'unitSanityBoundsUsd.revenueMax')),
-        fairValueTieToleranceUsd: digits(
-          configDecimal(read('fairValueTieToleranceUsd'), 'intake.fairValueTieToleranceUsd'),
-        ),
-        quarterOverQuarterMaxChangePct: digits(
-          configDecimal(
-            read('quarterOverQuarterMaxChangePct'),
-            'intake.quarterOverQuarterMaxChangePct',
-          ),
-        ),
-        yearOverYearMaxChangePct: digits(
-          configDecimal(read('yearOverYearMaxChangePct'), 'intake.yearOverYearMaxChangePct'),
-        ),
-        staleQuarters: configInteger(read('staleQuarters'), 'intake.staleQuarters'),
-        evToEbitdaMax: digits(configDecimal(read('evToEbitdaMax'), 'intake.evToEbitdaMax')),
-        ebitdaMarginAbsMax: digits(
-          configDecimal(read('ebitdaMarginAbsMax'), 'intake.ebitdaMarginAbsMax'),
-        ),
-        figureScale: configInteger(read('figureScale'), 'intake.figureScale'),
-        figureIntegerDigits: configInteger(
-          read('figureIntegerDigits'),
-          'intake.figureIntegerDigits',
-        ),
-        minPeriodYear: configInteger(read('minPeriodYear'), 'intake.minPeriodYear'),
-        periodEndToleranceDays: toleranceDays,
-      },
-    };
+    try {
+      return intakeSettingsFrom(this.definitions);
+    } catch (error) {
+      if (error instanceof IntakeSettingsError) throw configError(error.key);
+      throw error;
+    }
   }
 
   /** config/accounting_layout.json checked against the layout schema; anything else is a configuration problem. */

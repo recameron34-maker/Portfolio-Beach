@@ -23,11 +23,11 @@ async function bootstrap(): Promise<void> {
   if (import.meta.env.VITE_PB_PREVIEW === 'true') {
     try {
       const { installPreviewShim } = await import('./preview/shim.js');
-      await installPreviewShim('./preview/fixtures.json');
+      await installPreviewShim('./preview/fixtures.json', './preview/book.json');
     } catch (error) {
       // Without the recordings nothing can render; say so rather than leave the page blank.
       const reason = error instanceof Error ? error.message : 'unknown error';
-      root.textContent = `This preview could not load its recorded data (preview/fixtures.json): ${reason}.`;
+      root.textContent = `This preview could not load its recorded data (preview/fixtures.json, preview/book.json): ${reason}.`;
       return;
     }
   }

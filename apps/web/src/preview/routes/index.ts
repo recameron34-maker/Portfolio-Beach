@@ -4,17 +4,32 @@ import type { SimActor } from '../state.js';
 import { capitalNoticeCommandRoute } from './capitalNotices.js';
 import type { SimContext, SimRoute } from './common.js';
 import { flagRoute } from './flags.js';
+import {
+  intakeCommandRoute,
+  intakeExportsRoute,
+  intakeFileRoute,
+  intakeFilesRoute,
+  intakeImportRoute,
+} from './intake.js';
 import { resetRoute } from './reset.js';
 import { createValuationRoute, valuationCommandRoute } from './valuations.js';
 
 export type { SimContext, SimRoute } from './common.js';
 
-/** Simulated writes, checked before the recordings. Anything else that is not a GET is a miss. */
+/**
+ * Simulated routes, checked before the recordings: the writes, and the intake reads, whose
+ * records exist only once the simulation stages a file. Anything else that is not a GET is a miss.
+ */
 export const SIM_ROUTES: readonly SimRoute[] = [
   flagRoute,
   createValuationRoute,
   valuationCommandRoute,
   capitalNoticeCommandRoute,
+  intakeExportsRoute,
+  intakeImportRoute,
+  intakeFilesRoute,
+  intakeFileRoute,
+  intakeCommandRoute,
   resetRoute,
 ];
 
@@ -50,10 +65,10 @@ export interface SimCall {
 }
 
 /**
- * Runs one simulated write in the API's order: identity (401), the contract's role guard (403),
- * Idempotency-Key replay, body validation (400 with paths only), then the handler (404, 412, the
- * table's 409, 403 and 422). Successful answers to a request with an Idempotency-Key are kept and
- * replayed for the same key and body; the same key with another body is refused.
+ * Runs one simulated route in the API's order: identity (401), the contract's role guard (403),
+ * Idempotency-Key replay, query and body validation (400 with paths only), then the handler (404,
+ * 412, the table's 409, 403 and 422). Successful answers to a request with an Idempotency-Key are
+ * kept and replayed for the same key and body; the same key with another body is refused.
  */
 export async function runSimRoute(
   route: SimRoute,
@@ -90,6 +105,14 @@ export async function runSimRoute(
     return new Response(stored.body, { status: stored.status, headers: stored.headers });
   }
 
+  let query: unknown;
+  if (route.querySchema !== null) {
+    const parsed = route.querySchema.safeParse(Object.fromEntries(call.url.searchParams.entries()));
+    if (!parsed.success)
+      return validationProblem(parsed.error, 'query', { instance, simulated: true });
+    query = parsed.data;
+  }
+
   let body: unknown;
   if (route.bodySchema !== null) {
     let json: unknown;
@@ -109,7 +132,15 @@ export async function runSimRoute(
   }
 
   const response = await route.handle(
-    { credential: call.credential, actor, url: call.url, headers: call.headers, params, body },
+    {
+      credential: call.credential,
+      actor,
+      url: call.url,
+      headers: call.headers,
+      params,
+      body,
+      query,
+    },
     ctx,
   );
   if (scope !== null && response.ok) {

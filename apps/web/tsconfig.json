@@ -25,6 +25,7 @@
     { "path": "../../packages/calc" },
     { "path": "../../packages/contracts" },
     { "path": "../../packages/db" },
+    { "path": "../../packages/validation" },
     { "path": "../../packages/workflows" },
     { "path": "../../tools/synthetic" }
   ]

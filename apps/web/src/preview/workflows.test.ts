@@ -15,53 +15,13 @@ import { lockHashOf } from './routes/valuations.js';
 import { createPreviewFetch } from './shim.js';
 import { createPreviewState } from './state.js';
 import type { PreviewState } from './state.js';
-import { AS_OF, IDS, USERS, buildWorld } from './test-fixtures.js';
+import { AS_OF, IDS, USERS, buildWorld, problemOf, send } from './test-fixtures.js';
+import type { Answer } from './test-fixtures.js';
 
 const never: typeof fetch = () => Promise.reject(new Error('no network in the preview'));
 
-interface Answer {
-  status: number;
-  json: unknown;
-  text: string;
-  headers: Headers;
-}
-
-/** One request through the shim, the way src/api/client.ts sends it. */
-async function send(
-  f: typeof fetch,
-  credential: string,
-  method: string,
-  path: string,
-  body?: unknown,
-  extra: Record<string, string> = {},
-): Promise<Answer> {
-  const headers: Record<string, string> = {
-    accept: 'application/json',
-    authorization: `Bearer ${credential}`,
-    ...extra,
-  };
-  if (body !== undefined) headers['content-type'] = 'application/json';
-  const res = await f(path, {
-    method,
-    headers,
-    ...(body === undefined ? {} : { body: typeof body === 'string' ? body : JSON.stringify(body) }),
-  });
-  const text = await res.text();
-  return {
-    status: res.status,
-    json: text === '' ? null : JSON.parse(text),
-    text,
-    headers: res.headers,
-  };
-}
-
 const command = (kind: 'valuations' | 'capital-notices', id: string): string =>
   `/api/v1/${kind}/${id}/commands`;
-
-function problemOf(answer: Answer): { code: string; detail: string } {
-  const p = problemDetails.parse(answer.json);
-  return { code: p.type.split('/').pop() ?? '', detail: p.detail ?? '' };
-}
 
 let ids = 0;
 const env = {

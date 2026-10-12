@@ -11,6 +11,7 @@ import { investmentDetail, valuationCommandBody, valuationCreateBody } from '@pb
 import type { InvestmentDetail, ValuationRow } from '@pb/contracts';
 import { attempt, valuationMachine } from '@pb/workflows';
 import { closedByLock, isInFlight } from '../../pages/valuations/board.js';
+import { sha256Hex, subtleCrypto } from '../hash.js';
 import { overlayInvestmentDetail } from '../overlay.js';
 import { jsonResponse, problem, workflowProblem } from '../problems.js';
 import { ensureValuations, personFor } from '../state.js';
@@ -54,18 +55,6 @@ export function canonicalJson(value: Readonly<Record<string, string | number>>):
     .sort()
     .map((k) => `${JSON.stringify(k)}:${JSON.stringify(value[k])}`)
     .join(',')}}`;
-}
-
-function subtleCrypto(): SubtleCrypto | undefined {
-  // Browsers expose SubtleCrypto only in secure contexts (https or localhost).
-  return (globalThis.crypto as Crypto | undefined)?.subtle;
-}
-
-export async function sha256Hex(text: string): Promise<string> {
-  const subtle = subtleCrypto();
-  if (subtle === undefined) throw new Error('SHA-256 is not available in this context');
-  const digest = await subtle.digest('SHA-256', new TextEncoder().encode(text));
-  return [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, '0')).join('');
 }
 
 /** The lock hash covers the inputs and the value (docs/18 section 1). */

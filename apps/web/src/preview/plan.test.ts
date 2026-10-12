@@ -31,6 +31,7 @@ import {
 } from '../app/queries.js';
 import { CREDIT_POSITIONS, REALIZED_POSITIONS } from '../pages/analytics/constants.js';
 import { getKey, isPublicPath, normalizeKey } from './keys.js';
+import { SIM_ROUTES } from './routes/index.js';
 import { NOTICES_PATH, VALUATIONS_PATH } from './state.js';
 
 /** The shape of scripts/preview-plan.mjs, checked by the tests below. */
@@ -101,6 +102,12 @@ const keyOf = (path: string): string => {
   return getKey(isPublicPath(pathname) ? '' : 'u', path);
 };
 
+/** A GET the shim answers itself (records that exist only in the simulation) needs no recording. */
+const simulatedGet = (path: string): boolean => {
+  const pathname = new URL(path, 'http://x.invalid').pathname;
+  return SIM_ROUTES.some((r) => r.method === 'GET' && r.match(pathname) !== null);
+};
+
 describe('the recording plan', () => {
   it('normalizes keys exactly as the shim does', () => {
     const cases: [string, string, string, string][] = [
@@ -156,11 +163,18 @@ describe('the recording plan', () => {
             investmentsQuery({ limit, dealType, active: active as 'true' | 'false' | undefined }),
           );
     const missing: string[] = [];
+    const simulated: string[] = [];
     for (const option of options) {
       const path = await pathOf(option);
-      if (!planned.has(keyOf(path))) missing.push(path);
+      if (simulatedGet(path)) simulated.push(path);
+      else if (!planned.has(keyOf(path))) missing.push(path);
     }
     expect(missing).toEqual([]);
+    // Intake files exist only once the simulation stages one, so the shim answers those reads.
+    expect(simulated).toEqual([
+      '/api/v1/intake/files?limit=200',
+      '/api/v1/intake/accounting/exports',
+    ]);
   });
 
   it('records every id for every family that takes one, and the audit trail first', () => {
@@ -171,10 +185,7 @@ describe('the recording plan', () => {
     expect(paths('vehicle detail')).toEqual([`/api/v1/vehicles/${VEH}`]);
     expect(paths('sponsor detail')).toEqual([`/api/v1/sponsors/${SPO}`]);
     expect(paths('capital notice detail')).toEqual([`/api/v1/capital-notices/${NOT}`]);
-    expect(paths('intake')).toEqual([
-      '/api/v1/intake/files?limit=200',
-      '/api/v1/intake/accounting/exports',
-    ]);
+    expect(plan.families.map((f) => f.name)).not.toContain('intake');
     expect(paths('investment lists')).toHaveLength(
       INVESTMENT_LIMITS.length * (DEAL_TYPES.length + 1) * ACTIVE_FILTERS.length,
     );

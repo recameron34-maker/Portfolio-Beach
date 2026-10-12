@@ -17,7 +17,7 @@ interface Walkthrough {
   steps: ReactNode[];
 }
 
-/** Five walkthroughs of two to four steps each, in the order a reviewer would try them. */
+/** Six walkthroughs of two to four steps each, in the order a reviewer would try them. */
 function walkthroughs(p: GuidePeople): Walkthrough[] {
   return [
     {
@@ -74,6 +74,26 @@ function walkthroughs(p: GuidePeople): Walkthrough[] {
           Switch to {p.approver} and try again: still blocked, because the wire stays unverified
           until the wire register arrives.
         </>,
+      ],
+    },
+    {
+      id: 'intake',
+      title: 'Accounting import',
+      steps: [
+        <>
+          As {p.operations}, open <Link to="/data/intake">Intake</Link> under Data and stage the
+          defects sample: the file page counts the rows a rule flagged and the exceptions opened for
+          a person, and notes a row linked to a position outside your wall.
+        </>,
+        <>
+          Approve the validated rows: they are promoted at once. Then reject the flagged rows with a
+          reason.
+        </>,
+        <>
+          Switch to {p.wallMember} and look at the same file: the walled position's row is listed
+          and the note is gone.
+        </>,
+        <>Switch to {p.viewer} and open Intake: it says who intake is for.</>,
       ],
     },
     {
@@ -176,8 +196,8 @@ function Guide({
       </div>
       <p className="pb-meta pb-guide-intro">
         {compact
-          ? 'Five short walkthroughs on synthetic data. Sign in as the user a step names; after that, switch users with the user menu at the top of any page.'
-          : 'Five short walkthroughs on synthetic data. Switch users with the user menu at the top of any page.'}
+          ? 'Six short walkthroughs on synthetic data. Sign in as the user a step names; after that, switch users with the user menu at the top of any page.'
+          : 'Six short walkthroughs on synthetic data. Switch users with the user menu at the top of any page.'}
       </p>
       {folded ? (
         <div className="pb-guide-compact">

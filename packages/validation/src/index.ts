@@ -4,3 +4,5 @@ export * from './layout.js';
 export * from './linking.js';
 export * from './diff.js';
 export * from './rules/accounting.js';
+export * from './settings.js';
+export * from './staging.js';
