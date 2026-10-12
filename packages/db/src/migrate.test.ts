@@ -59,15 +59,21 @@ describe('migrations', () => {
     expect(role).toEqual([{ rolname: 'pb_app', rolsuper: false }]);
   });
 
-  it('enable and force row-level security on every business table', async () => {
-    const unprotected = await handle.query<{ name: string }>(`
-      select n.nspname || '.' || c.relname as name
+  it('enable row-level security on every business table and force it on all but the wall tables', async () => {
+    const tables = await handle.query<{ name: string; enabled: boolean; forced: boolean }>(`
+      select n.nspname || '.' || c.relname as name, c.relrowsecurity as enabled, c.relforcerowsecurity as forced
       from pg_class c join pg_namespace n on n.oid = c.relnamespace
       where c.relkind = 'r' and n.nspname in ('core','mon','ops','stg','audit')
         and c.relname <> 'schema_migration'
-        and not (c.relrowsecurity and c.relforcerowsecurity)
       order by 1`);
-    expect(unprotected).toEqual([]);
+    expect(tables.length).toBeGreaterThan(30);
+    expect(tables.filter((t) => !t.enabled)).toEqual([]);
+    // pb.can_see_walled (security definer) reads these two as their owner, the migration role,
+    // which is bound by nothing when forced: enabled keeps pb_app bound (migration 0009).
+    expect(tables.filter((t) => !t.forced).map((t) => t.name)).toEqual([
+      'core.wall_member',
+      'core.walled_record',
+    ]);
   });
 
   it('never grant DELETE on financial tables or UPDATE/DELETE on the audit trail to the application role', async () => {

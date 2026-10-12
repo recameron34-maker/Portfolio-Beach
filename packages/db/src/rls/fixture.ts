@@ -1,10 +1,13 @@
+import { sql } from 'drizzle-orm';
 import type { DbHandle } from '../client.js';
+import { withUserContext } from '../context.js';
 import { SYSTEM_USER_ID } from '../roles.js';
 import type { AppRole } from '../roles.js';
 
 /**
  * A small, hand-built dataset for the access matrix (docs/12 section 1): two investments, one of
- * them walled; two clients; one SMA commitment. Loaded as the owner, outside RLS.
+ * them walled; two clients; one SMA commitment; one staged accounting file with a row linked to
+ * each investment and one with no link. Loaded as the owner, outside RLS.
  */
 export const ids = {
   users: {
@@ -32,6 +35,10 @@ export const ids = {
   wall: '60000000-0000-4000-8000-000000000001',
   valuationLocked: '70000000-0000-4000-8000-000000000001',
   valuationWalledDraft: '70000000-0000-4000-8000-000000000002',
+  intakeFile: '80000000-0000-4000-8000-000000000001',
+  intakeRowVisible: '80000000-0000-4000-8000-000000000002',
+  intakeRowWalled: '80000000-0000-4000-8000-000000000003',
+  intakeRowUnlinked: '80000000-0000-4000-8000-000000000004',
 } as const;
 
 export interface Actor {
@@ -58,6 +65,22 @@ export const actors: Actor[] = [
   // The system actor (migration 0006 inserts its user row; no fixture row is needed).
   { name: 'service', userId: SYSTEM_USER_ID, roles: ['service'] },
 ];
+
+/** The rows of a table an actor sees under their own row-level security context. */
+export async function countAs(handle: DbHandle, actor: Actor, table: string): Promise<number> {
+  return withUserContext(
+    handle.db,
+    {
+      userId: actor.userId,
+      roles: actor.roles,
+      ...(actor.clientIds ? { clientIds: actor.clientIds } : {}),
+    },
+    async (tx) => {
+      const r = await tx.execute<{ n: number }>(sql.raw(`select count(*)::int as n from ${table}`));
+      return r.rows[0]?.n ?? -1;
+    },
+  );
+}
 
 export async function loadFixture(handle: DbHandle): Promise<void> {
   const u = ids.users;
@@ -104,5 +127,14 @@ export async function loadFixture(handle: DbHandle): Promise<void> {
     insert into audit.event (actor_id, actor_type, action, entity, entity_id) values
       ('${u.operations}', 'user', 'valuation.lock', 'mon.valuation', '${ids.valuationLocked}'),
       ('${u.operations}', 'user', 'cash_flow.promote', 'mon.cash_flow', null);
+    insert into stg.intake_file (id, source, file_name, content_hash, received_by, row_count, status) values
+      ('${ids.intakeFile}', 'accounting', 'accounting-export-2024-06-30.csv', 'fixture-hash-0001', '${u.operations}', 3, 'validated');
+    insert into stg.intake_row (id, intake_file_id, row_no, natural_key, target_entity, payload, status) values
+      ('${ids.intakeRowVisible}', '${ids.intakeFile}', 1, 'INV-0001|2024-06-30', 'quarterly_performance',
+        '{"link": {"status": "matched", "investmentId": "${ids.investment1}", "investmentNumber": "INV-0001"}}', 'validated'),
+      ('${ids.intakeRowWalled}', '${ids.intakeFile}', 2, 'INV-0002|2024-06-30', 'quarterly_performance',
+        '{"link": {"status": "matched", "investmentId": "${ids.investmentWalled}", "investmentNumber": "INV-0002"}}', 'validated'),
+      ('${ids.intakeRowUnlinked}', '${ids.intakeFile}', 3, 'INV-9999|2024-06-30', 'quarterly_performance',
+        '{"link": {"status": "unmatched", "investmentId": null, "investmentNumber": null}}', 'flagged');
   `);
 }

@@ -2,8 +2,10 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { sql } from 'drizzle-orm';
 import { createTestDb } from './testing.js';
 import type { DbHandle } from './client.js';
-import { withUserContext } from './context.js';
+import { asSystemActor, withUserContext } from './context.js';
 import type { Tx } from './context.js';
+import type { AppRole } from './roles.js';
+import { SYSTEM_USER_ID } from './roles.js';
 import { ids, loadFixture } from './rls/fixture.js';
 import { expectDbRejection } from './test-utils.js';
 
@@ -277,6 +279,105 @@ describe('database guards', () => {
       );
       const after = await handle.query<{ r: string }>('select current_user as r');
       expect(after[0]?.r).not.toBe('pb_app');
+    });
+    it('refuses a role that is not an application role, so a comma-joined string never carries the service role (SEC-5.3)', async () => {
+      // The roles setting is one comma-joined string that pb.current_roles() splits again.
+      for (const roles of [
+        ['viewer,service'],
+        ['service,viewer'],
+        ['editor'],
+        [''],
+        ['viewer', 'Service'],
+      ]) {
+        await expect(
+          withUserContext(
+            handle.db,
+            { userId: ids.users.viewer, roles: roles as unknown as AppRole[] },
+            () => Promise.resolve(1),
+          ),
+        ).rejects.toThrow(/not an application role/);
+      }
+      // The same string typed as a role would otherwise have been the system actor.
+      const n = await withUserContext(
+        handle.db,
+        { userId: ids.users.viewer, roles: ['viewer'] },
+        async (tx) => {
+          const r = await tx.execute<{ n: number }>(
+            sql`select count(*)::int as n from core.investment`,
+          );
+          return r.rows[0]?.n;
+        },
+      );
+      expect(n).toBe(1);
+    });
+  });
+
+  describe('system actor inside a user transaction (migration 0008, SEC-5.3)', () => {
+    const identity = async (tx: Tx) => {
+      const r = await tx.execute<{
+        user_id: string;
+        roles: string;
+        client_ids: string;
+        role: string;
+        investments: number;
+      }>(
+        sql`select current_setting('app.user_id', true) as user_id, current_setting('app.roles', true) as roles, current_setting('app.client_ids', true) as client_ids, current_user as role, (select count(*)::int from core.investment) as investments`,
+      );
+      return r.rows[0]!;
+    };
+    const viewer = {
+      userId: ids.users.viewer,
+      roles: ['viewer'] as AppRole[],
+      clientIds: [ids.clientA],
+    };
+
+    it('sees every walled record while it runs and gives the caller back their own identity', async () => {
+      await withUserContext(handle.db, viewer, async (tx) => {
+        expect(await identity(tx)).toMatchObject({
+          user_id: ids.users.viewer,
+          roles: 'viewer',
+          client_ids: ids.clientA,
+          investments: 1,
+        });
+        const inside = await asSystemActor(tx, (stx) => identity(stx));
+        expect(inside).toMatchObject({
+          user_id: SYSTEM_USER_ID,
+          roles: 'service',
+          client_ids: '',
+          role: 'pb_app',
+          investments: 2,
+        });
+        expect(await identity(tx)).toMatchObject({
+          user_id: ids.users.viewer,
+          roles: 'viewer',
+          client_ids: ids.clientA,
+          role: 'pb_app',
+          investments: 1,
+        });
+      });
+    });
+
+    it('restores the caller after a failure inside, and the transaction stays usable', async () => {
+      await withUserContext(handle.db, viewer, async (tx) => {
+        await expect(asSystemActor(tx, () => Promise.reject(new Error('boom')))).rejects.toThrow(
+          'boom',
+        );
+        expect(await identity(tx)).toMatchObject({ user_id: ids.users.viewer, investments: 1 });
+        // A failed statement aborts the savepoint only, never the caller's transaction.
+        await expectDbRejection(
+          asSystemActor(tx, async (stx) => {
+            await stx.execute(sql`select 1 / 0`);
+          }),
+          /division by zero/,
+        );
+        expect(await identity(tx)).toMatchObject({ user_id: ids.users.viewer, investments: 1 });
+      });
+    });
+
+    it('runs only inside a user transaction', async () => {
+      await expect(
+        handle.db.transaction((tx) => asSystemActor(tx, () => Promise.resolve(1))),
+      ).rejects.toThrow(/only inside a user transaction/);
     });
   });
 });

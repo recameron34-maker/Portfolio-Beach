@@ -70,6 +70,11 @@ export const READ_MATRIX: Record<string, Row> = {
   'mon.valuation_history': row(0, 0, 2, 2, 0, 0, 2, 0, 0),
   'ops.feature_flag': row(7, 7, 7, 7, 7, 7, 7, 7, 7),
   'audit.event': row(0, 0, 2, 2, 0, 2, 2, 0, 0),
+  // Staging: reviewers (operations, deal team, approver, auditor) and the service read files, and
+  // rows under the wall of the investment they link to (migration 0009); an unlinked row is every
+  // reviewer's. Three rows: linked to the open investment, linked to the walled one, unlinked.
+  'stg.intake_file': row(0, 1, 1, 1, 0, 0, 1, 1, 1),
+  'stg.intake_row': row(0, 2, 2, 2, 0, 0, 2, 3, 3),
 };
 
 export interface WriteCase {
@@ -126,5 +131,23 @@ export const WRITE_MATRIX: WriteCase[] = [
     sql: "insert into mon.valuation (investment_id, period_end, version, method, fair_value) values ('30000000-0000-4000-8000-000000000002', '2024-09-30', 1, 'valuation_method.cost', 1)",
     // Only the system actor, which promotes approved staging rows for every position (migration 0008).
     allowed: ['service'],
+  },
+  {
+    name: 'insert a staging file',
+    sql: "insert into stg.intake_file (source, file_name, content_hash) values ('accounting', 'accounting-export-2024-09-30.csv', 'fixture-hash-0002')",
+    // Import is operations' and the service's; the deal team reviews what was imported (migration 0007).
+    allowed: ['operations', 'service'],
+  },
+  {
+    name: 'update the status of a staged row linked to the open investment',
+    sql: "update stg.intake_row set status = 'approved' where id = '80000000-0000-4000-8000-000000000002'",
+    allowed: ['operations', 'deal_team', 'wall_member(deal_team)', 'service'],
+  },
+  {
+    name: 'update the status of a staged row linked to the walled investment',
+    sql: "update stg.intake_row set status = 'approved' where id = '80000000-0000-4000-8000-000000000003'",
+    // The wall on the investment is the wall on its staged row (migration 0009): only a member or
+    // the system actor can act on it; everyone else is shown no such row.
+    allowed: ['wall_member(deal_team)', 'service'],
   },
 ];

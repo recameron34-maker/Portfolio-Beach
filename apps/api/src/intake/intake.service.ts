@@ -1,4 +1,4 @@
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { Inject, Injectable } from '@nestjs/common';
 import { and, asc, desc, eq, inArray, lt, or, sql } from 'drizzle-orm';
 import type { SQL } from 'drizzle-orm';
@@ -25,7 +25,7 @@ import type {
   StagingState,
   intakeFileListQuery,
 } from '@pb/contracts';
-import { SYSTEM_USER_ID, schema } from '@pb/db';
+import { asSystemActor, SYSTEM_USER_ID, schema } from '@pb/db';
 import type { Tx } from '@pb/db';
 import {
   ACCOUNTING_RULES,
@@ -523,31 +523,30 @@ export class IntakeService {
   ): Promise<void> {
     const ids = new Map<number, string>();
     for (const batch of chunk(prepared, INSERT_CHUNK)) {
-      const inserted = await tx
-        .insert(row)
-        .values(
-          batch.map((p) => ({
-            intakeFileId: fileId,
-            rowNo: p.row.rowNo,
-            naturalKey: naturalKeyOf(p.row, layout),
-            targetEntity: TARGET_ENTITY,
-            targetId: p.targetId,
-            payload: {
-              investmentNumber: p.row.investmentNumber,
-              companyName: p.row.companyName,
-              periodEnd: p.row.periodEnd,
-              quarterEnd: p.quarterEnd,
-              figures: p.row.figures,
-              raw: p.row.raw,
-              link: linkOf(p.link),
-            } satisfies RowPayload,
-            diff: p.diff,
-            validation: p.findings,
-            status: p.status,
-          })),
-        )
-        .returning();
-      for (const r of inserted) ids.set(r.rowNo, r.id);
+      // Ids are given here, not returned: a RETURNING clause reads the new rows through the select
+      // policy, and the importer outside a wall may write the walled position's row but not read it.
+      const values = batch.map((p) => ({
+        id: randomUUID(),
+        intakeFileId: fileId,
+        rowNo: p.row.rowNo,
+        naturalKey: naturalKeyOf(p.row, layout),
+        targetEntity: TARGET_ENTITY,
+        targetId: p.targetId,
+        payload: {
+          investmentNumber: p.row.investmentNumber,
+          companyName: p.row.companyName,
+          periodEnd: p.row.periodEnd,
+          quarterEnd: p.quarterEnd,
+          figures: p.row.figures,
+          raw: p.row.raw,
+          link: linkOf(p.link),
+        } satisfies RowPayload,
+        diff: p.diff,
+        validation: p.findings,
+        status: p.status,
+      }));
+      await tx.insert(row).values(values);
+      for (const r of values) ids.set(r.rowNo, r.id);
     }
 
     const exceptions: (typeof schema.dataException.$inferInsert)[] = [];
@@ -888,21 +887,29 @@ export class IntakeService {
       .where(eq(file.id, fileId));
   }
 
+  /**
+   * Row counts per status, counted as the system actor inside the caller's transaction so they
+   * cover every row, walled ones included (the row policy of migration 0009 hides a walled row
+   * from a reader outside its wall): a file's status and counts are facts of the file, the same
+   * for every reader, and a number reveals nothing of a hidden row.
+   */
   private async countsByFile(
     tx: Tx,
     fileIds: readonly string[],
   ): Promise<Map<string, IntakeCounts>> {
     const out = new Map<string, IntakeCounts>();
     if (fileIds.length === 0) return out;
-    const rows = await tx
-      .select({
-        fileId: row.intakeFileId,
-        status: row.status,
-        n: sql<number>`count(*)::int`,
-      })
-      .from(row)
-      .where(inArray(row.intakeFileId, [...fileIds]))
-      .groupBy(row.intakeFileId, row.status);
+    const rows = await asSystemActor(tx, async (stx) =>
+      stx
+        .select({
+          fileId: row.intakeFileId,
+          status: row.status,
+          n: sql<number>`count(*)::int`,
+        })
+        .from(row)
+        .where(inArray(row.intakeFileId, [...fileIds]))
+        .groupBy(row.intakeFileId, row.status),
+    );
     for (const r of rows) {
       const counts = out.get(r.fileId) ?? emptyCounts();
       counts[r.status] += r.n;
@@ -959,9 +966,11 @@ export class IntakeService {
   }
 
   /**
-   * The file with its rows in file order. Rows linked to an investment the caller cannot open
-   * (a walled deal for a non-member) are left out and counted; rows with no link are shown to
-   * every reviewer. Counts cover every row, so the file reads the same for everyone.
+   * The file with its rows in file order, as the caller may see them. A row linked to an
+   * investment the caller cannot open (a walled deal for a non-member) is hidden by its row policy
+   * (migration 0009) and, should a policy ever let one through, by the filter below; it is counted
+   * as hidden. Rows with no link are shown to every reviewer. The counts come from the system actor
+   * and cover every row, so the file reads the same for everyone.
    */
   private async load(tx: Tx, fileId: string): Promise<LoadedFile | null> {
     const found = await tx
@@ -971,6 +980,8 @@ export class IntakeService {
       .where(eq(file.id, fileId));
     const header = found[0];
     if (header === undefined) return null;
+    const counts = (await this.countsByFile(tx, [fileId])).get(fileId) ?? emptyCounts();
+    const total = Object.values(counts).reduce((a, b) => a + b, 0);
     const stored = await tx
       .select({
         id: row.id,
@@ -1030,9 +1041,9 @@ export class IntakeService {
     );
     return {
       detail: {
-        ...this.toFile(header, countsOf(rows.map((r) => r.status))),
+        ...this.toFile(header, counts),
         rows: visible.map((r) => this.toRow(r, visibleNumbers)),
-        hiddenRows: rows.length - visible.length,
+        hiddenRows: total - visible.length,
       },
       visible,
     };
