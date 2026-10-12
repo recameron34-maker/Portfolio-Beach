@@ -35,7 +35,9 @@ export interface PreviewBookQuarter {
   isEntrySnapshot: boolean;
 }
 
+/** A Locked mark; the state travels so lockedNear in @pb/calc reads it the way the API's marks are read. */
 export interface PreviewBookMark {
+  state: 'Locked';
   periodEnd: string;
   fairValue: string;
 }
@@ -54,7 +56,7 @@ export interface PreviewBook {
   matchGuards: { nameA: string; nameB: string }[];
   /** Approved quarters per investment id, oldest first (period end, then id), as the API reads them. */
   quarters: Record<string, PreviewBookQuarter[]>;
-  /** Locked marks per investment id, by period end with the highest version first, so find() keeps the latest version. */
+  /** Locked marks per investment id, by period end with the highest version first, so lockedNear keeps the latest version. */
   lockedMarks: Record<string, PreviewBookMark[]>;
   samples: PreviewBookSample[];
 }
@@ -104,7 +106,11 @@ export function previewBook(dataset: SyntheticDataset): PreviewBook {
     .filter((v) => v.state === 'Locked')
     .sort((a, b) => byText(a.periodEnd, b.periodEnd) || b.version - a.version);
   for (const v of locked) {
-    (lockedMarks[v.investmentId] ??= []).push({ periodEnd: v.periodEnd, fairValue: v.fairValue });
+    (lockedMarks[v.investmentId] ??= []).push({
+      state: 'Locked',
+      periodEnd: v.periodEnd,
+      fairValue: v.fairValue,
+    });
   }
 
   const samples: PreviewBookSample[] = accountingExports(dataset).map((sample, i) => {

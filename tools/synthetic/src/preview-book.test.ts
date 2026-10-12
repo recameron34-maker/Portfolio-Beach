@@ -40,7 +40,10 @@ describe('the preview book: the system actor view of a generated dataset', () =>
 
   it('carries Locked marks only, the highest version first within a period end', () => {
     const locked = dataset.valuations.filter((v) => v.state === 'Locked');
-    expect(Object.values(book.lockedMarks).flat()).toHaveLength(locked.length);
+    const listed = Object.values(book.lockedMarks).flat();
+    expect(listed).toHaveLength(locked.length);
+    // The state travels with each mark, as the preview's book schema requires and lockedNear reads it.
+    expect(listed.every((m) => m.state === 'Locked')).toBe(true);
     for (const [investmentId, marks] of Object.entries(book.lockedMarks)) {
       const own = locked.filter((v) => v.investmentId === investmentId);
       for (const mark of marks) {
