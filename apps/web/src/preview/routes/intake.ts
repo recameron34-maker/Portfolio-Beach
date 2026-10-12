@@ -1,36 +1,29 @@
-import { alignedQuarterEnd, lockedNear } from '@pb/calc';
 import definitions from '../../../../../config/definitions.json';
 import layoutJson from '../../../../../config/accounting_layout.json';
-import {
-  intakeCommandBody,
-  intakeFileListQuery,
-  intakeImportBody,
-  isCalendarDate,
-} from '@pb/contracts';
+import { intakeCommandBody, intakeFileListQuery, intakeImportBody } from '@pb/contracts';
 import type {
   IntakeExportList,
   IntakeFile,
   IntakeFileDetail,
   IntakeFilePage,
   IntakeImportResult,
-  IntakeLink,
   IntakeRow,
   StagingState,
 } from '@pb/contracts';
 import {
-  ACCOUNTING_RULES,
   accountingLayout,
   countsOf,
-  diffRow,
+  exceptionsOpenedBy,
   fileStatusOf,
   intakeSettingsFrom,
-  linkInvestment,
+  linkOf,
+  linkRows,
   naturalKeyOf,
+  prepareRows,
   readAccountingFile,
-  runRules,
-  statusFromFindings,
+  selectTargets,
 } from '@pb/validation';
-import type { AccountingRow, Finding, IntakeSettings, LinkResult } from '@pb/validation';
+import type { RecordLookups } from '@pb/validation';
 import { attempt, stagingMachine } from '@pb/workflows';
 import { samplePath } from '../../pages/intake/intake.js';
 import type { PreviewBook } from '../book.js';
@@ -43,10 +36,11 @@ import type { SimContext } from './common.js';
 /**
  * The accounting intake (docs/04 M2, SEC-9.1) simulated in the browser, the way
  * apps/api/src/intake/intake.service.ts serves it: the three bundled sample exports are the drop
- * folder; an import reads the file against config/accounting_layout.json, links, diffs and checks
- * every row with packages/validation against the book as the system actor sees it (preview/book.json,
- * decision 0009), with the thresholds of config/definitions.json through the same reader as the
- * API; the file is keyed by the SHA-256 of its text, so the same text answers the file staged
+ * folder; an import reads the file against config/accounting_layout.json, then links, diffs and
+ * checks every row through the preparation shared with the API (@pb/validation prepare.ts) against
+ * the book as the system actor sees it (preview/book.json, decision 0009), with the thresholds of
+ * config/definitions.json through the same reader as the API; the file is keyed by the SHA-256 of
+ * its text, so the same text answers the file staged
  * before with duplicate true. A reader sees the rows and the candidates for the positions their own
  * recordings let them open; the rest are counted, never shown. Approve and reject run through the
  * staging transition table. The preview's standing rule: promotion changes the staged rows and the
@@ -65,21 +59,8 @@ const SYSTEM_ACTOR = {
   actorId: '00000000-0000-0000-0000-000000000001',
   actorRoles: ['service'],
 } as const;
-/** The link of a row no directory entry answers; links[i] always exists, this only satisfies the index check. */
-const NO_LINK: LinkResult = { status: 'unmatched', by: null, investment: null, candidates: [] };
 /** A cursor decodes to "receivedAt|id" of the last file listed. */
 const CURSOR = /^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z)\|([0-9a-f-]{36})$/;
-
-/** The outcome of reading and checking one row before anything is staged. */
-interface PreparedRow {
-  row: AccountingRow;
-  link: LinkResult;
-  quarterEnd: string | null;
-  targetId: string | null;
-  diff: IntakeRow['diff'];
-  findings: Finding[];
-  status: 'validated' | 'flagged';
-}
 
 /** A file with the rows the credential may see (for the response and the commands). */
 interface LoadedFile {
@@ -104,67 +85,11 @@ function canOpen(ctx: SimContext, credential: string, investmentId: string): boo
   );
 }
 
-/** The link for the contract: ids and names of the matched investment, candidates otherwise. */
-function linkOf(link: LinkResult): IntakeLink {
-  return {
-    status: link.status,
-    investmentId: link.investment?.id ?? null,
-    investmentNumber: link.investment?.investmentNumber ?? null,
-    companyName: link.investment?.companyName ?? null,
-    candidates: link.candidates,
-  };
-}
-
-/**
- * Links, diffs and checks every row of the file against the book as the system actor sees it,
- * exactly as the API's prepareRows does: the investment directory and the match guards, the
- * approved quarters of each linked investment and its Locked mark for the row's quarter.
- */
-function prepareRows(
-  book: PreviewBook,
-  rows: readonly AccountingRow[],
-  settings: IntakeSettings,
-): PreparedRow[] {
-  const links = rows.map((r) => linkInvestment(r, book.investments, book.matchGuards));
-  const tolerance = settings.toleranceDays;
-  return rows.map((r, i) => {
-    const link = links[i] ?? NO_LINK;
-    const period = r.periodEnd !== null && isCalendarDate(r.periodEnd) ? r.periodEnd : null;
-    const quarterEnd = period === null ? null : alignedQuarterEnd(period, tolerance);
-    const investmentId = link.investment?.id ?? null;
-    const onRecord = investmentId === null ? [] : (book.quarters[investmentId] ?? []);
-    // The approved quarter the row would replace: the one at the quarter end, or one that reports
-    // for the same quarter a few days off it (a sponsor closing its books early).
-    const current =
-      quarterEnd === null
-        ? null
-        : (onRecord.find((q) => q.periodEnd === quarterEnd) ??
-          onRecord.find((q) => alignedQuarterEnd(q.periodEnd, tolerance) === quarterEnd) ??
-          null);
-    const locked =
-      quarterEnd === null || investmentId === null
-        ? null
-        : lockedNear(book.lockedMarks[investmentId] ?? [], quarterEnd, tolerance);
-    const findings = runRules(ACCOUNTING_RULES, {
-      row: r,
-      // DUP rules key on each row's link and aligned quarter, so the file travels with its links.
-      file: rows.map((other, j) => ({ row: other, link: links[j] ?? NO_LINK })),
-      link,
-      current: { quarters: onRecord, lockedFairValue: locked },
-      asOf: book.asOf,
-      config: settings.rules,
-    });
-    return {
-      row: r,
-      link,
-      quarterEnd,
-      targetId: current?.id ?? null,
-      diff: diffRow(r, current),
-      findings,
-      status: statusFromFindings(findings),
-    };
-  });
-}
+/** What is on record in the book, as the shared preparation reads it (the API reads the same from the database). */
+const bookLookups = (book: PreviewBook): RecordLookups => ({
+  quartersOf: (investmentId) => book.quarters[investmentId] ?? [],
+  marksOf: (investmentId) => book.lockedMarks[investmentId] ?? [],
+});
 
 function toFile(sim: SimIntakeFile): IntakeFile {
   const counts = countsOf(sim.rows.map((r) => r.status));
@@ -323,7 +248,14 @@ export const intakeImportRoute = defineSimRoute({
     // A file the layout refuses (an unknown or missing column, nothing to read) holds no rows:
     // a renamed column must never be guessed at.
     const refused = read.fileFindings.some((f) => f.severity === 'error');
-    const prepared = refused ? [] : prepareRows(book, read.rows, settings);
+    const prepared = refused
+      ? []
+      : prepareRows(
+          linkRows(read.rows, book.investments, book.matchGuards),
+          bookLookups(book),
+          settings,
+          book.asOf,
+        );
     const sim: SimIntakeFile = {
       id: ctx.env.newId(),
       fileName,
@@ -332,10 +264,8 @@ export const intakeImportRoute = defineSimRoute({
       receivedBy: req.actor.displayName,
       rowCount: prepared.length,
       fileFindings: read.fileFindings,
-      // The data exceptions the API opens: one per unresolved link, one per fair value that does not tie.
-      exceptions:
-        prepared.filter((p) => p.link.status !== 'matched').length +
-        prepared.flatMap((p) => p.findings.filter((f) => f.ruleId === 'TIE-01')).length,
+      // The data exceptions the API opens, counted by the rule it shares with the preview.
+      exceptions: prepared.flatMap(exceptionsOpenedBy).length,
       rowVersion: 1,
       rows: prepared.map((p) => ({
         id: ctx.env.newId(),
@@ -448,23 +378,6 @@ export const intakeFileRoute = defineSimRoute({
   },
 });
 
-/** The rows a command acts on: the ones named, each of this file, visible and in the state the command needs, or every such visible row. */
-function targetsOf(
-  visible: readonly SimIntakeRow[],
-  rowIds: readonly string[] | undefined,
-  wanted: StagingState,
-): SimIntakeRow[] | null {
-  if (rowIds === undefined) return visible.filter((r) => r.status === wanted);
-  const byId = new Map(visible.map((r) => [r.id, r]));
-  const out: SimIntakeRow[] = [];
-  for (const id of new Set(rowIds)) {
-    const found = byId.get(id);
-    if (found?.status !== wanted) return null;
-    out.push(found);
-  }
-  return out;
-}
-
 /** Why an approval would be refused before anything changes: the table's rows, then the preconditions promotion needs. */
 function approvalRefusal(
   actor: SimActor,
@@ -570,15 +483,16 @@ export const intakeCommandRoute = defineSimRoute({
     if (sim === undefined) return notFound(instance);
     const { command, reason, rowIds } = req.body;
     const wanted: StagingState = command === 'approve' ? 'validated' : 'flagged';
-    const targets = targetsOf(load(ctx, req.credential, sim).visible, rowIds, wanted);
-    if (targets === null)
+    // The rows named must be rows of this file the credential sees, in the state the command
+    // needs (the rule shared with the API); naming a hidden row is the same as naming a row of another file.
+    const selected = selectTargets(load(ctx, req.credential, sim).visible, rowIds, wanted);
+    if (!selected.ok)
       return problem(400, 'validation', 'Invalid rowIds', {
         instance,
         simulated: true,
-        errors: [
-          { path: 'rowIds', message: `Every row must belong to this file and be ${wanted}` },
-        ],
+        errors: [selected.refusal],
       });
+    const targets = selected.rows;
     if (targets.length > 0) {
       const refusal =
         command === 'approve'

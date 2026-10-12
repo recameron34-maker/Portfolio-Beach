@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { featureFlagList, problemDetails } from '@pb/contracts';
 import { parseFixtures } from './fixtures.js';
-import { createPreviewFetch } from './shim.js';
+import { createPreviewFetch, installPreviewShim } from './shim.js';
 import { createPreviewState } from './state.js';
 import type { SimValuation } from './state.js';
 import { FixtureBuilder, IDS, USERS, buildWorld } from './test-fixtures.js';
@@ -100,6 +100,81 @@ describe('preview fetch shim: replay', () => {
     );
     expect(await (await f('./preview/fixtures.json')).text()).toBe('asset');
     expect(window.__pbPreviewActivity?.total).toBe(0);
+  });
+});
+
+describe('installPreviewShim: the recordings are required, the book is not', () => {
+  const { fixtures } = buildWorld();
+  const realFetch = window.fetch.bind(window);
+  const NO_BOOK = 'This preview carries no book to check an import against';
+  /** The static files beside the page, by the URL the shim asks for; anything else is 404. */
+  const serve =
+    (files: Record<string, string>): typeof fetch =>
+    (input) => {
+      const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
+      const body = files[url];
+      return Promise.resolve(
+        body === undefined
+          ? new Response('', { status: 404 })
+          : new Response(body, { status: 200, headers: { 'content-type': 'application/json' } }),
+      );
+    };
+  const warnings = () => vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+  afterEach(() => {
+    window.fetch = realFetch;
+    vi.restoreAllMocks();
+  });
+
+  it('installs without the book: the recordings answer, only Data > Intake answers 503', async () => {
+    const warned = warnings();
+    window.fetch = serve({ 'fixtures.json': JSON.stringify(fixtures) });
+    await installPreviewShim('fixtures.json', 'book.json');
+    expect(warned).toHaveBeenCalledOnce();
+    expect(warned.mock.calls[0]?.[0]).toContain('preview book not found at book.json');
+    const open = await window.fetch(`/api/v1/investments/${IDS.open}`, as(USERS.viewer.externalId));
+    expect(open.status).toBe(200);
+    const exports = await window.fetch(
+      '/api/v1/intake/accounting/exports',
+      as(USERS.ops.externalId),
+    );
+    expect(exports.status).toBe(503);
+    expect(problemDetails.parse(await exports.json()).detail).toBe(NO_BOOK);
+  });
+
+  it('installs with a book in the wrong format, warning with the parse message', async () => {
+    const warned = warnings();
+    window.fetch = serve({ 'fixtures.json': JSON.stringify(fixtures), 'book.json': '{"asOf":1}' });
+    await installPreviewShim('fixtures.json', 'book.json');
+    expect(warned).toHaveBeenCalledOnce();
+    expect(warned.mock.calls[0]?.[0]).toMatch(/not in the expected format at .*build:preview/);
+    const exports = await window.fetch(
+      '/api/v1/intake/accounting/exports',
+      as(USERS.ops.externalId),
+    );
+    expect(exports.status).toBe(503);
+    expect(problemDetails.parse(await exports.json()).detail).toBe(NO_BOOK);
+  });
+
+  it('installs with a book that is not JSON, warning with the parse message', async () => {
+    const warned = warnings();
+    window.fetch = serve({ 'fixtures.json': JSON.stringify(fixtures), 'book.json': '{not json' });
+    await installPreviewShim('fixtures.json', 'book.json');
+    expect(warned).toHaveBeenCalledOnce();
+    expect(warned.mock.calls[0]?.[0]).toContain('JSON');
+    expect(
+      (await window.fetch('/api/v1/intake/accounting/exports', as(USERS.ops.externalId))).status,
+    ).toBe(503);
+  });
+
+  it('fails without the recordings and installs nothing', async () => {
+    const warned = warnings();
+    window.fetch = serve({});
+    await expect(installPreviewShim('fixtures.json', 'book.json')).rejects.toThrow(
+      'preview fixtures not found at fixtures.json',
+    );
+    // Nothing was installed: a route the shim would answer still goes to the network, which has nothing.
+    expect((await window.fetch('/api/v1/auth/mock-users')).status).toBe(404);
+    expect(warned).toHaveBeenCalledOnce();
   });
 });
 

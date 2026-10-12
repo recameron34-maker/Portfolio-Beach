@@ -4,14 +4,12 @@ import { and, asc, desc, eq, inArray, lt, or, sql } from 'drizzle-orm';
 import type { SQL } from 'drizzle-orm';
 import { alias } from 'drizzle-orm/pg-core';
 import type { AdapterSet, Principal } from '@pb/adapters';
-import { alignedQuarterEnd, lockedNear } from '@pb/calc';
 import {
   intakeCounts,
   intakeExportList,
   intakeFinding,
   intakeLink,
   intakeRow as intakeRowSchema,
-  isCalendarDate,
 } from '@pb/contracts';
 import type {
   IntakeCommandBody,
@@ -27,30 +25,32 @@ import type {
 import { asSystemActor, SYSTEM_USER_ID, schema } from '@pb/db';
 import type { Tx } from '@pb/db';
 import {
-  ACCOUNTING_RULES,
   IntakeSettingsError,
   accountingLayout,
   countsOf,
   diffRow,
   emptyCounts,
+  exceptionsOpenedBy,
   fileStatusOf,
   intakeSettingsFrom,
-  linkInvestment,
+  linkOf,
+  linkRows,
   naturalKeyOf,
+  prepareRows,
   readAccountingFile,
-  runRules,
   sameValue,
-  statusFromFindings,
+  selectTargets,
 } from '@pb/validation';
 import type {
   AccountingLayout,
   AccountingRow,
-  CurrentQuarter,
   Finding,
   IntakeSettings,
   InvestmentDirectoryEntry,
-  LinkResult,
+  LockedMark,
   MatchGuardPair,
+  PreparedRow,
+  RecordQuarter,
   RowDiff,
 } from '@pb/validation';
 import { attempt, stagingMachine } from '@pb/workflows';
@@ -69,8 +69,10 @@ import type { AuditEntry } from '../db/db.service.js';
  * record and run through the validation rules, then staged in stg.* with its findings. Nothing
  * reaches mon.quarterly_performance until a reviewer approves, and promotion happens in the same
  * transaction as the approval with an audit event per row (docs/18 section 2). Linking, the diff and
- * the rules run as the system actor (DbService.runAsSystem), the one actor that sees every position
- * on record, walled ones included: an export covers the whole book, and a walled position must link
+ * the rules are the shared preparation of @pb/validation (prepare.ts, the same code the preview
+ * runs in the browser); here they run as the system actor (DbService.runAsSystem), the one actor
+ * that sees every position on record, walled ones included: an export covers the whole book, and a
+ * walled position must link
  * rather than read as "no match". Everything a caller reads or writes runs under their own
  * row-level security through DbService.run: a staged row linked to a position they cannot open is
  * left out and counted, a candidate they cannot open is dropped from the link, and promotion writes
@@ -131,17 +133,6 @@ interface LoadedFile {
   visible: StagedRow[];
 }
 
-/** The outcome of reading and checking one row before anything is written. */
-interface PreparedRow {
-  row: AccountingRow;
-  link: LinkResult;
-  quarterEnd: string | null;
-  targetId: string | null;
-  diff: z.infer<typeof rowDiff>;
-  findings: Finding[];
-  status: 'validated' | 'flagged';
-}
-
 const file = schema.intakeFile;
 const row = schema.intakeRow;
 const quarter = schema.quarterlyPerformance;
@@ -154,24 +145,10 @@ const CURSOR =
 const EXACT_AT_FORMAT = 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"';
 const INSERT_CHUNK = 500;
 
-/** The link of a row no directory entry answers; links[i] always exists, this only satisfies the index check. */
-const NO_LINK: LinkResult = { status: 'unmatched', by: null, investment: null, candidates: [] };
-
 function chunk<T>(items: readonly T[], size: number): T[][] {
   const out: T[][] = [];
   for (let i = 0; i < items.length; i += size) out.push(items.slice(i, i + size));
   return out;
-}
-
-/** The link for the contract: ids and names of the matched investment, candidates otherwise. */
-function linkOf(link: LinkResult): RowPayload['link'] {
-  return {
-    status: link.status,
-    investmentId: link.investment?.id ?? null,
-    investmentNumber: link.investment?.investmentNumber ?? null,
-    companyName: link.investment?.companyName ?? null,
-    candidates: link.candidates,
-  };
 }
 
 /** A refused file (the layout rejected it, so it holds no rows) may be staged again once the layout is corrected. */
@@ -375,9 +352,10 @@ export class IntakeService {
   }
 
   /**
-   * Links, diffs and checks every row of the file against the book as the system actor sees it:
+   * Links, diffs and checks every row of the file against the book as the system actor sees it,
+   * through the preparation shared with the preview (@pb/validation prepare.ts). This side reads
    * the investment directory (number, names, aliases; none are on record yet), the match guards,
-   * the approved quarters of each linked investment and its Locked mark for the row's quarter.
+   * then the approved quarters and the Locked marks of the investments the rows linked to.
    */
   private async prepareRows(
     tx: Tx,
@@ -389,57 +367,21 @@ export class IntakeService {
     const guards: MatchGuardPair[] = await tx
       .select({ nameA: schema.matchGuard.nameA, nameB: schema.matchGuard.nameB })
       .from(schema.matchGuard);
-    const links = rows.map((r) => linkInvestment(r, directory, guards));
-    const linked = [
-      ...new Set(links.flatMap((l) => (l.investment === null ? [] : [l.investment.id]))),
+    const linked = linkRows(rows, directory, guards);
+    const investmentIds = [
+      ...new Set(linked.flatMap((l) => (l.link.investment === null ? [] : [l.link.investment.id]))),
     ];
-    const quarters = await this.approvedQuarters(tx, linked);
-    const marks = await this.lockedMarks(tx, linked);
-    const tolerance = settings.toleranceDays;
-
-    return rows.map((r, i) => {
-      const link = links[i] ?? NO_LINK;
-      const period = r.periodEnd !== null && isCalendarDate(r.periodEnd) ? r.periodEnd : null;
-      const quarterEnd = period === null ? null : alignedQuarterEnd(period, tolerance);
-      const investmentId = link.investment?.id ?? null;
-      const onRecord = investmentId === null ? [] : (quarters.get(investmentId) ?? []);
-      // The approved quarter the row would replace: the one at the quarter end, or one that reports
-      // for the same quarter a few days off it (a sponsor closing its books early).
-      const current =
-        quarterEnd === null
-          ? null
-          : (onRecord.find((q) => q.periodEnd === quarterEnd) ??
-            onRecord.find((q) => alignedQuarterEnd(q.periodEnd, tolerance) === quarterEnd) ??
-            null);
-      // The Locked mark that counts for the quarter, by the same tolerance as the quarter match:
-      // a mark a few days off the quarter end ties (docs/08 rule 7, lockedNear in @pb/calc).
-      const locked =
-        quarterEnd === null || investmentId === null
-          ? null
-          : lockedNear(marks.get(investmentId) ?? [], quarterEnd, tolerance);
-      const findings = runRules(ACCOUNTING_RULES, {
-        row: r,
-        // DUP rules key on each row's link and aligned quarter, so the file travels with its links.
-        file: rows.map((other, j) => ({ row: other, link: links[j] ?? NO_LINK })),
-        link,
-        current: {
-          quarters: onRecord,
-          lockedFairValue:
-            locked === null ? null : { periodEnd: locked.periodEnd, fairValue: locked.fairValue },
-        },
-        asOf,
-        config: settings.rules,
-      });
-      return {
-        row: r,
-        link,
-        quarterEnd,
-        targetId: current?.id ?? null,
-        diff: diffRow(r, current),
-        findings,
-        status: statusFromFindings(findings),
-      };
-    });
+    const quarters = await this.approvedQuarters(tx, investmentIds);
+    const marks = await this.lockedMarks(tx, investmentIds);
+    return prepareRows(
+      linked,
+      {
+        quartersOf: (id) => quarters.get(id) ?? [],
+        marksOf: (id) => marks.get(id) ?? [],
+      },
+      settings,
+      asOf,
+    );
   }
 
   /** Visible investments with their company names; aliases are not on record yet, so each entry carries none. */
@@ -467,8 +409,8 @@ export class IntakeService {
   private async approvedQuarters(
     tx: Tx,
     investmentIds: readonly string[],
-  ): Promise<Map<string, (CurrentQuarter & { id: string; isEntrySnapshot: boolean })[]>> {
-    const out = new Map<string, (CurrentQuarter & { id: string; isEntrySnapshot: boolean })[]>();
+  ): Promise<Map<string, RecordQuarter[]>> {
+    const out = new Map<string, RecordQuarter[]>();
     if (investmentIds.length === 0) return out;
     const rows = await tx
       .select({
@@ -501,8 +443,8 @@ export class IntakeService {
   private async lockedMarks(
     tx: Tx,
     investmentIds: readonly string[],
-  ): Promise<Map<string, { periodEnd: string; fairValue: string; state: string }[]>> {
-    const out = new Map<string, { periodEnd: string; fairValue: string; state: string }[]>();
+  ): Promise<Map<string, LockedMark[]>> {
+    const out = new Map<string, LockedMark[]>();
     if (investmentIds.length === 0) return out;
     const v = schema.valuation;
     const rows = await tx
@@ -558,45 +500,20 @@ export class IntakeService {
       for (const r of values) ids.set(r.rowNo, r.id);
     }
 
-    const exceptions: (typeof schema.dataException.$inferInsert)[] = [];
-    for (const p of prepared) {
+    // Which exceptions a row opens, and what they carry (candidates by reason only, no values for
+    // a fair value that does not tie: SEC-5.3), is the shared rule in @pb/validation.
+    const exceptions: (typeof schema.dataException.$inferInsert)[] = prepared.flatMap((p) => {
       const rowId = ids.get(p.row.rowNo);
-      if (rowId === undefined) continue;
-      const base = {
+      if (rowId === undefined) return [];
+      return exceptionsOpenedBy(p).map((opened) => ({
         source: EXCEPTION_SOURCE,
         entity: 'stg.intake_row',
         entityId: rowId,
         severity: EXCEPTION_SEVERITY,
         state: 'open',
-      };
-      if (p.link.status !== 'matched') {
-        const ruleId = { unmatched: 'XREF-01', guarded: 'XREF-02', ambiguous: 'XREF-03' }[
-          p.link.status
-        ];
-        const finding = p.findings.find((f) => f.ruleId === ruleId);
-        // Every authenticated user may read exceptions, so a candidate travels as its reason only,
-        // never as a number or a name that would say a position exists (SEC-5.3); the candidates
-        // are on the staged row, shown to those who may see them.
-        exceptions.push({
-          ...base,
-          ruleId,
-          expected: finding?.expected ?? 'an investment on record',
-          actual: finding?.actual ?? p.row.investmentNumber ?? p.row.companyName ?? '',
-          candidates: p.link.candidates.map((c) => ({ reason: c.reason })),
-        });
-      }
-      // A fair value that does not tie opens an exception with no values: the Locked mark and the
-      // file's figure stay on the staged row, past the walls, not on a row everyone may read.
-      for (const finding of p.findings.filter((f) => f.ruleId === 'TIE-01')) {
-        exceptions.push({
-          ...base,
-          ruleId: finding.ruleId,
-          expected: null,
-          actual: null,
-          candidates: [],
-        });
-      }
-    }
+        ...opened,
+      }));
+    });
     for (const batch of chunk(exceptions, INSERT_CHUNK))
       await tx.insert(schema.dataException).values(batch);
   }
@@ -679,7 +596,12 @@ export class IntakeService {
       const loaded = await this.load(tx, fileId);
       if (loaded === null) throw new ProblemError(404, 'not-found', NOT_FOUND);
       const wanted: StagingState = body.command === 'approve' ? 'validated' : 'flagged';
-      const targets = this.targets(loaded, body.rowIds, wanted);
+      // The rows named must be rows of this file the caller sees, in the state the command needs
+      // (the shared rule in @pb/validation); naming a hidden row is the same as naming a row of another file.
+      const selected = selectTargets(loaded.visible, body.rowIds, wanted);
+      if (!selected.ok)
+        throw new ProblemError(400, 'validation', 'Invalid rowIds', [selected.refusal]);
+      const targets = selected.rows;
       const at = new Date(this.adapters.clock.now());
       for (const target of targets) {
         if (body.command === 'approve')
@@ -698,26 +620,6 @@ export class IntakeService {
       if (after === null) throw new ProblemError(404, 'not-found', NOT_FOUND);
       return after.detail;
     });
-  }
-
-  /** The rows a command acts on: the ones named, each of this file and in the state the command needs, or every such row the caller sees. */
-  private targets(
-    loaded: LoadedFile,
-    rowIds: readonly string[] | undefined,
-    wanted: StagingState,
-  ): StagedRow[] {
-    if (rowIds === undefined) return loaded.visible.filter((r) => r.status === wanted);
-    const byId = new Map(loaded.visible.map((r) => [r.id, r]));
-    const out: StagedRow[] = [];
-    for (const id of new Set(rowIds)) {
-      const found = byId.get(id);
-      if (found?.status !== wanted)
-        throw new ProblemError(400, 'validation', 'Invalid rowIds', [
-          { path: 'rowIds', message: `Every row must belong to this file and be ${wanted}` },
-        ]);
-      out.push(found);
-    }
-    return out;
   }
 
   /**
