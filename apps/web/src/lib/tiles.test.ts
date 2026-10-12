@@ -68,4 +68,32 @@ describe('balanceTiles', () => {
     cleanup?.();
     expect(disconnect).toHaveBeenCalled();
   });
+
+  it('stretches a lone last tile across the row at phone width, and only then', () => {
+    vi.stubGlobal(
+      'ResizeObserver',
+      class {
+        constructor(private readonly callback: () => void) {}
+        observe(): void {
+          this.callback();
+        }
+        disconnect = vi.fn();
+      },
+    );
+    const grid = document.createElement('div');
+    grid.style.setProperty('--pb-tile-min', '172px');
+    grid.style.columnGap = '12px';
+    // 358px fits two 172px tiles with one 12px gap; five tiles go 2 + 2 + 1.
+    Object.defineProperty(grid, 'clientWidth', { value: 358, configurable: true });
+    const tiles = Array.from({ length: 5 }, () => document.createElement('div'));
+    grid.append(...tiles);
+    balanceTiles(grid);
+    expect(grid.style.gridTemplateColumns).toBe('repeat(2, minmax(0, 1fr))');
+    expect(tiles.map((t) => t.style.gridColumn)).toEqual(['', '', '', '', '1 / -1']);
+    // Wide enough for 3 + 2 the last row holds two tiles, and nothing stretches.
+    Object.defineProperty(grid, 'clientWidth', { value: 540, configurable: true });
+    balanceTiles(grid);
+    expect(grid.style.gridTemplateColumns).toBe('repeat(3, minmax(0, 1fr))');
+    expect(tiles.every((t) => t.style.gridColumn === '')).toBe(true);
+  });
 });

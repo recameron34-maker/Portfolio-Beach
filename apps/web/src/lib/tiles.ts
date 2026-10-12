@@ -30,7 +30,15 @@ export function balanceTiles(grid: HTMLElement | null): (() => void) | undefined
       0,
     );
     const across = (grid.clientWidth + gap) / (min + gap);
-    grid.style.gridTemplateColumns = `repeat(${tileColumns(cells, across)}, minmax(0, 1fr))`;
+    const cols = tileColumns(cells, across);
+    grid.style.gridTemplateColumns = `repeat(${cols}, minmax(0, 1fr))`;
+    // A last row left with one tile stretches it across the row, so the grid ends on a full line
+    // (five tiles in two columns read 2 + 2 + 1 with the last one full width).
+    const tiles = [...grid.children].filter((t): t is HTMLElement => t instanceof HTMLElement);
+    for (const t of tiles) t.style.gridColumn = '';
+    const last = tiles[tiles.length - 1];
+    if (last !== undefined && cols > 1 && cells % cols === 1 && !last.classList.contains('is-wide'))
+      last.style.gridColumn = '1 / -1';
   };
   const resized = new ResizeObserver(fit);
   const changed = new MutationObserver(fit);

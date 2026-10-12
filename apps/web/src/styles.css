@@ -713,6 +713,7 @@ p:last-child {
   color: var(--pb-muted);
 }
 /* Tabs wrap to a second line rather than hide past the edge; phones swipe a single row instead */
+/* Tabs wrap at every width (a phone shows two rows rather than hiding tabs off the edge). */
 .pb-tabs {
   display: flex;
   flex-wrap: wrap;
@@ -1463,9 +1464,6 @@ p:last-child {
   }
 }
 @media (max-width: 760px) {
-  .pb-tabs {
-    flex-wrap: nowrap;
-  }
   .pb-shell {
     grid-template-columns: minmax(0, 1fr);
     grid-template-rows: auto auto auto minmax(0, 1fr);
