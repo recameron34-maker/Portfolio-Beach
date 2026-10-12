@@ -11,3 +11,11 @@ export type {
   AccountingExportOptions,
   ExportScenario,
 } from './accounting-export.js';
+export { previewBook, previewSampleFileName } from './preview-book.js';
+export type {
+  PreviewBook,
+  PreviewBookInvestment,
+  PreviewBookMark,
+  PreviewBookQuarter,
+  PreviewBookSample,
+} from './preview-book.js';
