@@ -10,6 +10,7 @@ import {
   tvpi,
   ebitdaMargin,
   evToEbitda,
+  holdingPeriodYears,
   interestCoverage,
   latestPeriod,
   latestQuarterEndOnOrBefore,
@@ -51,6 +52,8 @@ export interface PositionMetrics {
   grossIrr: string | null;
   /** no_valuation: something still held has no Locked mark, so there is no terminal value. */
   irrFlag: 'short_period' | 'no_valuation' | IrrReason | null;
+  /** First contribution to the exit (realized) or the as-of date (held), in 365-day years (docs/08 section 2). */
+  holdingPeriodYears: string | null;
   calcVersion: string;
 }
 
@@ -105,6 +108,7 @@ export function positionMetrics(
   valuations: readonly ValuationRow[],
   asOf: string,
   isActive: boolean,
+  exitDate: string | null,
 ): PositionMetrics {
   const typed: TypedCashFlow[] = flows
     .filter((f) => f.flowDate <= asOf)
@@ -126,6 +130,9 @@ export function positionMetrics(
     navDate: nav?.periodEnd ?? null,
     grossMoic: str(grossMoic),
     ...grossIrrOf(signed, navValue !== null),
+    holdingPeriodYears: str(
+      holdingPeriodYears(summary.firstContributionDate, isActive ? asOf : (exitDate ?? asOf)),
+    ),
     calcVersion: CALC_VERSION,
   };
 }

@@ -8,6 +8,7 @@ import {
   formatMultiple,
   formatPct,
   formatQuarter,
+  formatYears,
   clearTaxonomyLabels,
   joinList,
   labelOf,
@@ -48,6 +49,14 @@ describe('number and date display (docs/06 section 3)', () => {
     for (const bad of [null, undefined, '', 'not a date', 'June 2025', '2024-13-31', '2024-00-31'])
       expect(formatMonthYearShort(bad), String(bad)).toBe(MISSING);
   });
+  it('shows a holding period to one decimal and never computes one', () => {
+    expect(formatYears('2.0027397260')).toBe('2.0 years');
+    expect(formatYears('3.7')).toBe('3.7 years');
+    expect(formatYears('0.0547945205')).toBe('0.1 years');
+    for (const bad of [null, undefined, '', 'soon'])
+      expect(formatYears(bad), String(bad)).toBe(MISSING);
+  });
+
   it('counts with a plural noun and joins a list in plain words', () => {
     expect(plural(1, 'quarter')).toBe('1 quarter');
     expect(plural(0, 'quarter')).toBe('0 quarters');

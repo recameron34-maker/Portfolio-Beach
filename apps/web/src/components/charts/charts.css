@@ -107,9 +107,13 @@
   fill: var(--pb-text);
   font-variant-numeric: tabular-nums;
 }
-.pb-chart-inlabel {
-  font-size: 11px;
+/* A value inside a stacked segment: page-coloured plate, text colour on it (always 4.5:1 or better). */
+.pb-chart-inlabel-plate {
   fill: var(--pb-bg);
+}
+.pb-chart-inlabel-text {
+  font-size: 11px;
+  fill: var(--pb-text);
   font-variant-numeric: tabular-nums;
 }
 .pb-chart-mark {

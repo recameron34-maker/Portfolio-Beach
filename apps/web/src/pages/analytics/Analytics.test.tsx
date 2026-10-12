@@ -235,6 +235,7 @@ describe('analytics tabs', () => {
             isActive: false,
             entryDate: '2018-09-01',
             exitDate: '2020-09-01',
+            holdingPeriodYears: '2.0027397260',
             invested: '23200000',
             distributions: '23000000',
             nav: '0',

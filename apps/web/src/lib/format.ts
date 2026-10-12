@@ -1,3 +1,4 @@
+import { DECIMAL_PATTERN } from '@pb/contracts';
 import brand from '../../../../config/brand.json';
 
 /** Display rules from docs/06 section 3. Inputs are decimal strings or null; null renders the missing placeholder. */
@@ -110,6 +111,12 @@ export function formatQuarter(iso: string | null | undefined): string {
   const month = Number(m?.[2]);
   if (m === null || !(month >= 1 && month <= 12)) return MISSING;
   return `Q${Math.ceil(month / 3)} ${m[1]}`;
+}
+
+/** "2.0 years" from the API's holding period in years (docs/08 section 2); the missing placeholder for null. */
+export function formatYears(value: string | null | undefined): string {
+  if (value === null || value === undefined || !DECIMAL_PATTERN.test(value)) return MISSING;
+  return `${Number(value).toFixed(1)} years`;
 }
 
 /** "1 quarter", "3 quarters": a count with its noun, plural by adding s. */

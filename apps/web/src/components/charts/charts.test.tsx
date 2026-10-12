@@ -23,10 +23,50 @@ function measureAs(width: number): void {
   );
 }
 
+/** Each new canvas measures the next width in the list, so a remounted canvas reads a new size. */
+function measureInTurn(widths: number[]): void {
+  let mounted = 0;
+  vi.stubGlobal(
+    'ResizeObserver',
+    class {
+      private readonly callback: (entries: { contentRect: { width: number } }[]) => void;
+      constructor(callback: (entries: { contentRect: { width: number } }[]) => void) {
+        this.callback = callback;
+      }
+      observe(): void {
+        const width = widths[Math.min(mounted, widths.length - 1)] ?? 0;
+        mounted += 1;
+        this.callback([{ contentRect: { width } }]);
+      }
+      unobserve = vi.fn();
+      disconnect = vi.fn();
+    },
+  );
+}
+
 describe('charts', () => {
   afterEach(() => {
     cleanup();
     vi.unstubAllGlobals();
+  });
+
+  it('measures the canvas again after the table view and back, so the chart keeps its real width', async () => {
+    measureInTurn([316, 500]);
+    render(
+      <LineChart
+        title="NAV by quarter"
+        x={['Q1', 'Q2']}
+        series={[{ name: 'NAV', values: [1, 2] }]}
+        kind="money"
+        format={(v) => `$${v}M`}
+        summary="two quarters"
+      />,
+    );
+    const svg = () => screen.getByRole('group', { name: 'NAV by quarter' });
+    expect(svg().getAttribute('width')).toBe('316');
+    await userEvent.click(screen.getByRole('button', { name: 'Show table' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Show chart' }));
+    expect(svg().getAttribute('width')).toBe('500');
   });
 
   it('renders bars with value labels, a tooltip on focus and a table twin', async () => {

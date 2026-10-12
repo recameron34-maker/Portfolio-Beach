@@ -155,18 +155,31 @@ export function StackedBars({
                   const r = last ? Math.min(4, w) : 0;
                   const path = `M${start} ${y}H${end - r}a${r} ${r} 0 0 1 ${r} ${r}V${y + BAR - r}a${r} ${r} 0 0 1 ${-r} ${r}H${start}Z`;
                   const fits = w >= s.display.length * 7 + 12;
+                  // The label sits on a plate in the page colour: no series colour gives either
+                  // text colour 4.5:1 on its own (lib/theme.test.ts documents the pairs).
+                  const plateW = s.display.length * 6.6 + 8;
                   return (
                     <g key={s.name}>
                       <path d={path} fill={colorOf(s.name)} stroke="var(--pb-bg)" strokeWidth={2} />
                       {fits ? (
-                        <text
-                          x={start + w / 2}
-                          y={y + BAR / 2 + 4}
-                          className="pb-chart-inlabel"
-                          textAnchor="middle"
-                        >
-                          {s.display}
-                        </text>
+                        <g className="pb-chart-inlabel">
+                          <rect
+                            x={start + w / 2 - plateW / 2}
+                            y={y + BAR / 2 - 8}
+                            width={plateW}
+                            height={16}
+                            rx={3}
+                            className="pb-chart-inlabel-plate"
+                          />
+                          <text
+                            x={start + w / 2}
+                            y={y + BAR / 2 + 4}
+                            className="pb-chart-inlabel-text"
+                            textAnchor="middle"
+                          >
+                            {s.display}
+                          </text>
+                        </g>
                       ) : null}
                     </g>
                   );

@@ -71,6 +71,7 @@ export function investmentFixture(overrides: Partial<InvestmentSummary> = {}): I
     entryDate: '2018-11-15',
     exitDate: null,
     isActive: true,
+    holdingPeriodYears: '6.6273972603',
     invested: '6900000.00',
     distributions: '2200000.00',
     nav: '27400000.00',

@@ -68,5 +68,14 @@ describe('derived tokens and contrast (docs/06 addendum)', () => {
     expect(contrastRatio(tokens.brand.accent, tokens.ui.bg)).toBeLessThan(4.5); // accent is never text
     expect(contrastRatio(tokens.status.watch, tokens.ui.bg)).toBeLessThan(4.5); // raw watch is never text
     expect(contrastRatio(tokens.ui.muted, tokens.brand.sand)).toBeLessThan(4.5); // muted never on sand
+    // A value inside a stacked bar: on some series colours neither the page nor the text colour
+    // reaches 4.5:1, so the label sits on a plate in the page colour (charts.css).
+    const bestOnSeries = Math.min(
+      ...tokens.chartSeries.map((c) =>
+        Math.max(contrastRatio(tokens.ui.bg, c), contrastRatio(tokens.ui.text, c)),
+      ),
+    );
+    expect(bestOnSeries).toBeLessThan(4.5);
+    expect(contrastRatio(tokens.ui.text, tokens.ui.bg)).toBeGreaterThanOrEqual(4.5);
   });
 });

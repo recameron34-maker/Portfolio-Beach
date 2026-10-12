@@ -154,6 +154,11 @@ export const investmentSummary = z.object({
   entryDate: isoDate,
   exitDate: isoDate.nullable(),
   isActive: z.boolean(),
+  /**
+   * Years from the first contribution to the exit (realized) or the as-of date (held), in 365-day
+   * years (docs/08 section 2); null without a contribution on or before the as-of date.
+   */
+  holdingPeriodYears: decimalString.nullable(),
   invested: decimalString.nullable(),
   distributions: decimalString.nullable(),
   nav: decimalString.nullable(),

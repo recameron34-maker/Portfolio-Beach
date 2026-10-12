@@ -116,6 +116,7 @@ export function investmentFixture(
     invested: '1000.00',
     distributions: '0.00',
     nav: '1100.00',
+    holdingPeriodYears: '2.2465753425',
     navDate: '2025-03-31',
     grossMoic: '1.10',
     grossIrr: '0.05',

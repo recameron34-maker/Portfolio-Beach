@@ -158,7 +158,7 @@ export function summarizeInvestment(
   return {
     ...base,
     vintage: Number(row.entryDate.slice(0, 4)),
-    ...positionMetrics(flows, valuations, asOf, row.isActive),
+    ...positionMetrics(flows, valuations, asOf, row.isActive, row.exitDate),
   };
 }
 

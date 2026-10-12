@@ -90,7 +90,10 @@ describe('positionMetrics: a held position without a Locked mark', () => {
       [mark('2025-06-30', '9000000', 'Draft')],
       '2025-06-30',
       true,
+      null,
     );
+    // Held at the as-of date: the holding period runs from the first contribution to that date.
+    expect(m.holdingPeriodYears).toBe(D('897').div('365').toFixed(10).replace(/0+$/, ''));
     expect(m.invested).toBe('10000000');
     expect(m.distributions).toBe('2000000');
     expect(m.nav).toBeNull();

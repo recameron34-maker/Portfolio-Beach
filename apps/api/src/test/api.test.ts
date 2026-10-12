@@ -263,6 +263,59 @@ describe('Portfolio Beach API', () => {
         .expect(400);
     });
 
+    it('reports the holding period from the first contribution, to the exit once realized', async () => {
+      const realized = investmentPage.parse(
+        (
+          await h
+            .http()
+            .get(`/api/v1/investments?active=false&limit=200&asOf=${h.dataset.asOf}`)
+            .set('authorization', h.as('operations'))
+            .expect(200)
+        ).body,
+      );
+      expect(realized.items.length).toBeGreaterThan(0);
+      for (const row of realized.items) {
+        const contributions = h.dataset.cashFlows
+          .filter(
+            (f) =>
+              f.investmentId === row.id &&
+              f.flowType === 'flow_type.contribution' &&
+              f.status === 'record_status.approved' &&
+              f.flowDate <= h.dataset.asOf,
+          )
+          .map((f) => f.flowDate)
+          .sort();
+        const first = contributions[0];
+        if (first === undefined) {
+          expect(row.holdingPeriodYears, row.investmentNumber).toBeNull();
+          continue;
+        }
+        const days = (Date.parse(row.exitDate ?? '') - Date.parse(first)) / 86_400_000;
+        expect(Number(row.holdingPeriodYears), row.investmentNumber).toBeCloseTo(days / 365, 9);
+      }
+      // A position still held is measured to the as-of date, so an earlier as-of shortens it.
+      const held = investmentPage.parse(
+        (
+          await h
+            .http()
+            .get(`/api/v1/investments?active=true&limit=1&asOf=${h.dataset.asOf}`)
+            .set('authorization', h.as('operations'))
+            .expect(200)
+        ).body,
+      ).items[0]!;
+      const earlier = investmentDetail.parse(
+        (
+          await h
+            .http()
+            .get(`/api/v1/investments/${held.id}?asOf=2024-12-31`)
+            .set('authorization', h.as('operations'))
+            .expect(200)
+        ).body,
+      );
+      if (held.holdingPeriodYears !== null && earlier.holdingPeriodYears !== null)
+        expect(Number(earlier.holdingPeriodYears)).toBeLessThan(Number(held.holdingPeriodYears));
+    });
+
     it('filters by deal type and shows credit metrics on a credit position', async () => {
       const credit = investmentPage.parse(
         (

@@ -13,8 +13,14 @@ import {
   StatTile,
   TableWrap,
 } from '../../components/ui.js';
-import { formatHoldingPeriod } from '../../lib/dates.js';
-import { formatDate, formatMoic, formatMoneyM, irrDisplay, labelOf } from '../../lib/format.js';
+import {
+  formatDate,
+  formatMoic,
+  formatMoneyM,
+  formatYears,
+  irrDisplay,
+  labelOf,
+} from '../../lib/format.js';
 import { irrFlagHint } from '../../lib/labels.js';
 import { REALIZED_POSITIONS } from './constants.js';
 import { balanceTiles } from '../../lib/tiles.js';
@@ -78,7 +84,7 @@ function RealizedTable({ page }: { page: InvestmentPage }): ReactNode {
               <td>{labelOf(i.dealType)}</td>
               <td>{formatDate(i.entryDate)}</td>
               <td>{formatDate(i.exitDate)}</td>
-              <NumCell>{formatHoldingPeriod(i.entryDate, i.exitDate)}</NumCell>
+              <NumCell>{formatYears(i.holdingPeriodYears)}</NumCell>
               <NumCell>{formatMoneyM(i.invested)}</NumCell>
               <NumCell>{formatMoneyM(i.distributions)}</NumCell>
               <NumCell>{formatMoic(i.grossMoic)}</NumCell>
@@ -112,7 +118,7 @@ export function RealizationsTab(): ReactNode {
         <SectionHeader
           aside={
             realized.data !== undefined
-              ? `As of ${formatDate(realized.data.asOf)}. Holding period is entry to exit in 365.25-day years.`
+              ? `As of ${formatDate(realized.data.asOf)}. Holding period runs from the first contribution to the exit, in 365-day years (docs/08).`
               : undefined
           }
         >
