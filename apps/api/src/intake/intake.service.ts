@@ -5,7 +5,6 @@ import type { SQL } from 'drizzle-orm';
 import { alias } from 'drizzle-orm/pg-core';
 import type { AdapterSet, Principal } from '@pb/adapters';
 import { alignedQuarterEnd, lockedNear } from '@pb/calc';
-import type { Decimal } from '@pb/calc';
 import {
   intakeCounts,
   intakeExportList,
