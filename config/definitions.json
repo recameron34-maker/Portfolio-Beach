@@ -56,7 +56,7 @@
     "topPositions": 10
   },
   "intake": {
-    "_note": "Accounting import rules (docs/04 M2, packages/validation). Percentages are decimals. figureScale and figureIntegerDigits match the record's numeric(20,2) figure columns; minPeriodYear is the first year a period end may carry.",
+    "_note": "Intake rules (docs/04 M2, packages/validation). Percentages are decimals. figureScale and figureIntegerDigits match the record's numeric(20,2) figure columns; minPeriodYear is the first year a period end may carry. weeklyVarianceThresholdPct is the move against the prior that flags a weekly value; weeklyStaleDays is how many days before the as-of date a report date may be before it is stale; lookthroughNavTolerancePct and lookthroughCostToleranceUsd are the differences a reconcile lets pass; maxWorkbookBase64Chars caps an uploaded ops-drop workbook.",
     "maxRowsPerFile": 5000,
     "maxFileBytes": 2000000,
     "fairValueTieToleranceUsd": 1.0,
@@ -67,6 +67,11 @@
     "ebitdaMarginAbsMax": 1.0,
     "figureScale": 2,
     "figureIntegerDigits": 18,
-    "minPeriodYear": 1900
+    "minPeriodYear": 1900,
+    "weeklyVarianceThresholdPct": 0.1,
+    "weeklyStaleDays": 10,
+    "lookthroughNavTolerancePct": 0.02,
+    "lookthroughCostToleranceUsd": 1.0,
+    "maxWorkbookBase64Chars": 4000000
   }
 }

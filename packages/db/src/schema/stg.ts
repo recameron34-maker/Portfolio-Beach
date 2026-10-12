@@ -54,19 +54,35 @@ export const intakeRow = stg.table('intake_row', {
   ...standardColumns,
 });
 
+/**
+ * Weekly report values (docs/04 M2 weekly-report-intake, migration 0010). The typed columns hold
+ * the cells that parse; `raw` holds every cell as the file wrote it; `link` is the intake link and
+ * `findings` the rule findings, as the contract shapes them. An approved value becomes a Draft
+ * valuation of method weekly_report (valuationId).
+ */
 export const stagedValuation = stg.table('valuation', {
   id: uuid('id').primaryKey().defaultRandom(),
   intakeFileId: uuid('intake_file_id'),
-  reportDate: date('report_date').notNull(),
-  investmentNumber: text('investment_number').notNull(),
+  rowNo: integer('row_no'),
+  reportDate: date('report_date'),
+  investmentNumber: text('investment_number'),
+  companyName: text('company_name'),
   investmentId: uuid('investment_id'),
-  reportedValue: numeric('reported_value', { precision: 20, scale: 2 }).notNull(),
+  reportedValue: numeric('reported_value', { precision: 20, scale: 2 }),
   priorValue: numeric('prior_value', { precision: 20, scale: 2 }),
+  priorSource: text('prior_source'),
+  priorDate: date('prior_date'),
   variancePct: numeric('variance_pct', { precision: 12, scale: 8 }),
   flag: text('flag'),
   matchStatus: text('match_status').notNull().default('unmatched'),
+  link: jsonb('link').notNull().default({}),
+  findings: jsonb('findings').notNull().default([]),
+  raw: jsonb('raw').notNull().default({}),
   status: stagingStatus('status').notNull().default('new'),
   reviewerId: uuid('reviewer_id'),
   decision: text('decision'),
+  decidedAt: timestamp('decided_at', { withTimezone: true }),
+  promotedAt: timestamp('promoted_at', { withTimezone: true }),
+  valuationId: uuid('valuation_id'),
   ...standardColumns,
 });

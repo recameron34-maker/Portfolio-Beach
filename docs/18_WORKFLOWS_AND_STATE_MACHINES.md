@@ -42,6 +42,15 @@ Queued > Running > Succeeded | Failed | NeedsRetry; NeedsRetry > Running (max 1 
 ## 8. Deal change request
 Submitted > Routed > InProgress > Applied | Rejected; quarter-end job lists any not Applied.
 
-## 9. Implementation notes
+## 9. Data exception (`ops.data_exception.state`)
+| From | To | Who | Preconditions |
+|---|---|---|---|
+| (new) | open | Intake or job (system actor) | Opened by a validation rule, an unresolved link or a look-through difference |
+| open | acknowledged | Operations | |
+| open, acknowledged | resolved | Operations | Reason required |
+| open, acknowledged | wont_fix | Operations | Reason required |
+resolved and wont_fix are terminal; a problem that comes back opens a new exception. Setting the external ticket number (`external_ticket`) is a plain update, not a transition.
+
+## 10. Implementation notes
 - Model each machine as a typed transition table in `packages/workflows` shared by API and tests.
 - Long-running flows (capital notice, extraction batches, report generation) run in the workflow engine with durable timers for reminders (T-3, T-1, due date).

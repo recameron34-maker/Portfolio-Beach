@@ -75,6 +75,14 @@ export const portfolioCompany = core.table('portfolio_company', {
   ...standardColumns,
 });
 
+/** A name a portfolio company is also known by; matched exactly, never fuzzily (docs/03 section 5). */
+export const companyAlias = core.table('company_alias', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  portfolioCompanyId: uuid('portfolio_company_id').notNull(),
+  alias: text('alias').notNull().unique(),
+  ...standardColumns,
+});
+
 export const fundHolding = core.table('fund_holding', {
   id: uuid('id').primaryKey().defaultRandom(),
   sponsorFundId: uuid('sponsor_fund_id').notNull(),

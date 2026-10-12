@@ -40,6 +40,7 @@ doc.document 1-N doc.extraction_run 1-N stg.extracted_value
 | sponsor_fund | sponsor_id, canonical_name (unique), vintage, size_target, size_hard_cap, size_final, strategy | |
 | fund_alias | sponsor_fund_id, alias (unique) | name matching |
 | portfolio_company | canonical_name, sector, geography, description | |
+| company_alias | portfolio_company_id, alias (unique across companies) | name matching, exact only (section 5); history; readable by every authenticated user, maintained by operations and platform admins (migration 0010) |
 | fund_holding | sponsor_fund_id, portfolio_company_id | |
 | vehicle | name (unique), type (co_invest, cv, primary_program (fund of funds), private_credit, client_sma), vintage, currency, closing_count | |
 | investment | investment_number (unique), vehicle_id, portfolio_company_id, sponsor_fund_id (nullable), deal_type (taxonomy: co_invest_equity, cv_single_asset, cv_multi_asset, primary_fund, private_credit), entry_date, is_active | deal_type decides which monitoring tables apply (`quarterly_performance` for equity and CV, `credit_terms` + `credit_performance` for credit, fund-level rows for primaries) |
@@ -104,12 +105,13 @@ doc.document 1-N doc.extraction_run 1-N stg.extracted_value
 | rpt.approved_statistic | name, value, as_of, source_query, approver_id, expires_at |
 | rpt.distribution_log | package_id, recipient, version, sent_at |
 | ops.task | regarding_entity, regarding_id, title, owner_id, due, state, priority |
-| ops.data_exception | source, entity, entity_id, rule_id, expected, actual, severity, owner_id, state, external_ticket |
+| ops.data_exception | source, entity, entity_id, rule_id, expected, actual, severity, owner_id, state (open, acknowledged, resolved, wont_fix: `docs/18` section 9), external_ticket, candidates (json: by reason only). Readable by every authenticated user, except that an exception about a staged row (`stg.intake_row`, `stg.valuation`) is visible only to someone the row's own policy admits; operations alone updates it, and only state, owner_id and external_ticket (column grant, migration 0010) |
 | ops.job | type, requested_by, state, progress, result_ref, error_code |
 | ops.feature_flag | key, enabled, updated_by |
 | ops.systems_issue | code, problem, area, severity, lane, decision_log (json) |
-| stg.intake_file | source, file_name, content_hash (unique with source: an import is idempotent by content), template_signature, received_at, received_by, row_count, status, findings (json: file-level findings such as an unknown column; a refused file holds no rows) |
+| stg.intake_file | source (accounting, weekly, lookthrough, ops_drop), file_name, content_hash (unique with source: an import is idempotent by content), template_signature (the ops-drop template the workbook matched), received_at, received_by, row_count, status, findings (json: file-level findings such as an unknown column; a refused file holds no rows) |
 | stg.intake_row | intake_file_id, row_no (unique per file, the row's locator), natural_key (the layout's key columns; a file may repeat one, which DUP-01 flags), target_entity, target_id, payload (json: names, period, figures, raw cells and the link), diff (json), validation (json: findings), status, reviewer_id, decision, decided_at, promoted_at. A row carries the wall of the investment its payload links to: `pb.intake_row_visible(payload)` on the select and update policies (migration 0009); an unlinked row is every reviewer's; import (insert) covers the whole book and the file's counts are taken by the system actor |
+| stg.valuation | intake_file_id, row_no (unique per file), report_date, investment_number, company_name, investment_id, reported_value, prior_value, prior_source (locked_mark, weekly), prior_date, variance_pct, flag, match_status, link (json), findings (json), raw (json: every cell as the file wrote it), status, reviewer_id, decision, decided_at, promoted_at, valuation_id (the Draft valuation of method weekly_report the approval created). The weekly report values (M2); a file may repeat (report_date, investment_number) and the DUP rules flag it. The typed cells are nullable so a row the file got wrong is staged and flagged, never refused. Same wall rule as intake_row, on investment_id (migration 0010) |
 | stg.* | one table per intake type, plus stg.extracted_value (run_id, field, value, unit, page, quote, confidence, validation_state, reviewer_id, decision) |
 | audit.event | at, actor_id, actor_type (user, service, agent), action, entity, entity_id, before_hash, after_hash, reason, request_id |
 
@@ -124,7 +126,7 @@ Stored in `config/definitions.json`, rendered on the Data Dictionary page. Formu
 - **Client look-through:** a client's share of any vehicle position is `position x lp_commitment.ownership_pct` for that vehicle, computed at read time from approved values; never stored per client.
 
 ## 5. Linking and matching rules
-- Resolve by investment number first, then canonical name or alias exact match. Never fuzzy auto-link.
+- Resolve by investment number first, then canonical name or alias exact match (`core.fund_alias` for sponsor funds, `core.company_alias` for portfolio companies). Never fuzzy auto-link.
 - Near-misses and unresolved names go to `ops.data_exception` with suggested candidates for a human.
 - Match guards (`core.match_guard`) block specific pairs permanently.
 

@@ -68,13 +68,19 @@ export const READ_MATRIX: Record<string, Row> = {
   'mon.valuation': row(1, 1, 1, 1, 1, 1, 1, 2, 2),
   'mon.cash_flow': row(2, 2, 2, 2, 2, 2, 2, 3, 3),
   'mon.valuation_history': row(0, 0, 2, 2, 0, 0, 2, 0, 0),
-  'ops.feature_flag': row(7, 7, 7, 7, 7, 7, 7, 7, 7),
+  'ops.feature_flag': row(9, 9, 9, 9, 9, 9, 9, 9, 9),
+  // An exception about a staged row is visible to whoever the row's own policy admits (migration
+  // 0010): the three fixture exceptions are about the open, the walled and the unlinked accounting row.
+  'ops.data_exception': row(0, 2, 2, 2, 0, 0, 2, 3, 3),
   'audit.event': row(0, 0, 2, 2, 0, 2, 2, 0, 0),
   // Staging: reviewers (operations, deal team, approver, auditor) and the service read files, and
   // rows under the wall of the investment they link to (migration 0009); an unlinked row is every
   // reviewer's. Three rows: linked to the open investment, linked to the walled one, unlinked.
   'stg.intake_file': row(0, 1, 1, 1, 0, 0, 1, 1, 1),
   'stg.intake_row': row(0, 2, 2, 2, 0, 0, 2, 3, 3),
+  // Weekly values carry the wall of the investment they link to the same way (migration 0010).
+  'stg.valuation': row(0, 2, 2, 2, 0, 0, 2, 3, 3),
+  'core.company_alias': row(1, 1, 1, 1, 1, 1, 1, 1, 1),
 };
 
 export interface WriteCase {
@@ -149,5 +155,42 @@ export const WRITE_MATRIX: WriteCase[] = [
     // The wall on the investment is the wall on its staged row (migration 0009): only a member or
     // the system actor can act on it; everyone else is shown no such row.
     allowed: ['wall_member(deal_team)', 'service'],
+  },
+  {
+    name: 'insert a company alias',
+    sql: "insert into core.company_alias (portfolio_company_id, alias) values ('20000000-0000-4000-8000-000000000003', 'Saltmarsh Holdings Group')",
+    allowed: ['operations', 'platform_admin'],
+  },
+  {
+    name: 'insert a staged weekly value',
+    sql: "insert into stg.valuation (row_no, report_date, investment_number, reported_value) values (9, '2024-07-12', 'INV-0001', 1)",
+    allowed: ['operations', 'service'],
+  },
+  {
+    name: 'update the status of a staged weekly value linked to the open investment',
+    sql: "update stg.valuation set status = 'approved' where id = '80000000-0000-4000-8000-000000000005'",
+    allowed: ['operations', 'deal_team', 'wall_member(deal_team)', 'service'],
+  },
+  {
+    name: 'update the status of a staged weekly value linked to the walled investment',
+    sql: "update stg.valuation set status = 'approved' where id = '80000000-0000-4000-8000-000000000006'",
+    allowed: ['wall_member(deal_team)', 'service'],
+  },
+  {
+    name: 'acknowledge a data exception about a visible row',
+    sql: "update ops.data_exception set state = 'acknowledged' where id = '90000000-0000-4000-8000-000000000001'",
+    // Operations works the exception queue (docs/18 section 9, migration 0010).
+    allowed: ['operations'],
+  },
+  {
+    name: 'set the external ticket of a data exception',
+    sql: "update ops.data_exception set external_ticket = 'HD-10452' where id = '90000000-0000-4000-8000-000000000003'",
+    allowed: ['operations'],
+  },
+  {
+    name: 'change what a data exception expected',
+    sql: "update ops.data_exception set expected = 'something else' where id = '90000000-0000-4000-8000-000000000003'",
+    // The figures an exception carries are written once by the intake that opened it (column grant).
+    allowed: [],
   },
 ];

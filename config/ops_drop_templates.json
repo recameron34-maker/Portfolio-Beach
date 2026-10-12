@@ -1,0 +1,31 @@
+{
+  "_note": "Neutral sample templates for the operations workbook drop (docs/04 M2 ops-drop-import). A workbook is matched by its signature: the sheet names plus the SHA-256 of the header row's cells on headerSheet joined by the unit separator U+001F (headerHash). A workbook that matches no template is refused with a message naming its sheets. columns maps each header cell onto a column of config/accounting_layout.json, so a matched workbook stages through the accounting import's linking, diff and rules. Add the real templates only after merge.",
+  "templates": [
+    {
+      "name": "quarterly-figures",
+      "sheets": ["Figures", "Notes"],
+      "headerSheet": "Figures",
+      "header": [
+        "Investment number",
+        "Company",
+        "Period end",
+        "Revenue LTM",
+        "EBITDA LTM",
+        "Enterprise value",
+        "Net debt",
+        "Fair value"
+      ],
+      "headerHash": "2baedd5aefebca874729b5fb42e7974c010a52a6c469ee8a12b0f97f1702d149",
+      "columns": {
+        "Investment number": "InvestmentNumber",
+        "Company": "CompanyName",
+        "Period end": "PeriodEnd",
+        "Revenue LTM": "RevenueLTM",
+        "EBITDA LTM": "EBITDALTM",
+        "Enterprise value": "EnterpriseValue",
+        "Net debt": "NetDebt",
+        "Fair value": "FairValue"
+      }
+    }
+  ]
+}

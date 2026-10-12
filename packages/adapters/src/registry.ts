@@ -5,6 +5,7 @@ import type {
   AiModelClient,
   BenchmarkProvider,
   DocumentStore,
+  FileDrop,
   IdentityProvider,
   LookThroughProvider,
   MailSource,
@@ -17,6 +18,10 @@ export interface AdapterSet {
   documents: DocumentStore;
   mail: MailSource;
   accounting: AccountingSystem;
+  /** Where weekly report value files are dropped (CSV). */
+  weeklyDrop: FileDrop;
+  /** Where operations workbooks are dropped (XLSX). */
+  opsDrop: FileDrop;
   lookThrough: LookThroughProvider;
   ai: AiModelClient;
   benchmarks: BenchmarkProvider;
@@ -40,6 +45,8 @@ function adaptersOf(set: AdapterSet): Adapter[] {
     set.documents,
     set.mail,
     set.accounting,
+    set.weeklyDrop,
+    set.opsDrop,
     set.lookThrough,
     set.ai,
     set.benchmarks,

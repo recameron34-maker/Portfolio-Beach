@@ -473,6 +473,57 @@ export const dealChangeRequestMachine: Machine<ChangeRequestState, ChangeRequest
   ],
 };
 
+// ---- 9. Data exception (docs/18 section 9) --------------------------------------------------
+export type ExceptionState = 'open' | 'acknowledged' | 'resolved' | 'wont_fix';
+export type ExceptionCommand = 'acknowledge' | 'resolve' | 'wont_fix';
+
+/**
+ * ops.data_exception.state. Operations owns the queue: an exception is acknowledged while someone
+ * works it, then resolved (the record or the source was fixed) or closed as wont_fix, each with a
+ * reason on record. Setting the external ticket is not a transition and goes through no command
+ * here. Resolved and wont_fix are terminal: a problem that comes back opens a new exception.
+ */
+export const exceptionMachine: Machine<ExceptionState, ExceptionCommand> = {
+  name: 'data_exception',
+  states: ['open', 'acknowledged', 'resolved', 'wont_fix'],
+  commands: ['acknowledge', 'resolve', 'wont_fix'],
+  initial: 'open',
+  terminal: ['resolved', 'wont_fix'],
+  transitions: [
+    { from: 'open', to: 'acknowledged', command: 'acknowledge', roles: ['operations'] },
+    {
+      from: 'open',
+      to: 'resolved',
+      command: 'resolve',
+      roles: ['operations'],
+      precondition: requireReason,
+    },
+    {
+      from: 'acknowledged',
+      to: 'resolved',
+      command: 'resolve',
+      roles: ['operations'],
+      precondition: requireReason,
+    },
+    {
+      from: 'open',
+      to: 'wont_fix',
+      command: 'wont_fix',
+      roles: ['operations'],
+      precondition: requireReason,
+      note: 'The difference stays as it is; the reason is the record of why.',
+    },
+    {
+      from: 'acknowledged',
+      to: 'wont_fix',
+      command: 'wont_fix',
+      roles: ['operations'],
+      precondition: requireReason,
+      note: 'The difference stays as it is; the reason is the record of why.',
+    },
+  ],
+};
+
 export const MACHINES = {
   valuation: valuationMachine,
   staging: stagingMachine,
@@ -482,4 +533,5 @@ export const MACHINES = {
   documentClassification: documentClassificationMachine,
   extractionRun: extractionRunMachine,
   dealChangeRequest: dealChangeRequestMachine,
+  exception: exceptionMachine,
 } as const;

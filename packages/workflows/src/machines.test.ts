@@ -7,6 +7,7 @@ import {
   capitalNoticeMachine,
   dealStageMachine,
   documentClassificationMachine,
+  exceptionMachine,
   extractionRunMachine,
   reportingPackageMachine,
   valuationMachine,
@@ -370,6 +371,67 @@ describe('reporting package, documents and extraction (docs/18 sections 5 to 7)'
         }),
       ).ok,
     ).toBe(false);
+  });
+});
+
+describe('data exception (docs/18 section 9)', () => {
+  it('is in the machine registry under its table name, with resolved and wont_fix terminal', () => {
+    expect(MACHINES.exception).toBe(exceptionMachine);
+    expect(exceptionMachine.name).toBe('data_exception');
+    expect(exceptionMachine.initial).toBe('open');
+    expect(exceptionMachine.terminal).toEqual(['resolved', 'wont_fix']);
+    expect(exceptionMachine.commands).not.toContain('set_ticket');
+  });
+  it('operations acknowledges an open exception; no one else does', () => {
+    expect(attempt(exceptionMachine, 'open', 'acknowledge', ctx(['operations']))).toEqual({
+      ok: true,
+      to: 'acknowledged',
+    });
+    for (const role of ['deal_team', 'approver', 'auditor', 'platform_admin', 'service', 'viewer'])
+      expect(attempt(exceptionMachine, 'open', 'acknowledge', ctx([role]))).toMatchObject({
+        ok: false,
+        code: 'role',
+      });
+  });
+  it('resolving or closing needs a reason, from open and from acknowledged', () => {
+    for (const from of ['open', 'acknowledged'] as const) {
+      for (const [command, to] of [
+        ['resolve', 'resolved'],
+        ['wont_fix', 'wont_fix'],
+      ] as const) {
+        expect(attempt(exceptionMachine, from, command, ctx(['operations']))).toEqual({
+          ok: true,
+          to,
+        });
+        expect(
+          attempt(exceptionMachine, from, command, ctx(['operations'], { reason: null })),
+        ).toMatchObject({
+          ok: false,
+          code: 'precondition',
+          message: expect.stringContaining('reason') as string,
+        });
+        expect(
+          attempt(exceptionMachine, from, command, ctx(['operations'], { reason: '   ' })).ok,
+        ).toBe(false);
+      }
+    }
+    // The reason is the whole precondition, so the web's command options can ask for one.
+    for (const t of exceptionMachine.transitions.filter((x) => x.command !== 'acknowledge'))
+      expect(t.precondition).toBe(requireReason);
+  });
+  it('rejects every move out of a terminal state and a second acknowledgement', () => {
+    const every = ['operations', 'deal_team', 'approver', 'service', 'platform_admin'];
+    for (const from of ['resolved', 'wont_fix'] as const)
+      for (const command of exceptionMachine.commands)
+        expect(attempt(exceptionMachine, from, command, ctx(every))).toMatchObject({
+          ok: false,
+          code: 'forbidden',
+        });
+    expect(attempt(exceptionMachine, 'acknowledged', 'acknowledge', ctx(every))).toMatchObject({
+      ok: false,
+      code: 'forbidden',
+    });
+    expect(forbiddenPairs(exceptionMachine)).toHaveLength(7);
   });
 });
 

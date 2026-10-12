@@ -7,7 +7,9 @@ import type { AppRole } from '../roles.js';
 /**
  * A small, hand-built dataset for the access matrix (docs/12 section 1): two investments, one of
  * them walled; two clients; one SMA commitment; one staged accounting file with a row linked to
- * each investment and one with no link. Loaded as the owner, outside RLS.
+ * each investment and one with no link; one staged weekly value per investment and one unlinked; one
+ * company alias; three data exceptions, one about each staged accounting row. Loaded as the owner,
+ * outside RLS.
  */
 export const ids = {
   users: {
@@ -39,6 +41,13 @@ export const ids = {
   intakeRowVisible: '80000000-0000-4000-8000-000000000002',
   intakeRowWalled: '80000000-0000-4000-8000-000000000003',
   intakeRowUnlinked: '80000000-0000-4000-8000-000000000004',
+  weeklyVisible: '80000000-0000-4000-8000-000000000005',
+  weeklyWalled: '80000000-0000-4000-8000-000000000006',
+  weeklyUnlinked: '80000000-0000-4000-8000-000000000007',
+  companyAlias: '80000000-0000-4000-8000-000000000008',
+  exceptionVisibleRow: '90000000-0000-4000-8000-000000000001',
+  exceptionWalledRow: '90000000-0000-4000-8000-000000000002',
+  exceptionUnlinkedRow: '90000000-0000-4000-8000-000000000003',
 } as const;
 
 export interface Actor {
@@ -136,5 +145,15 @@ export async function loadFixture(handle: DbHandle): Promise<void> {
         '{"link": {"status": "matched", "investmentId": "${ids.investmentWalled}", "investmentNumber": "INV-0002"}}', 'validated'),
       ('${ids.intakeRowUnlinked}', '${ids.intakeFile}', 3, 'INV-9999|2024-06-30', 'quarterly_performance',
         '{"link": {"status": "unmatched", "investmentId": null, "investmentNumber": null}}', 'flagged');
+    insert into stg.valuation (id, intake_file_id, row_no, report_date, investment_number, investment_id, reported_value, match_status, status) values
+      ('${ids.weeklyVisible}', null, 1, '2024-07-05', 'INV-0001', '${ids.investment1}', 46000000, 'matched', 'validated'),
+      ('${ids.weeklyWalled}', null, 2, '2024-07-05', 'INV-0002', '${ids.investmentWalled}', 31000000, 'matched', 'validated'),
+      ('${ids.weeklyUnlinked}', null, 3, '2024-07-05', 'INV-9999', null, 1, 'unmatched', 'flagged');
+    insert into core.company_alias (id, portfolio_company_id, alias) values
+      ('${ids.companyAlias}', '${ids.company1}', 'Saltmarsh Group');
+    insert into ops.data_exception (id, source, entity, entity_id, rule_id, severity, state) values
+      ('${ids.exceptionVisibleRow}', 'accounting_import', 'stg.intake_row', '${ids.intakeRowVisible}', 'TIE-01', 'exception_severity.high', 'open'),
+      ('${ids.exceptionWalledRow}', 'accounting_import', 'stg.intake_row', '${ids.intakeRowWalled}', 'TIE-01', 'exception_severity.high', 'open'),
+      ('${ids.exceptionUnlinkedRow}', 'accounting_import', 'stg.intake_row', '${ids.intakeRowUnlinked}', 'XREF-01', 'exception_severity.high', 'open');
   `);
 }

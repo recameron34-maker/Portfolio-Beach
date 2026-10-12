@@ -1015,16 +1015,29 @@ export const intakeCounts = z.object({
 export type IntakeCounts = z.infer<typeof intakeCounts>;
 
 /**
+ * Where an intake file came from (stg.intake_file.source): the accounting export, the weekly
+ * report values, a look-through reconcile run or an operations workbook drop (docs/04 M2).
+ */
+export const intakeSource = z.enum(['accounting', 'weekly', 'lookthrough', 'ops_drop']);
+export type IntakeSource = z.infer<typeof intakeSource>;
+
+/**
  * An intake file. Its status sums up its rows: flagged while any row is flagged, validated while
  * any row waits for approval, promoted once every row is promoted or rejected (rejected when all
  * are), and new only while the file itself was refused (fileFindings) and holds no rows.
  */
 export const intakeFile = z.object({
   id: uuid,
-  source: z.literal('accounting'),
+  source: intakeSource,
   fileName: z.string(),
   /** SHA-256 of the file text, the idempotency key with the source (docs/04 M2). */
   contentHash: z.string(),
+  /**
+   * The ops-drop template the workbook matched (config/ops_drop_templates.json); null for every
+   * other source. Optional until every producer sets it (the accounting intake and the preview
+   * were written before it existed); a reader treats an absent value as null.
+   */
+  templateSignature: z.string().nullable().optional(),
   receivedAt: z.string(),
   receivedBy: z.string().nullable(),
   rowCount: z.number().int(),
@@ -1053,6 +1066,7 @@ export type IntakeFilePage = z.infer<typeof intakeFilePage>;
 
 export const intakeFileListQuery = pageQuery.extend({
   status: stagingState.optional(),
+  source: intakeSource.optional(),
 });
 
 /** An export the accounting system dropped in the folder the adapter watches. */
@@ -1094,3 +1108,320 @@ export const intakeCommandBody = z
   })
   .strict();
 export type IntakeCommandBody = z.infer<typeof intakeCommandBody>;
+
+/* ---- Weekly report values (M2 weekly-report-intake, docs/18 sections 1 and 2) ---- */
+
+/**
+ * What a weekly value is compared with: the latest Locked mark on record, or the weekly value
+ * promoted before it when no Locked mark is newer.
+ */
+export const weeklyPriorSource = z.enum(['locked_mark', 'weekly']);
+export type WeeklyPriorSource = z.infer<typeof weeklyPriorSource>;
+
+/**
+ * One staged weekly value (stg.valuation). Cells stay text as the file wrote them: a reviewer sees
+ * exactly what the report said, and a cell that is not a date or a decimal is null here and named
+ * by a finding, never guessed. On approval the value becomes a Draft valuation of method
+ * weekly_report through the valuation machine (valuationId); a Locked mark is never touched.
+ */
+export const weeklyRow = z.object({
+  id: uuid,
+  /** The file's data line, the row's own locator for lineage. */
+  rowNo: z.number().int(),
+  investmentNumber: z.string().nullable(),
+  companyName: z.string().nullable(),
+  /** The report date as the file wrote it (YYYY-MM-DD when it is a real day). */
+  reportDate: z.string().nullable(),
+  /** The reported value as the file wrote it, a decimal string when it is one. */
+  reportedValue: z.string().nullable(),
+  priorValue: decimalString.nullable(),
+  priorSource: weeklyPriorSource.nullable(),
+  priorDate: isoDate.nullable(),
+  /** The change against the prior as a decimal fraction (0.12 = up 12%); null without a prior or a value. */
+  variancePct: decimalString.nullable(),
+  /** Set when the move against the prior is at or beyond intake.weeklyVarianceThresholdPct. */
+  flag: z.enum(['above_threshold']).nullable(),
+  link: intakeLink,
+  findings: z.array(intakeFinding),
+  status: stagingState,
+  /** The reviewer's reason on a rejection, or the approval note. */
+  decision: z.string().nullable(),
+  decidedBy: z.string().nullable(),
+  decidedAt: z.string().nullable(),
+  /** The Draft valuation the approval created (mon.valuation), once promoted. */
+  valuationId: uuid.nullable(),
+});
+export type WeeklyRow = z.infer<typeof weeklyRow>;
+
+export const weeklyFileDetail = intakeFile.extend({
+  /** The staged values the caller may see, in file order. */
+  rows: z.array(weeklyRow),
+  /** Rows linked to investments not visible to the caller; never a reason to show them. */
+  hiddenRows: z.number().int(),
+});
+export type WeeklyFileDetail = z.infer<typeof weeklyFileDetail>;
+
+/** Import a weekly values file: the CSV as uploaded, or one the weekly drop folder lists by id. */
+export const weeklyImportBody = z.union([
+  z
+    .object({
+      fileName: plainText(200).min(1),
+      /** The CSV as text; the API refuses more than definitions.intake.maxFileBytes. */
+      csv: z.string().min(1).max(2_000_000),
+    })
+    .strict(),
+  z.object({ dropId: plainText(200).min(1) }).strict(),
+]);
+export type WeeklyImportBody = z.infer<typeof weeklyImportBody>;
+
+/** The staged file, with `duplicate` true when the same content was imported before (nothing new was staged). */
+export const weeklyImportResult = weeklyFileDetail.extend({ duplicate: z.boolean() });
+export type WeeklyImportResult = z.infer<typeof weeklyImportResult>;
+
+/* ---- Look-through reconcile (M2 lookthrough-reconcile, M1 taxonomy) ---- */
+
+/** The fields a provider row is compared on: sector and geography against the taxonomy, exposures against approved values. */
+export const lookthroughField = z.enum(['sector', 'geography', 'exposureAtCost', 'exposureAtNav']);
+export type LookthroughField = z.infer<typeof lookthroughField>;
+
+/** One difference between the provider and the record: what the record says and what the provider sent, as text. */
+export const lookthroughDifference = z.object({
+  field: lookthroughField,
+  expected: z.string().nullable(),
+  actual: z.string().nullable(),
+});
+export type LookthroughDifference = z.infer<typeof lookthroughDifference>;
+
+/**
+ * One provider row of a reconcile run. The provider's texts are kept as sent; `mapped` is what
+ * config/lookthrough_mapping.json makes of them (null for a label the mapping does not know);
+ * `approved` is the record's exposure at cost and at the latest Locked mark. Every difference is a
+ * data exception; the approved values never change from a provider file.
+ */
+export const lookthroughRow = z.object({
+  id: uuid,
+  rowNo: z.number().int(),
+  investmentNumber: z.string().nullable(),
+  companyName: z.string(),
+  asOf: isoDate,
+  provider: z.object({
+    sector: z.string(),
+    geography: z.string(),
+    exposureAtCost: z.string(),
+    exposureAtNav: z.string(),
+  }),
+  mapped: z.object({
+    /** A taxonomy sector code, or null when the provider's label is not in the mapping. */
+    sector: z.string().nullable(),
+    geography: z.string().nullable(),
+  }),
+  approved: z.object({
+    exposureAtCost: decimalString.nullable(),
+    exposureAtNav: decimalString.nullable(),
+  }),
+  differences: z.array(lookthroughDifference),
+  link: intakeLink,
+  findings: z.array(intakeFinding),
+  status: stagingState,
+  /** Data exceptions this row opened (one per difference, plus one per unresolved link). */
+  exceptions: z.number().int(),
+});
+export type LookthroughRow = z.infer<typeof lookthroughRow>;
+
+export const lookthroughRunDetail = intakeFile.extend({
+  asOf: isoDate,
+  rows: z.array(lookthroughRow),
+  hiddenRows: z.number().int(),
+});
+export type LookthroughRunDetail = z.infer<typeof lookthroughRunDetail>;
+
+/** Reconcile the provider's extract for one as-of date against the taxonomy and the approved values. */
+export const lookthroughReconcileBody = z.object({ asOf: isoDate }).strict();
+export type LookthroughReconcileBody = z.infer<typeof lookthroughReconcileBody>;
+
+/** The run, with `duplicate` true when the same extract was reconciled before (nothing new was staged). */
+export const lookthroughReconcileResult = lookthroughRunDetail.extend({ duplicate: z.boolean() });
+export type LookthroughReconcileResult = z.infer<typeof lookthroughReconcileResult>;
+
+/* ---- Ops drop workbooks (M2 ops-drop-import) ---- */
+
+/** The two ways an ops-drop workbook arrives: uploaded as base64, or listed by the ops drop folder. */
+const opsDropUpload = z
+  .object({ fileName: plainText(200).min(1), workbookBase64: z.string().min(1) })
+  .strict();
+const opsDropFromFolder = z.object({ dropId: plainText(200).min(1) }).strict();
+
+/**
+ * Import an operations workbook: the file as base64 as uploaded, or one the ops drop folder lists
+ * by id. The workbook limit is config (definitions.intake.maxWorkbookBase64Chars): the API builds
+ * the schema with it, and the route table documents the shape without a limit. The workbook is
+ * parsed by template signature (sheet names plus header hash); an unknown template is refused.
+ */
+export function opsDropImportBody(
+  maxWorkbookBase64Chars?: number,
+): z.ZodUnion<readonly [typeof opsDropUpload, typeof opsDropFromFolder]> {
+  const upload =
+    maxWorkbookBase64Chars === undefined
+      ? opsDropUpload
+      : opsDropUpload.extend({ workbookBase64: z.string().min(1).max(maxWorkbookBase64Chars) });
+  return z.union([upload, opsDropFromFolder]);
+}
+export type OpsDropImportBody = z.infer<ReturnType<typeof opsDropImportBody>>;
+
+/* ---- Data exceptions (M1 Data Health, M2; ops.data_exception, docs/18 section 9) ---- */
+
+export const dataExceptionState = z.enum(['open', 'acknowledged', 'resolved', 'wont_fix']);
+export type DataExceptionState = z.infer<typeof dataExceptionState>;
+
+/**
+ * A data exception as the exceptions page shows it. The context names the staged row or the
+ * position it is about only when the caller may see them (the row's own policy decides); a
+ * candidate is listed by reason only, the names being on the staged row (decision 0009).
+ */
+export const dataException = z.object({
+  id: uuid,
+  /** The intake or job that opened it, such as accounting_import or lookthrough_reconcile. */
+  source: z.string(),
+  entity: z.string(),
+  entityId: uuid.nullable(),
+  ruleId: z.string(),
+  expected: z.string().nullable(),
+  actual: z.string().nullable(),
+  /** A core.taxonomy_term code of the exception_severity domain. */
+  severity: z.string(),
+  /** The owner's display name, when one is assigned. */
+  owner: z.string().nullable(),
+  state: dataExceptionState,
+  externalTicket: z.string().nullable(),
+  candidates: z.array(z.object({ reason: z.string() })),
+  createdAt: z.string(),
+  updatedAt: z.string(),
+  rowVersion: z.number().int(),
+  context: z.object({
+    intakeFileId: uuid.nullable(),
+    intakeFileName: z.string().nullable(),
+    rowNo: z.number().int().nullable(),
+    investmentId: uuid.nullable(),
+    investmentNumber: z.string().nullable(),
+    companyName: z.string().nullable(),
+  }),
+});
+export type DataException = z.infer<typeof dataException>;
+
+export const dataExceptionPage = z.object({
+  items: z.array(dataException),
+  nextCursor: z.string().nullable(),
+});
+export type DataExceptionPage = z.infer<typeof dataExceptionPage>;
+
+export const dataExceptionListQuery = pageQuery.extend({
+  state: dataExceptionState.optional(),
+  source: filterText.optional(),
+  severity: filterText.optional(),
+});
+
+export const dataExceptionCommand = z.enum(['acknowledge', 'resolve', 'wont_fix', 'set_ticket']);
+export type DataExceptionCommand = z.infer<typeof dataExceptionCommand>;
+
+/** An external ticket reference: one short line of plain text, such as a help desk number. */
+export const externalTicket = plainText(64).min(1);
+
+/**
+ * acknowledge, resolve and wont_fix move the exception through docs/18 section 9; resolve and
+ * wont_fix need a reason. set_ticket records the external ticket number and is not a transition.
+ */
+export const dataExceptionCommandBody = z
+  .object({
+    command: dataExceptionCommand,
+    reason: plainText(500).min(3).optional(),
+    externalTicket: externalTicket.optional(),
+  })
+  .strict()
+  .superRefine((body, ctx) => {
+    if ((body.command === 'resolve' || body.command === 'wont_fix') && body.reason === undefined)
+      ctx.addIssue({ code: 'custom', path: ['reason'], message: 'A reason is required' });
+    if (body.command === 'set_ticket' && body.externalTicket === undefined)
+      ctx.addIssue({
+        code: 'custom',
+        path: ['externalTicket'],
+        message: 'An external ticket is required',
+      });
+  });
+export type DataExceptionCommandBody = z.infer<typeof dataExceptionCommandBody>;
+
+/* ---- Config files the intakes read (rule 9: config over code) ---- */
+
+/** A taxonomy code of one domain, such as sector.software: the domain, a dot, then the code. */
+const taxonomyCodeOf = (domain: string): z.ZodString =>
+  z.string().regex(new RegExp(`^${domain}\\.[a-z0-9_]+$`));
+
+/**
+ * config/lookthrough_mapping.json: the provider's plain labels mapped onto the firm's taxonomy
+ * codes (docs/04 M1: outside sources are mapped to the taxonomy and never override it). A provider
+ * label the mapping does not know maps to nothing and the reconcile flags it.
+ */
+export const lookthroughMapping = z
+  .object({
+    _note: z.string().optional(),
+    sector: z.record(z.string().min(1), taxonomyCodeOf('sector')),
+    geography: z.record(z.string().min(1), taxonomyCodeOf('geography')),
+  })
+  .strict();
+export type LookthroughMapping = z.infer<typeof lookthroughMapping>;
+
+/** The unit separator the header cells are joined by before hashing (U+001F). */
+export const TEMPLATE_HEADER_SEPARATOR = '\u001f';
+
+/**
+ * config/ops_drop_templates.json: each operations workbook template by its signature, the sheet
+ * names plus the SHA-256 of the header cells joined by TEMPLATE_HEADER_SEPARATOR, and the
+ * accounting layout column each header maps onto, so a known workbook stages through the
+ * accounting rules. A workbook whose signature matches no template is refused.
+ */
+export const opsDropTemplate = z
+  .object({
+    name: z.string().regex(/^[a-z0-9-]+$/),
+    sheets: z.array(z.string().min(1)).min(1),
+    headerSheet: z.string().min(1),
+    header: z.array(z.string().min(1)).min(1),
+    headerHash: z.string().regex(/^[0-9a-f]{64}$/),
+    /** Header cell to the accounting layout column name (config/accounting_layout.json). */
+    columns: z.record(z.string().min(1), z.string().min(1)),
+  })
+  .strict()
+  .superRefine((template, ctx) => {
+    if (!template.sheets.includes(template.headerSheet))
+      ctx.addIssue({
+        code: 'custom',
+        path: ['headerSheet'],
+        message: 'The header sheet must be one of the sheets',
+      });
+    for (const [i, cell] of template.header.entries()) {
+      if (!(cell in template.columns))
+        ctx.addIssue({
+          code: 'custom',
+          path: ['header', i],
+          message: 'Every header cell needs a column mapping',
+        });
+    }
+    if (new Set(template.header).size !== template.header.length)
+      ctx.addIssue({ code: 'custom', path: ['header'], message: 'Header cells must be distinct' });
+  });
+export type OpsDropTemplate = z.infer<typeof opsDropTemplate>;
+
+export const opsDropTemplates = z
+  .object({
+    _note: z.string().optional(),
+    templates: z.array(opsDropTemplate).min(1),
+  })
+  .strict()
+  .superRefine((file, ctx) => {
+    const names = file.templates.map((t) => t.name);
+    if (new Set(names).size !== names.length)
+      ctx.addIssue({
+        code: 'custom',
+        path: ['templates'],
+        message: 'Template names must be distinct',
+      });
+  });
+export type OpsDropTemplates = z.infer<typeof opsDropTemplates>;

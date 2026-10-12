@@ -57,6 +57,10 @@ export const syntheticDatasetSchema = z.object({
     }),
   ),
   fundAliases: z.array(z.object({ id: uuid, sponsorFundId: uuid, alias: z.string() })),
+  /** Names a portfolio company is also known by (core.company_alias); absent in datasets made before migration 0010. */
+  companyAliases: z
+    .array(z.object({ id: uuid, portfolioCompanyId: uuid, alias: z.string().min(1) }))
+    .optional(),
   portfolioCompanies: z.array(
     z.object({
       id: uuid,
@@ -315,6 +319,8 @@ export async function loadSyntheticDataset(
   await insert('sponsorFunds', schema.sponsorFund, data.sponsorFunds);
   await insert('fundAliases', schema.fundAlias, data.fundAliases);
   await insert('portfolioCompanies', schema.portfolioCompany, data.portfolioCompanies);
+  if (data.companyAliases !== undefined)
+    await insert('companyAliases', schema.companyAlias, data.companyAliases);
   await insert('fundHoldings', schema.fundHolding, data.fundHoldings);
   await insert('vehicles', schema.vehicle, data.vehicles);
   await insert(

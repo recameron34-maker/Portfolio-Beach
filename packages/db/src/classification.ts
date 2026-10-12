@@ -58,6 +58,7 @@ export const CLASSIFICATION: Record<string, TableClassification> = {
     },
   },
   'core.fund_alias': { default: 'internal', retention: 'books_and_records' },
+  'core.company_alias': { default: 'internal', retention: 'books_and_records' },
   'core.portfolio_company': {
     default: 'restricted_mnpi',
     retention: 'books_and_records',
