@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { capitalNoticeMachine, valuationMachine } from '@pb/workflows';
+import { capitalNoticeMachine, stagingMachine, valuationMachine } from '@pb/workflows';
 import {
   commandLabel,
   commandOptions,
@@ -8,6 +8,7 @@ import {
   humanizeState,
   noticeTone,
   rolesLabel,
+  stagingTone,
   valuationTone,
 } from './states.js';
 
@@ -31,6 +32,13 @@ describe('state words', () => {
     expect(noticeTone('TicketApproved')).toBe('brand');
     expect(noticeTone('Unknown')).toBe('neutral');
     expect(humanizeState('TicketDrafted')).toBe('Ticket drafted');
+    for (const s of stagingMachine.states) expect(typeof stagingTone(s)).toBe('string');
+    expect(stagingTone('flagged')).toBe('watch');
+    expect(stagingTone('rejected')).toBe('bad');
+    expect(stagingTone('promoted')).toBe('good');
+    expect(stagingTone('validated')).toBe('neutral');
+    expect(stagingTone('new')).toBe('neutral');
+    expect(humanizeState('validated')).toBe('Validated');
   });
 
   it('grades due dates against the configured alert window', () => {

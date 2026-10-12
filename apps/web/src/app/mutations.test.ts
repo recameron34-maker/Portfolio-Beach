@@ -4,9 +4,12 @@ import { ApiError } from '../api/client.js';
 import {
   describeActionError,
   plainRule,
+  postIntakeCommand,
+  postIntakeImport,
   postPreviewReset,
   postValuationCommand,
 } from './mutations.js';
+import { intakeFileDetailFixture, intakeImportResultFixture } from '../test/fixtures-intake.js';
 import { clearCredential, setCredential } from './session.js';
 
 /** A contract-shaped valuation row; page tests can copy it. */
@@ -66,6 +69,22 @@ describe('workflow mutations', () => {
     const headers = new Headers(init.headers);
     expect(headers.get('content-type')).toBe('application/json');
     expect(headers.get('authorization')).toBe('Bearer ops.one');
+  });
+
+  it('stages an export as text and issues intake commands on the file', async () => {
+    const fetchSpy = vi
+      .spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(json(201, intakeImportResultFixture(true)))
+      .mockResolvedValueOnce(json(200, intakeFileDetailFixture()));
+    const staged = await postIntakeImport({ fileName: 'export.csv', csv: 'A,B\n1,2\n' });
+    expect(staged.duplicate).toBe(true);
+    const detail = await postIntakeCommand(staged.id, { command: 'reject', reason: 'Not ours' });
+    expect(detail.id).toBe(staged.id);
+    const [first, second] = fetchSpy.mock.calls as [string, RequestInit][];
+    expect(first?.[0]).toBe('/api/v1/intake/accounting');
+    expect(first?.[1].body).toBe(JSON.stringify({ fileName: 'export.csv', csv: 'A,B\n1,2\n' }));
+    expect(second?.[0]).toBe(`/api/v1/intake/files/${staged.id}/commands`);
+    expect(second?.[1].body).toBe(JSON.stringify({ command: 'reject', reason: 'Not ours' }));
   });
 
   it('sends the preview reset without a body', async () => {

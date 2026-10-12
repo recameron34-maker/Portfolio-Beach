@@ -27,6 +27,8 @@ import {
   CommitmentsPage,
 } from '../pages/capital/CapitalActivity.js';
 import { DataDictionaryPage, DataHealthPage } from '../pages/Data.js';
+import { IntakePage } from '../pages/intake/Intake.js';
+import { IntakeFilePage } from '../pages/intake/IntakeFile.js';
 import { ActivityTab } from '../pages/deal/ActivityTab.js';
 import { CapitalTab } from '../pages/deal/CapitalTab.js';
 import { DealWorkspace } from '../pages/deal/DealWorkspace.js';
@@ -133,6 +135,15 @@ const adminHealthRoute = child('/admin/health', HealthPage);
 const dataHealthRoute = child('/data/health', DataHealthPage);
 const dataDictionaryRoute = child('/data/dictionary', DataDictionaryPage);
 const dataTaxonomyRoute = child('/data/taxonomy', TaxonomyPage);
+const dataIntakeRoute = child('/data/intake', IntakePage);
+/** The staged file; `duplicate` in the search says the import that led here staged nothing new. */
+const dataIntakeFileRoute = createRoute({
+  getParentRoute: () => appRoute,
+  path: '/data/intake/$id',
+  component: IntakeFilePage,
+  validateSearch: (search: Record<string, unknown>): { duplicate?: boolean } =>
+    search.duplicate === true || search.duplicate === 'true' ? { duplicate: true } : {},
+});
 
 const routeTree = rootRoute.addChildren([
   signInRoute,
@@ -180,6 +191,8 @@ const routeTree = rootRoute.addChildren([
     dataHealthRoute,
     dataDictionaryRoute,
     dataTaxonomyRoute,
+    dataIntakeRoute,
+    dataIntakeFileRoute,
   ]),
 ]);
 

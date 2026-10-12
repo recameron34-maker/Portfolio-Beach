@@ -10,6 +10,9 @@ import {
   dataHealth,
   featureFlagList,
   healthReady,
+  intakeExportList,
+  intakeFileDetail,
+  intakeFilePage,
   investmentDetail,
   investmentPage,
   investmentPerformance,
@@ -213,6 +216,25 @@ export const taxonomyQuery = queryOptions({
 export const wallsQuery = queryOptions({
   queryKey: ['walls'],
   queryFn: () => api('/api/v1/walls', wallList),
+});
+/* Intake (docs/04 M2, SEC-9.1): the files staged from the accounting system and their rows. */
+export const intakeFilesQuery = queryOptions({
+  queryKey: ['intake-files'],
+  queryFn: () => api(`/api/v1/intake/files?limit=${LIST_LIMIT}`, intakeFilePage),
+  retry: retryUnlessUnavailable,
+});
+export function intakeFileQuery(id: string) {
+  return queryOptions({
+    queryKey: ['intake-file', id],
+    queryFn: () => api(`/api/v1/intake/files/${encodeURIComponent(id)}`, intakeFileDetail),
+    retry: retryUnlessUnavailable,
+  });
+}
+/** Exports waiting in the drop folder the accounting adapter watches; operations only. */
+export const intakeExportsQuery = queryOptions({
+  queryKey: ['intake-exports'],
+  queryFn: () => api('/api/v1/intake/accounting/exports', intakeExportList),
+  retry: retryUnlessUnavailable,
 });
 export const healthReadyQuery = queryOptions({
   queryKey: ['health-ready'],

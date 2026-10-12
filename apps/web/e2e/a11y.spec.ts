@@ -119,6 +119,7 @@ const ADMIN_PAGES: Visit[] = [
   { path: '/admin/access', ready: heading },
   { path: '/admin/health', ready: heading },
   { path: '/data/taxonomy', ready: heading },
+  { path: '/data/intake', ready: (p) => p.getByTestId('intake-upload') },
 ];
 /** The rest of the router, so every route is scanned at both widths (the grid once its rows are in). */
 const EARLIER_PAGES: Visit[] = [

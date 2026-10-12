@@ -3,6 +3,7 @@ import { Link, Outlet, useNavigate } from '@tanstack/react-router';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Button, Dropdown, Option } from '@fluentui/react-components';
 import {
+  ArrowImport20Regular,
   ArrowSwap20Regular,
   BookOpen20Regular,
   Briefcase20Regular,
@@ -18,7 +19,7 @@ import {
   Sparkle20Regular,
   TagMultiple20Regular,
 } from '@fluentui/react-icons';
-import { NAV_GROUPS } from '../app/nav.js';
+import { DATA_LINKS, NAV_GROUPS } from '../app/nav.js';
 import { meQuery, mockUsersQuery } from '../app/queries.js';
 import { clearCredential, setCredential } from '../app/session.js';
 import { ApiError } from '../api/client.js';
@@ -43,14 +44,8 @@ const NAV_ICONS: Record<string, ReactNode> = {
   '/data/health': <Pulse20Regular />,
   '/data/dictionary': <BookOpen20Regular />,
   '/data/taxonomy': <TagMultiple20Regular />,
+  '/data/intake': <ArrowImport20Regular />,
 };
-
-/** Data pages exist (docs/03 section 4) but were reachable only from Home; a secondary group lists them. */
-const DATA_LINKS: { label: string; to: string }[] = [
-  { label: 'Data Health', to: '/data/health' },
-  { label: 'Data Dictionary', to: '/data/dictionary' },
-  { label: 'Taxonomy', to: '/data/taxonomy' },
-];
 
 function NavItem({ to, label, exact }: { to: string; label: string; exact: boolean }): ReactNode {
   return (

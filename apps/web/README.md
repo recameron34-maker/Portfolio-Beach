@@ -30,6 +30,7 @@ Routes live in `src/app/router.tsx`; the secondary tabs of each area in `src/app
 | `/admin/audit`, `/admin/access`, `/admin/health` | `pages/admin/Admin.tsx` | The audit trail, walls and the role table, and integration health. |
 | `/data/health`, `/data/dictionary` | `pages/Data.tsx` | Data Health and the Data Dictionary. |
 | `/data/taxonomy` | `pages/admin/Taxonomy.tsx` | Taxonomy domains and terms. |
+| `/data/intake`, `/data/intake/$id` | `pages/intake/Intake.tsx`, `pages/intake/IntakeFile.tsx` | Intake (M2, SEC-9.1): operations stages an accounting export (a chosen CSV, the drop folder or, in the preview, a sample); every file with its status and counts; a file's rows with their link, diff against the current quarter, findings and status, and the approve and reject commands. |
 | `/pipeline`, `/documents` | `pages/pipeline/`, `pages/documents/` | Phase pages naming the phase and modules, with the deal stage, document classification and extraction run workflows those modules will run on. |
 
 ## Shared pieces

@@ -42,6 +42,15 @@ export const ADMIN_TABS = [
   { to: '/data/health', label: 'Data health' },
   { to: '/data/dictionary', label: 'Data dictionary' },
   { to: '/data/taxonomy', label: 'Taxonomy' },
+  { to: '/data/intake', label: 'Intake' },
+];
+
+/** The Data group of the main navigation (docs/03 section 4, docs/04 M2); icons live in AppShell. */
+export const DATA_LINKS: { label: string; to: string }[] = [
+  { label: 'Data Health', to: '/data/health' },
+  { label: 'Data Dictionary', to: '/data/dictionary' },
+  { label: 'Taxonomy', to: '/data/taxonomy' },
+  { label: 'Intake', to: '/data/intake' },
 ];
 
 /** Deal workspace tabs (docs/06 section 2). The Overview tab is the one-pager. */

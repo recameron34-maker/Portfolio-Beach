@@ -12,6 +12,8 @@ import {
   dataHealthQuery,
   flagsQuery,
   healthReadyQuery,
+  intakeExportsQuery,
+  intakeFilesQuery,
   investmentPerformanceQuery,
   investmentQuery,
   investmentsQuery,
@@ -131,6 +133,8 @@ describe('the recording plan', () => {
       taxonomyQuery,
       wallsQuery,
       healthReadyQuery,
+      intakeFilesQuery,
+      intakeExportsQuery,
       investmentQuery(INV),
       investmentPerformanceQuery(INV),
       sponsorQuery(SPO),
@@ -167,6 +171,10 @@ describe('the recording plan', () => {
     expect(paths('vehicle detail')).toEqual([`/api/v1/vehicles/${VEH}`]);
     expect(paths('sponsor detail')).toEqual([`/api/v1/sponsors/${SPO}`]);
     expect(paths('capital notice detail')).toEqual([`/api/v1/capital-notices/${NOT}`]);
+    expect(paths('intake')).toEqual([
+      '/api/v1/intake/files?limit=200',
+      '/api/v1/intake/accounting/exports',
+    ]);
     expect(paths('investment lists')).toHaveLength(
       INVESTMENT_LIMITS.length * (DEAL_TYPES.length + 1) * ACTIVE_FILTERS.length,
     );

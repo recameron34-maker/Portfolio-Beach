@@ -1,0 +1,100 @@
+/* Intake pages (docs/04 M2). Tokens only; shared table, tile and badge styles live in styles.css,
+   which loads first, so a page class wins over a shared class of the same specificity. Filters keep
+   .pb-toolbar in front to outrank Fluent's own classes. */
+
+/* Filters sized to their content, so the toolbar holds one row on a laptop screen. */
+.pb-toolbar .pb-intake-filter {
+  min-width: 0;
+  width: 190px;
+}
+
+/* The upload row: the file input and its button side by side, stacked on a phone. */
+.pb-intake-upload {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: 10px 14px;
+  margin: 0 0 12px;
+}
+.pb-intake-upload input[type='file'] {
+  max-width: 100%;
+  font: inherit;
+  font-size: 13px;
+}
+.pb-intake-samples {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+}
+.pb-intake-drop {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 6px;
+}
+.pb-intake-drop li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 12px;
+}
+.pb-intake-upload-status > .pb-notice {
+  margin: 0 0 12px;
+}
+
+/* Seven columns fit a laptop screen; each cell holds its word first and its detail on muted lines
+   below. On a phone the table scrolls inside its frame. */
+.pb-intake-rows td {
+  vertical-align: top;
+}
+.pb-intake-subject {
+  min-width: 200px;
+}
+.pb-intake-lines {
+  display: grid;
+  gap: 2px;
+  margin-top: 4px;
+  font-size: 12px;
+  line-height: 16px;
+  color: var(--pb-muted);
+}
+.pb-intake-findings {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.pb-intake-details {
+  margin-top: 4px;
+  font-size: 12px;
+  line-height: 16px;
+  color: var(--pb-muted);
+}
+.pb-intake-details > summary {
+  cursor: pointer;
+  color: var(--pb-brand-primary);
+}
+.pb-intake-details > .pb-list {
+  margin-top: 4px;
+  color: var(--pb-text);
+}
+.pb-intake-file-findings {
+  margin: 0;
+  padding-left: 0;
+  list-style: none;
+  display: grid;
+  gap: 6px;
+}
+.pb-intake-file-findings li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 10px;
+}
+@media (max-width: 760px) {
+  .pb-toolbar .pb-intake-filter {
+    width: 100%;
+  }
+}

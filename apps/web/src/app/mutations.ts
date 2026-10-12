@@ -1,10 +1,21 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import type { QueryClient, QueryKey, UseMutationResult } from '@tanstack/react-query';
 import type { z } from 'zod';
-import { capitalNoticeRow, featureFlag, previewResetResult, valuationRow } from '@pb/contracts';
+import {
+  capitalNoticeRow,
+  featureFlag,
+  intakeFileDetail,
+  intakeImportResult,
+  previewResetResult,
+  valuationRow,
+} from '@pb/contracts';
 import type {
   CapitalNoticeCommand,
   CapitalNoticeRow,
+  IntakeCommandBody,
+  IntakeFileDetail,
+  IntakeImportBody,
+  IntakeImportResult,
   ValuationCommand,
   ValuationRow,
 } from '@pb/contracts';
@@ -54,6 +65,20 @@ export function postCapitalNoticeCommand(
   body: CommandBody<CapitalNoticeCommand>,
 ): Promise<CapitalNoticeRow> {
   return post(`/api/v1/capital-notices/${encodeURIComponent(id)}/commands`, capitalNoticeRow, body);
+}
+
+/**
+ * POST /api/v1/intake/accounting: stage an accounting export (SEC-9.1). The body is the CSV as
+ * text with its file name, or the id of an export the adapter lists in the drop folder. Operations
+ * only; idempotent by content, so a repeat answers with the file staged before and duplicate true.
+ */
+export function postIntakeImport(body: IntakeImportBody): Promise<IntakeImportResult> {
+  return post('/api/v1/intake/accounting', intakeImportResult, body);
+}
+
+/** POST /api/v1/intake/files/{id}/commands: approve validated rows (promoted at once) or reject flagged rows. */
+export function postIntakeCommand(id: string, body: IntakeCommandBody): Promise<IntakeFileDetail> {
+  return post(`/api/v1/intake/files/${encodeURIComponent(id)}/commands`, intakeFileDetail, body);
 }
 
 export type FeatureFlag = zod.infer<typeof featureFlag>;
@@ -169,6 +194,25 @@ const NOTICE_KEYS: QueryKey[] = [
   ['audit'],
 ];
 
+/**
+ * Promoted rows replace approved quarterly financials, which every read of a position's figures
+ * pools; a staged file opens data exceptions that Data Health counts; and the staging itself is
+ * audited (docs/04 M2). The drop folder listing changes once an export in it is staged.
+ */
+const INTAKE_KEYS: QueryKey[] = [
+  ['intake-files'],
+  ['intake-file'],
+  ['intake-exports'],
+  ['investment'],
+  ['investments'],
+  ['investment-performance'],
+  ['data-health'],
+  ['analytics-summary'],
+  ['watchlist'],
+  ['weekly-report'],
+  ['audit'],
+];
+
 function invalidate(queryClient: QueryClient, keys: QueryKey[]): void {
   void Promise.all(keys.map((queryKey) => queryClient.invalidateQueries({ queryKey })));
 }
@@ -204,6 +248,38 @@ export function useCapitalNoticeCommand(): UseMutationResult<
     mutationFn: ({ id, body }: CommandVariables<CapitalNoticeCommand>) =>
       postCapitalNoticeCommand(id, body),
     onSuccess: () => invalidate(queryClient, NOTICE_KEYS),
+  });
+}
+
+export function useIntakeImport(): UseMutationResult<IntakeImportResult, Error, IntakeImportBody> {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (body: IntakeImportBody) => postIntakeImport(body),
+    onSuccess: (result) => {
+      // The detail page the import navigates to opens on the answer instead of a second read.
+      queryClient.setQueryData(['intake-file', result.id], result);
+      invalidate(queryClient, INTAKE_KEYS);
+    },
+  });
+}
+
+export interface IntakeCommandVariables {
+  id: string;
+  body: IntakeCommandBody;
+}
+
+export function useIntakeCommand(): UseMutationResult<
+  IntakeFileDetail,
+  Error,
+  IntakeCommandVariables
+> {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, body }: IntakeCommandVariables) => postIntakeCommand(id, body),
+    onSuccess: (updated) => {
+      queryClient.setQueryData(['intake-file', updated.id], updated);
+      invalidate(queryClient, INTAKE_KEYS);
+    },
   });
 }
 

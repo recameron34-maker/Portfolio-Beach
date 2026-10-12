@@ -125,6 +125,15 @@ export function buildPlan(dataset, { dealTypes }) {
           withQuery('/api/v1/capital-notices', { limit: LIST_LIMIT }),
         ],
       },
+      {
+        // The API's own guard decides 200 or 403 per credential; a staged file's detail is not
+        // recorded, since files exist only once the simulation stages one.
+        name: 'intake',
+        paths: [
+          withQuery('/api/v1/intake/files', { limit: LIST_LIMIT }),
+          '/api/v1/intake/accounting/exports',
+        ],
+      },
       { name: 'investment lists', paths: investmentLists },
       {
         name: 'investment detail',
