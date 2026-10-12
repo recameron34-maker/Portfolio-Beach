@@ -1034,7 +1034,12 @@ export const intakeFile = z.object({
 });
 export type IntakeFile = z.infer<typeof intakeFile>;
 
-export const intakeFileDetail = intakeFile.extend({ rows: z.array(intakeRow) });
+export const intakeFileDetail = intakeFile.extend({
+  /** The staged rows the caller may see, in file order. */
+  rows: z.array(intakeRow),
+  /** Rows linked to investments not visible to the caller; never a reason to show them. */
+  hiddenRows: z.number().int(),
+});
 export type IntakeFileDetail = z.infer<typeof intakeFileDetail>;
 
 export const intakeFilePage = z.object({

@@ -108,6 +108,8 @@ doc.document 1-N doc.extraction_run 1-N stg.extracted_value
 | ops.job | type, requested_by, state, progress, result_ref, error_code |
 | ops.feature_flag | key, enabled, updated_by |
 | ops.systems_issue | code, problem, area, severity, lane, decision_log (json) |
+| stg.intake_file | source, file_name, content_hash (unique with source: an import is idempotent by content), template_signature, received_at, received_by, row_count, status, findings (json: file-level findings such as an unknown column; a refused file holds no rows) |
+| stg.intake_row | intake_file_id, row_no (unique per file, the row's locator), natural_key (the layout's key columns; a file may repeat one, which DUP-01 flags), target_entity, target_id, payload (json: names, period, figures, raw cells and the link), diff (json), validation (json: findings), status, reviewer_id, decision, decided_at, promoted_at |
 | stg.* | one table per intake type, plus stg.extracted_value (run_id, field, value, unit, page, quote, confidence, validation_state, reviewer_id, decision) |
 | audit.event | at, actor_id, actor_type (user, service, agent), action, entity, entity_id, before_hash, after_hash, reason, request_id |
 

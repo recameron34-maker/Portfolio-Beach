@@ -11,13 +11,22 @@ import { CapitalService } from './capital/capital.service.js';
 import { IdentityMiddleware } from './auth/identity.middleware.js';
 import { AuthGuard } from './auth/principal.js';
 import { ProblemFilter } from './common/problem.js';
-import { ADAPTERS, CONFIG, DB_HANDLE, DEFINITIONS, LOGGER } from './common/tokens.js';
+import {
+  ACCOUNTING_LAYOUT,
+  ADAPTERS,
+  CONFIG,
+  DB_HANDLE,
+  DEFINITIONS,
+  LOGGER,
+} from './common/tokens.js';
 import type { Runtime } from './composition.js';
 import { DataController } from './data/data.controller.js';
 import { DbService } from './db/db.service.js';
 import { FlagsController } from './flags/flags.controller.js';
 import { FlagsService } from './flags/flags.service.js';
 import { HealthController } from './health/health.controller.js';
+import { IntakeController } from './intake/intake.controller.js';
+import { IntakeService } from './intake/intake.service.js';
 import { PerformanceController } from './performance/performance.controller.js';
 import { PerformanceService } from './performance/performance.service.js';
 import { PortfolioController } from './portfolio/portfolio.controller.js';
@@ -46,6 +55,7 @@ export const CONTROLLERS = [
   AnalyticsController,
   ReportsController,
   AuditController,
+  IntakeController,
 ] as const;
 
 @Module({})
@@ -60,6 +70,7 @@ export class AppModule implements NestModule {
         { provide: ADAPTERS, useValue: runtime.adapters },
         { provide: LOGGER, useValue: runtime.logger },
         { provide: DEFINITIONS, useValue: runtime.definitions },
+        { provide: ACCOUNTING_LAYOUT, useValue: runtime.accountingLayout },
         DbService,
         FlagsService,
         PortfolioService,
@@ -71,6 +82,7 @@ export class AppModule implements NestModule {
         AnalyticsService,
         ReportsService,
         AuditService,
+        IntakeService,
         { provide: APP_GUARD, useClass: AuthGuard },
         { provide: APP_FILTER, useClass: ProblemFilter },
       ],

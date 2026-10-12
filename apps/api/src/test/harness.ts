@@ -28,6 +28,8 @@ export interface Harness {
 export interface HarnessOptions {
   /** Top-level keys of config/definitions.json to leave out, to prove a missing key is a 500. */
   withoutDefinitions?: readonly string[];
+  /** Replaces config/accounting_layout.json, to prove a malformed layout is a 500. */
+  accountingLayout?: unknown;
 }
 
 /** An API over a fresh in-memory database seeded with the small synthetic profile. */
@@ -59,6 +61,7 @@ export async function startHarness(options: HarnessOptions = {}): Promise<Harnes
   runtime.definitions = Object.fromEntries(
     Object.entries(runtime.definitions).filter(([key]) => !dropped.has(key)),
   );
+  if ('accountingLayout' in options) runtime.accountingLayout = options.accountingLayout;
   const app = await createApp(runtime);
   const server = app.getHttpServer() as Parameters<typeof request>[0];
   return {

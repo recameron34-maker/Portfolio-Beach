@@ -4,3 +4,5 @@ export const ADAPTERS = 'PB_ADAPTERS';
 export const CONFIG = 'PB_CONFIG';
 export const LOGGER = 'PB_LOGGER';
 export const DEFINITIONS = 'PB_DEFINITIONS';
+/** config/accounting_layout.json as read from disk; the intake service parses it with @pb/validation. */
+export const ACCOUNTING_LAYOUT = 'PB_ACCOUNTING_LAYOUT';

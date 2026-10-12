@@ -99,3 +99,28 @@ Phase 1 (M1, M2): linking services with match guards, the staging framework and 
 
 **Next step**
 Phase 1 (M1, M2) as planned in Session 1, now with every read screen in place to receive real workflows: staging and approval for valuations and capital notices (the preview's simulated writes become API writes), then the linking services and the validation rule library.
+
+## Session 4 (2026-10-12): API intake module for the accounting import (docs/04 M2)
+
+**Branch:** the worktree branch for the intake API, on top of the intake foundation commit (`55a10e4`: packages/validation, the layout config, the synthetic accounting export, the intake contract). Synthetic data only; no employer information anywhere.
+
+**What changed**
+
+- `apps/api/src/intake`: the five contract routes under `/api/v1/intake`. POST import reads an upload or a drop-folder export by id, refuses a file over `definitions.intake.maxFileBytes`, hashes the text (SHA-256) and answers the file staged before with `duplicate: true` when the content was seen (idempotent by content). Otherwise, in one transaction: the file is read against `config/accounting_layout.json` (a file the layout refuses holds no rows and keeps its file-level findings), every row is linked by number then exact name with the match guards (docs/03 section 5), diffed against the approved quarter for its aligned quarter end, run through `ACCOUNTING_RULES` with the thresholds from `definitions.intake`, `priorYearPeriodEndToleranceDays` and `unitSanityBoundsUsd` (strict readers, no defaults), and staged in `stg.intake_row` with its payload, diff and findings. Unresolved names and fair values that do not tie open `ops.data_exception` rows (`exception_severity.high`, the taxonomy code the table requires). One `intake.import` audit event carries counts only.
+- Reads: the file list newest first with a cursor on (received_at, id) and a status filter; the detail with rows in file order, where rows linked to an investment the caller cannot open (a walled deal for a non-member) are left out and counted in `hiddenRows` (added to `intakeFileDetail` in the contract); each detail open is audited as `intake_file.read` with no values.
+- Commands: approve runs `validated > approved` (the caller, through `stagingMachine`) and `approved > promoted` (the service) per row in the same transaction; promotion upserts `mon.quarterly_performance` with the four figures, `approved_by`, `approved_at`, `approval_reason` and `source_locator = intake_file:<id>/row:<n>`, and audits `quarterly_performance.promote` with the figures before and after. Reject needs the reason the machine requires (422 otherwise) and is operations only (the machine's row; the deal team gets 403). A repeated command finds nothing to do and answers the unchanged file. Refusals map through `WORKFLOW_REFUSALS` via a shared `workflowProblem` helper in `common/problem.ts`.
+- Migration `0007_intake.sql`: `stg.intake_file.findings jsonb`; the unique constraint on `(intake_file_id, natural_key)` becomes a plain index so a repeated key is staged and flagged (DUP-01) rather than refused; update-only RLS policies let the deal team approve staged rows (docs/18 section 2). Mirrored in `packages/db/src/schema/stg.ts` and docs/03.
+- `config/accounting_layout.json` is loaded in `composition.ts` and injected as `ACCOUNTING_LAYOUT`; a malformed layout is a 500 `configuration` problem at use, like a missing definitions key.
+- `app.ts`: the JSON body limit is 8 MB so an upload of the contract's largest CSV can arrive.
+
+**Verified (command output summarized)**
+
+- `pnpm typecheck`, `pnpm lint` (eslint and prettier), `pnpm check:style` (490 files), `pnpm check:employer-data` (491 files), `pnpm check:classification` (567 columns): all pass.
+- `pnpm vitest run --project api src/test/intake.test.ts`: 18 tests pass (role guards, malformed bodies with paths only, clean, update and defects imports against the synthetic exports, duplicate by content, zero production change before approval, walled rows hidden and counted, approval with lineage and one audit event per promoted row, named-row approval, reject with and without a reason, list paging and filters, drop-folder listing and import by id, refused layouts, the byte limit, a malformed layout and a missing `intake` block). `api.test.ts` contract parity passes again. `pnpm vitest run --project db`: 259 tests pass with migration 0007.
+
+**Open items for the owner**
+
+- Security role impact (docs/05 checklist): migration 0007 adds update-only RLS policies for `deal_team` on `stg.intake_file` and `stg.intake_row`, matching the staging machine's approve row. Inserting files and rows stays with operations and the service.
+- The intake test puts `ops.one` on the wall (owner SQL in `beforeAll`) because the seed has no operations user on it, and an importer outside the wall cannot link the walled position. If an operations wall member should exist in the seed itself, that is a generator change.
+- Approval promotes every validated row the caller sees, including unchanged ones (the record then carries the accounting file as its lineage); say if unchanged rows should instead be marked promoted without a production write.
+- A validated row cannot be rejected (the machine has no `validated > rejected`), so a reviewer who disagrees with a validated figure has no action yet other than approving or leaving it; a `sendBack`-style command is a docs/18 decision.
