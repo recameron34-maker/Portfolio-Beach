@@ -2,11 +2,13 @@ import type {
   IntakeChange,
   IntakeCounts,
   IntakeFile,
+  IntakeFileDetail,
   IntakeFinding,
   IntakeLink,
   IntakeRow,
   StagingState,
 } from '@pb/contracts';
+import { DECIMAL_PATTERN, ROUTES } from '@pb/contracts';
 import { stagingMachine } from '@pb/workflows';
 import definitions from '../../../../../config/definitions.json';
 import type { Tone } from '../../components/ui.js';
@@ -56,8 +58,12 @@ export function sampleUrl(scenario: SampleScenario): string {
   return `preview/samples/${sampleFileName(scenario)}`;
 }
 
-/** "This file is 2.4 MB; the limit is 2 MB." or null when the file may be sent. */
+/** What the page says of a file with nothing in it; the API would refuse it with a less plain message. */
+export const EMPTY_FILE_PROBLEM = 'The file is empty.';
+
+/** "This file is 2.4 MB; the limit is 2 MB.", "The file is empty.", or null when the file may be sent. */
 export function uploadSizeProblem(bytes: number, limit: number = MAX_UPLOAD_BYTES): string | null {
+  if (bytes === 0) return EMPTY_FILE_PROBLEM;
   if (bytes <= limit) return null;
   const mb = (n: number): string => {
     const value = n / 1_000_000;
@@ -96,9 +102,36 @@ export const FIELD_LABELS: Readonly<Record<IntakeChange['field'], string>> = {
   netDebt: 'Net debt',
 };
 
-/** "EBITDA $4.1M to $4.0M": the record's figure, then the file's, both in $M. */
-export function describeChange(change: IntakeChange): string {
-  return `${FIELD_LABELS[change.field]} ${formatMoneyM(change.before)} to ${formatMoneyM(change.after)}`;
+/** Dollars to the cent, grouped and prefixed the way every other figure on these pages is written (docs/06). */
+const EXACT_DOLLARS = new Intl.NumberFormat('en-US', {
+  style: 'currency',
+  currency: 'USD',
+  minimumFractionDigits: 2,
+  maximumFractionDigits: 2,
+});
+
+/**
+ * "$4,141,000.00": a figure exactly as the record or the file holds it, which is what the audit
+ * trail will store (CLAUDE.md rule 6). Text that is not a decimal number is shown as the file
+ * said it, since the reviewer must see what will be refused; null is the missing placeholder.
+ */
+export function exactMoney(value: string | null): string {
+  if (value === null) return MISSING;
+  const text = value.trim();
+  return DECIMAL_PATTERN.test(text) ? EXACT_DOLLARS.format(Number(text)) : text;
+}
+
+/**
+ * "EBITDA $4,140,000.00 to $4,141,000.00": the record's figure, then the file's, to the cent, so
+ * a small restatement never reads as two equal numbers. The millions scale ("EBITDA $4.1M to
+ * $4.1M") is the secondary label only.
+ */
+export function describeChange(
+  change: IntakeChange,
+  scale: 'exact' | 'millions' = 'exact',
+): string {
+  const money = scale === 'exact' ? exactMoney : formatMoneyM;
+  return `${FIELD_LABELS[change.field]} ${money(change.before)} to ${money(change.after)}`;
 }
 
 export function findingTone(severity: IntakeFinding['severity']): Tone {
@@ -196,8 +229,16 @@ export interface IntakeActions {
   reject: ActionGate;
 }
 
-/** Roles that may issue intake commands at all (the commands route, packages/contracts routes.ts). */
-const COMMAND_ROLES: readonly string[] = ['operations', 'deal_team'];
+/** The contract's route for intake commands: POST /intake/files/{id}/commands. */
+const COMMANDS_ROUTE_SUFFIX = '/intake/files/{id}/commands';
+
+/**
+ * Roles that may issue intake commands at all, read from the commands route in the contract
+ * (packages/contracts routes.ts) so the page never keeps its own copy of that list. Were the
+ * route missing, nobody would be offered a command, which the unit test catches.
+ */
+export const COMMAND_ROLES: readonly string[] =
+  ROUTES.find((r) => r.method === 'POST' && r.path.endsWith(COMMANDS_ROUTE_SUFFIX))?.roles ?? [];
 
 function gate(
   roles: readonly string[],
@@ -256,6 +297,41 @@ export function commandResult(
 export function hiddenRowsNote(hiddenRows: number): string | null {
   if (hiddenRows <= 0) return null;
   return `${plural(hiddenRows, 'row')} ${hiddenRows === 1 ? 'is' : 'are'} linked to positions you cannot see`;
+}
+
+export interface NoRowsState {
+  title: string;
+  detail: string;
+}
+
+/**
+ * What the rows card says when the reviewer sees no row at all, or null when there are rows to
+ * show: nothing was staged (a refused file, or one with no data lines), or every staged row is
+ * linked to a position behind a wall, which the file's counts still cover.
+ */
+export function noRowsState(
+  file: Pick<IntakeFileDetail, 'rowCount' | 'rows' | 'hiddenRows' | 'fileFindings'>,
+): NoRowsState | null {
+  if (file.rowCount === 0) {
+    return {
+      title: 'No rows were staged',
+      detail:
+        file.fileFindings.length > 0
+          ? 'The file was refused before any row was read; the file findings above say why.'
+          : 'The file holds no data lines.',
+    };
+  }
+  if (file.rows.length > 0) return null;
+  return file.hiddenRows > 0
+    ? {
+        title: 'Every row in this file is linked to positions you cannot see',
+        detail:
+          'The tiles above count every row in the file. Someone with access to those positions reviews them.',
+      }
+    : {
+        title: 'No rows in this file are visible to you',
+        detail: `The file holds ${plural(file.rowCount, 'row')}; none of them is in your view.`,
+      };
 }
 
 /** The exceptions column: a count, or the placeholder for a file that staged no rows. */

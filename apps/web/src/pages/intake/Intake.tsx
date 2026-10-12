@@ -29,6 +29,7 @@ import { humanizeState, stagingTone } from '../../lib/states.js';
 import {
   countsLine,
   dayOf,
+  EMPTY_FILE_PROBLEM,
   exceptionsText,
   INTAKE_FORBIDDEN,
   INTAKE_META,
@@ -78,13 +79,19 @@ function UploadCard({ onStaged }: { onStaged: (result: IntakeImportResult) => vo
     const file = event.target.files?.[0];
     setChosen(null);
     if (file === undefined) return;
+    // Nothing in the file, or too much: said here in plain words, before the button is enabled.
     const problem = uploadSizeProblem(file.size);
     if (problem !== null) {
       setMessage({ tone: 'bad', text: problem });
       return;
     }
     try {
-      setChosen({ fileName: file.name, csv: await readText(file) });
+      const csv = await readText(file);
+      if (csv === '') {
+        setMessage({ tone: 'bad', text: EMPTY_FILE_PROBLEM });
+        return;
+      }
+      setChosen({ fileName: file.name, csv });
       setMessage(null);
     } catch (error) {
       setMessage({
