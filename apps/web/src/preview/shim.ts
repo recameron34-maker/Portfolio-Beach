@@ -30,8 +30,11 @@ export interface PreviewFetchOptions {
   env?: Partial<PreviewEnv>;
   /** The session state; tests pass one to inspect it. A fresh one by default. */
   state?: PreviewState;
-  /** The system actor's view of the book (preview/book.json), which the intake routes check an import against. */
-  book?: PreviewBook;
+  /**
+   * The system actor's view of the book (preview/book.json), which the intake routes check an
+   * import against; null (or left out) when it could not be loaded, and Data > Intake says so.
+   */
+  book?: PreviewBook | null;
 }
 
 function requestUrl(input: RequestInfo | URL): URL {
@@ -129,7 +132,28 @@ async function loadJson(realFetch: typeof fetch, url: string, what: string): Pro
   return response.json();
 }
 
-/** Loads the recorded fixtures and the book, then installs the fetch shim. Called only in preview builds. */
+/**
+ * The book, or null when it is missing or malformed: the rest of the preview works without it,
+ * so the problem is logged (as a warning, the probe fails on errors only) and only Data > Intake
+ * answers that it carries no book.
+ */
+async function loadBook(realFetch: typeof fetch, url: string): Promise<PreviewBook | null> {
+  try {
+    return parseBook(await loadJson(realFetch, url, 'preview book'));
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : String(error);
+    console.warn(
+      `preview: Data > Intake is unavailable because the book could not be loaded: ${reason}`,
+    );
+    return null;
+  }
+}
+
+/**
+ * Loads the recorded fixtures and the book, then installs the fetch shim. Called only in preview
+ * builds. Without the fixtures nothing can render, so that failure is thrown; without the book
+ * only the simulated intake is unavailable.
+ */
 export async function installPreviewShim(
   fixturesUrl: string,
   bookUrl: string,
@@ -137,7 +161,7 @@ export async function installPreviewShim(
   const realFetch = window.fetch.bind(window);
   const [fixtures, book] = await Promise.all([
     loadJson(realFetch, fixturesUrl, 'preview fixtures').then(parseFixtures),
-    loadJson(realFetch, bookUrl, 'preview book').then(parseBook),
+    loadBook(realFetch, bookUrl),
   ]);
   window.__pbPreviewMisses ??= [];
   window.fetch = createPreviewFetch(fixtures, realFetch, { book });
