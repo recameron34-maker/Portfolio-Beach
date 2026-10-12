@@ -13,7 +13,7 @@
 - **Lineage columns** on any table with values from outside: `source_document_id`, `source_page`, `source_locator` (sheet/row/cell), `extraction_run_id`, `prompt_version`, `model_id`.
 - **Approval columns** on any table that can reach a client or the accounting system: `status`, `approved_by`, `approved_at`, `approval_reason`.
 - **History:** financial and approval tables have `<table>_history` populated by triggers (full row image + operation + actor + time). `audit.event` is append-only (no UPDATE / DELETE grants to any role, including the app owner role).
-- **Row-level security:** enabled on every business table. The API sets `app.user_id`, `app.roles` and `app.entitlements` per transaction (`SET LOCAL`). Policies cover roles, client entitlements and walled records (`docs/05` SEC-5).
+- **Row-level security:** enabled on every business table and forced on all but `core.wall_member` and `core.walled_record`, which `pb.can_see_walled` (security definer) reads as their owner, the migration role (migration 0009). The API sets `app.user_id`, `app.roles` and `app.entitlements` per transaction (`SET LOCAL`); every role is checked by value before it is set. Policies cover roles, client entitlements and walled records (`docs/05` SEC-5).
 - **Constraints over code:** foreign keys everywhere; `CHECK` constraints for impossible states; unique partial indexes for state rules (for example one `locked` valuation per investment and period).
 - **Staging:** every intake writes to `stg.*` with status (`new`, `validated`, `flagged`, `approved`, `rejected`, `promoted`). Promotion happens in one transaction with an audit event.
 
@@ -48,7 +48,7 @@ doc.document 1-N doc.extraction_run 1-N stg.extracted_value
 | lp_commitment | client_id, vehicle_id, amount, commitment_date, closing_number, ownership_pct (nullable until final close), side_letter_flags | Restricted. A client's commitment to a firm vehicle; ownership_pct drives client look-through |
 | taxonomy_term | domain, code, label, parent_id, active | |
 | match_guard | name_a, name_b, reason | never auto-match |
-| wall | name, description; wall_member(wall_id, user_id); walled_record(wall_id, entity, entity_id) | information barriers; `pb.can_see_walled` admits members and the system actor (`service` role, migration 0008, decision 0009), never anyone else |
+| wall | name, description; wall_member(wall_id, user_id); walled_record(wall_id, entity, entity_id) | information barriers; `pb.can_see_walled` admits members and the system actor (`service` role, migration 0008, decision 0009), never anyone else; wall_member and walled_record keep row-level security enabled, not forced, so the definer's owner reads them while `pb_app` stays bound (migration 0009) |
 
 ### deal
 | Table | Key fields |
@@ -109,7 +109,7 @@ doc.document 1-N doc.extraction_run 1-N stg.extracted_value
 | ops.feature_flag | key, enabled, updated_by |
 | ops.systems_issue | code, problem, area, severity, lane, decision_log (json) |
 | stg.intake_file | source, file_name, content_hash (unique with source: an import is idempotent by content), template_signature, received_at, received_by, row_count, status, findings (json: file-level findings such as an unknown column; a refused file holds no rows) |
-| stg.intake_row | intake_file_id, row_no (unique per file, the row's locator), natural_key (the layout's key columns; a file may repeat one, which DUP-01 flags), target_entity, target_id, payload (json: names, period, figures, raw cells and the link), diff (json), validation (json: findings), status, reviewer_id, decision, decided_at, promoted_at |
+| stg.intake_row | intake_file_id, row_no (unique per file, the row's locator), natural_key (the layout's key columns; a file may repeat one, which DUP-01 flags), target_entity, target_id, payload (json: names, period, figures, raw cells and the link), diff (json), validation (json: findings), status, reviewer_id, decision, decided_at, promoted_at. A row carries the wall of the investment its payload links to: `pb.intake_row_visible(payload)` on the select and update policies (migration 0009); an unlinked row is every reviewer's; import (insert) covers the whole book and the file's counts are taken by the system actor |
 | stg.* | one table per intake type, plus stg.extracted_value (run_id, field, value, unit, page, quote, confidence, validation_state, reviewer_id, decision) |
 | audit.event | at, actor_id, actor_type (user, service, agent), action, entity, entity_id, before_hash, after_hash, reason, request_id |
 

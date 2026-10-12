@@ -12,11 +12,13 @@ import {
   SyntheticBenchmarkProvider,
 } from '@pb/adapters/mocks';
 import type { MockUser } from '@pb/adapters/mocks';
-import { createDb, dbConfigFromEnv, migrate } from '@pb/db';
+import { APP_ROLES, createDb, dbConfigFromEnv, migrate } from '@pb/db';
 import type { DbHandle } from '@pb/db';
+import { z } from 'zod';
 import type { ApiConfig } from './config.js';
 import { createLogger } from './common/logging.js';
 import type { Logger } from './common/logging.js';
+import { zodIssues } from './common/problem.js';
 
 export interface Runtime {
   config: ApiConfig;
@@ -36,21 +38,36 @@ export interface RuntimeOverrides {
   clock?: Clock;
 }
 
-interface DatasetUsers {
-  users?: {
-    id: string;
-    externalId: string;
-    displayName: string;
-    roles: MockUser['roles'];
-    clientIds?: string[];
-  }[];
-}
+/**
+ * The users block of the synthetic dataset. Roles are checked by value against the application
+ * roles: the roles of a principal travel to Postgres as one comma-joined setting, so a role string
+ * such as "viewer,service" from a users file would otherwise sign in as the system actor (SEC-5.3).
+ */
+const datasetUsers = z.object({
+  users: z
+    .array(
+      z.object({
+        id: z.string().min(1),
+        externalId: z.string().min(1),
+        displayName: z.string().min(1),
+        roles: z.array(z.enum(APP_ROLES)),
+        clientIds: z.array(z.string().min(1)).optional(),
+      }),
+    )
+    .optional(),
+});
 
 /** Mock sign-in users come from the synthetic dataset so the role switcher and the seeded database agree. */
 export function loadMockUsers(path: string): MockUser[] {
   if (!existsSync(path)) return [];
-  const parsed = JSON.parse(readFileSync(path, 'utf8')) as DatasetUsers;
-  return (parsed.users ?? []).map((u) => ({
+  const parsed = datasetUsers.safeParse(JSON.parse(readFileSync(path, 'utf8')));
+  if (!parsed.success) {
+    const issues = zodIssues(parsed.error)
+      .map((i) => `${i.path}: ${i.message}`)
+      .join('; ');
+    throw new Error(`mock users file is not valid (${path}): ${issues}`);
+  }
+  return (parsed.data.users ?? []).map((u) => ({
     id: u.id,
     externalId: u.externalId,
     displayName: u.displayName,
