@@ -81,6 +81,7 @@ describe('contracts', () => {
       entryDate: '2022-01-01',
       exitDate: null,
       isActive: true,
+      holdingPeriodYears: '3.4931506849',
       invested: '1000.00',
       distributions: '0',
       nav: null,

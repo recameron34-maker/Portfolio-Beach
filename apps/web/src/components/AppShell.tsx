@@ -87,8 +87,11 @@ export function RoleSwitcher(): ReactNode {
         const next = data.optionValue;
         if (next === undefined || next === current) return;
         setCredential(next);
-        // Nothing the previous user could see may survive the switch, cached or on screen.
-        queryClient.clear();
+        // Nothing the previous user could see may survive the switch, cached or on screen: every
+        // query drops its data, and the ones on screen fetch again as the new user (clear() would
+        // leave the mounted queries detached, still showing the old answers).
+        queryClient.getMutationCache().clear();
+        void queryClient.resetQueries();
         void navigate({ to: '/' });
       }}
     >
