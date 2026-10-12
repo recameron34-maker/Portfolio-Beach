@@ -961,6 +961,7 @@ export const intakeLink = z.object({
     }),
   ),
 });
+export type IntakeLink = z.infer<typeof intakeLink>;
 
 export const intakeChange = z.object({
   field: z.enum(['revenueLtm', 'ebitdaLtm', 'ev', 'netDebt']),
@@ -968,6 +969,7 @@ export const intakeChange = z.object({
   before: z.string().nullable(),
   after: z.string().nullable(),
 });
+export type IntakeChange = z.infer<typeof intakeChange>;
 
 export const intakeRow = z.object({
   id: uuid,
@@ -1010,6 +1012,7 @@ export const intakeCounts = z.object({
   rejected: z.number().int(),
   promoted: z.number().int(),
 });
+export type IntakeCounts = z.infer<typeof intakeCounts>;
 
 /**
  * An intake file. Its status sums up its rows: flagged while any row is flagged, validated while
@@ -1034,7 +1037,11 @@ export const intakeFile = z.object({
 });
 export type IntakeFile = z.infer<typeof intakeFile>;
 
-export const intakeFileDetail = intakeFile.extend({ rows: z.array(intakeRow) });
+export const intakeFileDetail = intakeFile.extend({
+  rows: z.array(intakeRow),
+  /** Rows linked to investments not visible to the caller; never a reason to show them. */
+  hiddenRows: z.number().int(),
+});
 export type IntakeFileDetail = z.infer<typeof intakeFileDetail>;
 
 export const intakeFilePage = z.object({
@@ -1051,6 +1058,7 @@ export const intakeFileListQuery = pageQuery.extend({
 export const intakeExportList = z.object({
   items: z.array(z.object({ id: z.string(), name: z.string(), receivedAt: z.string() })),
 });
+export type IntakeExportList = z.infer<typeof intakeExportList>;
 
 /** Import an export: the file's text as uploaded, or one the adapter lists by id. */
 export const intakeImportBody = z.union([

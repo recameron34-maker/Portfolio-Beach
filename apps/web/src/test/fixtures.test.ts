@@ -3,6 +3,10 @@ import {
   analyticsSummary,
   capitalNoticePage,
   dataHealth,
+  intakeExportList,
+  intakeFileDetail,
+  intakeFilePage,
+  intakeImportResult,
   investmentPage,
   investmentPerformance,
   principal,
@@ -10,6 +14,14 @@ import {
   watchlist,
 } from '@pb/contracts';
 import { problemFixture } from './api-mock.js';
+import {
+  approvedDetailFixture,
+  intakeExportListFixture,
+  intakeFileDetailFixture,
+  intakeFilePageFixture,
+  intakeImportResultFixture,
+  rejectedDetailFixture,
+} from './fixtures-intake.js';
 import {
   analyticsFixture,
   capitalNoticePageFixture,
@@ -32,6 +44,12 @@ describe('test fixtures match the contracts', () => {
     ['investment performance', investmentPerformance, performanceFixture()],
     ['capital notice page', capitalNoticePage, capitalNoticePageFixture([noticeFixture()])],
     ['data health', dataHealth, dataHealthFixture()],
+    ['intake file page', intakeFilePage, intakeFilePageFixture()],
+    ['intake file detail', intakeFileDetail, intakeFileDetailFixture()],
+    ['intake file detail after approve', intakeFileDetail, approvedDetailFixture()],
+    ['intake file detail after reject', intakeFileDetail, rejectedDetailFixture('Not ours')],
+    ['intake import result', intakeImportResult, intakeImportResultFixture(true)],
+    ['intake export list', intakeExportList, intakeExportListFixture()],
     ['problem', problemDetails, problemFixture(501, '/api/v1/x')],
   ])('%s', (_name, schema, fixture) => {
     const result = schema.safeParse(fixture);

@@ -55,6 +55,20 @@ export function noticeTone(state: string): Tone {
   return NOTICE_TONES[state] ?? 'neutral';
 }
 
+/**
+ * docs/18 section 2: a flagged row waits for a person, a rejected row is a refusal, a promoted row
+ * reached production; new, validated and approved are steps on the way and read as neutral.
+ */
+const STAGING_TONES: Readonly<Record<string, Tone>> = {
+  flagged: 'watch',
+  rejected: 'bad',
+  promoted: 'good',
+};
+
+export function stagingTone(state: string): Tone {
+  return STAGING_TONES[state] ?? 'neutral';
+}
+
 /** Urgency of a due date against the alert window (config capitalActivity.alertDaysBeforeDue). */
 export function dueTone(daysToDue: number, alertDaysBeforeDue: readonly number[]): Tone {
   if (daysToDue < 0) return 'bad';

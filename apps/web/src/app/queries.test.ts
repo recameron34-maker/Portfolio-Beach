@@ -6,6 +6,9 @@ import { retryUnlessUnavailable } from '../lib/unavailable.js';
 import {
   capitalNoticeQuery,
   capitalNoticesQuery,
+  intakeExportsQuery,
+  intakeFileQuery,
+  intakeFilesQuery,
   investmentPerformanceQuery,
   sponsorQuery,
   valuationsQuery,
@@ -33,9 +36,28 @@ describe('query options', () => {
       capitalNoticesQuery(),
       capitalNoticesQuery({ investmentId: 'inv-1' }),
       capitalNoticeQuery('notice-1'),
+      intakeFilesQuery,
+      intakeFileQuery('file-1'),
+      intakeExportsQuery,
     ]) {
       expect(q.retry).toBe(retryUnlessUnavailable);
     }
+  });
+
+  it('reads the intake files unfiltered at the list limit, and a file by id', async () => {
+    expect(intakeFilesQuery.queryKey).toEqual(['intake-files']);
+    expect(intakeFileQuery('file-1').queryKey).toEqual(['intake-file', 'file-1']);
+    expect(intakeExportsQuery.queryKey).toEqual(['intake-exports']);
+    mockApi({});
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    await expect(client.fetchQuery(intakeFilesQuery)).rejects.toThrow();
+    await expect(client.fetchQuery(intakeFileQuery('file 1'))).rejects.toThrow();
+    await expect(client.fetchQuery(intakeExportsQuery)).rejects.toThrow();
+    expect(requested()).toEqual([
+      '/api/v1/intake/files?limit=200',
+      '/api/v1/intake/files/file%201',
+      '/api/v1/intake/accounting/exports',
+    ]);
   });
 
   it('keeps the audited reads fresh for a minute and does not retry them', () => {
