@@ -36,6 +36,8 @@ export interface PreviewBookQuarter {
 }
 
 export interface PreviewBookMark {
+  /** Only Locked marks are in the book; the state travels so @pb/calc's lockedNear reads them. */
+  state: 'Locked';
   periodEnd: string;
   fairValue: string;
 }
@@ -104,7 +106,11 @@ export function previewBook(dataset: SyntheticDataset): PreviewBook {
     .filter((v) => v.state === 'Locked')
     .sort((a, b) => byText(a.periodEnd, b.periodEnd) || b.version - a.version);
   for (const v of locked) {
-    (lockedMarks[v.investmentId] ??= []).push({ periodEnd: v.periodEnd, fairValue: v.fairValue });
+    (lockedMarks[v.investmentId] ??= []).push({
+      state: 'Locked',
+      periodEnd: v.periodEnd,
+      fairValue: v.fairValue,
+    });
   }
 
   const samples: PreviewBookSample[] = accountingExports(dataset).map((sample, i) => {
