@@ -147,3 +147,29 @@ Phase 1 (M1, M2) as planned in Session 1, now with every read screen in place to
 
 - The preview book carries the record's figures for the diff and the rules of every investment, walled ones included, in one static file, as `fixtures.json` already does for every mock user's answers (decision 0008): acceptable only because every figure is synthetic.
 - The samples are bundled under fixed names (`accounting-<scenario>.csv`) that the intake page, the generator and the book schema all know; a rename needs all three.
+
+## Session 5 close-out (2026-10-12): the wall fix, the adversarial review and its fixes, publish
+
+**Branch:** `claude/gifted-tesla-eg7s85` (133 commits over `main`; the PR is still to be opened by the owner's request). Synthetic data only; no employer information anywhere.
+
+**What changed after the Session 4 and Session 5 entries above**
+
+- The e2e intake journey over the real API showed the first real defect of the slice: an importer outside a wall saw the walled position as "no match", with a flagged row and a false data exception. Linking, the diff and the rules now run as the system actor (`DbService.runAsSystem`); migration 0008 lets the `service` role past walls in `pb.can_see_walled`; the RLS matrix carries that actor; a credential that carries the service role is never signed in (`identity.middleware.ts`). Readers see only rows and candidates for positions they may open, the `XREF` messages name nobody, exceptions carry a candidate's reason only, and the page gates approve and reject on the rows the reviewer sees. The journey ends with a wall member finishing the file.
+- An adversarial review of the whole intake slice (five finders by dimension, three refuters per finding) confirmed 36 of 44 findings; four parallel fix groups landed them, each checked by a reviewer. Highlights: promotion refuses a stale diff and an entry snapshot and runs the file's commands serialized with status guards (409 on a race); a refused file is re-stageable once the layout is corrected; the Locked mark is found by the quarter tolerance (`lockedNear`); the audit `after` figures are the stored values; new rules PERIOD-05 (entry snapshot quarter), TYPE-05 (figure scale and digits) and TIE-03 (no Locked mark to tie to); TYPE-03 (a period end off the quarter) is an error, so a bulk approve never writes a mid-month quarter; DUP-01 keys on the linked position and the aligned quarter; the bound rules compare aligned quarters and question a sign flip; STALE-01 counts calendar quarters; every threshold is in config; migration 0009 puts the wall on `stg.intake_row` itself and the definer function's wall tables drop `force row level security` so a non-superuser migration owner keeps walls on (tested with such a role); roles are validated at runtime and in the mock users file; the pages show a new quarter's figures and exact diff figures, refuse an empty file, keep focus after a command, and count only visible rows in the reject dialog; the generator exports the shifted sponsor at its own period end and reports every row of the walled position.
+- The static preview simulates the five intake endpoints through the same validation library (see the Session 5 entry), and after the review the per-row preparation lives once in `packages/validation` (`prepare.ts`: `linkRows`, `prepareRows`, `exceptionsOpenedBy`, `selectTargets`) for the API and the browser alike; a missing preview book disables only Data > Intake.
+
+**Verified (command output summarized, final tree `1b5d860` and later)**
+
+- `pnpm typecheck`, `pnpm lint` (eslint and prettier), `pnpm check:style` (521 files), `pnpm check:employer-data` (522 files), `pnpm check:classification` (567 columns): all pass.
+- `pnpm test`: 100 files, 1496 tests pass (validation 89 with a passing and a failing case per rule and the exact finding set per case; api intake 26; db 488 with the matrix's service actor, the staged-row wall and the definer-owner case; web 469 with the preview intake routes and the candidate filter; synthetic 22 on seeds 42, 7 and 14).
+- `pnpm test:e2e`: 27 of 27 pass (11.1 minutes), the intake journey rerun on the final tree: 2 of 2.
+- `pnpm build:preview` and `pnpm probe:preview`: 56 passed, 0 failed, no recording misses, no page errors; the artifact at the same private URL is republished with the book and the three samples (version 4, then the final tree).
+
+**Open items for the owner**
+
+- Security role impact (docs/05 checklist): migration 0007 gives `deal_team` update on the staging tables; migration 0008 lets the system actor (`service`) see walled records; migration 0009 puts the wall on `stg.intake_row` and takes `force row level security` off `core.wall_member` and `core.walled_record` (they stay `enable`d; the owner of `pb.can_see_walled` reads them). The RLS matrix proves each; say if any should be reverted.
+- Rejection is operations' call under the staging machine, so a wall must include an operations member for a walled position's flagged row to be rejected (the test puts `ops.two` on the wall to finish the file); and a validated row still has no reject path. Both are docs/18 decisions.
+- A file whose staged diff went stale (the record changed after staging) is refused at approval and cannot be staged again from the same bytes (its hash is a duplicate); it waits for a fresh export. A "stage again" command is a decision.
+- Approval promotes unchanged rows too (the record then carries the file as its lineage); say if they should be marked promoted without a write.
+- The preview book bundles the record's figures of every investment, walled ones included, in one static file (synthetic only); the three sample names are fixed in the page, the generator and the book schema.
+- Earlier items still open: carry-at-cost policy, client totals null while any share is not calculable, the audit cursor shape, the branch size, the rulesets and SHA pinning on the repository.
