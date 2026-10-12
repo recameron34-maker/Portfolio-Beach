@@ -218,12 +218,26 @@ function gate(
 /**
  * Which actions the signed-in roles may take on a file, from the staging transition table
  * (docs/18 section 2): approve from validated for operations and the deal team, reject from
- * flagged for operations. A button with nothing to act on is disabled and says so.
+ * flagged for operations. A command acts on the rows the reviewer sees, so the gate counts those,
+ * not the file's counts: a validated row past the reviewer's wall is counted in hiddenRows and
+ * waits for a wall member. A button with nothing to act on is disabled and says so.
  */
-export function intakeActions(roles: readonly string[], counts: IntakeCounts): IntakeActions {
+export function intakeActions(roles: readonly string[], rows: readonly IntakeRow[]): IntakeActions {
   return {
-    approve: gate(roles, 'validated', 'approve', counts.validated, 'No validated rows to approve'),
-    reject: gate(roles, 'flagged', 'reject', counts.flagged, 'No flagged rows to reject'),
+    approve: gate(
+      roles,
+      'validated',
+      'approve',
+      approvableRows(rows).length,
+      'No validated rows you can see to approve',
+    ),
+    reject: gate(
+      roles,
+      'flagged',
+      'reject',
+      rejectableRows(rows).length,
+      'No flagged rows you can see to reject',
+    ),
   };
 }
 

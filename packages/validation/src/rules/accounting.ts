@@ -611,8 +611,10 @@ const XREF_01: AccountingRule = {
     link.status === 'unmatched' && (row.investmentNumber !== null || row.companyName !== null)
       ? finding(
           XREF_01,
+          // Candidates travel on the link, where a reader sees the ones they may see; the message
+          // names none, so it reads the same for everyone (walls, SEC-5.3).
           link.candidates.length > 0
-            ? `No investment matches; the nearest names are ${link.candidates.map((c) => `${c.companyName} (${c.investmentNumber})`).join(', ')}, which a person must confirm`
+            ? `No investment matches; ${link.candidates.length === 1 ? 'one name is a near miss' : `${link.candidates.length} names are near misses`}, which a person must confirm`
             : 'No investment on record matches the number or the name',
           { field: row.investmentNumber !== null ? 'InvestmentNumber' : 'CompanyName' },
         )
@@ -646,7 +648,7 @@ const XREF_03: AccountingRule = {
     link.status === 'ambiguous'
       ? finding(
           XREF_03,
-          `The name ${row.companyName ?? ''} matches more than one investment: ${link.candidates.map((c) => c.investmentNumber).join(', ')}`,
+          `The name ${row.companyName ?? ''} matches ${link.candidates.length} investments; a person must pick one`,
           {
             field: 'CompanyName',
           },

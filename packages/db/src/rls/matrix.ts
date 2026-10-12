@@ -11,7 +11,8 @@ export type ActorName =
   | 'investor_relations(A)'
   | 'platform_admin'
   | 'auditor'
-  | 'wall_member(deal_team)';
+  | 'wall_member(deal_team)'
+  | 'service';
 
 export const ACTOR_NAMES: ActorName[] = [
   'viewer',
@@ -22,6 +23,7 @@ export const ACTOR_NAMES: ActorName[] = [
   'platform_admin',
   'auditor',
   'wall_member(deal_team)',
+  'service',
 ];
 
 type Row = Record<ActorName, number>;
@@ -34,6 +36,7 @@ const row = (
   admin: number,
   aud: number,
   wm: number,
+  svc: number,
 ): Row => ({
   viewer: v,
   deal_team: dt,
@@ -43,25 +46,30 @@ const row = (
   platform_admin: admin,
   auditor: aud,
   'wall_member(deal_team)': wm,
+  service: svc,
 });
 
-/** Visible row counts. Columns: viewer, deal_team, operations, approver, IR(A), platform_admin, auditor, wall member. */
+/**
+ * Visible row counts. Columns: viewer, deal_team, operations, approver, IR(A), platform_admin,
+ * auditor, wall member, service (the system actor: it sees walled records, migration 0008, and
+ * holds no client entitlement, no wall membership and no audit or history read).
+ */
 export const READ_MATRIX: Record<string, Row> = {
-  'core.investment': row(1, 1, 1, 1, 1, 1, 1, 2),
-  'core.sponsor': row(1, 1, 1, 1, 1, 1, 1, 1),
-  'core.vehicle': row(1, 1, 1, 1, 1, 1, 1, 1),
-  'core.client': row(0, 0, 2, 2, 1, 0, 2, 0),
-  'core.lp_commitment': row(0, 0, 2, 2, 1, 0, 2, 0),
-  'core.commitment': row(1, 1, 2, 2, 1, 1, 2, 1),
-  'core.wall': row(0, 0, 0, 1, 0, 1, 0, 1),
-  'core.wall_member': row(0, 0, 0, 1, 0, 1, 0, 1),
-  'core.walled_record': row(0, 0, 0, 1, 0, 1, 0, 1),
-  'mon.quarterly_performance': row(1, 1, 1, 1, 1, 1, 1, 2),
-  'mon.valuation': row(1, 1, 1, 1, 1, 1, 1, 2),
-  'mon.cash_flow': row(2, 2, 2, 2, 2, 2, 2, 3),
-  'mon.valuation_history': row(0, 0, 2, 2, 0, 0, 2, 0),
-  'ops.feature_flag': row(7, 7, 7, 7, 7, 7, 7, 7),
-  'audit.event': row(0, 0, 2, 2, 0, 2, 2, 0),
+  'core.investment': row(1, 1, 1, 1, 1, 1, 1, 2, 2),
+  'core.sponsor': row(1, 1, 1, 1, 1, 1, 1, 1, 1),
+  'core.vehicle': row(1, 1, 1, 1, 1, 1, 1, 1, 1),
+  'core.client': row(0, 0, 2, 2, 1, 0, 2, 0, 0),
+  'core.lp_commitment': row(0, 0, 2, 2, 1, 0, 2, 0, 0),
+  'core.commitment': row(1, 1, 2, 2, 1, 1, 2, 1, 1),
+  'core.wall': row(0, 0, 0, 1, 0, 1, 0, 1, 0),
+  'core.wall_member': row(0, 0, 0, 1, 0, 1, 0, 1, 0),
+  'core.walled_record': row(0, 0, 0, 1, 0, 1, 0, 1, 0),
+  'mon.quarterly_performance': row(1, 1, 1, 1, 1, 1, 1, 2, 2),
+  'mon.valuation': row(1, 1, 1, 1, 1, 1, 1, 2, 2),
+  'mon.cash_flow': row(2, 2, 2, 2, 2, 2, 2, 3, 3),
+  'mon.valuation_history': row(0, 0, 2, 2, 0, 0, 2, 0, 0),
+  'ops.feature_flag': row(7, 7, 7, 7, 7, 7, 7, 7, 7),
+  'audit.event': row(0, 0, 2, 2, 0, 2, 2, 0, 0),
 };
 
 export interface WriteCase {
@@ -75,17 +83,18 @@ export const WRITE_MATRIX: WriteCase[] = [
   {
     name: 'insert a sponsor',
     sql: "insert into core.sponsor (name, canonical_name, tier) values ('New Sponsor', 'new sponsor', 'sponsor_tier.new')",
-    allowed: ['deal_team', 'operations', 'wall_member(deal_team)'],
+    allowed: ['deal_team', 'operations', 'wall_member(deal_team)', 'service'],
   },
   {
     name: 'insert a client (Restricted)',
     sql: "insert into core.client (name) values ('Client Gamma')",
-    allowed: ['operations'],
+    allowed: ['operations', 'service'],
   },
   {
     name: 'flip a feature flag',
     sql: "update ops.feature_flag set enabled = true where key = 'ai.extraction'",
-    allowed: ['platform_admin'],
+    // Kill switches: an administrator, or the system actor on behalf of Beach Ops (docs/15).
+    allowed: ['platform_admin', 'service'],
   },
   {
     name: 'insert a taxonomy term',
@@ -100,12 +109,12 @@ export const WRITE_MATRIX: WriteCase[] = [
   {
     name: 'insert a cash flow on a visible investment',
     sql: "insert into mon.cash_flow (investment_id, flow_date, flow_type, amount) values ('30000000-0000-4000-8000-000000000001', '2024-09-30', 'flow_type.distribution', 1000000)",
-    allowed: ['operations'],
+    allowed: ['operations', 'service'],
   },
   {
     name: 'update a visible investment',
     sql: "update core.investment set is_active = true where id = '30000000-0000-4000-8000-000000000001'",
-    allowed: ['deal_team', 'operations', 'wall_member(deal_team)'],
+    allowed: ['deal_team', 'operations', 'wall_member(deal_team)', 'service'],
   },
   {
     name: 'append an audit event',
@@ -115,6 +124,7 @@ export const WRITE_MATRIX: WriteCase[] = [
   {
     name: 'insert a valuation on the walled investment',
     sql: "insert into mon.valuation (investment_id, period_end, version, method, fair_value) values ('30000000-0000-4000-8000-000000000002', '2024-09-30', 1, 'valuation_method.cost', 1)",
-    allowed: [],
+    // Only the system actor, which promotes approved staging rows for every position (migration 0008).
+    allowed: ['service'],
   },
 ];

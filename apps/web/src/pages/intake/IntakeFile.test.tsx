@@ -219,7 +219,7 @@ describe('intake file', () => {
     expect(within(tile('Validated')).getByText('0')).toBeInTheDocument();
     const again = screen.getByRole('button', { name: 'Approve validated rows' });
     expect(again).toBeDisabled();
-    expect(again).toHaveAttribute('title', 'No validated rows to approve');
+    expect(again).toHaveAttribute('title', 'No validated rows you can see to approve');
   });
 
   it('rejects flagged rows only with a reason', TIMEOUT, async () => {
@@ -326,7 +326,7 @@ describe('intake file', () => {
     expect(screen.queryByRole('table', { name: 'Staged rows' })).not.toBeInTheDocument();
     const approve = screen.getByRole('button', { name: 'Approve validated rows' });
     expect(approve).toBeDisabled();
-    expect(approve).toHaveAttribute('title', 'No validated rows to approve');
+    expect(approve).toHaveAttribute('title', 'No validated rows you can see to approve');
   });
 
   it('says not found on a 404, who intake is for on a 403, and degrades on a 501', async () => {

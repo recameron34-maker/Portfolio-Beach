@@ -1,4 +1,5 @@
 import type { DbHandle } from '../client.js';
+import { SYSTEM_USER_ID } from '../roles.js';
 import type { AppRole } from '../roles.js';
 
 /**
@@ -54,6 +55,8 @@ export const actors: Actor[] = [
   { name: 'platform_admin', userId: ids.users.platformAdmin, roles: ['platform_admin'] },
   { name: 'auditor', userId: ids.users.auditor, roles: ['auditor'] },
   { name: 'wall_member(deal_team)', userId: ids.users.wallMember, roles: ['deal_team'] },
+  // The system actor (migration 0006 inserts its user row; no fixture row is needed).
+  { name: 'service', userId: SYSTEM_USER_ID, roles: ['service'] },
 ];
 
 export async function loadFixture(handle: DbHandle): Promise<void> {

@@ -121,6 +121,6 @@ Phase 1 (M1, M2) as planned in Session 1, now with every read screen in place to
 **Open items for the owner**
 
 - Security role impact (docs/05 checklist): migration 0007 adds update-only RLS policies for `deal_team` on `stg.intake_file` and `stg.intake_row`, matching the staging machine's approve row. Inserting files and rows stays with operations and the service.
-- The intake test puts `ops.one` on the wall (owner SQL in `beforeAll`) because the seed has no operations user on it, and an importer outside the wall cannot link the walled position. If an operations wall member should exist in the seed itself, that is a generator change.
+- (Resolved later in the session, see the Session 4 close-out below.) The intake test first put `ops.one` on the wall because an importer outside the wall could not link the walled position; the e2e journey then showed the real import flagging that position as "no match" with a false exception. Linking now runs as the system actor (migration 0008, `DbService.runAsSystem`, decision 0009) and the test workaround is gone.
 - Approval promotes every validated row the caller sees, including unchanged ones (the record then carries the accounting file as its lineage); say if unchanged rows should instead be marked promoted without a production write.
 - A validated row cannot be rejected (the machine has no `validated > rejected`), so a reviewer who disagrees with a validated figure has no action yet other than approving or leaving it; a `sendBack`-style command is a docs/18 decision.

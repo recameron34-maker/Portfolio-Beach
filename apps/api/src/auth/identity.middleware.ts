@@ -24,7 +24,9 @@ export class IdentityMiddleware implements NestMiddleware {
       const credential = header.slice(7).trim();
       if (credential.length > 0 && credential.length <= 4096) {
         const principal = await this.adapters.identity.authenticate(credential);
-        if (principal !== null) req.principal = principal;
+        // The service role is the system actor's (migration 0008 lets it past every wall); it is
+        // never a sign-in role, whatever the identity provider says. Such a credential stays anonymous.
+        if (principal !== null && !principal.roles.includes('service')) req.principal = principal;
       }
     }
     void this.config;

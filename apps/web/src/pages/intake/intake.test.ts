@@ -125,30 +125,32 @@ describe('intake helpers', () => {
   });
 
   it('offers the actions to operations and the deal team from the staging table', () => {
-    const ops = intakeActions(['operations'], counts);
+    const rows = intakeRows();
+    const ops = intakeActions(['operations'], rows);
     expect(ops.approve).toEqual({ offered: true, enabled: true, title: null });
     expect(ops.reject).toEqual({ offered: true, enabled: true, title: null });
 
-    const deal = intakeActions(['deal_team'], counts);
+    const deal = intakeActions(['deal_team'], rows);
     expect(deal.approve.enabled).toBe(true);
     expect(deal.reject).toEqual({ offered: true, enabled: false, title: 'Needs operations' });
 
     for (const role of ['approver', 'auditor', 'viewer', 'platform_admin']) {
-      const gate = intakeActions([role], counts);
+      const gate = intakeActions([role], rows);
       expect(gate.approve.offered, role).toBe(false);
       expect(gate.reject.offered, role).toBe(false);
     }
 
-    const nothing = intakeActions(['operations'], { ...counts, validated: 0, flagged: 0 });
+    // Rows the reviewer cannot see are not theirs to act on, however the file's counts read.
+    const nothing = intakeActions(['operations'], [intakeRowFixture({ status: 'promoted' })]);
     expect(nothing.approve).toEqual({
       offered: true,
       enabled: false,
-      title: 'No validated rows to approve',
+      title: 'No validated rows you can see to approve',
     });
     expect(nothing.reject).toEqual({
       offered: true,
       enabled: false,
-      title: 'No flagged rows to reject',
+      title: 'No flagged rows you can see to reject',
     });
   });
 

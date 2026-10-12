@@ -62,9 +62,13 @@ import type { AuditEntry } from '../db/db.service.js';
  * every row is linked to an investment (docs/03 section 5), diffed against the approved quarter on
  * record and run through the validation rules, then staged in stg.* with its findings. Nothing
  * reaches mon.quarterly_performance until a reviewer approves, and promotion happens in the same
- * transaction as the approval with an audit event per row (docs/18 section 2). Row-level security
- * applies to every read and write here through DbService.run, so the investment directory, the
- * quarters and the production writes cover exactly what the caller may see.
+ * transaction as the approval with an audit event per row (docs/18 section 2). Linking, the diff and
+ * the rules run as the system actor (DbService.runAsSystem), the one actor that sees every position
+ * on record, walled ones included: an export covers the whole book, and a walled position must link
+ * rather than read as "no match". Everything a caller reads or writes runs under their own
+ * row-level security through DbService.run: a staged row linked to a position they cannot open is
+ * left out and counted, a candidate they cannot open is dropped from the link, and promotion writes
+ * only what they may see.
  */
 
 export type IntakeListOptions = z.infer<typeof intakeFileListQuery>;
@@ -305,15 +309,21 @@ export class IntakeService {
     const contentHash = createHash('sha256').update(text).digest('hex');
     const asOf = this.adapters.clock.today();
 
-    return this.db.run(principal, requestId, async (tx, audit) => {
-      const existing = await this.findByHash(tx, contentHash);
-      if (existing !== null) return { ...existing, duplicate: true };
+    const existing = await this.db.run(principal, requestId, (tx) =>
+      this.findByHash(tx, contentHash),
+    );
+    if (existing !== null) return { ...existing, duplicate: true };
 
-      const read = readAccountingFile(text, layout, { maxRows: settings.maxRows });
-      // A file the layout refuses (an unknown or missing column, nothing to read) holds no rows:
-      // a renamed column must never be guessed at.
-      const refused = read.fileFindings.some((f) => f.severity === 'error');
-      const prepared = refused ? [] : await this.prepareRows(tx, read.rows, settings, asOf);
+    const read = readAccountingFile(text, layout, { maxRows: settings.maxRows });
+    // A file the layout refuses (an unknown or missing column, nothing to read) holds no rows:
+    // a renamed column must never be guessed at.
+    const refused = read.fileFindings.some((f) => f.severity === 'error');
+    // The system actor links against the whole book (see the module comment); it reads only.
+    const prepared = refused
+      ? []
+      : await this.db.runAsSystem((tx) => this.prepareRows(tx, read.rows, settings, asOf));
+
+    return this.db.run(principal, requestId, async (tx, audit) => {
       const counts = countsOf(prepared.map((p) => p.status));
       const inserted = await tx
         .insert(file)
@@ -360,9 +370,9 @@ export class IntakeService {
   }
 
   /**
-   * Links, diffs and checks every row of the file against what the caller may see: the investment
-   * directory (number, names, aliases; none are on record yet), the match guards, the approved
-   * quarters of each linked investment and its Locked mark for the row's quarter.
+   * Links, diffs and checks every row of the file against the book as the system actor sees it:
+   * the investment directory (number, names, aliases; none are on record yet), the match guards,
+   * the approved quarters of each linked investment and its Locked mark for the row's quarter.
    */
   private async prepareRows(
     tx: Tx,
@@ -556,12 +566,17 @@ export class IntakeService {
           p.link.status
         ];
         const finding = p.findings.find((f) => f.ruleId === ruleId);
+        // Every authenticated user may read exceptions, so a candidate travels as its number and
+        // reason only; the names are on the staged row, shown to those who may see them.
         exceptions.push({
           ...base,
           ruleId,
           expected: finding?.expected ?? 'an investment on record',
           actual: finding?.actual ?? p.row.investmentNumber ?? p.row.companyName ?? '',
-          candidates: p.link.candidates,
+          candidates: p.link.candidates.map((c) => ({
+            investmentNumber: c.investmentNumber,
+            reason: c.reason,
+          })),
         });
       }
       for (const finding of p.findings.filter((f) => f.ruleId === 'TIE-01')) {
@@ -980,6 +995,9 @@ export class IntakeService {
       diff: rowDiff.parse(diff),
       findings: findingList.parse(validation),
     }));
+    // The investments the rows link to or name as candidates, as far as the caller may see them:
+    // a row linked past the caller's walls is left out and counted, a candidate past them is
+    // dropped from the link, so nothing here reveals a walled position exists (SEC-5.3).
     const linked = [
       ...new Set(
         rows.flatMap((r) =>
@@ -987,30 +1005,41 @@ export class IntakeService {
         ),
       ),
     ];
-    const visibleIds = new Set(
-      linked.length === 0
+    const named = [
+      ...new Set(rows.flatMap((r) => r.payload.link.candidates.map((c) => c.investmentNumber))),
+    ];
+    const seen =
+      linked.length + named.length === 0
         ? []
-        : (
-            await tx
-              .select({ id: schema.investment.id })
-              .from(schema.investment)
-              .where(inArray(schema.investment.id, linked))
-          ).map((r) => r.id),
-    );
+        : await tx
+            .select({
+              id: schema.investment.id,
+              investmentNumber: schema.investment.investmentNumber,
+            })
+            .from(schema.investment)
+            .where(
+              or(
+                ...(linked.length > 0 ? [inArray(schema.investment.id, linked)] : []),
+                ...(named.length > 0 ? [inArray(schema.investment.investmentNumber, named)] : []),
+              ),
+            );
+    const visibleIds = new Set(seen.map((r) => r.id));
+    const visibleNumbers = new Set(seen.map((r) => r.investmentNumber));
     const visible = rows.filter(
       (r) => r.payload.link.investmentId === null || visibleIds.has(r.payload.link.investmentId),
     );
     return {
       detail: {
         ...this.toFile(header, countsOf(rows.map((r) => r.status))),
-        rows: visible.map((r) => this.toRow(r)),
+        rows: visible.map((r) => this.toRow(r, visibleNumbers)),
         hiddenRows: rows.length - visible.length,
       },
       visible,
     };
   }
 
-  private toRow(r: StagedRow): IntakeRow {
+  /** A staged row for the caller, with only the candidates among the investments they may see. */
+  private toRow(r: StagedRow, visibleNumbers: ReadonlySet<string>): IntakeRow {
     return {
       id: r.id,
       rowNo: r.rowNo,
@@ -1021,7 +1050,10 @@ export class IntakeService {
       companyName: r.payload.companyName,
       periodEnd: r.payload.periodEnd,
       figures: r.payload.figures,
-      link: r.payload.link,
+      link: {
+        ...r.payload.link,
+        candidates: r.payload.link.candidates.filter((c) => visibleNumbers.has(c.investmentNumber)),
+      },
       diff: r.diff,
       findings: r.findings,
       status: r.status,

@@ -43,13 +43,8 @@ describe('accounting intake (M2, SEC-9.1): staging, validation, approval, then p
 
   beforeAll(async () => {
     h = await startHarness();
-    // The seed puts no operations user on the wall, so the importer could never link the walled
-    // position. ops.one joins it for this suite; ops.two stays outside, as does deal.one.
-    const wall = h.dataset.walls[0]!;
-    await h.runtime.db.query('insert into core.wall_member (wall_id, user_id) values ($1, $2)', [
-      wall.id,
-      user('ops.one').id,
-    ]);
+    // No operations user is on the wall: ops.one imports from outside it, deal.three and head.one
+    // are its members, deal.one and ops.two are outside it.
     clean = accountingExport(h.dataset, { scenario: 'clean' });
     update = accountingExport(h.dataset, { scenario: 'update' });
     defects = accountingExport(h.dataset, { scenario: 'defects' });
@@ -60,6 +55,10 @@ describe('accounting intake (M2, SEC-9.1): staging, validation, approval, then p
 
   const user = (externalId: string) => h.dataset.users.find((u) => u.externalId === externalId)!;
   const walledId = (): string => h.dataset.scenarios.walled_deal![0]!;
+  const walledCompanyName = (): string => {
+    const inv = h.dataset.investments.find((i) => i.id === walledId())!;
+    return h.dataset.portfolioCompanies.find((c) => c.id === inv.portfolioCompanyId)!.name;
+  };
   const periodEnd = (): string => latestQuarterEndOnOrBefore(h.dataset.asOf);
   const count = async (sql: string, params: unknown[] = []): Promise<number> =>
     (await h.runtime.db.query<{ n: number }>(sql, params))[0]!.n;
@@ -133,6 +132,8 @@ describe('accounting intake (M2, SEC-9.1): staging, validation, approval, then p
       .set('authorization', h.as(who))
       .set('x-request-id', requestId)
       .send(body);
+  /** The file as a wall member sees it: every row (head.one is an approver on the wall). */
+  const fullView = (id: string): Promise<IntakeFileDetail> => detail('head.one', id);
   const rowNo = (file: IntakeFileDetail, n: number): IntakeRow =>
     file.rows.find((r) => r.rowNo === n)!;
   const hasError = (row: IntakeRow): boolean => row.findings.some((f) => f.severity === 'error');
@@ -172,11 +173,15 @@ describe('accounting intake (M2, SEC-9.1): staging, validation, approval, then p
     expect(cleanFile.source).toBe('accounting');
     expect(cleanFile.fileName).toBe(clean.fileName);
     expect(cleanFile.receivedBy).toBe(user('ops.one').displayName);
-    expect(cleanFile.rows.length).toBe(clean.expectations.rows);
     expect(cleanFile.rowCount).toBe(clean.expectations.rows);
-    expect(cleanFile.hiddenRows).toBe(0);
+    // The importer is outside the wall: the walled position's row links all the same (never a
+    // "no match") and is left out of their view and counted (decision 0009, SEC-5.3).
+    expect(cleanFile.hiddenRows).toBe(1);
+    expect(cleanFile.rows.length).toBe(clean.expectations.rows - 1);
     expect(cleanFile.fileFindings).toEqual([]);
-    for (const row of cleanFile.rows) {
+    const everyRow = (await fullView(cleanFile.id)).rows;
+    expect(everyRow.length).toBe(clean.expectations.rows);
+    for (const row of everyRow) {
       expect(row.link.status, `row ${row.rowNo}`).toBe('matched');
       expect(row.link.investmentNumber).toBe(row.investmentNumber);
       expect(row.link.investmentId).toBe(investmentByNumber(row.investmentNumber!).id);
@@ -232,12 +237,13 @@ describe('accounting intake (M2, SEC-9.1): staging, validation, approval, then p
     const before = await productionRows();
     updateFile = await stage(update, 'req-intake-update-1');
     expect(updateFile.duplicate).toBe(false);
-    expect(updateFile.rows.length).toBe(update.expectations.rows);
+    const everyRow = (await fullView(updateFile.id)).rows;
+    expect(everyRow.length).toBe(update.expectations.rows);
     const changed = new Set(update.expectations.changed);
     const added = new Set(update.expectations.added);
     expect(changed.size).toBeGreaterThan(0);
     expect(added.size).toBeGreaterThan(0);
-    for (const row of updateFile.rows) {
+    for (const row of everyRow) {
       const number = row.investmentNumber!;
       expect(row.link.status).toBe('matched');
       // The supplied quarter is the one row of its investment at an earlier period end.
@@ -281,10 +287,11 @@ describe('accounting intake (M2, SEC-9.1): staging, validation, approval, then p
 
   it('stages a defects export: each defect row is flagged by its rule, unresolved names open exceptions', async () => {
     defectsFile = await stage(defects, 'req-intake-defects-1');
-    expect(defectsFile.rows.length).toBe(defects.expectations.rows);
+    const full = await fullView(defectsFile.id);
+    expect(full.rows.length).toBe(defects.expectations.rows);
     expect(defects.expectations.flagged.length).toBeGreaterThanOrEqual(6);
     for (const { rowNo: n, ruleId } of defects.expectations.flagged) {
-      const row = rowNo(defectsFile, n);
+      const row = rowNo(full, n);
       expect(row.status, `row ${n} (${ruleId})`).toBe('flagged');
       expect(
         row.findings.map((f) => f.ruleId),
@@ -295,10 +302,10 @@ describe('accounting intake (M2, SEC-9.1): staging, validation, approval, then p
       expect(finding.message).not.toContain(String.fromCharCode(0x2014));
     }
     // Unresolved names: a number the record lacks, and a near miss with candidates for a person.
-    const unmatched = defectsFile.rows.filter((r) => r.link.status === 'unmatched');
+    const unmatched = full.rows.filter((r) => r.link.status === 'unmatched');
     expect(unmatched.length).toBe(2);
     const nearMiss = unmatched.find((r) => r.investmentNumber === null)!;
-    const sample = defectsFile.rows[1]!;
+    const sample = full.rows[1]!;
     expect(nearMiss.link.candidates).toEqual([
       {
         investmentNumber: sample.investmentNumber,
@@ -309,7 +316,7 @@ describe('accounting intake (M2, SEC-9.1): staging, validation, approval, then p
     expect(nearMiss.link.investmentId).toBeNull();
     expect(nearMiss.targetId).toBeNull();
     // A name on the match guard list is never linked, whatever the similarity.
-    const guarded = defectsFile.rows.filter((r) => r.link.status === 'guarded');
+    const guarded = full.rows.filter((r) => r.link.status === 'guarded');
     expect(guarded.length).toBe(1);
     expect(guarded[0]!.status).toBe('flagged');
     expect(guarded[0]!.findings.map((f) => f.ruleId)).toContain('XREF-02');
@@ -317,14 +324,12 @@ describe('accounting intake (M2, SEC-9.1): staging, validation, approval, then p
     expect(guarded[0]!.companyName).toBe(h.dataset.matchGuards[0]!.nameB);
     // The duplicate row shares its natural key with the row it repeats and is flagged, not dropped.
     const dup = defects.expectations.flagged.find((f) => f.ruleId === 'DUP-01')!;
-    const dupRow = rowNo(defectsFile, dup.rowNo);
-    const first = defectsFile.rows.find(
-      (r) => r.rowNo < dup.rowNo && r.naturalKey === dupRow.naturalKey,
-    );
+    const dupRow = rowNo(full, dup.rowNo);
+    const first = full.rows.find((r) => r.rowNo < dup.rowNo && r.naturalKey === dupRow.naturalKey);
     expect(first).toBeDefined();
     expect(first!.status).toBe('validated');
     // Exceptions: one per unresolved link and one per fair value that does not tie.
-    const ties = defectsFile.rows.flatMap((r) => r.findings.filter((f) => f.ruleId === 'TIE-01'));
+    const ties = full.rows.flatMap((r) => r.findings.filter((f) => f.ruleId === 'TIE-01'));
     expect(ties.length).toBe(1);
     const expectedExceptions = unmatched.length + guarded.length + ties.length;
     expect(defectsFile.exceptions).toBe(expectedExceptions);
@@ -354,22 +359,22 @@ describe('accounting intake (M2, SEC-9.1): staging, validation, approval, then p
     expect(tie.actual).toBe(ties[0]!.actual);
     expect(opened.find((x) => x.rule_id === 'XREF-02')!.candidates.length).toBeGreaterThan(0);
     expect(defectsFile.status).toBe('flagged');
-    expect(defectsFile.counts.flagged).toBe(
-      defectsFile.rows.filter((r) => r.status === 'flagged').length,
-    );
+    expect(defectsFile.counts.flagged).toBe(full.rows.filter((r) => r.status === 'flagged').length);
     expect(defectsFile.counts.flagged + defectsFile.counts.validated).toBe(
       defects.expectations.rows,
     );
   });
 
-  it('hides rows linked to a walled investment from a reviewer outside the wall and counts them', async () => {
+  it('hides rows linked to a walled investment from everyone outside the wall, the importer included, and counts them', async () => {
+    // ops.one staged the file from outside the wall: the walled position linked all the same.
     const ops = await detail('operations', cleanFile.id, 'req-intake-detail-ops-1');
-    expect(ops.hiddenRows).toBe(0);
-    const walledRow = ops.rows.find((r) => r.link.investmentId === walledId());
-    expect(walledRow).toBeDefined();
+    expect(ops.hiddenRows).toBe(1);
+    expect(ops.rows.some((r) => r.link.investmentId === walledId())).toBe(false);
+    expect(JSON.stringify(ops)).not.toContain(walledId());
+    expect(JSON.stringify(ops)).not.toContain(walledCompanyName());
     const outsider = await detail('deal.one', cleanFile.id, 'req-intake-detail-deal-1');
     expect(outsider.hiddenRows).toBe(1);
-    expect(outsider.rows.length).toBe(ops.rows.length - 1);
+    expect(outsider.rows.length).toBe(ops.rows.length);
     expect(outsider.rows.some((r) => r.link.investmentId === walledId())).toBe(false);
     expect(JSON.stringify(outsider)).not.toContain(walledId());
     // The file reads the same for everyone: counts cover every row, hidden ones included.
@@ -377,7 +382,11 @@ describe('accounting intake (M2, SEC-9.1): staging, validation, approval, then p
     expect(outsider.rowCount).toBe(ops.rowCount);
     const member = await detail('deal.three', cleanFile.id);
     expect(member.hiddenRows).toBe(0);
-    expect(member.rows.length).toBe(ops.rows.length);
+    expect(member.rows.length).toBe(ops.rows.length + 1);
+    const walledRow = member.rows.find((r) => r.link.investmentId === walledId());
+    expect(walledRow).toBeDefined();
+    expect(walledRow!.link.status).toBe('matched');
+    expect(walledRow!.status).toBe('validated');
     // Each open is a sensitive read on record, without values.
     expect(await auditCount('intake_file.read', 'req-intake-detail-deal-1')).toBe(1);
     const [event] = await h.runtime.db.query<{ details: Record<string, unknown> }>(
@@ -385,11 +394,13 @@ describe('accounting intake (M2, SEC-9.1): staging, validation, approval, then p
     );
     expect(event!.details).toEqual({});
     // Naming a hidden row is the same as naming a row of another file: not one the caller may act on.
-    const refused = await command('deal.one', cleanFile.id, {
-      command: 'approve',
-      rowIds: [walledRow!.id],
-    }).expect(400);
-    expect(problemDetails.parse(refused.body).errors?.map((e) => e.path)).toEqual(['rowIds']);
+    for (const who of ['deal.one', 'operations']) {
+      const refused = await command(who, cleanFile.id, {
+        command: 'approve',
+        rowIds: [walledRow!.id],
+      }).expect(400);
+      expect(problemDetails.parse(refused.body).errors?.map((e) => e.path)).toEqual(['rowIds']);
+    }
   });
 
   it('answers 404 for a file the caller cannot see and for an id that is not a UUID', async () => {
@@ -504,6 +515,24 @@ describe('accounting intake (M2, SEC-9.1): staging, validation, approval, then p
     expect(again.counts).toEqual(after.counts);
     expect(await auditCount('quarterly_performance.promote', 'req-intake-approve-2')).toBe(0);
     expect(await productionRows()).toBe(before + newRows);
+
+    // A wall member finishes the file: the one row left is the walled position's, theirs to approve.
+    const finished = intakeFileDetail.parse(
+      (
+        await command(
+          'deal.three',
+          updateFile.id,
+          { command: 'approve' },
+          'req-intake-approve-wall',
+        ).expect(200)
+      ).body,
+    );
+    expect(finished.hiddenRows).toBe(0);
+    expect(finished.counts.validated).toBe(0);
+    expect(finished.counts.promoted).toBe(update.expectations.rows);
+    expect(finished.status).toBe('promoted');
+    expect(await auditCount('quarterly_performance.promote', 'req-intake-approve-wall')).toBe(1);
+    expect(await productionRows()).toBe(before + newRows);
   });
 
   it('approves named rows of the defects file one at a time; flagged rows stay flagged', async () => {
@@ -512,6 +541,14 @@ describe('accounting intake (M2, SEC-9.1): staging, validation, approval, then p
     const validated = current.rows.filter((r) => r.status === 'validated');
     expect(flagged.length).toBeGreaterThan(0);
     expect(validated.length).toBeGreaterThan(1);
+    // The walled position has two rows in this file (its quarter and a defect), both past ops.one's wall.
+    const everyRow = (await fullView(defectsFile.id)).rows;
+    const hiddenValidated =
+      everyRow.filter((r) => r.status === 'validated').length - validated.length;
+    const hiddenFlagged = everyRow.filter((r) => r.status === 'flagged').length - flagged.length;
+    expect(current.hiddenRows).toBe(hiddenValidated + hiddenFlagged);
+    expect(hiddenValidated).toBe(1);
+    expect(hiddenFlagged).toBe(1);
     // A flagged row cannot be approved, nor a row of another file.
     for (const rowIds of [
       [flagged[0]!.id],
@@ -539,16 +576,16 @@ describe('accounting intake (M2, SEC-9.1): staging, validation, approval, then p
       ).body,
     );
     expect(one.counts.promoted).toBe(1);
-    expect(one.counts.validated).toBe(validated.length - 1);
-    expect(one.counts.flagged).toBe(flagged.length);
+    expect(one.counts.validated).toBe(validated.length - 1 + hiddenValidated);
+    expect(one.counts.flagged).toBe(flagged.length + hiddenFlagged);
     expect(rowNo(one, validated[0]!.rowNo).decision).toBe('Figures checked with the sponsor');
     expect(await auditCount('quarterly_performance.promote', 'req-intake-approve-3')).toBe(1);
     const rest = intakeFileDetail.parse(
       (await command('operations', defectsFile.id, { command: 'approve' }).expect(200)).body,
     );
     expect(rest.counts.promoted).toBe(validated.length);
-    expect(rest.counts.validated).toBe(0);
-    expect(rest.counts.flagged).toBe(flagged.length);
+    expect(rest.counts.validated).toBe(hiddenValidated);
+    expect(rest.counts.flagged).toBe(flagged.length + hiddenFlagged);
     expect(rest.status).toBe('flagged');
     for (const f of flagged) expect(rowNo(rest, f.rowNo).status).toBe('flagged');
   });
@@ -574,20 +611,41 @@ describe('accounting intake (M2, SEC-9.1): staging, validation, approval, then p
       'req-intake-reject-1',
     ).expect(200);
     const rejected = intakeFileDetail.parse(res.body);
-    expect(rejected.counts.flagged).toBe(0);
-    expect(rejected.counts.rejected).toBe(stillFlagged.counts.flagged);
+    const visibleFlagged = stillFlagged.rows.filter((r) => r.status === 'flagged').length;
+    expect(rejected.counts.rejected).toBe(visibleFlagged);
+    // The walled position's defect row is past ops.one's wall: it stays flagged, and so does the file.
+    expect(rejected.counts.flagged).toBe(stillFlagged.counts.flagged - visibleFlagged);
+    expect(rejected.counts.flagged).toBe(1);
     for (const row of rejected.rows.filter((r) => r.status === 'rejected')) {
       expect(row.decision).toBe(reason);
       expect(row.decidedBy).toBe(user('ops.one').displayName);
       expect(row.promotedAt).toBeNull();
     }
-    // Every row is now promoted or rejected, so the file is promoted.
-    expect(rejected.status).toBe('promoted');
+    expect(rejected.status).toBe('flagged');
     expect(await auditCount('intake.reject', 'req-intake-reject-1')).toBe(1);
     const again = intakeFileDetail.parse(
       (await command('operations', defectsFile.id, { command: 'reject', reason }).expect(200)).body,
     );
     expect(again.counts).toEqual(rejected.counts);
+
+    // Rejection is operations' call (docs/18 section 2), so a wall needs an operations member to
+    // finish a file that holds a walled position's defect: ops.two joins the wall and does.
+    const wall = h.dataset.walls[0]!;
+    await h.runtime.db.query('insert into core.wall_member (wall_id, user_id) values ($1, $2)', [
+      wall.id,
+      user('ops.two').id,
+    ]);
+    const approvedRest = intakeFileDetail.parse(
+      (await command('ops.two', defectsFile.id, { command: 'approve' }).expect(200)).body,
+    );
+    expect(approvedRest.hiddenRows).toBe(0);
+    expect(approvedRest.counts.validated).toBe(0);
+    const finished = intakeFileDetail.parse(
+      (await command('ops.two', defectsFile.id, { command: 'reject', reason }).expect(200)).body,
+    );
+    expect(finished.counts.flagged).toBe(0);
+    // Every row is now promoted or rejected, so the file is promoted.
+    expect(finished.status).toBe('promoted');
   });
 
   it('keeps commands from auditors and viewers, and reads to the reviewing roles', async () => {
@@ -639,8 +697,9 @@ describe('accounting intake (M2, SEC-9.1): staging, validation, approval, then p
     const full = await detail('auditor', defectsFile.id);
     const { rows: _rows, hiddenRows: _hidden, ...header } = full;
     expect(summary).toEqual(header);
+    // The update file was finished by a wall member, the defects file by ops.two from inside the wall.
     const promoted = await list('?status=promoted');
-    expect(promoted.items.map((f) => f.id)).toEqual([defectsFile.id]);
+    expect(promoted.items.map((f) => f.id).sort()).toEqual([defectsFile.id, updateFile.id].sort());
     expect((await list('?status=flagged')).items).toEqual([]);
     await h
       .http()
@@ -693,7 +752,7 @@ describe('accounting intake (M2, SEC-9.1): staging, validation, approval, then p
     );
     expect(earlier.duplicate).toBe(false);
     expect(earlier.fileName).toBe(prior.fileName);
-    expect(earlier.rows.length).toBe(prior.expectations.rows);
+    expect(earlier.rows.length + earlier.hiddenRows).toBe(prior.expectations.rows);
     expect(earlier.rows.every((r) => r.diff.kind === 'unchanged')).toBe(true);
     expect(earlier.status).toBe('validated');
     for (const exportId of ['missing.csv', '../missing.csv', 'in']) {
@@ -753,6 +812,51 @@ describe('accounting intake (M2, SEC-9.1): staging, validation, approval, then p
     expect(problem.type).toBe(`${PROBLEM}validation`);
     expect(problem.detail).toBe('The file is larger than one import accepts');
     expect(await count('select count(*)::int as n from stg.intake_file')).toBe(files);
+  });
+
+  it('shows a near miss on a walled name only to the wall: candidates are filtered per reader, exceptions carry numbers only', async () => {
+    const table = parseCsv(clean.csv);
+    const inv = h.dataset.investments.find((i) => i.id === walledId())!;
+    const line = table.rows.find(
+      (r) => r[table.header.indexOf('InvestmentNumber')] === inv.investmentNumber,
+    )!;
+    const cells = [...line];
+    cells[table.header.indexOf('InvestmentNumber')] = '';
+    cells[table.header.indexOf('CompanyName')] = walledCompanyName().slice(0, -1);
+    const staged = intakeImportResult.parse(
+      (
+        await importAs('operations', {
+          fileName: 'near-miss-walled.csv',
+          csv: `${table.header.join(',')}\n${cells.join(',')}\n`,
+        }).expect(201)
+      ).body,
+    );
+    // The importer is outside the wall: an unmatched row with nothing to confirm, in words that
+    // name no candidate, so the response never says the walled position exists (SEC-5.3).
+    expect(staged.hiddenRows).toBe(0);
+    const row = staged.rows[0]!;
+    expect(row.link.status).toBe('unmatched');
+    expect(row.link.candidates).toEqual([]);
+    expect(row.findings.map((f) => f.ruleId)).toContain('XREF-01');
+    expect(JSON.stringify(staged)).not.toContain(walledCompanyName());
+    expect(JSON.stringify(staged)).not.toContain(inv.investmentNumber);
+    // A wall member sees the candidate the linker found, and nobody saw it linked: never a near miss.
+    const member = await detail('deal.three', staged.id);
+    expect(member.rows[0]!.link.candidates).toEqual([
+      {
+        investmentNumber: inv.investmentNumber,
+        companyName: walledCompanyName(),
+        reason: 'near miss',
+      },
+    ]);
+    // The exception every authenticated user may read carries the candidate's number and reason only.
+    const [exception] = await h.runtime.db.query<{ candidates: unknown[] }>(
+      "select candidates from ops.data_exception where entity = 'stg.intake_row' and entity_id = $1",
+      [row.id],
+    );
+    expect(exception!.candidates).toEqual([
+      { investmentNumber: inv.investmentNumber, reason: 'near miss' },
+    ]);
   });
 });
 

@@ -48,7 +48,7 @@ doc.document 1-N doc.extraction_run 1-N stg.extracted_value
 | lp_commitment | client_id, vehicle_id, amount, commitment_date, closing_number, ownership_pct (nullable until final close), side_letter_flags | Restricted. A client's commitment to a firm vehicle; ownership_pct drives client look-through |
 | taxonomy_term | domain, code, label, parent_id, active | |
 | match_guard | name_a, name_b, reason | never auto-match |
-| wall | name, description; wall_member(wall_id, user_id); walled_record(wall_id, entity, entity_id) | information barriers |
+| wall | name, description; wall_member(wall_id, user_id); walled_record(wall_id, entity, entity_id) | information barriers; `pb.can_see_walled` admits members and the system actor (`service` role, migration 0008, decision 0009), never anyone else |
 
 ### deal
 | Table | Key fields |

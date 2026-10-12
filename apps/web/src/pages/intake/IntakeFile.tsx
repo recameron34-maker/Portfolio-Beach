@@ -252,7 +252,7 @@ function RowsCard({
   const [rejecting, setRejecting] = useState(false);
   const log = useActionLog();
   const command = useIntakeCommand();
-  const actions = intakeActions(roles, file.counts);
+  const actions = intakeActions(roles, file.rows);
   const rows = filterRows(file.rows, { state, search });
   const hidden = hiddenRowsNote(file.hiddenRows);
 
