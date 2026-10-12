@@ -71,7 +71,7 @@ describe('the preview book: the system actor view of a generated dataset', () =>
     expect(book.samples.map((s) => s.expectations)).toEqual(exports.map((e) => e.expectations));
   });
 
-  it('holds no email, no user and no figure a page shows', () => {
+  it('holds no email address and no user display name', () => {
     const text = JSON.stringify(book);
     expect(text).not.toContain('@');
     for (const user of dataset.users) expect(text).not.toContain(user.displayName);
