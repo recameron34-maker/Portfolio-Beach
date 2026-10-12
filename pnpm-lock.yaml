@@ -68,6 +68,9 @@ importers:
       '@pb/db':
         specifier: workspace:*
         version: link:../../packages/db
+      '@pb/validation':
+        specifier: workspace:*
+        version: link:../../packages/validation
       '@pb/workflows':
         specifier: workspace:*
         version: link:../../packages/workflows

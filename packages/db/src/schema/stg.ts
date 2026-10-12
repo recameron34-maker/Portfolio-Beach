@@ -31,6 +31,8 @@ export const intakeFile = stg.table('intake_file', {
   receivedBy: uuid('received_by'),
   rowCount: integer('row_count').notNull().default(0),
   status: stagingStatus('status').notNull().default('new'),
+  /** File-level findings (an unknown or missing column, an empty file); a refused file holds no rows. */
+  findings: jsonb('findings').notNull().default([]),
   ...standardColumns,
 });
 

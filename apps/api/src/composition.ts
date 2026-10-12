@@ -24,6 +24,8 @@ export interface Runtime {
   adapters: AdapterSet;
   logger: Logger;
   definitions: Record<string, unknown>;
+  /** config/accounting_layout.json as parsed JSON; validated where it is used (a bad layout is a 500 there). */
+  accountingLayout: unknown;
 }
 
 export interface RuntimeOverrides {
@@ -62,6 +64,12 @@ export function loadDefinitions(configDir: string): Record<string, unknown> {
   return existsSync(path)
     ? (JSON.parse(readFileSync(path, 'utf8')) as Record<string, unknown>)
     : {};
+}
+
+/** The accounting export layout (docs/04 M2); an absent file reads as an empty object, which fails validation at use. */
+export function loadAccountingLayout(configDir: string): unknown {
+  const path = join(configDir, 'accounting_layout.json');
+  return existsSync(path) ? (JSON.parse(readFileSync(path, 'utf8')) as unknown) : {};
 }
 
 /**
@@ -115,5 +123,12 @@ export async function buildRuntime(
       'no mock users found; run pnpm synth and pnpm db:seed:synthetic',
     );
   }
-  return { config, db, adapters, logger, definitions: loadDefinitions(config.PB_CONFIG_DIR) };
+  return {
+    config,
+    db,
+    adapters,
+    logger,
+    definitions: loadDefinitions(config.PB_CONFIG_DIR),
+    accountingLayout: loadAccountingLayout(config.PB_CONFIG_DIR),
+  };
 }

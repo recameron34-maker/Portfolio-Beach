@@ -8,7 +8,9 @@ import {
 } from '@nestjs/common';
 import type { Request, Response } from 'express';
 import { ZodError } from 'zod';
+import { WORKFLOW_REFUSALS } from '@pb/contracts';
 import type { ProblemDetails } from '@pb/contracts';
+import type { TransitionResult } from '@pb/workflows';
 import type { Logger } from './logging.js';
 import { LOGGER } from './tokens.js';
 
@@ -42,6 +44,14 @@ export class ProblemError extends HttpException {
   ) {
     super(detail ?? TITLES[status] ?? 'Error', status);
   }
+}
+
+/** A refusal from attempt() in @pb/workflows as the problem the shared WORKFLOW_REFUSALS table assigns it (403 role, 409 transition, 422 precondition). */
+export function workflowProblem(
+  failure: Extract<TransitionResult<string>, { ok: false }>,
+): ProblemError {
+  const refusal = WORKFLOW_REFUSALS[failure.code];
+  return new ProblemError(refusal.status, refusal.code, failure.message);
 }
 
 export function problemFor(
