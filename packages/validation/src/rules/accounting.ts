@@ -92,7 +92,8 @@ function digitsOf(value: string): { integerDigits: number; decimalPlaces: number
   };
 }
 
-function isCalendarDate(value: string): boolean {
+/** A real calendar date in ISO form (year, month and day all within range), with no date arithmetic. */
+export function isCalendarDate(value: string): boolean {
   if (!ISO_DATE.test(value)) return false;
   const year = Number(value.slice(0, 4));
   const month = Number(value.slice(5, 7));
