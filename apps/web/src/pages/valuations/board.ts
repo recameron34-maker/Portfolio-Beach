@@ -83,16 +83,69 @@ export function periodCounts(rows: readonly ValuationRow[], period: string): Per
   return counts;
 }
 
-/** Active positions with no valuation version of any state for the quarter, in investment number order. */
+const byNumber = (a: InvestmentSummary, b: InvestmentSummary): number =>
+  a.investmentNumber.localeCompare(b.investmentNumber);
+
+/**
+ * Active positions held at the quarter end with no valuation version of any state for the
+ * quarter, in investment number order. A position entered after the quarter end has no mark to
+ * miss.
+ */
 export function missingMarks(
   active: readonly InvestmentSummary[],
   rows: readonly ValuationRow[],
   period: string,
 ): InvestmentSummary[] {
   const marked = new Set(rows.filter((r) => r.quarterEnd === period).map((r) => r.investmentId));
+  return active.filter((i) => i.entryDate <= period && !marked.has(i.id)).sort(byNumber);
+}
+
+/** A version as the one-chain-per-quarter rule reads it: its state and version number. */
+export interface QuarterVersion {
+  state: string;
+  version: number;
+}
+
+/** Whether a version is still being worked on (docs/18 section 1). */
+export function isInFlight(state: string): boolean {
+  return (IN_FLIGHT_STATES as readonly string[]).includes(state);
+}
+
+/** A Locked version with no Reopened version after it: the quarter is closed to new drafts. */
+export function closedByLock(versions: readonly QuarterVersion[]): boolean {
+  return versions.some(
+    (locked) =>
+      locked.state === 'Locked' &&
+      !versions.some((v) => v.version > locked.version && v.state === 'Reopened'),
+  );
+}
+
+/**
+ * Whether a new version may start from these versions of one investment and quarter (docs/18
+ * section 1, the rule the preview applies and the API will): nothing in flight and no Locked
+ * version without a reopen after it. An empty quarter is open, a reopened one is open until its
+ * new draft starts, a locked one needs a reopen first.
+ */
+export function openForNewVersion(versions: readonly QuarterVersion[]): boolean {
+  return !versions.some((v) => isInFlight(v.state)) && !closedByLock(versions);
+}
+
+/**
+ * Active positions a new version may start for in the quarter, in investment number order: held
+ * at the quarter end and open under the rule above. Needs the full version list for the quarter.
+ */
+export function startablePositions(
+  active: readonly InvestmentSummary[],
+  rows: readonly ValuationRow[],
+  period: string,
+): InvestmentSummary[] {
   return active
-    .filter((i) => !marked.has(i.id))
-    .sort((a, b) => a.investmentNumber.localeCompare(b.investmentNumber));
+    .filter(
+      (i) =>
+        i.entryDate <= period &&
+        openForNewVersion(rows.filter((r) => r.investmentId === i.id && r.quarterEnd === period)),
+    )
+    .sort(byNumber);
 }
 
 export interface BoardFilters {

@@ -49,6 +49,33 @@ export function Card({
  * Stat tile: a label and a key number in the brand colour, optionally with a small figure (a
  * sparkline) beside the number. Plain spans: Fluent Text would inject its own sizes at runtime.
  */
+/** Why a count tile shows the missing placeholder when the list behind it is only its first page. */
+export const PARTIAL_PAGE_HINT = 'Not calculable: more rows than one page holds';
+
+/**
+ * A count of rows in a list. When the list is only its first page the count would be of the page,
+ * not the list, so the tile shows the missing placeholder instead (CLAUDE.md rule 10).
+ */
+export function CountTile({
+  label,
+  count,
+  hint,
+  tone,
+  partial,
+}: {
+  label: string;
+  count: number;
+  hint: string;
+  tone?: 'good' | 'watch' | 'bad' | undefined;
+  partial: boolean;
+}): ReactNode {
+  return partial ? (
+    <StatTile label={label} value={MISSING} hint={PARTIAL_PAGE_HINT} />
+  ) : (
+    <StatTile label={label} value={String(count)} hint={hint} tone={tone} />
+  );
+}
+
 export function StatTile({
   label,
   value,

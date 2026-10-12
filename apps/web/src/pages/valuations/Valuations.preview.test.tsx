@@ -264,6 +264,9 @@ describe('valuation board (preview)', () => {
     expect(create).toBeDisabled();
 
     await userEvent.click(within(dialog).getByRole('combobox', { name: /Investment/ }));
+    // Only a position whose quarter is open is offered: the others have a version for the period.
+    const offered = await screen.findAllByRole('option');
+    expect(offered.map((o) => o.textContent)).toEqual(['INV-0015 Summit Care Holdings']);
     await userEvent.click(
       await screen.findByRole('option', { name: 'INV-0015 Summit Care Holdings' }),
     );

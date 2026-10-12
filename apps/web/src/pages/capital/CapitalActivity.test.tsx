@@ -142,12 +142,22 @@ describe('capital activity board', () => {
     expect(screen.queryByRole('button', { name: 'Next' })).not.toBeInTheDocument();
   });
 
-  it('says only the first 200 are shown when more exist', async () => {
+  it('says only the first 200 are shown when more exist, and counts nothing from a partial page', async () => {
     mockApi({ [NOTICES]: ok(noticePageFixture(undefined, 'next-page')) });
     renderWithQuery(<CapitalActivityPage />);
     expect(await screen.findByTestId('notice-count')).toHaveTextContent(
       '6 notices shown. Showing the first 200; more exist.',
     );
+    for (const label of ['Overdue', 'Due soon', 'In flight', 'Reconciled']) {
+      expect(within(tile('notice-tiles', label)).getByText('-'), label).toBeInTheDocument();
+      expect(
+        within(tile('notice-tiles', label)).getByText(
+          'Not calculable: more rows than one page holds',
+        ),
+        label,
+      ).toBeInTheDocument();
+      expect(tile('notice-tiles', label), label).not.toHaveAttribute('data-tone');
+    }
   });
 
   it('says when nothing needs attention', async () => {

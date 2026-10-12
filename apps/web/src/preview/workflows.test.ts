@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   capitalNoticeDetail,
   capitalNoticePage,
@@ -669,6 +669,68 @@ describe('the valuation journey across roles', () => {
     });
     expect(answer.status).toBe(422);
     expect(problemOf(answer).detail).toBe('valuation: validation has not passed');
+  });
+});
+
+describe('one Locked version per investment and quarter', () => {
+  it('refuses to lock a version while another version of the quarter is Locked (409)', async () => {
+    const { f } = setup({ twoChains: true });
+    const answer = await send(
+      f,
+      USERS.head.externalId,
+      'POST',
+      command('valuations', IDS.valuation.twoChainsApproved),
+      { command: 'lock' },
+    );
+    expect(answer.status).toBe(409);
+    expect(problemOf(answer)).toEqual({
+      code: 'conflict',
+      detail:
+        'valuation: another version is Locked for this investment and quarter; reopen it before locking this one',
+    });
+    // Nothing changed: the version still awaits its lock at the recorded row version.
+    const list = valuationPage.parse(
+      (await send(f, USERS.viewer.externalId, 'GET', '/api/v1/valuations?limit=200')).json,
+    );
+    expect(list.items.find((r) => r.id === IDS.valuation.twoChainsApproved)).toMatchObject({
+      state: 'DealTeamApproved',
+      rowVersion: 1,
+    });
+  });
+
+  it('leaves a Locked version untouched when the reopen cannot start its draft', async () => {
+    const state = createPreviewState();
+    const { fixtures } = buildWorld();
+    const broken = {
+      ...env,
+      newId: (): string => {
+        throw new Error('no ids in this test');
+      },
+    };
+    const f = createPreviewFetch(fixtures, never, { env: broken, state });
+    const quiet = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    try {
+      const answer = await send(
+        f,
+        USERS.head.externalId,
+        'POST',
+        command('valuations', IDS.valuation.Locked),
+        { command: 'reopen', reason: 'restated by the sponsor' },
+      );
+      expect(answer.status).toBe(500);
+    } finally {
+      quiet.mockRestore();
+    }
+    const list = valuationPage.parse(
+      (await send(f, USERS.viewer.externalId, 'GET', '/api/v1/valuations?limit=200')).json,
+    );
+    expect(list.items.find((r) => r.id === IDS.valuation.Locked)).toMatchObject({
+      state: 'Locked',
+      rowVersion: 1,
+    });
+    expect(
+      list.items.filter((r) => r.investmentId === IDS.states && r.periodEnd === '2024-12-31'),
+    ).toHaveLength(1);
   });
 });
 

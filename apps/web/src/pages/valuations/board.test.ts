@@ -6,7 +6,7 @@ import {
   valuationPage,
   vehicleList,
 } from '@pb/contracts';
-import { AS_OF, investmentPageFixture } from '../../test/fixtures.js';
+import { AS_OF, investmentFixture, investmentPageFixture } from '../../test/fixtures.js';
 import {
   activePositions,
   PRIOR_PERIOD,
@@ -27,7 +27,9 @@ import {
   lastMethodOf,
   methodCodes,
   missingMarks,
+  openForNewVersion,
   periodCounts,
+  startablePositions,
   VARIANCE_FLAG,
   VARIANCE_TITLE,
   vehicleNames,
@@ -79,6 +81,69 @@ describe('valuation board helpers', () => {
     expect(
       missingMarks(activePositions(), valuationRows(), PRIOR_PERIOD).map((p) => p.investmentNumber),
     ).toEqual(['INV-0004', 'INV-0007', 'INV-0012', 'INV-0013']);
+  });
+
+  it('counts no missing mark for a position entered after the period end', () => {
+    const late = investmentFixture({
+      id: '00000000-0000-4000-8000-000000000998',
+      investmentNumber: 'INV-0099',
+      entryDate: '2025-05-15',
+    });
+    expect(
+      missingMarks([...activePositions(), late], valuationRows(), PRIOR_PERIOD).map(
+        (p) => p.investmentNumber,
+      ),
+    ).toEqual(['INV-0004', 'INV-0007', 'INV-0012', 'INV-0013']);
+    expect(missingMarks([late], valuationRows(), AS_OF).map((p) => p.investmentNumber)).toEqual([
+      'INV-0099',
+    ]);
+  });
+
+  it('opens a quarter to a new version only with no version in flight and no Locked version left unreopened', () => {
+    expect(openForNewVersion([])).toBe(true);
+    expect(openForNewVersion([{ state: 'Reopened', version: 1 }])).toBe(true);
+    expect(openForNewVersion([{ state: 'Locked', version: 1 }])).toBe(false);
+    expect(
+      openForNewVersion([
+        { state: 'Locked', version: 1 },
+        { state: 'Reopened', version: 2 },
+      ]),
+    ).toBe(true);
+    expect(
+      openForNewVersion([
+        { state: 'Reopened', version: 1 },
+        { state: 'Locked', version: 2 },
+      ]),
+    ).toBe(false);
+    for (const state of ['Draft', 'OpsPrepared', 'DealTeamApproved'])
+      expect(openForNewVersion([{ state, version: 1 }]), state).toBe(false);
+    expect(
+      openForNewVersion([
+        { state: 'Reopened', version: 1 },
+        { state: 'Draft', version: 2 },
+      ]),
+    ).toBe(false);
+  });
+
+  it('offers a new version for the positions whose quarter is open, held at the quarter end', () => {
+    // At the latest period only Summit Care has no version; Ashby's reopened v1 is closed again by its Locked v2.
+    expect(
+      startablePositions(activePositions(), valuationRows(), AS_OF).map((p) => p.investmentNumber),
+    ).toEqual(['INV-0015']);
+    expect(
+      startablePositions(activePositions(), valuationRows(), PRIOR_PERIOD).map(
+        (p) => p.investmentNumber,
+      ),
+    ).toEqual(['INV-0004', 'INV-0007', 'INV-0012', 'INV-0013']);
+    const late = investmentFixture({
+      id: '00000000-0000-4000-8000-000000000998',
+      investmentNumber: 'INV-0099',
+      entryDate: '2025-05-15',
+    });
+    expect(startablePositions([late], [], PRIOR_PERIOD)).toEqual([]);
+    expect(startablePositions([late], [], AS_OF).map((p) => p.investmentNumber)).toEqual([
+      'INV-0099',
+    ]);
   });
 
   it('filters by period, state, vehicle and a search over number and company, newest version first', () => {

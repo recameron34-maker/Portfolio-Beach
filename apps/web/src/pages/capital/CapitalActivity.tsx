@@ -14,10 +14,10 @@ import {
   EmptyState,
   Field,
   NumCell,
+  CountTile,
   PageHeader,
   PageSkeleton,
   SectionHeader,
-  StatTile,
   TableWrap,
   TabNav,
   Toolbar,
@@ -77,22 +77,31 @@ function StateBadge({ state }: { state: CapitalNoticeState }): ReactNode {
 
 function Tiles({ page }: { page: CapitalNoticePage }): ReactNode {
   const c = noticeCounts(page.items, page.alertDaysBeforeDue);
+  // Counts of the first page would not be counts of the register.
+  const partial = page.nextCursor !== null;
   return (
     <div ref={balanceTiles} className="pb-tiles" data-testid="notice-tiles">
-      <StatTile
+      <CountTile
         label="Overdue"
-        value={String(c.overdue)}
+        count={c.overdue}
         hint="Past the due date, not yet funded"
         tone={c.overdue > 0 ? 'bad' : undefined}
+        partial={partial}
       />
-      <StatTile
+      <CountTile
         label="Due soon"
-        value={String(c.dueSoon)}
+        count={c.dueSoon}
         hint={`Due within ${dayCount(page.alertDaysBeforeDue)}, not yet funded`}
         tone={c.dueSoon > 0 ? 'watch' : undefined}
+        partial={partial}
       />
-      <StatTile label="In flight" value={String(c.inFlight)} hint="Not yet reconciled" />
-      <StatTile label="Reconciled" value={String(c.reconciled)} hint="Cash flows promoted" />
+      <CountTile label="In flight" count={c.inFlight} hint="Not yet reconciled" partial={partial} />
+      <CountTile
+        label="Reconciled"
+        count={c.reconciled}
+        hint="Cash flows promoted"
+        partial={partial}
+      />
     </div>
   );
 }

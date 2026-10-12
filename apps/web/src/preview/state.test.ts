@@ -1,10 +1,11 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { Recordings } from './fixtures.js';
 import { getKey, isApiPath, isPublicPath } from './keys.js';
 import {
   createPreviewState,
   ensureNotices,
   ensureValuations,
+  newUuid,
   personFor,
   resetPreviewState,
   seedValuations,
@@ -72,5 +73,22 @@ describe('seeding from the recordings', () => {
     expect(state.valuations).toBeNull();
     expect(state.notices).toBeNull();
     expect(state.flags.size).toBe(0);
+  });
+});
+
+describe('ids for simulated records', () => {
+  it('uses crypto.randomUUID on a secure page and builds a version 4 UUID elsewhere', () => {
+    const v4 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
+    expect(newUuid()).toMatch(v4);
+    const real = globalThis.crypto;
+    // A page opened from a file or over plain http has getRandomValues but no randomUUID.
+    vi.stubGlobal('crypto', { getRandomValues: (a: Uint8Array) => real.getRandomValues(a) });
+    try {
+      const ids = new Set(Array.from({ length: 50 }, () => newUuid()));
+      expect(ids.size).toBe(50);
+      for (const id of ids) expect(id).toMatch(v4);
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 });

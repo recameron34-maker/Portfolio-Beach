@@ -201,6 +201,14 @@ describe('valuation board (read-only build)', () => {
     expect(
       within(tile('Missing marks')).getByText('Not calculable: more rows than one page holds'),
     ).toBeInTheDocument();
+    // Counts of the first page are not counts of the board, so the count tiles say so too.
+    for (const label of ['Locked', 'In flight', 'Reopened']) {
+      expect(within(tile(label)).getByText('-'), label).toBeInTheDocument();
+      expect(
+        within(tile(label)).getByText('Not calculable: more rows than one page holds'),
+        label,
+      ).toBeInTheDocument();
+    }
   });
 
   it('keeps the board when active positions are hidden from the role', async () => {

@@ -10,6 +10,7 @@ import definitions from '../../../../../config/definitions.json';
 import { investmentDetail, valuationCommandBody, valuationCreateBody } from '@pb/contracts';
 import type { InvestmentDetail, ValuationRow } from '@pb/contracts';
 import { attempt, valuationMachine } from '@pb/workflows';
+import { closedByLock, isInFlight } from '../../pages/valuations/board.js';
 import { overlayInvestmentDetail } from '../overlay.js';
 import { jsonResponse, problem, workflowProblem } from '../problems.js';
 import { ensureValuations, personFor } from '../state.js';
@@ -75,16 +76,18 @@ export function lockHashOf(row: ValuationRow): Promise<string> {
 
 type VersionEntry = InvestmentDetail['valuations'][number];
 
-/** States a version is still being worked on in (docs/18 section 1). */
-const IN_FLIGHT: ReadonlySet<string> = new Set(['Draft', 'OpsPrepared', 'DealTeamApproved']);
+/** The versions of the investment the credential can see, with every simulated change applied. */
+function versionsOf(ctx: SimContext, credential: string, investmentId: string): VersionEntry[] {
+  const detail = readDetail(ctx, credential, investmentId);
+  if (detail === undefined) return [];
+  return overlayInvestmentDetail(detail, ensureValuations(ctx.state, ctx.recordings).values())
+    .valuations;
+}
 
-/** A Locked version with no Reopened version after it: the period is closed to new drafts. */
-function closedByLock(versions: readonly VersionEntry[]): boolean {
-  return versions.some(
-    (locked) =>
-      locked.state === 'Locked' &&
-      !versions.some((v) => v.version > locked.version && v.state === 'Reopened'),
-  );
+/** The versions among these that report for the same quarter as the period end (alignedQuarterEnd). */
+function sameQuarterAs(versions: readonly VersionEntry[], periodEnd: string): VersionEntry[] {
+  const quarterEnd = alignedQuarterEnd(periodEnd, TOLERANCE_DAYS);
+  return versions.filter((v) => alignedQuarterEnd(v.periodEnd, TOLERANCE_DAYS) === quarterEnd);
 }
 
 function nextVersion(
@@ -130,7 +133,7 @@ export const createValuationRoute = defineSimRoute({
         instance,
         simulated: true,
       });
-    const versions = overlayInvestmentDetail(detail, sims.values()).valuations;
+    const versions = versionsOf(ctx, req.credential, detail.id);
     const { periodEnd, method, fairValue } = req.body;
     if (periodEnd < detail.entryDate)
       return problem(
@@ -142,9 +145,7 @@ export const createValuationRoute = defineSimRoute({
     // One version chain per quarter: a sponsor reporting a few days early or late is the same
     // quarter (alignedQuarterEnd), so its versions block a second chain at the quarter end.
     const quarterEnd = alignedQuarterEnd(periodEnd, TOLERANCE_DAYS);
-    const sameQuarter = versions.filter(
-      (v) => alignedQuarterEnd(v.periodEnd, TOLERANCE_DAYS) === quarterEnd,
-    );
+    const sameQuarter = sameQuarterAs(versions, periodEnd);
     if (closedByLock(sameQuarter))
       return problem(
         409,
@@ -152,7 +153,7 @@ export const createValuationRoute = defineSimRoute({
         'valuation: a Locked version exists for this investment and quarter; reopen it to start a new version',
         { instance, simulated: true },
       );
-    if (sameQuarter.some((v) => IN_FLIGHT.has(v.state)))
+    if (sameQuarter.some((v) => isInFlight(v.state)))
       return problem(
         409,
         'conflict',
@@ -245,6 +246,28 @@ export const valuationCommandRoute = defineSimRoute({
 
     const next: ValuationRow = { ...row, state: result.to, rowVersion: row.rowVersion + 1 };
     const updated: SimValuation = { ...sim, row: next, changed: true };
+    // Everything that can refuse or fail comes before the first change to the state, so a
+    // refused or failed command leaves no half-applied version behind.
+    const draftId = command === 'reopen' ? ctx.env.newId() : null;
+    if (command === 'lock') {
+      // One Locked version per investment and quarter (valuationMachine's lock row).
+      const others = sameQuarterAs(
+        versionsOf(ctx, req.credential, row.investmentId),
+        row.periodEnd,
+      );
+      if (
+        others.some(
+          (v) =>
+            v.state === 'Locked' && !(v.periodEnd === row.periodEnd && v.version === row.version),
+        )
+      )
+        return problem(
+          409,
+          'conflict',
+          'valuation: another version is Locked for this investment and quarter; reopen it before locking this one',
+          { instance, simulated: true },
+        );
+    }
     if (command === 'prepare') {
       if (subtleCrypto() === undefined)
         return problem(
@@ -276,15 +299,14 @@ export const valuationCommandRoute = defineSimRoute({
       to: next.state,
     });
 
-    if (command === 'reopen') {
+    if (draftId !== null) {
       // docs/18 section 1: reopening creates a new Draft version with the same inputs to edit.
       const detail = readDetail(ctx, req.credential, row.investmentId);
-      const versions =
-        detail === undefined ? [] : overlayInvestmentDetail(detail, sims.values()).valuations;
+      const versions = versionsOf(ctx, req.credential, row.investmentId);
       const draft: ValuationRow = {
         ...next,
         ...freshFields,
-        id: ctx.env.newId(),
+        id: draftId,
         version: nextVersion(versions, sims.values(), row.investmentId, row.periodEnd),
       };
       sims.set(draft.id, {

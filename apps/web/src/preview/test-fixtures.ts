@@ -26,6 +26,7 @@ export const IDS = {
   realized: uuid(3),
   lockedPeriod: uuid(4),
   states: uuid(5),
+  twoChains: uuid(6),
   vehicle: uuid(10),
   valuation: {
     Draft: uuid(101),
@@ -36,6 +37,8 @@ export const IDS = {
     openPrior: uuid(106),
     walled: uuid(107),
     lockedPeriod: uuid(108),
+    twoChainsLocked: uuid(109),
+    twoChainsApproved: uuid(110),
   },
   notice: {
     Received: uuid(201),
@@ -257,17 +260,22 @@ function notImplementedBody(path: string): unknown {
 
 export interface World {
   fixtures: PreviewFixtures;
-  investments: Record<'open' | 'walled' | 'realized' | 'lockedPeriod' | 'states', InvestmentDetail>;
+  investments: Record<
+    'open' | 'walled' | 'realized' | 'lockedPeriod' | 'states' | 'twoChains',
+    InvestmentDetail
+  >;
   valuations: ValuationRow[];
   notices: CapitalNoticeRow[];
 }
 
 /**
  * The test world. With `workflowEndpoints: 'not-implemented'` the valuation and capital notice
- * reads are recorded as 501, as they are while the API work is pending.
+ * reads are recorded as 501, as they are while the API work is pending. With `twoChains` one
+ * investment carries a Locked version and a second version awaiting lock in the same quarter,
+ * as imported data might.
  */
 export function buildWorld(
-  options: { workflowEndpoints?: 'recorded' | 'not-implemented' } = {},
+  options: { workflowEndpoints?: 'recorded' | 'not-implemented'; twoChains?: boolean } = {},
 ): World {
   const users = Object.values(USERS);
   const states = investmentFixture(IDS.states, { investmentNumber: 'INV-STATES' });
@@ -279,6 +287,7 @@ export function buildWorld(
     exitDate: '2024-12-31',
   });
   const lockedPeriod = investmentFixture(IDS.lockedPeriod, { investmentNumber: 'INV-LOCK' });
+  const twoChains = investmentFixture(IDS.twoChains, { investmentNumber: 'INV-TWO' });
 
   const v = IDS.valuation;
   const valuations: ValuationRow[] = [
@@ -320,6 +329,27 @@ export function buildWorld(
     }),
     valuationFixture(v.walled, walled, { periodEnd: '2025-03-31', state: 'Locked' }),
     valuationFixture(v.lockedPeriod, lockedPeriod, { periodEnd: '2025-06-30', state: 'Locked' }),
+    ...(options.twoChains === true
+      ? [
+          valuationFixture(v.twoChainsLocked, twoChains, {
+            periodEnd: '2025-03-31',
+            state: 'Locked',
+            preparedBy: USERS.ops.displayName,
+            dealTeamApprovedBy: USERS.deal.displayName,
+            approvedBy: USERS.head.displayName,
+            approvedAt: '2025-04-20T12:00:00Z',
+            lockHash: 'h-recorded',
+          }),
+          valuationFixture(v.twoChainsApproved, twoChains, {
+            periodEnd: '2025-03-31',
+            version: 2,
+            state: 'DealTeamApproved',
+            preparedBy: USERS.ops.displayName,
+            dealTeamApprovedBy: USERS.deal.displayName,
+            lockHash: 'h-recorded',
+          }),
+        ]
+      : []),
   ];
   const entries = (inv: InvestmentDetail): InvestmentDetail['valuations'] =>
     valuations
@@ -332,7 +362,7 @@ export function buildWorld(
         method,
       }))
       .sort((a, b) => (a.periodEnd < b.periodEnd ? -1 : a.periodEnd > b.periodEnd ? 1 : 0));
-  const investments = { open, walled, realized, lockedPeriod, states };
+  const investments = { open, walled, realized, lockedPeriod, states, twoChains };
   for (const inv of Object.values(investments)) inv.valuations = entries(inv);
 
   const n = IDS.notice;

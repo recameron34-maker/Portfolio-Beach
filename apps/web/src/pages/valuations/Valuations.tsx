@@ -45,11 +45,13 @@ import { UnavailableState } from '../../components/UnavailableState.js';
 import {
   Badge,
   Card,
+  CountTile,
   EmptyState,
   Field,
   NumCell,
   PageHeader,
   PageSkeleton,
+  PARTIAL_PAGE_HINT,
   SectionHeader,
   SimulatedBadge,
   StatTile,
@@ -71,6 +73,7 @@ import {
   methodCodes,
   missingMarks,
   periodCounts,
+  startablePositions,
   VALUATION_STATES,
   VARIANCE_TITLE,
   vehicleNames,
@@ -223,13 +226,7 @@ function marksTile(status: MarksStatus, period: string): ReactNode {
         <StatTile label="Missing marks" value={MISSING} hint="Active positions could not load" />
       );
     case 'truncated':
-      return (
-        <StatTile
-          label="Missing marks"
-          value={MISSING}
-          hint="Not calculable: more rows than one page holds"
-        />
-      );
+      return <StatTile label="Missing marks" value={MISSING} hint={PARTIAL_PAGE_HINT} />;
     case 'ready':
       return (
         <StatTile
@@ -459,10 +456,21 @@ function Board({ page, roles }: { page: ValuationPage; roles: readonly string[] 
   const periods = latestFirst([...page.periods, ...page.items.map((r) => r.quarterEnd)]);
   const period =
     periodChoice !== null && periods.includes(periodChoice) ? periodChoice : periods[0];
-  const positions = active.data?.items ?? [];
+  const activeItems = active.data?.items ?? [];
+  // The form offers the positions a version may start for; with only the first page of versions
+  // loaded that cannot be told, so every active position is offered and the write decides.
+  const positions =
+    page.nextCursor === null || period === undefined
+      ? startablePositions(activeItems, page.items, period ?? '')
+      : activeItems;
   const newBlocked = blockedTitle({ allowed: isOps, roles: ['operations'] });
   const newTitle =
-    newBlocked ?? (positions.length === 0 ? 'No active positions loaded' : undefined);
+    newBlocked ??
+    (activeItems.length === 0
+      ? 'No active positions loaded'
+      : positions.length === 0
+        ? `Every active position has a version for ${formatDate(period)}`
+        : undefined);
 
   const header = (
     <PageHeader
@@ -518,6 +526,7 @@ function Board({ page, roles }: { page: ValuationPage; roles: readonly string[] 
   }
 
   const counts = periodCounts(page.items, period);
+  const partial = page.nextCursor !== null;
   const forPeriod = page.items.filter((r) => r.quarterEnd === period).length;
   const rows = filterRows(page.items, { period, state: stateFilter, vehicle, search });
   const marks = marksStatus(active, page, period);
@@ -532,13 +541,19 @@ function Board({ page, roles }: { page: ValuationPage; roles: readonly string[] 
       {header}
       <Gate />
       <div ref={balanceTiles} className="pb-tiles" data-testid="valuation-tiles">
-        <StatTile label="Locked" value={String(counts.locked)} hint="Read by reports" />
-        <StatTile
+        <CountTile label="Locked" count={counts.locked} hint="Read by reports" partial={partial} />
+        <CountTile
           label="In flight"
-          value={String(counts.inFlight)}
+          count={counts.inFlight}
           hint="Draft, Ops prepared or Deal team approved"
+          partial={partial}
         />
-        <StatTile label="Reopened" value={String(counts.reopened)} hint="Reopened after Locked" />
+        <CountTile
+          label="Reopened"
+          count={counts.reopened}
+          hint="Reopened after Locked"
+          partial={partial}
+        />
         {marksTile(marks, period)}
       </div>
       <Card testId="valuation-board">
