@@ -292,7 +292,7 @@ describe('accounting intake (M2, SEC-9.1): staging, validation, approval, then p
       ).toContain(ruleId);
       const finding = row.findings.find((f) => f.ruleId === ruleId)!;
       expect(finding.severity).toBe('error');
-      expect(finding.message).not.toContain('—');
+      expect(finding.message).not.toContain(String.fromCharCode(0x2014));
     }
     // Unresolved names: a number the record lacks, and a near miss with candidates for a person.
     const unmatched = defectsFile.rows.filter((r) => r.link.status === 'unmatched');
