@@ -56,13 +56,17 @@
     "topPositions": 10
   },
   "intake": {
-    "_note": "Accounting import rules (docs/04 M2, packages/validation). Percentages are decimals.",
+    "_note": "Accounting import rules (docs/04 M2, packages/validation). Percentages are decimals. figureScale and figureIntegerDigits match the record's numeric(20,2) figure columns; minPeriodYear is the first year a period end may carry.",
     "maxRowsPerFile": 5000,
     "maxFileBytes": 2000000,
     "fairValueTieToleranceUsd": 1.0,
     "quarterOverQuarterMaxChangePct": 0.5,
     "yearOverYearMaxChangePct": 1.0,
     "staleQuarters": 2,
-    "evToEbitdaMax": 60
+    "evToEbitdaMax": 60,
+    "ebitdaMarginAbsMax": 1.0,
+    "figureScale": 2,
+    "figureIntegerDigits": 18,
+    "minPeriodYear": 1900
   }
 }

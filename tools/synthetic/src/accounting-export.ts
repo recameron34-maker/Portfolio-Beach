@@ -1,11 +1,20 @@
-import { D, addMonths, containingQuarterEnd, latestQuarterEndOnOrBefore } from '@pb/calc';
+import {
+  D,
+  addMonths,
+  alignedQuarterEnd,
+  containingQuarterEnd,
+  latestQuarterEndOnOrBefore,
+} from '@pb/calc';
 import type { SyntheticDataset } from '@pb/db';
 import layout from '../../../config/accounting_layout.json' with { type: 'json' };
+import definitions from '../../../config/definitions.json' with { type: 'json' };
 
 /**
  * A synthetic export from the accounting system in the generic layout of
  * config/accounting_layout.json (docs/04 M2 accounting-import, docs/14): one row per active equity
- * or CV position for the latest approved quarter, with the Locked fair value for that quarter.
+ * or CV position for the latest approved quarter, with the Locked fair value for that quarter. A
+ * sponsor that closes its books a few days off the quarter end (period_end_shift) is exported with
+ * its own period end, as the accounting system writes it.
  *
  * clean: every row matches the record, so an import stages nothing but unchanged rows.
  * update: one position restated (changed) and the quarter the missing_prior_year scenario left
@@ -28,6 +37,11 @@ export interface AccountingExportExpectations {
   added: string[];
   /** Rows the import must flag, by the rule a reviewer sees first. */
   flagged: { rowNo: number; ruleId: string }[];
+  /**
+   * The row numbers of the walled position's rows (walled_deal): its quarter and, in defects, the
+   * before-entry defect built from it. A reader outside the wall never sees them.
+   */
+  walled: number[];
 }
 
 export interface AccountingExport {
@@ -75,11 +89,22 @@ const midpoint = (a: string | null, b: string | null): string => {
   return D(a).plus(b).div(2).toFixed(2);
 };
 
+/** How far a period end may sit from a quarter end, read strictly from config as the API reads it. */
+function toleranceDays(): number {
+  const value: unknown = definitions.priorYearPeriodEndToleranceDays;
+  if (typeof value !== 'number' || !Number.isInteger(value) || value < 0)
+    throw new Error(
+      'config/definitions.json: priorYearPeriodEndToleranceDays must be a whole number of days',
+    );
+  return value;
+}
+
 export function accountingExport(
   dataset: SyntheticDataset,
   options: AccountingExportOptions = {},
 ): AccountingExport {
   const scenario = options.scenario ?? 'clean';
+  const tolerance = toleranceDays();
   const asOfQuarter = latestQuarterEndOnOrBefore(dataset.asOf);
   const periodEnd = options.periodEnd ?? asOfQuarter;
   const companyName = new Map(dataset.portfolioCompanies.map((c) => [c.id, c.name]));
@@ -109,7 +134,11 @@ export function accountingExport(
     .sort((a, b) => a.investmentNumber.localeCompare(b.investmentNumber));
   const lines: Line[] = [];
   for (const inv of equity) {
-    const quarter = quartersOf(inv).find((q) => !q.isEntrySnapshot && q.periodEnd === periodEnd);
+    // The quarter that reports for the period end, so a shifted period end still finds its quarter
+    // and the line carries the period end the record holds.
+    const quarter = quartersOf(inv).find(
+      (q) => !q.isEntrySnapshot && alignedQuarterEnd(q.periodEnd, tolerance) === periodEnd,
+    );
     if (quarter !== undefined) lines.push(lineFor(inv, quarter));
   }
   const expectations: AccountingExportExpectations = {
@@ -117,15 +146,28 @@ export function accountingExport(
     changed: [],
     added: [],
     flagged: [],
+    walled: [],
   };
   const byNumber = (n: string): Investment | undefined =>
     equity.find((i) => i.investmentNumber === n);
+  const onQuarter = (l: Line): boolean => l.periodEnd === periodEnd;
+  // The walled position is found by its number, never by its place in the file.
+  const walled = equity.find((i) => i.id === dataset.scenarios.walled_deal?.[0]);
+  const walledIndex =
+    walled === undefined
+      ? -1
+      : lines.findIndex((l) => l.investmentNumber === walled.investmentNumber);
+  if (walledIndex >= 0) expectations.walled.push(walledIndex + 1);
 
   const missingId = dataset.scenarios.missing_prior_year?.[0];
   const missing = equity.find((i) => i.id === missingId);
   if (scenario !== 'clean') {
-    // Restated: a position's EBITDA down 4% and revenue up 2% (not the one that gets a new quarter).
-    const first = lines.find((l) => l.investmentNumber !== missing?.investmentNumber);
+    // Restated: a position's EBITDA down 4% and revenue up 2%: not the one that gets a new quarter,
+    // not the walled one, and on the quarter end, so the restatement is all there is to the row.
+    const first = lines.find(
+      (l, i) =>
+        l.investmentNumber !== missing?.investmentNumber && i !== walledIndex && onQuarter(l),
+    );
     if (first !== undefined) {
       first.ebitdaLtm = scale(first.ebitdaLtm || null, '0.96');
       first.revenueLtm = scale(first.revenueLtm || null, '1.02');
@@ -184,34 +226,49 @@ export function accountingExport(
       lines.push({ ...third });
       flag('DUP-01');
     }
+    // The rows below are changed in place, so each is picked once, on the quarter end, and never the
+    // walled position's: its rows are the wall tests' fixture and must read clean.
+    const taken = new Set<number>([walledIndex]);
+    const pick = (from: number, fits: (l: Line) => boolean = () => true): number => {
+      const index = lines.findIndex(
+        (l, i) => i >= from && !taken.has(i) && onQuarter(l) && fits(l),
+      );
+      if (index >= 0) taken.add(index);
+      return index;
+    };
     // Revenue entered in millions.
-    const fourth = lines[4];
-    if (fourth !== undefined) {
-      fourth.revenueLtm = scale(fourth.revenueLtm || null, '0.000001');
-      expectations.flagged.push({ rowNo: 5, ruleId: 'TYPE-04' });
+    const millionsIndex = pick(4);
+    const millions = lines[millionsIndex];
+    if (millions !== undefined) {
+      millions.revenueLtm = scale(millions.revenueLtm || null, '0.000001');
+      expectations.flagged.push({ rowNo: millionsIndex + 1, ruleId: 'TYPE-04' });
     }
-    // A fair value that does not tie to the Locked mark: the first untouched row that has one.
-    const tieIndex = lines.findIndex(
-      (l, i) => i >= 5 && i !== 6 && i !== 7 && l.fairValue !== '' && l.periodEnd === periodEnd,
-    );
+    // A period end two weeks before the quarter end: flagged, a person confirms the quarter.
+    const offIndex = pick(5);
+    const off = lines[offIndex];
+    if (off !== undefined) {
+      off.periodEnd = `${off.periodEnd.slice(0, 8)}16`;
+      expectations.flagged.push({ rowNo: offIndex + 1, ruleId: 'TYPE-03' });
+    }
+    // A fair value that does not tie to the Locked mark: the next untouched row that has one.
+    const tieIndex = pick(5, (l) => l.fairValue !== '');
     const tie = lines[tieIndex];
     if (tie !== undefined) {
       tie.fairValue = scale(tie.fairValue, '1.1');
       expectations.flagged.push({ rowNo: tieIndex + 1, ruleId: 'TIE-01' });
     }
-    // A period end two weeks before the quarter end: a warning, not a flag.
-    const sixth = lines[6];
-    if (sixth !== undefined) sixth.periodEnd = `${sixth.periodEnd.slice(0, 8)}16`;
-    // A quarter before the position was entered.
-    const seventh = lines[7];
-    const seventhInv = seventh === undefined ? undefined : byNumber(seventh.investmentNumber);
-    if (seventh !== undefined && seventhInv !== undefined) {
+    // A quarter before the position was entered, built from the walled position so the wall tests
+    // have a hidden flagged row; from the first row when the dataset has no wall.
+    const base = lines[walledIndex] ?? lines[0];
+    const baseInv = base === undefined ? undefined : byNumber(base.investmentNumber);
+    if (base !== undefined && baseInv !== undefined) {
       lines.push({
-        ...seventh,
-        periodEnd: containingQuarterEnd(addMonths(seventhInv.entryDate, -9)),
+        ...base,
+        periodEnd: containingQuarterEnd(addMonths(baseInv.entryDate, -9)),
         fairValue: '',
       });
       flag('PERIOD-01');
+      if (walledIndex >= 0) expectations.walled.push(lines.length);
     }
     // A private credit position in an equity export.
     const credit = dataset.investments.find(
