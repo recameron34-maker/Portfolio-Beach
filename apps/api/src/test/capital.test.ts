@@ -128,6 +128,7 @@ describe('capital activity (M16)', () => {
       await expectProblem('/api/v1/capital-notices?bank=1', 400, 'validation');
       await expectProblem('/api/v1/capital-notices?state=Paid', 400, 'validation');
       await expectProblem('/api/v1/capital-notices?dueFrom=July', 400, 'validation');
+      await expectProblem('/api/v1/capital-notices?noticeType=call%00', 400, 'validation');
     });
 
     it('rejects a malformed cursor with 400, including impossible dates and ids', async () => {
@@ -137,6 +138,7 @@ describe('capital activity (M16)', () => {
         Buffer.from(`2025-07-12|2025-07-10`).toString('base64url'),
         Buffer.from(`2025-07-12|2025-02-30|${id}`).toString('base64url'),
         Buffer.from(`2025-07-12|2025-07-10|not-a-uuid`).toString('base64url'),
+        Buffer.from(`2025-07-12|2025-07-10|${id}${String.fromCharCode(0)}`).toString('base64url'),
       ];
       for (const cursor of forged) {
         const res = await h

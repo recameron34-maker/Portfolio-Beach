@@ -255,6 +255,12 @@ describe('Portfolio Beach API', () => {
         .get('/api/v1/investments?cursor=%%%')
         .set('authorization', h.as('operations'))
         .expect(400);
+      // A control character in a filter is refused at the boundary, never passed to the database.
+      await h
+        .http()
+        .get('/api/v1/investments?dealType=deal_type.private_credit%00')
+        .set('authorization', h.as('operations'))
+        .expect(400);
     });
 
     it('filters by deal type and shows credit metrics on a credit position', async () => {
@@ -323,6 +329,12 @@ describe('Portfolio Beach API', () => {
       );
       expect(sponsors.items.length).toBe(3);
       expect(sponsors.nextCursor).not.toBeNull();
+      const nulCursor = Buffer.from(`Kelp${String.fromCharCode(0)}`).toString('base64url');
+      await h
+        .http()
+        .get(`/api/v1/sponsors?cursor=${nulCursor}`)
+        .set('authorization', h.as('viewer'))
+        .expect(400);
       const viewerVehicles = vehicleList.parse(
         (await h.http().get('/api/v1/vehicles').set('authorization', h.as('viewer')).expect(200))
           .body,

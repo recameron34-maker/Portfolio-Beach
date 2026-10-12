@@ -21,8 +21,12 @@ export function decodeCursor(
   pattern: RegExp,
   dateGroups: readonly number[] = [],
 ): string[] {
-  const match = pattern.exec(Buffer.from(cursor, 'base64url').toString('utf8'));
+  const text = Buffer.from(cursor, 'base64url').toString('utf8');
+  // No key holds a control character, and Postgres refuses a NUL byte in a parameter outright.
+  const match = CONTROL.test(text) ? null : pattern.exec(text);
   if (match === null || dateGroups.some((group) => !isCalendarDate(match[group] ?? '')))
     throw new ProblemError(400, 'validation', 'Invalid cursor');
   return match.slice(1);
 }
+
+const CONTROL = /\p{Cc}/u;

@@ -25,6 +25,15 @@ describe('single-key cursors share the composite cursor helpers', () => {
     }
   });
 
+  it('refuses a cursor carrying a control character, which no key holds and Postgres would reject', () => {
+    const nul = String.fromCharCode(0);
+    for (const text of [`INV-0001${nul}`, 'Kelp\u0007wood', '12\n'])
+      expect(problemOf(() => decodeCursor(encodeCursor([text]), /^(.*)$/s))).toEqual({
+        status: 400,
+        code: 'validation',
+      });
+  });
+
   it('answers a forged cursor with a 400 validation problem', () => {
     const forged = encodeCursor(['1; drop table x']);
     expect(() => decodeCursor(forged, /^(\d{1,19})$/)).toThrow(ProblemError);

@@ -4,12 +4,16 @@ import { buildOpenApi } from './openapi.js';
 import { ROUTES } from './routes.js';
 import {
   asOfQuery,
+  auditQuery,
   capitalNoticeListQuery,
+  filterText,
   investmentDetail,
   investmentListQuery,
   investmentSummary,
   isCalendarDate,
   isoDate,
+  pageQuery,
+  plainText,
   problemDetails,
   valuationListQuery,
 } from './schemas.js';
@@ -113,6 +117,7 @@ describe('contracts', () => {
       '2025-02-30',
       '2025-02-29',
       '1900-02-29',
+      '0000-01-01',
       '2025-04-31',
       '2025-06-31',
       '2025-13-01',
@@ -126,6 +131,32 @@ describe('contracts', () => {
       // One plain message, never the value itself.
       expect(result.error?.issues.map((i) => i.message)).toEqual(['Not a real calendar date']);
     }
+  });
+
+  it('refuses a control character in a filter, a reason or a cursor, so none reaches the database', () => {
+    const nul = String.fromCharCode(0);
+    for (const value of ['deal_type.co_invest_equity', 'Kelpwood Capital', 'a\tb'])
+      expect(filterText.safeParse(value).success, value).toBe(true);
+    for (const value of ['', `core.investment${nul}`, '\u007f', 'x'.repeat(201)]) {
+      const result = filterText.safeParse(value);
+      expect(result.success, JSON.stringify(value)).toBe(false);
+      expect(result.error?.issues.length, JSON.stringify(value)).toBe(1);
+    }
+    expect(filterText.safeParse(`a${nul}`).error?.issues[0]?.message).toBe(
+      'Control characters are not allowed',
+    );
+    expect(auditQuery.safeParse({ entity: `core.investment${nul}` }).success).toBe(false);
+    expect(auditQuery.safeParse({ action: 'investment.read' }).success).toBe(true);
+    expect(investmentListQuery.safeParse({ dealType: nul }).success).toBe(false);
+    expect(capitalNoticeListQuery.safeParse({ noticeType: `call${nul}` }).success).toBe(false);
+    // A reason keeps its line breaks; the rest of the control range is refused.
+    expect(plainText(500).safeParse('line one\nline two').success).toBe(true);
+    expect(plainText(500).safeParse(`line one${nul}line two`).success).toBe(false);
+    expect(plainText(5).safeParse('123456').success).toBe(false);
+    // A cursor is never empty and never longer than a composite key can be.
+    expect(pageQuery.safeParse({ cursor: '' }).success).toBe(false);
+    expect(pageQuery.safeParse({ cursor: 'x'.repeat(513) }).success).toBe(false);
+    expect(pageQuery.safeParse({ cursor: 'SU5WLTAwMTI' }).success).toBe(true);
   });
 
   it('reports a malformed date once, by its shape, and never runs the calendar on it', () => {

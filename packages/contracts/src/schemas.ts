@@ -14,6 +14,8 @@ const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
  */
 export function isCalendarDate(value: string): boolean {
   if (!ISO_DATE.test(value)) return false;
+  // The calendar has no year 0 (1 BC is followed by AD 1), and neither does the database.
+  if (Number(value.slice(0, 4)) < 1) return false;
   const day = new Date(0);
   day.setUTCFullYear(
     Number(value.slice(0, 4)),
@@ -35,6 +37,28 @@ export const isoDate = z
   .refine((value) => !ISO_DATE.test(value) || isCalendarDate(value), 'Not a real calendar date')
   .meta({ format: 'date' });
 export const uuid = z.string().uuid();
+
+/**
+ * A control character other than tab, line feed and carriage return. The database refuses a NUL
+ * byte in any text parameter (an error from inside the query, so a 500), and none of the others
+ * belong in a value a person typed, so the boundary refuses them as a 400 'validation'.
+ */
+const FORBIDDEN_CONTROL = /[^\P{Cc}\t\n\r]/u;
+const CONTROL_MESSAGE = 'Control characters are not allowed';
+
+/** Free text a person writes, such as a reason: bounded, with no control characters beyond whitespace. */
+export const plainText = (max: number): z.ZodString =>
+  z
+    .string()
+    .max(max)
+    .refine((value) => !FORBIDDEN_CONTROL.test(value), CONTROL_MESSAGE);
+
+/** A code or name a list is filtered by: one bounded line of text, matched exactly, never empty. */
+export const filterText = z
+  .string()
+  .min(1)
+  .max(200)
+  .refine((value) => !FORBIDDEN_CONTROL.test(value), CONTROL_MESSAGE);
 
 export const appRole = z.enum([
   'viewer',
@@ -91,19 +115,20 @@ export const featureFlag = z.object({
 });
 export const featureFlagList = z.object({ flags: z.array(featureFlag) });
 export const featureFlagPatch = z
-  .object({ enabled: z.boolean(), reason: z.string().min(3) })
+  .object({ enabled: z.boolean(), reason: plainText(500).min(3) })
   .strict();
 
 export const pageQuery = z
   .object({
     limit: z.coerce.number().int().min(1).max(200).default(50),
-    cursor: z.string().optional(),
+    /** Opaque, from the previous page's nextCursor; each list checks it against its own key shape. */
+    cursor: z.string().min(1).max(512).optional(),
   })
   .strict();
 
 export const investmentListQuery = pageQuery.extend({
   vehicleId: uuid.optional(),
-  dealType: z.string().optional(),
+  dealType: filterText.optional(),
   active: z.enum(['true', 'false']).optional(),
   asOf: isoDate.optional(),
 });
@@ -579,7 +604,7 @@ export const capitalNoticeListQuery = pageQuery.extend({
   state: capitalNoticeState.optional(),
   vehicleId: uuid.optional(),
   investmentId: uuid.optional(),
-  noticeType: z.string().optional(),
+  noticeType: filterText.optional(),
   dueFrom: isoDate.optional(),
   dueTo: isoDate.optional(),
   asOf: isoDate.optional(),
@@ -775,9 +800,9 @@ export type Watchlist = z.infer<typeof watchlist>;
 /* ---- Audit, taxonomy, walls (SEC-11, SEC-5.3) ---- */
 
 export const auditQuery = pageQuery.extend({
-  entity: z.string().optional(),
+  entity: filterText.optional(),
   entityId: uuid.optional(),
-  action: z.string().optional(),
+  action: filterText.optional(),
 });
 
 export const auditEventRow = z.object({

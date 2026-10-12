@@ -83,6 +83,7 @@ describe('valuation board (M10)', () => {
         Buffer.from('2025-02-31|INV-0001|1').toString('base64url'),
         Buffer.from('2025-06-30|INV-0001|one').toString('base64url'),
         Buffer.from('2025-06-30||1').toString('base64url'),
+        Buffer.from(`2025-06-30|INV-0001${String.fromCharCode(0)}|1`).toString('base64url'),
       ];
       for (const cursor of forged) {
         const res = await h

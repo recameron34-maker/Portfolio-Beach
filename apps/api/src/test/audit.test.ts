@@ -156,4 +156,66 @@ describe('audit trail (SEC-11)', () => {
       .set('authorization', h.as('auditor'))
       .expect(400);
   });
+
+  it('pages on event time then id, so an event stamped earlier but written later is never skipped', async () => {
+    // An event carries its transaction's start time, so a slower transaction writes a higher id
+    // with an earlier time; two events in one transaction share a time and page by id.
+    await h.runtime.db.query(`insert into audit.event (at, actor_type, action, entity) values
+      ('2001-01-01T00:00:03Z', 'service', 'test.cursor', 'test'),
+      ('2001-01-01T00:00:01Z', 'service', 'test.cursor', 'test'),
+      ('2001-01-01T00:00:02Z', 'service', 'test.cursor', 'test'),
+      ('2001-01-01T00:00:02Z', 'service', 'test.cursor', 'test')`);
+    const page = async (cursor: string | null) =>
+      auditPage.parse(
+        (
+          await h
+            .http()
+            .get(
+              `/api/v1/audit/events?action=test.cursor&limit=1${cursor === null ? '' : `&cursor=${cursor}`}`,
+            )
+            .set('authorization', h.as('auditor'))
+            .expect(200)
+        ).body,
+      );
+    const pages = [await page(null)];
+    while (pages[pages.length - 1]!.nextCursor !== null && pages.length < 10)
+      pages.push(await page(pages[pages.length - 1]!.nextCursor));
+    const seen = pages.map((p) => p.items.map((e) => [e.at, e.id] as const)).flat();
+    expect(seen.map(([at]) => at)).toEqual([
+      '2001-01-01T00:00:03.000Z',
+      '2001-01-01T00:00:02.000Z',
+      '2001-01-01T00:00:02.000Z',
+      '2001-01-01T00:00:01.000Z',
+    ]);
+    // The two events sharing a time page by id, higher first.
+    expect(BigInt(seen[1]![1]) > BigInt(seen[2]![1])).toBe(true);
+    expect(new Set(seen.map(([, id]) => id)).size).toBe(4);
+  });
+
+  it('rejects a malformed cursor with 400, including an id too large for the database', async () => {
+    const nul = String.fromCharCode(0);
+    const forged = [
+      'garbage',
+      Buffer.from('12').toString('base64url'),
+      Buffer.from('2025-07-12T10:11:12.123456Z|9999999999999999999').toString('base64url'),
+      Buffer.from('2025-02-30T10:11:12.123456Z|12').toString('base64url'),
+      Buffer.from('2025-07-12T24:00:00.000000Z|12').toString('base64url'),
+      Buffer.from(`2025-07-12T10:11:12.123456Z|12${nul}`).toString('base64url'),
+    ];
+    for (const cursor of forged) {
+      const res = await h
+        .http()
+        .get(`/api/v1/audit/events?cursor=${cursor}`)
+        .set('authorization', h.as('auditor'))
+        .expect(400);
+      expect(problemDetails.parse(res.body).detail).toBe('Invalid cursor');
+    }
+    // A filter with a control character is a 400 at the boundary, never a database error.
+    const res = await h
+      .http()
+      .get('/api/v1/audit/events?entity=core.investment%00')
+      .set('authorization', h.as('auditor'))
+      .expect(400);
+    expect(problemDetails.parse(res.body).type).toMatch(/\/validation$/);
+  });
 });
