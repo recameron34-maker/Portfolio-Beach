@@ -140,7 +140,8 @@ export interface OperatingRow {
   netDebt: string | null;
 }
 
-export interface OperatingView {
+/** One quarter's approved figures and the ratios docs/08 section 4 derives from them. */
+export interface OperatingPeriod {
   periodEnd: string;
   revenueLtm: string | null;
   ebitdaLtm: string | null;
@@ -149,12 +150,34 @@ export interface OperatingView {
   evToEbitda: string | null;
   netDebtToEbitda: string | null;
   ebitdaMargin: string | null;
-  revenueYoy: string | null;
-  ebitdaYoy: string | null;
-  priorYearPeriodEnd: string | null;
 }
 
-/** Latest approved quarter with ratios and the exact prior-year comparison (docs/08 sections 4 and 5). */
+export interface OperatingView extends OperatingPeriod {
+  revenueYoy: string | null;
+  ebitdaYoy: string | null;
+  /** The same fiscal quarter one year earlier, exactly (docs/08 section 5); null when not on record. */
+  priorYear: OperatingPeriod | null;
+}
+
+function periodFigures(row: OperatingRow): OperatingPeriod {
+  const ev = row.ev === null ? null : D(row.ev);
+  return {
+    periodEnd: row.periodEnd,
+    revenueLtm: row.revenueLtm,
+    ebitdaLtm: row.ebitdaLtm,
+    ev: row.ev,
+    netDebt: row.netDebt,
+    evToEbitda: ev === null ? null : str(evToEbitda(ev, row.ebitdaLtm)),
+    netDebtToEbitda: row.netDebt === null ? null : str(netDebtToEbitda(row.netDebt, row.ebitdaLtm)),
+    ebitdaMargin: row.ebitdaLtm === null ? null : str(ebitdaMargin(row.ebitdaLtm, row.revenueLtm)),
+  };
+}
+
+/**
+ * Latest approved quarter with its ratios, the growth against the same quarter a year earlier
+ * and that quarter's own figures (docs/08 sections 4 and 5); the prior year is the exact match
+ * or nothing, never the nearest quarter.
+ */
 export function operatingView(
   rows: readonly OperatingRow[],
   asOf: string,
@@ -168,21 +191,11 @@ export function operatingView(
     latest.periodEnd,
     { toleranceDays: priorYearToleranceDays },
   );
-  const ev = latest.ev === null ? null : D(latest.ev);
   return {
-    periodEnd: latest.periodEnd,
-    revenueLtm: latest.revenueLtm,
-    ebitdaLtm: latest.ebitdaLtm,
-    ev: latest.ev,
-    netDebt: latest.netDebt,
-    evToEbitda: ev === null ? null : str(evToEbitda(ev, latest.ebitdaLtm)),
-    netDebtToEbitda:
-      latest.netDebt === null ? null : str(netDebtToEbitda(latest.netDebt, latest.ebitdaLtm)),
-    ebitdaMargin:
-      latest.ebitdaLtm === null ? null : str(ebitdaMargin(latest.ebitdaLtm, latest.revenueLtm)),
+    ...periodFigures(latest),
     revenueYoy: str(yoyGrowth(latest.revenueLtm, prior?.revenueLtm ?? null)),
     ebitdaYoy: str(yoyGrowth(latest.ebitdaLtm, prior?.ebitdaLtm ?? null)),
-    priorYearPeriodEnd: prior?.periodEnd ?? null,
+    priorYear: prior === null ? null : periodFigures(prior),
   };
 }
 

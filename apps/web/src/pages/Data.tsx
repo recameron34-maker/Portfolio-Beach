@@ -17,7 +17,7 @@ import {
   TableWrap,
   Toolbar,
 } from '../components/ui.js';
-import { formatDate, formatPct } from '../lib/format.js';
+import { formatDate, formatPct, plural } from '../lib/format.js';
 import { seesAllClients } from '../lib/roles.js';
 import { balanceTiles } from '../lib/tiles.js';
 
@@ -84,13 +84,13 @@ export function DataHealthPage(): ReactNode {
         <StatTile
           label="Stale positions"
           value={String(h.staleInvestments)}
-          hint={`No approved financials in ${h.staleAfterDays} days`}
+          hint={`No approved financials in ${plural(h.staleAfterDays, 'day')}`}
           tone={h.staleInvestments > 0 ? 'watch' : undefined}
         />
         <StatTile
           label="Locked valuations, latest quarter"
           value={String(h.lockedValuationsLatestQuarter)}
-          hint={`${h.activeInvestments} active positions`}
+          hint={plural(h.activeInvestments, 'active position')}
         />
       </div>
       <OwnershipCard

@@ -184,6 +184,18 @@ export const investmentPage = z.object({
 export type InvestmentPage = z.infer<typeof investmentPage>;
 
 /** The summary row (vehicle and sponsor ids included) plus the detail the workspace tabs read. */
+/** One approved quarter's figures and the ratios docs/08 section 4 derives from them. */
+export const operatingPeriod = z.object({
+  periodEnd: isoDate,
+  revenueLtm: decimalString.nullable(),
+  ebitdaLtm: decimalString.nullable(),
+  ev: decimalString.nullable(),
+  netDebt: decimalString.nullable(),
+  evToEbitda: decimalString.nullable(),
+  netDebtToEbitda: decimalString.nullable(),
+  ebitdaMargin: decimalString.nullable(),
+});
+
 export const investmentDetail = investmentSummary.extend({
   companyId: uuid,
   sponsorFundId: uuid.nullable(),
@@ -222,19 +234,15 @@ export const investmentDetail = investmentSummary.extend({
         .nullable(),
     })
     .nullable(),
-  operating: z
-    .object({
-      periodEnd: isoDate,
-      revenueLtm: decimalString.nullable(),
-      ebitdaLtm: decimalString.nullable(),
-      ev: decimalString.nullable(),
-      netDebt: decimalString.nullable(),
-      evToEbitda: decimalString.nullable(),
-      netDebtToEbitda: decimalString.nullable(),
-      ebitdaMargin: decimalString.nullable(),
+  operating: operatingPeriod
+    .extend({
       revenueYoy: decimalString.nullable(),
       ebitdaYoy: decimalString.nullable(),
-      priorYearPeriodEnd: isoDate.nullable(),
+      /**
+       * The same fiscal quarter one year earlier, exactly (docs/08 section 5), with its own
+       * figures; null when it is not on record, never the nearest quarter.
+       */
+      priorYear: operatingPeriod.nullable(),
     })
     .nullable(),
 });

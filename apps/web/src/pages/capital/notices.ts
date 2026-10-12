@@ -3,7 +3,7 @@ import { capitalNoticeMachine } from '@pb/workflows';
 import definitions from '../../../../../config/definitions.json';
 import type { BarDatum } from '../../components/charts/index.js';
 import type { Tone } from '../../components/ui.js';
-import { formatMoneyM, labelOf, MISSING } from '../../lib/format.js';
+import { formatMoneyM, labelOf, MISSING, plural } from '../../lib/format.js';
 
 /**
  * Reminder days before a due date (config/definitions.json capitalActivity). The list endpoint
@@ -36,11 +36,6 @@ export function noticeAmount(amount: string | null, currency: string): string {
   const text = formatMoneyM(amount);
   if (currency === 'USD' || text === MISSING) return text;
   return text.replace('$', `${currency} `);
-}
-
-/** "2 days" or "1 day". */
-export function dayCount(n: number): string {
-  return n === 1 ? '1 day' : `${n} days`;
 }
 
 export interface NoticeCounts {
@@ -188,7 +183,7 @@ export function unfundedCaveats(chart: UnfundedChart): string[] {
     out.push(
       chart.omitted === 1
         ? '1 commitment has no recorded cash flow, so its unfunded is not known and it is left out.'
-        : `${chart.omitted} commitments have no recorded cash flow, so their unfunded is not known and they are left out.`,
+        : `${plural(chart.omitted, 'commitment')} have no recorded cash flow, so their unfunded is not known and they are left out.`,
     );
   }
   if (chart.overCalled.length > 0) {

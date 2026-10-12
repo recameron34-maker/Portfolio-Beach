@@ -25,7 +25,14 @@ import {
   StatTile,
   TableWrap,
 } from '../components/ui.js';
-import { formatDate, formatMoic, formatMoneyM, irrDisplay, labelOf } from '../lib/format.js';
+import {
+  formatDate,
+  formatMoic,
+  formatMoneyM,
+  irrDisplay,
+  labelOf,
+  plural,
+} from '../lib/format.js';
 import { irrFlagHint, watchFlagLabel } from '../lib/labels.js';
 import { usePreviewGuide } from '../lib/preview-guide.js';
 import { humanizeState, noticeTone } from '../lib/states.js';
@@ -151,7 +158,7 @@ function NoticesBody({ page }: { page: CapitalNoticePage }): ReactNode {
     return (
       <EmptyState
         title="Nothing due"
-        detail={`No notice is open or due within ${page.alertDaysBeforeDue} days of ${formatDate(page.asOf)}.`}
+        detail={`No notice is open or due within ${plural(page.alertDaysBeforeDue, 'day')} of ${formatDate(page.asOf)}.`}
       />
     );
   }
@@ -211,7 +218,9 @@ function CapitalActivityCard(): ReactNode {
     <Card testId="home-capital">
       <SectionHeader
         aside={
-          q.data !== undefined ? `Alerts ${q.data.alertDaysBeforeDue} days before due` : undefined
+          q.data !== undefined
+            ? `Alerts ${plural(q.data.alertDaysBeforeDue, 'day')} before due`
+            : undefined
         }
       >
         Capital activity
@@ -253,7 +262,7 @@ function ChartsRow({ summary }: { summary: AnalyticsSummary }): ReactNode {
             data={vehicles}
             kind="money"
             valueColumn="NAV"
-            summary={`NAV by vehicle across ${vehicles.length} vehicles; the largest is ${largest.label} at ${largest.display}.`}
+            summary={`NAV by vehicle across ${plural(vehicles.length, 'vehicle')}; the largest is ${largest.label} at ${largest.display}.`}
             testId="home-exposure"
           />
         )}

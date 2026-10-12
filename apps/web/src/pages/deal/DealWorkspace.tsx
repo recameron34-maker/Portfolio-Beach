@@ -53,7 +53,12 @@ function DealBanner({ detail: d }: { detail: InvestmentDetail }): ReactNode {
  */
 function DealTiles({ detail: d }: { detail: InvestmentDetail }): ReactNode {
   const latest = d.credit?.latest ?? null;
-  const navHint = d.navDate === null ? 'No Locked valuation' : `Locked ${formatDate(d.navDate)}`;
+  // A realized position holds no NAV (docs/08 section 2): its hint is the exit, not a mark.
+  const navHint = !d.isActive
+    ? `Realized ${formatDate(d.exitDate)}`
+    : d.navDate === null
+      ? 'No Locked valuation'
+      : `Locked ${formatDate(d.navDate)}`;
   const irr = (
     <StatTile
       label="Gross IRR"

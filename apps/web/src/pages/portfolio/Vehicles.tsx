@@ -35,6 +35,7 @@ import {
   irrDisplay,
   labelOf,
   MISSING,
+  plural,
 } from '../../lib/format.js';
 import { irrFlagHint } from '../../lib/labels.js';
 import {
@@ -100,7 +101,7 @@ function ActivePositionsCard({ items }: { items: VehicleSummary[] }): ReactNode 
           data={bars}
           kind="count"
           valueColumn="Active positions"
-          summary={`${total} active positions across ${bars.length} vehicles; the most any one vehicle holds is ${top.display}.`}
+          summary={`${plural(total, 'active position')} across ${plural(bars.length, 'vehicle')}; the most any one vehicle holds is ${top.display}.`}
           testId="vehicles-active-positions"
         />
       )}
@@ -124,9 +125,7 @@ function VehiclesBody({ items }: { items: VehicleSummary[] }): ReactNode {
   return (
     <>
       <Card>
-        <SectionHeader aside={items.length === 1 ? '1 vehicle' : `${items.length} vehicles`}>
-          Funds and vehicles
-        </SectionHeader>
+        <SectionHeader aside={plural(items.length, 'vehicle')}>Funds and vehicles</SectionHeader>
         <VehiclesTable items={items} />
         <p className="pb-meta pb-vehicles-note" data-testid="vehicles-client-note">
           {noClientData

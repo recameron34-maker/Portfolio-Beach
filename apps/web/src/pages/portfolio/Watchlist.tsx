@@ -21,7 +21,7 @@ import {
   TabNav,
   Toolbar,
 } from '../../components/ui.js';
-import { formatDate, labelOf } from '../../lib/format.js';
+import { formatDate, labelOf, plural } from '../../lib/format.js';
 import { watchFlagLabel } from '../../lib/labels.js';
 import { balanceTiles } from '../../lib/tiles.js';
 
@@ -118,7 +118,7 @@ function WatchlistBody({ data }: { data: Watchlist }): ReactNode {
         <StatTile
           label="Flagged positions"
           value={String(data.items.length)}
-          hint={`of ${total} active positions`}
+          hint={`of ${plural(total, 'active position')}`}
         />
       </div>
       <Card>

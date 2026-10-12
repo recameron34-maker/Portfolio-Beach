@@ -24,6 +24,26 @@ import { useDealDetail } from './deal/data.js';
 function OperatingTable({ detail }: { detail: InvestmentDetail }): ReactNode {
   const o = detail.operating;
   if (o === null) return <p>No approved quarterly financials for this position.</p>;
+  // The prior year is the same fiscal quarter a year earlier, exactly, or nothing (docs/08 section 5).
+  const p = o.priorYear;
+  const rows: [string, string, string, string][] = [
+    [
+      'Revenue (LTM)',
+      formatMoneyM(o.revenueLtm),
+      formatMoneyM(p?.revenueLtm),
+      formatPct(o.revenueYoy),
+    ],
+    ['EBITDA (LTM)', formatMoneyM(o.ebitdaLtm), formatMoneyM(p?.ebitdaLtm), formatPct(o.ebitdaYoy)],
+    ['EBITDA margin', formatPct(o.ebitdaMargin), formatPct(p?.ebitdaMargin), MISSING],
+    ['Enterprise value', formatMoneyM(o.ev), formatMoneyM(p?.ev), MISSING],
+    ['EV / EBITDA', formatMultiple(o.evToEbitda), formatMultiple(p?.evToEbitda), MISSING],
+    [
+      'Net debt / EBITDA',
+      formatMultiple(o.netDebtToEbitda),
+      formatMultiple(p?.netDebtToEbitda),
+      MISSING,
+    ],
+  ];
   return (
     <TableWrap label="Financial performance">
       <table className="pb-table" aria-label="Financial performance">
@@ -32,49 +52,20 @@ function OperatingTable({ detail }: { detail: InvestmentDetail }): ReactNode {
             <th>Metric</th>
             <th className="num">LTM / Current ({formatDate(o.periodEnd)})</th>
             <th className="num">
-              Prior Year (
-              {o.priorYearPeriodEnd === null ? 'not available' : formatDate(o.priorYearPeriodEnd)})
+              Prior year ({p === null ? 'not on record' : formatDate(p.periodEnd)})
             </th>
             <th className="num">YoY</th>
           </tr>
         </thead>
         <tbody>
-          <tr>
-            <td>Revenue (LTM)</td>
-            <NumCell>{formatMoneyM(o.revenueLtm)}</NumCell>
-            <NumCell>{MISSING}</NumCell>
-            <NumCell>{formatPct(o.revenueYoy)}</NumCell>
-          </tr>
-          <tr>
-            <td>EBITDA (LTM)</td>
-            <NumCell>{formatMoneyM(o.ebitdaLtm)}</NumCell>
-            <NumCell>{MISSING}</NumCell>
-            <NumCell>{formatPct(o.ebitdaYoy)}</NumCell>
-          </tr>
-          <tr>
-            <td>EBITDA margin</td>
-            <NumCell>{formatPct(o.ebitdaMargin)}</NumCell>
-            <NumCell>{MISSING}</NumCell>
-            <NumCell>{MISSING}</NumCell>
-          </tr>
-          <tr>
-            <td>Enterprise value</td>
-            <NumCell>{formatMoneyM(o.ev)}</NumCell>
-            <NumCell>{MISSING}</NumCell>
-            <NumCell>{MISSING}</NumCell>
-          </tr>
-          <tr>
-            <td>EV / EBITDA</td>
-            <NumCell>{formatMultiple(o.evToEbitda)}</NumCell>
-            <NumCell>{MISSING}</NumCell>
-            <NumCell>{MISSING}</NumCell>
-          </tr>
-          <tr>
-            <td>Net debt / EBITDA</td>
-            <NumCell>{formatMultiple(o.netDebtToEbitda)}</NumCell>
-            <NumCell>{MISSING}</NumCell>
-            <NumCell>{MISSING}</NumCell>
-          </tr>
+          {rows.map(([metric, current, prior, yoy]) => (
+            <tr key={metric}>
+              <td>{metric}</td>
+              <NumCell>{current}</NumCell>
+              <NumCell>{prior}</NumCell>
+              <NumCell>{yoy}</NumCell>
+            </tr>
+          ))}
         </tbody>
       </table>
     </TableWrap>

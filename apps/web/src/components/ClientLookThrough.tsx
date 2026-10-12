@@ -2,7 +2,15 @@ import type { ReactNode } from 'react';
 import { keepPreviousData, useQuery } from '@tanstack/react-query';
 import type { ClientSummary } from '@pb/contracts';
 import { clientsQuery } from '../app/queries.js';
-import { formatDate, formatMoic, formatMoneyM, formatPct, labelOf } from '../lib/format.js';
+import {
+  formatDate,
+  formatMoic,
+  formatMoneyM,
+  formatPct,
+  joinList,
+  labelOf,
+  plural,
+} from '../lib/format.js';
 import { UnavailableState } from './UnavailableState.js';
 import {
   Badge,
@@ -21,6 +29,13 @@ const ENTITLED =
 
 function ClientCard({ client }: { client: ClientSummary }): ReactNode {
   const t = client.totals;
+  // A total is not calculable while a vehicle's share is not (no ownership yet, or no pooled figures).
+  const unknown = client.vehicles
+    .filter((v) => v.invested === null || v.distributions === null || v.nav === null)
+    .map((v) => v.vehicleName);
+  const why =
+    unknown.length === 0 ? undefined : `Not calculable: no share for ${joinList(unknown)}`;
+  const hintFor = (value: string | null): string | undefined => (value === null ? why : undefined);
   return (
     <Card testId={`client-${client.id}`}>
       <SectionHeader
@@ -39,10 +54,18 @@ function ClientCard({ client }: { client: ClientSummary }): ReactNode {
       </SectionHeader>
       <div ref={balanceTiles} className="pb-tiles">
         <StatTile label="Commitment" value={formatMoneyM(t.commitment)} />
-        <StatTile label="Invested share" value={formatMoneyM(t.invested)} />
-        <StatTile label="Distributions share" value={formatMoneyM(t.distributions)} />
-        <StatTile label="NAV share" value={formatMoneyM(t.nav)} />
-        <StatTile label="Gross MOIC" value={formatMoic(t.grossMoic)} />
+        <StatTile
+          label="Invested share"
+          value={formatMoneyM(t.invested)}
+          hint={hintFor(t.invested)}
+        />
+        <StatTile
+          label="Distributions share"
+          value={formatMoneyM(t.distributions)}
+          hint={hintFor(t.distributions)}
+        />
+        <StatTile label="NAV share" value={formatMoneyM(t.nav)} hint={hintFor(t.nav)} />
+        <StatTile label="Gross MOIC" value={formatMoic(t.grossMoic)} hint={hintFor(t.grossMoic)} />
       </div>
       <TableWrap label={`${client.name} vehicles`}>
         <table className="pb-table" aria-label={`${client.name} vehicles`}>
@@ -126,8 +149,8 @@ export function ClientLookThrough(): ReactNode {
   return (
     <>
       <p className="pb-meta" data-testid="clients-asof">
-        As of {formatDate(asOf)}. {items.length} entitled{' '}
-        {items.length === 1 ? 'client' : 'clients'}; shares use approved figures only.
+        As of {formatDate(asOf)}. {plural(items.length, 'entitled client')}; shares use approved
+        figures and cover the positions visible to you.
       </p>
       {items.map((c) => (
         <ClientCard key={c.id} client={c} />

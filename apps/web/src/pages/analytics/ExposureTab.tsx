@@ -16,7 +16,7 @@ import {
   TableWrap,
   Toolbar,
 } from '../../components/ui.js';
-import { formatDate, formatMoneyM, formatPct } from '../../lib/format.js';
+import { formatDate, formatMoneyM, formatPct, plural } from '../../lib/format.js';
 import { DIMENSION_KEYS, DIMENSION_LABELS, isDimensionKey } from './constants.js';
 import type { DimensionKey } from './constants.js';
 import { bucketBars, vehicleDealTypeStack } from './helpers.js';
@@ -74,7 +74,7 @@ function VehicleDealTypeCard({ summary }: { summary: AnalyticsSummary }): ReactN
             data={breakdown.data}
             segmentNames={breakdown.segmentNames}
             kind="money"
-            summary={`NAV by vehicle split by deal type across ${breakdown.data.length} vehicles and ${breakdown.segmentNames.length} deal types; the largest vehicle is ${first.label}.`}
+            summary={`NAV by vehicle split by deal type across ${plural(breakdown.data.length, 'vehicle')} and ${plural(breakdown.segmentNames.length, 'deal type')}; the largest vehicle is ${first.label}.`}
             testId="exposure-vehicle-deal-type"
           />
           {breakdown.excluded > 0 ? (
@@ -107,7 +107,7 @@ export function ExposureTab(): ReactNode {
     <>
       <Card>
         <SectionHeader
-          aside={`As of ${formatDate(summary.asOf)}, ${summary.activeInvestments} active positions`}
+          aside={`As of ${formatDate(summary.asOf)}, ${plural(summary.activeInvestments, 'active position')}`}
         >
           Exposure
         </SectionHeader>

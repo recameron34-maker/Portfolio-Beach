@@ -89,21 +89,25 @@ function shareOf(
   };
 }
 
-/** Sums of a client's vehicle shares; the MOIC is only calculable when no vehicle is partly known. */
+/**
+ * Sums of a client's vehicle shares. A share that is not calculable (no ownership percentage yet,
+ * or a vehicle with no pooled figures, such as the primary program) makes the total not
+ * calculable: a sum over the other vehicles would understate the client's position (CLAUDE.md
+ * rule 10). Commitments are always on record, so their total always is.
+ */
 function clientTotals(vehicles: readonly ClientVehicleShare[]): ClientSummary['totals'] {
-  const invested = sumCalculable(vehicles, (v) => v.invested);
-  const distributions = sumCalculable(vehicles, (v) => v.distributions);
-  const nav = sumCalculable(vehicles, (v) => v.nav);
-  const partial = vehicles.some(
-    (v) => v.invested !== null && (v.nav === null || v.distributions === null),
-  );
+  const whole = (pick: (v: ClientVehicleShare) => string | null): Decimal | null =>
+    vehicles.some((v) => pick(v) === null) ? null : sumCalculable(vehicles, pick);
+  const invested = whole((v) => v.invested);
+  const distributions = whole((v) => v.distributions);
+  const nav = whole((v) => v.nav);
   return {
     commitment: str(sumCalculable(vehicles, (v) => v.commitment)),
     invested: str(invested),
     distributions: str(distributions),
     nav: str(nav),
     grossMoic:
-      partial || invested === null || distributions === null || nav === null
+      invested === null || distributions === null || nav === null
         ? null
         : str(moic(distributions, nav, invested)),
   };

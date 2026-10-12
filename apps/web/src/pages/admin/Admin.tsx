@@ -21,7 +21,7 @@ import {
   TabNav,
 } from '../../components/ui.js';
 import { UnavailableState } from '../../components/UnavailableState.js';
-import { formatDateTime } from '../../lib/format.js';
+import { formatDateTime, plural } from '../../lib/format.js';
 import { ROLE_ROWS, ROLE_SOURCE } from './roles.js';
 
 /* ---- Audit trail (SEC-11) ---- */
@@ -108,8 +108,8 @@ export function AuditPage(): ReactNode {
           <SectionHeader
             aside={
               q.data.nextCursor === null
-                ? `${q.data.items.length} events`
-                : `latest ${q.data.items.length} events; older events exist`
+                ? plural(q.data.items.length, 'event')
+                : `latest ${plural(q.data.items.length, 'event')}; older events exist`
             }
           >
             Events
@@ -138,7 +138,9 @@ export function AuditPage(): ReactNode {
 function WallCard({ wall }: { wall: WallList['walls'][number] }): ReactNode {
   return (
     <Card testId={`wall-${wall.id}`}>
-      <SectionHeader aside={`${wall.members.length} members, ${wall.records.length} records`}>
+      <SectionHeader
+        aside={`${plural(wall.members.length, 'member')}, ${plural(wall.records.length, 'record')}`}
+      >
         {wall.name}
       </SectionHeader>
       {wall.description !== null ? <p className="pb-wall-description">{wall.description}</p> : null}

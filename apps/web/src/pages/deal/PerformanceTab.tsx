@@ -25,6 +25,7 @@ import {
   labelOf,
   MISSING,
   moneyLabel,
+  plural,
 } from '../../lib/format.js';
 import { creditStatusTone } from '../../lib/labels.js';
 import {
@@ -229,7 +230,9 @@ function HighlightsCard({ perf }: { perf: InvestmentPerformance }): ReactNode {
   const recorded = latest.some((q) => q.highlights.length > 0);
   return (
     <Card testId="deal-highlights">
-      <SectionHeader aside={latest.length > 0 ? `Latest ${latest.length} quarters` : undefined}>
+      <SectionHeader
+        aside={latest.length > 0 ? `Latest ${plural(latest.length, 'quarter')}` : undefined}
+      >
         Highlights
       </SectionHeader>
       {!recorded ? (
@@ -382,7 +385,7 @@ function CreditChart({ credit, company }: { credit: CreditBlock; company: string
       ]}
       kind="money"
       format={moneyLabel}
-      summary={`Par and fair value for ${company} over ${quarters.length} quarters; at ${formatMonthYear(last.periodEnd)} fair value is ${formatMoneyM(last.fairValue)} against par of ${formatMoneyM(last.parValue)}.`}
+      summary={`Par and fair value for ${company} over ${plural(quarters.length, 'quarter')}; at ${formatMonthYear(last.periodEnd)} fair value is ${formatMoneyM(last.fairValue)} against par of ${formatMoneyM(last.parValue)}.`}
       testId="deal-credit-chart"
     />
   );

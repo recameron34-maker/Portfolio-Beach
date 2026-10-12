@@ -27,6 +27,7 @@ import {
   irrDisplay,
   labelOf,
   MISSING,
+  plural,
 } from '../../lib/format.js';
 import { UnavailableState } from '../../components/UnavailableState.js';
 import { humanizeState, noticeTone } from '../../lib/states.js';
@@ -57,7 +58,7 @@ function ByVehicle({ report }: { report: WeeklyReport }): ReactNode {
   const s = report.summary;
   return (
     <Card>
-      <SectionHeader aside={`${report.byVehicle.length} vehicles with active positions`}>
+      <SectionHeader aside={`${plural(report.byVehicle.length, 'vehicle')} with active positions`}>
         By vehicle
       </SectionHeader>
       {report.byVehicle.length === 0 ? (
@@ -164,7 +165,7 @@ function StaleValuations({ report }: { report: WeeklyReport }): ReactNode {
   return (
     <Card>
       <SectionHeader
-        aside={`${items.length} of ${report.summary.activeInvestments} active positions`}
+        aside={`${items.length} of ${plural(report.summary.activeInvestments, 'active position')}`}
       >
         Stale valuations
       </SectionHeader>

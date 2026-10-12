@@ -14,7 +14,7 @@ import {
   StatTile,
   TableWrap,
 } from '../../components/ui.js';
-import { formatMoic, formatMoneyM, labelOf, MISSING } from '../../lib/format.js';
+import { formatMoic, formatMoneyM, labelOf, MISSING, plural } from '../../lib/format.js';
 import { useDealDetail } from './data.js';
 import './deal.css';
 import { balanceTiles } from '../../lib/tiles.js';
@@ -145,7 +145,7 @@ function OtherPositionsCard({
   const others = s.positions.filter((p) => p.id !== detail.id);
   return (
     <Card testId="deal-sponsor-positions">
-      <SectionHeader aside={others.length > 0 ? `${others.length} positions` : undefined}>
+      <SectionHeader aside={others.length > 0 ? plural(others.length, 'position') : undefined}>
         Other positions with this sponsor
       </SectionHeader>
       {others.length === 0 ? (

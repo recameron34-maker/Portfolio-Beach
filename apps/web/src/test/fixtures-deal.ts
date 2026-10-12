@@ -106,7 +106,16 @@ export function dealDetailFixture(overrides: Partial<InvestmentDetail> = {}): In
       ebitdaMargin: '0.29822139',
       revenueYoy: '0.0948865317',
       ebitdaYoy: '0.0618767854',
-      priorYearPeriodEnd: '2024-03-31',
+      priorYear: {
+        periodEnd: '2024-03-31',
+        revenueLtm: '12675649.63',
+        ebitdaLtm: '3897660.46',
+        ev: '39000000.00',
+        netDebt: '11200000.00',
+        evToEbitda: '10.0060024213',
+        netDebtToEbitda: '2.8735186441',
+        ebitdaMargin: '0.3074919688',
+      },
     },
     ...overrides,
   };

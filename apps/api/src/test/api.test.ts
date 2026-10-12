@@ -301,8 +301,33 @@ describe('Portfolio Beach API', () => {
       );
       expect(detail.operating).not.toBeNull();
       expect(detail.operating?.revenueYoy).toBeNull();
-      expect(detail.operating?.priorYearPeriodEnd).toBeNull();
+      expect(detail.operating?.priorYear).toBeNull();
       expect(detail.operating?.evToEbitda).not.toBeNull();
+      // Where the prior year is on record, its figures travel with the growth derived from them.
+      let compared = 0;
+      for (const inv of h.dataset.investments.slice(0, 12)) {
+        if (inv.id === missing) continue;
+        const res = await h
+          .http()
+          .get(`/api/v1/investments/${inv.id}?asOf=${h.dataset.asOf}`)
+          .set('authorization', h.as('operations'));
+        if (res.status !== 200) continue;
+        const op = investmentDetail.parse(res.body).operating;
+        const prior = op?.priorYear ?? null;
+        if (op === null || prior === null) continue;
+        compared += 1;
+        const daysApart = (Date.parse(op.periodEnd) - Date.parse(prior.periodEnd)) / 86_400_000;
+        expect(daysApart).toBeGreaterThanOrEqual(358);
+        expect(daysApart).toBeLessThanOrEqual(372);
+        if (op.revenueLtm !== null && prior.revenueLtm !== null && op.revenueYoy !== null)
+          expect(
+            Math.abs(
+              Number(op.revenueYoy) - (Number(op.revenueLtm) / Number(prior.revenueLtm) - 1),
+            ),
+          ).toBeLessThan(1e-9);
+        if (prior.ev !== null && prior.ebitdaLtm !== null) expect(prior.evToEbitda).not.toBeNull();
+      }
+      expect(compared).toBeGreaterThan(0);
       const negative = h.dataset.scenarios.negative_ebitda![0]!;
       const neg = investmentDetail.parse(
         (

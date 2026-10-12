@@ -32,6 +32,11 @@ test('a wall member sees the walled deal in the grid and can open its one-pager'
   await page.goto('/portfolio');
   const grid = page.getByTestId('portfolio-grid');
   await expect(grid).toContainText(walled.companyName);
+  // The count under the grid follows the quick filter, not the page size.
+  await page.getByLabel('Search').fill(walled.companyName);
+  await expect(page.getByTestId('portfolio-count')).toHaveText(/^1 of \d+ positions shown$/);
+  await page.getByLabel('Search').fill('');
+  await expect(page.getByTestId('portfolio-count')).toHaveText(/^\d+ positions shown$/);
   await page.goto(`/portfolio/${walled.id}`);
   await expect(page.getByTestId('detail-banner')).toContainText(walled.companyName);
   await expect(page.getByRole('table', { name: 'Valuations' })).toBeVisible();

@@ -13,7 +13,7 @@ import {
   SectionHeader,
   TableWrap,
 } from '../../components/ui.js';
-import { formatDate, formatDateTime } from '../../lib/format.js';
+import { formatDate, formatDateTime, plural } from '../../lib/format.js';
 import { canReadAudit, TIMELINE_LIMIT, timelineEntries, useDealDetail, useDealId } from './data.js';
 import './deal.css';
 
@@ -107,7 +107,7 @@ function AuditCard({ id }: { id: string }): ReactNode {
             ? undefined
             : data.nextCursor === null
               ? `${data.items.length} ${data.items.length === 1 ? 'event' : 'events'}, newest first`
-              : `Latest ${data.items.length} events; older events exist`
+              : `Latest ${plural(data.items.length, 'event')}; older events exist`
         }
       >
         Audit trail for this record

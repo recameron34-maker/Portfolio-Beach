@@ -112,6 +112,19 @@ describe('deal workspace', () => {
     );
   });
 
+  it('hints a realized position with its exit date, not a Locked mark', async () => {
+    mockApi({
+      [DEAL_PATHS.detail]: ok(
+        dealDetailFixture({ isActive: false, exitDate: '2024-12-31', nav: '0', navDate: null }),
+      ),
+    });
+    renderWithQuery(<DealWorkspace />);
+    const tiles = await screen.findByTestId('deal-tiles');
+    expect(within(tiles).getByRole('group', { name: 'Current NAV' })).toHaveTextContent(
+      '$0.0MRealized Dec 31, 2024',
+    );
+  });
+
   it.each([404, 403] as const)(
     'answers %s with the not-found state the journeys look for, and no banner',
     async (status) => {
@@ -177,9 +190,13 @@ describe('overview tab (the one-pager body)', () => {
     expect(await screen.findByRole('table', { name: 'Deal details' })).toHaveTextContent(
       'Kelpwood Capital Partners',
     );
-    expect(screen.getByRole('table', { name: 'Financial performance' })).toHaveTextContent(
-      '$13.9M',
+    const financials = screen.getByRole('table', { name: 'Financial performance' });
+    expect(financials).toHaveTextContent('Prior year (Mar 31, 2024)');
+    // Revenue: current, the prior year's own figure, then the growth between them.
+    expect(within(financials).getAllByRole('row')[1]).toHaveTextContent(
+      'Revenue (LTM)$13.9M$12.7M9.5%',
     );
+    expect(within(financials).getAllByRole('row')[5]).toHaveTextContent('EV / EBITDA10.3x10.0x-');
     const valuations = screen.getByRole('table', { name: 'Valuations' });
     // Header plus the latest 8 of 10 versions, newest first.
     expect(within(valuations).getAllByRole('row')).toHaveLength(9);

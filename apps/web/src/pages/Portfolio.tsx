@@ -10,7 +10,7 @@ import {
   Search16Regular,
 } from '@fluentui/react-icons';
 import { AgGridReact } from 'ag-grid-react';
-import type { ColDef, ICellRendererParams } from 'ag-grid-community';
+import type { ColDef, ICellRendererParams, ValueGetterParams } from 'ag-grid-community';
 import type { InvestmentSummary } from '@pb/contracts';
 import { PORTFOLIO_TABS } from '../app/nav.js';
 import { investmentsQuery } from '../app/queries.js';
@@ -32,6 +32,7 @@ import {
   irrDisplay,
   labelOf,
   MISSING,
+  plural,
 } from '../lib/format.js';
 
 const DEAL_TYPES = [
@@ -41,6 +42,42 @@ const DEAL_TYPES = [
   { value: 'deal_type.cv_multi_asset', label: 'CV multi asset' },
   { value: 'deal_type.private_credit', label: 'Private credit' },
 ];
+
+type DecimalField = 'invested' | 'distributions' | 'nav' | 'grossMoic' | 'grossIrr';
+
+/** Decimal strings compared as numbers; a figure that is not calculable sorts last either way. */
+function compareDecimals(
+  a: string | null,
+  b: string | null,
+  _nodeA: unknown,
+  _nodeB: unknown,
+  isDescending: boolean,
+): number {
+  if (a === null || b === null) {
+    if (a === b) return 0;
+    // The grid negates the result for a descending sort, so the sign flips to keep nulls last.
+    return (a === null ? 1 : -1) * (isDescending ? -1 : 1);
+  }
+  return Number(a) - Number(b);
+}
+
+/** The number filter reads the decimal string as a number; a null stays out of every range. */
+function decimalFilterValue(p: ValueGetterParams<InvestmentSummary>): number | null {
+  const field = p.colDef.field as DecimalField | undefined;
+  const value = field === undefined ? undefined : p.data?.[field];
+  return value === null || value === undefined ? null : Number(value);
+}
+
+const decimalColumn: Pick<
+  ColDef<InvestmentSummary>,
+  'type' | 'cellClass' | 'comparator' | 'filter' | 'filterValueGetter'
+> = {
+  type: 'rightAligned',
+  cellClass: 'pb-num',
+  comparator: compareDecimals,
+  filter: 'agNumberColumnFilter',
+  filterValueGetter: decimalFilterValue,
+};
 
 const columns: ColDef<InvestmentSummary>[] = [
   { field: 'investmentNumber', headerName: 'Inv #', width: 110, pinned: 'left' },
@@ -63,40 +100,35 @@ const columns: ColDef<InvestmentSummary>[] = [
     field: 'invested',
     headerName: 'Invested',
     width: 120,
-    type: 'rightAligned',
-    cellClass: 'pb-num',
+    ...decimalColumn,
     valueFormatter: (p) => formatMoneyM(p.value as string | null),
   },
   {
     field: 'distributions',
     headerName: 'Distributed',
     width: 120,
-    type: 'rightAligned',
-    cellClass: 'pb-num',
+    ...decimalColumn,
     valueFormatter: (p) => formatMoneyM(p.value as string | null),
   },
   {
     field: 'nav',
     headerName: 'NAV',
     width: 120,
-    type: 'rightAligned',
-    cellClass: 'pb-num',
+    ...decimalColumn,
     valueFormatter: (p) => formatMoneyM(p.value as string | null),
   },
   {
     field: 'grossMoic',
     headerName: 'Gross MOIC',
     width: 120,
-    type: 'rightAligned',
-    cellClass: 'pb-num',
+    ...decimalColumn,
     valueFormatter: (p) => formatMoic(p.value as string | null),
   },
   {
     field: 'grossIrr',
     headerName: 'Gross IRR',
     width: 110,
-    type: 'rightAligned',
-    cellClass: 'pb-num',
+    ...decimalColumn,
     cellClassRules: {
       'pb-cell-nm': (p) => p.data?.irrFlag === 'short_period' || p.data?.irrFlag === 'multiple_irr',
     },
@@ -109,6 +141,14 @@ const columns: ColDef<InvestmentSummary>[] = [
     cellRenderer: StatusCell,
   },
 ];
+
+/** "12 positions shown", or "3 of 12 positions shown" while a filter hides some of the page. */
+function shownLabel(displayed: number | null, loaded: number): string {
+  const shown = displayed ?? loaded;
+  return shown === loaded
+    ? `${plural(loaded, 'position')} shown`
+    : `${shown} of ${plural(loaded, 'position')} shown`;
+}
 
 function StatusCell(p: ICellRendererParams<InvestmentSummary, boolean>): ReactNode {
   return p.value === true ? (
@@ -124,6 +164,8 @@ export function PortfolioPage(): ReactNode {
   const [cursors, setCursors] = useState<string[]>([]);
   const [quick, setQuick] = useState('');
   const [compact, setCompact] = useState(false);
+  // Rows the grid shows after its own quick filter and column filters, from the grid itself.
+  const [displayed, setDisplayed] = useState<number | null>(null);
   const gridRef = useRef<AgGridReact<InvestmentSummary>>(null);
   const navigate = useNavigate();
   const filters = useMemo(
@@ -249,13 +291,14 @@ export function PortfolioPage(): ReactNode {
               )
                 open(e.data.id);
             }}
+            onModelUpdated={(e) => setDisplayed(e.api.getDisplayedRowCount())}
             domLayout="normal"
             animateRows={false}
             suppressCellFocus={false}
           />
         </div>
         <p className="pb-meta" data-testid="portfolio-count">
-          {page.data === undefined ? '' : `${page.data.items.length} positions shown`}
+          {page.data === undefined ? '' : shownLabel(displayed, page.data.items.length)}
         </p>
       </Card>
     </>

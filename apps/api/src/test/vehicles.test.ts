@@ -511,14 +511,26 @@ describe('vehicles, commitments and clients (M17, decision 0004)', () => {
         expect(p.grossMoic).toBeNull();
       }
 
-      // Totals sum the calculable shares and derive the MOIC from them.
+      // Totals are the sums of the shares, and not calculable while any share is not: a sum over
+      // the other vehicles would understate the client's position (rule 10).
       for (const c of ops.items) {
-        expect(c.totals.invested).toBe(sumOf(c.vehicles.map((v) => v.invested)));
-        expect(c.totals.nav).toBe(sumOf(c.vehicles.map((v) => v.nav)));
-        expect(c.totals.distributions).toBe(sumOf(c.vehicles.map((v) => v.distributions)));
-        const expectedMoic = D(c.totals.distributions!).plus(c.totals.nav!).div(c.totals.invested!);
-        expect(D(c.totals.grossMoic!).minus(expectedMoic).abs().lte('1e-9')).toBe(true);
+        for (const key of ['invested', 'nav', 'distributions'] as const) {
+          const shares = c.vehicles.map((v) => v[key]);
+          expect(c.totals[key], `${c.name} ${key}`).toBe(
+            shares.includes(null) ? null : sumOf(shares),
+          );
+        }
+        if (c.totals.invested === null || c.totals.nav === null || c.totals.distributions === null)
+          expect(c.totals.grossMoic).toBeNull();
+        else {
+          const expectedMoic = D(c.totals.distributions).plus(c.totals.nav).div(c.totals.invested);
+          expect(D(c.totals.grossMoic!).minus(expectedMoic).abs().lte('1e-9')).toBe(true);
+        }
       }
+      // The client holding the primary program has no calculable totals; one without it does.
+      expect(ops.items.some((c) => c.totals.invested === null)).toBe(
+        ops.items.some((c) => c.vehicles.some((v) => v.invested === null)),
+      );
     });
   });
 });

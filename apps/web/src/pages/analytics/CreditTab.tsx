@@ -27,6 +27,7 @@ import {
   irrDisplay,
   labelOf,
   moneyLabel,
+  plural,
 } from '../../lib/format.js';
 import { creditStatusTone } from '../../lib/labels.js';
 import { CREDIT_POSITIONS } from './constants.js';
@@ -199,7 +200,7 @@ function ValueSeries({ credit, company }: { credit: CreditBlock; company: string
       ]}
       kind="money"
       format={moneyLabel}
-      summary={`Fair value and par for ${company} over ${quarters.length} quarters; the latest fair value is ${formatMoneyM(last.fairValue)} against par of ${formatMoneyM(last.parValue)}.`}
+      summary={`Fair value and par for ${company} over ${plural(quarters.length, 'quarter')}; the latest fair value is ${formatMoneyM(last.fairValue)} against par of ${formatMoneyM(last.parValue)}.`}
     />
   );
 }

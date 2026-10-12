@@ -22,6 +22,7 @@ import {
   formatPct,
   irrDisplay,
   moneyLabel,
+  plural,
 } from '../../lib/format.js';
 import { irrFlagHint } from '../../lib/labels.js';
 import { balanceTiles } from '../../lib/tiles.js';
@@ -187,8 +188,8 @@ export function PerformanceAnalyticsTab(): ReactNode {
   return (
     <>
       <p className="pb-meta">
-        As of {formatDate(summary.asOf)}. Pooled over {t.count} positions, active and realized, that
-        you are entitled to see.
+        As of {formatDate(summary.asOf)}. Pooled over {plural(t.count, 'position')}, active and
+        realized, that you are entitled to see.
       </p>
       <div ref={balanceTiles} className="pb-tiles" data-testid="performance-tiles">
         <StatTile label="Invested" value={formatMoneyM(t.invested)} hint="Contributions to date" />

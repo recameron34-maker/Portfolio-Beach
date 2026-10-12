@@ -21,7 +21,7 @@ import {
   TabNav,
   Toolbar,
 } from '../../components/ui.js';
-import { formatDate, formatMoneyM, labelOf, MISSING } from '../../lib/format.js';
+import { formatDate, formatMoneyM, labelOf, MISSING, plural } from '../../lib/format.js';
 import { retryUnlessUnavailable } from '../../lib/unavailable.js';
 import { distinctNames, isOverCalled, unfundedCaveats, unfundedChart } from './notices.js';
 import './capital.css';
@@ -64,7 +64,7 @@ function UnfundedCard({ list }: { list: CommitmentList }): ReactNode {
             kind="money"
             valueColumn="Unfunded"
             summary={[
-              `Unfunded by sponsor fund across ${chart.bars.length} commitments; the largest is ${largest.label} at ${largest.display}.`,
+              `Unfunded by sponsor fund across ${plural(chart.bars.length, 'commitment')}; the largest is ${largest.label} at ${largest.display}.`,
               ...caveats,
             ].join(' ')}
             testId="unfunded-chart"
@@ -191,7 +191,7 @@ export function CommitmentsPage(): ReactNode {
         <StatTile
           label="Committed"
           value={formatMoneyM(t.amount)}
-          hint={`${list.items.length} commitments`}
+          hint={plural(list.items.length, 'commitment')}
         />
         <StatTile label="Called" value={formatMoneyM(t.called)} hint="Contributions to date" />
         <StatTile
@@ -210,8 +210,8 @@ export function CommitmentsPage(): ReactNode {
         <SectionHeader
           aside={
             vehicle === ''
-              ? `${rows.length} commitments`
-              : `${rows.length} of ${list.items.length} commitments`
+              ? plural(rows.length, 'commitment')
+              : `${rows.length} of ${plural(list.items.length, 'commitment')}`
           }
         >
           Commitments

@@ -134,6 +134,12 @@ describe('clients page and client look-through', () => {
     expect(within(card).getByText('Net')).toBeVisible();
     expect(card).toHaveTextContent('Quarterly reporting');
     expect(within(card).getByRole('group', { name: 'Commitment' })).toHaveTextContent('$35.0M');
+    expect(within(card).getByRole('group', { name: 'NAV share' })).toHaveTextContent(
+      '-Not calculable: no share for Beach Credit Partners',
+    );
+    expect(screen.getByTestId('clients-asof')).toHaveTextContent(
+      'cover the positions visible to you',
+    );
     const table = within(card).getByRole('table', { name: 'Client Alpha Pension vehicles' });
     const rows = within(table).getAllByRole('row');
     expect(rows[1]).toHaveTextContent('25.0%');

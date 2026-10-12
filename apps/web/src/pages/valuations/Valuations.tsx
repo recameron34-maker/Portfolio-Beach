@@ -58,7 +58,7 @@ import {
   TableWrap,
   Toolbar,
 } from '../../components/ui.js';
-import { formatDate, formatMoneyM, formatPct, labelOf, MISSING } from '../../lib/format.js';
+import { formatDate, formatMoneyM, formatPct, labelOf, MISSING, plural } from '../../lib/format.js';
 import { commandLabel, commandOptions, humanizeState, valuationTone } from '../../lib/states.js';
 import type { CommandOption } from '../../lib/states.js';
 import { retryUnlessUnavailable } from '../../lib/unavailable.js';
@@ -560,7 +560,7 @@ function Board({ page, roles }: { page: ValuationPage; roles: readonly string[] 
         <SectionHeader
           aside={
             <>
-              {`${rows.length} of ${forPeriod} versions for ${formatDate(period)}`}
+              {`${rows.length} of ${plural(forPeriod, 'version')} for ${formatDate(period)}`}
               <SimulatedBadge />
             </>
           }

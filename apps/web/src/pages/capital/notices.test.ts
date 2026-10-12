@@ -12,7 +12,6 @@ import {
   ALERT_DAYS_BEFORE_DUE,
   byDueDate,
   cashFlowTone,
-  dayCount,
   filterNotices,
   noticeAmount,
   noticeCounts,
@@ -79,8 +78,6 @@ describe('capital notice helpers', () => {
     expect(noticeAmount('2500000.00', 'USD')).toBe('$2.5M');
     expect(noticeAmount('2500000.00', 'EUR')).toBe('EUR 2.5M');
     expect(noticeAmount(null, 'EUR')).toBe('-');
-    expect(dayCount(1)).toBe('1 day');
-    expect(dayCount(3)).toBe('3 days');
   });
 
   it('orders notice types by label and maps cash flow statuses to tones', () => {

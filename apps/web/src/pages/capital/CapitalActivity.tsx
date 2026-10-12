@@ -22,11 +22,10 @@ import {
   TabNav,
   Toolbar,
 } from '../../components/ui.js';
-import { formatDate, labelOf } from '../../lib/format.js';
+import { formatDate, labelOf, plural } from '../../lib/format.js';
 import { dueLabel, dueTone, humanizeState, noticeTone } from '../../lib/states.js';
 import {
   byDueDate,
-  dayCount,
   distinctNames,
   filterNotices,
   isNoticeState,
@@ -91,7 +90,7 @@ function Tiles({ page }: { page: CapitalNoticePage }): ReactNode {
       <CountTile
         label="Due soon"
         count={c.dueSoon}
-        hint={`Due within ${dayCount(page.alertDaysBeforeDue)}, not yet funded`}
+        hint={`Due within ${plural(page.alertDaysBeforeDue, 'day')}, not yet funded`}
         tone={c.dueSoon > 0 ? 'watch' : undefined}
         partial={partial}
       />
@@ -110,13 +109,13 @@ function AttentionCard({ page }: { page: CapitalNoticePage }): ReactNode {
   const rows = byDueDate(page.attention);
   return (
     <Card testId="notice-attention">
-      <SectionHeader aside={rows.length === 0 ? undefined : `${rows.length} notices`}>
+      <SectionHeader aside={rows.length === 0 ? undefined : plural(rows.length, 'notice')}>
         Needs attention
       </SectionHeader>
       {rows.length === 0 ? (
         <EmptyState
           title="Nothing needs attention"
-          detail={`No notice is in flight or due within ${dayCount(page.alertDaysBeforeDue)} of ${formatDate(page.asOf)}.`}
+          detail={`No notice is in flight or due within ${plural(page.alertDaysBeforeDue, 'day')} of ${formatDate(page.asOf)}.`}
         />
       ) : (
         <TableWrap label="Notices needing attention">
@@ -358,7 +357,7 @@ export function CapitalActivityPage(): ReactNode {
     <>
       <PageHeader
         title="Capital activity"
-        meta={`As of ${formatDate(page.asOf)}. Alerts at ${dayCount(page.alertDaysBeforeDue)} before the due date.`}
+        meta={`As of ${formatDate(page.asOf)}. Alerts at ${plural(page.alertDaysBeforeDue, 'day')} before the due date.`}
       />
       <TabNav label="Capital activity" items={CAPITAL_TABS} />
       <Tiles page={page} />

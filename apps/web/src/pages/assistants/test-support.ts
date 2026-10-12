@@ -173,12 +173,13 @@ export const clientListFixture = (over: Partial<ClientList> = {}): ClientList =>
           grossMoic: null,
         },
       ],
+      // The credit vehicle's share is not calculable yet, so neither is any total but the commitment.
       totals: {
         commitment: '35000000.00',
-        invested: '7500000.00',
-        distributions: '1250000.00',
-        nav: '10000000.00',
-        grossMoic: '1.5',
+        invested: null,
+        distributions: null,
+        nav: null,
+        grossMoic: null,
       },
     },
   ],

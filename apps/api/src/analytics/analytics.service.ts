@@ -259,7 +259,7 @@ export function evaluateFlags(
 
   const operating = operatingView(input.operating, asOf, t.priorYearToleranceDays);
   if (operating !== null) {
-    if (operating.priorYearPeriodEnd === null) {
+    if (operating.priorYear === null) {
       flags.push({
         code: 'missing_prior_year',
         severity: 'watch',
