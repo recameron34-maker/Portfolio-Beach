@@ -17,6 +17,7 @@ const types = {
   '.js': 'text/javascript',
   '.css': 'text/css',
   '.json': 'application/json',
+  '.csv': 'text/csv',
   '.svg': 'image/svg+xml',
   '.woff2': 'font/woff2',
   '.map': 'application/json',
@@ -224,6 +225,22 @@ function routerPaths() {
 
 const firstId = (credential, path) => recorded(credential, path).json?.items[0]?.id;
 
+// Intake files exist only once the simulation stages one: the clean sample, staged here as
+// operations, gives the file route an id for every user (403 for the roles outside intake).
+const stagedForWalk = await api('ops.one', 'POST', '/api/v1/intake/accounting', {
+  exportId: 'accounting-clean.csv',
+});
+check(
+  'intake: the clean sample is staged for the route walk (201, simulated)',
+  stagedForWalk.status === 201 &&
+    stagedForWalk.simulated &&
+    stagedForWalk.json?.duplicate === false,
+  stagedForWalk.status === 201
+    ? ''
+    : `got ${stagedForWalk.status}: ${stagedForWalk.json?.detail ?? ''}`,
+);
+const walkFileId = stagedForWalk.json?.id;
+
 /** Concrete addresses for one user, ids taken from that user's own recorded lists. */
 function visitsFor(externalId, paths) {
   const positions =
@@ -251,6 +268,8 @@ function visitsFor(externalId, paths) {
       if (sponsor !== undefined) visits.push(path.replace('$id', sponsor));
     } else if (path === '/capital-activity/$id') {
       visits.push(path.replace('$id', notice));
+    } else if (path === '/data/intake/$id') {
+      if (walkFileId !== undefined) visits.push(path.replace('$id', walkFileId));
     } else {
       throw new Error(`the probe does not know how to fill ${path}`);
     }
@@ -491,6 +510,83 @@ if (recorded('ops.one', '/api/v1/capital-notices?limit=200').status !== 200) {
   );
 }
 
+// ---- Intake journey in the UI: the defects sample through operations, the wall member and a viewer
+
+check(
+  'intake: the file staged for the route walk survived it (the simulation state lives in the page)',
+  (await api('ops.one', 'GET', `/api/v1/intake/files/${walkFileId}`)).status === 200,
+);
+/** The number a tile shows, from its text ("Flagged", the figure, the hint). */
+const tileValue = async (name) =>
+  Number(
+    (await page.getByTestId('intake-tiles').getByRole('group', { name }).innerText()).match(
+      /\d+/,
+    )?.[0] ?? -1,
+  );
+async function switchTo(externalId) {
+  await page.getByTestId('role-switcher').click();
+  await page.getByRole('option', { name: new RegExp(by(externalId).displayName) }).click();
+  await page
+    .getByTestId('current-user')
+    .filter({ hasText: by(externalId).displayName })
+    .waitFor();
+}
+await signIn('ops.one');
+await page.goto(`${origin}/#/data/intake`);
+await page.getByTestId('intake-sample-defects').click();
+await page.waitForURL(/#\/data\/intake\/[0-9a-f-]{36}$/);
+const fileUrl = page.url();
+await page.getByTestId('intake-tiles').waitFor();
+check(
+  'intake: ops.one stages the defects sample; the file page counts flagged rows and exceptions',
+  (await page.getByTestId('intake-banner').innerText()).includes('accounting-defects.csv') &&
+    (await tileValue('Flagged')) > 0 &&
+    (await tileValue('Exceptions')) > 0,
+  `flagged ${await tileValue('Flagged')}, exceptions ${await tileValue('Exceptions')}`,
+);
+check(
+  'intake: ops.one is told a row is linked to a position outside the wall, never shown it',
+  (await page.getByTestId('intake-hidden-rows').innerText()).includes(
+    'linked to positions you cannot see',
+  ) && !(await page.getByTestId('intake-rows').innerText()).includes(walledName),
+);
+await page.getByRole('button', { name: 'Approve validated rows' }).click();
+await page.getByTestId('intake-action-status').filter({ hasText: 'rows promoted' }).waitFor();
+check(
+  'intake: approving promotes the validated rows (simulated)',
+  (await page.getByTestId('intake-action-status').innerText()).includes('simulated') &&
+    (await tileValue('Promoted')) > 0,
+);
+await page.getByRole('button', { name: 'Reject flagged rows' }).click();
+const dialog = page.getByRole('dialog');
+await dialog
+  .getByRole('textbox', { name: 'Reason' })
+  .fill('Names sent back to the accounting team');
+await dialog.getByRole('button', { name: 'Reject flagged rows' }).click();
+await page.getByTestId('intake-action-status').filter({ hasText: 'rows rejected' }).waitFor();
+check(
+  'intake: rejecting with a reason rejects the flagged rows ops.one sees',
+  (await tileValue('Rejected')) > 0,
+);
+// A switch lands on Home; back on the same file (a hash change, so the page and its simulation
+// state stay), the wall member sees the walled position's row and no hidden-rows note.
+await switchTo('deal.three');
+await page.goto(fileUrl);
+await page.getByTestId('intake-rows').filter({ hasText: walledName }).waitFor();
+check(
+  'intake: the wall member sees the walled position row and no hidden-rows note',
+  (await page.getByTestId('intake-hidden-rows').count()) === 0,
+);
+await switchTo('viewer.one');
+await page.goto(`${origin}/#/data/intake`);
+await page.getByTestId('intake-unavailable').waitFor();
+check(
+  'intake: a viewer is told who intake is for',
+  (await page.getByTestId('intake-unavailable').innerText()).includes(
+    'Intake is for operations and reviewers',
+  ),
+);
+
 const reset = await api('viewer.one', 'POST', '/api/v1/preview/reset');
 expectStatus(
   'reset: answers 200 (simulated)',
@@ -501,6 +597,10 @@ expectStatus(
 check(
   'reset: the simulated valuations are gone',
   staleDetail === undefined || (await versionsAt('viewer.one')).length === 0,
+);
+check(
+  'reset: the intake list is empty again',
+  (await api('ops.one', 'GET', '/api/v1/intake/files?limit=200')).json?.items?.length === 0,
 );
 check(
   'no recording misses in the whole session',

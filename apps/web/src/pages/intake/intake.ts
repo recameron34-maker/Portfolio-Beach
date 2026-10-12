@@ -51,9 +51,13 @@ export function sampleFileName(scenario: SampleScenario): string {
   return `accounting-${scenario}.csv`;
 }
 
-/** Relative to the page, so the hash-routed preview resolves it against its own folder. */
+/** Where the preview serves a bundled sample, relative to the page so the hash-routed preview resolves it against its own folder. */
+export function samplePath(fileName: string): string {
+  return `preview/samples/${fileName}`;
+}
+
 export function sampleUrl(scenario: SampleScenario): string {
-  return `preview/samples/${sampleFileName(scenario)}`;
+  return samplePath(sampleFileName(scenario));
 }
 
 /** "This file is 2.4 MB; the limit is 2 MB." or null when the file may be sent. */

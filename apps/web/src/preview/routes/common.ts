@@ -1,6 +1,7 @@
 import { ROUTES, SIMULATED_ROUTES } from '@pb/contracts';
 import type { RouteDefinition } from '@pb/contracts';
 import type { z } from 'zod';
+import type { PreviewBook } from '../book.js';
 import type { Recordings } from '../fixtures.js';
 import { problem } from '../problems.js';
 import type { PreviewEnv, PreviewState, SimActor, SimAuditEvent } from '../state.js';
@@ -8,11 +9,15 @@ import type { PreviewEnv, PreviewState, SimActor, SimAuditEvent } from '../state
 /** What a simulated route can read and change. */
 export interface SimContext {
   recordings: Recordings;
+  /** The system actor's view of the book (preview/book.json); null while a test world has none. */
+  book: PreviewBook | null;
   state: PreviewState;
   env: PreviewEnv;
+  /** The page's own fetch for a static asset beside it (a bundled sample export), never an API path. */
+  fetchAsset: (path: string) => Promise<Response>;
 }
 
-export interface SimRequest<B> {
+export interface SimRequest<B, Q = unknown> {
   credential: string;
   actor: SimActor;
   url: URL;
@@ -21,6 +26,8 @@ export interface SimRequest<B> {
   params: Readonly<Record<string, string>>;
   /** The body, already validated with the contract's zod schema. */
   body: B;
+  /** The query string, already validated with the contract's query schema (undefined when the route has none). */
+  query: Q;
 }
 
 export interface SimRoute {
@@ -33,6 +40,7 @@ export interface SimRoute {
   /** Honours Idempotency-Key (docs/17 section 3). */
   idempotent: boolean;
   bodySchema: z.ZodTypeAny | null;
+  querySchema: z.ZodTypeAny | null;
   match(pathname: string): Record<string, string> | null;
   handle(req: SimRequest<unknown>, ctx: SimContext): Promise<Response>;
 }
@@ -67,17 +75,19 @@ function matcher(template: string): (pathname: string) => Record<string, string>
 }
 
 /**
- * A simulated write. It must name a route of the contract (ROUTES or SIMULATED_ROUTES in
- * @pb/contracts) and validate with that route's own body schema, so the preview cannot accept a
- * request the API would refuse, or the other way round.
+ * A simulated route: a write, or a read of records that exist only in the simulation (the intake
+ * files). It must name a route of the contract (ROUTES or SIMULATED_ROUTES in @pb/contracts) and
+ * validate with that route's own body and query schemas, so the preview cannot accept a request
+ * the API would refuse, or the other way round.
  */
-export function defineSimRoute<B>(spec: {
-  method: 'POST' | 'PATCH';
+export function defineSimRoute<B, Q = undefined>(spec: {
+  method: 'GET' | 'POST' | 'PATCH';
   path: string;
   what: string;
   body: z.ZodType<B> | null;
+  query?: z.ZodType<Q>;
   idempotent?: boolean;
-  handle: (req: SimRequest<B>, ctx: SimContext) => Promise<Response> | Response;
+  handle: (req: SimRequest<B, Q>, ctx: SimContext) => Promise<Response> | Response;
 }): SimRoute {
   const definition = CONTRACT.find((r) => r.method === spec.method && r.path === spec.path);
   if (definition === undefined)
@@ -86,6 +96,10 @@ export function defineSimRoute<B>(spec: {
     throw new Error(
       `simulated route ${spec.method} ${spec.path} must validate with its contract body`,
     );
+  if ((definition.query ?? null) !== (spec.query ?? null))
+    throw new Error(
+      `simulated route ${spec.method} ${spec.path} must validate with its contract query`,
+    );
   return {
     method: spec.method,
     path: spec.path,
@@ -93,9 +107,10 @@ export function defineSimRoute<B>(spec: {
     what: spec.what,
     idempotent: spec.idempotent ?? false,
     bodySchema: spec.body,
+    querySchema: spec.query ?? null,
     match: matcher(spec.path),
-    // The dispatcher validated the body with `bodySchema`, which is the schema typed as B.
-    handle: async (req, ctx) => spec.handle(req as SimRequest<B>, ctx),
+    // The dispatcher validated the body and query with the schemas above, which are typed as B and Q.
+    handle: async (req, ctx) => spec.handle(req as SimRequest<B, Q>, ctx),
   };
 }
 

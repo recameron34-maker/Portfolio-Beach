@@ -1,5 +1,12 @@
 import { capitalNoticePage, valuationPage } from '@pb/contracts';
-import type { CapitalNoticeRow, ValuationRow } from '@pb/contracts';
+import type {
+  CapitalNoticeRow,
+  IntakeFinding,
+  IntakeLink,
+  IntakeRow,
+  StagingState,
+  ValuationRow,
+} from '@pb/contracts';
 import { LIST_LIMIT } from '../app/queries.js';
 import type { PreviewUser, Recordings } from './fixtures.js';
 
@@ -39,6 +46,47 @@ export interface SimNotice {
   ticketPreparedBy: string | null;
 }
 
+/**
+ * One staged row of a simulated import: what stg.intake_row holds in the API (the row as the
+ * file said it, how the system actor linked it, its diff and findings) plus its decision.
+ */
+export interface SimIntakeRow {
+  id: string;
+  rowNo: number;
+  naturalKey: string;
+  /** The approved quarter the row would replace, or the one its promotion created; null for a new quarter not yet promoted. */
+  targetId: string | null;
+  status: StagingState;
+  decision: string | null;
+  decidedBy: string | null;
+  promotedAt: string | null;
+  investmentNumber: string | null;
+  companyName: string | null;
+  periodEnd: string | null;
+  /** The calendar quarter end the row reports for (alignedQuarterEnd), when the period end is a real date. */
+  quarterEnd: string | null;
+  figures: IntakeRow['figures'];
+  /** As the system actor linked it, every candidate included; the detail filters them per credential. */
+  link: IntakeLink;
+  diff: IntakeRow['diff'];
+  findings: IntakeFinding[];
+}
+
+/** A simulated intake file: the header stg.intake_file holds, with every staged row. */
+export interface SimIntakeFile {
+  id: string;
+  fileName: string;
+  contentHash: string;
+  receivedAt: string;
+  receivedBy: string;
+  rowCount: number;
+  fileFindings: IntakeFinding[];
+  /** Data exceptions the import opened: one per unresolved link, one per fair value that does not tie. */
+  exceptions: number;
+  rowVersion: number;
+  rows: SimIntakeRow[];
+}
+
 /** One simulated change, kept for this page session only; never shown as the audit trail. */
 export interface SimAuditEvent {
   at: string;
@@ -46,11 +94,13 @@ export interface SimAuditEvent {
   actorExternalId: string;
   actorName: string;
   action: string;
-  entity: 'valuation' | 'capital_notice' | 'feature_flag';
+  entity: 'valuation' | 'capital_notice' | 'feature_flag' | 'intake_file' | 'quarterly_performance';
   entityId: string;
   reason: string | null;
   from: string | null;
   to: string | null;
+  /** Counts only, never row content (the intake events). */
+  details?: Readonly<Record<string, number>> | undefined;
 }
 
 /** A successful answer kept for an Idempotency-Key (docs/17 section 3). */
@@ -67,6 +117,8 @@ export interface PreviewState {
   /** Seeded lazily from the recordings on the first simulated write; null until then. */
   valuations: Map<string, SimValuation> | null;
   notices: Map<string, SimNotice> | null;
+  /** Files the simulated intake staged this session, by id; none exist until an import. */
+  intakeFiles: Map<string, SimIntakeFile>;
   audit: SimAuditEvent[];
   idempotency: Map<string, StoredResponse>;
 }
@@ -101,6 +153,7 @@ export function createPreviewState(): PreviewState {
     flags: new Map(),
     valuations: null,
     notices: null,
+    intakeFiles: new Map(),
     audit: [],
     idempotency: new Map(),
   };
@@ -111,6 +164,7 @@ export function resetPreviewState(state: PreviewState): void {
   state.flags.clear();
   state.valuations = null;
   state.notices = null;
+  state.intakeFiles.clear();
   state.audit.length = 0;
   state.idempotency.clear();
 }

@@ -125,15 +125,8 @@ export function buildPlan(dataset, { dealTypes }) {
           withQuery('/api/v1/capital-notices', { limit: LIST_LIMIT }),
         ],
       },
-      {
-        // The API's own guard decides 200 or 403 per credential; a staged file's detail is not
-        // recorded, since files exist only once the simulation stages one.
-        name: 'intake',
-        paths: [
-          withQuery('/api/v1/intake/files', { limit: LIST_LIMIT }),
-          '/api/v1/intake/accounting/exports',
-        ],
-      },
+      // Intake is not recorded: its files exist only once the simulation stages one, so the shim
+      // answers all five intake routes itself (src/preview/routes/intake.ts) over preview/book.json.
       { name: 'investment lists', paths: investmentLists },
       {
         name: 'investment detail',

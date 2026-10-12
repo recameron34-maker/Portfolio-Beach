@@ -3,11 +3,11 @@
 // the app in preview mode with relative asset paths. Output: dist-preview/ (index.html for local
 // serving, artifact.html fragment for publishing).
 import { createHash } from 'node:crypto';
-import { mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
-import { join, resolve } from 'node:path';
+import { join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { generateDataset } from '@pb/synthetic';
+import { accountingExports, generateDataset, previewBook } from '@pb/synthetic';
 import { createDb, loadSyntheticDataset, migrate } from '@pb/db';
 import { FixedClock } from '@pb/adapters';
 import { buildRuntime } from '../../api/dist/composition.js';
@@ -34,6 +34,34 @@ const started = Date.now();
 
 const dataset = generateDataset({ profile: 'small', seed: 42 });
 writeFileSync(join(scratch, 'dataset.json'), JSON.stringify(dataset));
+
+// The simulated intake's inputs (src/preview/routes/intake.ts): the three sample exports under the
+// names the intake page requests, and the book as the system actor sees it (decision 0009), both
+// straight from the generated dataset. The shim loads the book next to the recordings.
+const book = previewBook(dataset);
+const samplesDir = join(out, 'preview', 'samples');
+mkdirSync(samplesDir, { recursive: true });
+const sampleFiles = [];
+for (const [i, sample] of accountingExports(dataset).entries()) {
+  const name = book.samples[i]?.fileName;
+  if (name === undefined) throw new Error('the book names fewer samples than the generator made');
+  writeFileSync(join(samplesDir, name), sample.csv);
+  sampleFiles.push(
+    `${name} (${Buffer.byteLength(sample.csv)} bytes, ${sample.expectations.rows} rows)`,
+  );
+}
+const bookJson = JSON.stringify(book);
+const bookBytes = Buffer.byteLength(bookJson);
+writeFileSync(join(out, 'preview', 'book.json'), bookJson);
+process.stdout.write(
+  `preview: book.json ${bookBytes} bytes (${book.investments.length} investments); samples: ${sampleFiles.join(', ')}\n`,
+);
+if (bookBytes > MAX_FIXTURE_BYTES) {
+  process.stderr.write(
+    `preview: book.json is ${bookBytes} bytes, over the ${MAX_FIXTURE_BYTES} byte budget\n`,
+  );
+  process.exit(1);
+}
 const db = await createDb({ kind: 'pglite' });
 await migrate(db);
 await loadSyntheticDataset(db, dataset);
@@ -224,6 +252,29 @@ process.stdout.write(
     : 'preview: production build checked: no simulation code; it carries the workflow transition tables because app code imports them\n',
 );
 rmSync(production, { recursive: true, force: true });
+
+// What a publisher maps beside artifact.html, by path: every built asset and preview data file
+// (the recordings, the book, the samples), so nothing the page requests is left behind.
+function filesUnder(dir) {
+  const files = [];
+  for (const entry of readdirSync(dir)) {
+    const path = join(dir, entry);
+    if (statSync(path).isDirectory()) files.push(...filesUnder(path));
+    else files.push(relative(out, path).split('\\').join('/'));
+  }
+  return files;
+}
+const notPublished = new Set(['index.html', 'artifact.html', 'publish.json']);
+const published = filesUnder(out)
+  .filter((f) => !notPublished.has(f) && !f.startsWith('.scratch/'))
+  .sort();
+writeFileSync(
+  join(out, 'publish.json'),
+  `${JSON.stringify({ page: 'artifact.html', files: published }, null, 2)}\n`,
+);
+process.stdout.write(
+  `preview: publish.json lists ${published.length} files to map beside artifact.html\n`,
+);
 
 // The bundle is build output that git never sees, so the employer-data guard scans it here.
 const guard = spawnSync('bash', ['scripts/check-employer-data.sh', '--paths', resolve(out)], {

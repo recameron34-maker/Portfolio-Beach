@@ -7,8 +7,51 @@ import type {
   ValuationPage,
   ValuationRow,
 } from '@pb/contracts';
+import { problemDetails } from '@pb/contracts';
 import type { PreviewFixtures, PreviewUser } from './fixtures.js';
 import { getKey } from './keys.js';
+
+export interface Answer {
+  status: number;
+  json: unknown;
+  text: string;
+  headers: Headers;
+}
+
+/** One request through the shim, the way src/api/client.ts sends it. */
+export async function send(
+  f: typeof fetch,
+  credential: string,
+  method: string,
+  path: string,
+  body?: unknown,
+  extra: Record<string, string> = {},
+): Promise<Answer> {
+  const headers: Record<string, string> = {
+    accept: 'application/json',
+    authorization: `Bearer ${credential}`,
+    ...extra,
+  };
+  if (body !== undefined) headers['content-type'] = 'application/json';
+  const res = await f(path, {
+    method,
+    headers,
+    ...(body === undefined ? {} : { body: typeof body === 'string' ? body : JSON.stringify(body) }),
+  });
+  const text = await res.text();
+  return {
+    status: res.status,
+    json: text === '' ? null : JSON.parse(text),
+    text,
+    headers: res.headers,
+  };
+}
+
+/** The problem code (the last segment of its type) and detail of a refused answer. */
+export function problemOf(answer: Answer): { code: string; detail: string } {
+  const p = problemDetails.parse(answer.json);
+  return { code: p.type.split('/').pop() ?? '', detail: p.detail ?? '' };
+}
 
 /**
  * Contract-shaped fixtures for the preview unit tests: a small synthetic world with a walled

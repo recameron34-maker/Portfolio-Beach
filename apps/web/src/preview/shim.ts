@@ -1,13 +1,16 @@
 /**
  * Preview mode: the built app runs against responses recorded from the real API over the small
  * synthetic dataset, so a static page can show every screen without a server. Only requests to
- * /api and /health are intercepted; everything else (assets, the recordings file) goes to the
- * network.
+ * /api and /health are intercepted; everything else (assets, the recordings file, the book and
+ * the sample exports) goes to the network.
  *
- * Order for each request: the credential check (401), the simulated write routes (routes/), the
- * recorded response with this session's simulated changes laid over it (overlay.ts), and finally
- * a 404 problem for anything the recordings do not cover, which is also logged for the probe.
+ * Order for each request: the credential check (401), the simulated routes (routes/: the writes
+ * and the intake reads), the recorded response with this session's simulated changes laid over it
+ * (overlay.ts), and finally a 404 problem for anything the recordings do not cover, which is also
+ * logged for the probe.
  */
+import { parseBook } from './book.js';
+import type { PreviewBook } from './book.js';
 import { Recordings, parseFixtures } from './fixtures.js';
 import type { PreviewFixtures } from './fixtures.js';
 import { isApiPath, isPublicPath, normalizeKey } from './keys.js';
@@ -27,6 +30,8 @@ export interface PreviewFetchOptions {
   env?: Partial<PreviewEnv>;
   /** The session state; tests pass one to inspect it. A fresh one by default. */
   state?: PreviewState;
+  /** The system actor's view of the book (preview/book.json), which the intake routes check an import against. */
+  book?: PreviewBook;
 }
 
 function requestUrl(input: RequestInfo | URL): URL {
@@ -41,8 +46,12 @@ export function createPreviewFetch(
 ): typeof fetch {
   const ctx: SimContext = {
     recordings: new Recordings(fixtures),
+    book: options.book ?? null,
     state: options.state ?? createPreviewState(),
     env: { ...defaultEnv, ...options.env },
+    // A static asset beside the page (a bundled sample export) comes from the network, as every
+    // non-API request does.
+    fetchAsset: (path) => realFetch(path),
   };
   const known = new Set(fixtures.users.filter((u) => u.roles.length > 0).map((u) => u.externalId));
 
@@ -114,13 +123,23 @@ export function createPreviewFetch(
   };
 }
 
-/** Loads the recorded fixtures and installs the fetch shim. Called only in preview builds. */
-export async function installPreviewShim(fixturesUrl: string): Promise<PreviewFixtures> {
+async function loadJson(realFetch: typeof fetch, url: string, what: string): Promise<unknown> {
+  const response = await realFetch(url);
+  if (!response.ok) throw new Error(`${what} not found at ${url}`);
+  return response.json();
+}
+
+/** Loads the recorded fixtures and the book, then installs the fetch shim. Called only in preview builds. */
+export async function installPreviewShim(
+  fixturesUrl: string,
+  bookUrl: string,
+): Promise<PreviewFixtures> {
   const realFetch = window.fetch.bind(window);
-  const response = await realFetch(fixturesUrl);
-  if (!response.ok) throw new Error(`preview fixtures not found at ${fixturesUrl}`);
-  const fixtures = parseFixtures(await response.json());
+  const [fixtures, book] = await Promise.all([
+    loadJson(realFetch, fixturesUrl, 'preview fixtures').then(parseFixtures),
+    loadJson(realFetch, bookUrl, 'preview book').then(parseBook),
+  ]);
   window.__pbPreviewMisses ??= [];
-  window.fetch = createPreviewFetch(fixtures, realFetch);
+  window.fetch = createPreviewFetch(fixtures, realFetch, { book });
   return fixtures;
 }
