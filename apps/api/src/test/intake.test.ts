@@ -179,20 +179,28 @@ describe('accounting intake (M2, SEC-9.1): staging, validation, approval, then p
     expect(cleanFile.rowCount).toBe(clean.expectations.rows);
     // The importer is outside the wall: the walled position's row links all the same (never a
     // "no match") and is left out of their view and counted (decision 0009, SEC-5.3).
-    expect(cleanFile.hiddenRows).toBe(1);
-    expect(cleanFile.rows.length).toBe(clean.expectations.rows - 1);
+    expect(cleanFile.hiddenRows).toBe(clean.expectations.walled.length);
+    expect(cleanFile.rows.length).toBe(clean.expectations.rows - clean.expectations.walled.length);
     expect(cleanFile.fileFindings).toEqual([]);
     const everyRow = (await fullView(cleanFile.id)).rows;
     expect(everyRow.length).toBe(clean.expectations.rows);
+    // The sponsor that closes a few days early is in the file at its own period end, and its
+    // row finds its quarter by the same tolerance (docs/08): unchanged, with its target set.
+    const shifted = everyRow.filter((r) => r.periodEnd !== periodEnd());
+    expect(shifted.length).toBe(1);
     for (const row of everyRow) {
       expect(row.link.status, `row ${row.rowNo}`).toBe('matched');
       expect(row.link.investmentNumber).toBe(row.investmentNumber);
       expect(row.link.investmentId).toBe(investmentByNumber(row.investmentNumber!).id);
       expect(row.link.candidates).toEqual([]);
       expect(row.diff).toEqual({ kind: 'unchanged', changes: [] });
-      expect(row.targetId).toBe(seededQuarter(row.link.investmentId!, periodEnd()).id);
+      expect(row.targetId).toBe(seededQuarter(row.link.investmentId!, row.periodEnd!).id);
       expect(row.status).toBe('validated');
       expect(hasError(row), `row ${row.rowNo}`).toBe(false);
+      expect(
+        row.findings.map((f) => f.ruleId),
+        `row ${row.rowNo}`,
+      ).not.toContain('TIE-03');
       expect(row.naturalKey).toBe(`${row.investmentNumber}|${row.periodEnd}`);
       expect(row.decision).toBeNull();
       expect(row.promotedAt).toBeNull();
@@ -577,8 +585,12 @@ describe('accounting intake (M2, SEC-9.1): staging, validation, approval, then p
       everyRow.filter((r) => r.status === 'validated').length - validated.length;
     const hiddenFlagged = everyRow.filter((r) => r.status === 'flagged').length - flagged.length;
     expect(current.hiddenRows).toBe(hiddenValidated + hiddenFlagged);
-    expect(hiddenValidated).toBe(1);
-    expect(hiddenFlagged).toBe(1);
+    // The generator reports the walled position's rows; the before-entry defect is one of them.
+    const walledFlagged = defects.expectations.walled.filter((n) =>
+      defects.expectations.flagged.some((f) => f.rowNo === n),
+    ).length;
+    expect(hiddenFlagged).toBe(walledFlagged);
+    expect(hiddenValidated).toBe(defects.expectations.walled.length - walledFlagged);
     // A flagged row cannot be approved, nor a row of another file.
     for (const rowIds of [
       [flagged[0]!.id],
@@ -618,6 +630,22 @@ describe('accounting intake (M2, SEC-9.1): staging, validation, approval, then p
     expect(rest.counts.flagged).toBe(flagged.length + hiddenFlagged);
     expect(rest.status).toBe('flagged');
     for (const f of flagged) expect(rowNo(rest, f.rowNo).status).toBe('flagged');
+    // A period end that is not a quarter end within the tolerance is flagged (TYPE-03, an error),
+    // so a bulk approve never writes a quarter dated mid-month beside the real one.
+    const offQuarter = defects.expectations.flagged.find((f) => f.ruleId === 'TYPE-03')!;
+    const offRow = rowNo(rest, offQuarter.rowNo);
+    expect(offRow.status).toBe('flagged');
+    expect(offRow.periodEnd).not.toBe(containingQuarterEnd(offRow.periodEnd!));
+    const quarterEnd = containingQuarterEnd(offRow.periodEnd!);
+    const inQuarter = await h.runtime.db.query<{
+      period_end: string;
+      source_locator: string | null;
+    }>(
+      'select period_end::text as period_end, source_locator from mon.quarterly_performance where investment_id = $1 and period_end > $2 and period_end <= $3 order by period_end',
+      [offRow.link.investmentId, containingQuarterEnd(addMonths(quarterEnd, -3)), quarterEnd],
+    );
+    expect(inQuarter, JSON.stringify(inQuarter)).toHaveLength(1);
+    expect(inQuarter[0]!.period_end).toBe(quarterEnd);
   });
 
   it('rejects flagged rows with a reason the machine requires; the deal team may not reject', async () => {
@@ -868,6 +896,7 @@ describe('accounting intake (M2, SEC-9.1): staging, validation, approval, then p
     expect(row.link.status).toBe('unmatched');
     expect(row.link.candidates).toEqual([]);
     expect(row.findings.map((f) => f.ruleId)).toContain('XREF-01');
+    expect(row.findings.find((f) => f.ruleId === 'XREF-01')!.message).not.toMatch(/near miss/i);
     expect(JSON.stringify(staged)).not.toContain(walledCompanyName());
     expect(JSON.stringify(staged)).not.toContain(inv.investmentNumber);
     // A wall member sees the candidate the linker found, and nobody saw it linked: never a near miss.
@@ -879,6 +908,8 @@ describe('accounting intake (M2, SEC-9.1): staging, validation, approval, then p
         reason: 'near miss',
       },
     ]);
+    // The findings are the same text for the wall and for everyone else: only the candidates differ.
+    expect(member.rows[0]!.findings).toEqual(row.findings);
     // The exception every authenticated user may read carries the candidate's reason only: neither
     // the walled position's number nor its name, nor a figure of the row.
     const [exception] = await h.runtime.db.query<{
@@ -898,6 +929,52 @@ describe('accounting intake (M2, SEC-9.1): staging, validation, approval, then p
       expect(JSON.stringify(exception)).not.toContain(cells[table.header.indexOf(column)]!);
   });
 
+  it('never names a walled position in a match guard finding: the guarded row reads the same for everyone', async () => {
+    // A guard pair between the walled company's name and a confusable variant (owner SQL, as
+    // operations would add it through the match guard list).
+    // A variant that neither contains the walled name (the file's own text must not) nor normalizes
+    // to it, nor sits within a near miss of it: only the guard list ties the two.
+    const variant = `Twin ${walledCompanyName().split(' ').slice(1).join(' ')}`;
+    await h.runtime.db.query(
+      'insert into core.match_guard (name_a, name_b, reason) values ($1, $2, $3)',
+      [walledCompanyName(), variant, 'Confusable with a position on record'],
+    );
+    const table = parseCsv(clean.csv);
+    const inv = h.dataset.investments.find((i) => i.id === walledId())!;
+    const line = table.rows.find(
+      (r) => r[table.header.indexOf('InvestmentNumber')] === inv.investmentNumber,
+    )!;
+    const cells = [...line];
+    cells[table.header.indexOf('InvestmentNumber')] = '';
+    cells[table.header.indexOf('CompanyName')] = variant;
+    const staged = intakeImportResult.parse(
+      (
+        await importAs('operations', {
+          fileName: 'guarded-walled.csv',
+          csv: `${table.header.join(',')}\n${cells.join(',')}\n`,
+        }).expect(201)
+      ).body,
+    );
+    expect(staged.rows, JSON.stringify(staged)).toHaveLength(1);
+    const row = staged.rows[0]!;
+    expect(row.link.status).toBe('guarded');
+    expect(row.status).toBe('flagged');
+    expect(row.link.candidates).toEqual([]);
+    const guard = row.findings.find((f) => f.ruleId === 'XREF-02')!;
+    expect(guard.message).not.toContain(walledCompanyName());
+    expect(JSON.stringify(staged)).not.toContain(walledCompanyName());
+    expect(JSON.stringify(staged)).not.toContain(inv.investmentNumber);
+    const member = await detail('deal.three', staged.id);
+    expect(member.rows[0]!.link.candidates).toEqual([
+      {
+        investmentNumber: inv.investmentNumber,
+        companyName: walledCompanyName(),
+        reason: 'match guard',
+      },
+    ]);
+    expect(member.rows[0]!.findings).toEqual(row.findings);
+  });
+
   /* ---- Promotion safety (decision 0009): the record is read again when a row is promoted ---- */
 
   /** A one-row export in the layout's columns, cells by column name; a cell not named is blank. */
@@ -913,14 +990,22 @@ describe('accounting intake (M2, SEC-9.1): staging, validation, approval, then p
     )!;
     return Object.fromEntries(table.header.map((c, i) => [c, line[i] ?? '']));
   };
-  /** The clean export's positions that are neither walled nor restated, in file order. */
+  /** The clean export's positions that are neither walled, restated nor shifted off the quarter end, in file order. */
   const plainNumbers = (): string[] => {
     const table = parseCsv(clean.csv);
     const column = table.header.indexOf('InvestmentNumber');
+    const period = table.header.indexOf('PeriodEnd');
     const walledNumber = h.dataset.investments.find((i) => i.id === walledId())!.investmentNumber;
     return table.rows
+      .filter((r) => r[period] === periodEnd())
       .map((r) => r[column]!)
       .filter((n) => n !== walledNumber && n !== update.expectations.changed[0]);
+  };
+  /** The data line (1-based) of the export that carries the investment number. */
+  const lineNo = (file: AccountingExport, investmentNumber: string): number => {
+    const table = parseCsv(file.csv);
+    const column = table.header.indexOf('InvestmentNumber');
+    return table.rows.findIndex((r) => r[column] === investmentNumber) + 1;
   };
   const stageOne = async (fileName: string, cells: Record<string, string>): Promise<IntakeRow> => {
     const staged = intakeImportResult.parse(
@@ -943,7 +1028,7 @@ describe('accounting intake (M2, SEC-9.1): staging, validation, approval, then p
 
   it('ties the fair value to the Locked mark a few days off the quarter end: TIE-01 flags the row and opens one exception with no values', async () => {
     // The period_end_shift position reports three days before each quarter end, and so do its
-    // Locked marks; the sample exports never carry it, since its quarter is not at the quarter end.
+    // Locked marks; the sample exports carry it at that period end.
     const shiftedId = h.dataset.scenarios.period_end_shift![0]!;
     const inv = h.dataset.investments.find((i) => i.id === shiftedId)!;
     const company = h.dataset.portfolioCompanies.find((c) => c.id === inv.portfolioCompanyId)!;
@@ -957,7 +1042,7 @@ describe('accounting intake (M2, SEC-9.1): staging, validation, approval, then p
       .sort((a, b) => a.periodEnd.localeCompare(b.periodEnd));
     const quarter = quarters[quarters.length - 1]!;
     expect(quarter.periodEnd).not.toBe(periodEnd());
-    expect(clean.csv).not.toContain(inv.investmentNumber);
+    expect(cellOf(clean, lineNo(clean, inv.investmentNumber), 'PeriodEnd')).toBe(quarter.periodEnd);
     const mark = h.dataset.valuations
       .filter(
         (v) =>

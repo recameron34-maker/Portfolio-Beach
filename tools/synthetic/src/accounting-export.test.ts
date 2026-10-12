@@ -152,7 +152,7 @@ describe('the synthetic accounting export (docs/14, docs/04 M2)', () => {
     expect(new Set(inPlace).size).toBe(inPlace.length);
   });
 
-  it.each([42, 7])(
+  it.each([42, 7, 14])(
     'builds the before-entry defect from the walled position and reports its rows (seed %i)',
     (seed) => {
       const dataset = seed === 42 ? small : generateDataset({ profile: 'small', seed });
@@ -166,8 +166,13 @@ describe('the synthetic accounting export (docs/14, docs/04 M2)', () => {
 
       const defects = accountingExport(dataset, { scenario: 'defects' });
       const body = lines(defects.csv).slice(1);
-      expect(defects.expectations.walled).toHaveLength(2);
-      const [quarterRow = 0, defectRow = 0] = defects.expectations.walled;
+      // Every row of the walled position is reported: its quarter, the before-entry defect, and
+      // the supplied quarter when it is also the position with the missing prior year (seed 14).
+      expect(defects.expectations.walled.length).toBeGreaterThanOrEqual(2);
+      const quarterRow = defects.expectations.walled[0] ?? 0;
+      const defectRow =
+        defects.expectations.flagged.find((f) => f.ruleId === 'PERIOD-01')?.rowNo ?? 0;
+      expect(defects.expectations.walled).toContain(defectRow);
       expect(numberOf(body[quarterRow - 1] ?? '')).toBe(walled.investmentNumber);
       expect(numberOf(body[defectRow - 1] ?? '')).toBe(walled.investmentNumber);
       expect(defects.expectations.flagged).toContainEqual({
@@ -178,7 +183,11 @@ describe('the synthetic accounting export (docs/14, docs/04 M2)', () => {
       expect(periodOf(body[defectRow - 1] ?? '') < walled.entryDate).toBe(true);
       expect(alignedQuarterEnd(periodOf(body[quarterRow - 1] ?? ''), tolerance)).toBe('2025-06-30');
       expect(defects.expectations.flagged.map((f) => f.rowNo)).not.toContain(quarterRow);
-      expect(body.filter((r) => numberOf(r) === walled.investmentNumber)).toHaveLength(2);
+      expect(body.filter((r) => numberOf(r) === walled.investmentNumber)).toHaveLength(
+        defects.expectations.walled.length,
+      );
+      for (const n of defects.expectations.walled)
+        expect(numberOf(body[n - 1] ?? '')).toBe(walled.investmentNumber);
       expect(defects.expectations.changed).not.toContain(walled.investmentNumber);
     },
   );

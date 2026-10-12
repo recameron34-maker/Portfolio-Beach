@@ -38,7 +38,8 @@ export interface AccountingExportExpectations {
   /** Rows the import must flag, by the rule a reviewer sees first. */
   flagged: { rowNo: number; ruleId: string }[];
   /**
-   * The row numbers of the walled position's rows (walled_deal): its quarter and, in defects, the
+   * The row numbers of every row of the walled position (walled_deal): its quarter, the supplied
+   * quarter when it is also the position with the missing prior year, and, in defects, the
    * before-entry defect built from it. A reader outside the wall never sees them.
    */
   walled: number[];
@@ -141,6 +142,8 @@ export function accountingExport(
     );
     if (quarter !== undefined) lines.push(lineFor(inv, quarter));
   }
+  // The position lines end here; the defect rows appended below are never picked as a defect's base.
+  const positions = lines.length;
   const expectations: AccountingExportExpectations = {
     rows: 0,
     changed: [],
@@ -192,6 +195,8 @@ export function accountingExport(
           fairValue: '',
         });
         expectations.added.push(missing.investmentNumber);
+        // When the walled position is the one with the missing quarter, this row is its too.
+        if (missing.id === walled?.id) expectations.walled.push(lines.length);
       }
     }
   }
@@ -231,7 +236,7 @@ export function accountingExport(
     const taken = new Set<number>([walledIndex]);
     const pick = (from: number, fits: (l: Line) => boolean = () => true): number => {
       const index = lines.findIndex(
-        (l, i) => i >= from && !taken.has(i) && onQuarter(l) && fits(l),
+        (l, i) => i >= from && i < positions && !taken.has(i) && onQuarter(l) && fits(l),
       );
       if (index >= 0) taken.add(index);
       return index;

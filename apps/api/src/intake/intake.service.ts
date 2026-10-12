@@ -158,9 +158,6 @@ const row = schema.intakeRow;
 const quarter = schema.quarterlyPerformance;
 const receiver = alias(schema.appUser, 'receiver');
 const reviewer = alias(schema.appUser, 'reviewer');
-const OUTER_FILE_ID = sql.raw('"stg"."intake_file"."id"');
-/** Data exceptions the import opened for the file in the outer select; RLS applies inside as everywhere. */
-const exceptionCount = sql<number>`(select count(*)::int from ops.data_exception x where x.source = ${EXCEPTION_SOURCE} and x.entity = 'stg.intake_row' and x.entity_id in (select r.id from stg.intake_row r where r.intake_file_id = ${OUTER_FILE_ID}))`;
 
 /** The cursor is "receivedAt|id" of the last file: the receipt time to the microsecond and the file id. */
 const CURSOR =
@@ -305,6 +302,15 @@ export class IntakeService {
         ),
         staleQuarters: configInteger(read('staleQuarters'), 'intake.staleQuarters'),
         evToEbitdaMax: digits(configDecimal(read('evToEbitdaMax'), 'intake.evToEbitdaMax')),
+        ebitdaMarginAbsMax: digits(
+          configDecimal(read('ebitdaMarginAbsMax'), 'intake.ebitdaMarginAbsMax'),
+        ),
+        figureScale: configInteger(read('figureScale'), 'intake.figureScale'),
+        figureIntegerDigits: configInteger(
+          read('figureIntegerDigits'),
+          'intake.figureIntegerDigits',
+        ),
+        minPeriodYear: configInteger(read('minPeriodYear'), 'intake.minPeriodYear'),
         periodEndToleranceDays: toleranceDays,
       },
     };
@@ -492,7 +498,8 @@ export class IntakeService {
           : lockedNear(marks.get(investmentId) ?? [], quarterEnd, tolerance);
       const findings = runRules(ACCOUNTING_RULES, {
         row: r,
-        file: rows,
+        // DUP rules key on each row's link and aligned quarter, so the file travels with its links.
+        file: rows.map((other, j) => ({ row: other, link: links[j] ?? NO_LINK })),
         link,
         current: {
           quarters: onRecord,
@@ -703,13 +710,14 @@ export class IntakeService {
         .orderBy(desc(file.receivedAt), desc(file.id))
         .limit(opts.limit + 1);
       const page = rows.slice(0, opts.limit);
-      const counts = await this.countsByFile(
-        tx,
-        page.map((r) => r.id),
-      );
+      const ids = page.map((r) => r.id);
+      const counts = await this.countsByFile(tx, ids);
+      const exceptions = await this.exceptionsByFile(tx, ids);
       const last = page[page.length - 1];
       return {
-        items: page.map((r) => this.toFile(r, counts.get(r.id) ?? emptyCounts())),
+        items: page.map((r) =>
+          this.toFile(r, counts.get(r.id) ?? emptyCounts(), exceptions.get(r.id) ?? 0),
+        ),
         nextCursor:
           rows.length > opts.limit && last !== undefined
             ? encodeCursor([last.exactAt, last.id])
@@ -1038,9 +1046,34 @@ export class IntakeService {
       rowCount: file.rowCount,
       status: file.status,
       findings: file.findings,
-      exceptions: exceptionCount,
       rowVersion: file.rowVersion,
     };
+  }
+
+  /**
+   * Data exceptions the import opened per file, counted as the system actor like the status counts,
+   * so the header reads the same for every reviewer: a row past the reader's wall is hidden from
+   * them, not from the count (Data Health counts the same exceptions for everyone).
+   */
+  private async exceptionsByFile(tx: Tx, fileIds: readonly string[]): Promise<Map<string, number>> {
+    const out = new Map<string, number>();
+    if (fileIds.length === 0) return out;
+    const rows = await asSystemActor(tx, async (stx) =>
+      stx
+        .select({ fileId: row.intakeFileId, n: sql<number>`count(*)::int` })
+        .from(schema.dataException)
+        .innerJoin(row, eq(row.id, schema.dataException.entityId))
+        .where(
+          and(
+            eq(schema.dataException.source, EXCEPTION_SOURCE),
+            eq(schema.dataException.entity, 'stg.intake_row'),
+            inArray(row.intakeFileId, [...fileIds]),
+          ),
+        )
+        .groupBy(row.intakeFileId),
+    );
+    for (const r of rows) out.set(r.fileId, r.n);
+    return out;
   }
 
   private toFile(
@@ -1053,10 +1086,10 @@ export class IntakeService {
       rowCount: number;
       status: StagingState;
       findings: unknown;
-      exceptions: number;
       rowVersion: number;
     },
     counts: IntakeCounts,
+    exceptions: number,
   ): IntakeFile {
     return {
       id: r.id,
@@ -1069,7 +1102,7 @@ export class IntakeService {
       status: r.status,
       counts,
       fileFindings: findingList.parse(r.findings),
-      exceptions: r.exceptions,
+      exceptions,
       rowVersion: r.rowVersion,
     };
   }
@@ -1090,6 +1123,7 @@ export class IntakeService {
     const header = found[0];
     if (header === undefined) return null;
     const counts = (await this.countsByFile(tx, [fileId])).get(fileId) ?? emptyCounts();
+    const exceptions = (await this.exceptionsByFile(tx, [fileId])).get(fileId) ?? 0;
     const total = Object.values(counts).reduce((a, b) => a + b, 0);
     const stored = await tx
       .select({
@@ -1150,7 +1184,7 @@ export class IntakeService {
     );
     return {
       detail: {
-        ...this.toFile(header, counts),
+        ...this.toFile(header, counts, exceptions),
         rows: visible.map((r) => this.toRow(r, visibleNumbers)),
         hiddenRows: total - visible.length,
       },
