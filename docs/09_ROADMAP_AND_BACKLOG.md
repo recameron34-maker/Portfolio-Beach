@@ -19,7 +19,7 @@ Synthetic data and mock adapters throughout. Every phase ends with: all CI gates
 
 ## Phase 1: Data foundation and intake (M1, M2)
 - [ ] Entities, linking, aliases, match guards, taxonomy, Data Health and Data Dictionary pages
-- [x] Staging framework + validation library (target 100+ rules, each with pass/fail tests): the framework and the library are in place with the accounting rule set (31 rules, each with a passing and a failing test); the other intakes' rule sets count toward the target
+- [x] Staging framework + validation library (target 100+ rules, each with pass/fail tests): the framework and the library are in place with the accounting rule set (34 rules, each with a passing and a failing test); the other intakes' rule sets count toward the target
 - [ ] Accounting import/export (configurable layout) **done** (decision 0009); ops-drop parser, weekly-report intake, look-through reconcile outstanding
 **Exit:** journey: import a synthetic accounting export, see diffs, approve, promote; duplicate import is a no-op; near-miss names go to exceptions.
 **Status (session 4):** the exit journey passes end to end over the real API (`apps/web/e2e/intake.spec.ts`) and in the API suite (`apps/api/src/test/intake.test.ts`), including a walled position that links and waits for a wall member. The remaining Phase 1 items are the other three intakes and aliases on record.

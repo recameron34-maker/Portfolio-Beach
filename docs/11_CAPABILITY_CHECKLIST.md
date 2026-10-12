@@ -118,7 +118,7 @@ Fund-accounting general ledger, investor onboarding / KYC, fixing the look-throu
 | # | Capability | Module | Status |
 |---|---|---|---|
 | I1 | Click-to-source on every reported number | M4, SEC-9.4 | N |
-| I2 | 100+ automated validations; restatement history | M2 | P (`packages/validation`: 31 accounting import rules across the nine categories, each with a passing and a failing test, run on every staged row; the ops-drop, weekly-report and look-through rule sets and restatement history pending) |
+| I2 | 100+ automated validations; restatement history | M2 | P (`packages/validation`: 34 accounting import rules across the nine categories, each with a passing and a failing test and the exact set of findings asserted per case, run on every staged row in the API and in the preview; the ops-drop, weekly-report and look-through rule sets and restatement history pending) |
 | I3 | Look-through exposures on our taxonomy | M20 | P (exposure buckets by sector, geography, deal type, vehicle, sponsor and vintage; client look-through by ownership) |
 | I4 | Benchmarking, PME, quartiles | M20 | N |
 | I5 | Liquidity and cash flow forecasting | M20 | N |
