@@ -1,5 +1,6 @@
-import { mkdirSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { sql } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { D, addMonths, containingQuarterEnd, latestQuarterEndOnOrBefore } from '@pb/calc';
 import {
@@ -10,9 +11,11 @@ import {
   problemDetails,
 } from '@pb/contracts';
 import type { IntakeFileDetail, IntakeImportResult, IntakeRow } from '@pb/contracts';
+import type { Tx } from '@pb/db';
 import { accountingExport, accountingExports } from '@pb/synthetic';
 import type { AccountingExport } from '@pb/synthetic';
-import { parseCsv } from '@pb/validation';
+import { accountingLayout, parseCsv } from '@pb/validation';
+import { IntakeService } from '../intake/intake.service.js';
 import { startHarness } from './harness.js';
 import type { Harness } from './harness.js';
 
@@ -221,8 +224,13 @@ describe('accounting intake (M2, SEC-9.1): staging, validation, approval, then p
     const rows = await stagedRows();
     const exceptions = await count('select count(*)::int as n from ops.data_exception');
     const again = intakeImportResult.parse(
-      (await importAs('operations', { fileName: 'renamed-copy.csv', csv: clean.csv }).expect(201))
-        .body,
+      (
+        await importAs(
+          'operations',
+          { fileName: 'renamed-copy.csv', csv: clean.csv },
+          'req-intake-duplicate-1',
+        ).expect(201)
+      ).body,
     );
     expect(again.duplicate).toBe(true);
     expect(again.id).toBe(cleanFile.id);
@@ -231,6 +239,15 @@ describe('accounting intake (M2, SEC-9.1): staging, validation, approval, then p
     expect(await count('select count(*)::int as n from stg.intake_file')).toBe(files);
     expect(await stagedRows()).toBe(rows);
     expect(await count('select count(*)::int as n from ops.data_exception')).toBe(exceptions);
+    // The answer carries the staged figures, so it is on record as a read of the file, the same
+    // event GET writes, and never as an import.
+    expect(await auditCount('intake_file.read', 'req-intake-duplicate-1')).toBe(1);
+    expect(await auditCount('intake.import', 'req-intake-duplicate-1')).toBe(0);
+    const [event] = await h.runtime.db.query<{ entity_id: string; details: unknown }>(
+      "select entity_id, details from audit.event where action = 'intake_file.read' and request_id = 'req-intake-duplicate-1'",
+    );
+    expect(event!.entity_id).toBe(cleanFile.id);
+    expect(event!.details).toEqual({});
   });
 
   it('stages an update export: the restated row and the supplied quarter carry their changes; production untouched', async () => {
@@ -283,86 +300,6 @@ describe('accounting intake (M2, SEC-9.1): staging, validation, approval, then p
     const seeded = seededQuarter(restated.id, periodEnd());
     expect(record?.revenue_ltm).toBe(seeded.revenueLtm);
     expect(record?.ebitda_ltm).toBe(seeded.ebitdaLtm);
-  });
-
-  it('stages a defects export: each defect row is flagged by its rule, unresolved names open exceptions', async () => {
-    defectsFile = await stage(defects, 'req-intake-defects-1');
-    const full = await fullView(defectsFile.id);
-    expect(full.rows.length).toBe(defects.expectations.rows);
-    expect(defects.expectations.flagged.length).toBeGreaterThanOrEqual(6);
-    for (const { rowNo: n, ruleId } of defects.expectations.flagged) {
-      const row = rowNo(full, n);
-      expect(row.status, `row ${n} (${ruleId})`).toBe('flagged');
-      expect(
-        row.findings.map((f) => f.ruleId),
-        `row ${n}`,
-      ).toContain(ruleId);
-      const finding = row.findings.find((f) => f.ruleId === ruleId)!;
-      expect(finding.severity).toBe('error');
-      expect(finding.message).not.toContain(String.fromCharCode(0x2014));
-    }
-    // Unresolved names: a number the record lacks, and a near miss with candidates for a person.
-    const unmatched = full.rows.filter((r) => r.link.status === 'unmatched');
-    expect(unmatched.length).toBe(2);
-    const nearMiss = unmatched.find((r) => r.investmentNumber === null)!;
-    const sample = full.rows[1]!;
-    expect(nearMiss.link.candidates).toEqual([
-      {
-        investmentNumber: sample.investmentNumber,
-        companyName: sample.companyName,
-        reason: 'near miss',
-      },
-    ]);
-    expect(nearMiss.link.investmentId).toBeNull();
-    expect(nearMiss.targetId).toBeNull();
-    // A name on the match guard list is never linked, whatever the similarity.
-    const guarded = full.rows.filter((r) => r.link.status === 'guarded');
-    expect(guarded.length).toBe(1);
-    expect(guarded[0]!.status).toBe('flagged');
-    expect(guarded[0]!.findings.map((f) => f.ruleId)).toContain('XREF-02');
-    expect(guarded[0]!.link.candidates.some((c) => c.reason === 'match guard')).toBe(true);
-    expect(guarded[0]!.companyName).toBe(h.dataset.matchGuards[0]!.nameB);
-    // The duplicate row shares its natural key with the row it repeats and is flagged, not dropped.
-    const dup = defects.expectations.flagged.find((f) => f.ruleId === 'DUP-01')!;
-    const dupRow = rowNo(full, dup.rowNo);
-    const first = full.rows.find((r) => r.rowNo < dup.rowNo && r.naturalKey === dupRow.naturalKey);
-    expect(first).toBeDefined();
-    expect(first!.status).toBe('validated');
-    // Exceptions: one per unresolved link and one per fair value that does not tie.
-    const ties = full.rows.flatMap((r) => r.findings.filter((f) => f.ruleId === 'TIE-01'));
-    expect(ties.length).toBe(1);
-    const expectedExceptions = unmatched.length + guarded.length + ties.length;
-    expect(defectsFile.exceptions).toBe(expectedExceptions);
-    const opened = await h.runtime.db.query<{
-      rule_id: string;
-      state: string;
-      severity: string;
-      expected: string | null;
-      actual: string | null;
-      candidates: unknown[];
-    }>(
-      `select x.rule_id, x.state, x.severity, x.expected, x.actual, x.candidates
-       from ops.data_exception x join stg.intake_row r on r.id = x.entity_id
-       where x.source = 'accounting_import' and x.entity = 'stg.intake_row' and r.intake_file_id = $1
-       order by r.row_no`,
-      [defectsFile.id],
-    );
-    expect(opened.length).toBe(expectedExceptions);
-    expect(
-      opened.every((x) => x.state === 'open' && x.severity === 'exception_severity.high'),
-    ).toBe(true);
-    expect(opened.map((x) => x.rule_id).sort()).toEqual(
-      ['XREF-01', 'XREF-01', 'XREF-02', 'TIE-01'].sort(),
-    );
-    const tie = opened.find((x) => x.rule_id === 'TIE-01')!;
-    expect(tie.expected).toBe(ties[0]!.expected);
-    expect(tie.actual).toBe(ties[0]!.actual);
-    expect(opened.find((x) => x.rule_id === 'XREF-02')!.candidates.length).toBeGreaterThan(0);
-    expect(defectsFile.status).toBe('flagged');
-    expect(defectsFile.counts.flagged).toBe(full.rows.filter((r) => r.status === 'flagged').length);
-    expect(defectsFile.counts.flagged + defectsFile.counts.validated).toBe(
-      defects.expectations.rows,
-    );
   });
 
   it('hides rows linked to a walled investment from everyone outside the wall, the importer included, and counts them', async () => {
@@ -533,6 +470,99 @@ describe('accounting intake (M2, SEC-9.1): staging, validation, approval, then p
     expect(finished.status).toBe('promoted');
     expect(await auditCount('quarterly_performance.promote', 'req-intake-approve-wall')).toBe(1);
     expect(await productionRows()).toBe(before + newRows);
+  });
+
+  it('stages a defects export: each defect row is flagged by its rule, unresolved names open exceptions', async () => {
+    // Staged after the update file was approved: the defects file carries the same restatement,
+    // and a diff taken before that approval would be stale (promotion refuses a stale diff, see
+    // the clean file at the end of this suite).
+    defectsFile = await stage(defects, 'req-intake-defects-1');
+    const full = await fullView(defectsFile.id);
+    expect(full.rows.length).toBe(defects.expectations.rows);
+    expect(defects.expectations.flagged.length).toBeGreaterThanOrEqual(6);
+    for (const { rowNo: n, ruleId } of defects.expectations.flagged) {
+      const row = rowNo(full, n);
+      expect(row.status, `row ${n} (${ruleId})`).toBe('flagged');
+      expect(
+        row.findings.map((f) => f.ruleId),
+        `row ${n}`,
+      ).toContain(ruleId);
+      const finding = row.findings.find((f) => f.ruleId === ruleId)!;
+      expect(finding.severity).toBe('error');
+      expect(finding.message).not.toContain(String.fromCharCode(0x2014));
+    }
+    // Unresolved names: a number the record lacks, and a near miss with candidates for a person.
+    const unmatched = full.rows.filter((r) => r.link.status === 'unmatched');
+    expect(unmatched.length).toBe(2);
+    const nearMiss = unmatched.find((r) => r.investmentNumber === null)!;
+    const sample = full.rows[1]!;
+    expect(nearMiss.link.candidates).toEqual([
+      {
+        investmentNumber: sample.investmentNumber,
+        companyName: sample.companyName,
+        reason: 'near miss',
+      },
+    ]);
+    expect(nearMiss.link.investmentId).toBeNull();
+    expect(nearMiss.targetId).toBeNull();
+    // A name on the match guard list is never linked, whatever the similarity.
+    const guarded = full.rows.filter((r) => r.link.status === 'guarded');
+    expect(guarded.length).toBe(1);
+    expect(guarded[0]!.status).toBe('flagged');
+    expect(guarded[0]!.findings.map((f) => f.ruleId)).toContain('XREF-02');
+    expect(guarded[0]!.link.candidates.some((c) => c.reason === 'match guard')).toBe(true);
+    expect(guarded[0]!.companyName).toBe(h.dataset.matchGuards[0]!.nameB);
+    // The duplicate row shares its natural key with the row it repeats and is flagged, not dropped.
+    const dup = defects.expectations.flagged.find((f) => f.ruleId === 'DUP-01')!;
+    const dupRow = rowNo(full, dup.rowNo);
+    const first = full.rows.find((r) => r.rowNo < dup.rowNo && r.naturalKey === dupRow.naturalKey);
+    expect(first).toBeDefined();
+    expect(first!.status).toBe('validated');
+    // Exceptions: one per unresolved link and one per fair value that does not tie.
+    const ties = full.rows.flatMap((r) => r.findings.filter((f) => f.ruleId === 'TIE-01'));
+    expect(ties.length).toBe(1);
+    const expectedExceptions = unmatched.length + guarded.length + ties.length;
+    expect(defectsFile.exceptions).toBe(expectedExceptions);
+    const opened = await h.runtime.db.query<{
+      rule_id: string;
+      state: string;
+      severity: string;
+      expected: string | null;
+      actual: string | null;
+      candidates: unknown[];
+    }>(
+      `select x.rule_id, x.state, x.severity, x.expected, x.actual, x.candidates
+       from ops.data_exception x join stg.intake_row r on r.id = x.entity_id
+       where x.source = 'accounting_import' and x.entity = 'stg.intake_row' and r.intake_file_id = $1
+       order by r.row_no`,
+      [defectsFile.id],
+    );
+    expect(opened.length).toBe(expectedExceptions);
+    expect(
+      opened.every((x) => x.state === 'open' && x.severity === 'exception_severity.high'),
+    ).toBe(true);
+    expect(opened.map((x) => x.rule_id).sort()).toEqual(
+      ['XREF-01', 'XREF-01', 'XREF-02', 'TIE-01'].sort(),
+    );
+    // Every authenticated user may read exceptions: a fair value that does not tie opens one with
+    // no values (the mark and the figure stay on the staged row), and a candidate is its reason
+    // only, never a number or a name.
+    const tie = opened.find((x) => x.rule_id === 'TIE-01')!;
+    expect(tie.expected).toBeNull();
+    expect(tie.actual).toBeNull();
+    expect(ties[0]!.expected).not.toBeNull();
+    expect(JSON.stringify(opened)).not.toContain(ties[0]!.expected);
+    expect(JSON.stringify(opened)).not.toContain(ties[0]!.actual);
+    const guardedException = opened.find((x) => x.rule_id === 'XREF-02')!;
+    expect(guardedException.candidates.length).toBeGreaterThan(0);
+    for (const x of opened)
+      for (const candidate of x.candidates)
+        expect(Object.keys(candidate as Record<string, unknown>)).toEqual(['reason']);
+    expect(defectsFile.status).toBe('flagged');
+    expect(defectsFile.counts.flagged).toBe(full.rows.filter((r) => r.status === 'flagged').length);
+    expect(defectsFile.counts.flagged + defectsFile.counts.validated).toBe(
+      defects.expectations.rows,
+    );
   });
 
   it('approves named rows of the defects file one at a time; flagged rows stay flagged', async () => {
@@ -849,14 +879,345 @@ describe('accounting intake (M2, SEC-9.1): staging, validation, approval, then p
         reason: 'near miss',
       },
     ]);
-    // The exception every authenticated user may read carries the candidate's number and reason only.
-    const [exception] = await h.runtime.db.query<{ candidates: unknown[] }>(
-      "select candidates from ops.data_exception where entity = 'stg.intake_row' and entity_id = $1",
+    // The exception every authenticated user may read carries the candidate's reason only: neither
+    // the walled position's number nor its name, nor a figure of the row.
+    const [exception] = await h.runtime.db.query<{
+      rule_id: string;
+      expected: string | null;
+      actual: string | null;
+      candidates: unknown[];
+    }>(
+      "select rule_id, expected, actual, candidates from ops.data_exception where entity = 'stg.intake_row' and entity_id = $1",
       [row.id],
     );
-    expect(exception!.candidates).toEqual([
-      { investmentNumber: inv.investmentNumber, reason: 'near miss' },
+    expect(exception!.rule_id).toBe('XREF-01');
+    expect(exception!.candidates).toEqual([{ reason: 'near miss' }]);
+    expect(JSON.stringify(exception)).not.toContain(inv.investmentNumber);
+    expect(JSON.stringify(exception)).not.toContain(walledCompanyName());
+    for (const column of ['RevenueLTM', 'EBITDALTM', 'EnterpriseValue', 'NetDebt', 'FairValue'])
+      expect(JSON.stringify(exception)).not.toContain(cells[table.header.indexOf(column)]!);
+  });
+
+  /* ---- Promotion safety (decision 0009): the record is read again when a row is promoted ---- */
+
+  /** A one-row export in the layout's columns, cells by column name; a cell not named is blank. */
+  const oneRowCsv = (cells: Record<string, string>): string => {
+    const { header } = parseCsv(clean.csv);
+    return `${header.join(',')}\n${header.map((c) => cells[c] ?? '').join(',')}\n`;
+  };
+  /** The clean export's line for an investment number, as cells by column name. */
+  const cleanLine = (investmentNumber: string): Record<string, string> => {
+    const table = parseCsv(clean.csv);
+    const line = table.rows.find(
+      (r) => r[table.header.indexOf('InvestmentNumber')] === investmentNumber,
+    )!;
+    return Object.fromEntries(table.header.map((c, i) => [c, line[i] ?? '']));
+  };
+  /** The clean export's positions that are neither walled nor restated, in file order. */
+  const plainNumbers = (): string[] => {
+    const table = parseCsv(clean.csv);
+    const column = table.header.indexOf('InvestmentNumber');
+    const walledNumber = h.dataset.investments.find((i) => i.id === walledId())!.investmentNumber;
+    return table.rows
+      .map((r) => r[column]!)
+      .filter((n) => n !== walledNumber && n !== update.expectations.changed[0]);
+  };
+  const stageOne = async (fileName: string, cells: Record<string, string>): Promise<IntakeRow> => {
+    const staged = intakeImportResult.parse(
+      (await importAs('operations', { fileName, csv: oneRowCsv(cells) }).expect(201)).body,
+    );
+    expect(staged.duplicate).toBe(false);
+    expect(staged.rows.length).toBe(1);
+    return staged.rows[0]!;
+  };
+  const exceptionsOf = (rowId: string) =>
+    h.runtime.db.query<{
+      rule_id: string;
+      expected: string | null;
+      actual: string | null;
+      candidates: unknown[];
+    }>(
+      "select rule_id, expected, actual, candidates from ops.data_exception where entity = 'stg.intake_row' and entity_id = $1",
+      [rowId],
+    );
+
+  it('ties the fair value to the Locked mark a few days off the quarter end: TIE-01 flags the row and opens one exception with no values', async () => {
+    // The period_end_shift position reports three days before each quarter end, and so do its
+    // Locked marks; the sample exports never carry it, since its quarter is not at the quarter end.
+    const shiftedId = h.dataset.scenarios.period_end_shift![0]!;
+    const inv = h.dataset.investments.find((i) => i.id === shiftedId)!;
+    const company = h.dataset.portfolioCompanies.find((c) => c.id === inv.portfolioCompanyId)!;
+    const quarters = h.dataset.quarterlyPerformance
+      .filter(
+        (q) =>
+          q.investmentId === shiftedId &&
+          !q.isEntrySnapshot &&
+          q.status === 'record_status.approved',
+      )
+      .sort((a, b) => a.periodEnd.localeCompare(b.periodEnd));
+    const quarter = quarters[quarters.length - 1]!;
+    expect(quarter.periodEnd).not.toBe(periodEnd());
+    expect(clean.csv).not.toContain(inv.investmentNumber);
+    const mark = h.dataset.valuations
+      .filter(
+        (v) =>
+          v.investmentId === shiftedId && v.state === 'Locked' && v.periodEnd === quarter.periodEnd,
+      )
+      .sort((a, b) => b.version - a.version)[0]!;
+    const cells = {
+      InvestmentNumber: inv.investmentNumber,
+      CompanyName: company.name,
+      RevenueLTM: quarter.revenueLtm ?? '',
+      EBITDALTM: quarter.ebitdaLtm ?? '',
+      EnterpriseValue: quarter.ev ?? '',
+      NetDebt: quarter.netDebt ?? '',
+    };
+    const offTheMark = D(mark.fairValue).times('1.1').toFixed(2);
+    // Reported at the sponsor's own period end, or at the quarter end it stands for: the quarter
+    // and the mark are the same ones, by the same tolerance.
+    for (const [name, reported] of [
+      ['shifted', quarter.periodEnd],
+      ['quarter-end', periodEnd()],
+    ] as const) {
+      const row = await stageOne(`tie-${name}.csv`, {
+        ...cells,
+        PeriodEnd: reported,
+        FairValue: offTheMark,
+      });
+      expect(row.link.status).toBe('matched');
+      expect(row.targetId).toBe(quarter.id);
+      expect(row.diff).toEqual({ kind: 'unchanged', changes: [] });
+      const tie = row.findings.find((f) => f.ruleId === 'TIE-01')!;
+      expect(tie.severity).toBe('error');
+      expect(tie.message).toContain(mark.periodEnd);
+      expect(D(tie.expected!).eq(D(mark.fairValue))).toBe(true);
+      expect(D(tie.actual!).eq(D(offTheMark))).toBe(true);
+      expect(row.status).toBe('flagged');
+      // The exception everyone may read says which rule, never the mark or the figure.
+      const opened = await exceptionsOf(row.id);
+      expect(opened).toEqual([{ rule_id: 'TIE-01', expected: null, actual: null, candidates: [] }]);
+    }
+    // The mark itself ties: no finding, no exception.
+    const tied = await stageOne('tie-exact.csv', {
+      ...cells,
+      PeriodEnd: quarter.periodEnd,
+      FairValue: mark.fairValue,
+    });
+    expect(tied.findings.map((f) => f.ruleId)).not.toContain('TIE-01');
+    expect(tied.status).toBe('validated');
+    expect(await exceptionsOf(tied.id)).toEqual([]);
+  });
+
+  it('audits the figures after promotion as the record stores them, not as the file wrote them', async () => {
+    const number = plainNumbers()[1]!;
+    const inv = investmentByNumber(number);
+    const line = cleanLine(number);
+    // The file carries the revenue as a whole number; the record holds every figure to the cent.
+    const revenue = D(line.RevenueLTM!).toFixed(0);
+    expect(revenue).not.toBe(line.RevenueLTM);
+    const previous = (await onRecord(inv.id, periodEnd()))!;
+    const row = await stageOne('whole-number-revenue.csv', { ...line, RevenueLTM: revenue });
+    expect(row.status).toBe('validated');
+    expect(row.figures.revenueLtm).toBe(revenue);
+    const fileId = (
+      await h.runtime.db.query<{ intake_file_id: string }>(
+        'select intake_file_id from stg.intake_row where id = $1',
+        [row.id],
+      )
+    )[0]!.intake_file_id;
+    const promoted = intakeFileDetail.parse(
+      (
+        await command(
+          'operations',
+          fileId,
+          { command: 'approve' },
+          'req-intake-audit-after-1',
+        ).expect(200)
+      ).body,
+    );
+    expect(promoted.rows[0]!.status).toBe('promoted');
+    const record = (await onRecord(inv.id, periodEnd()))!;
+    expect(D(record.revenue_ltm!).eq(D(revenue))).toBe(true);
+    expect(record.revenue_ltm).not.toBe(revenue);
+    const [event] = await h.runtime.db.query<{
+      details: { before: Record<string, string | null>; after: Record<string, string | null> };
+    }>(
+      "select details from audit.event where action = 'quarterly_performance.promote' and request_id = 'req-intake-audit-after-1'",
+    );
+    expect(event!.details.after).toEqual({
+      revenueLtm: record.revenue_ltm,
+      ebitdaLtm: record.ebitda_ltm,
+      ev: record.ev,
+      netDebt: record.net_debt,
+    });
+    expect(event!.details.before.revenueLtm).toBe(previous.revenue_ltm);
+  });
+
+  it('answers 409 when another command changed a row between this command reading it and writing it; nothing of the batch is kept', async () => {
+    const waiting = await stageOne('conflict-validated.csv', cleanLine(plainNumbers()[2]!));
+    expect(waiting.status).toBe('validated');
+    const flagged = await stageOne('conflict-flagged.csv', {
+      ...cleanLine(plainNumbers()[2]!),
+      InvestmentNumber: 'INV-9998',
+      CompanyName: 'Nowhere Example Holdings',
+    });
+    expect(flagged.status).toBe('flagged');
+    const fileOf = async (rowId: string): Promise<string> =>
+      (
+        await h.runtime.db.query<{ intake_file_id: string }>(
+          'select intake_file_id from stg.intake_row where id = $1',
+          [rowId],
+        )
+      )[0]!.intake_file_id;
+    // Commands on one file run one at a time (the file row is locked), so the window a second
+    // transaction could use is the one between a command reading its rows and writing them. The
+    // test database has one connection: the other reviewer's write is replayed inside the
+    // command's own transaction, right before its write.
+    type CommandSeam = Record<'promote' | 'reject', (tx: Tx, ...rest: unknown[]) => Promise<void>>;
+    const changedUnderneath = async (
+      method: keyof CommandSeam,
+      rowId: string,
+      status: string,
+      run: () => Promise<void>,
+    ): Promise<void> => {
+      // The service's private command steps, reached as the seam this test needs and nothing else.
+      const seam = h.app.get<IntakeService, CommandSeam>(IntakeService);
+      const original = seam[method];
+      seam[method] = async (tx, ...rest) => {
+        await tx.execute(sql`update stg.intake_row set status = ${status} where id = ${rowId}`);
+        return original.call(seam, tx, ...rest);
+      };
+      try {
+        await run();
+      } finally {
+        seam[method] = original;
+      }
+    };
+    const waitingFile = await fileOf(waiting.id);
+    await changedUnderneath('promote', waiting.id, 'rejected', async () => {
+      const res = await command(
+        'operations',
+        waitingFile,
+        { command: 'approve' },
+        'req-intake-conflict-1',
+      ).expect(409);
+      expect(problemDetails.parse(res.body).type).toBe(`${PROBLEM}conflict`);
+    });
+    expect((await detail('operations', waitingFile)).rows[0]!.status).toBe('validated');
+    expect(await auditCount('quarterly_performance.promote', 'req-intake-conflict-1')).toBe(0);
+    expect(await auditCount('intake.approve', 'req-intake-conflict-1')).toBe(0);
+    const flaggedFile = await fileOf(flagged.id);
+    await changedUnderneath('reject', flagged.id, 'validated', async () => {
+      const res = await command(
+        'operations',
+        flaggedFile,
+        { command: 'reject', reason: 'Not on record' },
+        'req-intake-conflict-2',
+      ).expect(409);
+      expect(problemDetails.parse(res.body).type).toBe(`${PROBLEM}conflict`);
+    });
+    expect((await detail('operations', flaggedFile)).rows[0]!.status).toBe('flagged');
+    expect(await auditCount('intake.reject', 'req-intake-conflict-2')).toBe(0);
+    // Read and written in one go, the same commands go through.
+    const approved = intakeFileDetail.parse(
+      (await command('operations', waitingFile, { command: 'approve' }).expect(200)).body,
+    );
+    expect(approved.rows[0]!.status).toBe('promoted');
+    const rejected = intakeFileDetail.parse(
+      (
+        await command('operations', flaggedFile, {
+          command: 'reject',
+          reason: 'Not on record',
+        }).expect(200)
+      ).body,
+    );
+    expect(rejected.rows[0]!.status).toBe('rejected');
+  });
+
+  it('never writes the entry snapshot: approving a row for that quarter is refused with 422 and the snapshot keeps its figures', async () => {
+    const snapshotOf = (number: string) =>
+      h.dataset.quarterlyPerformance.find(
+        (q) => q.investmentId === investmentByNumber(number).id && q.isEntrySnapshot,
+      );
+    const number = plainNumbers().find((n) => {
+      const snapshot = snapshotOf(n);
+      return snapshot !== undefined && snapshot.revenueLtm !== null;
+    })!;
+    const inv = investmentByNumber(number);
+    const snapshot = snapshotOf(number)!;
+    expect(snapshot.status).toBe('record_status.approved');
+    expect(snapshot.periodEnd).toBe(containingQuarterEnd(addMonths(inv.entryDate, -3)));
+    const row = await stageOne('entry-snapshot.csv', {
+      ...cleanLine(number),
+      PeriodEnd: snapshot.periodEnd,
+      RevenueLTM: D(snapshot.revenueLtm!).times('1.05').toFixed(2),
+      EBITDALTM: snapshot.ebitdaLtm ?? '',
+      EnterpriseValue: snapshot.ev ?? '',
+      NetDebt: snapshot.netDebt ?? '',
+      FairValue: '',
+    });
+    expect(row.targetId).toBe(snapshot.id);
+    expect(row.diff.kind).toBe('changed');
+    // The row is made to wait for approval whatever the rules said of it: the refusal is the
+    // API's own guard, and it holds even when no rule flags the quarter.
+    await h.runtime.db.query("update stg.intake_row set status = 'validated' where id = $1", [
+      row.id,
     ]);
+    const fileId = (
+      await h.runtime.db.query<{ intake_file_id: string }>(
+        'select intake_file_id from stg.intake_row where id = $1',
+        [row.id],
+      )
+    )[0]!.intake_file_id;
+    const before = (await onRecord(inv.id, snapshot.periodEnd))!;
+    const res = await command(
+      'operations',
+      fileId,
+      { command: 'approve' },
+      'req-intake-snapshot-1',
+    ).expect(422);
+    const problem = problemDetails.parse(res.body);
+    expect(problem.type).toBe(`${PROBLEM}workflow-precondition`);
+    expect(problem.detail).toContain('entry snapshot');
+    const after = (await onRecord(inv.id, snapshot.periodEnd))!;
+    expect(after).toEqual(before);
+    expect(after.is_entry_snapshot).toBe(true);
+    expect(after.revenue_ltm).toBe(snapshot.revenueLtm);
+    expect(await auditCount('quarterly_performance.promote', 'req-intake-snapshot-1')).toBe(0);
+    expect((await detail('operations', fileId)).rows[0]!.status).toBe('validated');
+  });
+
+  it('refuses to promote a row whose quarter on record changed since the file was staged; nothing of the batch is written', async () => {
+    // The clean file was staged before the update file restated a position: its row for that
+    // position still says "unchanged" against figures the record no longer holds, and approving
+    // it would revert the restatement in silence.
+    const restatedNumber = update.expectations.changed[0]!;
+    const restated = investmentByNumber(restatedNumber);
+    const current = (await onRecord(restated.id, periodEnd()))!;
+    expect(D(current.revenue_ltm!).eq(D(seededQuarter(restated.id, periodEnd()).revenueLtm!))).toBe(
+      false,
+    );
+    const before = await productionRows();
+    const cleanBefore = await detail('deal.one', cleanFile.id);
+    const cleanRow = cleanBefore.rows.find((r) => r.investmentNumber === restatedNumber)!;
+    expect(cleanRow.diff).toEqual({ kind: 'unchanged', changes: [] });
+    expect(cleanRow.status).toBe('validated');
+    for (const body of [{ command: 'approve' }, { command: 'approve', rowIds: [cleanRow.id] }]) {
+      const res = await command('deal_team', cleanFile.id, body, 'req-intake-stale-1').expect(422);
+      const problem = problemDetails.parse(res.body);
+      expect(problem.type).toBe(`${PROBLEM}workflow-precondition`);
+      expect(problem.detail).toBe(
+        'staging: the quarter on record changed since the file was staged; import the file again',
+      );
+    }
+    // The restatement stands, no row of the file was promoted, nothing was audited.
+    expect(await productionRows()).toBe(before);
+    expect(await onRecord(restated.id, periodEnd())).toEqual(current);
+    const cleanAfter = await detail('deal.one', cleanFile.id);
+    expect(cleanAfter.counts).toEqual(cleanBefore.counts);
+    expect(cleanAfter.status).toBe('validated');
+    expect(await auditCount('quarterly_performance.promote', 'req-intake-stale-1')).toBe(0);
+    expect(await auditCount('intake.approve', 'req-intake-stale-1')).toBe(0);
   });
 });
 
@@ -909,5 +1270,111 @@ describe('an API whose config lacks the intake block', () => {
     );
     // The reads that need no threshold still answer.
     await h.http().get('/api/v1/intake/files').set('authorization', h.as('operations')).expect(200);
+  });
+});
+
+describe('an API whose accounting layout is corrected after it refused an export', () => {
+  let h: Harness;
+  // The layout the API starts with lacks the CompanyName column the export carries (the accounting
+  // system added a column the layout does not know yet). The object is the one the API reads on
+  // every import, so correcting it in place is the config change operations would make.
+  const layout = accountingLayout.parse(
+    JSON.parse(
+      readFileSync(new URL('../../../../config/accounting_layout.json', import.meta.url), 'utf8'),
+    ),
+  );
+  const companyColumn = layout.export.columns.findIndex((c) => c.name === 'CompanyName');
+  const [dropped] = layout.export.columns.splice(companyColumn, 1);
+  beforeAll(async () => {
+    h = await startHarness({ accountingLayout: layout });
+  });
+  afterAll(async () => {
+    await h.close();
+  });
+
+  it('stages the same bytes once the layout knows the column, under the file row the refusal left behind', async () => {
+    expect(h.runtime.accountingLayout).toBe(layout);
+    const file = accountingExport(h.dataset, { scenario: 'clean' });
+    const importAs = async (who: string, requestId: string): Promise<IntakeImportResult> =>
+      intakeImportResult.parse(
+        (
+          await h
+            .http()
+            .post('/api/v1/intake/accounting')
+            .set('authorization', h.as(who))
+            .set('x-request-id', requestId)
+            .send({ fileName: file.fileName, csv: file.csv })
+            .expect(201)
+        ).body,
+      );
+    const files = async (): Promise<number> =>
+      (
+        await h.runtime.db.query<{ n: number }>('select count(*)::int as n from stg.intake_file')
+      )[0]!.n;
+    const rowsOf = async (fileId: string): Promise<number> =>
+      (
+        await h.runtime.db.query<{ n: number }>(
+          'select count(*)::int as n from stg.intake_row where intake_file_id = $1',
+          [fileId],
+        )
+      )[0]!.n;
+    const audited = async (action: string, requestId: string): Promise<number> =>
+      (
+        await h.runtime.db.query<{ n: number }>(
+          'select count(*)::int as n from audit.event where action = $1 and request_id = $2',
+          [action, requestId],
+        )
+      )[0]!.n;
+
+    const refused = await importAs('ops.one', 'req-restage-1');
+    expect(refused.duplicate).toBe(false);
+    expect(refused.status).toBe('new');
+    expect(refused.rowCount).toBe(0);
+    expect(refused.rows).toEqual([]);
+    expect(refused.fileFindings.map((f) => [f.ruleId, f.field])).toEqual([
+      ['LAYOUT-01', 'CompanyName'],
+    ]);
+    // Refused again under the same layout: the same file, nothing staged, the findings current.
+    const again = await importAs('ops.one', 'req-restage-2');
+    expect(again.duplicate).toBe(true);
+    expect(again.id).toBe(refused.id);
+    expect(again.status).toBe('new');
+    expect(again.rowCount).toBe(0);
+    expect(again.fileFindings).toEqual(refused.fileFindings);
+    expect(await files()).toBe(1);
+    expect(await rowsOf(refused.id)).toBe(0);
+    expect(await audited('intake.import', 'req-restage-2')).toBe(1);
+
+    // Operations corrects the layout (config, no code change) and imports the same bytes again:
+    // the file is staged, not answered as a duplicate, and keeps its id and hash.
+    layout.export.columns.splice(companyColumn, 0, dropped!);
+    const staged = await importAs('ops.two', 'req-restage-3');
+    expect(staged.duplicate).toBe(false);
+    expect(staged.id).toBe(refused.id);
+    expect(staged.contentHash).toBe(refused.contentHash);
+    expect(staged.fileName).toBe(file.fileName);
+    expect(staged.status).toBe('validated');
+    expect(staged.rowCount).toBe(file.expectations.rows);
+    expect(staged.rows.length + staged.hiddenRows).toBe(file.expectations.rows);
+    expect(staged.rows.every((r) => r.status === 'validated')).toBe(true);
+    expect(staged.fileFindings).toEqual([]);
+    // This receipt is the one on record.
+    expect(staged.receivedBy).toBe(
+      h.dataset.users.find((u) => u.externalId === 'ops.two')!.displayName,
+    );
+    expect(new Date(staged.receivedAt).getTime()).toBeGreaterThanOrEqual(
+      new Date(refused.receivedAt).getTime(),
+    );
+    expect(await files()).toBe(1);
+    expect(await rowsOf(refused.id)).toBe(file.expectations.rows);
+    expect(await audited('intake.import', 'req-restage-3')).toBe(1);
+    // From here on the content is a duplicate like any other: answered, audited as a read, unchanged.
+    const duplicate = await importAs('ops.one', 'req-restage-4');
+    expect(duplicate.duplicate).toBe(true);
+    expect(duplicate.id).toBe(refused.id);
+    expect(duplicate.receivedBy).toBe(staged.receivedBy);
+    expect(await rowsOf(refused.id)).toBe(file.expectations.rows);
+    expect(await audited('intake_file.read', 'req-restage-4')).toBe(1);
+    expect(await audited('intake.import', 'req-restage-4')).toBe(0);
   });
 });

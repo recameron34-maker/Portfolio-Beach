@@ -4,7 +4,7 @@ import { and, asc, desc, eq, inArray, lt, or, sql } from 'drizzle-orm';
 import type { SQL } from 'drizzle-orm';
 import { alias } from 'drizzle-orm/pg-core';
 import type { AdapterSet, Principal } from '@pb/adapters';
-import { alignedQuarterEnd } from '@pb/calc';
+import { alignedQuarterEnd, lockedNear } from '@pb/calc';
 import type { Decimal } from '@pb/calc';
 import {
   intakeCounts,
@@ -35,6 +35,7 @@ import {
   naturalKeyOf,
   readAccountingFile,
   runRules,
+  sameValue,
   statusFromFindings,
 } from '@pb/validation';
 import type {
@@ -46,6 +47,7 @@ import type {
   InvestmentDirectoryEntry,
   LinkResult,
   MatchGuardPair,
+  RowDiff,
 } from '@pb/validation';
 import { attempt, stagingMachine } from '@pb/workflows';
 import { z } from 'zod';
@@ -68,7 +70,9 @@ import type { AuditEntry } from '../db/db.service.js';
  * rather than read as "no match". Everything a caller reads or writes runs under their own
  * row-level security through DbService.run: a staged row linked to a position they cannot open is
  * left out and counted, a candidate they cannot open is dropped from the link, and promotion writes
- * only what they may see.
+ * only what they may see. A staged diff is a snapshot taken at staging: promotion reads the quarter
+ * on record again and refuses the approval when the record no longer matches what the reviewer was
+ * shown (decision 0009, promotion safety).
  */
 
 export type IntakeListOptions = z.infer<typeof intakeFileListQuery>;
@@ -221,6 +225,47 @@ function linkOf(link: LinkResult): RowPayload['link'] {
   };
 }
 
+/** A refused file (the layout rejected it, so it holds no rows) may be staged again once the layout is corrected. */
+const restageable = (f: Pick<IntakeFile, 'status' | 'rowCount'>): boolean =>
+  f.status === 'new' && f.rowCount === 0;
+
+/** The staged row as the file said it, for the diff to be taken again at promotion. */
+function fileRowOf(target: StagedRow): AccountingRow {
+  return {
+    rowNo: target.rowNo,
+    investmentNumber: target.payload.investmentNumber,
+    companyName: target.payload.companyName,
+    periodEnd: target.payload.periodEnd,
+    figures: target.payload.figures,
+    raw: target.payload.raw,
+  };
+}
+
+/** The same diff: the same kind and the same field changes, values compared as decimals. */
+function sameDiff(a: RowDiff, b: RowDiff): boolean {
+  return (
+    a.kind === b.kind &&
+    a.changes.length === b.changes.length &&
+    a.changes.every((change, i) => {
+      const other = b.changes[i];
+      if (other === undefined) return false;
+      return (
+        other.field === change.field &&
+        sameValue(other.before, change.before) &&
+        sameValue(other.after, change.after)
+      );
+    })
+  );
+}
+
+/** The problem when a command finds a row already changed by another command. */
+const rowConflict = (): ProblemError =>
+  new ProblemError(
+    409,
+    'conflict',
+    'staging: another command changed the row first; open the file again',
+  );
+
 @Injectable()
 export class IntakeService {
   constructor(
@@ -293,8 +338,11 @@ export class IntakeService {
 
   /**
    * Stage an accounting export. Idempotent by content: the same text answers the file it created
-   * before with `duplicate` true and stages nothing (docs/04 M2). Otherwise the file, its rows and
-   * the data exceptions land in one transaction with one audit event that carries counts only.
+   * before with `duplicate` true and stages nothing (docs/04 M2); the answer is a read of that
+   * file's figures and is audited as one. A file the layout refused (status new, no rows) is the
+   * exception: the same text is read again, so a corrected layout stages the export under the file
+   * row the refusal left behind. Otherwise the file, its rows and the data exceptions land in one
+   * transaction with one audit event that carries counts only.
    */
   async import(
     principal: Principal,
@@ -309,10 +357,13 @@ export class IntakeService {
     const contentHash = createHash('sha256').update(text).digest('hex');
     const asOf = this.adapters.clock.today();
 
-    const existing = await this.db.run(principal, requestId, (tx) =>
-      this.findByHash(tx, contentHash),
-    );
-    if (existing !== null) return { ...existing, duplicate: true };
+    const existing = await this.db.run(principal, requestId, async (tx, audit) => {
+      const found = await this.findByHash(tx, contentHash);
+      if (found !== null && !restageable(found))
+        await audit({ action: 'intake_file.read', entity: 'stg.intake_file', entityId: found.id });
+      return found;
+    });
+    if (existing !== null && !restageable(existing)) return { ...existing, duplicate: true };
 
     const read = readAccountingFile(text, layout, { maxRows: settings.maxRows });
     // A file the layout refuses (an unknown or missing column, nothing to read) holds no rows:
@@ -325,25 +376,52 @@ export class IntakeService {
 
     return this.db.run(principal, requestId, async (tx, audit) => {
       const counts = countsOf(prepared.map((p) => p.status));
-      const inserted = await tx
-        .insert(file)
-        .values({
-          source: SOURCE,
-          fileName,
-          contentHash,
-          receivedBy: principal.userId,
-          rowCount: prepared.length,
-          status: fileStatusOf(counts),
-          findings: read.fileFindings,
-        })
-        .onConflictDoNothing({ target: [file.source, file.contentHash] })
-        .returning();
-      const fileId = inserted[0]?.id;
-      if (fileId === undefined) {
-        // The same content landed from another request meanwhile: answer that file.
-        const raced = await this.findByHash(tx, contentHash);
-        if (raced === null) throw new ProblemError(409, 'conflict', 'The import did not complete');
-        return { ...raced, duplicate: true };
+      const header = {
+        rowCount: prepared.length,
+        status: fileStatusOf(counts),
+        findings: read.fileFindings,
+      };
+      // The same content landed from another request meanwhile: answer that file.
+      const raced = async (): Promise<IntakeImportResult> => {
+        const found = await this.findByHash(tx, contentHash);
+        if (found === null) throw new ProblemError(409, 'conflict', 'The import did not complete');
+        return { ...found, duplicate: true };
+      };
+      let fileId: string;
+      let name: string;
+      if (existing === null) {
+        const inserted = await tx
+          .insert(file)
+          .values({
+            source: SOURCE,
+            fileName,
+            contentHash,
+            receivedBy: principal.userId,
+            ...header,
+          })
+          .onConflictDoNothing({ target: [file.source, file.contentHash] })
+          .returning();
+        const id = inserted[0]?.id;
+        if (id === undefined) return raced();
+        fileId = id;
+        name = fileName;
+      } else {
+        // A refused file staged again: the row the refusal left behind is reused (the content hash
+        // is its key), with this receipt and the findings of this reading. Refused again, it keeps
+        // its name, its receipt and the earlier answer (duplicate), with the findings brought up
+        // to date. The guard on status and row count keeps two re-imports from both staging it.
+        const updated = await tx
+          .update(file)
+          .set(
+            refused
+              ? { findings: read.fileFindings }
+              : { ...header, receivedAt: sql`now()`, receivedBy: principal.userId },
+          )
+          .where(and(eq(file.id, existing.id), eq(file.status, 'new'), eq(file.rowCount, 0)))
+          .returning();
+        if (updated[0] === undefined) return raced();
+        fileId = existing.id;
+        name = existing.fileName;
       }
 
       await this.insertRows(tx, fileId, prepared, layout);
@@ -351,11 +429,11 @@ export class IntakeService {
         action: 'intake.import',
         entity: 'stg.intake_file',
         entityId: fileId,
-        details: { fileName, rowCount: prepared.length, counts },
+        details: { fileName: name, rowCount: prepared.length, counts },
       });
       const loaded = await this.load(tx, fileId);
       if (loaded === null) throw new ProblemError(404, 'not-found', NOT_FOUND);
-      return { ...loaded.detail, duplicate: false };
+      return { ...loaded.detail, duplicate: existing !== null && refused };
     });
   }
 
@@ -406,10 +484,12 @@ export class IntakeService {
           : (onRecord.find((q) => q.periodEnd === quarterEnd) ??
             onRecord.find((q) => alignedQuarterEnd(q.periodEnd, tolerance) === quarterEnd) ??
             null);
+      // The Locked mark that counts for the quarter, by the same tolerance as the quarter match:
+      // a mark a few days off the quarter end ties (docs/08 rule 7, lockedNear in @pb/calc).
       const locked =
         quarterEnd === null || investmentId === null
           ? null
-          : (marks.get(investmentId)?.find((m) => m.periodEnd === quarterEnd) ?? null);
+          : lockedNear(marks.get(investmentId) ?? [], quarterEnd, tolerance);
       const findings = runRules(ACCOUNTING_RULES, {
         row: r,
         file: rows,
@@ -489,12 +569,12 @@ export class IntakeService {
     return out;
   }
 
-  /** Locked marks per investment, highest version first within a period end, so find() keeps the latest version. */
+  /** Locked marks per investment, highest version first within a period end, so lockedNear() keeps the latest version. */
   private async lockedMarks(
     tx: Tx,
     investmentIds: readonly string[],
-  ): Promise<Map<string, { periodEnd: string; fairValue: string }[]>> {
-    const out = new Map<string, { periodEnd: string; fairValue: string }[]>();
+  ): Promise<Map<string, { periodEnd: string; fairValue: string; state: string }[]>> {
+    const out = new Map<string, { periodEnd: string; fairValue: string; state: string }[]>();
     if (investmentIds.length === 0) return out;
     const v = schema.valuation;
     const rows = await tx
@@ -502,6 +582,7 @@ export class IntakeService {
         investmentId: v.investmentId,
         periodEnd: v.periodEnd,
         fairValue: v.fairValue,
+        state: v.state,
       })
       .from(v)
       .where(and(inArray(v.investmentId, [...investmentIds]), eq(v.state, 'Locked')))
@@ -566,25 +647,25 @@ export class IntakeService {
           p.link.status
         ];
         const finding = p.findings.find((f) => f.ruleId === ruleId);
-        // Every authenticated user may read exceptions, so a candidate travels as its number and
-        // reason only; the names are on the staged row, shown to those who may see them.
+        // Every authenticated user may read exceptions, so a candidate travels as its reason only,
+        // never as a number or a name that would say a position exists (SEC-5.3); the candidates
+        // are on the staged row, shown to those who may see them.
         exceptions.push({
           ...base,
           ruleId,
           expected: finding?.expected ?? 'an investment on record',
           actual: finding?.actual ?? p.row.investmentNumber ?? p.row.companyName ?? '',
-          candidates: p.link.candidates.map((c) => ({
-            investmentNumber: c.investmentNumber,
-            reason: c.reason,
-          })),
+          candidates: p.link.candidates.map((c) => ({ reason: c.reason })),
         });
       }
+      // A fair value that does not tie opens an exception with no values: the Locked mark and the
+      // file's figure stay on the staged row, past the walls, not on a row everyone may read.
       for (const finding of p.findings.filter((f) => f.ruleId === 'TIE-01')) {
         exceptions.push({
           ...base,
           ruleId: finding.ruleId,
-          expected: finding.expected,
-          actual: finding.actual,
+          expected: null,
+          actual: null,
           candidates: [],
         });
       }
@@ -664,6 +745,9 @@ export class IntakeService {
   ): Promise<IntakeFileDetail> {
     requireUuid(fileId, NOT_FOUND);
     return this.db.run(principal, requestId, async (tx, audit) => {
+      // Commands on one file run one at a time: the file row stays locked until this transaction
+      // ends, so a second reviewer's command waits and then reads the rows as this one left them.
+      await tx.select({ id: file.id }).from(file).where(eq(file.id, fileId)).for('update');
       const loaded = await this.load(tx, fileId);
       if (loaded === null) throw new ProblemError(404, 'not-found', NOT_FOUND);
       const wanted: StagingState = body.command === 'approve' ? 'validated' : 'flagged';
@@ -748,7 +832,7 @@ export class IntakeService {
         'workflow-precondition',
         'staging: the row has no period end to promote to',
       );
-    const after: PromotedFigures = {
+    const figures: PromotedFigures = {
       revenueLtm: target.payload.figures.revenueLtm,
       ebitdaLtm: target.payload.figures.ebitdaLtm,
       ev: target.payload.figures.ev,
@@ -761,6 +845,8 @@ export class IntakeService {
       approvalReason: reason ?? `accounting import ${detail.fileName}`,
       sourceLocator: `intake_file:${detail.id}/row:${target.rowNo}`,
     };
+    const precondition = (detail: string): ProblemError =>
+      new ProblemError(422, 'workflow-precondition', detail);
 
     // The quarter on record: the one the diff was made against, or any row at the period end
     // (docs/04 M2 asks for an upsert), each visible to the caller under row-level security.
@@ -768,10 +854,13 @@ export class IntakeService {
       await tx
         .select({
           id: quarter.id,
+          periodEnd: quarter.periodEnd,
           revenueLtm: quarter.revenueLtm,
           ebitdaLtm: quarter.ebitdaLtm,
           ev: quarter.ev,
           netDebt: quarter.netDebt,
+          status: quarter.status,
+          isEntrySnapshot: quarter.isEntrySnapshot,
         })
         .from(quarter)
         .where(
@@ -781,22 +870,33 @@ export class IntakeService {
         )
         .limit(1)
     )[0];
-    let entityId: string;
+    // The diff the reviewer approved is a snapshot taken at staging. The record is read again
+    // here, in the approval transaction: an entry snapshot is never written from an import, a
+    // quarter that is not approved is not the record, and a record that no longer gives the same
+    // diff (a restatement approved from another file in between) would be overwritten blind.
+    if (existing?.isEntrySnapshot === true)
+      throw precondition(
+        'staging: the quarter on record is the entry snapshot, which an import never changes',
+      );
+    if (existing !== undefined && existing.status !== 'record_status.approved')
+      throw precondition('staging: the quarter on record is not approved; import the file again');
+    if (!sameDiff(diffRow(fileRowOf(target), existing ?? null), target.diff))
+      throw precondition(
+        'staging: the quarter on record changed since the file was staged; import the file again',
+      );
+
+    let written: { id: string } & PromotedFigures;
     let before: PromotedFigures;
     if (existing !== undefined) {
       const updated = await tx
         .update(quarter)
-        .set({ ...after, ...approval })
+        .set({ ...figures, ...approval })
         .where(eq(quarter.id, existing.id))
         .returning();
-      const id = updated[0]?.id;
-      if (id === undefined)
-        throw new ProblemError(
-          422,
-          'workflow-precondition',
-          'staging: the quarter on record cannot be updated by this caller',
-        );
-      entityId = id;
+      const result = updated[0];
+      if (result === undefined)
+        throw precondition('staging: the quarter on record cannot be updated by this caller');
+      written = result;
       before = {
         revenueLtm: existing.revenueLtm,
         ebitdaLtm: existing.ebitdaLtm,
@@ -809,7 +909,7 @@ export class IntakeService {
         .values({
           investmentId,
           periodEnd,
-          ...after,
+          ...figures,
           ...approval,
           isEntrySnapshot: false,
           currency: 'USD',
@@ -817,20 +917,23 @@ export class IntakeService {
           commentary: null,
         })
         .returning();
-      const id = inserted[0]?.id;
-      if (id === undefined)
-        throw new ProblemError(
-          422,
-          'workflow-precondition',
-          'staging: the quarter was not written',
-        );
-      entityId = id;
+      const result = inserted[0];
+      if (result === undefined) throw precondition('staging: the quarter was not written');
+      written = result;
       before = { revenueLtm: null, ebitdaLtm: null, ev: null, netDebt: null };
     }
+    // The figures after are the values as stored, read back from the row written, never the
+    // file's text (rule 6: the audit records what the record now holds).
+    const after: PromotedFigures = {
+      revenueLtm: written.revenueLtm,
+      ebitdaLtm: written.ebitdaLtm,
+      ev: written.ev,
+      netDebt: written.netDebt,
+    };
     await audit({
       action: 'quarterly_performance.promote',
       entity: 'mon.quarterly_performance',
-      entityId,
+      entityId: written.id,
       reason: approval.approvalReason,
       details: {
         intakeFileId: detail.id,
@@ -841,7 +944,9 @@ export class IntakeService {
         after,
       },
     });
-    await tx
+    // The row is claimed in the state the command read it in; another command that changed it
+    // first makes this one a conflict (the whole batch rolls back).
+    const claimed = await tx
       .update(row)
       .set({
         status: 'promoted',
@@ -849,9 +954,11 @@ export class IntakeService {
         reviewerId: principal.userId,
         decidedAt: at,
         promotedAt: at,
-        targetId: entityId,
+        targetId: written.id,
       })
-      .where(eq(row.id, target.id));
+      .where(and(eq(row.id, target.id), eq(row.status, 'validated')))
+      .returning();
+    if (claimed[0] === undefined) throw rowConflict();
   }
 
   private async reject(
@@ -868,7 +975,7 @@ export class IntakeService {
       record: {},
     });
     if (!result.ok) throw workflowProblem(result);
-    await tx
+    const claimed = await tx
       .update(row)
       .set({
         status: 'rejected',
@@ -876,7 +983,9 @@ export class IntakeService {
         reviewerId: principal.userId,
         decidedAt: at,
       })
-      .where(eq(row.id, target.id));
+      .where(and(eq(row.id, target.id), eq(row.status, 'flagged')))
+      .returning();
+    if (claimed[0] === undefined) throw rowConflict();
   }
 
   /** The file status recomputed from every row (the contract's rule), after a command changed some. */
