@@ -254,6 +254,8 @@ importers:
 
   packages/workflows: {}
 
+  packages/xlsx: {}
+
   tools/synthetic:
     dependencies:
       '@pb/calc':
