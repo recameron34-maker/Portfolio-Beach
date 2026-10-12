@@ -54,5 +54,15 @@
   "analytics": {
     "navSeriesQuarters": 8,
     "topPositions": 10
+  },
+  "intake": {
+    "_note": "Accounting import rules (docs/04 M2, packages/validation). Percentages are decimals.",
+    "maxRowsPerFile": 5000,
+    "maxFileBytes": 2000000,
+    "fairValueTieToleranceUsd": 1.0,
+    "quarterOverQuarterMaxChangePct": 0.5,
+    "yearOverYearMaxChangePct": 1.0,
+    "staleQuarters": 2,
+    "evToEbitdaMax": 60
   }
 }

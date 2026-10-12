@@ -922,3 +922,166 @@ export const weeklyReport = z.object({
   calcVersion: z.string(),
 });
 export type WeeklyReport = z.infer<typeof weeklyReport>;
+
+/* ---- Intake: staging, validation, approval, then production (M2, SEC-9.1) ---- */
+
+/** docs/18 section 2. A row moves new > validated | flagged > approved > promoted; rejected is terminal. */
+export const stagingState = z.enum([
+  'new',
+  'validated',
+  'flagged',
+  'approved',
+  'rejected',
+  'promoted',
+]);
+export type StagingState = z.infer<typeof stagingState>;
+
+export const intakeFinding = z.object({
+  /** A packages/validation rule id, such as TIE-01, or LAYOUT-01 for a file-level problem. */
+  ruleId: z.string(),
+  severity: z.enum(['error', 'warning']),
+  message: z.string(),
+  field: z.string().nullable(),
+  expected: z.string().nullable(),
+  actual: z.string().nullable(),
+});
+export type IntakeFinding = z.infer<typeof intakeFinding>;
+
+export const intakeLink = z.object({
+  /** docs/03 section 5: matched by number or exact name; never linked from a near miss or a guarded pair. */
+  status: z.enum(['matched', 'unmatched', 'guarded', 'ambiguous']),
+  investmentId: uuid.nullable(),
+  investmentNumber: z.string().nullable(),
+  companyName: z.string().nullable(),
+  candidates: z.array(
+    z.object({
+      investmentNumber: z.string(),
+      companyName: z.string(),
+      reason: z.enum(['near miss', 'match guard']),
+    }),
+  ),
+});
+
+export const intakeChange = z.object({
+  field: z.enum(['revenueLtm', 'ebitdaLtm', 'ev', 'netDebt']),
+  /** The file's text and the record's figure; text so the reviewer sees what the file said. */
+  before: z.string().nullable(),
+  after: z.string().nullable(),
+});
+
+export const intakeRow = z.object({
+  id: uuid,
+  /** The file's data line, the row's own locator for lineage. */
+  rowNo: z.number().int(),
+  /** The layout's key columns joined with a pipe: the idempotency key within a file. */
+  naturalKey: z.string(),
+  targetEntity: z.literal('quarterly_performance'),
+  /** The quarterly performance row the import would replace, once linked; null for a new quarter. */
+  targetId: uuid.nullable(),
+  investmentNumber: z.string().nullable(),
+  companyName: z.string().nullable(),
+  periodEnd: z.string().nullable(),
+  figures: z.object({
+    revenueLtm: z.string().nullable(),
+    ebitdaLtm: z.string().nullable(),
+    ev: z.string().nullable(),
+    netDebt: z.string().nullable(),
+    fairValue: z.string().nullable(),
+  }),
+  link: intakeLink,
+  diff: z.object({
+    kind: z.enum(['new', 'changed', 'unchanged']),
+    changes: z.array(intakeChange),
+  }),
+  findings: z.array(intakeFinding),
+  status: stagingState,
+  /** The reviewer's reason on a rejection, or the approval note. */
+  decision: z.string().nullable(),
+  decidedBy: z.string().nullable(),
+  promotedAt: z.string().nullable(),
+});
+export type IntakeRow = z.infer<typeof intakeRow>;
+
+export const intakeCounts = z.object({
+  new: z.number().int(),
+  validated: z.number().int(),
+  flagged: z.number().int(),
+  approved: z.number().int(),
+  rejected: z.number().int(),
+  promoted: z.number().int(),
+});
+
+/**
+ * An intake file. Its status sums up its rows: flagged while any row is flagged, validated while
+ * any row waits for approval, promoted once every row is promoted or rejected (rejected when all
+ * are), and new only while the file itself was refused (fileFindings) and holds no rows.
+ */
+export const intakeFile = z.object({
+  id: uuid,
+  source: z.literal('accounting'),
+  fileName: z.string(),
+  /** SHA-256 of the file text, the idempotency key with the source (docs/04 M2). */
+  contentHash: z.string(),
+  receivedAt: z.string(),
+  receivedBy: z.string().nullable(),
+  rowCount: z.number().int(),
+  status: stagingState,
+  counts: intakeCounts,
+  fileFindings: z.array(intakeFinding),
+  /** Data exceptions the import opened (unmatched or guarded names, fair values that do not tie). */
+  exceptions: z.number().int(),
+  rowVersion: z.number().int(),
+});
+export type IntakeFile = z.infer<typeof intakeFile>;
+
+export const intakeFileDetail = intakeFile.extend({ rows: z.array(intakeRow) });
+export type IntakeFileDetail = z.infer<typeof intakeFileDetail>;
+
+export const intakeFilePage = z.object({
+  items: z.array(intakeFile),
+  nextCursor: z.string().nullable(),
+});
+export type IntakeFilePage = z.infer<typeof intakeFilePage>;
+
+export const intakeFileListQuery = pageQuery.extend({
+  status: stagingState.optional(),
+});
+
+/** An export the accounting system dropped in the folder the adapter watches. */
+export const intakeExportList = z.object({
+  items: z.array(z.object({ id: z.string(), name: z.string(), receivedAt: z.string() })),
+});
+
+/** Import an export: the file's text as uploaded, or one the adapter lists by id. */
+export const intakeImportBody = z.union([
+  z
+    .object({
+      fileName: plainText(200).min(1),
+      /** The CSV as text; the API refuses more than definitions.intake.maxFileBytes. */
+      csv: z.string().min(1).max(2_000_000),
+    })
+    .strict(),
+  z.object({ exportId: plainText(200).min(1) }).strict(),
+]);
+export type IntakeImportBody = z.infer<typeof intakeImportBody>;
+
+/** The staged file, with `duplicate` true when the same content was imported before (nothing new was staged). */
+export const intakeImportResult = intakeFileDetail.extend({ duplicate: z.boolean() });
+export type IntakeImportResult = z.infer<typeof intakeImportResult>;
+
+export const intakeCommand = z.enum(['approve', 'reject']);
+export type IntakeCommand = z.infer<typeof intakeCommand>;
+
+/**
+ * approve: every validated row (or the rows named) becomes approved and is promoted in the same
+ * transaction with an audit event per row. reject: every flagged row (or the rows named) is
+ * rejected with the reason, which is required.
+ */
+export const intakeCommandBody = z
+  .object({
+    command: intakeCommand,
+    reason: plainText(500).min(3).optional(),
+    rowIds: z.array(uuid).min(1).max(5000).optional(),
+  })
+  .strict();
+export type IntakeCommandBody = z.infer<typeof intakeCommandBody>;

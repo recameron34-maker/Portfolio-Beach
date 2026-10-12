@@ -19,7 +19,8 @@
     "build": "tsc -b",
     "test": "vitest run",
     "generate": "node dist/cli.js generate",
-    "verify": "node dist/cli.js verify"
+    "verify": "node dist/cli.js verify",
+    "exports": "node dist/cli.js exports"
   },
   "dependencies": {
     "@pb/calc": "workspace:*",

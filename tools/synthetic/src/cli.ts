@@ -1,11 +1,13 @@
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { accountingExports } from './accounting-export.js';
 import { generateDataset } from './generate.js';
 import { verifyDataset } from './verify.js';
 
 /**
  * pnpm synth --profile default --seed 42 --out .synthetic/
  * pnpm synth:verify --in .synthetic/dataset.json
+ * pnpm synth:exports --profile small --seed 42 --out .synthetic/accounting/in
  */
 function arg(name: string, fallback: string): string {
   const i = process.argv.indexOf(`--${name}`);
@@ -50,9 +52,21 @@ if (command === 'generate') {
     `synth:verify: ${report.ok ? 'OK' : 'FAILED'} (${Object.values(report.counts).reduce((a, b) => a + b, 0)} rows)\n`,
   );
   process.exit(report.ok ? 0 : 1);
+} else if (command === 'exports') {
+  // The accounting system's drop folder (the local folder adapter reads `in/`): three sample exports.
+  const profile = arg('profile', 'small');
+  const seed = Number(arg('seed', '42'));
+  const out = arg('out', '.synthetic/accounting/in');
+  mkdirSync(out, { recursive: true });
+  for (const file of accountingExports(generateDataset({ profile, seed }))) {
+    writeFileSync(join(out, file.fileName), file.csv);
+    process.stdout.write(
+      `synth:exports: wrote ${join(out, file.fileName)} (${file.expectations.rows} rows)\n`,
+    );
+  }
 } else {
   process.stderr.write(
-    'usage: cli.js generate [--profile p] [--seed n] [--out dir] | verify [--in file]\n',
+    'usage: cli.js generate [--profile p] [--seed n] [--out dir] | verify [--in file] | exports [--profile p] [--seed n] [--out dir]\n',
   );
   process.exit(2);
 }
