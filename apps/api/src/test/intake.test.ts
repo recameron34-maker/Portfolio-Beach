@@ -1304,6 +1304,38 @@ describe('accounting intake (M2, SEC-9.1): staging, validation, approval, then p
     expect(await auditCount('quarterly_performance.promote', 'req-intake-stale-1')).toBe(0);
     expect(await auditCount('intake.approve', 'req-intake-stale-1')).toBe(0);
   });
+
+  it('links a row by a company alias exactly, never by a near miss of it (docs/03 section 5, migration 0010)', async () => {
+    const alias = (h.dataset.companyAliases ?? [])[0];
+    if (alias === undefined) return; // a dataset made before migration 0010 carries no aliases
+    const inv = h.dataset.investments.find(
+      (i) =>
+        i.portfolioCompanyId === alias.portfolioCompanyId &&
+        i.isActive &&
+        i.dealType !== 'deal_type.private_credit' &&
+        i.id !== walledId(),
+    );
+    if (inv === undefined) return; // the first aliased company has no active equity position in this profile
+    const table = parseCsv(clean.csv);
+    const line = table.rows.find(
+      (r) => r[table.header.indexOf('InvestmentNumber')] === inv.investmentNumber,
+    );
+    if (line === undefined) return;
+    const cells = [...line];
+    cells[table.header.indexOf('InvestmentNumber')] = '';
+    cells[table.header.indexOf('CompanyName')] = alias.alias;
+    const byAlias = intakeImportResult.parse(
+      (
+        await importAs('operations', {
+          fileName: 'alias-linked.csv',
+          csv: `${table.header.join(',')}\n${cells.join(',')}\n`,
+        }).expect(201)
+      ).body,
+    );
+    expect(byAlias.rows[0]!.link).toMatchObject({ status: 'matched', investmentId: inv.id });
+    expect(byAlias.rows[0]!.link.investmentNumber).toBe(inv.investmentNumber);
+    expect(byAlias.exceptions).toBe(0);
+  });
 });
 
 describe('an API whose accounting layout is malformed', () => {

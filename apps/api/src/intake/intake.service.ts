@@ -47,9 +47,7 @@ import type {
   AccountingRow,
   Finding,
   IntakeSettings,
-  InvestmentDirectoryEntry,
   LockedMark,
-  MatchGuardPair,
   PreparedRow,
   RecordQuarter,
   RowDiff,
@@ -61,6 +59,7 @@ import { configError } from '../common/definitions.js';
 import { ProblemError, workflowProblem } from '../common/problem.js';
 import { ACCOUNTING_LAYOUT, ADAPTERS, DEFINITIONS } from '../common/tokens.js';
 import { requireUuid } from '../common/validate.js';
+import { investmentDirectory, matchGuards } from './directory.js';
 import { DbService } from '../db/db.service.js';
 import type { AuditEntry } from '../db/db.service.js';
 
@@ -364,10 +363,8 @@ export class IntakeService {
     settings: IntakeSettings,
     asOf: string,
   ): Promise<PreparedRow[]> {
-    const directory = await this.directory(tx);
-    const guards: MatchGuardPair[] = await tx
-      .select({ nameA: schema.matchGuard.nameA, nameB: schema.matchGuard.nameB })
-      .from(schema.matchGuard);
+    const directory = await investmentDirectory(tx);
+    const guards = await matchGuards(tx);
     const linked = linkRows(rows, directory, guards);
     const investmentIds = [
       ...new Set(linked.flatMap((l) => (l.link.investment === null ? [] : [l.link.investment.id]))),
@@ -383,27 +380,6 @@ export class IntakeService {
       settings,
       asOf,
     );
-  }
-
-  /** Visible investments with their company names; aliases are not on record yet, so each entry carries none. */
-  private async directory(tx: Tx): Promise<InvestmentDirectoryEntry[]> {
-    const rows = await tx
-      .select({
-        id: schema.investment.id,
-        investmentNumber: schema.investment.investmentNumber,
-        companyName: schema.portfolioCompany.name,
-        canonicalName: schema.portfolioCompany.canonicalName,
-        dealType: schema.investment.dealType,
-        entryDate: schema.investment.entryDate,
-        exitDate: schema.investment.exitDate,
-        isActive: schema.investment.isActive,
-      })
-      .from(schema.investment)
-      .innerJoin(
-        schema.portfolioCompany,
-        eq(schema.portfolioCompany.id, schema.investment.portfolioCompanyId),
-      );
-    return rows.map((r) => ({ ...r, aliases: [] }));
   }
 
   /** Approved quarters per investment, oldest first, as the rules and the diff read them. */
