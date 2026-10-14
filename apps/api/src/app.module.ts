@@ -29,6 +29,8 @@ import { FlagsService } from './flags/flags.service.js';
 import { HealthController } from './health/health.controller.js';
 import { IntakeController } from './intake/intake.controller.js';
 import { IntakeService } from './intake/intake.service.js';
+import { WeeklyController } from './intake/weekly/weekly.controller.js';
+import { WeeklyService } from './intake/weekly/weekly.service.js';
 import { PerformanceController } from './performance/performance.controller.js';
 import { PerformanceService } from './performance/performance.service.js';
 import { PortfolioController } from './portfolio/portfolio.controller.js';
@@ -58,6 +60,7 @@ export const CONTROLLERS = [
   ReportsController,
   AuditController,
   IntakeController,
+  WeeklyController,
 ] as const;
 
 @Module({})
@@ -87,6 +90,7 @@ export class AppModule implements NestModule {
         ReportsService,
         AuditService,
         IntakeService,
+        WeeklyService,
         { provide: APP_GUARD, useClass: AuthGuard },
         { provide: APP_FILTER, useClass: ProblemFilter },
       ],
