@@ -7,12 +7,17 @@ import {
   FILE_ID,
   intakeExportListFixture,
   intakeFilePageFixture,
+  intakeFiles,
   intakeImportResultFixture,
+  opsDropDropListFixture,
+  opsDropFileFixture,
+  opsDropRefusedFileFixture,
 } from '../../test/fixtures-intake.js';
 import { rolePrincipal, sentPosts, sentRequests } from '../../test/fixtures-valuations.js';
 import { renderWithQuery } from '../../test/render.js';
 import { navigate } from '../../test/router-mock.js';
 import { IntakePage } from './Intake.js';
+import { MAX_WORKBOOK_BYTES } from './intake.js';
 
 vi.mock('@tanstack/react-router', async () =>
   (await import('../../test/router-mock.js')).routerMock(),
@@ -22,7 +27,11 @@ const ME = '/api/v1/auth/me';
 const FILES = '/api/v1/intake/files?limit=200';
 const EXPORTS = '/api/v1/intake/accounting/exports';
 const IMPORT = '/api/v1/intake/accounting';
+const DROPS = '/api/v1/intake/ops-drop/drops';
+const OPS_DROP = '/api/v1/intake/ops-drop';
 const CSV = 'InvestmentNumber,CompanyName,PeriodEnd\nINV-0001,Meridian Data Partners,2025-06-30\n';
+/** The first bytes of any .xlsx (a zip archive) followed by filler: enough to prove bytes travel as base64. */
+const XLSX_BYTES = new Uint8Array([0x50, 0x4b, 0x03, 0x04, 0x14, 0x00, 0x00, 0x00, 0x08, 0x00]);
 
 function routes(
   roles: Parameters<typeof rolePrincipal>[0] = ['operations'],
@@ -32,12 +41,15 @@ function routes(
     [ME]: ok(rolePrincipal(roles)),
     [FILES]: ok(intakeFilePageFixture()),
     [EXPORTS]: ok(intakeExportListFixture()),
+    [DROPS]: ok(opsDropDropListFixture()),
     ...overrides,
   };
 }
 
 const fileInput = (): HTMLInputElement =>
   screen.getByLabelText<HTMLInputElement>('Accounting export (CSV)');
+const workbookInput = (): HTMLInputElement =>
+  screen.getByLabelText<HTMLInputElement>('Operations workbook (XLSX)');
 
 describe('intake list', () => {
   afterEach(() => {
@@ -89,8 +101,18 @@ describe('intake list', () => {
     const drop = await within(card).findByRole('list', { name: 'Exports in the drop folder' });
     expect(drop).toHaveTextContent('accounting-export-2025-06-30-update.csv');
     expect(screen.queryByTestId('intake-sample-clean')).not.toBeInTheDocument();
+    // The workbook upload sits in the same card with the ops drop folder beside it.
+    expect(workbookInput()).toHaveAttribute(
+      'accept',
+      '.xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    );
+    expect(screen.getByRole('button', { name: 'Stage workbook' })).toBeDisabled();
+    const workbooks = await within(card).findByRole('list', {
+      name: 'Workbooks in the ops drop folder',
+    });
+    expect(workbooks).toHaveTextContent('ops-drop-2025-06-30-update.xlsx');
     const urls = sentRequests().map(([url]) => url);
-    expect([...new Set(urls)].sort()).toEqual([ME, FILES, EXPORTS].sort());
+    expect([...new Set(urls)].sort()).toEqual([ME, FILES, EXPORTS, DROPS].sort());
 
     cleanup();
     vi.restoreAllMocks();
@@ -99,6 +121,142 @@ describe('intake list', () => {
     await screen.findByRole('table', { name: 'Intake files' });
     expect(screen.queryByTestId('intake-upload')).not.toBeInTheDocument();
     expect(sentRequests().map(([url]) => url)).not.toContain(EXPORTS);
+    expect(sentRequests().map(([url]) => url)).not.toContain(DROPS);
+  });
+
+  it('shows where each file came from, with the template a workbook matched', async () => {
+    mockApi(
+      routes(['auditor'], {
+        [FILES]: ok(
+          intakeFilePageFixture([
+            opsDropRefusedFileFixture(),
+            opsDropFileFixture(),
+            ...intakeFiles(),
+          ]),
+        ),
+      }),
+    );
+    renderWithQuery(<IntakePage />);
+    const table = await screen.findByRole('table', { name: 'Intake files' });
+    expect(
+      within(table)
+        .getAllByRole('columnheader')
+        .map((h) => h.textContent),
+    ).toEqual([
+      'File',
+      'Source',
+      'Received',
+      'Received by',
+      'Rows',
+      'Status',
+      'Counts',
+      'Exceptions',
+    ]);
+    const matched = within(table).getByText('ops-drop-2025-06-30-clean.xlsx').closest('tr')!;
+    expect(within(matched).getByText('Ops drop')).toBeInTheDocument();
+    expect(within(matched).getByText('Template: quarterly-figures')).toHaveClass('pb-cell-sub');
+    expect(within(matched).getByText('Validated')).toBeInTheDocument();
+    const refused = within(table)
+      .getByText('ops-drop-2025-06-30-unknown-template.xlsx')
+      .closest('tr')!;
+    expect(within(refused).getByText('Ops drop')).toBeInTheDocument();
+    expect(within(refused).getByText('Template: none matched')).toBeInTheDocument();
+    expect(within(refused).getByText('New')).toBeInTheDocument();
+    const accounting = within(table)
+      .getByText('accounting-export-2025-06-30-update.csv')
+      .closest('tr')!;
+    expect(within(accounting).getByText('Accounting')).toBeInTheDocument();
+    expect(within(accounting).queryByText(/Template:/)).not.toBeInTheDocument();
+  });
+
+  it('reads a chosen workbook as bytes, posts it as base64 and opens the staged file', async () => {
+    mockApi(
+      routes(['operations'], {
+        [OPS_DROP]: ok(intakeImportResultFixture(false, { ...opsDropFileFixture() })),
+      }),
+    );
+    renderWithQuery(<IntakePage />);
+    await screen.findByTestId('intake-upload');
+    await userEvent.upload(
+      workbookInput(),
+      new File([XLSX_BYTES], 'ops-drop-2025-06-30-clean.xlsx', {
+        type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      }),
+    );
+    const stage = screen.getByRole('button', { name: 'Stage workbook' });
+    await waitFor(() => expect(stage).toBeEnabled());
+    await userEvent.click(stage);
+    await waitFor(() => expect(navigate).toHaveBeenCalled());
+    expect(sentPosts()).toEqual([
+      [
+        OPS_DROP,
+        {
+          fileName: 'ops-drop-2025-06-30-clean.xlsx',
+          workbookBase64: Buffer.from(XLSX_BYTES).toString('base64'),
+        },
+      ],
+    ]);
+    expect(navigate).toHaveBeenCalledWith({
+      to: '/data/intake/$id',
+      params: { id: FILE_ID.opsDrop },
+      search: {},
+    });
+  });
+
+  it('stages a workbook from the ops drop folder by id', async () => {
+    mockApi(
+      routes(['operations'], {
+        [OPS_DROP]: ok(intakeImportResultFixture(true, { ...opsDropFileFixture() })),
+      }),
+    );
+    renderWithQuery(<IntakePage />);
+    await screen.findByTestId('intake-upload');
+    await userEvent.click(
+      await screen.findByRole('button', { name: 'Stage, ops-drop-2025-06-30-update.xlsx' }),
+    );
+    await waitFor(() => expect(navigate).toHaveBeenCalled());
+    expect(sentPosts()).toEqual([[OPS_DROP, { dropId: 'ops-drop-2025-06-30-update.xlsx' }]]);
+    expect(navigate).toHaveBeenCalledWith({
+      to: '/data/intake/$id',
+      params: { id: FILE_ID.opsDrop },
+      search: { duplicate: true },
+    });
+  });
+
+  it('refuses a workbook over the configured limit, or empty, before sending anything', async () => {
+    mockApi(routes(['operations'], { [OPS_DROP]: ok(intakeImportResultFixture()) }));
+    renderWithQuery(<IntakePage />);
+    await screen.findByTestId('intake-upload');
+    const big = new File([new Uint8Array(MAX_WORKBOOK_BYTES + 1)], 'big.xlsx');
+    await userEvent.upload(workbookInput(), big);
+    expect(await screen.findByTestId('intake-workbook-status')).toHaveTextContent(
+      'This file is 3.0 MB; the limit is 3 MB.',
+    );
+    expect(screen.getByRole('button', { name: 'Stage workbook' })).toBeDisabled();
+    await userEvent.upload(workbookInput(), new File([], 'empty.xlsx'));
+    expect(await screen.findByTestId('intake-workbook-status')).toHaveTextContent(
+      'The file is empty.',
+    );
+    expect(screen.getByRole('button', { name: 'Stage workbook' })).toBeDisabled();
+    // The export's own status stays clear: each upload reports in its own region.
+    expect(screen.getByTestId('intake-upload-status')).toBeEmptyDOMElement();
+    expect(sentPosts()).toEqual([]);
+    expect(navigate).not.toHaveBeenCalled();
+  });
+
+  it('words a refused workbook in its own status region instead of leaving the page', async () => {
+    mockApi(routes(['operations'], { [OPS_DROP]: failing(403, OPS_DROP) }));
+    renderWithQuery(<IntakePage />);
+    await screen.findByTestId('intake-upload');
+    await userEvent.upload(workbookInput(), new File([XLSX_BYTES], 'book.xlsx'));
+    const stage = screen.getByRole('button', { name: 'Stage workbook' });
+    await waitFor(() => expect(stage).toBeEnabled());
+    await userEvent.click(stage);
+    expect(
+      await screen.findByText(/Stage book.xlsx: Your role cannot do this/),
+    ).toBeInTheDocument();
+    expect(screen.getByTestId('intake-workbook-status')).toHaveTextContent('Stage book.xlsx');
+    expect(navigate).not.toHaveBeenCalled();
   });
 
   it('stages an export from the drop folder by id', async () => {

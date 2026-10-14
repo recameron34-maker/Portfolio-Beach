@@ -11,6 +11,7 @@ import {
 } from '../../test/fixtures-intake.js';
 import {
   approvableRows,
+  base64Of,
   candidatesText,
   COMMAND_ROLES,
   commandResult,
@@ -29,11 +30,14 @@ import {
   isStagingState,
   linkNote,
   MAX_UPLOAD_BYTES,
+  MAX_WORKBOOK_BYTES,
   noRowsState,
   rejectableRows,
   rowSubject,
   sampleFileName,
   sampleUrl,
+  sourceWord,
+  templateLine,
   uploadSizeProblem,
 } from './intake.js';
 
@@ -53,6 +57,38 @@ describe('intake helpers', () => {
   it('names the preview samples by scenario, relative to the page', () => {
     expect(sampleFileName('update')).toBe('accounting-update.csv');
     expect(sampleUrl('defects')).toBe('preview/samples/accounting-defects.csv');
+  });
+
+  it('holds a workbook to the bytes the base64 limit allows and encodes it as the API reads it', () => {
+    expect(MAX_WORKBOOK_BYTES).toBe(
+      Math.floor((definitions.intake.maxWorkbookBase64Chars * 3) / 4),
+    );
+    expect(uploadSizeProblem(MAX_WORKBOOK_BYTES, MAX_WORKBOOK_BYTES)).toBeNull();
+    expect(uploadSizeProblem(MAX_WORKBOOK_BYTES + 1, MAX_WORKBOOK_BYTES)).toBe(
+      'This file is 3.0 MB; the limit is 3 MB.',
+    );
+    const bytes = new Uint8Array([0x50, 0x4b, 0x03, 0x04, 0x00, 0xff, 0x7f, 0x80]);
+    expect(base64Of(bytes)).toBe(Buffer.from(bytes).toString('base64'));
+    expect(base64Of(new Uint8Array())).toBe('');
+    // A body past one encoding slice comes out the same as the reference encoder.
+    const long = new Uint8Array(70_000).map((_, i) => i % 251);
+    expect(base64Of(long)).toBe(Buffer.from(long).toString('base64'));
+    expect(base64Of(long).length).toBeLessThanOrEqual(definitions.intake.maxWorkbookBase64Chars);
+  });
+
+  it('names every source in plain words and the template of an ops-drop file only', () => {
+    expect(sourceWord('accounting')).toBe('Accounting');
+    expect(sourceWord('weekly')).toBe('Weekly values');
+    expect(sourceWord('lookthrough')).toBe('Look-through');
+    expect(sourceWord('ops_drop')).toBe('Ops drop');
+    expect(templateLine({ source: 'ops_drop', templateSignature: 'quarterly-figures' })).toBe(
+      'Template: quarterly-figures',
+    );
+    expect(templateLine({ source: 'ops_drop', templateSignature: null })).toBe(
+      'Template: none matched',
+    );
+    expect(templateLine({ source: 'accounting', templateSignature: null })).toBeNull();
+    expect(templateLine({ source: 'weekly', templateSignature: 'quarterly-figures' })).toBeNull();
   });
 
   it('filters by the states the staging machine knows, not every one of them', () => {

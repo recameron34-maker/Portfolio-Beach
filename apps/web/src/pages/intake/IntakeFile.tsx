@@ -49,6 +49,8 @@ import {
   noRowsState,
   rejectableRows,
   rowSubject,
+  sourceWord,
+  templateLine,
 } from './intake.js';
 import './intake.css';
 
@@ -426,6 +428,8 @@ function FileBody({
         title={file.fileName}
         meta={
           <span className="pb-meta-list">
+            <span>{sourceWord(file.source)}</span>
+            {templateLine(file) === null ? null : <span>{templateLine(file)}</span>}
             <span>Received {dayOf(file.receivedAt)}</span>
             <span>By {file.receivedBy ?? MISSING}</span>
             <span>{plural(file.rowCount, 'row')}</span>
@@ -436,7 +440,7 @@ function FileBody({
       />
       {duplicate ? (
         <p className="pb-notice" data-testid="intake-duplicate">
-          This export was staged before. Its rows are shown as they stand; nothing new was staged.
+          This file was staged before. Its rows are shown as they stand; nothing new was staged.
         </p>
       ) : null}
       <Tiles file={file} />

@@ -9,6 +9,9 @@ import {
   FILE_ID,
   fileFindingsFixture,
   intakeFileDetailFixture,
+  intakeRows,
+  opsDropFileFixture,
+  opsDropRefusedFileFixture,
   rejectedDetailFixture,
 } from '../../test/fixtures-intake.js';
 import { POSITION_ID, rolePrincipal, sentPosts } from '../../test/fixtures-valuations.js';
@@ -353,9 +356,61 @@ describe('intake file', () => {
       '2 rows are linked to positions you cannot see',
     );
     expect(screen.getByTestId('intake-duplicate')).toHaveTextContent(
-      'This export was staged before. Its rows are shown as they stand; nothing new was staged.',
+      'This file was staged before. Its rows are shown as they stand; nothing new was staged.',
     );
     expect(screen.queryByTestId('intake-no-rows')).not.toBeInTheDocument();
+  });
+
+  it('names the source and the template of a workbook the ops drop matched', async () => {
+    route.id = FILE_ID.opsDrop;
+    mockApi({
+      [ME]: ok(rolePrincipal(['operations'])),
+      [detailPath(FILE_ID.opsDrop)]: ok({
+        ...opsDropFileFixture(),
+        rows: intakeRows().slice(0, 2),
+        hiddenRows: 0,
+      }),
+    });
+    renderWithQuery(<IntakeFilePage />);
+    const banner = await screen.findByTestId('intake-banner');
+    expect(within(banner).getByRole('heading', { level: 1 })).toHaveTextContent(
+      'ops-drop-2025-06-30-clean.xlsx',
+    );
+    expect(banner).toHaveTextContent('Ops drop');
+    expect(banner).toHaveTextContent('Template: quarterly-figures');
+    expect(banner).toHaveTextContent('Received Jul 2, 2025');
+    expect(screen.getByRole('table', { name: 'Staged rows' })).toBeInTheDocument();
+    // An accounting file names its source and no template.
+    cleanup();
+    vi.restoreAllMocks();
+    mockApi(routes());
+    renderWithQuery(<IntakeFilePage />);
+    const accounting = await screen.findByTestId('intake-banner');
+    expect(accounting).toHaveTextContent('Accounting');
+    expect(accounting).not.toHaveTextContent('Template:');
+  });
+
+  it('shows the LAYOUT-05 finding of a workbook that matched no template, naming the templates', async () => {
+    route.id = FILE_ID.opsDropRefused;
+    mockApi({
+      [ME]: ok(rolePrincipal(['operations'])),
+      [detailPath(FILE_ID.opsDropRefused)]: ok({
+        ...opsDropRefusedFileFixture(),
+        rows: [],
+        hiddenRows: 0,
+      }),
+    });
+    renderWithQuery(<IntakeFilePage />);
+    const banner = await screen.findByTestId('intake-banner');
+    expect(banner).toHaveTextContent('Template: none matched');
+    const findings = screen.getByRole('list', { name: 'File findings' });
+    expect(within(findings).getByText('LAYOUT-05')).toHaveClass('pb-badge-bad');
+    expect(findings).toHaveTextContent('No template matches this workbook');
+    expect(findings).toHaveTextContent('Expected quarterly-figures');
+    expect(findings).toHaveTextContent('actual sheets: Figures, Notes; header hash:');
+    const empty = screen.getByTestId('intake-no-rows');
+    expect(empty).toHaveTextContent('No rows were staged');
+    expect(screen.queryByRole('table', { name: 'Staged rows' })).not.toBeInTheDocument();
   });
 
   it('says every row sits behind a wall when the file has rows and the reviewer sees none', async () => {

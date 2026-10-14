@@ -6,6 +6,7 @@ import type {
   IntakeFinding,
   IntakeLink,
   IntakeRow,
+  IntakeSource,
   StagingState,
 } from '@pb/contracts';
 import { DECIMAL_PATTERN, ROUTES } from '@pb/contracts';
@@ -27,11 +28,52 @@ export const INTAKE_META = 'Staging, validation, approval, then production (SEC-
 export const INTAKE_FORBIDDEN = {
   title: 'Intake is for operations and reviewers',
   detail:
-    'Operations stages accounting exports; operations, the deal team, approvers and auditors read them. Ask a platform administrator if you need access.',
+    'Operations stages accounting exports and operations workbooks; operations, the deal team, approvers and auditors read them. Ask a platform administrator if you need access.',
 };
 
 /** The largest upload the API accepts (config/definitions.json intake.maxFileBytes); the page refuses it first. */
 export const MAX_UPLOAD_BYTES: number = definitions.intake.maxFileBytes;
+
+/**
+ * The largest workbook the API accepts, in bytes: it caps the upload as base64
+ * (config/definitions.json intake.maxWorkbookBase64Chars), and base64 writes four characters for
+ * every three bytes, so the page refuses a larger file before encoding it.
+ */
+export const MAX_WORKBOOK_BYTES: number = Math.floor(
+  (definitions.intake.maxWorkbookBase64Chars * 3) / 4,
+);
+
+/** The file as base64 for the upload body, encoded in slices so a large workbook never overflows the call stack. */
+export function base64Of(bytes: Uint8Array): string {
+  const SLICE = 0x8000;
+  let binary = '';
+  for (let i = 0; i < bytes.length; i += SLICE)
+    binary += String.fromCharCode(...bytes.subarray(i, i + SLICE));
+  return btoa(binary);
+}
+
+/** Where a file came from, in the words the list and the banner use (docs/04 M2). */
+export const SOURCE_WORDS: Readonly<Record<IntakeSource, string>> = {
+  accounting: 'Accounting',
+  weekly: 'Weekly values',
+  lookthrough: 'Look-through',
+  ops_drop: 'Ops drop',
+};
+
+export function sourceWord(source: IntakeSource): string {
+  return SOURCE_WORDS[source];
+}
+
+/**
+ * "Template: quarterly-figures" for a workbook the ops drop matched, "Template: none matched" for
+ * one it refused (its file findings say which templates exist), and nothing for any other source.
+ */
+export function templateLine(
+  file: Pick<IntakeFile, 'source' | 'templateSignature'>,
+): string | null {
+  if (file.source !== 'ops_drop') return null;
+  return `Template: ${file.templateSignature ?? 'none matched'}`;
+}
 
 /** The row states a reviewer filters by; new and approved are moments between two of these. */
 export const INTAKE_FILTER_STATES: readonly StagingState[] = [

@@ -15,6 +15,8 @@ export const FILE_ID = {
   update: '00000000-0000-4000-8000-000000000601',
   clean: '00000000-0000-4000-8000-000000000602',
   refused: '00000000-0000-4000-8000-000000000603',
+  opsDrop: '00000000-0000-4000-8000-000000000604',
+  opsDropRefused: '00000000-0000-4000-8000-000000000605',
 } as const;
 
 export const ROW_ID = {
@@ -304,6 +306,67 @@ export function fileFindingsFixture(): IntakeFinding[] {
       actual: null,
     },
   ];
+}
+
+/** A workbook the ops drop matched to the quarterly-figures template: every row validated, waiting. */
+export function opsDropFileFixture(overrides: Partial<IntakeFile> = {}): IntakeFile {
+  return intakeFileFixture({
+    id: FILE_ID.opsDrop,
+    source: 'ops_drop',
+    templateSignature: 'quarterly-figures',
+    fileName: 'ops-drop-2025-06-30-clean.xlsx',
+    contentHash: 'd6a4f2b5e0c7839213b4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b1c2d3e4f5a6',
+    receivedAt: '2025-07-02T08:30:00.000Z',
+    rowCount: 9,
+    status: 'validated',
+    counts: { ...ZERO_COUNTS, validated: 9 },
+    fileFindings: [],
+    exceptions: 0,
+    rowVersion: 1,
+    ...overrides,
+  });
+}
+
+/** The file finding of a workbook that matched no template (LAYOUT-05): the templates known, the signature seen, never a cell. */
+export function opsDropRefusedFindingsFixture(): IntakeFinding[] {
+  return [
+    {
+      ruleId: 'LAYOUT-05',
+      severity: 'error',
+      message: 'No template matches this workbook',
+      field: null,
+      expected: 'quarterly-figures',
+      actual:
+        'sheets: Figures, Notes; header hash: 84a93c700300a189d9dd888623cd10ba790a21b9f5c551177500ff4db2b3cb51 (Figures)',
+    },
+  ];
+}
+
+/** A workbook the ops drop refused: no template, no rows, the file stays new. */
+export function opsDropRefusedFileFixture(): IntakeFile {
+  return opsDropFileFixture({
+    id: FILE_ID.opsDropRefused,
+    templateSignature: null,
+    fileName: 'ops-drop-2025-06-30-unknown-template.xlsx',
+    contentHash: 'e7b5a3c6f1d8940324c5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b1c2d3e4f5a6b7',
+    receivedAt: '2025-07-02T08:35:00.000Z',
+    rowCount: 0,
+    status: 'new',
+    counts: ZERO_COUNTS,
+    fileFindings: opsDropRefusedFindingsFixture(),
+  });
+}
+
+export function opsDropDropListFixture(
+  items: IntakeExportList['items'] = [
+    {
+      id: 'ops-drop-2025-06-30-update.xlsx',
+      name: 'ops-drop-2025-06-30-update.xlsx',
+      receivedAt: '2025-07-02T08:00:00.000Z',
+    },
+  ],
+): IntakeExportList {
+  return { items };
 }
 
 /** Newest first: the update file with work left, a clean file fully promoted, a refused file. */
