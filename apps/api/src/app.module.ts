@@ -24,11 +24,15 @@ import {
 import type { Runtime } from './composition.js';
 import { DataController } from './data/data.controller.js';
 import { DbService } from './db/db.service.js';
+import { ExceptionsController } from './exceptions/exceptions.controller.js';
+import { ExceptionsService } from './exceptions/exceptions.service.js';
 import { FlagsController } from './flags/flags.controller.js';
 import { FlagsService } from './flags/flags.service.js';
 import { HealthController } from './health/health.controller.js';
 import { IntakeController } from './intake/intake.controller.js';
 import { IntakeService } from './intake/intake.service.js';
+import { LookthroughController } from './intake/lookthrough/lookthrough.controller.js';
+import { LookthroughService } from './intake/lookthrough/lookthrough.service.js';
 import { PerformanceController } from './performance/performance.controller.js';
 import { PerformanceService } from './performance/performance.service.js';
 import { PortfolioController } from './portfolio/portfolio.controller.js';
@@ -58,6 +62,8 @@ export const CONTROLLERS = [
   ReportsController,
   AuditController,
   IntakeController,
+  LookthroughController,
+  ExceptionsController,
 ] as const;
 
 @Module({})
@@ -87,6 +93,8 @@ export class AppModule implements NestModule {
         ReportsService,
         AuditService,
         IntakeService,
+        LookthroughService,
+        ExceptionsService,
         { provide: APP_GUARD, useClass: AuthGuard },
         { provide: APP_FILTER, useClass: ProblemFilter },
       ],
