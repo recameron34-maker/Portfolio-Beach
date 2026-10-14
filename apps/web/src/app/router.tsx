@@ -29,6 +29,8 @@ import {
 import { DataDictionaryPage, DataHealthPage } from '../pages/Data.js';
 import { IntakePage } from '../pages/intake/Intake.js';
 import { IntakeFilePage } from '../pages/intake/IntakeFile.js';
+import { WeeklyPage } from '../pages/weekly/Weekly.js';
+import { WeeklyFilePage } from '../pages/weekly/WeeklyFile.js';
 import { ActivityTab } from '../pages/deal/ActivityTab.js';
 import { CapitalTab } from '../pages/deal/CapitalTab.js';
 import { DealWorkspace } from '../pages/deal/DealWorkspace.js';
@@ -144,6 +146,15 @@ const dataIntakeFileRoute = createRoute({
   validateSearch: (search: Record<string, unknown>): { duplicate?: boolean } =>
     search.duplicate === true || search.duplicate === 'true' ? { duplicate: true } : {},
 });
+const dataWeeklyRoute = child('/data/weekly', WeeklyPage);
+/** The staged weekly values file; `duplicate` in the search says the import that led here staged nothing new. */
+const dataWeeklyFileRoute = createRoute({
+  getParentRoute: () => appRoute,
+  path: '/data/weekly/$id',
+  component: WeeklyFilePage,
+  validateSearch: (search: Record<string, unknown>): { duplicate?: boolean } =>
+    search.duplicate === true || search.duplicate === 'true' ? { duplicate: true } : {},
+});
 
 const routeTree = rootRoute.addChildren([
   signInRoute,
@@ -193,6 +204,8 @@ const routeTree = rootRoute.addChildren([
     dataTaxonomyRoute,
     dataIntakeRoute,
     dataIntakeFileRoute,
+    dataWeeklyRoute,
+    dataWeeklyFileRoute,
   ]),
 ]);
 
