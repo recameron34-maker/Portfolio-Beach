@@ -83,8 +83,8 @@ function figure(row: AccountingRow, field: FigureField): Decimal | null {
   return value !== null && DECIMAL.test(value) ? D(value) : null;
 }
 
-/** The digits a well-formed decimal string carries, leading and trailing zeros aside. */
-function digitsOf(value: string): { integerDigits: number; decimalPlaces: number } {
+/** The digits a well-formed decimal string carries, leading and trailing zeros aside (TYPE-05 and WK-TYPE-05). */
+export function digitsOf(value: string): { integerDigits: number; decimalPlaces: number } {
   const [whole = '', fraction = ''] = value.replace(/^-/, '').split('.');
   return {
     integerDigits: whole.replace(/^0+(?=\d)/, '').length,

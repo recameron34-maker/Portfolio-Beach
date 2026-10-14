@@ -91,7 +91,8 @@ function Tiles({ file }: { file: IntakeFileDetail }): ReactNode {
   );
 }
 
-function FileFindingsCard({ findings }: { findings: readonly IntakeFinding[] }): ReactNode {
+/** The file-level findings of a refused file; every intake's detail page shows them the same way. */
+export function FileFindingsCard({ findings }: { findings: readonly IntakeFinding[] }): ReactNode {
   return (
     <Card tone="error" testId="intake-file-findings">
       <SectionHeader>File findings</SectionHeader>
@@ -112,7 +113,11 @@ function FileFindingsCard({ findings }: { findings: readonly IntakeFinding[] }):
 }
 
 /** The investment a row is about: a link once matched, else the file's name with why it did not link. */
-function SubjectCell({ row }: { row: IntakeRow }): ReactNode {
+export function SubjectCell({
+  row,
+}: {
+  row: Pick<IntakeRow, 'investmentNumber' | 'companyName' | 'link'>;
+}): ReactNode {
   const subject = rowSubject(row);
   const note = linkNote(row.link);
   const candidates = candidatesText(row.link.candidates);
@@ -163,7 +168,8 @@ function DiffCell({ diff }: { diff: IntakeRow['diff'] }): ReactNode {
   );
 }
 
-function FindingsCell({ findings }: { findings: readonly IntakeFinding[] }): ReactNode {
+/** A row's findings as rule badges, with the messages behind a disclosure. */
+export function FindingsCell({ findings }: { findings: readonly IntakeFinding[] }): ReactNode {
   if (findings.length === 0) {
     return (
       <td>

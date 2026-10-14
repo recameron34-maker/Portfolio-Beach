@@ -234,8 +234,14 @@ export interface RowFilters {
   search: string;
 }
 
+/** What the filters and the action gates read of a row; the accounting and the weekly rows both carry it. */
+export type FilterableRow = Pick<IntakeRow, 'investmentNumber' | 'companyName' | 'link' | 'status'>;
+
 /** Client-side filters over the one list the page reads: a state, and a search over number and company. */
-export function filterRows(rows: readonly IntakeRow[], filters: RowFilters): IntakeRow[] {
+export function filterRows<Row extends FilterableRow>(
+  rows: readonly Row[],
+  filters: RowFilters,
+): Row[] {
   const needle = filters.search.trim().toLowerCase();
   return rows.filter((row) => {
     if (filters.state !== '' && row.status !== filters.state) return false;
@@ -252,12 +258,12 @@ export function filterRows(rows: readonly IntakeRow[], filters: RowFilters): Int
 }
 
 /** The rows an approve applies to: every validated row (docs/18 section 2). */
-export function approvableRows(rows: readonly IntakeRow[]): IntakeRow[] {
+export function approvableRows<Row extends Pick<IntakeRow, 'status'>>(rows: readonly Row[]): Row[] {
   return rows.filter((r) => r.status === 'validated');
 }
 
 /** The rows a reject applies to: every flagged row. */
-export function rejectableRows(rows: readonly IntakeRow[]): IntakeRow[] {
+export function rejectableRows<Row extends Pick<IntakeRow, 'status'>>(rows: readonly Row[]): Row[] {
   return rows.filter((r) => r.status === 'flagged');
 }
 
@@ -309,7 +315,10 @@ function gate(
  * not the file's counts: a validated row past the reviewer's wall is counted in hiddenRows and
  * waits for a wall member. A button with nothing to act on is disabled and says so.
  */
-export function intakeActions(roles: readonly string[], rows: readonly IntakeRow[]): IntakeActions {
+export function intakeActions(
+  roles: readonly string[],
+  rows: readonly Pick<IntakeRow, 'status'>[],
+): IntakeActions {
   return {
     approve: gate(
       roles,
@@ -356,7 +365,9 @@ export interface NoRowsState {
  * linked to a position behind a wall, which the file's counts still cover.
  */
 export function noRowsState(
-  file: Pick<IntakeFileDetail, 'rowCount' | 'rows' | 'hiddenRows' | 'fileFindings'>,
+  file: Pick<IntakeFileDetail, 'rowCount' | 'hiddenRows' | 'fileFindings'> & {
+    rows: readonly unknown[];
+  },
 ): NoRowsState | null {
   if (file.rowCount === 0) {
     return {

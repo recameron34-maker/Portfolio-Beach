@@ -79,12 +79,18 @@ export function linkOf(link: LinkResult): LinkSummary {
   };
 }
 
-/** Every row of the file with the link the importer made for it, in file order. */
-export function linkRows(
-  rows: readonly AccountingRow[],
+/** What linking reads of a row: the number and the name as the file wrote them (every intake's rows carry both). */
+export interface LinkableRow {
+  investmentNumber: string | null;
+  companyName: string | null;
+}
+
+/** Every row of the file with the link the importer made for it, in file order; every intake links its rows here. */
+export function linkRows<R extends LinkableRow>(
+  rows: readonly R[],
   directory: readonly InvestmentDirectoryEntry[],
   guards: readonly MatchGuardPair[],
-): LinkedRow[] {
+): { row: R; link: LinkResult }[] {
   return rows.map((row) => ({ row, link: linkInvestment(row, directory, guards) }));
 }
 
@@ -191,8 +197,15 @@ const LINK_EXCEPTION: Record<Exclude<LinkStatus, 'matched'>, ExceptionRuleId> = 
   ambiguous: 'XREF-03',
 };
 
+/** What the exception rule reads of a prepared row; a PreparedRow is one, and so is a staged weekly value. */
+export interface ExceptionSource {
+  row: LinkableRow;
+  link: LinkResult;
+  findings: readonly Finding[];
+}
+
 /** One exception per unresolved link, then one per fair value that does not tie, in that order. */
-export function exceptionsOpenedBy(prepared: PreparedRow): OpenedException[] {
+export function exceptionsOpenedBy(prepared: ExceptionSource): OpenedException[] {
   const out: OpenedException[] = [];
   if (prepared.link.status !== 'matched') {
     const ruleId = LINK_EXCEPTION[prepared.link.status];
