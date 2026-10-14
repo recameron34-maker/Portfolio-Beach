@@ -81,4 +81,10 @@ describe('state and command names in words', () => {
     expect(humanizeState('validated')).toBe('Validated');
     expect(humanizeState('DealTeamApproved')).toBe('Deal team approved');
   });
+
+  it('reads snake_case names as words, with the one contraction the exception machine needs', () => {
+    expect(humanizeState('wont_fix')).toBe("Won't fix");
+    expect(commandLabel('wont_fix')).toBe("Won't fix");
+    expect(humanizeState('in_progress')).toBe('In progress');
+  });
 });

@@ -7,8 +7,16 @@ import { ROLE_WORDS } from './roles.js';
 const ACRONYMS = /\b(ic|qa)\b/gi;
 
 /** A camelCase or PascalCase name as a sentence-case phrase, acronyms kept. */
+/** Names whose plain words are not their letters: a contraction, or a word the code could not carry. */
+const PHRASE_WORDS: Readonly<Record<string, string>> = { wont_fix: "Won't fix" };
+
 function phrase(name: string): string {
-  const spaced = name.replace(/([a-z])([A-Z])/g, '$1 $2').replace(/([A-Z]+)([A-Z][a-z])/g, '$1 $2');
+  const known = PHRASE_WORDS[name];
+  if (known !== undefined) return known;
+  const spaced = name
+    .replace(/_/g, ' ')
+    .replace(/([a-z])([A-Z])/g, '$1 $2')
+    .replace(/([A-Z]+)([A-Z][a-z])/g, '$1 $2');
   const sentence = spaced.charAt(0).toUpperCase() + spaced.slice(1).toLowerCase();
   return sentence.replace(ACRONYMS, (a) => a.toUpperCase());
 }
