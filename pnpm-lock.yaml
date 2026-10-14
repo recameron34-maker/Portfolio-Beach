@@ -258,12 +258,18 @@ importers:
 
   tools/synthetic:
     dependencies:
+      '@pb/adapters':
+        specifier: workspace:*
+        version: link:../../packages/adapters
       '@pb/calc':
         specifier: workspace:*
         version: link:../../packages/calc
       '@pb/db':
         specifier: workspace:*
         version: link:../../packages/db
+      '@pb/validation':
+        specifier: workspace:*
+        version: link:../../packages/validation
     devDependencies:
       drizzle-orm:
         specifier: 0.45.3

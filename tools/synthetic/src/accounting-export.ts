@@ -8,6 +8,8 @@ import {
 import type { SyntheticDataset } from '@pb/db';
 import layout from '../../../config/accounting_layout.json' with { type: 'json' };
 import definitions from '../../../config/definitions.json' with { type: 'json' };
+import { csvText } from './csv.js';
+import { activePositions, walledInvestment } from './marks.js';
 
 /**
  * A synthetic export from the accounting system in the generic layout of
@@ -47,8 +49,12 @@ export interface AccountingExportExpectations {
 
 export interface AccountingExport {
   fileName: string;
+  /** The quarter the export is for. */
+  periodEnd: string;
   csv: string;
   header: string[];
+  /** The cells of every data line in header order, as the CSV carries them before quoting. */
+  rows: string[][];
   expectations: AccountingExportExpectations;
 }
 
@@ -76,9 +82,6 @@ const SOURCE_FIELD: Record<string, keyof Line> = {
   'quarterly_performance.net_debt': 'netDebt',
   'valuation.fair_value': 'fairValue',
 };
-
-const cell = (value: string): string =>
-  /[",\r\n]/.test(value) ? `"${value.replace(/"/g, '""')}"` : value;
 
 const scale = (value: string | null, factor: string): string =>
   value === null ? '' : D(value).times(factor).toFixed(2);
@@ -130,9 +133,7 @@ export function accountingExport(
     fairValue: lockedFairValue(inv, q.periodEnd),
   });
 
-  const equity = dataset.investments
-    .filter((i) => i.isActive && i.dealType !== 'deal_type.private_credit')
-    .sort((a, b) => a.investmentNumber.localeCompare(b.investmentNumber));
+  const equity = activePositions(dataset, 'equity');
   const lines: Line[] = [];
   for (const inv of equity) {
     // The quarter that reports for the period end, so a shifted period end still finds its quarter
@@ -155,7 +156,7 @@ export function accountingExport(
     equity.find((i) => i.investmentNumber === n);
   const onQuarter = (l: Line): boolean => l.periodEnd === periodEnd;
   // The walled position is found by its number, never by its place in the file.
-  const walled = equity.find((i) => i.id === dataset.scenarios.walled_deal?.[0]);
+  const walled = walledInvestment(dataset);
   const walledIndex =
     walled === undefined
       ? -1
@@ -293,11 +294,13 @@ export function accountingExport(
   expectations.rows = lines.length;
   const header = layout.export.columns.map((c) => c.name);
   const fields = layout.export.columns.map((c) => SOURCE_FIELD[c.source] ?? 'companyName');
-  const body = lines.map((line) => fields.map((f) => cell(line[f])).join(','));
+  const rows = lines.map((line) => fields.map((f) => line[f]));
   return {
     fileName: `accounting-export-${periodEnd}-${scenario}.csv`,
-    csv: `${[header.join(','), ...body].join('\n')}\n`,
+    periodEnd,
+    csv: csvText(header, rows),
     header,
+    rows,
     expectations,
   };
 }

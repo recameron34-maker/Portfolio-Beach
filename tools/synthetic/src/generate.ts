@@ -1,5 +1,7 @@
 import { D, addDays, addMonths, compareIso, containingQuarterEnd, nextQuarterEnd } from '@pb/calc';
 import type { SyntheticDataset } from '@pb/db';
+import { companyAliasesFor } from './aliases.js';
+import type { CompanyAlias } from './aliases.js';
 import { NameFactory, canonical } from './names.js';
 import { Rng } from './prng.js';
 import { PROFILES } from './profiles.js';
@@ -10,6 +12,14 @@ export interface GenerateOptions {
   seed?: number;
   /** The reporting date the dataset is built up to (quarter end). */
   asOf?: string;
+}
+
+/**
+ * The generator's output: the seed loader's contract plus the company aliases (core.company_alias),
+ * which a seed schema from before the alias table strips on parse and a later one inserts.
+ */
+export interface GeneratedDataset extends SyntheticDataset {
+  companyAliases: CompanyAlias[];
 }
 
 type Users = SyntheticDataset['users'];
@@ -73,13 +83,15 @@ function quarterHighlights(
   return [revenue, margin, debt];
 }
 
-export function generateDataset(options: GenerateOptions = {}): SyntheticDataset {
+export function generateDataset(options: GenerateOptions = {}): GeneratedDataset {
   const profile: Profile = PROFILES[options.profile ?? 'default'] ?? PROFILES.default!;
   const seed = options.seed ?? 42;
   const asOf = options.asOf ?? '2025-06-30';
   const rng = new Rng(seed);
   // Ids for the cost marks below come from their own stream, so adding them moved no other value.
   const costMarkIds = new Rng(seed ^ 0x2545f491);
+  // The company aliases draw from their own stream for the same reason.
+  const aliasDraws = new Rng(seed ^ 0x3c6ef372);
   const names = new NameFactory(rng);
   const scenarioLog: Record<string, string[]> = {};
   const tag = (scenario: string, id: string): void => {
@@ -1162,7 +1174,25 @@ export function generateDataset(options: GenerateOptions = {}): SyntheticDataset
     }
   }
 
-  const dataset: SyntheticDataset = {
+  // ---- Company aliases (docs/03 section 5) ---------------------------------------------------
+  // About a third of the companies get one or two; the first active equity position outside the
+  // wall and off the match guard list always does, so every sample drop has a row that links by
+  // alias whatever the seed.
+  const walledIds = new Set(walls.flatMap((w) => w.records.map((r) => r.entityId)));
+  const guardedNames = new Set(matchGuards.flatMap((g) => [g.nameA, g.nameB]));
+  const anchor = activeEquity.find(
+    (i) =>
+      !walledIds.has(i.id) &&
+      !guardedNames.has(portfolioCompanies.find((c) => c.id === i.portfolioCompanyId)?.name ?? ''),
+  );
+  const companyAliases = companyAliasesFor(
+    portfolioCompanies,
+    matchGuards,
+    aliasDraws,
+    new Set(anchor === undefined ? [] : [anchor.portfolioCompanyId]),
+  );
+
+  const dataset: GeneratedDataset = {
     version: 1,
     profile: profile.name,
     seed,
@@ -1172,6 +1202,7 @@ export function generateDataset(options: GenerateOptions = {}): SyntheticDataset
     sponsorFunds,
     fundAliases,
     portfolioCompanies,
+    companyAliases,
     fundHoldings,
     vehicles,
     investments,
