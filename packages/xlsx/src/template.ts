@@ -14,13 +14,18 @@ export const TEMPLATE_UNIT_SEPARATOR = '\u001f';
 export interface TemplateKey {
   /** Every sheet name, in workbook order. */
   sheets: string[];
-  /** The cells of the header sheet's first row, as read. */
+  /** The cells of the header sheet's first row, as read, without its trailing empty cells. */
   header: string[];
   /** `sheets` joined by the record separator, the unit separator, then `header` joined by the unit separator. */
   canonical: string;
 }
 
-/** Refuses, with a `WorkbookError`, when the workbook has no sheet of that name. */
+/**
+ * Refuses, with a `WorkbookError`, when the workbook has no sheet of that name. Trailing empty
+ * cells of the header row are dropped before the key is built: Excel writes an empty cell for
+ * a formatted but blank column, so the same template would otherwise give two signatures
+ * depending on how far its header row happens to extend. Empty cells inside the header stay.
+ */
 export function templateKey(workbook: Workbook, headerSheet: string): TemplateKey {
   const sheets = workbook.sheets.map((s) => s.name);
   const sheet = workbook.sheets.find((s) => s.name === headerSheet);
@@ -28,6 +33,7 @@ export function templateKey(workbook: Workbook, headerSheet: string): TemplateKe
     throw new WorkbookError(`The workbook has no sheet named ${headerSheet}`, 'missing_part');
   }
   const header = [...(sheet.rows[0] ?? [])];
+  while (header.length > 0 && header[header.length - 1] === '') header.pop();
   const canonical =
     sheets.join(TEMPLATE_RECORD_SEPARATOR) +
     TEMPLATE_UNIT_SEPARATOR +
