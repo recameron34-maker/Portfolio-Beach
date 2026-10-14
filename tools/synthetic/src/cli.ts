@@ -2,17 +2,57 @@ import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { accountingExports } from './accounting-export.js';
 import { generateDataset } from './generate.js';
+import type { GeneratedDataset } from './generate.js';
+import { lookthroughExtract } from './lookthrough-extract.js';
 import { verifyDataset } from './verify.js';
+import { weeklyValuesSet } from './weekly-values.js';
 
 /**
  * pnpm synth --profile default --seed 42 --out .synthetic/
  * pnpm synth:verify --in .synthetic/dataset.json
  * pnpm synth:exports --profile small --seed 42 --out .synthetic/accounting/in
+ * pnpm synth:drops --profile small --seed 42 --root .synthetic/drops   (weekly and look-through)
  */
 function arg(name: string, fallback: string): string {
   const i = process.argv.indexOf(`--${name}`);
   const v = i >= 0 ? process.argv[i + 1] : undefined;
   return v ?? fallback;
+}
+
+/** The drop folders the API reads (PB_DROP_ROOT): `weekly/in` and `lookthrough` sit under it. */
+const DEFAULT_DROP_ROOT = '.synthetic/drops';
+
+function sampleDataset(): GeneratedDataset {
+  return generateDataset({ profile: arg('profile', 'small'), seed: Number(arg('seed', '42')) });
+}
+
+function dropRoot(): string {
+  return arg('root', process.env.PB_DROP_ROOT ?? DEFAULT_DROP_ROOT);
+}
+
+/** The three weekly values files into `<root>/weekly/in`, the folder the weekly drop reads. */
+function writeWeekly(root: string, dataset: GeneratedDataset): void {
+  const out = join(root, 'weekly', 'in');
+  mkdirSync(out, { recursive: true });
+  for (const file of weeklyValuesSet(dataset)) {
+    writeFileSync(join(out, file.fileName), file.csv);
+    process.stdout.write(
+      `synth:weekly: wrote ${join(out, file.fileName)} (${file.expectations.rows} rows)\n`,
+    );
+  }
+}
+
+/** The clean extract as `<root>/lookthrough/<asOf>.json`, the defects one beside it. */
+function writeLookthrough(root: string, dataset: GeneratedDataset): void {
+  const out = join(root, 'lookthrough');
+  mkdirSync(out, { recursive: true });
+  for (const scenario of ['clean', 'defects'] as const) {
+    const file = lookthroughExtract(dataset, { scenario });
+    writeFileSync(join(out, file.dropName), file.json);
+    process.stdout.write(
+      `synth:lookthrough: wrote ${join(out, file.dropName)} (${file.expectations.rows} rows)\n`,
+    );
+  }
 }
 
 const command = process.argv[2];
@@ -54,19 +94,26 @@ if (command === 'generate') {
   process.exit(report.ok ? 0 : 1);
 } else if (command === 'exports') {
   // The accounting system's drop folder (the local folder adapter reads `in/`): three sample exports.
-  const profile = arg('profile', 'small');
-  const seed = Number(arg('seed', '42'));
   const out = arg('out', '.synthetic/accounting/in');
   mkdirSync(out, { recursive: true });
-  for (const file of accountingExports(generateDataset({ profile, seed }))) {
+  for (const file of accountingExports(sampleDataset())) {
     writeFileSync(join(out, file.fileName), file.csv);
     process.stdout.write(
       `synth:exports: wrote ${join(out, file.fileName)} (${file.expectations.rows} rows)\n`,
     );
   }
+} else if (command === 'weekly') {
+  writeWeekly(dropRoot(), sampleDataset());
+} else if (command === 'lookthrough') {
+  writeLookthrough(dropRoot(), sampleDataset());
+} else if (command === 'drops') {
+  const dataset = sampleDataset();
+  const root = dropRoot();
+  writeWeekly(root, dataset);
+  writeLookthrough(root, dataset);
 } else {
   process.stderr.write(
-    'usage: cli.js generate [--profile p] [--seed n] [--out dir] | verify [--in file] | exports [--profile p] [--seed n] [--out dir]\n',
+    'usage: cli.js generate [--profile p] [--seed n] [--out dir] | verify [--in file] | exports [--profile p] [--seed n] [--out dir] | weekly | lookthrough | drops [--profile p] [--seed n] [--root dir]\n',
   );
   process.exit(2);
 }
