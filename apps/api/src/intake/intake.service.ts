@@ -1,67 +1,52 @@
-import { createHash, randomUUID } from 'node:crypto';
+import { createHash } from 'node:crypto';
 import { Inject, Injectable } from '@nestjs/common';
-import { and, asc, desc, eq, inArray, lt, or, sql } from 'drizzle-orm';
+import { and, desc, eq, lt, or, sql } from 'drizzle-orm';
 import type { SQL } from 'drizzle-orm';
-import { alias } from 'drizzle-orm/pg-core';
 import type { AdapterSet, Principal } from '@pb/adapters';
-import {
-  intakeCounts,
-  intakeExportList,
-  intakeSource,
-  intakeFinding,
-  intakeLink,
-  intakeRow as intakeRowSchema,
-} from '@pb/contracts';
 import type {
   IntakeCommandBody,
-  IntakeFile,
   IntakeFileDetail,
   IntakeFilePage,
   IntakeImportBody,
   IntakeImportResult,
-  IntakeRow,
   StagingState,
+  intakeExportList,
   intakeFileListQuery,
 } from '@pb/contracts';
-import { asSystemActor, SYSTEM_USER_ID, schema } from '@pb/db';
+import { SYSTEM_USER_ID, schema } from '@pb/db';
 import type { Tx } from '@pb/db';
 import {
-  IntakeSettingsError,
-  accountingLayout,
-  countsOf,
   diffRow,
   emptyCounts,
-  exceptionsOpenedBy,
   fileStatusOf,
-  intakeSettingsFrom,
-  linkOf,
-  linkRows,
-  naturalKeyOf,
-  prepareRows,
   readAccountingFile,
   sameValue,
   selectTargets,
 } from '@pb/validation';
-import type {
-  AccountingLayout,
-  AccountingRow,
-  Finding,
-  IntakeSettings,
-  LockedMark,
-  PreparedRow,
-  RecordQuarter,
-  RowDiff,
-} from '@pb/validation';
+import type { RowDiff } from '@pb/validation';
 import { attempt, stagingMachine } from '@pb/workflows';
-import { z } from 'zod';
+import type { z } from 'zod';
 import { decodeCursor, encodeCursor } from '../common/cursor.js';
-import { configError } from '../common/definitions.js';
 import { ProblemError, workflowProblem } from '../common/problem.js';
 import { ACCOUNTING_LAYOUT, ADAPTERS, DEFINITIONS } from '../common/tokens.js';
 import { requireUuid } from '../common/validate.js';
-import { investmentDirectory, matchGuards } from './directory.js';
 import { DbService } from '../db/db.service.js';
 import type { AuditEntry } from '../db/db.service.js';
+import {
+  NOT_FOUND,
+  accountingLayoutOf,
+  countsByFile,
+  exceptionsByFile,
+  fileRowOf,
+  fileColumns,
+  importLabel,
+  intakeSettingsOf,
+  loadFile,
+  receiver,
+  stageFile,
+  toFile,
+} from './stage.js';
+import type { StagedRow } from './stage.js';
 
 /*
  * The accounting import (docs/04 M2, SEC-9.1): a file is read against config/accounting_layout.json,
@@ -70,9 +55,11 @@ import type { AuditEntry } from '../db/db.service.js';
  * reaches mon.quarterly_performance until a reviewer approves, and promotion happens in the same
  * transaction as the approval with an audit event per row (docs/18 section 2). Linking, the diff and
  * the rules are the shared preparation of @pb/validation (prepare.ts, the same code the preview
- * runs in the browser); here they run as the system actor (DbService.runAsSystem), the one actor
- * that sees every position on record, walled ones included: an export covers the whole book, and a
- * walled position must link
+ * runs in the browser); the staging itself (the duplicate check, the system-actor preparation, the
+ * file, its rows, its exceptions and the audit event) is stage.ts, shared with the operations
+ * workbook drop, which reads a workbook into the same rows (decision 0010). There the preparation
+ * runs as the system actor (DbService.runAsSystem), the one actor that sees every position on
+ * record, walled ones included: an export covers the whole book, and a walled position must link
  * rather than read as "no match". Everything a caller reads or writes runs under their own
  * row-level security through DbService.run: a staged row linked to a position they cannot open is
  * left out and counted, a candidate they cannot open is dropped from the link, and promotion writes
@@ -82,90 +69,21 @@ import type { AuditEntry } from '../db/db.service.js';
  */
 
 export type IntakeListOptions = z.infer<typeof intakeFileListQuery>;
-type IntakeCounts = z.infer<typeof intakeCounts>;
 export type IntakeExportList = z.infer<typeof intakeExportList>;
 
 const SOURCE = 'accounting';
 const EXCEPTION_SOURCE = 'accounting_import';
-const TARGET_ENTITY = 'quarterly_performance';
-/** A rule error opens a high exception (core.taxonomy_term exception_severity): the row cannot be promoted until a person resolves it. */
-const EXCEPTION_SEVERITY = 'exception_severity.high';
-const NOT_FOUND = 'Intake file not found';
 /** The four figures the import writes; the fair value only ties to the Locked mark (TIE-01) and is never written. */
 type PromotedFigures = Record<'revenueLtm' | 'ebitdaLtm' | 'ev' | 'netDebt', string | null>;
-
-/**
- * What stg.intake_row.payload holds, written by stageFile and read back by the detail and the
- * commands: the row as the file said it, the quarter it reports for and how it was linked.
- */
-const rowPayload = z.object({
-  investmentNumber: z.string().nullable(),
-  companyName: z.string().nullable(),
-  periodEnd: z.string().nullable(),
-  /** The calendar quarter end the row reports for (alignedQuarterEnd), when the period end is a real date. */
-  quarterEnd: z.string().nullable(),
-  figures: intakeRowSchema.shape.figures,
-  raw: z.record(z.string(), z.string()),
-  link: intakeLink,
-});
-type RowPayload = z.infer<typeof rowPayload>;
-const rowDiff = intakeRowSchema.shape.diff;
-const findingList = z.array(intakeFinding);
-
-/** One staged row as the database holds it, with its jsonb columns parsed. */
-interface StagedRow {
-  id: string;
-  rowNo: number;
-  naturalKey: string;
-  targetId: string | null;
-  status: StagingState;
-  decision: string | null;
-  decidedBy: string | null;
-  promotedAt: Date | null;
-  payload: RowPayload;
-  diff: z.infer<typeof rowDiff>;
-  findings: Finding[];
-}
-
-/** A file with every row (for counts) and the rows the caller may see (for the response). */
-interface LoadedFile {
-  detail: IntakeFileDetail;
-  visible: StagedRow[];
-}
 
 const file = schema.intakeFile;
 const row = schema.intakeRow;
 const quarter = schema.quarterlyPerformance;
-const receiver = alias(schema.appUser, 'receiver');
-const reviewer = alias(schema.appUser, 'reviewer');
 
 /** The cursor is "receivedAt|id" of the last file: the receipt time to the microsecond and the file id. */
 const CURSOR =
   /^(\d{4}-\d{2}-\d{2})T((?:[01]\d|2[0-3]):[0-5]\d:[0-5]\d\.\d{6})Z\|([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/;
 const EXACT_AT_FORMAT = 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"';
-const INSERT_CHUNK = 500;
-
-function chunk<T>(items: readonly T[], size: number): T[][] {
-  const out: T[][] = [];
-  for (let i = 0; i < items.length; i += size) out.push(items.slice(i, i + size));
-  return out;
-}
-
-/** A refused file (the layout rejected it, so it holds no rows) may be staged again once the layout is corrected. */
-const restageable = (f: Pick<IntakeFile, 'status' | 'rowCount'>): boolean =>
-  f.status === 'new' && f.rowCount === 0;
-
-/** The staged row as the file said it, for the diff to be taken again at promotion. */
-function fileRowOf(target: StagedRow): AccountingRow {
-  return {
-    rowNo: target.rowNo,
-    investmentNumber: target.payload.investmentNumber,
-    companyName: target.payload.companyName,
-    periodEnd: target.payload.periodEnd,
-    figures: target.payload.figures,
-    raw: target.payload.raw,
-  };
-}
 
 /** The same diff: the same kind and the same field changes, values compared as decimals. */
 function sameDiff(a: RowDiff, b: RowDiff): boolean {
@@ -201,31 +119,6 @@ export class IntakeService {
     @Inject(ACCOUNTING_LAYOUT) private readonly rawLayout: unknown,
   ) {}
 
-  /**
-   * Every threshold through the one strict reader the preview shares (CLAUDE.md rules 9 and 10):
-   * a missing key is a 500 naming it, never a default.
-   */
-  private settings(): IntakeSettings {
-    try {
-      return intakeSettingsFrom(this.definitions);
-    } catch (error) {
-      if (error instanceof IntakeSettingsError) throw configError(error.key);
-      throw error;
-    }
-  }
-
-  /** config/accounting_layout.json checked against the layout schema; anything else is a configuration problem. */
-  private layout(): AccountingLayout {
-    const parsed = accountingLayout.safeParse(this.rawLayout);
-    if (!parsed.success)
-      throw new ProblemError(
-        500,
-        'configuration',
-        'config/accounting_layout.json is not a usable accounting layout',
-      );
-    return parsed.data;
-  }
-
   /** The exports waiting in the accounting drop folder (the local folder adapter in the prototype). */
   async exports(): Promise<IntakeExportList> {
     return { items: await this.adapters.accounting.listExports() };
@@ -241,258 +134,33 @@ export class IntakeService {
   }
 
   /**
-   * Stage an accounting export. Idempotent by content: the same text answers the file it created
-   * before with `duplicate` true and stages nothing (docs/04 M2); the answer is a read of that
-   * file's figures and is audited as one. A file the layout refused (status new, no rows) is the
-   * exception: the same text is read again, so a corrected layout stages the export under the file
-   * row the refusal left behind. Otherwise the file, its rows and the data exceptions land in one
-   * transaction with one audit event that carries counts only.
+   * Stage an accounting export: the CSV is read against the layout, then staged by the shared
+   * staging (stage.ts): idempotent by the SHA-256 of the text, a refused file re-stageable, one
+   * transaction for the file, its rows and its exceptions with one audit event of counts only.
    */
   async import(
     principal: Principal,
     requestId: string,
     body: IntakeImportBody,
   ): Promise<IntakeImportResult> {
-    const settings = this.settings();
-    const layout = this.layout();
+    const settings = intakeSettingsOf(this.definitions);
+    const layout = accountingLayoutOf(this.rawLayout);
     const { fileName, text } = await this.fileText(body);
     if (Buffer.byteLength(text, 'utf8') > settings.maxFileBytes)
       throw new ProblemError(400, 'validation', 'The file is larger than one import accepts');
-    const contentHash = createHash('sha256').update(text).digest('hex');
-    const asOf = this.adapters.clock.today();
-
-    const existing = await this.db.run(principal, requestId, async (tx, audit) => {
-      const found = await this.findByHash(tx, contentHash);
-      if (found !== null && !restageable(found))
-        await audit({ action: 'intake_file.read', entity: 'stg.intake_file', entityId: found.id });
-      return found;
-    });
-    if (existing !== null && !restageable(existing)) return { ...existing, duplicate: true };
-
-    const read = readAccountingFile(text, layout, { maxRows: settings.maxRows });
-    // A file the layout refuses (an unknown or missing column, nothing to read) holds no rows:
-    // a renamed column must never be guessed at.
-    const refused = read.fileFindings.some((f) => f.severity === 'error');
-    // The system actor links against the whole book (see the module comment); it reads only.
-    const prepared = refused
-      ? []
-      : await this.db.runAsSystem((tx) => this.prepareRows(tx, read.rows, settings, asOf));
-
-    return this.db.run(principal, requestId, async (tx, audit) => {
-      const counts = countsOf(prepared.map((p) => p.status));
-      const header = {
-        rowCount: prepared.length,
-        status: fileStatusOf(counts),
-        findings: read.fileFindings,
-      };
-      // The same content landed from another request meanwhile: answer that file.
-      const raced = async (): Promise<IntakeImportResult> => {
-        const found = await this.findByHash(tx, contentHash);
-        if (found === null) throw new ProblemError(409, 'conflict', 'The import did not complete');
-        return { ...found, duplicate: true };
-      };
-      let fileId: string;
-      let name: string;
-      if (existing === null) {
-        const inserted = await tx
-          .insert(file)
-          .values({
-            source: SOURCE,
-            fileName,
-            contentHash,
-            receivedBy: principal.userId,
-            ...header,
-          })
-          .onConflictDoNothing({ target: [file.source, file.contentHash] })
-          .returning();
-        const id = inserted[0]?.id;
-        if (id === undefined) return raced();
-        fileId = id;
-        name = fileName;
-      } else {
-        // A refused file staged again: the row the refusal left behind is reused (the content hash
-        // is its key), with this receipt and the findings of this reading. Refused again, it keeps
-        // its name, its receipt and the earlier answer (duplicate), with the findings brought up
-        // to date. The guard on status and row count keeps two re-imports from both staging it.
-        const updated = await tx
-          .update(file)
-          .set(
-            refused
-              ? { findings: read.fileFindings }
-              : { ...header, receivedAt: sql`now()`, receivedBy: principal.userId },
-          )
-          .where(and(eq(file.id, existing.id), eq(file.status, 'new'), eq(file.rowCount, 0)))
-          .returning();
-        if (updated[0] === undefined) return raced();
-        fileId = existing.id;
-        name = existing.fileName;
-      }
-
-      await this.insertRows(tx, fileId, prepared, layout);
-      await audit({
-        action: 'intake.import',
-        entity: 'stg.intake_file',
-        entityId: fileId,
-        details: { fileName: name, rowCount: prepared.length, counts },
-      });
-      const loaded = await this.load(tx, fileId);
-      if (loaded === null) throw new ProblemError(404, 'not-found', NOT_FOUND);
-      return { ...loaded.detail, duplicate: existing !== null && refused };
-    });
-  }
-
-  private async findByHash(tx: Tx, contentHash: string): Promise<IntakeFileDetail | null> {
-    const found = await tx
-      .select({ id: file.id })
-      .from(file)
-      .where(and(eq(file.source, SOURCE), eq(file.contentHash, contentHash)));
-    const id = found[0]?.id;
-    if (id === undefined) return null;
-    return (await this.load(tx, id))?.detail ?? null;
-  }
-
-  /**
-   * Links, diffs and checks every row of the file against the book as the system actor sees it,
-   * through the preparation shared with the preview (@pb/validation prepare.ts). This side reads
-   * the investment directory (number, names, aliases; none are on record yet), the match guards,
-   * then the approved quarters and the Locked marks of the investments the rows linked to.
-   */
-  private async prepareRows(
-    tx: Tx,
-    rows: readonly AccountingRow[],
-    settings: IntakeSettings,
-    asOf: string,
-  ): Promise<PreparedRow[]> {
-    const directory = await investmentDirectory(tx);
-    const guards = await matchGuards(tx);
-    const linked = linkRows(rows, directory, guards);
-    const investmentIds = [
-      ...new Set(linked.flatMap((l) => (l.link.investment === null ? [] : [l.link.investment.id]))),
-    ];
-    const quarters = await this.approvedQuarters(tx, investmentIds);
-    const marks = await this.lockedMarks(tx, investmentIds);
-    return prepareRows(
-      linked,
-      {
-        quartersOf: (id) => quarters.get(id) ?? [],
-        marksOf: (id) => marks.get(id) ?? [],
-      },
+    return stageFile(this.db, principal, requestId, {
+      source: SOURCE,
+      exceptionSource: EXCEPTION_SOURCE,
+      fileName,
+      contentHash: createHash('sha256').update(text).digest('hex'),
+      read: () => ({
+        file: readAccountingFile(text, layout, { maxRows: settings.maxRows }),
+        templateSignature: null,
+      }),
+      layout,
       settings,
-      asOf,
-    );
-  }
-
-  /** Approved quarters per investment, oldest first, as the rules and the diff read them. */
-  private async approvedQuarters(
-    tx: Tx,
-    investmentIds: readonly string[],
-  ): Promise<Map<string, RecordQuarter[]>> {
-    const out = new Map<string, RecordQuarter[]>();
-    if (investmentIds.length === 0) return out;
-    const rows = await tx
-      .select({
-        id: quarter.id,
-        investmentId: quarter.investmentId,
-        periodEnd: quarter.periodEnd,
-        revenueLtm: quarter.revenueLtm,
-        ebitdaLtm: quarter.ebitdaLtm,
-        ev: quarter.ev,
-        netDebt: quarter.netDebt,
-        isEntrySnapshot: quarter.isEntrySnapshot,
-      })
-      .from(quarter)
-      .where(
-        and(
-          inArray(quarter.investmentId, [...investmentIds]),
-          eq(quarter.status, 'record_status.approved'),
-        ),
-      )
-      .orderBy(asc(quarter.periodEnd), asc(quarter.id));
-    for (const { investmentId, ...q } of rows) {
-      const list = out.get(investmentId);
-      if (list === undefined) out.set(investmentId, [q]);
-      else list.push(q);
-    }
-    return out;
-  }
-
-  /** Locked marks per investment, highest version first within a period end, so lockedNear() keeps the latest version. */
-  private async lockedMarks(
-    tx: Tx,
-    investmentIds: readonly string[],
-  ): Promise<Map<string, LockedMark[]>> {
-    const out = new Map<string, LockedMark[]>();
-    if (investmentIds.length === 0) return out;
-    const v = schema.valuation;
-    const rows = await tx
-      .select({
-        investmentId: v.investmentId,
-        periodEnd: v.periodEnd,
-        fairValue: v.fairValue,
-        state: v.state,
-      })
-      .from(v)
-      .where(and(inArray(v.investmentId, [...investmentIds]), eq(v.state, 'Locked')))
-      .orderBy(asc(v.periodEnd), desc(v.version));
-    for (const { investmentId, ...mark } of rows) {
-      const list = out.get(investmentId);
-      if (list === undefined) out.set(investmentId, [mark]);
-      else list.push(mark);
-    }
-    return out;
-  }
-
-  /** Writes the staged rows and the data exceptions they open (unresolved names, fair values that do not tie). */
-  private async insertRows(
-    tx: Tx,
-    fileId: string,
-    prepared: readonly PreparedRow[],
-    layout: AccountingLayout,
-  ): Promise<void> {
-    const ids = new Map<number, string>();
-    for (const batch of chunk(prepared, INSERT_CHUNK)) {
-      // Ids are given here, not returned: a RETURNING clause reads the new rows through the select
-      // policy, and the importer outside a wall may write the walled position's row but not read it.
-      const values = batch.map((p) => ({
-        id: randomUUID(),
-        intakeFileId: fileId,
-        rowNo: p.row.rowNo,
-        naturalKey: naturalKeyOf(p.row, layout),
-        targetEntity: TARGET_ENTITY,
-        targetId: p.targetId,
-        payload: {
-          investmentNumber: p.row.investmentNumber,
-          companyName: p.row.companyName,
-          periodEnd: p.row.periodEnd,
-          quarterEnd: p.quarterEnd,
-          figures: p.row.figures,
-          raw: p.row.raw,
-          link: linkOf(p.link),
-        } satisfies RowPayload,
-        diff: p.diff,
-        validation: p.findings,
-        status: p.status,
-      }));
-      await tx.insert(row).values(values);
-      for (const r of values) ids.set(r.rowNo, r.id);
-    }
-
-    // Which exceptions a row opens, and what they carry (candidates by reason only, no values for
-    // a fair value that does not tie: SEC-5.3), is the shared rule in @pb/validation.
-    const exceptions: (typeof schema.dataException.$inferInsert)[] = prepared.flatMap((p) => {
-      const rowId = ids.get(p.row.rowNo);
-      if (rowId === undefined) return [];
-      return exceptionsOpenedBy(p).map((opened) => ({
-        source: EXCEPTION_SOURCE,
-        entity: 'stg.intake_row',
-        entityId: rowId,
-        severity: EXCEPTION_SEVERITY,
-        state: 'open',
-        ...opened,
-      }));
+      asOf: this.adapters.clock.today(),
     });
-    for (const batch of chunk(exceptions, INSERT_CHUNK))
-      await tx.insert(schema.dataException).values(batch);
   }
 
   /**
@@ -518,7 +186,7 @@ export class IntakeService {
       if (opts.status !== undefined) conditions.push(eq(file.status, opts.status));
       const rows = await tx
         .select({
-          ...this.fileSelect(),
+          ...fileColumns,
           exactAt: sql<string>`to_char(${file.receivedAt} at time zone 'UTC', ${EXACT_AT_FORMAT})`,
         })
         .from(file)
@@ -528,12 +196,12 @@ export class IntakeService {
         .limit(opts.limit + 1);
       const page = rows.slice(0, opts.limit);
       const ids = page.map((r) => r.id);
-      const counts = await this.countsByFile(tx, ids);
-      const exceptions = await this.exceptionsByFile(tx, ids);
+      const counts = await countsByFile(tx, ids);
+      const exceptions = await exceptionsByFile(tx, ids);
       const last = page[page.length - 1];
       return {
         items: page.map((r) =>
-          this.toFile(r, counts.get(r.id) ?? emptyCounts(), exceptions.get(r.id) ?? 0),
+          toFile(r, counts.get(r.id) ?? emptyCounts(), exceptions.get(r.id) ?? 0),
         ),
         nextCursor:
           rows.length > opts.limit && last !== undefined
@@ -547,7 +215,7 @@ export class IntakeService {
   async detail(principal: Principal, requestId: string, fileId: string): Promise<IntakeFileDetail> {
     requireUuid(fileId, NOT_FOUND);
     return this.db.run(principal, requestId, async (tx, audit) => {
-      const loaded = await this.load(tx, fileId);
+      const loaded = await loadFile(tx, fileId);
       if (loaded === null) throw new ProblemError(404, 'not-found', NOT_FOUND);
       await audit({ action: 'intake_file.read', entity: 'stg.intake_file', entityId: fileId });
       return loaded.detail;
@@ -572,7 +240,7 @@ export class IntakeService {
       // Commands on one file run one at a time: the file row stays locked until this transaction
       // ends, so a second reviewer's command waits and then reads the rows as this one left them.
       await tx.select({ id: file.id }).from(file).where(eq(file.id, fileId)).for('update');
-      const loaded = await this.load(tx, fileId);
+      const loaded = await loadFile(tx, fileId);
       if (loaded === null) throw new ProblemError(404, 'not-found', NOT_FOUND);
       const wanted: StagingState = body.command === 'approve' ? 'validated' : 'flagged';
       // The rows named must be rows of this file the caller sees, in the state the command needs
@@ -595,7 +263,7 @@ export class IntakeService {
         ...(body.reason !== undefined ? { reason: body.reason } : {}),
         details: { fileName: loaded.detail.fileName, rows: targets.length },
       });
-      const after = await this.load(tx, fileId);
+      const after = await loadFile(tx, fileId);
       if (after === null) throw new ProblemError(404, 'not-found', NOT_FOUND);
       return after.detail;
     });
@@ -651,7 +319,7 @@ export class IntakeService {
       status: 'record_status.approved',
       approvedBy: principal.userId,
       approvedAt: at,
-      approvalReason: reason ?? `accounting import ${detail.fileName}`,
+      approvalReason: reason ?? importLabel(detail),
       sourceLocator: `intake_file:${detail.id}/row:${target.rowNo}`,
     };
     const precondition = (detail: string): ProblemError =>
@@ -799,227 +467,10 @@ export class IntakeService {
 
   /** The file status recomputed from every row (the contract's rule), after a command changed some. */
   private async refreshStatus(tx: Tx, fileId: string): Promise<void> {
-    const counts = (await this.countsByFile(tx, [fileId])).get(fileId) ?? emptyCounts();
+    const counts = (await countsByFile(tx, [fileId])).get(fileId) ?? emptyCounts();
     await tx
       .update(file)
       .set({ status: fileStatusOf(counts) })
       .where(eq(file.id, fileId));
-  }
-
-  /**
-   * Row counts per status, counted as the system actor inside the caller's transaction so they
-   * cover every row, walled ones included (the row policy of migration 0009 hides a walled row
-   * from a reader outside its wall): a file's status and counts are facts of the file, the same
-   * for every reader, and a number reveals nothing of a hidden row.
-   */
-  private async countsByFile(
-    tx: Tx,
-    fileIds: readonly string[],
-  ): Promise<Map<string, IntakeCounts>> {
-    const out = new Map<string, IntakeCounts>();
-    if (fileIds.length === 0) return out;
-    const rows = await asSystemActor(tx, async (stx) =>
-      stx
-        .select({
-          fileId: row.intakeFileId,
-          status: row.status,
-          n: sql<number>`count(*)::int`,
-        })
-        .from(row)
-        .where(inArray(row.intakeFileId, [...fileIds]))
-        .groupBy(row.intakeFileId, row.status),
-    );
-    for (const r of rows) {
-      const counts = out.get(r.fileId) ?? emptyCounts();
-      counts[r.status] += r.n;
-      out.set(r.fileId, counts);
-    }
-    return out;
-  }
-
-  private fileSelect() {
-    return {
-      id: file.id,
-      source: file.source,
-      fileName: file.fileName,
-      contentHash: file.contentHash,
-      receivedAt: file.receivedAt,
-      receivedBy: receiver.displayName,
-      rowCount: file.rowCount,
-      status: file.status,
-      findings: file.findings,
-      templateSignature: file.templateSignature,
-      rowVersion: file.rowVersion,
-    };
-  }
-
-  /**
-   * Data exceptions the import opened per file, counted as the system actor like the status counts,
-   * so the header reads the same for every reviewer: a row past the reader's wall is hidden from
-   * them, not from the count (Data Health counts the same exceptions for everyone).
-   */
-  private async exceptionsByFile(tx: Tx, fileIds: readonly string[]): Promise<Map<string, number>> {
-    const out = new Map<string, number>();
-    if (fileIds.length === 0) return out;
-    const rows = await asSystemActor(tx, async (stx) =>
-      stx
-        .select({ fileId: row.intakeFileId, n: sql<number>`count(*)::int` })
-        .from(schema.dataException)
-        .innerJoin(row, eq(row.id, schema.dataException.entityId))
-        .where(
-          and(
-            eq(schema.dataException.source, EXCEPTION_SOURCE),
-            eq(schema.dataException.entity, 'stg.intake_row'),
-            inArray(row.intakeFileId, [...fileIds]),
-          ),
-        )
-        .groupBy(row.intakeFileId),
-    );
-    for (const r of rows) out.set(r.fileId, r.n);
-    return out;
-  }
-
-  private toFile(
-    r: {
-      id: string;
-      source: string;
-      fileName: string;
-      contentHash: string;
-      receivedAt: Date;
-      receivedBy: string | null;
-      rowCount: number;
-      status: StagingState;
-      findings: unknown;
-      templateSignature: string | null;
-      rowVersion: number;
-    },
-    counts: IntakeCounts,
-    exceptions: number,
-  ): IntakeFile {
-    return {
-      id: r.id,
-      source: intakeSource.parse(r.source),
-      templateSignature: r.templateSignature,
-      fileName: r.fileName,
-      contentHash: r.contentHash,
-      receivedAt: r.receivedAt.toISOString(),
-      receivedBy: r.receivedBy,
-      rowCount: r.rowCount,
-      status: r.status,
-      counts,
-      fileFindings: findingList.parse(r.findings),
-      exceptions,
-      rowVersion: r.rowVersion,
-    };
-  }
-
-  /**
-   * The file with its rows in file order, as the caller may see them. A row linked to an
-   * investment the caller cannot open (a walled deal for a non-member) is hidden by its row policy
-   * (migration 0009) and, should a policy ever let one through, by the filter below; it is counted
-   * as hidden. Rows with no link are shown to every reviewer. The counts come from the system actor
-   * and cover every row, so the file reads the same for everyone.
-   */
-  private async load(tx: Tx, fileId: string): Promise<LoadedFile | null> {
-    const found = await tx
-      .select(this.fileSelect())
-      .from(file)
-      .leftJoin(receiver, eq(receiver.id, file.receivedBy))
-      .where(eq(file.id, fileId));
-    const header = found[0];
-    if (header === undefined) return null;
-    const counts = (await this.countsByFile(tx, [fileId])).get(fileId) ?? emptyCounts();
-    const exceptions = (await this.exceptionsByFile(tx, [fileId])).get(fileId) ?? 0;
-    const total = Object.values(counts).reduce((a, b) => a + b, 0);
-    const stored = await tx
-      .select({
-        id: row.id,
-        rowNo: row.rowNo,
-        naturalKey: row.naturalKey,
-        targetId: row.targetId,
-        status: row.status,
-        decision: row.decision,
-        decidedBy: reviewer.displayName,
-        promotedAt: row.promotedAt,
-        payload: row.payload,
-        diff: row.diff,
-        validation: row.validation,
-      })
-      .from(row)
-      .leftJoin(reviewer, eq(reviewer.id, row.reviewerId))
-      .where(eq(row.intakeFileId, fileId))
-      .orderBy(asc(row.rowNo));
-    const rows: StagedRow[] = stored.map(({ payload, diff, validation, ...rest }) => ({
-      ...rest,
-      payload: rowPayload.parse(payload),
-      diff: rowDiff.parse(diff),
-      findings: findingList.parse(validation),
-    }));
-    // The investments the rows link to or name as candidates, as far as the caller may see them:
-    // a row linked past the caller's walls is left out and counted, a candidate past them is
-    // dropped from the link, so nothing here reveals a walled position exists (SEC-5.3).
-    const linked = [
-      ...new Set(
-        rows.flatMap((r) =>
-          r.payload.link.investmentId === null ? [] : [r.payload.link.investmentId],
-        ),
-      ),
-    ];
-    const named = [
-      ...new Set(rows.flatMap((r) => r.payload.link.candidates.map((c) => c.investmentNumber))),
-    ];
-    const seen =
-      linked.length + named.length === 0
-        ? []
-        : await tx
-            .select({
-              id: schema.investment.id,
-              investmentNumber: schema.investment.investmentNumber,
-            })
-            .from(schema.investment)
-            .where(
-              or(
-                ...(linked.length > 0 ? [inArray(schema.investment.id, linked)] : []),
-                ...(named.length > 0 ? [inArray(schema.investment.investmentNumber, named)] : []),
-              ),
-            );
-    const visibleIds = new Set(seen.map((r) => r.id));
-    const visibleNumbers = new Set(seen.map((r) => r.investmentNumber));
-    const visible = rows.filter(
-      (r) => r.payload.link.investmentId === null || visibleIds.has(r.payload.link.investmentId),
-    );
-    return {
-      detail: {
-        ...this.toFile(header, counts, exceptions),
-        rows: visible.map((r) => this.toRow(r, visibleNumbers)),
-        hiddenRows: total - visible.length,
-      },
-      visible,
-    };
-  }
-
-  /** A staged row for the caller, with only the candidates among the investments they may see. */
-  private toRow(r: StagedRow, visibleNumbers: ReadonlySet<string>): IntakeRow {
-    return {
-      id: r.id,
-      rowNo: r.rowNo,
-      naturalKey: r.naturalKey,
-      targetEntity: TARGET_ENTITY,
-      targetId: r.targetId,
-      investmentNumber: r.payload.investmentNumber,
-      companyName: r.payload.companyName,
-      periodEnd: r.payload.periodEnd,
-      figures: r.payload.figures,
-      link: {
-        ...r.payload.link,
-        candidates: r.payload.link.candidates.filter((c) => visibleNumbers.has(c.investmentNumber)),
-      },
-      diff: r.diff,
-      findings: r.findings,
-      status: r.status,
-      decision: r.decision,
-      decidedBy: r.decidedBy,
-      promotedAt: r.promotedAt === null ? null : r.promotedAt.toISOString(),
-    };
   }
 }

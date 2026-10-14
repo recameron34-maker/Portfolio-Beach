@@ -4,6 +4,7 @@ import { accountingExports } from './accounting-export.js';
 import { generateDataset } from './generate.js';
 import type { GeneratedDataset } from './generate.js';
 import { lookthroughExtract } from './lookthrough-extract.js';
+import { opsDropWorkbooks } from './ops-drop.js';
 import { verifyDataset } from './verify.js';
 import { weeklyValuesSet } from './weekly-values.js';
 
@@ -11,7 +12,7 @@ import { weeklyValuesSet } from './weekly-values.js';
  * pnpm synth --profile default --seed 42 --out .synthetic/
  * pnpm synth:verify --in .synthetic/dataset.json
  * pnpm synth:exports --profile small --seed 42 --out .synthetic/accounting/in
- * pnpm synth:drops --profile small --seed 42 --root .synthetic/drops   (weekly and look-through)
+ * pnpm synth:drops --profile small --seed 42 --root .synthetic/drops   (weekly, look-through and ops drop)
  */
 function arg(name: string, fallback: string): string {
   const i = process.argv.indexOf(`--${name}`);
@@ -51,6 +52,18 @@ function writeLookthrough(root: string, dataset: GeneratedDataset): void {
     writeFileSync(join(out, file.dropName), file.json);
     process.stdout.write(
       `synth:lookthrough: wrote ${join(out, file.dropName)} (${file.expectations.rows} rows)\n`,
+    );
+  }
+}
+
+/** The four sample workbooks into `<root>/ops-drop/in`, the folder the ops drop reads. */
+function writeOpsDrop(root: string, dataset: GeneratedDataset): void {
+  const out = join(root, 'ops-drop', 'in');
+  mkdirSync(out, { recursive: true });
+  for (const file of opsDropWorkbooks(dataset)) {
+    writeFileSync(join(out, file.fileName), file.bytes);
+    process.stdout.write(
+      `synth:ops-drop: wrote ${join(out, file.fileName)} (${file.expectations.rows} rows, ${file.bytes.length} bytes)\n`,
     );
   }
 }
@@ -106,14 +119,17 @@ if (command === 'generate') {
   writeWeekly(dropRoot(), sampleDataset());
 } else if (command === 'lookthrough') {
   writeLookthrough(dropRoot(), sampleDataset());
+} else if (command === 'ops-drop') {
+  writeOpsDrop(dropRoot(), sampleDataset());
 } else if (command === 'drops') {
   const dataset = sampleDataset();
   const root = dropRoot();
   writeWeekly(root, dataset);
   writeLookthrough(root, dataset);
+  writeOpsDrop(root, dataset);
 } else {
   process.stderr.write(
-    'usage: cli.js generate [--profile p] [--seed n] [--out dir] | verify [--in file] | exports [--profile p] [--seed n] [--out dir] | weekly | lookthrough | drops [--profile p] [--seed n] [--root dir]\n',
+    'usage: cli.js generate [--profile p] [--seed n] [--out dir] | verify [--in file] | exports [--profile p] [--seed n] [--out dir] | weekly | lookthrough | ops-drop | drops [--profile p] [--seed n] [--root dir]\n',
   );
   process.exit(2);
 }

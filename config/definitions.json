@@ -56,7 +56,7 @@
     "topPositions": 10
   },
   "intake": {
-    "_note": "Intake rules (docs/04 M2, packages/validation). Percentages are decimals. figureScale and figureIntegerDigits match the record's numeric(20,2) figure columns; minPeriodYear is the first year a period end may carry. weeklyVarianceThresholdPct is the move against the prior that flags a weekly value; weeklyStaleDays is how many days before the as-of date a report date may be before it is stale; lookthroughNavTolerancePct and lookthroughCostToleranceUsd are the differences a reconcile lets pass; maxWorkbookBase64Chars caps an uploaded ops-drop workbook.",
+    "_note": "Intake rules (docs/04 M2, packages/validation). Percentages are decimals. figureScale and figureIntegerDigits match the record's numeric(20,2) figure columns; minPeriodYear is the first year a period end may carry. weeklyVarianceThresholdPct is the move against the prior that flags a weekly value; weeklyStaleDays is how many days before the as-of date a report date may be before it is stale; lookthroughNavTolerancePct and lookthroughCostToleranceUsd are the differences a reconcile lets pass; maxWorkbookBase64Chars caps an uploaded ops-drop workbook; workbookMaxCells, workbookMaxSheets and workbookMaxPartBytes are the read limits the workbook parser works to (cells on one sheet and across the workbook, sheets listed, the declared size of one part), the rest stay at the parser defaults.",
     "maxRowsPerFile": 5000,
     "maxFileBytes": 2000000,
     "fairValueTieToleranceUsd": 1.0,
@@ -72,6 +72,9 @@
     "weeklyStaleDays": 10,
     "lookthroughNavTolerancePct": 0.02,
     "lookthroughCostToleranceUsd": 1.0,
-    "maxWorkbookBase64Chars": 4000000
+    "maxWorkbookBase64Chars": 4000000,
+    "workbookMaxCells": 200000,
+    "workbookMaxSheets": 16,
+    "workbookMaxPartBytes": 16777216
   }
 }

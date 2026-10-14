@@ -23,13 +23,15 @@
     "exports": "node dist/cli.js exports",
     "weekly": "node dist/cli.js weekly",
     "lookthrough": "node dist/cli.js lookthrough",
+    "ops-drop": "node dist/cli.js ops-drop",
     "drops": "node dist/cli.js drops"
   },
   "dependencies": {
     "@pb/adapters": "workspace:*",
     "@pb/calc": "workspace:*",
     "@pb/db": "workspace:*",
-    "@pb/validation": "workspace:*"
+    "@pb/validation": "workspace:*",
+    "@pb/xlsx": "workspace:*"
   },
   "devDependencies": {
     "drizzle-orm": "0.45.3"

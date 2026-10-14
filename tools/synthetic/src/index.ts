@@ -68,11 +68,14 @@ export {
   OPS_DROP_COLUMNS,
   OPS_DROP_FIGURES_HEADER,
   OPS_DROP_NOTES_PREPARED_BY,
+  OPS_DROP_SCENARIOS,
   OPS_DROP_SHEET_NAMES,
   OPS_DROP_TEMPLATE,
   OPS_DROP_UNKNOWN_HEADER_CELL,
   opsDropSamples,
   opsDropSheets,
+  opsDropWorkbook,
+  opsDropWorkbooks,
 } from './ops-drop.js';
 export type {
   OpsDropExpectations,
@@ -80,4 +83,5 @@ export type {
   OpsDropSample,
   OpsDropScenario,
   OpsDropSheet,
+  OpsDropWorkbook,
 } from './ops-drop.js';

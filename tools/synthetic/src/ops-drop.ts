@@ -1,4 +1,5 @@
 import type { SyntheticDataset } from '@pb/db';
+import { writeWorkbook } from '@pb/xlsx';
 import { accountingExport } from './accounting-export.js';
 import type { AccountingExportExpectations, ExportScenario } from './accounting-export.js';
 
@@ -6,8 +7,9 @@ import type { AccountingExportExpectations, ExportScenario } from './accounting-
  * The sheets of a synthetic operations workbook (docs/04 M2 ops-drop-import), template
  * `quarterly-figures`: a Figures sheet with the header config/ops_drop_templates.json names and
  * the same rows the accounting export carries for the scenario (taken from it, never derived
- * again), and a Notes sheet of two text rows. A pure function of the dataset: the XLSX writer
- * (packages/xlsx, writeWorkbook) wraps these sheets into a file in a later step.
+ * again), and a Notes sheet of two text rows. A pure function of the dataset: `opsDropWorkbook`
+ * wraps these sheets into an .xlsx file with the XLSX writer (packages/xlsx, writeWorkbook), whose
+ * output is deterministic, so the same dataset and scenario give the same bytes.
  *
  * clean, update, defects: the accounting export's scenario and its expectations.
  * unknown-template: the clean rows under a Figures header that differs in one column name, so
@@ -99,9 +101,47 @@ export function opsDropSheets(
   };
 }
 
+export const OPS_DROP_SCENARIOS: readonly OpsDropScenario[] = [
+  'clean',
+  'update',
+  'defects',
+  'unknown-template',
+];
+
 /** The four sample workbooks a drop folder or the preview ships with. */
 export function opsDropSamples(dataset: SyntheticDataset): OpsDropSample[] {
-  return (['clean', 'update', 'defects', 'unknown-template'] as const).map((scenario) =>
-    opsDropSheets(dataset, { scenario }),
+  return OPS_DROP_SCENARIOS.map((scenario) => opsDropSheets(dataset, { scenario }));
+}
+
+/** A sample workbook as a file: the sheets of `opsDropSheets` written as .xlsx bytes. */
+export interface OpsDropWorkbook {
+  scenario: OpsDropScenario;
+  /** `ops-drop-<periodEnd>-<scenario>.xlsx`, the name the drop folder and the upload carry. */
+  fileName: string;
+  /** The template the Figures header is written for; a refused workbook is written for none. */
+  template: string | null;
+  periodEnd: string;
+  /** The .xlsx file; byte-identical for the same dataset and scenario. */
+  bytes: Uint8Array;
+  expectations: OpsDropExpectations;
+}
+
+/**
+ * The sample workbook for a scenario as an .xlsx file. Every cell is written as text (an inline
+ * string), so the import reads back exactly the cells `opsDropSheets` produced, figures included.
+ */
+export function opsDropWorkbook(
+  dataset: SyntheticDataset,
+  options: OpsDropOptions = {},
+): OpsDropWorkbook {
+  const { scenario, fileName, template, periodEnd, sheets, expectations } = opsDropSheets(
+    dataset,
+    options,
   );
+  return { scenario, fileName, template, periodEnd, bytes: writeWorkbook(sheets), expectations };
+}
+
+/** The four sample workbooks as files, in scenario order. */
+export function opsDropWorkbooks(dataset: SyntheticDataset): OpsDropWorkbook[] {
+  return OPS_DROP_SCENARIOS.map((scenario) => opsDropWorkbook(dataset, { scenario }));
 }

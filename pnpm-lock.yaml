@@ -74,6 +74,9 @@ importers:
       '@pb/workflows':
         specifier: workspace:*
         version: link:../../packages/workflows
+      '@pb/xlsx':
+        specifier: workspace:*
+        version: link:../../packages/xlsx
       drizzle-orm:
         specifier: 0.45.3
         version: 0.45.3(@electric-sql/pglite@0.5.8)(@types/pg@8.23.1)(pg@8.23.1)
@@ -270,6 +273,9 @@ importers:
       '@pb/validation':
         specifier: workspace:*
         version: link:../../packages/validation
+      '@pb/xlsx':
+        specifier: workspace:*
+        version: link:../../packages/xlsx
     devDependencies:
       drizzle-orm:
         specifier: 0.45.3
