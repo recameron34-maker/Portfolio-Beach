@@ -24,6 +24,8 @@ import {
 import type { Runtime } from './composition.js';
 import { DataController } from './data/data.controller.js';
 import { DbService } from './db/db.service.js';
+import { ExceptionsController } from './exceptions/exceptions.controller.js';
+import { ExceptionsService } from './exceptions/exceptions.service.js';
 import { FlagsController } from './flags/flags.controller.js';
 import { FlagsService } from './flags/flags.service.js';
 import { HealthController } from './health/health.controller.js';
@@ -33,6 +35,8 @@ import { OpsDropController } from './intake/ops-drop/ops-drop.controller.js';
 import { OpsDropService } from './intake/ops-drop/ops-drop.service.js';
 import { WeeklyController } from './intake/weekly/weekly.controller.js';
 import { WeeklyService } from './intake/weekly/weekly.service.js';
+import { LookthroughController } from './intake/lookthrough/lookthrough.controller.js';
+import { LookthroughService } from './intake/lookthrough/lookthrough.service.js';
 import { PerformanceController } from './performance/performance.controller.js';
 import { PerformanceService } from './performance/performance.service.js';
 import { PortfolioController } from './portfolio/portfolio.controller.js';
@@ -64,6 +68,8 @@ export const CONTROLLERS = [
   IntakeController,
   OpsDropController,
   WeeklyController,
+  LookthroughController,
+  ExceptionsController,
 ] as const;
 
 @Module({})
@@ -95,6 +101,8 @@ export class AppModule implements NestModule {
         IntakeService,
         OpsDropService,
         WeeklyService,
+        LookthroughService,
+        ExceptionsService,
         { provide: APP_GUARD, useClass: AuthGuard },
         { provide: APP_FILTER, useClass: ProblemFilter },
       ],

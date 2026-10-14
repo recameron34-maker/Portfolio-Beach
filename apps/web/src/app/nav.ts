@@ -52,6 +52,8 @@ export const DATA_LINKS: { label: string; to: string }[] = [
   { label: 'Taxonomy', to: '/data/taxonomy' },
   { label: 'Intake', to: '/data/intake' },
   { label: 'Weekly values', to: '/data/weekly' },
+  { label: 'Look-through', to: '/data/lookthrough' },
+  { label: 'Exceptions', to: '/data/exceptions' },
 ];
 
 /** Deal workspace tabs (docs/06 section 2). The Overview tab is the one-pager. */

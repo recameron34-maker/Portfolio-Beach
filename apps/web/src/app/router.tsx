@@ -31,6 +31,10 @@ import { IntakePage } from '../pages/intake/Intake.js';
 import { IntakeFilePage } from '../pages/intake/IntakeFile.js';
 import { WeeklyPage } from '../pages/weekly/Weekly.js';
 import { WeeklyFilePage } from '../pages/weekly/WeeklyFile.js';
+import { ExceptionDetailPage } from '../pages/exceptions/ExceptionDetail.js';
+import { ExceptionsPage } from '../pages/exceptions/Exceptions.js';
+import { LookthroughPage } from '../pages/lookthrough/Lookthrough.js';
+import { LookthroughRunPage } from '../pages/lookthrough/LookthroughRun.js';
 import { ActivityTab } from '../pages/deal/ActivityTab.js';
 import { CapitalTab } from '../pages/deal/CapitalTab.js';
 import { DealWorkspace } from '../pages/deal/DealWorkspace.js';
@@ -155,6 +159,29 @@ const dataWeeklyFileRoute = createRoute({
   validateSearch: (search: Record<string, unknown>): { duplicate?: boolean } =>
     search.duplicate === true || search.duplicate === 'true' ? { duplicate: true } : {},
 });
+const dataLookthroughRoute = child('/data/lookthrough', LookthroughPage);
+/** A reconcile run; `duplicate` in the search says the reconcile that led here staged nothing new. */
+const dataLookthroughRunRoute = createRoute({
+  getParentRoute: () => appRoute,
+  path: '/data/lookthrough/$id',
+  component: LookthroughRunPage,
+  validateSearch: (search: Record<string, unknown>): { duplicate?: boolean } =>
+    search.duplicate === true || search.duplicate === 'true' ? { duplicate: true } : {},
+});
+/** The exceptions queue; the search carries the API filters and, from a run or a file, that file's id. */
+const dataExceptionsRoute = createRoute({
+  getParentRoute: () => appRoute,
+  path: '/data/exceptions',
+  component: ExceptionsPage,
+  validateSearch: (
+    search: Record<string, unknown>,
+  ): { file?: string; state?: string; source?: string; severity?: string } => {
+    const text = (key: string): Record<string, string> =>
+      typeof search[key] === 'string' && search[key] !== '' ? { [key]: search[key] } : {};
+    return { ...text('file'), ...text('state'), ...text('source'), ...text('severity') };
+  },
+});
+const dataExceptionRoute = child('/data/exceptions/$id', ExceptionDetailPage);
 
 const routeTree = rootRoute.addChildren([
   signInRoute,
@@ -206,6 +233,10 @@ const routeTree = rootRoute.addChildren([
     dataIntakeFileRoute,
     dataWeeklyRoute,
     dataWeeklyFileRoute,
+    dataLookthroughRoute,
+    dataLookthroughRunRoute,
+    dataExceptionsRoute,
+    dataExceptionRoute,
   ]),
 ]);
 

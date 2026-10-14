@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import type { ReactNode } from 'react';
+import { Link } from '@tanstack/react-router';
 import { useQuery } from '@tanstack/react-query';
 import { Input, Label } from '@fluentui/react-components';
 import { Search16Regular } from '@fluentui/react-icons';
@@ -80,6 +81,11 @@ export function DataHealthPage(): ReactNode {
           label="Open exceptions"
           value={String(h.openExceptions)}
           tone={h.openExceptions > 0 ? 'watch' : undefined}
+          figure={
+            <Link to="/data/exceptions" search={{ state: 'open' }} className="pb-stat-link">
+              Open the queue
+            </Link>
+          }
         />
         <StatTile
           label="Stale positions"
