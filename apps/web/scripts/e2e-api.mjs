@@ -25,6 +25,7 @@ const config = loadConfig({
   PB_CONFIG_DIR: new URL('../../../config/', import.meta.url).pathname,
   PB_DOCUMENT_ROOT: join(dir, 'documents'),
   PB_ACCOUNTING_ROOT: join(dir, 'accounting'),
+  PB_DROP_ROOT: join(dir, 'drops'),
 });
 const runtime = await buildRuntime(config, {
   db,

@@ -1,9 +1,13 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { cleanup, screen } from '@testing-library/react';
+import { cleanup, screen, within } from '@testing-library/react';
 import { mockApi, ok } from '../test/api-mock.js';
 import { dataHealthFixture, principalFixture } from '../test/fixtures.js';
 import { renderWithQuery } from '../test/render.js';
 import { DataHealthPage } from './Data.js';
+
+vi.mock('@tanstack/react-router', async () =>
+  (await import('../test/router-mock.js')).routerMock(),
+);
 
 const gaps = {
   ...dataHealthFixture(),
@@ -42,6 +46,15 @@ describe('Data Health: client ownership', () => {
       cleanup();
       vi.restoreAllMocks();
     }
+  });
+
+  it('links the open exceptions tile to the exceptions queue', async () => {
+    renderAs(['operations']);
+    const tile = await screen.findByRole('group', { name: 'Open exceptions' });
+    expect(within(tile).getByRole('link', { name: 'Open the queue' })).toHaveAttribute(
+      'href',
+      '/data/exceptions',
+    );
   });
 
   it('says every closed vehicle sums to 100% when a full-view role finds no gap', async () => {
