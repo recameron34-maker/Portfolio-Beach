@@ -7,6 +7,7 @@ import type { AdapterSet, Principal } from '@pb/adapters';
 import {
   intakeCounts,
   intakeExportList,
+  intakeSource,
   intakeFinding,
   intakeLink,
   intakeRow as intakeRowSchema,
@@ -528,7 +529,9 @@ export class IntakeService {
     opts: IntakeListOptions,
   ): Promise<IntakeFilePage> {
     return this.db.run(principal, requestId, async (tx) => {
-      const conditions: (SQL | undefined)[] = [eq(file.source, SOURCE)];
+      // Every intake writes stg.intake_file; the list covers them all unless the caller names a source.
+      const conditions: (SQL | undefined)[] = [];
+      if (opts.source !== undefined) conditions.push(eq(file.source, opts.source));
       if (opts.cursor !== undefined) {
         const [date = '', time = '', id = ''] = decodeCursor(opts.cursor, CURSOR, [1]);
         const at = sql`${`${date}T${time}Z`}::timestamptz`;
@@ -869,6 +872,7 @@ export class IntakeService {
       rowCount: file.rowCount,
       status: file.status,
       findings: file.findings,
+      templateSignature: file.templateSignature,
       rowVersion: file.rowVersion,
     };
   }
@@ -902,6 +906,7 @@ export class IntakeService {
   private toFile(
     r: {
       id: string;
+      source: string;
       fileName: string;
       contentHash: string;
       receivedAt: Date;
@@ -909,6 +914,7 @@ export class IntakeService {
       rowCount: number;
       status: StagingState;
       findings: unknown;
+      templateSignature: string | null;
       rowVersion: number;
     },
     counts: IntakeCounts,
@@ -916,7 +922,8 @@ export class IntakeService {
   ): IntakeFile {
     return {
       id: r.id,
-      source: SOURCE,
+      source: intakeSource.parse(r.source),
+      templateSignature: r.templateSignature,
       fileName: r.fileName,
       contentHash: r.contentHash,
       receivedAt: r.receivedAt.toISOString(),

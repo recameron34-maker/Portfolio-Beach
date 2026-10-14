@@ -44,6 +44,7 @@ export async function startHarness(options: HarnessOptions = {}): Promise<Harnes
     PB_CONFIG_DIR: new URL('../../../../config/', import.meta.url).pathname,
     PB_DOCUMENT_ROOT: join(scratch, 'documents'),
     PB_ACCOUNTING_ROOT: join(scratch, 'accounting'),
+    PB_DROP_ROOT: join(scratch, 'drops'),
   });
   const runtime = await buildRuntime(config, {
     db,

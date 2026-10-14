@@ -13,6 +13,8 @@ import { AuthGuard } from './auth/principal.js';
 import { ProblemFilter } from './common/problem.js';
 import {
   ACCOUNTING_LAYOUT,
+  LOOKTHROUGH_MAPPING,
+  OPS_DROP_TEMPLATES,
   ADAPTERS,
   CONFIG,
   DB_HANDLE,
@@ -71,6 +73,8 @@ export class AppModule implements NestModule {
         { provide: LOGGER, useValue: runtime.logger },
         { provide: DEFINITIONS, useValue: runtime.definitions },
         { provide: ACCOUNTING_LAYOUT, useValue: runtime.accountingLayout },
+        { provide: LOOKTHROUGH_MAPPING, useValue: runtime.lookthroughMapping },
+        { provide: OPS_DROP_TEMPLATES, useValue: runtime.opsDropTemplates },
         DbService,
         FlagsService,
         PortfolioService,
