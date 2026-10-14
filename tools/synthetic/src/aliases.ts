@@ -47,7 +47,11 @@ export function abbreviatedForm(name: string): string | null {
  * likely to use: a shortened form or an abbreviation. An alias links by exact match only
  * (docs/03 section 5), so no alias may equal another name on record, and no alias may be a near
  * miss of one by the validation library's own rule, or a row carrying it would read as a
- * candidate for a person instead of a link; a company on the match guard list gets none at all.
+ * candidate for a person instead of a link. Nor may an alias be a stem two names share: a prefix
+ * of another name on record once normalized, or another company's shortened or abbreviated form
+ * ("Summit Services" beside "Summit Services Group" and "Summit Services Partners", "MSI" beside
+ * "Marlowe Services Inc" and "Meridian Systems Inc"), or an exact match would link an ambiguous
+ * name to one company. A company on the match guard list gets none at all.
  * Ids and choices come from the rng given, so a caller with its own stream moves no other value.
  * `always` names companies that get an alias whatever the draw, when a valid form exists.
  */
@@ -63,10 +67,29 @@ export function companyAliasesFor(
     ...companies.map((c) => c.name),
     ...guards.flatMap((g) => [g.nameA, g.nameB]),
   ];
-  const clear = (candidate: string): boolean => {
+  // Every name on record with the company it belongs to (none for a guard name), normalized, and
+  // its own two forms: a candidate may start one or equal a form only when the name is its own.
+  const stems = [
+    ...companies.map((c) => ({ ownerId: c.id, name: c.name })),
+    ...guards.flatMap((g) => [g.nameA, g.nameB]).map((name) => ({ ownerId: null, name })),
+  ].map((n) => ({
+    ownerId: n.ownerId,
+    normalized: normalizeName(n.name),
+    forms: [shortenedForm(n.name), abbreviatedForm(n.name)].flatMap((f) =>
+      f === null ? [] : [normalizeName(f)],
+    ),
+  }));
+  const shared = (ownerId: string, wanted: string): boolean =>
+    stems.some(
+      (s) => s.ownerId !== ownerId && (s.normalized.startsWith(wanted) || s.forms.includes(wanted)),
+    );
+  const clear = (ownerId: string, candidate: string): boolean => {
     const wanted = normalizeName(candidate);
     if (wanted === '') return false;
-    return taken.every((t) => normalizeName(t) !== wanted && !isNearMiss(candidate, t));
+    return (
+      taken.every((t) => normalizeName(t) !== wanted && !isNearMiss(candidate, t)) &&
+      !shared(ownerId, wanted)
+    );
   };
   const out: CompanyAlias[] = [];
   for (const company of companies) {
@@ -76,7 +99,7 @@ export function companyAliasesFor(
     const forms = [shortenedForm(company.name), abbreviatedForm(company.name)];
     let added = 0;
     for (const form of forms) {
-      if (added === count || form === null || !clear(form)) continue;
+      if (added === count || form === null || !clear(company.id, form)) continue;
       out.push({ id: rng.uuid(), portfolioCompanyId: company.id, alias: form });
       taken.push(form);
       added++;

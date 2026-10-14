@@ -1,4 +1,4 @@
-import { D, ONE, addDays, toDayNumber } from '@pb/calc';
+import { D, ONE, addDays, daysBetween, toDayNumber } from '@pb/calc';
 import type { AliasedDataset } from './aliases.js';
 import { aliasesOf } from './aliases.js';
 import { csvText } from './csv.js';
@@ -8,12 +8,20 @@ import { intakeDecimal, intakeWholeNumber } from './settings.js';
 /**
  * A synthetic weekly values file (docs/04 M2 weekly-report-intake): one row per active equity or
  * CV position with a Locked mark on or before the report date, carrying the value the sponsor's
- * weekly report states. The intake compares each value with that mark (its prior), so:
+ * weekly report states. A row's prior is the latest Locked mark on or before the report date,
+ * never a mark locked for a later date (a report dated 2025-06-27 compares with the 2025-03-31
+ * mark, not the 2025-06-30 one), and the weekly intake computes its prior the same way. So:
  *
- * clean: every value equals its mark (variance 0), nothing to flag.
+ * clean: every value equals its prior (variance 0), nothing to flag.
  * update: three positions moved by small fractions of intake.weeklyVarianceThresholdPct, so
  *   their variance is inside the threshold and they pass; the rest unchanged.
  * defects: update plus one row per rule the intake exists for, each on its own row.
+ *
+ * The report date is the Friday on or before the dataset's as-of date unless `reportDate` names
+ * another day inside the window the intake takes as current: from intake.weeklyStaleDays before
+ * the as-of date up to the as-of date itself. A day outside it throws, since the defect rows are
+ * placed around that window: the value defects on days inside it, the stale row on a Friday
+ * before it and the after-as-of row on the Friday after it.
  *
  * One row in every scenario carries one of the company's aliases in place of its name and no
  * number: it must still link (docs/03 section 5). The walled position's rows are reported like
@@ -23,7 +31,10 @@ import { intakeDecimal, intakeWholeNumber } from './settings.js';
 export type WeeklyScenario = 'clean' | 'update' | 'defects';
 
 export interface WeeklyValuesOptions {
-  /** The report date; the Friday on or before the dataset's as-of date by default. */
+  /**
+   * The report date; the Friday on or before the dataset's as-of date by default. Any day from
+   * intake.weeklyStaleDays before the as-of date up to the as-of date is accepted; another throws.
+   */
   reportDate?: string;
   scenario?: WeeklyScenario;
 }
@@ -63,6 +74,27 @@ export function fridayOnOrBefore(iso: string): string {
   return addDays(iso, -((weekday - 5 + 7) % 7));
 }
 
+/**
+ * The days the value defects take, one each, inside the window the as-of date keeps current
+ * (`staleDays` before it up to the day itself): the days nearest the report date, earlier ones
+ * first, never the report date itself (it and the number are the duplicate key). The report date
+ * fills in when the window has fewer other days than wanted.
+ */
+function defectDays(reportDate: string, asOf: string, staleDays: number, want: number): string[] {
+  const from = addDays(asOf, -staleDays);
+  const days: string[] = [];
+  for (let k = 1; k <= staleDays; k++) {
+    const day = addDays(reportDate, -k);
+    if (day >= from) days.push(day);
+  }
+  for (let k = 1; k <= staleDays; k++) {
+    const day = addDays(reportDate, k);
+    if (day <= asOf) days.push(day);
+  }
+  while (days.length < want) days.push(reportDate);
+  return days.slice(0, want);
+}
+
 interface Line {
   investmentNumber: string;
   companyName: string;
@@ -80,6 +112,20 @@ export function weeklyValues(
   const threshold = intakeDecimal('weeklyVarianceThresholdPct');
   const staleDays = intakeWholeNumber('weeklyStaleDays');
   const reportDate = options.reportDate ?? fridayOnOrBefore(dataset.asOf);
+  const daysBeforeAsOf = daysBetween(reportDate, dataset.asOf);
+  if (daysBeforeAsOf < 0)
+    throw new Error(
+      `weeklyValues: reportDate ${reportDate} is after the as-of date ${dataset.asOf}`,
+    );
+  if (daysBeforeAsOf > staleDays)
+    throw new Error(
+      `weeklyValues: reportDate ${reportDate} is more than intake.weeklyStaleDays (${staleDays}) days before the as-of date ${dataset.asOf}`,
+    );
+  // The two date defects sit on Fridays outside that window, one on each side of it: more than
+  // intake.weeklyStaleDays before the as-of date (so before any report date the window allows),
+  // and after the as-of date (so after any).
+  const staleFriday = fridayOnOrBefore(addDays(dataset.asOf, -(staleDays + 1)));
+  const afterAsOfFriday = fridayOnOrBefore(addDays(dataset.asOf, 7));
   const companyName = new Map(dataset.portfolioCompanies.map((c) => [c.id, c.name]));
 
   const lines: Line[] = [];
@@ -175,21 +221,22 @@ export function weeklyValues(
       // The same investment and report date twice.
       lines.push({ ...(baseAt(1) ?? sample) });
       flag('WK-DUP-01');
-      // The four value defects keep their number, so each takes its own day earlier in the week
-      // (the report date and the number are the duplicate key) and its own position when there are
-      // enough; all four dates stay inside intake.weeklyStaleDays of the as-of date.
-      const earlier = (k: number): string => addDays(reportDate, -k);
+      // The four value defects keep their number, so each takes its own day inside the window
+      // (the report date and the number are the duplicate key, and none may read as stale) and
+      // its own position when there are enough.
+      const days = defectDays(reportDate, dataset.asOf, staleDays, 4);
+      const day = (k: number): string => days[k] ?? reportDate;
       // A value the row lacks.
-      lines.push({ ...(baseAt(2) ?? sample), reportDate: earlier(1), reportedValue: '' });
+      lines.push({ ...(baseAt(2) ?? sample), reportDate: day(0), reportedValue: '' });
       flag('WK-REQ-01');
       // A value that is not a decimal.
-      lines.push({ ...(baseAt(3) ?? sample), reportDate: earlier(2), reportedValue: '12.5m' });
+      lines.push({ ...(baseAt(3) ?? sample), reportDate: day(1), reportedValue: '12.5m' });
       flag('WK-TYPE-02');
       // A value entered in millions.
       const millions = baseAt(4) ?? sample;
       lines.push({
         ...millions,
-        reportDate: earlier(3),
+        reportDate: day(2),
         reportedValue: D(millions.reportedValue).times('0.000001').toFixed(2),
       });
       flag('WK-TYPE-04');
@@ -197,7 +244,7 @@ export function weeklyValues(
       const negative = baseAt(5) ?? sample;
       lines.push({
         ...negative,
-        reportDate: earlier(4),
+        reportDate: day(3),
         reportedValue: D(negative.reportedValue).negated().toFixed(2),
       });
       flag('WK-RANGE-01');
@@ -207,18 +254,15 @@ export function weeklyValues(
         reportDate: reportDate.split('-').reverse().join('/'),
       });
       flag('WK-TYPE-01');
-      // A report date older than intake.weeklyStaleDays before the as-of date (its Friday).
-      lines.push({
-        ...(baseAt(7) ?? sample),
-        reportDate: fridayOnOrBefore(addDays(dataset.asOf, -(staleDays + 1))),
-      });
+      // A report date older than intake.weeklyStaleDays before the as-of date.
+      lines.push({ ...(baseAt(7) ?? sample), reportDate: staleFriday });
       flag('WK-STALE-01');
     }
     // A report date after the as-of date, built from the walled position so the wall tests have a
     // hidden flagged row; from the first row when the dataset has no wall.
     const base = lines[walledIndex] ?? lines[0];
     if (base !== undefined) {
-      lines.push({ ...base, reportDate: fridayOnOrBefore(addDays(dataset.asOf, 7)) });
+      lines.push({ ...base, reportDate: afterAsOfFriday });
       flag('WK-PERIOD-01');
       if (walledIndex >= 0) expectations.walled.push(lines.length);
     }

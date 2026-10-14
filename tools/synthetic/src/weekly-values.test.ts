@@ -1,4 +1,4 @@
-import { D, daysBetween } from '@pb/calc';
+import { D, addDays, daysBetween } from '@pb/calc';
 import { describe, expect, it } from 'vitest';
 import { aliasesOf } from './aliases.js';
 import type { AliasedDataset } from './aliases.js';
@@ -39,6 +39,21 @@ const equityWithMark = (dataset: AliasedDataset, reportDate: string) =>
       i.dealType !== 'deal_type.private_credit' &&
       latestLockedMark(dataset.valuations, i.id, reportDate) !== null,
   );
+/** True when the position has a mark locked for the as-of quarter end itself. */
+const hasAsOfMark = (dataset: AliasedDataset, n: string): boolean =>
+  dataset.valuations.some(
+    (v) =>
+      v.investmentId === byNumber(dataset, n)?.id &&
+      v.periodEnd === dataset.asOf &&
+      v.state === 'Locked',
+  );
+/** The row a defects file flags by a rule, by the row number its expectations name. */
+const flaggedRow = (file: ReturnType<typeof weeklyValues>, ruleId: string): string[] => {
+  const f = file.expectations.flagged.find((x) => x.ruleId === ruleId);
+  const row = file.rows[(f?.rowNo ?? 0) - 1];
+  if (row === undefined) throw new Error(`no row for ${ruleId}`);
+  return row;
+};
 
 describe('the synthetic weekly values file (docs/04 M2 weekly-report-intake)', () => {
   it('dates the report on the Friday on or before the as-of date, from the calendar', () => {
@@ -48,8 +63,9 @@ describe('the synthetic weekly values file (docs/04 M2 weekly-report-intake)', (
     expect(fridayOnOrBefore('2025-07-03')).toBe('2025-06-27');
     expect(fridayOnOrBefore('2024-12-31')).toBe('2024-12-27');
     expect(weeklyValues(small).reportDate).toBe('2025-06-27');
-    expect(weeklyValues(small, { reportDate: '2025-03-28' }).fileName).toBe(
-      'weekly-values-2025-03-28-clean.csv',
+    // A report date of its own, inside the window the as-of date keeps current.
+    expect(weeklyValues(small, { reportDate: '2025-06-20' }).fileName).toBe(
+      'weekly-values-2025-06-20-clean.csv',
     );
   });
 
@@ -75,21 +91,44 @@ describe('the synthetic weekly values file (docs/04 M2 weekly-report-intake)', (
     expect(new Set(numbers).size + clean.expectations.aliased.length).toBe(positions.length);
   });
 
-  it('compares with the latest Locked mark on or before the report date, not the as-of mark', () => {
-    const earlier = weeklyValues(small, { reportDate: '2025-03-28' });
-    for (const r of earlier.rows)
-      if (r[0] !== '') expect(r[3]).toBe(priorOf(small, r[0] ?? '', '2025-03-28'));
-    // A mark dated after the report date is not the prior: the as-of quarter's marks are later.
-    const asOfMarkOf = (n: string) =>
-      small.valuations.find(
-        (v) =>
-          v.investmentId === byNumber(small, n)?.id &&
-          v.periodEnd === '2025-06-30' &&
-          v.state === 'Locked',
+  it('compares with the latest Locked mark on or before the report date, never one locked later', () => {
+    // The default report date is before the as-of date, so a mark locked for the as-of quarter
+    // end is never the prior: every clean row carries the latest mark on or before 2025-06-27
+    // (the 2025-03-31 mark, an older one, or a sponsor's own earlier period end) and no variance
+    // against it, even where a 2025-06-30 mark exists.
+    const clean = weeklyValues(small);
+    expect(clean.reportDate < small.asOf).toBe(true);
+    let withAsOfMark = 0;
+    for (const r of clean.rows) {
+      if (r[0] === '') continue;
+      const prior = latestLockedMark(
+        small.valuations,
+        byNumber(small, r[0] ?? '')?.id ?? '',
+        clean.reportDate,
       );
-    const later = earlier.rows.filter((r) => r[0] !== '' && asOfMarkOf(r[0] ?? '') !== undefined);
-    expect(later.length).toBeGreaterThan(0);
-    for (const r of later) expect(r[3]).not.toBe(asOfMarkOf(r[0] ?? '')?.fairValue);
+      expect(prior).not.toBeNull();
+      const periodEnd = prior?.periodEnd ?? '';
+      expect(periodEnd <= clean.reportDate).toBe(true);
+      expect(periodEnd).not.toBe(small.asOf);
+      expect(variance(r[3] ?? '0', prior?.fairValue ?? '')).toBe('0.000000');
+      if (hasAsOfMark(small, r[0] ?? '')) withAsOfMark++;
+    }
+    expect(withAsOfMark).toBeGreaterThan(0);
+    // A report dated on the as-of date takes those marks, by the same rule.
+    const onAsOf = weeklyValues(small, { reportDate: small.asOf });
+    let taken = 0;
+    for (const r of onAsOf.rows) {
+      if (r[0] === '' || !hasAsOfMark(small, r[0] ?? '')) continue;
+      const prior = latestLockedMark(
+        small.valuations,
+        byNumber(small, r[0] ?? '')?.id ?? '',
+        small.asOf,
+      );
+      expect(prior?.periodEnd).toBe(small.asOf);
+      expect(r[3]).toBe(prior?.fairValue);
+      taken++;
+    }
+    expect(taken).toBe(withAsOfMark);
   });
 
   it('carries one row by an alias of the company and no number, which still links', () => {
@@ -168,12 +207,7 @@ describe('the synthetic weekly values file (docs/04 M2 weekly-report-intake)', (
       ]),
     );
     expect(new Set(defects.expectations.flagged.map((f) => f.rowNo)).size).toBe(rules.length);
-    const rowOf = (ruleId: string): string[] => {
-      const f = defects.expectations.flagged.find((x) => x.ruleId === ruleId);
-      const row = defects.rows[(f?.rowNo ?? 0) - 1];
-      if (row === undefined) throw new Error(`no row for ${ruleId}`);
-      return row;
-    };
+    const rowOf = (ruleId: string): string[] => flaggedRow(defects, ruleId);
     const asOf = small.asOf;
     // Beyond the threshold, in place on a position's own row.
     const beyond = rowOf('WK-BOUND-01');
@@ -216,6 +250,58 @@ describe('the synthetic weekly values file (docs/04 M2 weekly-report-intake)', (
     // No row repeats a report date and number except the duplicate.
     const keys = defects.rows.filter((r) => r[0] !== '').map((r) => `${r[0]}|${r[2]}`);
     expect(keys.length - new Set(keys).size).toBe(1);
+  });
+
+  it('takes a report date inside the stale window of the as-of date and refuses one outside it', () => {
+    const asOf = small.asOf;
+    const earliest = addDays(asOf, -staleDays);
+    expect(weeklyValues(small, { reportDate: earliest }).reportDate).toBe(earliest);
+    expect(weeklyValues(small, { reportDate: asOf }).reportDate).toBe(asOf);
+    const thrown = (reportDate: string): unknown => {
+      try {
+        weeklyValues(small, { reportDate });
+      } catch (error) {
+        return error;
+      }
+      return undefined;
+    };
+    for (const [reportDate, reason] of [
+      [addDays(asOf, 1), 'after the as-of date'],
+      [addDays(earliest, -1), 'intake.weeklyStaleDays'],
+    ] as const) {
+      const error = thrown(reportDate);
+      expect(error).toBeInstanceOf(Error);
+      expect(Object.getPrototypeOf(error)).toBe(Error.prototype);
+      expect(error instanceof Error ? error.message : '').toContain(reason);
+    }
+    // At either edge of the window the defect rows keep their places: the value defects on their
+    // own days inside it, the stale row on a Friday before it, the after-as-of row on the Friday
+    // after it, and every numbered row still a key of its own.
+    for (const reportDate of [earliest, asOf]) {
+      const defects = weeklyValues(small, { reportDate, scenario: 'defects' });
+      const days = ['WK-REQ-01', 'WK-TYPE-02', 'WK-TYPE-04', 'WK-RANGE-01'].map(
+        (id) => flaggedRow(defects, id)[2] ?? '',
+      );
+      expect(new Set(days).size).toBe(days.length);
+      for (const date of days) {
+        expect(date).toMatch(ISO);
+        expect(date).not.toBe(reportDate);
+        expect(date >= earliest && date <= asOf).toBe(true);
+      }
+      const stale = flaggedRow(defects, 'WK-STALE-01')[2] ?? '';
+      expect(fridayOnOrBefore(stale)).toBe(stale);
+      expect(stale < earliest).toBe(true);
+      expect(daysBetween(stale, asOf)).toBeGreaterThan(staleDays);
+      const after = flaggedRow(defects, 'WK-PERIOD-01')[2] ?? '';
+      expect(fridayOnOrBefore(after)).toBe(after);
+      expect(after > asOf).toBe(true);
+      const keys = defects.rows.filter((r) => r[0] !== '').map((r) => `${r[0]}|${r[2]}`);
+      expect(keys.length - new Set(keys).size).toBe(1);
+    }
+    // The default report date and its rows are unchanged by the window: the earlier days first.
+    const byDefault = weeklyValues(small, { scenario: 'defects' });
+    expect(flaggedRow(byDefault, 'WK-REQ-01')[2]).toBe(addDays(byDefault.reportDate, -1));
+    expect(flaggedRow(byDefault, 'WK-RANGE-01')[2]).toBe(addDays(byDefault.reportDate, -4));
   });
 
   it.each([42, 7, 14])(

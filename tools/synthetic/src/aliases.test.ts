@@ -113,4 +113,56 @@ describe('company aliases (docs/03 section 5, docs/04 M1)', () => {
     expect(out.map((a) => a.alias)).not.toContain('Summit Services');
     for (const a of out) expect(['SSC', 'SSI']).toContain(a.alias);
   });
+
+  it("never takes a stem two names share: a prefix of another name, or another company's form", () => {
+    // "Summit Services" is no near miss of either name, but a prefix of both: an exact match on
+    // it would link an ambiguous name to whichever company drew first.
+    const companies = [
+      { id: 'a', name: 'Summit Services Group' },
+      { id: 'b', name: 'Summit Services Partners' },
+    ];
+    const out = companyAliasesFor(companies, [], new Rng(3), new Set(['a', 'b']));
+    expect(out.map((a) => a.alias)).not.toContain('Summit Services');
+    // Only the abbreviations are left, and the second near-misses the first, so one company has
+    // an alias and neither has the stem.
+    expect(out.length).toBeGreaterThan(0);
+    for (const a of out) expect(['SSG', 'SSP']).toContain(a.alias);
+    // An abbreviation two companies share is nobody's alias either, whatever the draw.
+    const initials = [
+      { id: 'a', name: 'Marlowe Services Inc' },
+      { id: 'b', name: 'Meridian Systems Inc' },
+    ];
+    for (const seed of [1, 2, 3]) {
+      const forms = companyAliasesFor(initials, [], new Rng(seed), new Set(['a', 'b'])).map(
+        (a) => a.alias,
+      );
+      expect(forms).not.toContain('MSI');
+      expect(forms.sort()).toEqual(['Marlowe Services', 'Meridian Systems']);
+    }
+  });
+
+  it.each([42, 7, 14])(
+    'is never a stem two names share on the default profile (seed %i)',
+    (seed) => {
+      const dataset = generateDataset({ profile: 'default', seed });
+      const stems = dataset.portfolioCompanies.map((c) => ({
+        id: c.id,
+        name: c.name,
+        normalized: normalizeName(c.name),
+        forms: [shortenedForm(c.name), abbreviatedForm(c.name)].map((f) => normalizeName(f ?? '')),
+      }));
+      expect(dataset.companyAliases.length).toBeGreaterThan(0);
+      for (const a of dataset.companyAliases) {
+        const wanted = normalizeName(a.alias);
+        const shared = stems
+          .filter(
+            (s) =>
+              s.id !== a.portfolioCompanyId &&
+              (s.normalized.startsWith(wanted) || s.forms.includes(wanted)),
+          )
+          .map((s) => s.name);
+        expect(shared, `${a.alias} is a stem of`).toEqual([]);
+      }
+    },
+  );
 });
