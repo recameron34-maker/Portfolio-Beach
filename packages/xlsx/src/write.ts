@@ -8,7 +8,7 @@
 import { encodeUtf8 } from './bytes.js';
 import { MAX_COLUMNS, MAX_ROWS, cellReference, encodeExcelEscapes } from './cells.js';
 import { WorkbookError } from './errors.js';
-import { escapeAttribute, escapeText } from './xml.js';
+import { escapeAttribute, escapeText, isXmlChar } from './xml.js';
 import { writeZip, type ZipWriteEntry } from './zip.js';
 
 export interface SheetInput {
@@ -67,7 +67,11 @@ export function sheetNameProblem(name: string): string | null {
   if (name.toLowerCase() === RESERVED_SHEET_NAME) return 'Excel reserves the sheet name History';
   for (const char of name) {
     const code = char.codePointAt(0) ?? 0;
+    if (code >= 0xd800 && code <= 0xdfff) {
+      return 'a sheet name holds a lone surrogate, which is not text';
+    }
     if (code < 0x20 || code === 0x7f) return 'a sheet name cannot contain control characters';
+    if (!isXmlChar(code)) return 'a sheet name cannot contain a character XML does not allow';
   }
   return null;
 }
