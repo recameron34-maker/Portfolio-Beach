@@ -1037,7 +1037,7 @@ export const intakeFile = z.object({
    * other source. Optional until every producer sets it (the accounting intake and the preview
    * were written before it existed); a reader treats an absent value as null.
    */
-  templateSignature: z.string().nullable().optional(),
+  templateSignature: z.string().nullable(),
   receivedAt: z.string(),
   receivedBy: z.string().nullable(),
   rowCount: z.number().int(),
@@ -1406,6 +1406,13 @@ export const opsDropTemplate = z
     }
     if (new Set(template.header).size !== template.header.length)
       ctx.addIssue({ code: 'custom', path: ['header'], message: 'Header cells must be distinct' });
+    const targets = Object.values(template.columns);
+    if (new Set(targets).size !== targets.length)
+      ctx.addIssue({
+        code: 'custom',
+        path: ['columns'],
+        message: 'Each accounting column may be mapped once',
+      });
   });
 export type OpsDropTemplate = z.infer<typeof opsDropTemplate>;
 

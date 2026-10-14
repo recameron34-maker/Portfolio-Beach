@@ -277,6 +277,7 @@ export function intakeFileFixture(overrides: Partial<IntakeFile> = {}): IntakeFi
   return {
     id: FILE_ID.update,
     source: 'accounting',
+    templateSignature: null,
     fileName: 'accounting-export-2025-06-30-update.csv',
     contentHash: 'a3f1c9e2b7d4506f8e1a2b3c4d5e6f708192a3b4c5d6e7f8091a2b3c4d5e6f70',
     receivedAt: RECEIVED_AT,

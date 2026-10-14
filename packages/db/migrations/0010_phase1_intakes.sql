@@ -24,6 +24,10 @@ create table core.company_alias (
   row_version integer not null default 1
 );
 create index company_alias_company_idx on core.company_alias (portfolio_company_id);
+-- Linking compares names after normalization (lower case, letters and digits only), so two aliases that
+-- normalize alike would make an exact match ambiguous; the unique index mirrors that normalization.
+create unique index company_alias_normalized_key
+  on core.company_alias (lower(regexp_replace(alias, '[^a-zA-Z0-9]+', '', 'g')));
 call pb.add_standard_columns_trigger('core.company_alias');
 call audit.add_history('core.company_alias');
 grant select, insert, update on core.company_alias to pb_app;
@@ -52,7 +56,13 @@ alter table stg.valuation
   add column decided_at timestamptz,
   add column promoted_at timestamptz,
   add column valuation_id uuid references mon.valuation (id),
-  add column row_no integer;
+  add column row_no integer not null,
+  -- The move against the prior as a decimal fraction; a nominal prior can make it large.
+  alter column variance_pct type numeric(20,8);
+
+-- The date a file reports for when it is not in its rows: a look-through run's as-of date. With the
+-- content hash it keeps two runs for different dates apart even when their extracts read the same.
+alter table stg.intake_file add column as_of date;
 
 -- A file may carry the same investment and date twice; the later row is staged and flagged (DUP rules)
 -- so a person decides. Within a file the row number is the row's locator and is unique.

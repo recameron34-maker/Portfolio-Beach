@@ -98,6 +98,7 @@ function toFile(sim: SimIntakeFile): IntakeFile {
     source: SOURCE,
     fileName: sim.fileName,
     contentHash: sim.contentHash,
+    templateSignature: null,
     receivedAt: sim.receivedAt,
     receivedBy: sim.receivedBy,
     rowCount: sim.rowCount,

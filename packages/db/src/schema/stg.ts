@@ -27,6 +27,8 @@ export const intakeFile = stg.table('intake_file', {
   fileName: text('file_name').notNull(),
   contentHash: text('content_hash').notNull(),
   templateSignature: text('template_signature'),
+  /** The date a file reports for when its rows do not carry it (a look-through run's as-of date). */
+  asOf: date('as_of'),
   receivedAt: timestamp('received_at', { withTimezone: true }).notNull().defaultNow(),
   receivedBy: uuid('received_by'),
   rowCount: integer('row_count').notNull().default(0),
@@ -63,7 +65,7 @@ export const intakeRow = stg.table('intake_row', {
 export const stagedValuation = stg.table('valuation', {
   id: uuid('id').primaryKey().defaultRandom(),
   intakeFileId: uuid('intake_file_id'),
-  rowNo: integer('row_no'),
+  rowNo: integer('row_no').notNull(),
   reportDate: date('report_date'),
   investmentNumber: text('investment_number'),
   companyName: text('company_name'),
@@ -72,7 +74,7 @@ export const stagedValuation = stg.table('valuation', {
   priorValue: numeric('prior_value', { precision: 20, scale: 2 }),
   priorSource: text('prior_source'),
   priorDate: date('prior_date'),
-  variancePct: numeric('variance_pct', { precision: 12, scale: 8 }),
+  variancePct: numeric('variance_pct', { precision: 20, scale: 8 }),
   flag: text('flag'),
   matchStatus: text('match_status').notNull().default('unmatched'),
   link: jsonb('link').notNull().default({}),

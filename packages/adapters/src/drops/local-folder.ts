@@ -35,8 +35,10 @@ export class LocalFolderDrop implements FileDrop {
       names = (await readdir(this.inbox))
         .filter((n) => this.extensions.some((e) => n.toLowerCase().endsWith(e)))
         .sort();
-    } catch {
-      return [];
+    } catch (error) {
+      // A missing inbox is an empty drop; anything else (not readable, not a folder) is a fault.
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return [];
+      throw error;
     }
     const refs: FileRef[] = [];
     for (const name of names) {
@@ -56,8 +58,15 @@ export class LocalFolderDrop implements FileDrop {
     return new Uint8Array(bytes.buffer, bytes.byteOffset, bytes.byteLength);
   }
 
-  healthCheck(): Promise<HealthStatus> {
-    return Promise.resolve({ ok: true });
+  async healthCheck(): Promise<HealthStatus> {
+    try {
+      await readdir(this.inbox);
+      return { ok: true };
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT')
+        return { ok: true, detail: 'inbox empty' };
+      return { ok: false, detail: 'inbox not readable' };
+    }
   }
 
   /** The file inside the inbox, or an error for an id that is not a bare file name of a listed kind. */

@@ -1,4 +1,4 @@
-import { readFile } from 'node:fs/promises';
+import { readFile, readdir } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import type { ExposureRow, HealthStatus, LookThroughProvider } from '../types.js';
 
@@ -56,7 +56,14 @@ export class LocalFolderLookThroughProvider implements LookThroughProvider {
     return parsed;
   }
 
-  healthCheck(): Promise<HealthStatus> {
-    return Promise.resolve({ ok: true });
+  async healthCheck(): Promise<HealthStatus> {
+    try {
+      await readdir(this.root);
+      return { ok: true };
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT')
+        return { ok: true, detail: 'no extracts yet' };
+      return { ok: false, detail: 'extract folder not readable' };
+    }
   }
 }

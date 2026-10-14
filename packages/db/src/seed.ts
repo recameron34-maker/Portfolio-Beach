@@ -60,7 +60,23 @@ export const syntheticDatasetSchema = z.object({
   /** Names a portfolio company is also known by (core.company_alias); absent in datasets made before migration 0010. */
   companyAliases: z
     .array(z.object({ id: uuid, portfolioCompanyId: uuid, alias: z.string().min(1) }))
-    .optional(),
+    .optional()
+    .superRefine((aliases, ctx) => {
+      // Linking matches aliases after normalization, so two that normalize alike are refused here
+      // rather than silently dropped by the unique index at load time.
+      const seen = new Map<string, number>();
+      for (const [i, a] of (aliases ?? []).entries()) {
+        const key = a.alias.toLowerCase().replace(/[^a-z0-9]+/g, '');
+        const first = seen.get(key);
+        if (first !== undefined)
+          ctx.addIssue({
+            code: 'custom',
+            path: [i, 'alias'],
+            message: `alias normalizes like the alias at index ${first}`,
+          });
+        else seen.set(key, i);
+      }
+    }),
   portfolioCompanies: z.array(
     z.object({
       id: uuid,

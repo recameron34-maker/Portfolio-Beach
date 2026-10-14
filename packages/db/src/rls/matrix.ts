@@ -183,6 +183,13 @@ export const WRITE_MATRIX: WriteCase[] = [
     allowed: ['operations'],
   },
   {
+    name: 'acknowledge a data exception about the walled row',
+    sql: "update ops.data_exception set state = 'acknowledged' where id = '90000000-0000-4000-8000-000000000002'",
+    // The select policy hides it from everyone outside the wall; the wall member is deal team and
+    // may not update exceptions, so nobody in the fixture can (migration 0010).
+    allowed: [],
+  },
+  {
     name: 'set the external ticket of a data exception',
     sql: "update ops.data_exception set external_ticket = 'HD-10452' where id = '90000000-0000-4000-8000-000000000003'",
     allowed: ['operations'],

@@ -14,6 +14,7 @@ import {
   lookthroughReconcileResult,
   lookthroughRow,
   opsDropImportBody,
+  opsDropTemplate,
   opsDropTemplates,
   TEMPLATE_HEADER_SEPARATOR,
   weeklyFileDetail,
@@ -80,9 +81,10 @@ describe('intake files from every Phase 1 source', () => {
       intakeFile.safeParse({ ...file, source: 'ops_drop', templateSignature: 'quarterly-figures' })
         .success,
     ).toBe(true);
-    // A producer written before the field existed may leave it out; a reader takes that as null.
+    // Every producer says what it matched: null for a file no template applies to, never absent.
     const { templateSignature: _dropped, ...withoutSignature } = file;
-    expect(intakeFile.parse(withoutSignature).templateSignature).toBeUndefined();
+    expect(intakeFile.safeParse(withoutSignature).success).toBe(false);
+    expect(intakeFile.parse({ ...file, templateSignature: null }).templateSignature).toBeNull();
     expect(intakeFile.safeParse({ ...file, templateSignature: 7 }).success).toBe(false);
   });
 
@@ -404,5 +406,19 @@ describe('the route table', () => {
       'x-roles': string[];
     };
     expect(commands['x-roles']).toEqual(['operations']);
+  });
+
+  it('refuses an ops-drop template that maps two header cells onto one accounting column', () => {
+    const template = {
+      name: 'two-into-one',
+      sheets: ['Figures'],
+      headerSheet: 'Figures',
+      header: ['Net debt', 'Net cash'],
+      headerHash: 'a'.repeat(64),
+      columns: { 'Net debt': 'NetDebt', 'Net cash': 'NetDebt' },
+    };
+    const result = opsDropTemplate.safeParse(template);
+    expect(result.success).toBe(false);
+    expect(result.error?.issues.map((i) => i.path.join('.'))).toContain('columns');
   });
 });
