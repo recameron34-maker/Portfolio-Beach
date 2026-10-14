@@ -21,6 +21,11 @@ export type XmlNode = XmlElement | string;
 export interface ParseXmlOptions {
   /** The deepest element nesting accepted; one more level refuses the part. */
   maxDepth: number;
+  /**
+   * The most elements and text nodes accepted; one more refuses the part at that point, so a
+   * hostile part never grows a tree past the budget before the refusal.
+   */
+  maxNodes: number;
   /** Names the part in messages, for example `xl/workbook.xml`. */
   part: string;
 }
@@ -51,6 +56,24 @@ export function isXmlChar(code: number): boolean {
     (code >= 0xe000 && code <= 0xfffd) ||
     (code >= 0x10000 && code <= 0x10ffff)
   );
+}
+
+/**
+ * The code points `isXmlChar` refuses, as a pattern: the `u` flag makes a surrogate pair one
+ * code point, so only a lone surrogate matches. The control characters are the point of it.
+ */
+// eslint-disable-next-line no-control-regex
+const NOT_XML_CHAR = /[\u0000-\u0008\u000b\u000c\u000e-\u001f\ud800-\udfff\ufffe\uffff]/u;
+const LINE_END = /\r\n?/g;
+
+/**
+ * Text as parsed: a character XML does not allow refuses the part, and `\r\n` or a lone `\r`
+ * becomes `\n` (XML 1.0 section 2.11; this is why Excel writes a carriage return as `_x000D_`).
+ * A carriage return given as a character reference is decoded afterwards, so it survives.
+ */
+function parsedText(raw: string, fail: (what: string) => never): string {
+  if (NOT_XML_CHAR.test(raw)) fail('a character XML does not allow');
+  return raw.includes('\r') ? raw.replace(LINE_END, '\n') : raw;
 }
 
 function decodeEntity(body: string, fail: (what: string) => never): string {
@@ -95,26 +118,39 @@ export function decodeEntities(text: string, fail: (what: string) => never): str
 }
 
 export function parseXml(text: string, options: ParseXmlOptions): XmlElement {
-  const { maxDepth, part } = options;
+  const { maxDepth, maxNodes, part } = options;
   const fail = (what: string): never => {
     throw new WorkbookError(`${part} is not well-formed XML: ${what}`, 'malformed');
   };
   const length = text.length;
   const stack: XmlElement[] = [];
   let root: XmlElement | null = null;
+  let nodes = 0;
   let i = 0;
 
+  /** Counts a node about to be kept; one past the budget refuses before the tree grows further. */
+  const countNode = (): void => {
+    nodes += 1;
+    if (nodes > maxNodes) {
+      throw new WorkbookError(
+        `${part} holds more than ${maxNodes} elements and text nodes`,
+        'too_large',
+      );
+    }
+  };
   const appendText = (value: string): void => {
     const parent = stack[stack.length - 1];
-    if (parent) parent.children.push(value);
-    else if (value.trim() !== '') fail('text outside the root element');
+    if (parent) {
+      countNode();
+      parent.children.push(value);
+    } else if (value.trim() !== '') fail('text outside the root element');
   };
 
   while (i < length) {
     if (text.charCodeAt(i) !== CODE_LT) {
       const next = text.indexOf('<', i);
       const stop = next < 0 ? length : next;
-      appendText(decodeEntities(text.slice(i, stop), fail));
+      appendText(decodeEntities(parsedText(text.slice(i, stop), fail), fail));
       i = stop;
       continue;
     }
@@ -133,7 +169,7 @@ export function parseXml(text: string, options: ParseXmlOptions): XmlElement {
     if (text.startsWith('<![CDATA[', i)) {
       const stop = text.indexOf(']]>', i + 9);
       if (stop < 0) fail('a CDATA section is not terminated');
-      appendText(text.slice(i + 9, stop));
+      appendText(parsedText(text.slice(i + 9, stop), fail));
       i = stop + 3;
       continue;
     }
@@ -188,12 +224,13 @@ export function parseXml(text: string, options: ParseXmlOptions): XmlElement {
       const raw = text.slice(i, valueEnd);
       if (raw.includes('<')) fail(`the attribute ${attribute} of <${name}> holds a "<"`);
       if (attribute in attributes) fail(`the element <${name}> repeats the attribute ${attribute}`);
-      attributes[attribute] = decodeEntities(raw, fail);
+      attributes[attribute] = decodeEntities(parsedText(raw, fail), fail);
       i = valueEnd + 1;
     }
     if (stack.length + 1 > maxDepth) {
       throw new WorkbookError(`${part} nests elements deeper than ${maxDepth} levels`, 'too_large');
     }
+    countNode();
     const element: XmlElement = { name, attributes, children: [] };
     const parent = stack[stack.length - 1];
     if (parent) parent.children.push(element);

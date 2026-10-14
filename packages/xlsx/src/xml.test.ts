@@ -12,7 +12,8 @@ import {
   textOf,
 } from './xml.js';
 
-const parse = (text: string, maxDepth = 16) => parseXml(text, { maxDepth, part: 'part.xml' });
+const parse = (text: string, maxDepth = 16, maxNodes = 1024) =>
+  parseXml(text, { maxDepth, maxNodes, part: 'part.xml' });
 
 function refusal(run: () => unknown): WorkbookError {
   try {
@@ -106,6 +107,53 @@ describe('parseXml', () => {
     expect(error.code).toBe('too_large');
     expect(error.message).toBe('part.xml nests elements deeper than 3 levels');
     expect(parse('<a><b/><b/><b/><b/><b/></a>', 2).children).toHaveLength(5);
+  });
+
+  it('caps the number of elements and text nodes so a hostile part is refused before its tree exists', () => {
+    expect(parse('<a><b/><b/><b/></a>', 16, 4).children).toHaveLength(3);
+    const elements = refusal(() => parse('<a><b/><b/><b/><b/></a>', 16, 4));
+    expect(elements.code).toBe('too_large');
+    expect(elements.message).toBe('part.xml holds more than 4 elements and text nodes');
+    expect(textOf(parse('<a>x<b/>y</a>', 16, 4))).toBe('xy');
+    expect(refusal(() => parse('<a>x<b/>y</a>', 16, 3)).code).toBe('too_large');
+    expect(refusal(() => parse('<a><![CDATA[x]]><![CDATA[y]]></a>', 16, 2)).code).toBe('too_large');
+    // The tail is not well-formed: reaching it would refuse the part as malformed instead, so a
+    // too_large refusal proves the parser stopped at the budget, long before the end.
+    const hostile = `<a>${'<b>t</b>'.repeat(1000)}<never-closed`;
+    const early = refusal(() => parse(hostile, 16, 100));
+    expect(early.code).toBe('too_large');
+    expect(refusal(() => parse(hostile, 16, 10_000)).code).toBe('malformed');
+  });
+
+  it('refuses characters XML does not allow in text, CDATA and attributes', () => {
+    const message = 'part.xml is not well-formed XML: a character XML does not allow';
+    for (const bad of [
+      '\u0000',
+      '\u0001',
+      '\u000b',
+      '\u001f',
+      '\ufffe',
+      '\uffff',
+      '\ud800',
+      '\udc00',
+    ]) {
+      const label = JSON.stringify(bad);
+      expect(refusal(() => parse(`<a>x${bad}y</a>`)).message, label).toBe(message);
+      expect(refusal(() => parse(`<a><![CDATA[${bad}]]></a>`)).message, label).toBe(message);
+      expect(refusal(() => parse(`<a x="${bad}"/>`)).message, label).toBe(message);
+      expect(refusal(() => parse(`<a x='${bad}'/>`)).code, label).toBe('malformed');
+    }
+    expect(textOf(parse('<a>tab\tfeed\n\u{1F600}\u007f�</a>'))).toBe('tab\tfeed\n\u{1F600}\u007f�');
+    expect(parse('<a x="\t\u{1F600}"/>').attributes).toEqual({ x: '\t\u{1F600}' });
+  });
+
+  it('folds CRLF and a lone CR into LF in parsed text, but keeps a CR given as a character reference', () => {
+    expect(textOf(parse('<a>one\r\ntwo\rthree\n\r\r\n</a>'))).toBe('one\ntwo\nthree\n\n\n');
+    expect(textOf(parse('<a><![CDATA[a\r\nb\rc]]></a>'))).toBe('a\nb\nc');
+    expect(parse('<a x="1\r\n2\r3"/>').attributes).toEqual({ x: '1\n2\n3' });
+    expect(textOf(parse('<a>x&#13;y&#xD;&#10;z</a>'))).toBe('x\ry\r\nz');
+    expect(parse('<a x="&#13;"/>').attributes).toEqual({ x: '\r' });
+    expect(parse('<a>\r\n</a>\r\n').children).toEqual(['\n']);
   });
 
   it('escapes text and attribute values', () => {

@@ -1,5 +1,6 @@
 import { deflateRawSync } from 'node:zlib';
 import { describe, expect, it } from 'vitest';
+import { MAX_ROWS } from './cells.js';
 import { WorkbookError } from './errors.js';
 import { nodeInflateRaw } from './node.js';
 import { READ_LIMITS, readWorkbook, resolvePartPath, type ReadWorkbookOptions } from './read.js';
@@ -135,6 +136,45 @@ describe('readWorkbook on a workbook an Excel-like writer produced (deflated par
     );
     expect((await read(archive(parts))).sheets[0]?.rows).toEqual([['p']]);
   });
+
+  it('decodes Excel escapes within each rich text run, never across runs', async () => {
+    const strings =
+      `<sst xmlns="${NS}">` +
+      '<si><r><t>a_x00</t></r><r><t>41_b</t></r></si>' +
+      '<si><r><t>_x000D_</t></r><r><t>x</t></r></si>' +
+      '<si><t>_x00</t><t>41_</t></si>' +
+      '</sst>';
+    const sheet =
+      `<worksheet xmlns="${NS}"><sheetData><row r="1">` +
+      '<c r="A1" t="s"><v>0</v></c><c r="B1" t="s"><v>1</v></c><c r="C1" t="s"><v>2</v></c>' +
+      '<c r="D1" t="inlineStr"><is><r><t>_x00</t></r><r><t>0D_</t></r></is></c>' +
+      '</row></sheetData></worksheet>';
+    expect((await read(archive(excelLike(sheet, strings)))).sheets[0]?.rows).toEqual([
+      ['a_x0041_b', '\rx', '_x0041_', '_x000D_'],
+    ]);
+  });
+
+  it('decodes percent escapes in relationship targets, one segment at a time', async () => {
+    const sheet = `<worksheet xmlns="${NS}"><sheetData><row r="1"><c r="A1"><v>1</v></c></row></sheetData></worksheet>`;
+    const { 'xl/worksheets/sheet1.xml': moved, ...rest } = excelLike(sheet);
+    const parts: Record<string, string> = { ...rest, 'xl/worksheets/sheet 1.xml': moved! };
+    parts['xl/_rels/workbook.xml.rels'] = parts['xl/_rels/workbook.xml.rels']!.replace(
+      'worksheets/sheet1.xml',
+      'worksheets/sheet%201.xml',
+    );
+    expect((await read(archive(parts))).sheets[0]?.rows).toEqual([['1']]);
+    expect(resolvePartPath('xl/', 'worksheets/sheet%201.xml')).toBe('xl/worksheets/sheet 1.xml');
+    expect(resolvePartPath('xl/', '%2E%2E/other%2Fpart.xml')).toBe('other/part.xml');
+    expect(resolvePartPath('a%25b/', 'x.xml')).toBe('a%25b/x.xml');
+    const bad = await refusal(() => Promise.resolve(resolvePartPath('xl/', 'sheet%zz.xml')));
+    expect(bad.code).toBe('malformed');
+    expect(bad.message).toBe(
+      'The relationship target sheet%zz.xml holds an escape that is not valid',
+    );
+    expect((await refusal(() => Promise.resolve(resolvePartPath('', 'a/%E0%A4%A')))).code).toBe(
+      'malformed',
+    );
+  });
 });
 
 describe('readWorkbook refusals', () => {
@@ -173,7 +213,7 @@ describe('readWorkbook refusals', () => {
     expect((await refusal(() => read(archive(withoutStrings)))).code).toBe('missing_part');
   });
 
-  it('refuses a sheet past the cell limit, counting each row as one slot plus its cells', async () => {
+  it('refuses a sheet past the cell limit, counting cells only (rows are not slots)', async () => {
     const sheets = [
       {
         name: 'S',
@@ -185,21 +225,81 @@ describe('readWorkbook refusals', () => {
       },
     ];
     const bytes = writeWorkbook(sheets);
-    expect((await read(bytes, { maxCells: 15 })).sheets[0]?.rows).toHaveLength(3);
-    const error = await refusal(() => read(bytes, { maxCells: 14 }));
+    expect((await read(bytes, { maxCells: 12 })).sheets[0]?.rows).toHaveLength(3);
+    const error = await refusal(() => read(bytes, { maxCells: 11 }));
     expect(error.code).toBe('too_large');
-    expect(error.message).toBe('Sheet S has more than 14 cells');
+    expect(error.message).toBe('Sheet S has more than 11 cells');
+    const sparse = writeWorkbook([{ name: 'S', rows: [[], [], [], [], ['x']] }]);
+    expect((await read(sparse, { maxCells: 5 })).sheets[0]?.rows).toHaveLength(5);
     expect(READ_LIMITS.maxCells).toBe(200_000);
   });
 
-  it('refuses a far-away cell reference before filling the grid up to it', async () => {
+  it('refuses a far-away row or cell reference before filling the grid up to it', async () => {
     const far = `<worksheet xmlns="${NS}"><sheetData><row r="1000000"><c r="XFD1000000"><v>1</v></c></row></sheetData></worksheet>`;
     const error = await refusal(() => read(archive(excelLike(far))));
     expect(error.code).toBe('too_large');
+    expect(error.message).toBe(
+      'Sheet Data has a row numbered 1000000, past the 200000 rows the reader accepts',
+    );
+    const emptyFar = `<worksheet xmlns="${NS}"><sheetData><row r="3"/></sheetData></worksheet>`;
+    expect((await read(archive(excelLike(emptyFar)), { maxCells: 3 })).sheets[0]?.rows).toEqual([
+      [],
+      [],
+      [],
+    ]);
+    expect((await refusal(() => read(archive(excelLike(emptyFar)), { maxCells: 2 }))).code).toBe(
+      'too_large',
+    );
     const wide = `<worksheet xmlns="${NS}"><sheetData><row r="1"><c r="XFD1"><v>1</v></c></row></sheetData></worksheet>`;
     expect((await read(archive(excelLike(wide)))).sheets[0]?.rows[0]).toHaveLength(16_384);
     expect((await refusal(() => read(archive(excelLike(wide)), { maxCells: 16_000 }))).code).toBe(
       'too_large',
+    );
+    expect(
+      (await read(archive(excelLike(wide)), { maxCells: 16_384 })).sheets[0]?.rows[0],
+    ).toHaveLength(16_384);
+  });
+
+  it('refuses a cell placed past column XFD or a row placed past the last row as malformed', async () => {
+    const column = await refusal(() =>
+      read(
+        archive(
+          excelLike(
+            `<worksheet xmlns="${NS}"><sheetData><row r="1"><c r="XFD1"><v>1</v></c><c><v>2</v></c></row></sheetData></worksheet>`,
+          ),
+        ),
+      ),
+    );
+    expect(column.code).toBe('malformed');
+    expect(column.message).toBe(
+      'Sheet Data places a cell past column XFD, the last column Excel allows, in row 1',
+    );
+    const row = await refusal(() =>
+      read(
+        archive(
+          excelLike(
+            `<worksheet xmlns="${NS}"><sheetData><row r="${MAX_ROWS}"/><row><c><v>1</v></c></row></sheetData></worksheet>`,
+          ),
+        ),
+        { maxCells: MAX_ROWS + 1 },
+      ),
+    );
+    expect(row.code).toBe('malformed');
+    expect(row.message).toBe(
+      `Sheet Data has a row numbered ${MAX_ROWS + 1}, past the last row Excel allows`,
+    );
+    const numbered = await refusal(() =>
+      read(
+        archive(
+          excelLike(
+            `<worksheet xmlns="${NS}"><sheetData><row r="${MAX_ROWS + 1}"/></sheetData></worksheet>`,
+          ),
+        ),
+      ),
+    );
+    expect(numbered.code).toBe('malformed');
+    expect(numbered.message).toBe(
+      `Sheet Data has a row numbered ${MAX_ROWS + 1}, past the last row Excel allows`,
     );
   });
 
@@ -211,6 +311,84 @@ describe('readWorkbook refusals', () => {
     const large = await refusal(() => read(bytes, { maxPartBytes: 100 }));
     expect(large.code).toBe('too_large');
     expect(large.message).toContain('more than the 100 the reader accepts');
+    expect(READ_LIMITS.maxPartBytes).toBe(16 * 1024 * 1024);
+  });
+
+  it('refuses a sheet part past the node budget before its whole tree exists', async () => {
+    // 400 rows of 50 bare cells: 20,000 cells, 60,400 elements and text nodes once parsed. With
+    // maxCells 100 the budget is 5 * 100 + 1024 = 1,524 nodes, so the parser must stop early.
+    // The part has no closing tag: reaching the end would refuse it as malformed instead, so a
+    // too_large refusal proves the refusal came before the full tree existed.
+    const cells = '<c><v>1</v></c>'.repeat(50);
+    let sheet = `<worksheet xmlns="${NS}"><sheetData>`;
+    for (let r = 1; r <= 400; r += 1) sheet += `<row r="${r}">${cells}</row>`;
+    sheet += '</sheetData>';
+    const bytes = archive(excelLike(sheet));
+    const error = await refusal(() => read(bytes, { maxCells: 100 }));
+    expect(error.code).toBe('too_large');
+    expect(error.message).toBe(
+      'xl/worksheets/sheet1.xml holds more than 1524 elements and text nodes',
+    );
+    expect((await refusal(() => read(bytes))).code).toBe('malformed');
+  });
+
+  it('refuses a workbook whose sheets together pass the workbook cell limit', async () => {
+    const rows = [
+      ['a', 'b', 'c', 'd'],
+      ['e', 'f', 'g', 'h'],
+      ['i', 'j', 'k', 'l'],
+    ];
+    const bytes = writeWorkbook([
+      { name: 'One', rows },
+      { name: 'Two', rows },
+    ]);
+    expect((await read(bytes, { maxCells: 12, maxTotalCells: 24 })).sheets).toHaveLength(2);
+    const error = await refusal(() => read(bytes, { maxCells: 12, maxTotalCells: 23 }));
+    expect(error.code).toBe('too_large');
+    expect(error.message).toBe('The workbook has more than 23 cells across its sheets');
+    expect((await refusal(() => read(bytes, { maxCells: 12 }))).message).toBe(
+      'The workbook has more than 12 cells across its sheets',
+    );
+    expect((await read(bytes, { maxCells: 24 })).sheets).toHaveLength(2);
+    expect(READ_LIMITS.maxTotalCells).toBe(200_000);
+  });
+
+  it('refuses a workbook that lists more sheets than the sheet limit', async () => {
+    const bytes = writeWorkbook(['A', 'B', 'C'].map((name) => ({ name, rows: [['x']] })));
+    expect((await read(bytes, { maxSheets: 3 })).sheets).toHaveLength(3);
+    const error = await refusal(() => read(bytes, { maxSheets: 2 }));
+    expect(error.code).toBe('too_large');
+    expect(error.message).toBe('The workbook lists 3 sheets, more than the 2 the reader accepts');
+    expect(READ_LIMITS.maxSheets).toBe(64);
+  });
+
+  it('sums the declared part sizes and stops inflating once the workbook total is passed', async () => {
+    const parts = excelLike(SHEET, SHARED_STRINGS);
+    const opened = [
+      '_rels/.rels',
+      'xl/workbook.xml',
+      'xl/_rels/workbook.xml.rels',
+      'xl/sharedStrings.xml',
+      'xl/worksheets/sheet1.xml',
+      'xl/chartsheets/sheet1.xml',
+    ];
+    const total = opened.reduce((sum, name) => sum + encoder.encode(parts[name] ?? '').length, 0);
+    const bytes = archive(parts);
+    let inflated = 0;
+    const inflateRaw: ReadWorkbookOptions['inflateRaw'] = (data, size) => {
+      inflated += 1;
+      return nodeInflateRaw(data, size);
+    };
+    expect((await read(bytes, { inflateRaw, maxTotalPartBytes: total })).sheets).toHaveLength(2);
+    expect(inflated).toBe(opened.length);
+    inflated = 0;
+    const error = await refusal(() => read(bytes, { inflateRaw, maxTotalPartBytes: total - 1 }));
+    expect(error.code).toBe('too_large');
+    expect(error.message).toBe(
+      `The parts of the workbook declare ${total} bytes together, more than the ${total - 1} the reader accepts`,
+    );
+    expect(inflated).toBe(opened.length - 1);
+    expect(READ_LIMITS.maxTotalPartBytes).toBe(64 * 1024 * 1024);
   });
 
   it('refuses cells it does not understand rather than guessing', async () => {
@@ -246,6 +424,27 @@ describe('readWorkbook refusals', () => {
     expect((await cell('<c r="1A"><v>1</v></c>')).message).toContain(
       'not a reference Excel accepts',
     );
+    const twice = await refusal(() =>
+      read(
+        archive(
+          excelLike(
+            `<worksheet xmlns="${NS}"><sheetData><row r="1"><c r="A1"><v>1</v></c></row><row r="1"><c r="B1"><v>2</v></c></row></sheetData></worksheet>`,
+          ),
+        ),
+      ),
+    );
+    expect(twice.code).toBe('malformed');
+    expect(twice.message).toBe('Sheet Data lists row 1 twice');
+    const implicitTwice = await refusal(() =>
+      read(
+        archive(
+          excelLike(
+            `<worksheet xmlns="${NS}"><sheetData><row r="2"/><row r="1"/><row/></sheetData></worksheet>`,
+          ),
+        ),
+      ),
+    );
+    expect(implicitTwice.message).toBe('Sheet Data lists row 2 twice');
     const row = await refusal(() =>
       read(
         archive(
