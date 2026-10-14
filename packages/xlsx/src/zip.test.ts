@@ -177,6 +177,19 @@ describe('writeZip and readZipDirectory', () => {
     expect(error.message).toBe('The zip archive holds two entries named a');
   });
 
+  it('refuses an archive that carries a zip64 end of central directory locator', async () => {
+    const archive = writeZip([{ name: 'a', data: bytes('1') }]);
+    const end = archive.length - 22;
+    const planted = new Uint8Array(archive.length + 20);
+    planted.set(archive.subarray(0, end), 0);
+    view(planted).setUint32(end, 0x07064b50, true);
+    planted.set(archive.subarray(end), end + 20);
+    const error = await refusal(() => readZipDirectory(planted));
+    expect(error.code).toBe('unsupported');
+    expect(error.message).toBe('The file is a zip64 archive, which the reader does not support');
+    expect(readZipDirectory(archive).size).toBe(1);
+  });
+
   it('refuses a directory that lies outside the file', async () => {
     const archive = writeZip([{ name: 'a', data: bytes('1') }]);
     view(archive).setUint32(archive.length - 22 + 16, archive.length, true);
