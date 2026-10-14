@@ -141,6 +141,22 @@ describe('writeWorkbook refusals', () => {
     expect(sheetNameProblem("it's fine")).toBeNull();
     expect(sheetNameProblem('history')).toBe('Excel reserves the sheet name History');
     expect(sheetNameProblem('a\u0000b')).toBe('a sheet name cannot contain control characters');
+    expect(sheetNameProblem('a\ud800b')).toBe(
+      'a sheet name holds a lone surrogate, which is not text',
+    );
+    expect(sheetNameProblem('\udc00')).toBe(
+      'a sheet name holds a lone surrogate, which is not text',
+    );
+    expect(sheetNameProblem('a\ufffeb')).toBe(
+      'a sheet name cannot contain a character XML does not allow',
+    );
+    expect(sheetNameProblem('a\uffffb')).toBe(
+      'a sheet name cannot contain a character XML does not allow',
+    );
+    expect(sheetNameProblem('pair \u{1F600} ok')).toBeNull();
+    expect(refusal(() => writeWorkbook([{ name: 'a\ud800', rows: [] }])).code).toBe(
+      'invalid_input',
+    );
   });
 
   it('refuses no sheets, a bad name and names that differ only in case', () => {

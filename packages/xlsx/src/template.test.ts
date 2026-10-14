@@ -21,12 +21,32 @@ describe('templateKey', () => {
   it('joins the sheet names and the header row with the record and unit separators', () => {
     const key = templateKey(workbook, 'Positions');
     expect(key.sheets).toEqual(['Positions', 'Notes', 'Lookups']);
-    expect(key.header).toEqual(['Investment', 'Value', '']);
-    expect(key.canonical).toBe(
-      'Positions\u001eNotes\u001eLookups\u001fInvestment\u001fValue\u001f',
-    );
+    expect(key.header).toEqual(['Investment', 'Value']);
+    expect(key.canonical).toBe('Positions\u001eNotes\u001eLookups\u001fInvestment\u001fValue');
     expect(TEMPLATE_RECORD_SEPARATOR).toBe('\u001e');
     expect(TEMPLATE_UNIT_SEPARATOR).toBe('\u001f');
+  });
+
+  it('drops trailing empty header cells, so one Excel template gives one signature', () => {
+    const trimmed: Workbook = {
+      sheets: [{ name: 'Positions', rows: [['Investment', 'Value']] }],
+    };
+    const padded: Workbook = {
+      sheets: [{ name: 'Positions', rows: [['Investment', 'Value', '', '', '']] }],
+    };
+    expect(templateKey(padded, 'Positions')).toEqual(templateKey(trimmed, 'Positions'));
+    expect(templateKey(padded, 'Positions').header).toEqual(['Investment', 'Value']);
+    const inner: Workbook = {
+      sheets: [{ name: 'Positions', rows: [['Investment', '', 'Value', '']] }],
+    };
+    expect(templateKey(inner, 'Positions').header).toEqual(['Investment', '', 'Value']);
+    expect(templateKey(inner, 'Positions').canonical).toBe(
+      'Positions\u001fInvestment\u001f\u001fValue',
+    );
+    const blank: Workbook = { sheets: [{ name: 'Positions', rows: [['', '']] }] };
+    expect(templateKey(blank, 'Positions').header).toEqual([]);
+    expect(templateKey(blank, 'Positions').canonical).toBe('Positions\u001f');
+    expect(padded.sheets[0]?.rows[0]).toEqual(['Investment', 'Value', '', '', '']);
   });
 
   it('gives an empty header for a sheet with no rows, and a copy the caller may change', () => {

@@ -17,7 +17,9 @@ import { WorkbookError } from './errors.js';
 const LOCAL_HEADER = 0x04034b50;
 const CENTRAL_HEADER = 0x02014b50;
 const END_OF_CENTRAL_DIRECTORY = 0x06054b50;
-const ZIP64_END_OF_CENTRAL_DIRECTORY = 0x06064b50;
+/** The zip64 end of central directory locator: 20 bytes that sit right before the end record. */
+const ZIP64_LOCATOR = 0x07064b50;
+const ZIP64_LOCATOR_LENGTH = 20;
 const END_RECORD_LENGTH = 22;
 const MAX_COMMENT_LENGTH = 0xffff;
 const CENTRAL_HEADER_LENGTH = 46;
@@ -97,7 +99,10 @@ export function readZipDirectory(bytes: Uint8Array): Map<string, ZipEntry> {
       'unsupported',
     );
   }
-  if (end >= 20 && view.getUint32(end - 20, true) === ZIP64_END_OF_CENTRAL_DIRECTORY) {
+  if (
+    end >= ZIP64_LOCATOR_LENGTH &&
+    view.getUint32(end - ZIP64_LOCATOR_LENGTH, true) === ZIP64_LOCATOR
+  ) {
     throw new WorkbookError(
       'The file is a zip64 archive, which the reader does not support',
       'unsupported',

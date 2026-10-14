@@ -41,7 +41,14 @@ describe('the main entry', () => {
       'validateSheetNames',
       'writeWorkbook',
     ]);
-    expect(main.READ_LIMITS).toEqual({ maxCells: 200_000, maxDepth: 64, maxPartBytes: 67_108_864 });
+    expect(main.READ_LIMITS).toEqual({
+      maxCells: 200_000,
+      maxTotalCells: 200_000,
+      maxSheets: 64,
+      maxDepth: 64,
+      maxPartBytes: 16_777_216,
+      maxTotalPartBytes: 67_108_864,
+    });
     expect(Object.isFrozen(main.READ_LIMITS)).toBe(true);
   });
 
