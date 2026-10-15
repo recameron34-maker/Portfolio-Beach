@@ -76,5 +76,25 @@
     "workbookMaxCells": 200000,
     "workbookMaxSheets": 16,
     "workbookMaxPartBytes": 16777216
+  },
+  "documents": {
+    "_note": "Document hub (docs/04 M3, decision 0012). expectedDueDaysAfterQuarterEnd is when a quarter's report is due; lateAfterDays and missingAfterDays count from the due date and give the expected-document status (expected, received, late, missing), derived when read and never stored; searchPageSize is the hub's page; maxPdfBytes and maxPages are the limits the PDF reader works to on an indexed item.",
+    "expectedDueDaysAfterQuarterEnd": 45,
+    "lateAfterDays": 15,
+    "missingAfterDays": 75,
+    "searchPageSize": 50,
+    "maxPdfBytes": 20971520,
+    "maxPages": 200
+  },
+  "extraction": {
+    "_note": "AI extraction (docs/04 M4, docs/18 section 7, decision 0012). batchConcurrency is how many runs a batch drives at once; runTokenBudget and dayTokenBudget stop a run or the day's runs past their budget (SEC-8.9); quoteMaxChars caps a citation; a value whose confidence is below confidenceFlagBelow (a decimal fraction) is flagged for review, never invalid; schemaRetries and transientRetries are the retry budget per error kind; costPerThousandTokensUsd holds decimal strings, never floats.",
+    "batchConcurrency": 2,
+    "runTokenBudget": 60000,
+    "dayTokenBudget": 2000000,
+    "quoteMaxChars": 150,
+    "confidenceFlagBelow": 0.8,
+    "schemaRetries": 1,
+    "transientRetries": 3,
+    "costPerThousandTokensUsd": { "in": "0.003", "out": "0.015" }
   }
 }

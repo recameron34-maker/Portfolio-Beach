@@ -68,7 +68,7 @@ export const READ_MATRIX: Record<string, Row> = {
   'mon.valuation': row(1, 1, 1, 1, 1, 1, 1, 2, 2),
   'mon.cash_flow': row(2, 2, 2, 2, 2, 2, 2, 3, 3),
   'mon.valuation_history': row(0, 0, 2, 2, 0, 0, 2, 0, 0),
-  'ops.feature_flag': row(9, 9, 9, 9, 9, 9, 9, 9, 9),
+  'ops.feature_flag': row(10, 10, 10, 10, 10, 10, 10, 10, 10),
   // An exception about a staged row is visible to whoever the row's own policy admits (migration
   // 0010): the three fixture exceptions are about the open, the walled and the unlinked accounting row.
   'ops.data_exception': row(0, 2, 2, 2, 0, 0, 2, 3, 3),
@@ -81,6 +81,13 @@ export const READ_MATRIX: Record<string, Row> = {
   // Weekly values carry the wall of the investment they link to the same way (migration 0010).
   'stg.valuation': row(0, 2, 2, 2, 0, 0, 2, 3, 3),
   'core.company_alias': row(1, 1, 1, 1, 1, 1, 1, 1, 1),
+  // Documents carry the wall of the investment they are attached to, and so do their expected
+  // rows, runs and values (migration 0011); every authenticated user reads the rest. One document
+  // per investment, one of them walled, each with one run and two values.
+  'doc.document': row(1, 1, 1, 1, 1, 1, 1, 2, 2),
+  'doc.expected_document': row(1, 1, 1, 1, 1, 1, 1, 2, 2),
+  'doc.extraction_run': row(1, 1, 1, 1, 1, 1, 1, 2, 2),
+  'stg.extracted_value': row(2, 2, 2, 2, 2, 2, 2, 4, 4),
 };
 
 export interface WriteCase {
@@ -199,5 +206,65 @@ export const WRITE_MATRIX: WriteCase[] = [
     sql: "update ops.data_exception set expected = 'something else' where id = '90000000-0000-4000-8000-000000000003'",
     // The figures an exception carries are written once by the intake that opened it (column grant).
     allowed: [],
+  },
+  {
+    name: 'index a document',
+    sql: "insert into doc.document (source_system, source_item_id, file_name, folder, title, content_hash, size_bytes, received_at) values ('local_folder', 'inbox/scan_0001.pdf', 'scan_0001.pdf', 'inbox', 'scan_0001', 'fixture-doc-hash-0003', 4096, '2024-08-12T09:00:00Z')",
+    // The index is operations' and the service's (migration 0011).
+    allowed: ['operations', 'service'],
+  },
+  {
+    name: 'classify the document attached to the open investment',
+    sql: "update doc.document set review_status = 'Classified', doc_type = 'doc_type.quarterly_letter' where id = 'a0000000-0000-4000-8000-000000000001'",
+    allowed: ['deal_team', 'operations', 'wall_member(deal_team)', 'service'],
+  },
+  {
+    name: 'classify the document attached to the walled investment',
+    sql: "update doc.document set review_status = 'Classified', doc_type = 'doc_type.quarterly_letter' where id = 'a0000000-0000-4000-8000-000000000002'",
+    // The wall on the investment is the wall on its document: everyone else is shown no such row.
+    allowed: ['wall_member(deal_team)', 'service'],
+  },
+  {
+    name: 'insert an expected document',
+    sql: "insert into doc.expected_document (investment_id, period_end, doc_type, due_date) values ('30000000-0000-4000-8000-000000000001', '2024-09-30', 'doc_type.quarterly_financials', '2024-11-14')",
+    allowed: ['operations', 'service'],
+  },
+  {
+    name: 'insert an expected document on the walled investment',
+    sql: "insert into doc.expected_document (investment_id, period_end, doc_type, due_date) values ('30000000-0000-4000-8000-000000000002', '2024-09-30', 'doc_type.quarterly_financials', '2024-11-14')",
+    // Operations outside the wall cannot attach a row to a position it cannot see; the service can.
+    allowed: ['service'],
+  },
+  {
+    name: 'queue an extraction run on the open document',
+    sql: "insert into doc.extraction_run (document_id, investment_id, period_end, schema_id, prompt_id, prompt_version) values ('a0000000-0000-4000-8000-000000000001', '30000000-0000-4000-8000-000000000001', '2024-06-30', 'quarterly_financials', 'quarterly_extraction', '1')",
+    allowed: ['operations', 'service'],
+  },
+  {
+    name: 'approve the extraction run on the open investment',
+    sql: "update doc.extraction_run set approved_by = '10000000-0000-4000-8000-000000000002', approved_at = now() where id = 'a0000000-0000-4000-8000-000000000005'",
+    // The deal team approves what it reviewed; operations and the service drive the run.
+    allowed: ['deal_team', 'operations', 'wall_member(deal_team)', 'service'],
+  },
+  {
+    name: 'approve the extraction run on the walled investment',
+    sql: "update doc.extraction_run set approved_by = '10000000-0000-4000-8000-000000000008', approved_at = now() where id = 'a0000000-0000-4000-8000-000000000006'",
+    allowed: ['wall_member(deal_team)', 'service'],
+  },
+  {
+    name: 'insert an extracted value',
+    sql: "insert into stg.extracted_value (run_id, investment_id, field, value, unit, page, quote, confidence) values ('a0000000-0000-4000-8000-000000000005', '30000000-0000-4000-8000-000000000001', 'ev', '360.00', 'USD_M', 2, 'Enterprise value 360.00', 0.9)",
+    // Only the system actor writes what a model answered (SEC-9.1).
+    allowed: ['service'],
+  },
+  {
+    name: 'record a decision on an extracted value of the open run',
+    sql: "update stg.extracted_value set decision = 'accepted', reviewer_id = '10000000-0000-4000-8000-000000000002', decided_at = now() where id = 'a0000000-0000-4000-8000-000000000008'",
+    allowed: ['deal_team', 'operations', 'wall_member(deal_team)', 'service'],
+  },
+  {
+    name: 'record a decision on an extracted value of the walled run',
+    sql: "update stg.extracted_value set decision = 'accepted', reviewer_id = '10000000-0000-4000-8000-000000000008', decided_at = now() where id = 'a0000000-0000-4000-8000-00000000000a'",
+    allowed: ['wall_member(deal_team)', 'service'],
   },
 ];

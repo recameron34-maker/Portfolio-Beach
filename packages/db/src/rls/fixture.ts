@@ -8,8 +8,9 @@ import type { AppRole } from '../roles.js';
  * A small, hand-built dataset for the access matrix (docs/12 section 1): two investments, one of
  * them walled; two clients; one SMA commitment; one staged accounting file with a row linked to
  * each investment and one with no link; one staged weekly value per investment and one unlinked; one
- * company alias; three data exceptions, one about each staged accounting row. Loaded as the owner,
- * outside RLS.
+ * company alias; three data exceptions, one about each staged accounting row; one indexed quarterly
+ * report per investment with its expected-document row, one extraction run and two extracted values
+ * (migration 0011). Loaded as the owner, outside RLS.
  */
 export const ids = {
   users: {
@@ -48,6 +49,18 @@ export const ids = {
   exceptionVisibleRow: '90000000-0000-4000-8000-000000000001',
   exceptionWalledRow: '90000000-0000-4000-8000-000000000002',
   exceptionUnlinkedRow: '90000000-0000-4000-8000-000000000003',
+  // Documents (migration 0011): one quarterly report per investment, each with its expected-document
+  // row, one extraction run and two extracted values.
+  documentOpen: 'a0000000-0000-4000-8000-000000000001',
+  documentWalled: 'a0000000-0000-4000-8000-000000000002',
+  expectedDocumentOpen: 'a0000000-0000-4000-8000-000000000003',
+  expectedDocumentWalled: 'a0000000-0000-4000-8000-000000000004',
+  extractionRunOpen: 'a0000000-0000-4000-8000-000000000005',
+  extractionRunWalled: 'a0000000-0000-4000-8000-000000000006',
+  extractedValueOpenRevenue: 'a0000000-0000-4000-8000-000000000007',
+  extractedValueOpenEbitda: 'a0000000-0000-4000-8000-000000000008',
+  extractedValueWalledRevenue: 'a0000000-0000-4000-8000-000000000009',
+  extractedValueWalledEbitda: 'a0000000-0000-4000-8000-00000000000a',
 } as const;
 
 export interface Actor {
@@ -155,5 +168,23 @@ export async function loadFixture(handle: DbHandle): Promise<void> {
       ('${ids.exceptionVisibleRow}', 'accounting_import', 'stg.intake_row', '${ids.intakeRowVisible}', 'TIE-01', 'exception_severity.high', 'open'),
       ('${ids.exceptionWalledRow}', 'accounting_import', 'stg.intake_row', '${ids.intakeRowWalled}', 'TIE-01', 'exception_severity.high', 'open'),
       ('${ids.exceptionUnlinkedRow}', 'accounting_import', 'stg.intake_row', '${ids.intakeRowUnlinked}', 'XREF-01', 'exception_severity.high', 'open');
+    insert into doc.document (id, source_system, source_item_id, file_name, folder, title, doc_type, sponsor_id, sponsor_fund_id, investment_id, period_end, content_hash, size_bytes, page_count, received_at, review_status, classification_confidence) values
+      ('${ids.documentOpen}', 'local_folder', 'inbox/2024-06-30 Harborlight Fund IV - Quarterly financials - Saltmarsh Holdings.pdf',
+        '2024-06-30 Harborlight Fund IV - Quarterly financials - Saltmarsh Holdings.pdf', 'inbox', 'Saltmarsh Holdings quarterly report Q2 2024',
+        'doc_type.quarterly_financials', '${ids.sponsor}', '${ids.sponsorFund}', '${ids.investment1}', '2024-06-30', 'fixture-doc-hash-0001', 20480, 4, '2024-08-10T09:00:00Z', 'Classified', 0.97),
+      ('${ids.documentWalled}', 'local_folder', 'inbox/2024-06-30 Harborlight Fund IV - Quarterly financials - Tidewater Diagnostics.pdf',
+        '2024-06-30 Harborlight Fund IV - Quarterly financials - Tidewater Diagnostics.pdf', 'inbox', 'Tidewater Diagnostics quarterly report Q2 2024',
+        'doc_type.quarterly_financials', '${ids.sponsor}', '${ids.sponsorFund}', '${ids.investmentWalled}', '2024-06-30', 'fixture-doc-hash-0002', 20992, 4, '2024-08-11T09:00:00Z', 'Classified', 0.97);
+    insert into doc.expected_document (id, investment_id, sponsor_fund_id, period_end, doc_type, due_date, received_document_id) values
+      ('${ids.expectedDocumentOpen}', '${ids.investment1}', null, '2024-06-30', 'doc_type.quarterly_financials', '2024-08-14', '${ids.documentOpen}'),
+      ('${ids.expectedDocumentWalled}', '${ids.investmentWalled}', null, '2024-06-30', 'doc_type.quarterly_financials', '2024-08-14', '${ids.documentWalled}');
+    insert into doc.extraction_run (id, document_id, investment_id, period_end, schema_id, prompt_id, prompt_version, model_id, state, tokens_in, tokens_out, cost_usd, started_at, finished_at, requested_by) values
+      ('${ids.extractionRunOpen}', '${ids.documentOpen}', '${ids.investment1}', '2024-06-30', 'quarterly_financials', 'quarterly_extraction', '1', 'mock', 'Succeeded', 1200, 300, 0.0081, '2024-08-12T10:00:00Z', '2024-08-12T10:00:05Z', '${u.operations}'),
+      ('${ids.extractionRunWalled}', '${ids.documentWalled}', '${ids.investmentWalled}', '2024-06-30', 'quarterly_financials', 'quarterly_extraction', '1', 'mock', 'Succeeded', 1250, 310, 0.0084, '2024-08-12T10:01:00Z', '2024-08-12T10:01:05Z', '${u.operations}');
+    insert into stg.extracted_value (id, run_id, investment_id, field, value, unit, page, quote, confidence, validation_state) values
+      ('${ids.extractedValueOpenRevenue}', '${ids.extractionRunOpen}', '${ids.investment1}', 'revenue_ltm', '120.00', 'USD_M', 2, 'LTM revenue 120.00', 0.95, 'clean'),
+      ('${ids.extractedValueOpenEbitda}', '${ids.extractionRunOpen}', '${ids.investment1}', 'ebitda_ltm', '30.00', 'USD_M', 2, 'LTM EBITDA 30.00', 0.72, 'flagged'),
+      ('${ids.extractedValueWalledRevenue}', '${ids.extractionRunWalled}', '${ids.investmentWalled}', 'revenue_ltm', '80.00', 'USD_M', 2, 'LTM revenue 80.00', 0.95, 'clean'),
+      ('${ids.extractedValueWalledEbitda}', '${ids.extractionRunWalled}', '${ids.investmentWalled}', 'ebitda_ltm', '16.00', 'USD_M', 2, 'LTM EBITDA 16.00', 0.95, 'clean');
   `);
 }

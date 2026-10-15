@@ -88,3 +88,30 @@ export const stagedValuation = stg.table('valuation', {
   valuationId: uuid('valuation_id'),
   ...standardColumns,
 });
+
+/**
+ * One staged field of an extraction run (docs/04 M4, migration 0011), as the model answered it:
+ * `value` is decimal text, an ISO date or text (never a float), `unit` the unit it declared, `page`
+ * and `quote` (at most 150 characters) the citation, `confidence` its own estimate; then the
+ * deterministic validation's state and findings and the reviewer's decision. The investment is
+ * denormalized so the value carries the wall of the document. Nothing here reaches a production
+ * table except through the run's approval (SEC-9.1).
+ */
+export const extractedValue = stg.table('extracted_value', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  runId: uuid('run_id').notNull(),
+  investmentId: uuid('investment_id'),
+  field: text('field').notNull(),
+  value: text('value'),
+  unit: text('unit'),
+  page: integer('page'),
+  quote: text('quote'),
+  confidence: numeric('confidence', { precision: 5, scale: 4 }),
+  validationState: text('validation_state').notNull().default('clean'),
+  findings: jsonb('findings').notNull().default([]),
+  reviewerId: uuid('reviewer_id'),
+  decision: text('decision'),
+  editedValue: text('edited_value'),
+  decidedAt: timestamp('decided_at', { withTimezone: true }),
+  ...standardColumns,
+});

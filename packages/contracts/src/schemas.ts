@@ -1439,3 +1439,640 @@ export const opsDropTemplates = z
       });
   });
 export type OpsDropTemplates = z.infer<typeof opsDropTemplates>;
+
+/* ---- Documents (M3 document hub, docs/18 section 6, migration 0011, decision 0012) ---- */
+
+/** True when a calendar date is the last day of a quarter (March 31, June 30, September 30, December 31). */
+export function isQuarterEnd(value: string): boolean {
+  if (!isCalendarDate(value)) return false;
+  const monthDay = value.slice(5);
+  return (
+    monthDay === '03-31' || monthDay === '06-30' || monthDay === '09-30' || monthDay === '12-31'
+  );
+}
+
+/** A quarter end, the period a report covers: the only date a tracker or a batch runs for. */
+export const quarterEndDate = isoDate
+  .refine((value) => !isCalendarDate(value) || isQuarterEnd(value), 'Not a quarter end')
+  .meta({ format: 'date' });
+
+/** A core.taxonomy_term code of the doc_type domain (docs/04 M3), such as doc_type.quarterly_financials. */
+export const docTypeCode = taxonomyCodeOf('doc_type');
+
+/** docs/18 section 6: Received > Classified | NeedsReview; NeedsReview > Classified (a person); Duplicate links to the original. */
+export const documentReviewStatus = z.enum(['Received', 'Classified', 'NeedsReview', 'Duplicate']);
+export type DocumentReviewStatus = z.infer<typeof documentReviewStatus>;
+
+export const documentConfidentiality = z.enum(['internal', 'confidential', 'restricted']);
+export type DocumentConfidentiality = z.infer<typeof documentConfidentiality>;
+
+/** docs/18 section 7: Queued > Running > Succeeded | Failed | NeedsRetry; NeedsRetry > Running within the retry budget. */
+export const extractionRunState = z.enum([
+  'Queued',
+  'Running',
+  'Succeeded',
+  'Failed',
+  'NeedsRetry',
+]);
+export type ExtractionRunState = z.infer<typeof extractionRunState>;
+
+/** What the classifier found: matched keywords, and other candidates by reason only (never a value). */
+export const classifierEvidence = z.object({
+  keywords: z.array(z.string()),
+  candidates: z.array(z.object({ reason: z.string() })),
+});
+export type ClassifierEvidence = z.infer<typeof classifierEvidence>;
+
+/**
+ * A document of the hub as the list and the detail show it: the store's metadata, the links a
+ * classification made (sponsor, fund, investment, period), the classifier's confidence and
+ * evidence, the duplicate it was found to be, and its latest extraction run. Only metadata travels;
+ * the document itself is read page by page through its pages route.
+ */
+export const documentSummary = z.object({
+  id: uuid,
+  title: z.string(),
+  fileName: z.string(),
+  folder: z.string(),
+  docType: docTypeCode.nullable(),
+  reviewStatus: documentReviewStatus,
+  sponsorId: uuid.nullable(),
+  sponsorFundId: uuid.nullable(),
+  sponsorFundName: z.string().nullable(),
+  investmentId: uuid.nullable(),
+  investmentNumber: z.string().nullable(),
+  companyName: z.string().nullable(),
+  periodEnd: isoDate.nullable(),
+  confidentiality: documentConfidentiality,
+  /** SHA-256 of the bytes, hex: the duplicate key. */
+  contentHash: z.string(),
+  sizeBytes: z.number().int(),
+  pageCount: z.number().int().nullable(),
+  receivedAt: z.string(),
+  indexedAt: z.string(),
+  /** The classifier's confidence as decimal text between 0 and 1; null until classified. */
+  classificationConfidence: decimalString.nullable(),
+  classifierEvidence,
+  /** The display name of the person who classified it; null when the classifier did, or nobody yet. */
+  classifiedBy: z.string().nullable(),
+  classifiedAt: z.string().nullable(),
+  duplicateOfId: uuid.nullable(),
+  latestRun: z.object({ id: uuid, state: extractionRunState }).nullable(),
+});
+export type DocumentSummary = z.infer<typeof documentSummary>;
+
+/** Another indexed item with the same content hash. */
+export const documentDuplicate = z.object({
+  id: uuid,
+  fileName: z.string(),
+  folder: z.string(),
+  indexedAt: z.string(),
+  reviewStatus: documentReviewStatus,
+});
+export type DocumentDuplicate = z.infer<typeof documentDuplicate>;
+
+export const documentDetail = documentSummary.extend({
+  /** Every other document with the same content hash the caller may see. */
+  duplicates: z.array(documentDuplicate),
+});
+export type DocumentDetail = z.infer<typeof documentDetail>;
+
+/** The text of a document page by page, as lines (packages/pdf lines, top to bottom). */
+export const documentPages = z.object({
+  documentId: uuid,
+  pageCount: z.number().int(),
+  pages: z.array(z.object({ number: z.number().int().min(1), lines: z.array(z.string()) })),
+});
+export type DocumentPages = z.infer<typeof documentPages>;
+
+export const documentPage = z.object({
+  items: z.array(documentSummary),
+  nextCursor: z.string().nullable(),
+});
+export type DocumentPage = z.infer<typeof documentPage>;
+
+/** Newest first (indexedAt, id). `q` is a full-text query over title, file name and text excerpt. */
+export const documentListQuery = pageQuery.extend({
+  q: filterText.optional(),
+  docType: docTypeCode.optional(),
+  reviewStatus: documentReviewStatus.optional(),
+  investmentId: uuid.optional(),
+  sponsorFundId: uuid.optional(),
+  periodEnd: isoDate.optional(),
+});
+
+/** What a scan of the store did: rows created, items found to repeat an indexed hash, items already indexed. */
+export const documentIndexResult = z.object({
+  indexed: z.number().int(),
+  duplicates: z.number().int(),
+  unchanged: z.number().int(),
+});
+export type DocumentIndexResult = z.infer<typeof documentIndexResult>;
+
+/**
+ * A person classifies a document (NeedsReview or Received > Classified, docs/18 section 6): the
+ * type, and the links the type needs. The service's own commands (autoClassify, flagForReview,
+ * markDuplicate) are internal and never arrive through this body.
+ */
+const documentClassifyCommand = z
+  .object({
+    command: z.literal('classify'),
+    docType: docTypeCode,
+    investmentId: uuid.optional(),
+    sponsorFundId: uuid.optional(),
+    periodEnd: isoDate.optional(),
+    reason: plainText(500).optional(),
+  })
+  .strict();
+export const documentCommandBody = z.discriminatedUnion('command', [documentClassifyCommand]);
+export type DocumentCommandBody = z.infer<typeof documentCommandBody>;
+
+/* ---- Expected documents (M3 tracker; status derived from the clock and config, never stored) ---- */
+
+/**
+ * expected: not yet due; received: a classified document matched it; late: past due by less than
+ * definitions.documents.missingAfterDays beyond the lateAfterDays grace; missing: later than that.
+ */
+export const expectedDocumentStatus = z.enum(['expected', 'received', 'late', 'missing']);
+export type ExpectedDocumentStatus = z.infer<typeof expectedDocumentStatus>;
+
+export const expectedDocument = z.object({
+  id: uuid,
+  investmentId: uuid.nullable(),
+  investmentNumber: z.string().nullable(),
+  companyName: z.string().nullable(),
+  sponsorFundId: uuid.nullable(),
+  sponsorFundName: z.string().nullable(),
+  periodEnd: isoDate,
+  docType: docTypeCode,
+  dueDate: isoDate,
+  receivedDocumentId: uuid.nullable(),
+  status: expectedDocumentStatus,
+  /**
+   * Whole days from the due date to the as-of day (negative while not yet due); for a received
+   * document, from the due date to the day it was received, so a late receipt keeps its age.
+   */
+  ageDays: z.number().int(),
+});
+export type ExpectedDocument = z.infer<typeof expectedDocument>;
+
+export const expectedDocumentPage = z.object({
+  items: z.array(expectedDocument),
+  nextCursor: z.string().nullable(),
+});
+export type ExpectedDocumentPage = z.infer<typeof expectedDocumentPage>;
+
+/** Newest period first (periodEnd, dueDate, id). `asOf` is the day the status is judged on; the clock otherwise. */
+export const expectedDocumentListQuery = pageQuery.extend({
+  periodEnd: isoDate.optional(),
+  status: expectedDocumentStatus.optional(),
+  investmentId: uuid.optional(),
+  sponsorFundId: uuid.optional(),
+  asOf: isoDate.optional(),
+});
+
+/** Generate the expected rows of a quarter: one per active investment and per sponsor fund with a position. */
+export const expectedDocumentGenerateBody = z.object({ periodEnd: quarterEndDate }).strict();
+export type ExpectedDocumentGenerateBody = z.infer<typeof expectedDocumentGenerateBody>;
+
+export const expectedDocumentGenerateResult = z.object({
+  periodEnd: isoDate,
+  /** Rows created by this call; rows the quarter already had are counted as existing and left as they were. */
+  created: z.number().int(),
+  existing: z.number().int(),
+});
+export type ExpectedDocumentGenerateResult = z.infer<typeof expectedDocumentGenerateResult>;
+
+/* ---- Extraction (M4; doc.extraction_run, stg.extracted_value; docs/18 section 7; SEC-8.4, SEC-9.1) ---- */
+
+/** The units a model may declare; money is converted to dollars by packages/calc at promotion. */
+export const extractionUnit = z.enum(['USD', 'USD_K', 'USD_M', 'USD_B', 'PCT', 'COUNT', 'DATE']);
+export type ExtractionUnit = z.infer<typeof extractionUnit>;
+
+/** The money units among them (config/extraction_schema.json kind 'money'). */
+export const MONEY_UNITS: readonly ExtractionUnit[] = ['USD', 'USD_K', 'USD_M', 'USD_B'];
+
+/** A field's kind in config/extraction_schema.json. */
+export const extractionFieldKind = z.enum(['date', 'money', 'percent', 'count']);
+export type ExtractionFieldKind = z.infer<typeof extractionFieldKind>;
+
+/** clean: promotable as answered; flagged: reviewed first; invalid: never promoted unedited. */
+export const extractionValidationState = z.enum(['clean', 'flagged', 'invalid']);
+export type ExtractionValidationState = z.infer<typeof extractionValidationState>;
+
+export const extractionDecision = z.enum(['accepted', 'edited', 'rejected']);
+export type ExtractionDecision = z.infer<typeof extractionDecision>;
+
+/** schema: the output failed validation (retried once); transient: the call failed (retried three times). */
+export const extractionErrorKind = z.enum(['schema', 'transient']);
+export type ExtractionErrorKind = z.infer<typeof extractionErrorKind>;
+
+/** One validator finding on a value (packages/ai rule ids such as EXT-CITE-02); invalid outranks flagged. */
+export const extractionFinding = z.object({
+  ruleId: z.string(),
+  severity: z.enum(['flagged', 'invalid']),
+  message: z.string(),
+});
+export type ExtractionFinding = z.infer<typeof extractionFinding>;
+
+/**
+ * A staged field of a run as the review page shows it: the model's answer with its citation and
+ * confidence, the validation's verdict, and the reviewer's decision. `value` is decimal text, an
+ * ISO date or text, never a float; `editedValue` replaces it once a reviewer edits. The label, kind
+ * and requirement come from config/extraction_schema.json.
+ */
+export const extractedValue = z.object({
+  id: uuid,
+  field: z.string(),
+  label: z.string(),
+  kind: extractionFieldKind,
+  required: z.boolean(),
+  value: z.string().nullable(),
+  unit: extractionUnit.nullable(),
+  page: z.number().int().min(1).nullable(),
+  quote: z.string().max(150).nullable(),
+  confidence: decimalString.nullable(),
+  validationState: extractionValidationState,
+  findings: z.array(extractionFinding),
+  decision: extractionDecision.nullable(),
+  editedValue: z.string().nullable(),
+  decidedBy: z.string().nullable(),
+  decidedAt: z.string().nullable(),
+});
+export type ExtractedValue = z.infer<typeof extractedValue>;
+
+export const extractionValueCounts = z.object({
+  values: z.number().int(),
+  clean: z.number().int(),
+  flagged: z.number().int(),
+  invalid: z.number().int(),
+  /** Values with a reviewer decision. */
+  decided: z.number().int(),
+});
+export type ExtractionValueCounts = z.infer<typeof extractionValueCounts>;
+
+/**
+ * An extraction run: one model call over one document against one schema, with its bookkeeping
+ * (prompt, model, tokens, cost as decimal text, SEC-8.9), its state and retry counts, the review's
+ * approval and the record the approved values became.
+ */
+export const extractionRun = z.object({
+  id: uuid,
+  documentId: uuid,
+  documentTitle: z.string(),
+  fileName: z.string(),
+  investmentId: uuid.nullable(),
+  investmentNumber: z.string().nullable(),
+  companyName: z.string().nullable(),
+  periodEnd: isoDate.nullable(),
+  /** A key of config/extraction_schema.json, such as quarterly_financials. */
+  schemaId: z.string(),
+  promptId: z.string(),
+  promptVersion: z.string(),
+  modelId: z.string().nullable(),
+  state: extractionRunState,
+  batchId: uuid.nullable(),
+  tokensIn: z.number().int().nullable(),
+  tokensOut: z.number().int().nullable(),
+  costUsd: decimalString.nullable(),
+  startedAt: z.string().nullable(),
+  finishedAt: z.string().nullable(),
+  errorCode: z.string().nullable(),
+  errorKind: extractionErrorKind.nullable(),
+  schemaRetries: z.number().int(),
+  transientRetries: z.number().int(),
+  requestedBy: z.string().nullable(),
+  approvedBy: z.string().nullable(),
+  approvedAt: z.string().nullable(),
+  /** The mon.quarterly_performance row the approved values were promoted into. */
+  promotedRecordId: uuid.nullable(),
+  counts: extractionValueCounts,
+  rowVersion: z.number().int(),
+});
+export type ExtractionRun = z.infer<typeof extractionRun>;
+
+export const extractionRunPage = z.object({
+  items: z.array(extractionRun),
+  nextCursor: z.string().nullable(),
+});
+export type ExtractionRunPage = z.infer<typeof extractionRunPage>;
+
+/** Newest first (createdAt, id). */
+export const extractionRunListQuery = pageQuery.extend({
+  state: extractionRunState.optional(),
+  documentId: uuid.optional(),
+  investmentId: uuid.optional(),
+  batchId: uuid.optional(),
+});
+
+/** A positioned text run of a page, as packages/pdf reads it (PDF points, origin bottom left). */
+export const pageTextRun = z.object({
+  x: z.number(),
+  y: z.number(),
+  size: z.number(),
+  text: z.string(),
+});
+export type PageTextRun = z.infer<typeof pageTextRun>;
+
+/** A page's layout for the review pane: the page is drawn from its runs and the cited quote is highlighted. */
+export const pageLayout = z.object({
+  number: z.number().int().min(1),
+  width: z.number(),
+  height: z.number(),
+  runs: z.array(pageTextRun),
+});
+export type PageLayout = z.infer<typeof pageLayout>;
+
+/**
+ * The review page: the run, its document, every staged value with findings (flagged and invalid
+ * first is the page's job), the drafted highlights and commentary (staged with the values, promoted
+ * only on approval, and only from approved numbers), and the page layouts for click-to-source.
+ */
+export const extractionRunDetail = z.object({
+  run: extractionRun,
+  document: documentSummary,
+  values: z.array(extractedValue),
+  highlights: z.array(z.string()),
+  commentary: z.string().nullable(),
+  pages: z.array(pageLayout),
+});
+export type ExtractionRunDetail = z.infer<typeof extractionRunDetail>;
+
+/** The state of the ops.job row a batch is (docs/17 jobs). */
+export const extractionBatchState = z.enum([
+  'queued',
+  'running',
+  'succeeded',
+  'failed',
+  'dead_letter',
+]);
+export type ExtractionBatchState = z.infer<typeof extractionBatchState>;
+
+/** A batch: the ops.job that queued a set of runs, with their states and the tokens and cost they used. */
+export const extractionBatch = z.object({
+  id: uuid,
+  state: extractionBatchState,
+  progress: z.number().int().min(0).max(100),
+  requestedBy: z.string().nullable(),
+  createdAt: z.string(),
+  startedAt: z.string().nullable(),
+  finishedAt: z.string().nullable(),
+  errorCode: z.string().nullable(),
+  runs: z.object({
+    total: z.number().int(),
+    queued: z.number().int(),
+    running: z.number().int(),
+    succeeded: z.number().int(),
+    failed: z.number().int(),
+    needsRetry: z.number().int(),
+  }),
+  tokensIn: z.number().int(),
+  tokensOut: z.number().int(),
+  costUsd: decimalString,
+});
+export type ExtractionBatch = z.infer<typeof extractionBatch>;
+
+export const extractionBatchPage = z.object({
+  items: z.array(extractionBatch),
+  nextCursor: z.string().nullable(),
+});
+export type ExtractionBatchPage = z.infer<typeof extractionBatchPage>;
+
+/** Start a batch: the documents named, or every classified document of a type for a quarter. */
+export const extractionBatchBody = z.union([
+  z.object({ documentIds: z.array(uuid).min(1).max(500) }).strict(),
+  z.object({ periodEnd: quarterEndDate, docType: docTypeCode }).strict(),
+]);
+export type ExtractionBatchBody = z.infer<typeof extractionBatchBody>;
+
+/** A field key of config/extraction_schema.json, such as revenue_ltm. */
+export const extractionFieldKey = z
+  .string()
+  .regex(/^[a-z][a-z0-9_]{0,63}$/)
+  .meta({ description: 'A field key of the extraction schema' });
+
+const runAcceptCommand = z
+  .object({ command: z.literal('accept'), field: extractionFieldKey })
+  .strict();
+const runRejectCommand = z
+  .object({
+    command: z.literal('reject'),
+    field: extractionFieldKey,
+    reason: plainText(500).min(3).optional(),
+  })
+  .strict();
+const runEditCommand = z
+  .object({
+    command: z.literal('edit'),
+    field: extractionFieldKey,
+    /** The corrected value as text: decimal digits, an ISO date or a count, as the unit says. */
+    value: plainText(200),
+    unit: extractionUnit.optional(),
+    reason: plainText(500).optional(),
+  })
+  .strict();
+const runAcceptCleanCommand = z.object({ command: z.literal('acceptClean') }).strict();
+const runApproveCommand = z
+  .object({ command: z.literal('approve'), reason: plainText(500).optional() })
+  .strict();
+const runRetryCommand = z.object({ command: z.literal('retry') }).strict();
+
+/** True when a value's text fits the unit: digits for money and percent, a whole number for a count, a calendar date for a date. */
+export function valueFitsUnit(value: string, unit: ExtractionUnit): boolean {
+  switch (unit) {
+    case 'USD':
+    case 'USD_K':
+    case 'USD_M':
+    case 'USD_B':
+    case 'PCT':
+      return DECIMAL_PATTERN.test(value);
+    case 'COUNT':
+      return /^\d+$/.test(value);
+    case 'DATE':
+      return isCalendarDate(value);
+  }
+}
+
+type ExtractionRunCommandSchema = z.ZodDiscriminatedUnion<
+  readonly [
+    typeof runAcceptCommand,
+    typeof runRejectCommand,
+    typeof runEditCommand,
+    typeof runAcceptCleanCommand,
+    typeof runApproveCommand,
+    typeof runRetryCommand,
+  ]
+>;
+
+/**
+ * Review commands on a run. accept and reject decide one value; edit replaces its value (and,
+ * for a money field, its unit: the API builds the schema with the money field keys of the run's
+ * schema, config over code, and the route table documents the shape without them); acceptClean
+ * accepts every clean undecided value; approve promotes the accepted and edited values into the
+ * record in one audited transaction (SEC-9.1, SEC-11.1) once no required value is undecided or
+ * invalid; retry queues a NeedsRetry or Failed run again within the budget (docs/18 section 7).
+ */
+export function extractionRunCommandBody(
+  moneyFields: readonly string[] = [],
+): ExtractionRunCommandSchema {
+  return z
+    .discriminatedUnion('command', [
+      runAcceptCommand,
+      runRejectCommand,
+      runEditCommand,
+      runAcceptCleanCommand,
+      runApproveCommand,
+      runRetryCommand,
+    ])
+    .superRefine((body, ctx) => {
+      if (body.command !== 'edit') return;
+      if (body.value.trim() === '')
+        ctx.addIssue({ code: 'custom', path: ['value'], message: 'A value is required' });
+      if (
+        moneyFields.includes(body.field) &&
+        (body.unit === undefined || !MONEY_UNITS.includes(body.unit))
+      )
+        ctx.addIssue({
+          code: 'custom',
+          path: ['unit'],
+          message: 'A money edit needs a money unit',
+        });
+      if (body.unit !== undefined && !valueFitsUnit(body.value, body.unit))
+        ctx.addIssue({
+          code: 'custom',
+          path: ['value'],
+          message: 'The value does not fit the unit',
+        });
+    });
+}
+export type ExtractionRunCommandBody = z.infer<ExtractionRunCommandSchema>;
+
+/* ---- Monitoring board and realization outlook (M9; decision 0012) ---- */
+
+/** none: no succeeded run for the quarter; pending: a run awaits approval; approved: promoted into the record. */
+export const monitoringApproval = z.enum(['none', 'pending', 'approved']);
+export type MonitoringApproval = z.infer<typeof monitoringApproval>;
+
+/** One active investment on the board for one quarter: its expected report, its run and its approval. */
+export const monitoringBoardRow = z.object({
+  investmentId: uuid,
+  investmentNumber: z.string(),
+  companyName: z.string(),
+  vehicleName: z.string(),
+  sponsorFundName: z.string().nullable(),
+  dealType: z.string(),
+  periodEnd: isoDate,
+  /** Null when the quarter's expected rows were not generated for this investment. */
+  expectedDocumentId: uuid.nullable(),
+  documentStatus: expectedDocumentStatus,
+  dueDate: isoDate.nullable(),
+  ageDays: z.number().int().nullable(),
+  documentId: uuid.nullable(),
+  runId: uuid.nullable(),
+  runState: extractionRunState.nullable(),
+  /** Flagged plus invalid values on the latest run, undecided ones only. */
+  flagsCount: z.number().int(),
+  approval: monitoringApproval,
+  approvedAt: z.string().nullable(),
+});
+export type MonitoringBoardRow = z.infer<typeof monitoringBoardRow>;
+
+export const monitoringBoard = z.object({
+  asOf: isoDate,
+  periodEnd: isoDate,
+  rows: z.array(monitoringBoardRow),
+  counts: z.object({
+    expected: z.number().int(),
+    received: z.number().int(),
+    late: z.number().int(),
+    missing: z.number().int(),
+    inReview: z.number().int(),
+    approved: z.number().int(),
+  }),
+});
+export type MonitoringBoard = z.infer<typeof monitoringBoard>;
+
+/** The quarter to show (the latest quarter end on or before asOf when absent) and the day statuses are judged on. */
+export const monitoringBoardQuery = z
+  .object({ periodEnd: quarterEndDate.optional(), asOf: isoDate.optional() })
+  .strict();
+
+/** A text/csv body: the board's rows, one line each, with a header line. */
+export const csvText = z.string().meta({ contentMediaType: 'text/csv' });
+
+export const realizationOutlookCode = z.enum(['none', 'partial', 'full']);
+export type RealizationOutlookCode = z.infer<typeof realizationOutlookCode>;
+
+/** The realization outlook of an investment; outlook none with no setBy when nobody has set one. */
+export const realizationOutlookDetail = z.object({
+  investmentId: uuid,
+  investmentNumber: z.string(),
+  companyName: z.string(),
+  outlook: realizationOutlookCode,
+  horizonMonths: z.number().int(),
+  note: z.string().nullable(),
+  setBy: z.string().nullable(),
+  setAt: z.string().nullable(),
+});
+export type RealizationOutlookDetail = z.infer<typeof realizationOutlookDetail>;
+
+/** Set the outlook by hand (definitions.realizationFlagEditableOnlyManually): audited with the reason. */
+export const realizationOutlookBody = z
+  .object({
+    outlook: realizationOutlookCode,
+    horizonMonths: z.number().int().min(1).max(120),
+    note: plainText(500).nullable(),
+    reason: plainText(500).min(3),
+  })
+  .strict();
+export type RealizationOutlookBody = z.infer<typeof realizationOutlookBody>;
+
+/* ---- Config blocks the document hub and extraction read (rule 9: config over code) ---- */
+
+/** A whole number of zero or more. */
+const wholeNumber = z.number().int().min(0);
+
+/** A decimal fraction between 0 and 1 as a JSON number (definitions.json keeps rates as decimals). */
+const fraction = z.number().min(0).max(1);
+
+/**
+ * config/definitions.json `documents`: when a quarter's report is due (days after the quarter end),
+ * when it counts as late and then missing (days after the due date), the search page size and the
+ * limits the PDF reader works to.
+ */
+export const documentDefinitions = z
+  .object({
+    _note: z.string().optional(),
+    expectedDueDaysAfterQuarterEnd: wholeNumber,
+    lateAfterDays: wholeNumber,
+    missingAfterDays: wholeNumber,
+    searchPageSize: z.number().int().min(1).max(200),
+    maxPdfBytes: z.number().int().min(1),
+    maxPages: z.number().int().min(1),
+  })
+  .strict()
+  .refine((d) => d.missingAfterDays > d.lateAfterDays, {
+    path: ['missingAfterDays'],
+    message: 'A document is missing only after it was late',
+  });
+export type DocumentDefinitions = z.infer<typeof documentDefinitions>;
+
+/**
+ * config/definitions.json `extraction`: batch concurrency, the token budgets per run and per day,
+ * the quote length, the confidence below which a value is flagged, the retry budget per error kind
+ * (docs/18 section 7) and the cost per thousand tokens as decimal strings, never floats.
+ */
+export const extractionDefinitions = z
+  .object({
+    _note: z.string().optional(),
+    batchConcurrency: z.number().int().min(1),
+    runTokenBudget: z.number().int().min(1),
+    dayTokenBudget: z.number().int().min(1),
+    quoteMaxChars: z.number().int().min(1).max(150),
+    confidenceFlagBelow: fraction,
+    schemaRetries: wholeNumber,
+    transientRetries: wholeNumber,
+    costPerThousandTokensUsd: z.object({ in: decimalString, out: decimalString }).strict(),
+  })
+  .strict();
+export type ExtractionDefinitions = z.infer<typeof extractionDefinitions>;
