@@ -8,3 +8,4 @@ Status values: Proposed, Accepted, Superseded (link the replacement).
 - 0009: The intake framework and the validation library (accounting import)
 - 0010: The three remaining Phase 1 intakes, company aliases and the data exceptions queue
 - 0011: A dependency-free XLSX reader and writer (`packages/xlsx`)
+- 0012: Phase 2 plan: the document hub, AI extraction and the monitoring board
