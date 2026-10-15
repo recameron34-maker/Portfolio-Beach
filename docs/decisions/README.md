@@ -5,3 +5,6 @@ Status values: Proposed, Accepted, Superseded (link the replacement).
 - 0006: Read-mostly preview screens built ahead of their phase
 - 0007: Derived UI tokens and the Horizon Line design system
 - 0008: Shared read models for the aggregate views, and the plan-driven preview engine
+- 0009: The intake framework and the validation library (accounting import)
+- 0010: The three remaining Phase 1 intakes, company aliases and the data exceptions queue
+- 0011: A dependency-free XLSX reader and writer (`packages/xlsx`)

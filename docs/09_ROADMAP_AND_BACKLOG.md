@@ -18,11 +18,11 @@ Synthetic data and mock adapters throughout. Every phase ends with: all CI gates
 **Status (session 1):** every exit criterion is proven by tests in the repo; CI runs the same commands but the branch ruleset and SHA pinning (P0-1, P0-3) are owner actions still open.
 
 ## Phase 1: Data foundation and intake (M1, M2)
-- [ ] Entities, linking, aliases, match guards, taxonomy, Data Health and Data Dictionary pages
-- [x] Staging framework + validation library (target 100+ rules, each with pass/fail tests): the framework and the library are in place with the accounting rule set (34 rules, each with a passing and a failing test); the other intakes' rule sets count toward the target
-- [ ] Accounting import/export (configurable layout) **done** (decision 0009); ops-drop parser, weekly-report intake, look-through reconcile outstanding
+- [x] Entities, linking, aliases, match guards, taxonomy, Data Health and Data Dictionary pages (company aliases on record since migration 0010, matched exactly; the exceptions queue under Data; decision 0010)
+- [x] Staging framework + validation library (target 100+ rules, each with pass/fail tests): the framework and the library are in place with 62 rules across three intakes (accounting 34, weekly values 15, look-through 13), each with a passing and a failing test and the exact set of findings asserted per case; the target counts every intake's rule set and grows with the document and report intakes of later phases
+- [x] Accounting import/export (configurable layout), ops-drop parser (workbooks by template signature), weekly-report intake (valuation staging to Draft valuations), look-through reconcile (differences as data exceptions with an external ticket): decisions 0009 and 0010
 **Exit:** journey: import a synthetic accounting export, see diffs, approve, promote; duplicate import is a no-op; near-miss names go to exceptions.
-**Status (session 4):** the exit journey passes end to end over the real API (`apps/web/e2e/intake.spec.ts`) and in the API suite (`apps/api/src/test/intake.test.ts`), including a walled position that links and waits for a wall member. The remaining Phase 1 items are the other three intakes and aliases on record.
+**Status (session 6):** every Phase 1 item is built on synthetic data and proven by tests: the exit journey and the three other intakes each have an API suite and a Playwright journey over the real API (`apps/web/e2e/{intake,weekly,lookthrough,ops-drop}.spec.ts`), walls hold on every intake (a walled position links and waits for a wall member), and the static preview simulates all four intakes and the exceptions queue. Open owner decisions are listed in `docs/SESSION_LOG.md`.
 
 ## Phase 2: Documents, extraction, monitoring (M3, M4, M9)
 - [ ] Document index on local adapter; classifier with review queue and evals; duplicate detection

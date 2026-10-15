@@ -5,8 +5,9 @@ import type { IntakeExportList, OpsDropImportBody, OpsDropTemplate } from '@pb/c
 import { readAccountingFile, toCsv } from '@pb/validation';
 import type { Finding } from '@pb/validation';
 import { WorkbookError, readWorkbook, templateKey } from '@pb/xlsx';
+import { z } from 'zod';
 import type { Workbook } from '@pb/xlsx';
-import { samplePath } from '../../pages/intake/intake.js';
+import { workbookSamplePath } from '../../pages/intake/intake.js';
 import { sha256Hex } from '../hash.js';
 import { browserInflateRaw, bytesOfBase64 } from '../inflate.js';
 import { jsonResponse, problem } from '../problems.js';
@@ -92,6 +93,21 @@ function refusal(
     actual: seen,
   };
   return { file: { rows: [], fileFindings: [finding], columns: {} }, templateSignature: null };
+}
+
+/**
+ * A bundled sample workbook as the preview ships it: `preview/samples/<name>.json` holding the
+ * workbook's bytes in base64, because the publishing host serves data files but not workbooks
+ * (scripts/build-preview.mjs writes it; workbookSamplePath names it).
+ */
+const workbookCarrier = z.object({ fileName: z.string(), base64: z.string() });
+
+function decodeOrNull(base64: string): Uint8Array | null {
+  try {
+    return bytesOfBase64(base64);
+  } catch {
+    return null;
+  }
 }
 
 /** The largest upload one import accepts, in base64 characters, and the bytes that is (base64 grows bytes by a third). */
@@ -181,14 +197,18 @@ export const opsDropImportRoute = defineSimRoute({
       const sample = book.opsDropSamples.find((s) => s.fileName === body.dropId);
       if (sample === undefined)
         return problem(404, 'not-found', 'Workbook not found', { instance, simulated: true });
-      const asset = await ctx.fetchAsset(samplePath(sample.fileName));
-      if (!asset.ok)
+      const asset = await ctx.fetchAsset(workbookSamplePath(sample.fileName));
+      const carrier = asset.ok
+        ? workbookCarrier.safeParse(await asset.json().catch(() => null))
+        : null;
+      const decoded = carrier?.success === true ? decodeOrNull(carrier.data.base64) : null;
+      if (decoded === null)
         return problem(503, 'unavailable', 'The sample workbook is missing from this preview', {
           instance,
           simulated: true,
         });
       fileName = sample.fileName;
-      bytes = new Uint8Array(await asset.arrayBuffer());
+      bytes = decoded;
     }
     if (bytes.length > MAX_WORKBOOK_BYTES)
       return problem(413, 'too-large', 'The workbook is larger than one import accepts', {

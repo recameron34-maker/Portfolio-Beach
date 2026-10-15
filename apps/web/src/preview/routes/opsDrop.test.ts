@@ -38,7 +38,8 @@ const samples = new Map<string, string | Uint8Array>();
 const byName = new Map<string, OpsDropWorkbook>();
 for (const [i, workbook] of workbooks.entries()) {
   const name = book.opsDropSamples[i]?.fileName ?? '';
-  samples.set(name, workbook.bytes);
+  // Bundled as the build script bundles it: the JSON carrier with the bytes in base64.
+  samples.set(`${name}.json`, JSON.stringify({ fileName: name, base64: base64Of(workbook.bytes) }));
   byName.set(name, workbook);
 }
 for (const [i, sample] of accountingExports(dataset).entries())

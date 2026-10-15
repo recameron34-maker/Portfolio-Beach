@@ -51,22 +51,32 @@ const book = previewBook(dataset);
 const samplesDir = join(out, 'preview', 'samples');
 mkdirSync(samplesDir, { recursive: true });
 const sampleFiles = [];
-function bundle(kind, listed, generated, contentOf) {
+function bundle(kind, listed, generated, contentOf, bundledNameOf = (name) => name) {
   for (const [i, file] of generated.entries()) {
     const name = listed[i]?.fileName;
     if (name === undefined)
       throw new Error(`the book names fewer ${kind} samples than the generator made`);
-    const content = contentOf(file);
-    writeFileSync(join(samplesDir, name), content);
+    const content = contentOf(file, name);
+    writeFileSync(join(samplesDir, bundledNameOf(name)), content);
     sampleFiles.push(
-      `${name} (${Buffer.byteLength(content)} bytes, ${file.expectations.rows} rows)`,
+      `${bundledNameOf(name)} (${Buffer.byteLength(content)} bytes, ${file.expectations.rows} rows)`,
     );
   }
 }
 bundle('accounting', book.samples, accountingExports(dataset), (f) => f.csv);
 bundle('weekly', book.weeklySamples, previewWeeklyFiles(dataset), (f) => f.csv);
 bundle('look-through', book.lookthroughSamples, previewLookthroughExtracts(dataset), (f) => f.json);
-bundle('ops drop', book.opsDropSamples, previewOpsDropWorkbooks(dataset), (f) => f.bytes);
+// The publishing host serves data files but not workbooks, so each .xlsx travels as `<name>.json`
+// with its bytes in base64 (workbookSamplePath in src/pages/intake/intake.ts); the simulated drop
+// folder decodes it, so the local and the published preview read the same file.
+bundle(
+  'ops drop',
+  book.opsDropSamples,
+  previewOpsDropWorkbooks(dataset),
+  (f, name) =>
+    `${JSON.stringify({ fileName: name, base64: Buffer.from(f.bytes).toString('base64') })}\n`,
+  (name) => `${name}.json`,
+);
 const bookJson = JSON.stringify(book);
 const bookBytes = Buffer.byteLength(bookJson);
 writeFileSync(join(out, 'preview', 'book.json'), bookJson);

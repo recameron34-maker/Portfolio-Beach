@@ -122,6 +122,15 @@ export function sampleUrl(scenario: SampleScenario): string {
   return samplePath(sampleFileName(scenario));
 }
 
+/**
+ * Where the preview serves a bundled sample workbook: the publishing host serves data files but
+ * not workbooks, so each .xlsx is bundled as `<name>.json`, its bytes in base64 (the carrier of
+ * `workbookCarrier` in src/preview/routes/opsDrop.ts), and the simulated drop folder decodes it.
+ */
+export function workbookSamplePath(fileName: string): string {
+  return samplePath(`${fileName}.json`);
+}
+
 /** What the page says of a file with nothing in it; the API would refuse it with a less plain message. */
 export const EMPTY_FILE_PROBLEM = 'The file is empty.';
 
