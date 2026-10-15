@@ -11,13 +11,25 @@ export type {
   AccountingExportOptions,
   ExportScenario,
 } from './accounting-export.js';
-export { previewBook, previewSampleFileName } from './preview-book.js';
+export {
+  previewBook,
+  previewLookthroughExtracts,
+  previewLookthroughFileName,
+  previewOpsDropFileName,
+  previewOpsDropWorkbooks,
+  previewSampleFileName,
+  previewWeeklyFileName,
+  previewWeeklyFiles,
+} from './preview-book.js';
 export type {
   PreviewBook,
   PreviewBookInvestment,
+  PreviewBookLookthroughSample,
   PreviewBookMark,
+  PreviewBookOpsDropSample,
   PreviewBookQuarter,
   PreviewBookSample,
+  PreviewBookWeeklySample,
 } from './preview-book.js';
 export {
   ALIASES_PER_COMPANY_MAX,
