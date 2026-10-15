@@ -59,6 +59,9 @@ importers:
       '@pb/adapters':
         specifier: workspace:*
         version: link:../../packages/adapters
+      '@pb/ai':
+        specifier: workspace:*
+        version: link:../../packages/ai
       '@pb/calc':
         specifier: workspace:*
         version: link:../../packages/calc
@@ -68,6 +71,9 @@ importers:
       '@pb/db':
         specifier: workspace:*
         version: link:../../packages/db
+      '@pb/pdf':
+        specifier: workspace:*
+        version: link:../../packages/pdf
       '@pb/validation':
         specifier: workspace:*
         version: link:../../packages/validation
