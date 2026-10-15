@@ -1203,7 +1203,12 @@ export const lookthroughRow = z.object({
   rowNo: z.number().int(),
   investmentNumber: z.string().nullable(),
   companyName: z.string(),
-  asOf: isoDate,
+  /**
+   * The provider's as-of text as sent, not an ISO date: the API stages a value that is not a
+   * calendar date and flags it (the LT-TYPE-01 finding names the malformed value), and the run
+   * must stay readable with that row in it. The run's own date is `lookthroughRunDetail.asOf`.
+   */
+  asOf: z.string(),
   provider: z.object({
     sector: z.string(),
     geography: z.string(),

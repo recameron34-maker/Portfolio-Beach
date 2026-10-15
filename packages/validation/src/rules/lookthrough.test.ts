@@ -403,6 +403,18 @@ describe('the look-through helpers', () => {
     );
     expect(s!.status).toBe('flagged');
     expect(lookthroughExceptionsOpenedBy(s!)).toEqual([]);
+    // A row that names nothing fails LT-REQ-01 and opens no link exception: there is nothing to link.
+    const nameless = row({ investmentNumber: null, companyName: '' });
+    const [n] = prepareLookthroughRows(
+      linkLookthroughRows([nameless], DIRECTORY, GUARDS),
+      { mapping: MAPPING, recordOf: () => RECORD },
+      '2025-06-30',
+      CONFIG,
+    );
+    expect(n!.link.status).toBe('unmatched');
+    expect(n!.status).toBe('flagged');
+    expect(n!.findings.map((f) => f.ruleId)).toEqual(['LT-REQ-01']);
+    expect(lookthroughExceptionsOpenedBy(n!)).toEqual([]);
   });
 
   it('reads the two thresholds from the definitions, as numbers or decimal strings, and names a missing key', () => {
