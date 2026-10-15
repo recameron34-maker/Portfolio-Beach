@@ -125,8 +125,10 @@ export function buildPlan(dataset, { dealTypes }) {
           withQuery('/api/v1/capital-notices', { limit: LIST_LIMIT }),
         ],
       },
-      // Intake is not recorded: its files exist only once the simulation stages one, so the shim
-      // answers all five intake routes itself (src/preview/routes/intake.ts) over preview/book.json.
+      // Intake is not recorded: its files, the weekly values files, the look-through runs and the
+      // data exceptions exist only once the simulation stages them, so the shim answers every
+      // intake, drop folder, run and exception route itself (src/preview/routes/) over
+      // preview/book.json and the bundled samples.
       { name: 'investment lists', paths: investmentLists },
       {
         name: 'investment detail',

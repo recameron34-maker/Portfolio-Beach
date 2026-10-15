@@ -7,7 +7,7 @@ import { createReadStream, existsSync, readFileSync, statSync } from 'node:fs';
 import { createServer, request } from 'node:http';
 import { extname, join, resolve, sep } from 'node:path';
 import { chromium } from '@playwright/test';
-import { generateDataset } from '@pb/synthetic';
+import { accountingExports, generateDataset } from '@pb/synthetic';
 import { keyFor } from './preview-plan.mjs';
 
 const root = resolve(process.env.PB_PREVIEW_OUT ?? 'dist-preview');
@@ -18,6 +18,7 @@ const types = {
   '.css': 'text/css',
   '.json': 'application/json',
   '.csv': 'text/csv',
+  '.xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
   '.svg': 'image/svg+xml',
   '.woff2': 'font/woff2',
   '.map': 'application/json',
@@ -66,6 +67,8 @@ const by = (id) => d.users.find((u) => u.externalId === id);
 
 /** What the build recorded for a credential's GET, read straight from fixtures.json. */
 const fixtures = JSON.parse(readFileSync(join(root, 'preview', 'fixtures.json'), 'utf8'));
+/** The book the simulated intakes work over, for the dates and names of the bundled samples. */
+const book = JSON.parse(readFileSync(join(root, 'preview', 'book.json'), 'utf8'));
 function recorded(credential, path) {
   const response = fixtures.responses[keyFor(credential, 'GET', path)];
   if (response === undefined) return { status: undefined, json: undefined };
@@ -240,6 +243,60 @@ check(
     : `got ${stagedForWalk.status}: ${stagedForWalk.json?.detail ?? ''}`,
 );
 const walkFileId = stagedForWalk.json?.id;
+// The weekly file, reconcile run and data exception the route walk opens: the update weekly
+// sample (nothing flagged), the clean extract of the quarter end before the as-of date (nothing
+// opened), and an accounting row no position matches, whose exception every reviewer may see.
+// None of them is what the journeys below stage, so those stage afresh rather than answering a duplicate.
+const weeklyForWalk = await api('ops.one', 'POST', '/api/v1/intake/weekly', {
+  dropId: 'weekly-values-update.csv',
+});
+check(
+  'weekly: the update sample is staged for the route walk (201, simulated)',
+  weeklyForWalk.status === 201 &&
+    weeklyForWalk.simulated &&
+    weeklyForWalk.json?.duplicate === false,
+  weeklyForWalk.status === 201
+    ? ''
+    : `got ${weeklyForWalk.status}: ${weeklyForWalk.json?.detail ?? ''}`,
+);
+const walkWeeklyId = weeklyForWalk.json?.id;
+const cleanExtract = book.lookthroughSamples.find((s) => s.scenario === 'clean');
+const runForWalk = await api('ops.one', 'POST', '/api/v1/intake/lookthrough/reconcile', {
+  asOf: cleanExtract.asOf,
+});
+check(
+  `look-through: the clean extract of ${cleanExtract.asOf} is reconciled for the route walk (201, agrees)`,
+  runForWalk.status === 201 &&
+    runForWalk.json?.status === 'validated' &&
+    runForWalk.json?.exceptions === 0,
+  runForWalk.status === 201 ? '' : `got ${runForWalk.status}: ${runForWalk.json?.detail ?? ''}`,
+);
+const walkRunId = runForWalk.json?.id;
+const exportHeader = accountingExports(d)[0].csv.split('\n')[0].split(',');
+const unmatchedRow = exportHeader
+  .map((column) =>
+    column === 'InvestmentNumber'
+      ? 'INV-9999'
+      : column === 'CompanyName'
+        ? 'Harbor Example Holdings'
+        : column === 'PeriodEnd'
+          ? fixtures.asOf
+          : '',
+  )
+  .join(',');
+const unmatchedForWalk = await api('ops.one', 'POST', '/api/v1/intake/accounting', {
+  fileName: 'walk-unmatched.csv',
+  csv: `${exportHeader.join(',')}\n${unmatchedRow}\n`,
+});
+check(
+  'exceptions: an accounting row no position matches opens one exception for the route walk',
+  unmatchedForWalk.status === 201 && unmatchedForWalk.json?.exceptions === 1,
+  unmatchedForWalk.status === 201
+    ? ''
+    : `got ${unmatchedForWalk.status}: ${unmatchedForWalk.json?.detail ?? ''}`,
+);
+const walkExceptionId = (await api('ops.one', 'GET', '/api/v1/data-exceptions?limit=200')).json
+  ?.items?.[0]?.id;
 
 /** Concrete addresses for one user, ids taken from that user's own recorded lists. */
 function visitsFor(externalId, paths) {
@@ -270,6 +327,12 @@ function visitsFor(externalId, paths) {
       visits.push(path.replace('$id', notice));
     } else if (path === '/data/intake/$id') {
       if (walkFileId !== undefined) visits.push(path.replace('$id', walkFileId));
+    } else if (path === '/data/weekly/$id') {
+      if (walkWeeklyId !== undefined) visits.push(path.replace('$id', walkWeeklyId));
+    } else if (path === '/data/lookthrough/$id') {
+      if (walkRunId !== undefined) visits.push(path.replace('$id', walkRunId));
+    } else if (path === '/data/exceptions/$id') {
+      if (walkExceptionId !== undefined) visits.push(path.replace('$id', walkExceptionId));
     } else {
       throw new Error(`the probe does not know how to fill ${path}`);
     }
@@ -587,6 +650,212 @@ check(
   ),
 );
 
+// ---- Weekly values in the UI: the defects sample through operations, the Drafts on the board
+
+/** The number a tile shows in a tile row, from its text (the label, the figure, the hint). */
+const tileIn = async (tiles, name) =>
+  Number(
+    (await page.getByTestId(tiles).getByRole('group', { name }).innerText()).match(/\d+/)?.[0] ??
+      -1,
+  );
+await signIn('ops.one');
+await page.goto(`${origin}/#/data/weekly`);
+await page.getByRole('button', { name: 'Stage, weekly-values-defects.csv' }).click();
+await page.waitForURL(/#\/data\/weekly\/[0-9a-f-]{36}$/);
+const weeklyUrl = page.url();
+await page.getByTestId('weekly-tiles').waitFor();
+check(
+  'weekly: ops.one stages the defects sample; the file page counts flagged values and badges the move beyond the threshold',
+  (await page.getByTestId('weekly-banner').innerText()).includes('weekly-values-defects.csv') &&
+    (await tileIn('weekly-tiles', 'Flagged')) > 0 &&
+    (await page.getByTestId('weekly-rows').innerText()).includes('Above threshold'),
+  `flagged ${await tileIn('weekly-tiles', 'Flagged')}, exceptions ${await tileIn('weekly-tiles', 'Exceptions')}`,
+);
+check(
+  'weekly: ops.one is told a value is linked to a position outside the wall, never shown it',
+  (await page.getByTestId('weekly-hidden-rows').innerText()).includes(
+    'linked to positions you cannot see',
+  ) && !(await page.getByTestId('weekly-rows').innerText()).includes(walledName),
+);
+await page.getByRole('button', { name: 'Approve validated rows' }).click();
+await page.getByTestId('weekly-action-status').filter({ hasText: 'Draft valuation' }).waitFor();
+check(
+  'weekly: approving promotes the validated values into Draft valuations (simulated)',
+  /Draft valuations? created/.test(await page.getByTestId('weekly-action-status').innerText()) &&
+    (await page.getByTestId('weekly-action-status').innerText()).includes('simulated') &&
+    (await tileIn('weekly-tiles', 'Promoted')) > 0,
+);
+const weeklyFile = (
+  await api('ops.one', 'GET', `/api/v1/intake/weekly/files/${weeklyUrl.split('/').pop()}`)
+).json;
+const promotedValue = weeklyFile?.rows?.find((r) => r.status === 'promoted');
+await page.goto(`${origin}/#/valuations`);
+const board = page.getByRole('table', { name: 'Valuations' });
+await board.waitFor();
+check(
+  'weekly: the Draft valuation of a promoted value is on the valuations board, of method weekly report',
+  promotedValue !== undefined &&
+    (await board
+      .locator('tr')
+      .filter({ hasText: promotedValue.link.companyName })
+      .filter({ hasText: 'Draft' })
+      .filter({ hasText: /weekly/i })
+      .count()) > 0,
+  promotedValue === undefined ? 'no promoted value' : promotedValue.link.companyName,
+);
+
+// ---- Look-through and the exceptions queue in the UI --------------------------------------
+
+await page.goto(`${origin}/#/data/lookthrough`);
+await page.getByTestId('lookthrough-run').waitFor();
+// The as-of input defaults to the record's as-of date (Data Health), the defects extract's date.
+await page.getByRole('button', { name: 'Reconcile' }).click();
+await page.waitForURL(/#\/data\/lookthrough\/[0-9a-f-]{36}$/);
+const runUrl = page.url();
+await page.getByTestId('lookthrough-tiles').waitFor();
+check(
+  `look-through: ops.one reconciles ${asOf}; the run counts differences against the record and the exceptions opened`,
+  (await page.getByTestId('lookthrough-banner').innerText()).includes(`lookthrough-${asOf}.json`) &&
+    (await tileIn('lookthrough-tiles', 'Differences')) > 0 &&
+    (await tileIn('lookthrough-tiles', 'Exceptions')) > 0,
+  `differences ${await tileIn('lookthrough-tiles', 'Differences')}, exceptions ${await tileIn('lookthrough-tiles', 'Exceptions')}`,
+);
+check(
+  'look-through: ops.one is told a row is linked to a position outside the wall, never shown it',
+  (await page.getByTestId('lookthrough-hidden-rows').innerText()).includes(
+    'linked to positions you cannot see',
+  ) && !(await page.getByTestId('lookthrough-rows').innerText()).includes(walledName),
+);
+await page.getByTestId('lookthrough-exceptions-link').click();
+await page.waitForURL(/#\/data\/exceptions\?/);
+await page.getByTestId('exceptions-table').waitFor();
+check(
+  'exceptions: the queue opens on the exceptions of the run',
+  (await page.getByTestId('exceptions-file-note').innerText()).includes(
+    `lookthrough-${asOf}.json`,
+  ) && (await page.getByTestId('exceptions-table').locator('tbody tr').count()) > 1,
+);
+await page.getByTestId('exceptions-table').getByRole('link', { name: /^LT-/ }).first().click();
+await page.waitForURL(/#\/data\/exceptions\/[0-9a-f-]{36}$/);
+await page.getByTestId('exception-actions').waitFor();
+await page.getByRole('button', { name: 'Acknowledge' }).click();
+await page.getByTestId('exception-action-status').filter({ hasText: 'Acknowledged' }).waitFor();
+check(
+  'exceptions: ops.one acknowledges one and takes it (simulated)',
+  (await page.getByTestId('exception-banner').innerText()).includes('Acknowledged') &&
+    (await page.getByTestId('exception-action-status').innerText()).includes(
+      by('ops.one').displayName,
+    ),
+);
+await page.getByRole('button', { name: 'Resolve' }).click();
+const reasonDialog = page.getByRole('dialog');
+await reasonDialog.getByRole('textbox', { name: 'Reason' }).fill('Provider resent the row');
+await reasonDialog.getByRole('button', { name: 'Resolve' }).click();
+await page.getByTestId('exception-action-status').filter({ hasText: 'Resolved' }).waitFor();
+check(
+  'exceptions: resolving with a reason closes it; a final state lists no transition',
+  (await page.getByTestId('exception-banner').innerText()).includes('Resolved') &&
+    (await page.getByTestId('exception-terminal').count()) === 1,
+);
+await page.getByLabel('External ticket').fill('HD-1234');
+await page.getByRole('button', { name: 'Set ticket' }).click();
+await page
+  .getByTestId('exception-action-status')
+  .filter({ hasText: 'Ticket HD-1234 noted' })
+  .waitFor();
+check(
+  'exceptions: a ticket is noted without a state change',
+  (await page.getByTestId('exception-detail').innerText()).includes('HD-1234') &&
+    (await page.getByTestId('exception-banner').innerText()).includes('Resolved'),
+);
+// Read as the signed-in user: api() sets the page's credential, and the UI steps below continue as ops.one.
+const healthAfter = (await api('ops.one', 'GET', '/api/v1/data-health')).json;
+const healthRecorded = recorded('ops.one', '/api/v1/data-health').json;
+check(
+  'data health: the open exception count carries the simulated intakes',
+  healthAfter?.openExceptions > (healthRecorded?.openExceptions ?? 0),
+  `recorded ${healthRecorded?.openExceptions}, now ${healthAfter?.openExceptions}`,
+);
+
+// ---- The operations workbook drop in the UI ------------------------------------------------
+
+await page.goto(`${origin}/#/data/intake`);
+await page.getByRole('button', { name: 'Stage, ops-drop-clean.xlsx' }).click();
+await page.waitForURL(/#\/data\/intake\/[0-9a-f-]{36}$/);
+const workbookUrl = page.url();
+await page.getByTestId('intake-tiles').waitFor();
+check(
+  'ops drop: ops.one stages the clean workbook from the drop folder; the banner names the template it matched',
+  (await page.getByTestId('intake-banner').innerText()).includes('ops-drop-clean.xlsx') &&
+    (await page.getByTestId('intake-banner').innerText()).includes('Template: quarterly-figures') &&
+    (await tileIn('intake-tiles', 'Validated')) > 0,
+);
+check(
+  'ops drop: ops.one is told a row is linked to a position outside the wall, never shown it',
+  (await page.getByTestId('intake-hidden-rows').innerText()).includes(
+    'linked to positions you cannot see',
+  ) && !(await page.getByTestId('intake-rows').innerText()).includes(walledName),
+);
+await page.getByRole('button', { name: 'Approve validated rows' }).click();
+await page.getByTestId('intake-action-status').filter({ hasText: 'rows promoted' }).waitFor();
+check(
+  'ops drop: approving promotes the validated rows (simulated)',
+  (await tileIn('intake-tiles', 'Promoted')) > 0,
+);
+await page.goto(`${origin}/#/data/intake`);
+await page.getByRole('button', { name: 'Stage, ops-drop-unknown-template.xlsx' }).click();
+await page.waitForURL(/#\/data\/intake\/[0-9a-f-]{36}$/);
+await page.getByRole('list', { name: 'File findings' }).waitFor();
+const findings = await page.getByRole('list', { name: 'File findings' }).innerText();
+check(
+  'ops drop: a workbook no template describes is refused with a finding naming the templates, and nothing is staged',
+  findings.includes('LAYOUT-05') &&
+    findings.includes('No template matches this workbook') &&
+    findings.includes('quarterly-figures') &&
+    (await page.getByTestId('intake-banner').innerText()).includes('Template: none matched') &&
+    (await tileIn('intake-tiles', 'Rows')) === 0,
+);
+
+// ---- The wall member sees what was hidden; a viewer is told who each page is for -----------
+
+await switchTo('deal.three');
+await page.goto(weeklyUrl);
+await page.getByTestId('weekly-rows').filter({ hasText: walledName }).waitFor();
+check(
+  'weekly: the wall member sees the walled position value and no hidden-rows note',
+  (await page.getByTestId('weekly-hidden-rows').count()) === 0,
+);
+await page.goto(runUrl);
+await page.getByTestId('lookthrough-rows').filter({ hasText: walledName }).waitFor();
+check(
+  'look-through: the wall member sees the walled position row and no hidden-rows note',
+  (await page.getByTestId('lookthrough-hidden-rows').count()) === 0,
+);
+await page.goto(workbookUrl);
+await page.getByTestId('intake-rows').filter({ hasText: walledName }).waitFor();
+check(
+  'ops drop: the wall member sees the walled position row and no hidden-rows note',
+  (await page.getByTestId('intake-hidden-rows').count()) === 0,
+);
+await switchTo('viewer.one');
+for (const [route, testId, text] of [
+  ['/data/weekly', 'weekly-unavailable', 'Weekly values are for operations and reviewers'],
+  ['/data/lookthrough', 'lookthrough-unavailable', 'Look-through is for operations and reviewers'],
+  ['/data/exceptions', 'exceptions-unavailable', 'Exceptions are for operations and reviewers'],
+]) {
+  await page.goto(`${origin}/#${route}`);
+  await page.getByTestId(testId).waitFor();
+  check(
+    `${route}: a viewer is told who the page is for`,
+    (await page.getByTestId(testId).innerText()).includes(text),
+  );
+}
+check(
+  'data health: a viewer sees the same open exception count as operations',
+  (await api('viewer.one', 'GET', '/api/v1/data-health')).json?.openExceptions ===
+    healthAfter?.openExceptions,
+);
+
 const reset = await api('viewer.one', 'POST', '/api/v1/preview/reset');
 expectStatus(
   'reset: answers 200 (simulated)',
@@ -599,8 +868,18 @@ check(
   staleDetail === undefined || (await versionsAt('viewer.one')).length === 0,
 );
 check(
-  'reset: the intake list is empty again',
+  'reset: the intake list is empty again, every source',
   (await api('ops.one', 'GET', '/api/v1/intake/files?limit=200')).json?.items?.length === 0,
+);
+check(
+  'reset: the weekly files, the reconcile runs and the exceptions are gone',
+  (await api('ops.one', 'GET', '/api/v1/intake/files?limit=200&source=weekly')).json?.items
+    ?.length === 0 &&
+    (await api('ops.one', 'GET', '/api/v1/intake/files?limit=200&source=lookthrough')).json?.items
+      ?.length === 0 &&
+    (await api('ops.one', 'GET', '/api/v1/data-exceptions?limit=200')).json?.items?.length === 0 &&
+    (await api('viewer.one', 'GET', '/api/v1/data-health')).json?.openExceptions ===
+      healthRecorded?.openExceptions,
 );
 check(
   'no recording misses in the whole session',
