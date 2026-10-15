@@ -24,12 +24,14 @@
     "weekly": "node dist/cli.js weekly",
     "lookthrough": "node dist/cli.js lookthrough",
     "ops-drop": "node dist/cli.js ops-drop",
-    "drops": "node dist/cli.js drops"
+    "drops": "node dist/cli.js drops",
+    "documents": "node dist/cli.js documents"
   },
   "dependencies": {
     "@pb/adapters": "workspace:*",
     "@pb/calc": "workspace:*",
     "@pb/db": "workspace:*",
+    "@pb/pdf": "workspace:*",
     "@pb/validation": "workspace:*",
     "@pb/xlsx": "workspace:*"
   },

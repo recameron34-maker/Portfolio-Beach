@@ -11,6 +11,7 @@
     { "path": "../../packages/adapters" },
     { "path": "../../packages/calc" },
     { "path": "../../packages/db" },
+    { "path": "../../packages/pdf" },
     { "path": "../../packages/validation" },
     { "path": "../../packages/xlsx" }
   ]

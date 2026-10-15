@@ -275,6 +275,9 @@ importers:
       '@pb/db':
         specifier: workspace:*
         version: link:../../packages/db
+      '@pb/pdf':
+        specifier: workspace:*
+        version: link:../../packages/pdf
       '@pb/validation':
         specifier: workspace:*
         version: link:../../packages/validation
