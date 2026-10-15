@@ -2,7 +2,7 @@ import { useCallback, useEffect, useId, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import { Link, useParams } from '@tanstack/react-router';
 import { useQuery } from '@tanstack/react-query';
-import { Button, Input, Label, useArrowNavigationGroup } from '@fluentui/react-components';
+import { Button, Input, Label, useFocusFinders } from '@fluentui/react-components';
 import type { DataException, DataExceptionCommandBody } from '@pb/contracts';
 import type { ExceptionCommand } from '@pb/workflows';
 import { ApiError } from '../../api/client.js';
@@ -89,17 +89,29 @@ function ActionsCard({ x, roles }: { x: DataException; roles: readonly string[] 
   const [ticket, setTicket] = useState(x.externalTicket ?? '');
   const actions = exceptionActions(roles, x.state);
   const busy = command.isPending;
-  // The action buttons are one tab stop with the arrow keys moving between them (the toolbar
-  // pattern). The group also keeps Fluent's focus manager alive across the reason dialog: were the
-  // dialog its only user on the page, closing it would dispose the manager with the aria-hidden it
-  // put on the rest of the page still in place, leaving the page unreadable to a screen reader.
-  const arrows = useArrowNavigationGroup({ axis: 'horizontal' });
+  const group = useRef<HTMLDivElement | null>(null);
+  // Each action button is its own tab stop, as on the other action cards; an arrow-key toolbar
+  // group would plant hidden focusable sentinels around the buttons (Fluent runs tabster with
+  // controlTab off), which the accessibility scan rejects as hidden yet focusable.
+  // The focus finders also keep Fluent's focus manager alive across the reason dialog: were the
+  // dialog its only user on the page, closing it would dispose the manager with the aria-hidden
+  // it put on the rest of the page still in place, leaving the page unreadable to a screen reader.
+  const { findFirstFocusable } = useFocusFinders();
+  // A command changes the state, and the button that issued it is gone from the new transitions,
+  // so once the state has changed focus moves to the first remaining action, or to the group
+  // when the state is final, instead of falling to the document body.
+  const refocusAfterCommand = useRef(false);
+  useEffect(() => {
+    if (!refocusAfterCommand.current) return;
+    refocusAfterCommand.current = false;
+    const g = group.current;
+    if (g !== null) (findFirstFocusable(g) ?? g).focus();
+  }, [x.state, findFirstFocusable]);
   // The reason dialog has no trigger of its own, so when it closes focus is returned explicitly,
   // once the dialog is out of the document: to the button that opened it when the dialog was
   // cancelled, and to the actions group when it was submitted, since the command that follows
   // changes the state and takes that button away (a resolved exception lists no transition).
   const openers = useRef(new Map<string, HTMLButtonElement>());
-  const group = useRef<HTMLDivElement | null>(null);
   const returnFocus = useRef<{ opener: string | null } | null>(null);
   // Fluent's Button infers its ref element from a slot union, so the element is captured by a
   // typed callback rather than a ref object.
@@ -120,8 +132,10 @@ function ActionsCard({ x, roles }: { x: DataException; roles: readonly string[] 
     command.mutate(
       { id: x.id, body },
       {
-        onSuccess: (after) =>
-          log.record('good', `${commandResult(body.command, after)} ${resultSuffix()}`),
+        onSuccess: (after) => {
+          if (after.state !== x.state) refocusAfterCommand.current = true;
+          log.record('good', `${commandResult(body.command, after)} ${resultSuffix()}`);
+        },
         onError: (error) => log.record('bad', `${label}: ${describeActionError(error)}`),
       },
     );
@@ -141,7 +155,6 @@ function ActionsCard({ x, roles }: { x: DataException; roles: readonly string[] 
             className="pb-exceptions-actions"
             tabIndex={-1}
             data-testid="exception-actions-group"
-            {...arrows}
           >
             {actions.transitions.length === 0 ? (
               <p className="pb-meta" data-testid="exception-terminal">

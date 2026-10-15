@@ -125,6 +125,12 @@ describe('an exception', () => {
     expect(screen.queryByRole('button', { name: 'Acknowledge' })).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Resolve' })).toBeEnabled();
     expect(screen.getByRole('button', { name: "Won't fix" })).toBeEnabled();
+    // The clicked button is gone; focus stays with the actions rather than falling to the body.
+    await waitFor(() =>
+      expect(screen.getByTestId('exception-actions-group').contains(document.activeElement)).toBe(
+        true,
+      ),
+    );
   });
 
   it('resolves only with a reason, then says the state is final', TIMEOUT, async () => {
