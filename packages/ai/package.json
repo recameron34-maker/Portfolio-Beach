@@ -23,5 +23,9 @@
   "dependencies": {
     "@pb/calc": "workspace:*",
     "zod": "4.6.5"
+  },
+  "devDependencies": {
+    "@pb/pdf": "workspace:*",
+    "@pb/synthetic": "workspace:*"
   }
 }
