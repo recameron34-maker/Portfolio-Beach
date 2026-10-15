@@ -54,6 +54,7 @@ All agents are rebuilt as **code-defined AI services** in `packages/ai` (prompt 
 - Keep a gold set in `/agents/evals/<agent>/` (synthetic inputs + expected outputs).
 - CI runs the evals on instruction changes where possible (`pnpm test:evals`); release is blocked if accuracy drops.
 - Track field-level accuracy, flag rate and format-rule pass rate. Do not ship an instruction change that lowers accuracy.
+- Prototype (Phase 2, decision 0012): the gold set of the document agents (classifier, quarterly extractor) is the synthetic documents' truth sidecars (`.synthetic/documents/truth/<sha256>.json`, written by `pnpm synth`, never committed), run through the harness in `packages/ai/src/evals/` (`runClassifierEval`, `runExtractionEval`, `assertThresholds` carrying the docs/04 M3 and M4 thresholds; the harness appends an injection probe to every case and counts any change). `/agents/evals/<agent>/` stays the place for hand-written cases of agents that have no generator.
 
 ## 8. Agents added by the capability audit
 | Agent | Job | Guardrails |

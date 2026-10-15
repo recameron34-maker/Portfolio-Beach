@@ -16,6 +16,7 @@ const domainGlobs = [
   'packages/validation/src/**/*.ts',
   'packages/xlsx/src/**/*.ts',
   'packages/pdf/src/**/*.ts',
+  'packages/ai/src/**/*.ts',
 ];
 
 export default tseslint.config(

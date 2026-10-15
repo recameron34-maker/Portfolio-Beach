@@ -26,6 +26,9 @@
       "path": "packages/pdf"
     },
     {
+      "path": "packages/ai"
+    },
+    {
       "path": "tools/synthetic"
     },
     {
