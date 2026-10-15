@@ -20,7 +20,7 @@
     "test:calc": "vitest run --project calc && pnpm --filter @pb/worker-py test && pnpm --filter @pb/calc cross-check",
     "test:rls": "vitest run --project db rls/",
     "test:workflows": "vitest run --project workflows",
-    "test:evals": "node scripts/not-in-phase.mjs test:evals 'Phase 2 (packages/ai eval harness with the mock client, docs/07 section 7)'",
+    "test:evals": "vitest run --project ai gold.eval",
     "test:e2e": "pnpm --filter @pb/web test:e2e",
     "test:a11y": "pnpm --filter @pb/web test:a11y",
     "test:perf": "node scripts/not-in-phase.mjs test:perf 'Phase 6 (nightly k6 run, docs/12 section 1)'",
