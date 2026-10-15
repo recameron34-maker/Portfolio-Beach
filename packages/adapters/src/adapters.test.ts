@@ -265,6 +265,50 @@ describe('mock adapters', () => {
     ).resolves.toBeDefined();
   });
 
+  it('AI client calls a function fixture with the input, parses its answer through the schema, and records no content', async () => {
+    const ai = new MockAiClient();
+    const seen: string[] = [];
+    ai.register('document_classifier', (input: string) => {
+      seen.push(input);
+      return {
+        docType: input.includes('capital call') ? 'doc_type.capital_call' : 'doc_type.other',
+      };
+    });
+    const schema = { parse: (v: unknown) => v as { docType: string } };
+    const call = (input: string) =>
+      ai.complete({ promptId: 'document_classifier', promptVersion: '1', input }, schema);
+    expect((await call('a capital call notice')).output.docType).toBe('doc_type.capital_call');
+    expect((await call('a scan')).output.docType).toBe('doc_type.other');
+    expect(seen).toEqual(['a capital call notice', 'a scan']);
+    expect(ai.calls.map((c) => c.inputLength)).toEqual([21, 6]);
+    expect(JSON.stringify(ai.calls)).not.toContain('capital');
+  });
+
+  it('AI client rejects with the resolver error or the schema failure and still records the call', async () => {
+    const ai = new MockAiClient({
+      quarterly_extraction: () => {
+        throw new Error('no recorded output for this document');
+      },
+    });
+    const strict = {
+      parse: (v: unknown) => {
+        if (typeof v !== 'object' || v === null) throw new Error('not an object');
+        return v;
+      },
+    };
+    await expect(
+      ai.complete({ promptId: 'quarterly_extraction', promptVersion: '1', input: 'x' }, strict),
+    ).rejects.toThrow(/no recorded output/);
+    ai.register('bad', 'not an object');
+    await expect(
+      ai.complete({ promptId: 'bad', promptVersion: '1', input: 'yy' }, strict),
+    ).rejects.toThrow(/not an object/);
+    expect(ai.calls.map((c) => [c.promptId, c.inputLength])).toEqual([
+      ['quarterly_extraction', 1],
+      ['bad', 2],
+    ]);
+  });
+
   it('document store lists, reads, writes and hashes files inside its root only', async () => {
     const root = await mkdtemp(join(tmpdir(), 'pb-docs-'));
     const store = new LocalFolderDocumentStore(root);
