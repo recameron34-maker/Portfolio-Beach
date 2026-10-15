@@ -60,7 +60,18 @@ const TWIN_TOO: InvestmentDirectoryEntry = {
   canonicalName: 'harbor logistics holdings',
   aliases: ['Harbor Twin'],
 };
-const DIRECTORY = [MERIDIAN, SILVERLINE, TWIN, TWIN_TOO];
+/** A position the firm has exited: still on record, so a row links to it, but no longer active. */
+const EXITED: InvestmentDirectoryEntry = {
+  ...MERIDIAN,
+  id: '30000000-0000-4000-8000-000000000009',
+  investmentNumber: 'INV-0009',
+  companyName: 'Driftwood Marine Services',
+  canonicalName: 'driftwood marine services',
+  aliases: [],
+  exitDate: '2024-12-31',
+  isActive: false,
+};
+const DIRECTORY = [MERIDIAN, SILVERLINE, TWIN, TWIN_TOO, EXITED];
 const GUARDS = [{ nameA: 'Meridian Data Partners', nameB: 'Meridian Data Partners II' }];
 
 const PRIOR: WeeklyPrior = { value: '27400000.00', source: 'locked_mark', date: '2025-03-31' };
@@ -120,19 +131,39 @@ describe('WEEKLY_RULES: the baseline row', () => {
   });
 });
 
-describe('WK-REQ-01: a number or a name, and a value', () => {
-  it('passes a row with a name alone and a value', () => {
+describe('WK-REQ-01: a number or a name, a report date and a value', () => {
+  it('passes a row with a name alone, a report date and a value', () => {
     expect(ids(context({ investmentNumber: null }))).toEqual([]);
   });
-  it('fails a row with neither number nor name, and a row with no value, each on its own field', () => {
+  it('fails a row with neither number nor name, a row with no report date and a row with no value, each on its own field', () => {
     const nameless = context({ investmentNumber: null, companyName: null });
     expect(ids(nameless)).toEqual(['WK-REQ-01']);
     expect(runRules(WEEKLY_RULES, nameless)[0]?.field).toBe('InvestmentNumber');
+    // A blank report date is flagged here, so it never lands validated and fails at approval.
+    const dateless = context({ reportDate: null });
+    expect(ids(dateless)).toEqual(['WK-REQ-01']);
+    const [noDate] = runRules(WEEKLY_RULES, dateless);
+    expect(noDate?.field).toBe('ReportDate');
+    expect(noDate?.severity).toBe('error');
+    expect(statusFromFindings(runRules(WEEKLY_RULES, dateless))).toBe('flagged');
     const valueless = context({ reportedValue: null });
     expect(ids(valueless)).toEqual(['WK-REQ-01']);
     expect(runRules(WEEKLY_RULES, valueless)[0]?.field).toBe('ReportedValue');
     expect(statusFromFindings(runRules(WEEKLY_RULES, valueless))).toBe('flagged');
+    // Every blank is its own finding, in column order.
+    const empty = context({
+      investmentNumber: null,
+      companyName: null,
+      reportDate: null,
+      reportedValue: null,
+    });
+    expect(runRules(WEEKLY_RULES, empty).map((f) => [f.ruleId, f.field])).toEqual([
+      ['WK-REQ-01', 'InvestmentNumber'],
+      ['WK-REQ-01', 'ReportDate'],
+      ['WK-REQ-01', 'ReportedValue'],
+    ]);
     noEmDash(nameless);
+    noEmDash(dateless);
   });
 });
 
@@ -319,6 +350,32 @@ describe('WK-XREF-01, 02 and 03: the row links to one investment on record', () 
     expect(ids(ambiguous)).toEqual(['WK-XREF-03']);
     expect(runRules(WEEKLY_RULES, ambiguous)[0]?.message).not.toContain('Harbor');
     for (const ctx of [unknown, nearMiss, guarded, ambiguous]) noEmDash(ctx);
+  });
+});
+
+describe('WK-XREF-04: the linked investment is active', () => {
+  it('passes a link to an active investment, and says nothing of a row with no link', () => {
+    expect(ids(context())).toEqual([]);
+    expect(
+      ids(context({ investmentNumber: 'INV-9999', companyName: 'Nobody' }, { prior: null })),
+    ).toEqual(['WK-XREF-01']);
+  });
+  it('fails a link to an exited investment, by number or by name: approval could not open a Draft for it', () => {
+    const byNumber = context({
+      investmentNumber: 'INV-0009',
+      companyName: 'Driftwood Marine Services',
+    });
+    expect(byNumber.link.status).toBe('matched');
+    expect(ids(byNumber)).toEqual(['WK-XREF-04']);
+    const [found] = runRules(WEEKLY_RULES, byNumber);
+    expect(found?.severity).toBe('error');
+    expect(found?.field).toBe('InvestmentNumber');
+    expect(found?.message).toContain('not active');
+    expect(statusFromFindings(runRules(WEEKLY_RULES, byNumber))).toBe('flagged');
+    const byName = context({ investmentNumber: null, companyName: 'Driftwood Marine Services' });
+    expect(byName.link.by).toBe('name');
+    expect(ids(byName)).toEqual(['WK-XREF-04']);
+    noEmDash(byNumber);
   });
 });
 
