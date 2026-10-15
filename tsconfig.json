@@ -23,6 +23,9 @@
       "path": "packages/xlsx"
     },
     {
+      "path": "packages/ai"
+    },
+    {
       "path": "tools/synthetic"
     },
     {
