@@ -8,11 +8,18 @@ import {
   intakeFileDetail,
   intakeFilePage,
   intakeImportResult,
+  lookthroughReconcileResult,
   problemDetails,
+  weeklyImportResult,
 } from '@pb/contracts';
 import type { IntakeFileDetail, IntakeImportResult, IntakeRow } from '@pb/contracts';
 import type { Tx } from '@pb/db';
-import { accountingExport, accountingExports } from '@pb/synthetic';
+import {
+  accountingExport,
+  accountingExports,
+  lookthroughExtract,
+  weeklyValues,
+} from '@pb/synthetic';
 import type { AccountingExport } from '@pb/synthetic';
 import { accountingLayout, parseCsv } from '@pb/validation';
 import { IntakeService } from '../intake/intake.service.js';
@@ -1335,6 +1342,77 @@ describe('accounting intake (M2, SEC-9.1): staging, validation, approval, then p
     expect(byAlias.rows[0]!.link).toMatchObject({ status: 'matched', investmentId: inv.id });
     expect(byAlias.rows[0]!.link.investmentNumber).toBe(inv.investmentNumber);
     expect(byAlias.exceptions).toBe(0);
+  });
+
+  it('answers 404 on the accounting file pages for a weekly file and a look-through run, whose rows are not accounting-shaped', async () => {
+    // A weekly values file and a reconcile run are intake files of their own sources with their
+    // own pages: the accounting detail and commands answer the accounting sources only (stage.ts
+    // ACCOUNTING_SOURCES), so neither is found here, and no command locks or reads them.
+    const aliased = { ...h.dataset, companyAliases: h.dataset.companyAliases ?? [] };
+    const weekly = weeklyValues(aliased, { scenario: 'clean' });
+    const weeklyFile = weeklyImportResult.parse(
+      (
+        await h
+          .http()
+          .post('/api/v1/intake/weekly')
+          .set('authorization', h.as('operations'))
+          .send({ fileName: weekly.fileName, csv: weekly.csv })
+          .expect(201)
+      ).body,
+    );
+    const folder = join(h.runtime.config.PB_DROP_ROOT, 'lookthrough');
+    mkdirSync(folder, { recursive: true });
+    const extract = lookthroughExtract(aliased, { scenario: 'clean' });
+    writeFileSync(join(folder, `${extract.asOf}.json`), extract.json);
+    const run = lookthroughReconcileResult.parse(
+      (
+        await h
+          .http()
+          .post('/api/v1/intake/lookthrough/reconcile')
+          .set('authorization', h.as('operations'))
+          .send({ asOf: extract.asOf })
+          .expect(201)
+      ).body,
+    );
+    for (const [what, id] of [
+      ['weekly file', weeklyFile.id],
+      ['look-through run', run.id],
+    ] as const) {
+      const res = await h
+        .http()
+        .get(`/api/v1/intake/files/${id}`)
+        .set('authorization', h.as('head.one'))
+        .expect(404);
+      expect(problemDetails.parse(res.body).type, what).toBe(`${PROBLEM}not-found`);
+      expect(problemDetails.parse(res.body).detail, what).toBe('Intake file not found');
+      await command('operations', id, { command: 'approve' }).expect(404);
+      await command('deal.three', id, {
+        command: 'reject',
+        reason: 'Not an accounting file',
+      }).expect(404);
+    }
+    // Their own pages answer them, and the list carries both under their sources.
+    await h
+      .http()
+      .get(`/api/v1/intake/weekly/files/${weeklyFile.id}`)
+      .set('authorization', h.as('operations'))
+      .expect(200);
+    await h
+      .http()
+      .get(`/api/v1/intake/lookthrough/runs/${run.id}`)
+      .set('authorization', h.as('operations'))
+      .expect(200);
+    const listed = intakeFilePage.parse(
+      (
+        await h
+          .http()
+          .get('/api/v1/intake/files?limit=50')
+          .set('authorization', h.as('auditor'))
+          .expect(200)
+      ).body,
+    );
+    expect(listed.items.find((f) => f.id === weeklyFile.id)?.source).toBe('weekly');
+    expect(listed.items.find((f) => f.id === run.id)?.source).toBe('lookthrough');
   });
 });
 

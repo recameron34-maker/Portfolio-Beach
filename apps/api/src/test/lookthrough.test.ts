@@ -404,6 +404,33 @@ describe('look-through reconcile (M2 lookthrough-reconcile, decision 0010): diff
     expect(await record()).toEqual(recordBefore);
   });
 
+  it('lists a run with the exception count and the counts its detail reports, like any intake file', async () => {
+    const listed = intakeFilePage.parse(
+      (
+        await h
+          .http()
+          .get(`/api/v1/intake/files?source=${SOURCE}&limit=50`)
+          .set('authorization', h.as('auditor'))
+          .expect(200)
+      ).body,
+    );
+    expect(defectsRun.exceptions).toBeGreaterThan(0);
+    for (const run of [cleanRun, defectsRun]) {
+      const item = listed.items.find((f) => f.id === run.id);
+      const {
+        rows: _rows,
+        hiddenRows: _hidden,
+        asOf: _asOf,
+        ...header
+      } = await detail('auditor', run.id);
+      expect(item, run.fileName).toEqual(header);
+    }
+    const item = listed.items.find((f) => f.id === defectsRun.id)!;
+    expect(item.exceptions).toBe(defectsRun.exceptions);
+    expect(item.counts).toEqual(defectsRun.counts);
+    expect(item.status).toBe('flagged');
+  });
+
   it("hides the walled position's rows of the defects run from the reconciler, the stale one included, and shows them to a wall member", async () => {
     expect(defects.expectations.walled.length).toBe(2);
     const ops = await detail('ops.one', defectsRun.id, 'req-lt-defects-ops-1');

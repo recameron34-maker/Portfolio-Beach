@@ -687,6 +687,39 @@ describe('weekly report values intake (M2, SEC-9.1, decision 0010): staging, the
     );
   });
 
+  it('lists weekly files with the counts and the exceptions their detail reports, like any intake file', async () => {
+    const page = intakeFilePage.parse(
+      (
+        await h
+          .http()
+          .get('/api/v1/intake/files?source=weekly&limit=50')
+          .set('authorization', h.as('auditor'))
+          .expect(200)
+      ).body,
+    );
+    expect(defectsFile.exceptions).toBeGreaterThan(0);
+    for (const file of [cleanFile, updateFile, defectsFile]) {
+      const listed = page.items.find((f) => f.id === file.id);
+      const { rows: _rows, hiddenRows: _hidden, ...header } = await detail('auditor', file.id);
+      expect(listed, file.fileName).toEqual(header);
+    }
+    const listedDefects = page.items.find((f) => f.id === defectsFile.id)!;
+    expect(listedDefects.exceptions).toBe(defectsFile.exceptions);
+    expect(listedDefects.counts.flagged).toBe(defects.expectations.flagged.length);
+    expect(listedDefects.rowCount).toBe(defects.expectations.rows);
+    // The counts are of the file's rows in stg.valuation; a reader outside the wall gets the same.
+    const outsider = intakeFilePage.parse(
+      (
+        await h
+          .http()
+          .get('/api/v1/intake/files?source=weekly&limit=50')
+          .set('authorization', h.as('deal.one'))
+          .expect(200)
+      ).body,
+    );
+    expect(outsider.items.find((f) => f.id === cleanFile.id)?.counts).toEqual(cleanFile.counts);
+  });
+
   it('rejects flagged rows with a reason the machine requires; the deal team may not reject, and a validated row cannot be rejected', async () => {
     const dealTeam = await command('deal_team', defectsFile.id, {
       command: 'reject',
@@ -1088,6 +1121,70 @@ describe('weekly report values intake (M2, SEC-9.1, decision 0010): staging, the
       ).body,
     );
     expect(rejected.rows[0]!.status).toBe('rejected');
+  });
+
+  it('answers 409 when another approval took the Draft version first; nothing of the batch is kept, and the next approve takes the version after', async () => {
+    // A position and day a Draft was promoted for already: its versions are on record.
+    const line = plainLine(update.reportDate);
+    const investmentId = investmentByNumber(line.InvestmentNumber!).id;
+    const file = await stage(
+      {
+        fileName: 'version-race.csv',
+        csv: oneRowCsv({
+          ...line,
+          ReportDate: update.reportDate,
+          ReportedValue: D(line.ReportedValue!).plus('500').toFixed(2),
+        }),
+      },
+      'req-weekly-version-stage-1',
+    );
+    expect(file.rows[0]!.status).toBe('validated');
+    const taken = (
+      await h.runtime.db.query<{ v: number }>(
+        'select max(version)::int as v from mon.valuation where investment_id = $1 and period_end = $2',
+        [investmentId, update.reportDate],
+      )
+    )[0]!.v;
+    expect(taken).toBeGreaterThanOrEqual(1);
+    // The window is the one between reading the highest version on record and writing the Draft
+    // at the next one. The test database has one connection, so the other approval's write is
+    // stood in for by handing the service the version that approval took (the service's private
+    // step, reached as the seam this test needs): the unique key of mon.valuation refuses it.
+    interface VersionSeam {
+      nextVersion: (...args: unknown[]) => Promise<number>;
+    }
+    const seam = h.app.get<WeeklyService, VersionSeam>(WeeklyService);
+    const original = seam.nextVersion;
+    seam.nextVersion = () => Promise.resolve(taken);
+    const valuationsBefore = await valuationRows();
+    try {
+      const res = await command(
+        'operations',
+        file.id,
+        { command: 'approve' },
+        'req-weekly-version-1',
+      ).expect(409);
+      const problem = problemDetails.parse(res.body);
+      expect(problem.type).toBe(`${PROBLEM}conflict`);
+      expect(problem.detail).toContain('approve the file again');
+    } finally {
+      seam.nextVersion = original;
+    }
+    expect(await valuationRows()).toBe(valuationsBefore);
+    expect((await detail('operations', file.id)).rows[0]!.status).toBe('validated');
+    expect(await auditCount('valuation.create_from_weekly', 'req-weekly-version-1')).toBe(0);
+    expect(await auditCount('intake.approve', 'req-weekly-version-1')).toBe(0);
+    // Approved again, the Draft takes the version after the one taken.
+    const approved = weeklyFileDetail.parse(
+      (
+        await command('operations', file.id, { command: 'approve' }, 'req-weekly-version-2').expect(
+          200,
+        )
+      ).body,
+    );
+    const created = (await draft(approved.rows[0]!.valuationId!))!;
+    expect(created.version).toBe(taken + 1);
+    expect(created.state).toBe('Draft');
   });
 
   it('is a 500 configuration problem when a threshold is missing from definitions, never a default', async () => {

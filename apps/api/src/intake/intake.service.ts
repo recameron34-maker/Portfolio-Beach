@@ -1,6 +1,5 @@
-import { createHash } from 'node:crypto';
 import { Inject, Injectable } from '@nestjs/common';
-import { and, desc, eq, lt, or, sql } from 'drizzle-orm';
+import { and, desc, eq, inArray, lt, or, sql } from 'drizzle-orm';
 import type { SQL } from 'drizzle-orm';
 import type { AdapterSet, Principal } from '@pb/adapters';
 import type {
@@ -26,15 +25,17 @@ import {
 import type { RowDiff } from '@pb/validation';
 import { attempt, stagingMachine } from '@pb/workflows';
 import type { z } from 'zod';
-import { decodeCursor, encodeCursor } from '../common/cursor.js';
+import { AT_ID_CURSOR, EXACT_AT_FORMAT, decodeAtIdCursor, encodeCursor } from '../common/cursor.js';
 import { ProblemError, workflowProblem } from '../common/problem.js';
 import { ACCOUNTING_LAYOUT, ADAPTERS, DEFINITIONS } from '../common/tokens.js';
 import { requireUuid } from '../common/validate.js';
 import { DbService } from '../db/db.service.js';
 import type { AuditEntry } from '../db/db.service.js';
 import {
+  ACCOUNTING_SOURCES,
   NOT_FOUND,
   accountingLayoutOf,
+  contentHashOf,
   countsByFile,
   exceptionsByFile,
   fileRowOf,
@@ -65,7 +66,9 @@ import type { StagedRow } from './stage.js';
  * left out and counted, a candidate they cannot open is dropped from the link, and promotion writes
  * only what they may see. A staged diff is a snapshot taken at staging: promotion reads the quarter
  * on record again and refuses the approval when the record no longer matches what the reviewer was
- * shown (decision 0009, promotion safety).
+ * shown (decision 0009, promotion safety). The detail and the commands answer the accounting
+ * sources only (stage.ts ACCOUNTING_SOURCES): a weekly file or a look-through run has its own
+ * pages, and is not found here. The list covers every source.
  */
 
 export type IntakeListOptions = z.infer<typeof intakeFileListQuery>;
@@ -79,11 +82,6 @@ type PromotedFigures = Record<'revenueLtm' | 'ebitdaLtm' | 'ev' | 'netDebt', str
 const file = schema.intakeFile;
 const row = schema.intakeRow;
 const quarter = schema.quarterlyPerformance;
-
-/** The cursor is "receivedAt|id" of the last file: the receipt time to the microsecond and the file id. */
-const CURSOR =
-  /^(\d{4}-\d{2}-\d{2})T((?:[01]\d|2[0-3]):[0-5]\d:[0-5]\d\.\d{6})Z\|([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/;
-const EXACT_AT_FORMAT = 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"';
 
 /** The same diff: the same kind and the same field changes, values compared as decimals. */
 function sameDiff(a: RowDiff, b: RowDiff): boolean {
@@ -152,7 +150,7 @@ export class IntakeService {
       source: SOURCE,
       exceptionSource: EXCEPTION_SOURCE,
       fileName,
-      contentHash: createHash('sha256').update(text).digest('hex'),
+      contentHash: contentHashOf(text),
       read: () => ({
         file: readAccountingFile(text, layout, { maxRows: settings.maxRows }),
         templateSignature: null,
@@ -176,11 +174,15 @@ export class IntakeService {
       // Every intake writes stg.intake_file; the list covers them all unless the caller names a source.
       const conditions: (SQL | undefined)[] = [];
       if (opts.source !== undefined) conditions.push(eq(file.source, opts.source));
+      // The cursor is "receivedAt|id" of the last file (common/cursor.ts).
       if (opts.cursor !== undefined) {
-        const [date = '', time = '', id = ''] = decodeCursor(opts.cursor, CURSOR, [1]);
-        const at = sql`${`${date}T${time}Z`}::timestamptz`;
+        const key = decodeAtIdCursor(opts.cursor, AT_ID_CURSOR);
+        const at = sql`${key.at}::timestamptz`;
         conditions.push(
-          or(lt(file.receivedAt, at), and(eq(file.receivedAt, at), lt(file.id, sql`${id}::uuid`))),
+          or(
+            lt(file.receivedAt, at),
+            and(eq(file.receivedAt, at), lt(file.id, sql`${key.id}::uuid`)),
+          ),
         );
       }
       if (opts.status !== undefined) conditions.push(eq(file.status, opts.status));
@@ -239,7 +241,12 @@ export class IntakeService {
     return this.db.run(principal, requestId, async (tx, audit) => {
       // Commands on one file run one at a time: the file row stays locked until this transaction
       // ends, so a second reviewer's command waits and then reads the rows as this one left them.
-      await tx.select({ id: file.id }).from(file).where(eq(file.id, fileId)).for('update');
+      // Only an accounting-shaped file is locked: another source's file is not found below.
+      await tx
+        .select({ id: file.id })
+        .from(file)
+        .where(and(eq(file.id, fileId), inArray(file.source, [...ACCOUNTING_SOURCES])))
+        .for('update');
       const loaded = await loadFile(tx, fileId);
       if (loaded === null) throw new ProblemError(404, 'not-found', NOT_FOUND);
       const wanted: StagingState = body.command === 'approve' ? 'validated' : 'flagged';

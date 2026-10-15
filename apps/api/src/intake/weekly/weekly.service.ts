@@ -1,13 +1,12 @@
-import { createHash, randomUUID } from 'node:crypto';
+import { randomUUID } from 'node:crypto';
 import { Inject, Injectable } from '@nestjs/common';
-import { and, asc, desc, eq, inArray, isNotNull, or, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, inArray, isNotNull, sql } from 'drizzle-orm';
 import { alias } from 'drizzle-orm/pg-core';
 import type { AdapterSet, Principal } from '@pb/adapters';
-import { intakeFinding, intakeLink, intakeSource, weeklyPriorSource } from '@pb/contracts';
+import { intakeFinding, intakeLink, weeklyPriorSource } from '@pb/contracts';
 import type {
   IntakeCommandBody,
   IntakeExportList,
-  IntakeFile,
   StagingState,
   WeeklyFileDetail,
   WeeklyImportBody,
@@ -19,7 +18,6 @@ import type { Tx } from '@pb/db';
 import {
   IntakeSettingsError,
   WEEKLY_RULES,
-  countsOf,
   digitsOf,
   emptyCounts,
   exceptionsOpenedBy,
@@ -40,7 +38,6 @@ import {
 import type {
   Finding,
   LinkResult,
-  StagingCounts,
   WeeklyLinkedRow,
   WeeklyPrior,
   WeeklyRow,
@@ -55,6 +52,16 @@ import { requireUuid } from '../../common/validate.js';
 import { DbService } from '../../db/db.service.js';
 import type { AuditEntry } from '../../db/db.service.js';
 import { investmentDirectory, matchGuards } from '../directory.js';
+import {
+  EXCEPTION_SEVERITY,
+  contentHashOf,
+  countsByFile,
+  loadHeader,
+  receiveFile,
+  visibleRowsFor,
+  writeStaged,
+} from '../stage.js';
+import type { ExceptionInsert } from '../stage.js';
 
 /*
  * The weekly report values (docs/04 M2 weekly-report-intake, decision 0010, SEC-9.1): a
@@ -67,7 +74,9 @@ import { investmentDirectory, matchGuards } from '../directory.js';
  * with an audit event per valuation (docs/18 sections 1 and 2). Every caller reads and writes
  * under their own row-level security through DbService.run: a staged value linked to a position
  * they cannot open is left out and counted, a candidate they cannot open is dropped from the
- * link, and a command acts on the rows they see.
+ * link, and a command acts on the rows they see. The receipt of a file (the content hash, the
+ * duplicate, the restage, the race, the audit event), the writes, the counts and the visibility
+ * rule are the staging every intake shares (../stage.ts, CLAUDE.md rule 7).
  */
 
 const SOURCE = 'weekly';
@@ -75,10 +84,7 @@ const EXCEPTION_SOURCE = 'weekly_intake';
 const ENTITY = 'stg.valuation';
 /** The valuation method of a Draft created from a weekly value (core.taxonomy_term, migration 0010). */
 const METHOD = 'valuation_method.weekly_report';
-/** A rule error opens a high exception (core.taxonomy_term exception_severity): the row cannot be promoted until a person resolves it. */
-const EXCEPTION_SEVERITY = 'exception_severity.high';
 const NOT_FOUND = 'Weekly values file not found';
-const INSERT_CHUNK = 500;
 /** Digits before the point that stg.valuation.variance_pct (numeric 20,8) holds. */
 const VARIANCE_INTEGER_DIGITS = 12;
 const VARIANCE_SCALE = 8;
@@ -134,18 +140,7 @@ interface LoadedFile {
 const file = schema.intakeFile;
 const staged = schema.stagedValuation;
 const valuation = schema.valuation;
-const receiver = alias(schema.appUser, 'receiver');
 const reviewer = alias(schema.appUser, 'reviewer');
-
-function chunk<T>(items: readonly T[], size: number): T[][] {
-  const out: T[][] = [];
-  for (let i = 0; i < items.length; i += size) out.push(items.slice(i, i + size));
-  return out;
-}
-
-/** A refused file (the header was wrong, so it holds no rows) is read again when the same bytes come back. */
-const restageable = (f: Pick<IntakeFile, 'status' | 'rowCount'>): boolean =>
-  f.status === 'new' && f.rowCount === 0;
 
 /** The problem when a command finds a row already changed by another command. */
 const rowConflict = (): ProblemError =>
@@ -154,6 +149,24 @@ const rowConflict = (): ProblemError =>
     'conflict',
     'staging: another command changed the row first; open the file again',
   );
+
+/** The problem when another approval took the Draft's version first (the unique key of mon.valuation). */
+const versionConflict = (): ProblemError =>
+  new ProblemError(
+    409,
+    'conflict',
+    'valuation: another approval wrote this position and period first; approve the file again',
+  );
+
+/** Postgres unique_violation, as the driver reports it behind the query error drizzle raises. */
+function isUniqueViolation(error: unknown): boolean {
+  let cause: unknown = error;
+  while (cause instanceof Error) {
+    if ((cause as { code?: unknown }).code === '23505') return true;
+    cause = cause.cause;
+  }
+  return false;
+}
 
 const precondition = (detail: string): ProblemError =>
   new ProblemError(422, 'workflow-precondition', detail);
@@ -246,11 +259,10 @@ export class WeeklyService {
   }
 
   /**
-   * Stage a weekly values file. Idempotent by content: the same text answers the file it created
-   * before with `duplicate` true and stages nothing (docs/04 M2), audited as a read of that file.
-   * A file whose header was refused (status new, no rows) is read again. Otherwise the file, its
-   * rows and the data exceptions land in one transaction with one audit event that carries counts
-   * only.
+   * Stage a weekly values file through the receipt every intake shares (stage.ts receiveFile):
+   * idempotent by the SHA-256 of the text, a refused header re-stageable, one transaction for
+   * the file, its rows and its exceptions with one audit event of counts only. The rows are
+   * linked and compared with their priors as the system actor (see the module comment).
    */
   async import(
     principal: Principal,
@@ -261,96 +273,26 @@ export class WeeklyService {
     const { fileName, text } = await this.fileText(body);
     if (Buffer.byteLength(text, 'utf8') > settings.maxFileBytes)
       throw new ProblemError(400, 'validation', 'The file is larger than one import accepts');
-    const contentHash = createHash('sha256').update(text).digest('hex');
     const asOf = this.adapters.clock.today();
-
-    const existing = await this.db.run(principal, requestId, async (tx, audit) => {
-      const found = await this.findByHash(tx, contentHash);
-      if (found !== null && !restageable(found))
-        await audit({ action: 'intake_file.read', entity: 'stg.intake_file', entityId: found.id });
-      return found;
+    return receiveFile<PreparedValue, WeeklyFileDetail>(this.db, principal, requestId, {
+      source: SOURCE,
+      fileName,
+      contentHash: contentHashOf(text),
+      action: 'intake.import',
+      read: () => {
+        const read = readWeeklyFile(text, { maxRows: settings.maxRows });
+        return {
+          fileFindings: read.fileFindings,
+          templateSignature: null,
+          prepare: (tx) => this.prepare(tx, read.rows, settings.rules, asOf),
+        };
+      },
+      insertRows: async (tx, fileId, prepared) => {
+        await this.insertRows(tx, fileId, prepared);
+        return {};
+      },
+      load: async (tx, fileId) => (await this.load(tx, fileId))?.detail ?? null,
     });
-    if (existing !== null && !restageable(existing)) return { ...existing, duplicate: true };
-
-    const read = readWeeklyFile(text, { maxRows: settings.maxRows });
-    // A file the layout refuses (a column missing or added, nothing to read) holds no rows: a
-    // renamed column must never be guessed at.
-    const refused = read.fileFindings.some((f) => f.severity === 'error');
-    // The system actor links against the whole book and reads the priors (see the module comment).
-    const prepared = refused
-      ? []
-      : await this.db.runAsSystem((tx) => this.prepare(tx, read.rows, settings.rules, asOf));
-
-    return this.db.run(principal, requestId, async (tx, audit) => {
-      const counts = countsOf(prepared.map((p) => p.status));
-      const header = {
-        rowCount: prepared.length,
-        status: fileStatusOf(counts),
-        findings: read.fileFindings,
-      };
-      // The same content landed from another request meanwhile: answer that file.
-      const raced = async (): Promise<WeeklyImportResult> => {
-        const found = await this.findByHash(tx, contentHash);
-        if (found === null) throw new ProblemError(409, 'conflict', 'The import did not complete');
-        return { ...found, duplicate: true };
-      };
-      let fileId: string;
-      let name: string;
-      if (existing === null) {
-        const inserted = await tx
-          .insert(file)
-          .values({
-            source: SOURCE,
-            fileName,
-            contentHash,
-            receivedBy: principal.userId,
-            ...header,
-          })
-          .onConflictDoNothing({ target: [file.source, file.contentHash] })
-          .returning();
-        const id = inserted[0]?.id;
-        if (id === undefined) return raced();
-        fileId = id;
-        name = fileName;
-      } else {
-        // A refused file staged again: the row the refusal left behind is reused (the content hash
-        // is its key). Refused again, it keeps its name and receipt with the findings brought up
-        // to date and the earlier answer (duplicate). The guard keeps two re-imports apart.
-        const updated = await tx
-          .update(file)
-          .set(
-            refused
-              ? { findings: read.fileFindings }
-              : { ...header, receivedAt: sql`now()`, receivedBy: principal.userId },
-          )
-          .where(and(eq(file.id, existing.id), eq(file.status, 'new'), eq(file.rowCount, 0)))
-          .returning();
-        if (updated[0] === undefined) return raced();
-        fileId = existing.id;
-        name = existing.fileName;
-      }
-
-      await this.insertRows(tx, fileId, prepared);
-      await audit({
-        action: 'intake.import',
-        entity: 'stg.intake_file',
-        entityId: fileId,
-        details: { fileName: name, rowCount: prepared.length, counts },
-      });
-      const loaded = await this.load(tx, fileId);
-      if (loaded === null) throw new ProblemError(404, 'not-found', NOT_FOUND);
-      return { ...loaded.detail, duplicate: existing !== null && refused };
-    });
-  }
-
-  private async findByHash(tx: Tx, contentHash: string): Promise<WeeklyFileDetail | null> {
-    const found = await tx
-      .select({ id: file.id })
-      .from(file)
-      .where(and(eq(file.source, SOURCE), eq(file.contentHash, contentHash)));
-    const id = found[0]?.id;
-    if (id === undefined) return null;
-    return (await this.load(tx, id))?.detail ?? null;
   }
 
   /**
@@ -464,56 +406,46 @@ export class WeeklyService {
     return out;
   }
 
-  /** Writes the staged values and the data exceptions they open (unresolved names). */
+  /** The staged values and the data exceptions they open (unresolved names), written by the shared staging. */
   private async insertRows(
     tx: Tx,
     fileId: string,
     prepared: readonly PreparedValue[],
   ): Promise<void> {
-    const ids = new Map<number, string>();
-    for (const batch of chunk(prepared, INSERT_CHUNK)) {
-      // Ids are given here, not returned: a RETURNING clause reads the new rows through the select
-      // policy, and the importer outside a wall may write the walled position's row but not read it.
-      const values = batch.map((p) => ({
-        id: randomUUID(),
-        intakeFileId: fileId,
-        rowNo: p.row.rowNo,
-        reportDate: p.reportDate,
-        investmentNumber: p.row.investmentNumber,
-        companyName: p.row.companyName,
-        investmentId: p.link.investment?.id ?? null,
-        reportedValue: p.reportedValue,
-        priorValue: p.prior?.value ?? null,
-        priorSource: p.prior?.source ?? null,
-        priorDate: p.prior?.date ?? null,
-        variancePct: p.variancePct,
-        flag: p.flag,
-        matchStatus: p.link.status,
-        link: linkOf(p.link),
-        findings: p.findings,
-        raw: p.row.raw,
-        status: p.status,
-      }));
-      await tx.insert(staged).values(values);
-      for (const r of values) ids.set(r.rowNo, r.id);
-    }
+    const values = prepared.map((p) => ({
+      id: randomUUID(),
+      intakeFileId: fileId,
+      rowNo: p.row.rowNo,
+      reportDate: p.reportDate,
+      investmentNumber: p.row.investmentNumber,
+      companyName: p.row.companyName,
+      investmentId: p.link.investment?.id ?? null,
+      reportedValue: p.reportedValue,
+      priorValue: p.prior?.value ?? null,
+      priorSource: p.prior?.source ?? null,
+      priorDate: p.prior?.date ?? null,
+      variancePct: p.variancePct,
+      flag: p.flag,
+      matchStatus: p.link.status,
+      link: linkOf(p.link),
+      findings: p.findings,
+      raw: p.row.raw,
+      status: p.status,
+    }));
     // Which exceptions a row opens, and what they carry (candidates by reason only, SEC-5.3), is
     // the shared rule in @pb/validation; the rule id carries this intake's prefix.
-    const exceptions: (typeof schema.dataException.$inferInsert)[] = prepared.flatMap((p) => {
-      const rowId = ids.get(p.row.rowNo);
-      if (rowId === undefined) return [];
-      return exceptionsOpenedBy(p).map((opened) => ({
+    const exceptions: ExceptionInsert[] = values.flatMap((v, i) =>
+      exceptionsOpenedBy(prepared[i]!).map((opened) => ({
         source: EXCEPTION_SOURCE,
         entity: ENTITY,
-        entityId: rowId,
+        entityId: v.id,
         severity: EXCEPTION_SEVERITY,
         state: 'open',
         ...opened,
         ruleId: `WK-${opened.ruleId}`,
-      }));
-    });
-    for (const batch of chunk(exceptions, INSERT_CHUNK))
-      await tx.insert(schema.dataException).values(batch);
+      })),
+    );
+    await writeStaged(tx, staged, values, exceptions);
   }
 
   /** The file with every staged value the caller may see; a file the caller cannot see is 404. The open is audited. */
@@ -636,43 +568,48 @@ export class WeeklyService {
 
     // The Draft is written by the system actor (the insert policy on mon.valuation admits
     // operations and the service, and the deal team may approve a staged row) with the reviewer
-    // as its preparer; the version is the next one for the investment and period.
-    const written = await asSystemActor(tx, async (stx) => {
-      const [latest] = await stx
-        .select({ version: sql<number>`coalesce(max(${valuation.version}), 0)::int` })
-        .from(valuation)
-        .where(and(eq(valuation.investmentId, investmentId), eq(valuation.periodEnd, periodEnd)));
-      const version = (latest?.version ?? 0) + 1;
-      const inserted = await stx
-        .insert(valuation)
-        .values({
-          investmentId,
-          periodEnd,
-          version,
-          method: METHOD,
-          inputs: {
-            source: SOURCE,
-            intakeFileId: detail.id,
-            rowId: target.id,
-            reportDate: target.reportDate,
-            priorValue: target.priorValue,
-            priorSource: target.priorSource,
-          },
-          fairValue,
-          currency: 'USD',
-          state: 'Draft',
-          preparedBy: principal.userId,
-        })
-        .returning();
-      const result = inserted[0];
-      if (result === undefined) throw precondition('valuation: the Draft was not written');
-      return {
-        id: result.id,
-        version: result.version,
-        fairValue: result.fairValue,
-        state: result.state,
-      };
-    });
+    // as its preparer; the version is the next one for the investment and period. Two approvals
+    // of the same position and period at once would both read the same next version: the unique
+    // key of mon.valuation (investment, period end, version) lets one through and the other is
+    // answered as the conflict every race in staging gets, to be approved again.
+    let written: { id: string; version: number; fairValue: string; state: string };
+    try {
+      written = await asSystemActor(tx, async (stx) => {
+        const version = await this.nextVersion(stx, investmentId, periodEnd);
+        const inserted = await stx
+          .insert(valuation)
+          .values({
+            investmentId,
+            periodEnd,
+            version,
+            method: METHOD,
+            inputs: {
+              source: SOURCE,
+              intakeFileId: detail.id,
+              rowId: target.id,
+              reportDate: target.reportDate,
+              priorValue: target.priorValue,
+              priorSource: target.priorSource,
+            },
+            fairValue,
+            currency: 'USD',
+            state: 'Draft',
+            preparedBy: principal.userId,
+          })
+          .returning();
+        const result = inserted[0];
+        if (result === undefined) throw precondition('valuation: the Draft was not written');
+        return {
+          id: result.id,
+          version: result.version,
+          fairValue: result.fairValue,
+          state: result.state,
+        };
+      });
+    } catch (error) {
+      if (isUniqueViolation(error)) throw versionConflict();
+      throw error;
+    }
     // The value after is read back from the row written, never from the file's text (rule 6).
     await audit({
       action: 'valuation.create_from_weekly',
@@ -715,6 +652,15 @@ export class WeeklyService {
     if (claimed[0] === undefined) throw rowConflict();
   }
 
+  /** The next version for the investment and period: one past the highest on record, 1 for the first. */
+  private async nextVersion(stx: Tx, investmentId: string, periodEnd: string): Promise<number> {
+    const [latest] = await stx
+      .select({ version: sql<number>`coalesce(max(${valuation.version}), 0)::int` })
+      .from(valuation)
+      .where(and(eq(valuation.investmentId, investmentId), eq(valuation.periodEnd, periodEnd)));
+    return (latest?.version ?? 0) + 1;
+  }
+
   private async reject(
     tx: Tx,
     principal: Principal,
@@ -744,82 +690,22 @@ export class WeeklyService {
 
   /** The file status recomputed from every row (the contract's rule), after a command changed some. */
   private async refreshStatus(tx: Tx, fileId: string): Promise<void> {
+    const counts = (await countsByFile(tx, [fileId])).get(fileId) ?? emptyCounts();
     await tx
       .update(file)
-      .set({ status: fileStatusOf(await this.counts(tx, fileId)) })
+      .set({ status: fileStatusOf(counts) })
       .where(eq(file.id, fileId));
   }
 
   /**
-   * Row counts per status, counted as the system actor inside the caller's transaction so they
-   * cover every row, walled ones included (the row policy of migration 0010 hides a walled row
-   * from a reader outside its wall): a file's status and counts are facts of the file, the same
-   * for every reader, and a number reveals nothing of a hidden row.
-   */
-  private async counts(tx: Tx, fileId: string): Promise<StagingCounts> {
-    const rows = await asSystemActor(tx, async (stx) =>
-      stx
-        .select({ status: staged.status, n: sql<number>`count(*)::int` })
-        .from(staged)
-        .where(eq(staged.intakeFileId, fileId))
-        .groupBy(staged.status),
-    );
-    const counts = emptyCounts();
-    for (const r of rows) counts[r.status] += r.n;
-    return counts;
-  }
-
-  /** Data exceptions the import opened on this file, counted as the system actor like the status counts. */
-  private async exceptionCount(tx: Tx, fileId: string): Promise<number> {
-    const rows = await asSystemActor(tx, async (stx) =>
-      stx
-        .select({ n: sql<number>`count(*)::int` })
-        .from(schema.dataException)
-        .innerJoin(staged, eq(staged.id, schema.dataException.entityId))
-        .where(
-          and(
-            eq(schema.dataException.source, EXCEPTION_SOURCE),
-            eq(schema.dataException.entity, ENTITY),
-            eq(staged.intakeFileId, fileId),
-          ),
-        ),
-    );
-    return rows[0]?.n ?? 0;
-  }
-
-  /**
-   * The file with its rows in file order, as the caller may see them. A row linked to an
-   * investment the caller cannot open (a walled deal for a non-member) is hidden by its row policy
-   * (migration 0010) and, should a policy ever let one through, by the filter below; it is counted
-   * as hidden. Rows with no link are shown to every reviewer. The counts come from the system
-   * actor and cover every row, so the file reads the same for everyone.
+   * The weekly file with its values in file order, as the caller may see them: the header with
+   * the counts and the exception total every reviewer reads the same (stage.ts loadHeader), then
+   * the rows the caller's row-level security and the shared visibility rule admit
+   * (visibleRowsFor). A file of another source is not a weekly file: null.
    */
   private async load(tx: Tx, fileId: string): Promise<LoadedFile | null> {
-    const found = await tx
-      .select({
-        id: file.id,
-        source: file.source,
-        fileName: file.fileName,
-        contentHash: file.contentHash,
-        receivedAt: file.receivedAt,
-        receivedBy: receiver.displayName,
-        rowCount: file.rowCount,
-        status: file.status,
-        findings: file.findings,
-        templateSignature: file.templateSignature,
-        rowVersion: file.rowVersion,
-      })
-      .from(file)
-      .leftJoin(receiver, eq(receiver.id, file.receivedBy))
-      .where(and(eq(file.id, fileId), eq(file.source, SOURCE)));
-    const header = found[0];
-    if (header === undefined) return null;
-    const counts = await this.counts(tx, fileId);
-    const exceptions = await this.exceptionCount(tx, fileId);
-    const total = (Object.keys(counts) as (keyof StagingCounts)[]).reduce(
-      (n, k) => n + counts[k],
-      0,
-    );
+    const header = await loadHeader(tx, fileId, [SOURCE]);
+    if (header === null) return null;
     const stored = await tx
       .select({
         id: staged.id,
@@ -853,50 +739,16 @@ export class WeeklyService {
       findings: findingList.parse(findings),
       raw: rawCells.parse(raw),
     }));
-    // The investments the rows link to or name as candidates, as far as the caller may see them:
-    // a row linked past the caller's walls is left out and counted, a candidate past them is
-    // dropped from the link, so nothing here reveals a walled position exists (SEC-5.3).
-    const linked = [
-      ...new Set(rows.flatMap((r) => (r.investmentId === null ? [] : [r.investmentId]))),
-    ];
-    const named = [
-      ...new Set(rows.flatMap((r) => r.link.candidates.map((c) => c.investmentNumber))),
-    ];
-    const seen =
-      linked.length + named.length === 0
-        ? []
-        : await tx
-            .select({
-              id: schema.investment.id,
-              investmentNumber: schema.investment.investmentNumber,
-            })
-            .from(schema.investment)
-            .where(
-              or(
-                ...(linked.length > 0 ? [inArray(schema.investment.id, linked)] : []),
-                ...(named.length > 0 ? [inArray(schema.investment.investmentNumber, named)] : []),
-              ),
-            );
-    const visibleIds = new Set(seen.map((r) => r.id));
-    const visibleNumbers = new Set(seen.map((r) => r.investmentNumber));
-    const visible = rows.filter((r) => r.investmentId === null || visibleIds.has(r.investmentId));
+    // The typed investment column is the link the row policy reads; the candidates are in the link.
+    const { visible, visibleNumbers } = await visibleRowsFor(tx, rows, (r) => ({
+      investmentId: r.investmentId,
+      candidates: r.link.candidates,
+    }));
     return {
       detail: {
-        id: header.id,
-        source: intakeSource.parse(header.source),
-        templateSignature: header.templateSignature,
-        fileName: header.fileName,
-        contentHash: header.contentHash,
-        receivedAt: header.receivedAt.toISOString(),
-        receivedBy: header.receivedBy,
-        rowCount: header.rowCount,
-        status: header.status,
-        counts,
-        fileFindings: findingList.parse(header.findings),
-        exceptions,
-        rowVersion: header.rowVersion,
+        ...header.file,
         rows: visible.map((r) => this.toRow(r, visibleNumbers)),
-        hiddenRows: total - visible.length,
+        hiddenRows: header.total - visible.length,
       },
       visible,
     };

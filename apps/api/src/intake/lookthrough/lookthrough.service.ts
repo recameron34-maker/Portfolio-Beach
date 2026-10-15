@@ -1,12 +1,9 @@
-import { createHash, randomUUID } from 'node:crypto';
+import { randomUUID } from 'node:crypto';
 import { Inject, Injectable } from '@nestjs/common';
-import { and, asc, eq, inArray, or, sql } from 'drizzle-orm';
-import { alias } from 'drizzle-orm/pg-core';
+import { and, asc, eq, inArray, sql } from 'drizzle-orm';
 import type { AdapterSet, ExposureRow, Principal } from '@pb/adapters';
-import { intakeFinding, intakeLink, intakeSource, lookthroughDifference } from '@pb/contracts';
+import { intakeFinding, intakeLink, lookthroughDifference } from '@pb/contracts';
 import type {
-  IntakeCounts,
-  IntakeFile,
   LookthroughMapping,
   LookthroughReconcileBody,
   LookthroughReconcileResult,
@@ -18,9 +15,6 @@ import { asSystemActor, schema } from '@pb/db';
 import type { Tx } from '@pb/db';
 import {
   IntakeSettingsError,
-  countsOf,
-  emptyCounts,
-  fileStatusOf,
   linkLookthroughRows,
   linkOf,
   lookthroughExceptionsOpenedBy,
@@ -43,6 +37,8 @@ import { DbService } from '../../db/db.service.js';
 import { loadFlowsAndValuations } from '../../portfolio/loaders.js';
 import { positionMetrics } from '../../portfolio/metrics.js';
 import { investmentDirectory, matchGuards } from '../directory.js';
+import { contentHashOf, loadHeader, receiveFile, visibleRowsFor, writeStaged } from '../stage.js';
+import type { ExceptionInsert } from '../stage.js';
 
 /*
  * The look-through reconcile (docs/04 M2 lookthrough-reconcile, decision 0010): the provider's
@@ -56,7 +52,9 @@ import { investmentDirectory, matchGuards } from '../directory.js';
  * taxonomy and never override it). The rules and the exceptions are the shared
  * @pb/validation module (rules/lookthrough.ts). Linking and the record read run as the system
  * actor so a walled position links rather than reading as "no match" (decision 0009); the caller's
- * own row-level security decides what they are shown.
+ * own row-level security decides what they are shown. The receipt of a run (the content hash,
+ * the duplicate, the race, the audit event), the writes, the counts and the visibility rule are
+ * the staging every intake shares (../stage.ts, CLAUDE.md rule 7).
  */
 
 const SOURCE = 'lookthrough';
@@ -64,7 +62,6 @@ const EXCEPTION_SOURCE = 'lookthrough_reconcile';
 /** The staged row compares with the position on record and writes nothing; the target names what was compared. */
 const TARGET_ENTITY = 'core.investment';
 const NOT_FOUND = 'Reconcile run not found';
-const INSERT_CHUNK = 500;
 
 /** The file-level finding of a run for a date the provider's folder holds no extract for. */
 const NO_EXTRACT_RULE = 'LT-FILE-01';
@@ -108,15 +105,7 @@ interface StagedRow {
   findings: Finding[];
 }
 
-const file = schema.intakeFile;
 const row = schema.intakeRow;
-const receiver = alias(schema.appUser, 'receiver');
-
-function chunk<T>(items: readonly T[], size: number): T[][] {
-  const out: T[][] = [];
-  for (let i = 0; i < items.length; i += size) out.push(items.slice(i, i + size));
-  return out;
-}
 
 /**
  * The content hash of a run: the as-of date, then the rows as JSON. The date is part of the hash
@@ -124,9 +113,7 @@ function chunk<T>(items: readonly T[], size: number): T[][] {
  * both (decision 0010): what was compared differs, since the record is read as of each date.
  */
 export function reconcileContentHash(asOf: string, rows: readonly ExposureRow[]): string {
-  return createHash('sha256')
-    .update(`${asOf}\n${JSON.stringify(rows)}`)
-    .digest('hex');
+  return contentHashOf(`${asOf}\n${JSON.stringify(rows)}`);
 }
 
 @Injectable()
@@ -149,12 +136,13 @@ export class LookthroughService {
   }
 
   /**
-   * Reconcile the provider's extract for an as-of date. Idempotent by content: the same date and
-   * rows answer the run they created before with `duplicate` true and stage nothing; the answer
-   * is a read of that run and is audited as one. Otherwise the run, its rows and the data
-   * exceptions land in one transaction with one audit event that carries counts only. A date the
-   * folder holds no extract for stages a run with no rows and a file finding, so the attempt is
-   * on record; the extract, once it arrives, is new content and a new run.
+   * Reconcile the provider's extract for an as-of date, through the receipt every intake shares
+   * (stage.ts receiveFile). Idempotent by content: the same date and rows answer the run they
+   * created before with `duplicate` true and stage nothing; the answer is a read of that run and
+   * is audited as one. Otherwise the run, its rows and the data exceptions land in one
+   * transaction with one audit event that carries counts only. A date the folder holds no
+   * extract for stages a run with no rows and a file finding, so the attempt is on record; the
+   * extract, once it arrives, is new content and a new run.
    */
   async reconcile(
     principal: Principal,
@@ -180,84 +168,42 @@ export class LookthroughService {
         'The look-through extract for this date could not be read',
       );
     }
-    const contentHash = reconcileContentHash(asOf, rows);
-
-    const existing = await this.db.run(principal, requestId, async (tx, audit) => {
-      const found = await this.findByHash(tx, contentHash);
-      if (found !== null)
-        await audit({ action: 'intake_file.read', entity: 'stg.intake_file', entityId: found.id });
-      return found;
-    });
-    if (existing !== null) return { ...existing, duplicate: true };
-
-    // The system actor links against the whole book and reads the record (see the module comment).
-    const prepared = await this.db.runAsSystem((tx) => this.prepare(tx, rows, asOf, config));
-
-    return this.db.run(principal, requestId, async (tx, audit) => {
-      const counts = countsOf(prepared.map((p) => p.status));
-      const fileName = `lookthrough-${asOf}.json`;
-      const fileFindings: Finding[] =
-        rows.length === 0
-          ? [
-              {
-                ruleId: NO_EXTRACT_RULE,
-                severity: 'error',
-                message: `No extract for ${asOf}: the look-through folder holds no rows for this date`,
-                field: null,
-                expected: `${asOf}.json`,
-                actual: null,
-              },
-            ]
-          : [];
-      const inserted = await tx
-        .insert(file)
-        .values({
-          source: SOURCE,
-          fileName,
-          contentHash,
-          asOf,
-          receivedBy: principal.userId,
-          rowCount: prepared.length,
-          status: fileStatusOf(counts),
-          findings: fileFindings,
-        })
-        .onConflictDoNothing({ target: [file.source, file.contentHash] })
-        .returning();
-      const fileId = inserted[0]?.id;
-      if (fileId === undefined) {
-        // The same content landed from another request meanwhile: answer that run.
-        const found = await this.findByHash(tx, contentHash);
-        if (found === null)
-          throw new ProblemError(409, 'conflict', 'The reconcile did not complete');
-        return { ...found, duplicate: true };
-      }
-      const exceptions = await this.insertRows(tx, fileId, prepared);
-      await audit({
+    const fileFindings: Finding[] =
+      rows.length === 0
+        ? [
+            {
+              ruleId: NO_EXTRACT_RULE,
+              severity: 'error',
+              message: `No extract for ${asOf}: the look-through folder holds no rows for this date`,
+              field: null,
+              expected: `${asOf}.json`,
+              actual: null,
+            },
+          ]
+        : [];
+    return receiveFile<PreparedLookthroughRow, LookthroughRunDetail>(
+      this.db,
+      principal,
+      requestId,
+      {
+        source: SOURCE,
+        fileName: `lookthrough-${asOf}.json`,
+        contentHash: reconcileContentHash(asOf, rows),
         action: 'intake.reconcile',
-        entity: 'stg.intake_file',
-        entityId: fileId,
-        details: {
-          asOf,
-          fileName,
-          rowCount: prepared.length,
-          counts,
+        asOf,
+        // The extract is already read: the receipt gets its findings and the preparation.
+        read: () => ({
+          fileFindings,
+          templateSignature: null,
+          prepare: (tx) => this.prepare(tx, rows, asOf, config),
+        }),
+        insertRows: async (tx, fileId, prepared) => ({
           differences: prepared.reduce((n, p) => n + p.differences.length, 0),
-          exceptions,
-        },
-      });
-      const loaded = await this.load(tx, fileId);
-      if (loaded === null) throw new ProblemError(404, 'not-found', NOT_FOUND);
-      return { ...loaded, duplicate: false };
-    });
-  }
-
-  private async findByHash(tx: Tx, contentHash: string): Promise<LookthroughRunDetail | null> {
-    const found = await tx
-      .select({ id: file.id })
-      .from(file)
-      .where(and(eq(file.source, SOURCE), eq(file.contentHash, contentHash)));
-    const id = found[0]?.id;
-    return id === undefined ? null : this.load(tx, id);
+          exceptions: await this.insertRows(tx, fileId, prepared),
+        }),
+        load: (tx, fileId) => this.load(tx, fileId),
+      },
+    );
   }
 
   /**
@@ -338,56 +284,46 @@ export class LookthroughService {
     return out;
   }
 
-  /** Writes the staged rows and the data exceptions they open; answers how many exceptions were opened. */
+  /** The staged rows and the data exceptions they open, written by the shared staging; answers how many exceptions were opened. */
   private async insertRows(
     tx: Tx,
     fileId: string,
     prepared: readonly PreparedLookthroughRow[],
   ): Promise<number> {
-    const ids = new Map<number, string>();
-    for (const batch of chunk(prepared, INSERT_CHUNK)) {
-      // Ids are given here, not returned: a RETURNING clause reads the new rows through the select
-      // policy, and a reconciler outside a wall may write the walled position's row but not read it.
-      const values = batch.map((p) => {
-        const { rowNo: _rowNo, ...provider } = p.row;
-        return {
-          id: randomUUID(),
-          intakeFileId: fileId,
-          rowNo: p.row.rowNo,
-          naturalKey: lookthroughNaturalKey(p.row),
-          targetEntity: TARGET_ENTITY,
-          targetId: p.link.investment?.id ?? null,
-          payload: {
-            provider,
-            mapped: p.mapped,
-            record: p.record,
-            differences: p.differences,
-            link: linkOf(p.link),
-          } satisfies RowPayload,
-          // Nothing is written from a provider file, so no row ever changes the record.
-          diff: { kind: 'unchanged', changes: [] },
-          validation: p.findings,
-          status: p.status,
-        };
-      });
-      await tx.insert(row).values(values);
-      for (const r of values) ids.set(r.rowNo, r.id);
-    }
+    const values = prepared.map((p) => {
+      const { rowNo: _rowNo, ...provider } = p.row;
+      return {
+        id: randomUUID(),
+        intakeFileId: fileId,
+        rowNo: p.row.rowNo,
+        naturalKey: lookthroughNaturalKey(p.row),
+        targetEntity: TARGET_ENTITY,
+        targetId: p.link.investment?.id ?? null,
+        payload: {
+          provider,
+          mapped: p.mapped,
+          record: p.record,
+          differences: p.differences,
+          link: linkOf(p.link),
+        } satisfies RowPayload,
+        // Nothing is written from a provider file, so no row ever changes the record.
+        diff: { kind: 'unchanged', changes: [] },
+        validation: p.findings,
+        status: p.status,
+      };
+    });
     // Which exceptions a row opens, their tier and what they carry is the shared rule in @pb/validation.
-    const exceptions: (typeof schema.dataException.$inferInsert)[] = prepared.flatMap((p) => {
-      const rowId = ids.get(p.row.rowNo);
-      if (rowId === undefined) return [];
-      return lookthroughExceptionsOpenedBy(p).map(({ tier, ...opened }) => ({
+    const exceptions: ExceptionInsert[] = values.flatMap((v, i) =>
+      lookthroughExceptionsOpenedBy(prepared[i]!).map(({ tier, ...opened }) => ({
         source: EXCEPTION_SOURCE,
         entity: 'stg.intake_row',
-        entityId: rowId,
+        entityId: v.id,
         severity: `exception_severity.${tier}`,
         state: 'open',
         ...opened,
-      }));
-    });
-    for (const batch of chunk(exceptions, INSERT_CHUNK))
-      await tx.insert(schema.dataException).values(batch);
+      })),
+    );
+    await writeStaged(tx, row, values, exceptions);
     return exceptions.length;
   }
 
@@ -407,72 +343,34 @@ export class LookthroughService {
   }
 
   /**
-   * Row counts per status and exceptions per row, counted as the system actor inside the caller's
-   * transaction so they cover every row, walled ones included: a run's status, counts and
-   * exception total are facts of the run, the same for every reader, and a number reveals
-   * nothing of a hidden row.
+   * Exceptions per row of the run, whichever intake opened them, counted as the system actor
+   * inside the caller's transaction like the run's counts (stage.ts): a number reveals nothing of
+   * a hidden row, and a row's exceptions read the same for every reviewer.
    */
-  private async countsOfRun(
-    tx: Tx,
-    fileId: string,
-  ): Promise<{ counts: IntakeCounts; exceptionsByRow: Map<string, number> }> {
-    const counts = emptyCounts();
-    const exceptionsByRow = new Map<string, number>();
-    await asSystemActor(tx, async (stx) => {
-      const byStatus = await stx
-        .select({ status: row.status, n: sql<number>`count(*)::int` })
-        .from(row)
-        .where(eq(row.intakeFileId, fileId))
-        .groupBy(row.status);
-      for (const r of byStatus) counts[r.status] += r.n;
-      const opened = await stx
+  private async exceptionsByRow(tx: Tx, fileId: string): Promise<Map<string, number>> {
+    const opened = await asSystemActor(tx, async (stx) =>
+      stx
         .select({ rowId: row.id, n: sql<number>`count(*)::int` })
         .from(schema.dataException)
         .innerJoin(row, eq(row.id, schema.dataException.entityId))
-        .where(
-          and(
-            eq(schema.dataException.source, EXCEPTION_SOURCE),
-            eq(schema.dataException.entity, 'stg.intake_row'),
-            eq(row.intakeFileId, fileId),
-          ),
-        )
-        .groupBy(row.id);
-      for (const r of opened) exceptionsByRow.set(r.rowId, r.n);
-    });
-    return { counts, exceptionsByRow };
+        .where(and(eq(schema.dataException.entity, 'stg.intake_row'), eq(row.intakeFileId, fileId)))
+        .groupBy(row.id),
+    );
+    return new Map(opened.map((r) => [r.rowId, r.n]));
   }
 
   /**
-   * The run with its rows in file order, as the caller may see them. A row linked to a position
-   * the caller cannot open is hidden by its row policy (migration 0009) and, should a policy ever
-   * let one through, by the filter below; it is counted as hidden. A candidate the caller cannot
-   * open is dropped from the link, so nothing here reveals a walled position exists (SEC-5.3).
+   * The run with its rows in file order, as the caller may see them: the header with the counts
+   * and the exception total every reviewer reads the same (stage.ts loadHeader), then the rows
+   * the caller's row-level security and the shared visibility rule admit (visibleRowsFor). A
+   * file of another source is not a run: null.
    */
   private async load(tx: Tx, fileId: string): Promise<LookthroughRunDetail | null> {
-    const found = await tx
-      .select({
-        id: file.id,
-        source: file.source,
-        fileName: file.fileName,
-        contentHash: file.contentHash,
-        templateSignature: file.templateSignature,
-        asOf: file.asOf,
-        receivedAt: file.receivedAt,
-        receivedBy: receiver.displayName,
-        rowCount: file.rowCount,
-        status: file.status,
-        findings: file.findings,
-        rowVersion: file.rowVersion,
-      })
-      .from(file)
-      .leftJoin(receiver, eq(receiver.id, file.receivedBy))
-      .where(and(eq(file.id, fileId), eq(file.source, SOURCE)));
-    const header = found[0];
-    if (header === undefined) return null;
+    const header = await loadHeader(tx, fileId, [SOURCE]);
+    if (header === null) return null;
     // A look-through run always carries its as-of date; a row without one is not a run.
     if (header.asOf === null) return null;
-    const { counts, exceptionsByRow } = await this.countsOfRun(tx, fileId);
-    const total = Object.values(counts).reduce((a, b) => a + b, 0);
+    const exceptionsByRow = await this.exceptionsByRow(tx, fileId);
     const stored = await tx
       .select({
         id: row.id,
@@ -489,58 +387,12 @@ export class LookthroughService {
       payload: rowPayload.parse(payload),
       findings: findingList.parse(validation),
     }));
-    const linked = [
-      ...new Set(
-        rows.flatMap((r) =>
-          r.payload.link.investmentId === null ? [] : [r.payload.link.investmentId],
-        ),
-      ),
-    ];
-    const named = [
-      ...new Set(rows.flatMap((r) => r.payload.link.candidates.map((c) => c.investmentNumber))),
-    ];
-    const seen =
-      linked.length + named.length === 0
-        ? []
-        : await tx
-            .select({
-              id: schema.investment.id,
-              investmentNumber: schema.investment.investmentNumber,
-            })
-            .from(schema.investment)
-            .where(
-              or(
-                ...(linked.length > 0 ? [inArray(schema.investment.id, linked)] : []),
-                ...(named.length > 0 ? [inArray(schema.investment.investmentNumber, named)] : []),
-              ),
-            );
-    const visibleIds = new Set(seen.map((r) => r.id));
-    const visibleNumbers = new Set(seen.map((r) => r.investmentNumber));
-    const visible = rows.filter(
-      (r) => r.payload.link.investmentId === null || visibleIds.has(r.payload.link.investmentId),
-    );
-    let exceptions = 0;
-    for (const n of exceptionsByRow.values()) exceptions += n;
-    const base: IntakeFile = {
-      id: header.id,
-      source: intakeSource.parse(header.source),
-      fileName: header.fileName,
-      contentHash: header.contentHash,
-      templateSignature: header.templateSignature,
-      receivedAt: header.receivedAt.toISOString(),
-      receivedBy: header.receivedBy,
-      rowCount: header.rowCount,
-      status: header.status,
-      counts,
-      fileFindings: findingList.parse(header.findings),
-      exceptions,
-      rowVersion: header.rowVersion,
-    };
+    const { visible, visibleNumbers } = await visibleRowsFor(tx, rows, (r) => r.payload.link);
     return {
-      ...base,
+      ...header.file,
       asOf: header.asOf,
       rows: visible.map((r) => this.toRow(r, visibleNumbers, exceptionsByRow.get(r.id) ?? 0)),
-      hiddenRows: total - visible.length,
+      hiddenRows: header.total - visible.length,
     };
   }
 
