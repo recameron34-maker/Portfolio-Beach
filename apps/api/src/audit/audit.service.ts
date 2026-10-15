@@ -5,20 +5,18 @@ import type { Principal } from '@pb/adapters';
 import type { AuditPage, auditQuery } from '@pb/contracts';
 import { schema } from '@pb/db';
 import type { z } from 'zod';
-import { decodeCursor, encodeCursor } from '../common/cursor.js';
+import {
+  AT_BIGINT_CURSOR,
+  EXACT_AT_FORMAT,
+  decodeAtIdCursor,
+  encodeCursor,
+} from '../common/cursor.js';
 import { DbService } from '../db/db.service.js';
 
 export type AuditListOptions = z.infer<typeof auditQuery>;
 
-/**
- * The cursor is the last row's sort key, "at|id": the event time to the microsecond, as the
- * database holds it, and the event id as digits that fit a bigint. The time comes first because
- * an event is stamped with its transaction's start time, so a slower transaction can write a
- * higher id with an earlier time; a cursor on the id alone would skip it.
- */
-const CURSOR = /^(\d{4}-\d{2}-\d{2})T((?:[01]\d|2[0-3]):[0-5]\d:[0-5]\d\.\d{6})Z\|(\d{1,18})$/;
+/** The event time as the response shows it (milliseconds); the cursor carries the exact time (common/cursor.ts). */
 const AT_FORMAT = 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"';
-const EXACT_AT_FORMAT = 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"';
 
 @Injectable()
 export class AuditService {
@@ -38,9 +36,9 @@ export class AuditService {
     return this.db.run(principal, requestId, async (tx) => {
       const conditions: (SQL | undefined)[] = [];
       if (opts.cursor !== undefined) {
-        const [date = '', time = '', id = ''] = decodeCursor(opts.cursor, CURSOR, [1]);
-        const at = sql`${`${date}T${time}Z`}::timestamptz`;
-        conditions.push(or(lt(e.at, at), and(eq(e.at, at), lt(e.id, sql`${id}::bigint`))));
+        const key = decodeAtIdCursor(opts.cursor, AT_BIGINT_CURSOR);
+        const at = sql`${key.at}::timestamptz`;
+        conditions.push(or(lt(e.at, at), and(eq(e.at, at), lt(e.id, sql`${key.id}::bigint`))));
       }
       if (opts.entity !== undefined) conditions.push(eq(e.entity, opts.entity));
       if (opts.entityId !== undefined) conditions.push(eq(e.entityId, opts.entityId));
