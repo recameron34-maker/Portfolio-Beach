@@ -1,0 +1,127 @@
+/**
+ * @pb/ai: the prompt registry, model input and redaction, output schemas from config, the
+ * deterministic validators, the fixture-backed prototype models and the eval harness. Pure
+ * TypeScript over @pb/calc and zod; nothing here reads a clock, a file or a network.
+ */
+export { AiError, type AiErrorCode } from './errors.js';
+export {
+  PROMPTS,
+  PROMPT_IDS,
+  UNIVERSAL_RULES,
+  DATA_BOUNDARY_RULES,
+  promptRef,
+  renderSystemPrompt,
+  extractionPromptValues,
+  type PromptId,
+  type PromptDefinition,
+  type PromptRef,
+} from './registry.js';
+export {
+  DOCUMENT_START,
+  DOCUMENT_END,
+  INPUT_TEMPLATE,
+  buildInput,
+  parseInput,
+  parseMetadata,
+  type MetadataValue,
+  type ModelInputMetadata,
+  type ModelInputParts,
+  type ParsedModelInput,
+} from './input.js';
+export {
+  REDACTION_KINDS,
+  redact,
+  redactionMarker,
+  isAbaRoutingNumber,
+  type RedactionKind,
+  type RedactionResult,
+} from './redact.js';
+export { ISO_DATE, isCalendarDate, isQuarterEnd, parseMonthDayYear, MONTH_NAMES } from './dates.js';
+export {
+  FIELD_KINDS,
+  MONEY_UNITS,
+  UNITS,
+  UNITS_BY_KIND,
+  type FieldKind,
+  type Unit,
+} from './units.js';
+export { DOC_TYPE_CODES, isDocTypeCode, type DocTypeCode } from './taxonomy.js';
+export {
+  TARGET_COLUMNS,
+  BOUNDS_KINDS,
+  DECIMAL_TEXT,
+  COUNT_TEXT,
+  CONFIDENCE_TEXT,
+  decimalText,
+  countText,
+  confidenceText,
+  isoDateText,
+  loadExtractionSchemas,
+  outputSchemaFor,
+  classifierOutputSchema,
+  type TargetColumn,
+  type BoundsKind,
+  type ExtractionField,
+  type ExtractionSchema,
+  type ExtractionSchemas,
+  type ExtractedField,
+  type ExtractionOutput,
+  type ClassifierOutput,
+} from './schema.js';
+export {
+  EXTRACTION_RULE_IDS,
+  EXTRACTION_RULES,
+  boundsFrom,
+  extractionSettingsFrom,
+  highlightStyleFrom,
+  normalizeWhitespace,
+  validateExtraction,
+  type ExtractionRuleId,
+  type ExtractionRule,
+  type FindingSeverity,
+  type ValidationState,
+  type ValidationFinding,
+  type FieldValidation,
+  type ExtractionValidation,
+  type DollarRange,
+  type UnitBounds,
+  type HighlightStyle,
+  type ExtractionSettings,
+  type ValidateExtractionOptions,
+} from './validate.js';
+export {
+  DOC_TYPE_SIGNATURES,
+  CLASSIFIER_CONFIDENCE,
+  TITLE_LINES,
+  keywordClassifier,
+  parseDocumentFileName,
+  type DocTypeSignature,
+  type EvidenceTier,
+  type DocumentFileName,
+} from './models/classifier.js';
+export {
+  truthSchema,
+  parseTruth,
+  fixtureExtractor,
+  FIXTURE_CONFIDENCE,
+  type Truth,
+  type TruthField,
+  type ExtractFn,
+} from './models/extractor.js';
+export { type GoldCase } from './evals/types.js';
+export {
+  EVAL_THRESHOLDS,
+  INJECTION_PROBE,
+  runClassifierEval,
+  runExtractionEval,
+  checkThresholds,
+  assertThresholds,
+  EvalThresholdError,
+  type ClassifyFn,
+  type ValidateFn,
+  type TypeScore,
+  type ClassifierEvalResult,
+  type FieldMismatch,
+  type ExtractionEvalResult,
+  type EvalResults,
+} from './evals/harness.js';
