@@ -1,5 +1,6 @@
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { crc32 } from 'node:zlib';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { z } from 'zod';
 import {
@@ -32,6 +33,92 @@ import type { Harness } from './harness.js';
 
 const PROBLEM = 'https://portfolio-beach.example/problems/';
 const TEMPLATE = 'quarterly-figures';
+
+/*
+ * A workbook built by hand, cell by cell, for what the XLSX writer never writes: a typed numeric
+ * cell. The parts are zipped stored (method 0), the shape readWorkbook opens; the zip writer of
+ * @pb/xlsx is private to it, so the few header fields a stored archive needs are written here.
+ */
+const NS = 'http://schemas.openxmlformats.org/spreadsheetml/2006/main';
+const NS_R = 'http://schemas.openxmlformats.org/officeDocument/2006/relationships';
+const NS_PR = 'http://schemas.openxmlformats.org/package/2006/relationships';
+const escapeXml = (text: string): string =>
+  text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+const column = (i: number): string => String.fromCharCode(65 + i);
+/** An inline string cell, as the writer stores every cell. */
+const inlineCell = (ref: string, text: string): string =>
+  `<c r="${ref}" t="inlineStr"><is><t>${escapeXml(text)}</t></is></c>`;
+/** A typed numeric cell, as Excel stores a number or a date (a serial day count). */
+const numberCell = (ref: string, value: string): string =>
+  `<c r="${ref}" t="n"><v>${value}</v></c>`;
+const sheetXml = (rows: readonly string[]): string =>
+  `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<worksheet xmlns="${NS}"><sheetData>` +
+  rows.map((cells, i) => `<row r="${i + 1}">${cells}</row>`).join('') +
+  '</sheetData></worksheet>';
+const REL = (id: string, kind: string, target: string): string =>
+  `<Relationship Id="${id}" Type="${NS_R}/${kind}" Target="${target}"/>`;
+/** The parts of a two-sheet workbook (Figures, Notes) as Excel lays them out, with the sheet XML given. */
+function workbookParts(figures: string, notes: string): Record<string, string> {
+  return {
+    '[Content_Types].xml':
+      '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"/>',
+    '_rels/.rels': `<Relationships xmlns="${NS_PR}">${REL('rId1', 'officeDocument', 'xl/workbook.xml')}</Relationships>`,
+    'xl/workbook.xml':
+      `<workbook xmlns="${NS}" xmlns:r="${NS_R}"><sheets>` +
+      '<sheet name="Figures" sheetId="1" r:id="rId1"/>' +
+      '<sheet name="Notes" sheetId="2" r:id="rId2"/>' +
+      '</sheets></workbook>',
+    'xl/_rels/workbook.xml.rels':
+      `<Relationships xmlns="${NS_PR}">` +
+      REL('rId1', 'worksheet', 'worksheets/sheet1.xml') +
+      REL('rId2', 'worksheet', 'worksheets/sheet2.xml') +
+      '</Relationships>',
+    'xl/worksheets/sheet1.xml': figures,
+    'xl/worksheets/sheet2.xml': notes,
+  };
+}
+/** A stored zip of the parts given, in order: local headers, the central directory, the end record. */
+function storedZip(parts: Record<string, string>): Uint8Array {
+  const encoder = new TextEncoder();
+  const local: Uint8Array[] = [];
+  const central: Uint8Array[] = [];
+  let offset = 0;
+  for (const [path, text] of Object.entries(parts)) {
+    const name = encoder.encode(path);
+    const data = encoder.encode(text);
+    const crc = crc32(data);
+    const header = new Uint8Array(30);
+    const h = new DataView(header.buffer);
+    h.setUint32(0, 0x04034b50, true);
+    h.setUint16(4, 20, true);
+    h.setUint32(14, crc, true);
+    h.setUint32(18, data.length, true);
+    h.setUint32(22, data.length, true);
+    h.setUint16(26, name.length, true);
+    const entry = new Uint8Array(46);
+    const c = new DataView(entry.buffer);
+    c.setUint32(0, 0x02014b50, true);
+    c.setUint16(4, 20, true);
+    c.setUint16(6, 20, true);
+    c.setUint32(16, crc, true);
+    c.setUint32(20, data.length, true);
+    c.setUint32(24, data.length, true);
+    c.setUint16(28, name.length, true);
+    c.setUint32(42, offset, true);
+    local.push(header, name, data);
+    central.push(entry, name);
+    offset += header.length + name.length + data.length;
+  }
+  const directory = Buffer.concat(central);
+  const end = new Uint8Array(22);
+  const e = new DataView(end.buffer);
+  e.setUint32(0, 0x06054b50, true);
+  e.setUint16(8, central.length / 2, true);
+  e.setUint16(10, central.length / 2, true);
+  e.setUint32(12, directory.length, true);
+  e.setUint32(16, offset, true);
+  return new Uint8Array(Buffer.concat([...local, directory, end]));
+}
 
 describe('ops-drop intake (M2 ops-drop-import, SEC-9.1): workbooks by template signature onto the accounting layout', () => {
   let h: Harness;
@@ -394,6 +481,115 @@ describe('ops-drop intake (M2 ops-drop-import, SEC-9.1): workbooks by template s
     expect(finished.status).toBe('promoted');
   });
 
+  it('keeps the sheet row numbering across a blank separator row: the blank row stages flagged, the rows below keep their numbers and their lineage', async () => {
+    const sample = opsDropSheets(h.dataset, { scenario: 'clean' });
+    const figures = sample.sheets[0]!;
+    // A blank row between the first and the second row of figures, and a cell past the header on
+    // the last row: every sheet row below the header becomes one data line of the header's width.
+    const rows = [figures.rows[0]!, figures.rows[1]!, [], ...figures.rows.slice(2)];
+    const lastLine = rows.length - 1;
+    rows[lastLine] = [...rows[lastLine]!, 'a note past the last column'];
+    const bytes = writeWorkbook([{ name: figures.name, rows }, sample.sheets[1]!]);
+    const staged = intakeImportResult.parse(
+      (
+        await importAs(
+          'operations',
+          { fileName: 'separator.xlsx', workbookBase64: base64(bytes) },
+          'req-ops-drop-separator-1',
+        ).expect(201)
+      ).body,
+    );
+    expect(staged.templateSignature).toBe(TEMPLATE);
+    expect(staged.rowCount).toBe(clean.expectations.rows + 1);
+    const full = await fullView(staged.id);
+    expect(full.rows.map((r) => r.rowNo)).toEqual(rows.slice(1).map((_, i) => i + 1));
+    // Data line n is sheet row n + 1 for every row: the blank row is line 2, flagged for what it
+    // lacks, and the second row of figures is line 3, not line 2.
+    const blank = rowNo(full, 2);
+    expect(blank.investmentNumber).toBeNull();
+    expect(blank.companyName).toBeNull();
+    expect(blank.periodEnd).toBeNull();
+    expect(blank.status).toBe('flagged');
+    expect(blank.findings.map((f) => f.ruleId)).toEqual(
+      expect.arrayContaining(['REQ-01', 'REQ-02', 'REQ-03']),
+    );
+    for (let line = 3; line <= lastLine; line += 1) {
+      const row = rowNo(full, line);
+      expect(row.investmentNumber, `line ${line}`).toBe(rows[line]![0]);
+      expect(row.periodEnd, `line ${line}`).toBe(rows[line]![2]);
+      expect(row.figures.revenueLtm, `line ${line}`).toBe(rows[line]![3]);
+    }
+    // The cell past the header is dropped knowingly: the last row reads like the others.
+    const last = rowNo(full, lastLine);
+    expect(last.status).toBe('validated');
+    expect(JSON.stringify(full)).not.toContain('a note past the last column');
+    // Promoted, the lineage names the sheet row the figures came from (SEC-9.4).
+    const approved = intakeFileDetail.parse(
+      (
+        await command('deal.three', staged.id, { command: 'approve', rowIds: [last.id] }).expect(
+          200,
+        )
+      ).body,
+    );
+    const promoted = rowNo(approved, lastLine);
+    expect(promoted.status).toBe('promoted');
+    const [record] = await h.runtime.db.query<{ source_locator: string | null }>(
+      'select source_locator from mon.quarterly_performance where id = $1',
+      [promoted.targetId],
+    );
+    expect(record!.source_locator).toBe(`intake_file:${staged.id}/row:${lastLine}`);
+  });
+
+  it('reads a typed numeric cell as the number it holds and a serial date as the number it is, which the date rule refuses', async () => {
+    // The template's header as inline strings, then one row with the figure and the period end
+    // typed as numbers, the way Excel stores a number and a date (a serial day count).
+    const number = cellOf(clean, 1, 'Investment number');
+    const company = cellOf(clean, 1, 'Company');
+    const header = OPS_DROP_FIGURES_HEADER.map((cell, i) => inlineCell(`${column(i)}1`, cell)).join(
+      '',
+    );
+    const line =
+      inlineCell('A2', number) +
+      inlineCell('B2', company) +
+      numberCell('C2', '45838') +
+      numberCell('D2', '12345.5') +
+      inlineCell('E2', '1000.00') +
+      inlineCell('F2', '50000.00') +
+      inlineCell('G2', '2500.00') +
+      inlineCell('H2', '');
+    const bytes = storedZip(
+      workbookParts(sheetXml([header, line]), sheetXml([inlineCell('A1', 'Prepared by hand')])),
+    );
+    const staged = intakeImportResult.parse(
+      (
+        await importAs(
+          'operations',
+          { fileName: 'typed-cells.xlsx', workbookBase64: base64(bytes) },
+          'req-ops-drop-typed-1',
+        ).expect(201)
+      ).body,
+    );
+    expect(staged.templateSignature).toBe(TEMPLATE);
+    expect(staged.rowCount).toBe(1);
+    const [row] = (await fullView(staged.id)).rows;
+    expect(row!.investmentNumber).toBe(number);
+    expect(row!.link.status).toBe('matched');
+    // The number arrives as its text, never rounded or reformatted (CLAUDE.md rule 10).
+    expect(row!.figures.revenueLtm).toBe('12345.5');
+    expect(row!.figures.ebitdaLtm).toBe('1000.00');
+    // Read as a decimal: the unit floor (TYPE-04) may question its size, never its form (TYPE-05).
+    expect(row!.findings.some((f) => f.ruleId === 'TYPE-05')).toBe(false);
+    expect(row!.findings.find((f) => f.ruleId === 'TYPE-04')?.actual).toBe('12345.50');
+    // A serial date is a number, not a date of the layout's form: TYPE-01 names the cell as read.
+    expect(row!.periodEnd).toBe('45838');
+    expect(row!.status).toBe('flagged');
+    const typed = row!.findings.find((f) => f.ruleId === 'TYPE-01');
+    expect(typed?.field).toBe('PeriodEnd');
+    expect(typed?.actual).toBe('45838');
+    expect(typed?.expected).toBe('YYYY-MM-DD');
+    expect(row!.naturalKey).toBe(`${number}|45838`);
+  });
+
   it('lists the drop folder and imports a workbook by id; an unknown id is not found', async () => {
     const inbox = join(h.runtime.config.PB_DROP_ROOT, 'ops-drop', 'in');
     mkdirSync(inbox, { recursive: true });
@@ -436,5 +632,19 @@ describe('ops-drop intake (M2 ops-drop-import, SEC-9.1): workbooks by template s
       const res = await importAs('operations', { dropId }).expect(404);
       expect(problemDetails.parse(res.body).type).toBe(`${PROBLEM}not-found`);
     }
+  });
+
+  it('refuses a drop-folder workbook larger than the configured limit with a 413 before reading it, and stages nothing', async () => {
+    const inbox = join(h.runtime.config.PB_DROP_ROOT, 'ops-drop', 'in');
+    mkdirSync(inbox, { recursive: true });
+    // One byte past the bytes the base64 limit allows: never parsed, never staged.
+    const limit = Math.floor((definitions.intake.maxWorkbookBase64Chars * 3) / 4);
+    writeFileSync(join(inbox, 'oversized.xlsx'), Buffer.alloc(limit + 1, 0x50));
+    const before = await files();
+    const res = await importAs('operations', { dropId: 'oversized.xlsx' }).expect(413);
+    const problem = problemDetails.parse(res.body);
+    expect(problem.type).toBe(`${PROBLEM}too-large`);
+    expect(problem.detail).toBe('The workbook is larger than one import accepts');
+    expect(await files()).toBe(before);
   });
 });

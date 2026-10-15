@@ -1,4 +1,3 @@
-import { createHash } from 'node:crypto';
 import { Inject, Injectable } from '@nestjs/common';
 import type { AdapterSet, Principal } from '@pb/adapters';
 import { TEMPLATE_HEADER_SEPARATOR } from '@pb/contracts';
@@ -23,7 +22,7 @@ import {
   OPS_DROP_TEMPLATES,
 } from '../../common/tokens.js';
 import { DbService } from '../../db/db.service.js';
-import { accountingLayoutOf, intakeSettingsOf, stageFile } from '../stage.js';
+import { accountingLayoutOf, contentHashOf, intakeSettingsOf, stageFile } from '../stage.js';
 import type { ReadOutcome } from '../stage.js';
 
 /*
@@ -61,7 +60,7 @@ type TemplateMatch =
   | { template: null; sheets: string[]; headerSheet: string | null; headerHash: string | null };
 
 const headerHashOf = (header: readonly string[]): string =>
-  createHash('sha256').update(header.join(TEMPLATE_HEADER_SEPARATOR)).digest('hex');
+  contentHashOf(header.join(TEMPLATE_HEADER_SEPARATOR));
 
 /**
  * The first template whose sheet names are the workbook's, in order, and whose header hash is the
@@ -166,18 +165,17 @@ export class OpsDropService {
       source: SOURCE,
       exceptionSource: EXCEPTION_SOURCE,
       fileName,
-      contentHash: createHash('sha256').update(bytes).digest('hex'),
+      contentHash: contentHashOf(bytes),
       read: async (): Promise<ReadOutcome> => {
         const workbook = await this.readWorkbook(bytes);
         const match = matchTemplate(workbook, this.templates.templates);
         if (match.template === null)
           return { file: refusal(match, this.templates), templateSignature: null };
         // The header sheet's rows below the header, every cell as text, under the accounting
-        // layout's column names: the same reader and the same findings as the accounting export,
-        // and a data line n is sheet row n + 1.
+        // layout's column names: the same reader and the same findings as the accounting export.
         const sheet = workbook.sheets.find((s) => s.name === match.headerSheet);
         const header = match.header.map((cell) => match.template.columns[cell] ?? cell);
-        const rows = (sheet?.rows ?? []).slice(1);
+        const rows = dataLines((sheet?.rows ?? []).slice(1), header.length);
         return {
           file: readAccountingFile(toCsv(header, rows), layout, { maxRows: settings.maxRows }),
           templateSignature: match.template.name,
@@ -188,6 +186,27 @@ export class OpsDropService {
       asOf: this.adapters.clock.today(),
     });
   }
+}
+
+/**
+ * Every sheet row below the header as exactly one data line of the header's width, so a data line
+ * n is sheet row n + 1 for every row: the row number the reviewer sees and the promoted lineage
+ * names (SEC-9.4). A blank row between two rows of figures (the reader gives it no cells) would
+ * otherwise write an empty CSV line, which the CSV reader drops, and every row below it would be
+ * numbered one short; padded to the header's width it stages as a row the required-field rules
+ * flag (REQ-01 to REQ-03), with its numbering kept. A short row is padded the same way. Cells past
+ * the header are dropped knowingly: the template names no column for them, and a column the
+ * layout does not know is refused at the header, never guessed at from a cell. Blank rows below
+ * the last row with content are not data (a sheet keeps formatted empty rows): they are dropped,
+ * which shifts no number.
+ */
+export function dataLines(rows: readonly (readonly string[])[], width: number): string[][] {
+  const blank = (cells: readonly string[]): boolean => cells.every((c) => c.trim() === '');
+  let last = rows.length;
+  while (last > 0 && blank(rows[last - 1] ?? [])) last -= 1;
+  return rows
+    .slice(0, last)
+    .map((cells) => Array.from({ length: width }, (_, i) => cells[i] ?? ''));
 }
 
 /** The refused file: no rows, one finding naming the known templates and the signature seen (never a cell). */
