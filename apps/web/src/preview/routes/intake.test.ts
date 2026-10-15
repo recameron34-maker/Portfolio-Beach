@@ -13,7 +13,7 @@ import { parseBook } from '../book.js';
 import { createPreviewFetch } from '../shim.js';
 import { createPreviewState } from '../state.js';
 import type { PreviewState } from '../state.js';
-import { FixtureBuilder, USERS, investmentFixture, problemOf, send } from '../test-fixtures.js';
+import { USERS, generatedWorld, problemOf, send, serveSamples } from '../test-fixtures.js';
 
 /**
  * The simulated intake over the real generator: the small synthetic profile (seed 42) gives the
@@ -36,11 +36,6 @@ const walledId = dataset.scenarios.walled_deal?.[0] ?? '';
 const walledInvestment = dataset.investments.find((i) => i.id === walledId);
 const walledName =
   dataset.portfolioCompanies.find((c) => c.id === walledInvestment?.portfolioCompanyId)?.name ?? '';
-const WALL_MEMBERS: readonly string[] = [
-  USERS.dealWall.externalId,
-  USERS.head.externalId,
-  USERS.all.externalId,
-];
 
 const IMPORT = '/api/v1/intake/accounting';
 const EXPORTS = '/api/v1/intake/accounting/exports';
@@ -49,50 +44,10 @@ const detailPath = (id: string): string => `/api/v1/intake/files/${id}`;
 const commandsPath = (id: string): string => `/api/v1/intake/files/${id}/commands`;
 
 /** Every mock user's own view of the book's investments, recorded as the build records them. */
-function buildFixtures() {
-  const users = Object.values(USERS);
-  const b = new FixtureBuilder(users, dataset.asOf);
-  b.add('', '/api/v1/auth/mock-users', {
-    users: users.map(({ externalId, displayName, roles }) => ({ externalId, displayName, roles })),
-  });
-  for (const user of users) {
-    const c = user.externalId;
-    b.add(c, '/api/v1/auth/me', {
-      userId: user.userId,
-      externalId: c,
-      displayName: user.displayName,
-      roles: user.roles,
-      clientIds: [],
-      mockIdentity: true,
-    });
-    for (const inv of book.investments) {
-      const path = `/api/v1/investments/${inv.id}`;
-      if (inv.id !== walledId || WALL_MEMBERS.includes(c))
-        b.add(
-          c,
-          path,
-          investmentFixture(inv.id, {
-            investmentNumber: inv.investmentNumber,
-            companyName: inv.companyName,
-          }),
-        );
-      else b.notFound(c, path);
-    }
-  }
-  return b.build();
-}
-const fixtures = buildFixtures();
+const fixtures = generatedWorld(book, walledId);
 
 /** The static assets beside the page: the bundled sample exports, served as text. */
-const assets: typeof fetch = (input) => {
-  const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
-  const found = samples.get(url.split('/').pop() ?? '');
-  return Promise.resolve(
-    found === undefined
-      ? new Response('', { status: 404 })
-      : new Response(found.csv, { status: 200, headers: { 'content-type': 'text/csv' } }),
-  );
-};
+const assets = serveSamples(new Map([...samples].map(([name, found]) => [name, found.csv])));
 
 let ids = 0;
 const env = {
@@ -219,7 +174,7 @@ describe('simulated intake (docs/04 M2) over the bundled samples and the book', 
   });
 
   it('flags each defect row by the rule the generator names and counts the exceptions', async () => {
-    const { f } = setup();
+    const { f, state } = setup();
     const defects = sample('accounting-defects.csv');
     const staged = await stage(f, 'accounting-defects.csv');
     // deal.three is on the wall and sees every row.
@@ -244,8 +199,28 @@ describe('simulated intake (docs/04 M2) over the bundled samples and the book', 
     expect(unmatched).toHaveLength(2);
     expect(guarded).toHaveLength(1);
     expect(ties).toHaveLength(1);
-    // One exception per unresolved link and one per fair value that does not tie, as the API opens them.
+    // One exception per unresolved link and one per fair value that does not tie, as the API opens
+    // them: each a simulated data exception about its staged row, on the queue for a person.
     expect(staged.exceptions).toBe(unmatched.length + guarded.length + ties.length);
+    const opened = [...state.exceptions.values()];
+    expect(opened).toHaveLength(staged.exceptions);
+    expect(new Set(opened.map((x) => x.source))).toEqual(new Set(['accounting_import']));
+    expect(new Set(opened.map((x) => x.entity))).toEqual(new Set(['stg.intake_row']));
+    expect(new Set(opened.map((x) => x.severity))).toEqual(new Set(['exception_severity.high']));
+    expect(opened.map((x) => x.ruleId).sort()).toEqual(
+      [
+        ...unmatched.map(() => 'XREF-01'),
+        ...guarded.map(() => 'XREF-02'),
+        ...ties.map(() => 'TIE-01'),
+      ].sort(),
+    );
+    expect(opened.every((x) => x.context.intakeFileId === staged.id && x.state === 'open')).toBe(
+      true,
+    );
+    // The candidates of a near miss travel by reason only (SEC-5.3).
+    expect(
+      opened.flatMap((x) => x.candidates).every((c) => Object.keys(c).join() === 'reason'),
+    ).toBe(true);
     expect(staged.status).toBe('flagged');
     expect(staged.counts.flagged).toBe(full.rows.filter((r) => r.status === 'flagged').length);
     expect(staged.counts.flagged + staged.counts.validated).toBe(defects.expectations.rows);

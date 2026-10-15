@@ -3,6 +3,7 @@ import { problem, validationProblem } from '../problems.js';
 import type { SimActor } from '../state.js';
 import { capitalNoticeCommandRoute } from './capitalNotices.js';
 import type { SimContext, SimRoute } from './common.js';
+import { exceptionCommandRoute, exceptionRoute, exceptionsRoute } from './exceptions.js';
 import { flagRoute } from './flags.js';
 import {
   intakeCommandRoute,
@@ -11,14 +12,23 @@ import {
   intakeFilesRoute,
   intakeImportRoute,
 } from './intake.js';
+import { lookthroughReconcileRoute, lookthroughRunRoute } from './lookthrough.js';
+import { opsDropDropsRoute, opsDropImportRoute } from './opsDrop.js';
 import { resetRoute } from './reset.js';
 import { createValuationRoute, valuationCommandRoute } from './valuations.js';
+import {
+  weeklyCommandRoute,
+  weeklyDropsRoute,
+  weeklyFileRoute,
+  weeklyImportRoute,
+} from './weekly.js';
 
 export type { SimContext, SimRoute } from './common.js';
 
 /**
- * Simulated routes, checked before the recordings: the writes, and the intake reads, whose
- * records exist only once the simulation stages a file. Anything else that is not a GET is a miss.
+ * Simulated routes, checked before the recordings: the writes, and the reads of records that
+ * exist only once the simulation stages them (the intake files of every source, the reconcile
+ * runs and the data exceptions). Anything else that is not a GET is a miss.
  */
 export const SIM_ROUTES: readonly SimRoute[] = [
   flagRoute,
@@ -30,6 +40,17 @@ export const SIM_ROUTES: readonly SimRoute[] = [
   intakeFilesRoute,
   intakeFileRoute,
   intakeCommandRoute,
+  weeklyDropsRoute,
+  weeklyImportRoute,
+  weeklyFileRoute,
+  weeklyCommandRoute,
+  lookthroughReconcileRoute,
+  lookthroughRunRoute,
+  opsDropDropsRoute,
+  opsDropImportRoute,
+  exceptionsRoute,
+  exceptionRoute,
+  exceptionCommandRoute,
   resetRoute,
 ];
 

@@ -27,6 +27,7 @@
     { "path": "../../packages/db" },
     { "path": "../../packages/validation" },
     { "path": "../../packages/workflows" },
+    { "path": "../../packages/xlsx" },
     { "path": "../../tools/synthetic" }
   ]
 }

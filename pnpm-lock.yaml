@@ -138,6 +138,9 @@ importers:
       '@pb/workflows':
         specifier: workspace:*
         version: link:../../packages/workflows
+      '@pb/xlsx':
+        specifier: workspace:*
+        version: link:../../packages/xlsx
       '@tanstack/react-query':
         specifier: 5.104.1
         version: 5.104.1(react@19.3.0)

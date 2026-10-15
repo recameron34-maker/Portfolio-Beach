@@ -2,14 +2,17 @@ import type {
   CapitalNoticeDetail,
   CapitalNoticePage,
   CapitalNoticeRow,
+  DataHealth,
   InvestmentDetail,
   Principal,
   ValuationPage,
   ValuationRow,
 } from '@pb/contracts';
 import { problemDetails } from '@pb/contracts';
+import type { PreviewBook } from './book.js';
 import type { PreviewFixtures, PreviewUser } from './fixtures.js';
 import { getKey } from './keys.js';
+import { VALUATIONS_PATH } from './state.js';
 
 export interface Answer {
   status: number;
@@ -132,11 +135,78 @@ export const USERS = {
 } as const;
 
 /** Wall members see the walled investment; everyone else gets the recorded 404. */
-const WALL_MEMBERS: readonly string[] = [
+export const WALL_MEMBERS: readonly string[] = [
   USERS.dealWall.externalId,
   USERS.head.externalId,
   USERS.all.externalId,
 ];
+
+/**
+ * The recordings of a world over the real generator's book (the simulated intake tests): every
+ * mock user's own sign-in, their view of each of the book's investments (the walled deal answers
+ * 404 outside the wall, as the build records it), an empty valuations board for the simulated
+ * Drafts to land on, and Data Health with no open exception for the overlay to count onto.
+ */
+export function generatedWorld(book: PreviewBook, walledId: string): PreviewFixtures {
+  const users = Object.values(USERS);
+  const b = new FixtureBuilder(users, book.asOf);
+  b.add('', '/api/v1/auth/mock-users', {
+    users: users.map(({ externalId, displayName, roles }) => ({ externalId, displayName, roles })),
+  });
+  const health: DataHealth = {
+    asOf: book.asOf,
+    orphanInvestments: 0,
+    openExceptions: 0,
+    staleInvestments: 0,
+    staleAfterDays: 75,
+    vehiclesWithOwnershipGap: [],
+    lockedValuationsLatestQuarter: 0,
+    activeInvestments: book.investments.filter((i) => i.isActive).length,
+  };
+  const board: ValuationPage = { items: [], nextCursor: null, asOf: book.asOf, periods: [] };
+  for (const user of users) {
+    const c = user.externalId;
+    b.add(c, '/api/v1/auth/me', {
+      userId: user.userId,
+      externalId: c,
+      displayName: user.displayName,
+      roles: user.roles,
+      clientIds: [],
+      mockIdentity: true,
+    });
+    b.add(c, '/api/v1/data-health', health);
+    b.add(c, VALUATIONS_PATH, board);
+    for (const inv of book.investments) {
+      const path = `/api/v1/investments/${inv.id}`;
+      if (inv.id !== walledId || WALL_MEMBERS.includes(c))
+        b.add(
+          c,
+          path,
+          investmentFixture(inv.id, {
+            investmentNumber: inv.investmentNumber,
+            companyName: inv.companyName,
+            dealType: inv.dealType,
+            entryDate: inv.entryDate,
+            exitDate: inv.exitDate,
+            isActive: inv.isActive,
+          }),
+        );
+      else b.notFound(c, path);
+    }
+  }
+  return b.build();
+}
+
+/** The static assets beside the page (the bundled samples), served by file name as text or bytes; anything else is 404. */
+export function serveSamples(files: ReadonlyMap<string, string | Uint8Array>): typeof fetch {
+  return (input) => {
+    const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
+    const found = files.get(url.split('/').pop() ?? '');
+    if (found === undefined) return Promise.resolve(new Response('', { status: 404 }));
+    const body: BodyInit = typeof found === 'string' ? found : new Uint8Array(found);
+    return Promise.resolve(new Response(body, { status: 200 }));
+  };
+}
 
 export function investmentFixture(
   id: string,
