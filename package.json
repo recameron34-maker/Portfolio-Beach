@@ -31,6 +31,7 @@
     "synth:verify": "pnpm --filter @pb/synthetic verify",
     "synth:exports": "pnpm --filter @pb/synthetic exports",
     "synth:drops": "pnpm --filter @pb/synthetic drops",
+    "synth:documents": "pnpm --filter @pb/synthetic documents",
     "check:style": "bash scripts/check-style.sh",
     "check:employer-data": "bash scripts/check-employer-data.sh",
     "check:classification": "pnpm --filter @pb/db check:classification",
