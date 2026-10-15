@@ -1318,6 +1318,8 @@ export const dataExceptionListQuery = pageQuery.extend({
   state: dataExceptionState.optional(),
   source: filterText.optional(),
   severity: filterText.optional(),
+  /** Only the exceptions about the rows of this intake file or reconcile run. */
+  intakeFileId: uuid.optional(),
 });
 
 export const dataExceptionCommand = z.enum(['acknowledge', 'resolve', 'wont_fix', 'set_ticket']);

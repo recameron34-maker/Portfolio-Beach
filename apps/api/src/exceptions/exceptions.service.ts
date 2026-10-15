@@ -15,7 +15,7 @@ import { schema } from '@pb/db';
 import type { Tx } from '@pb/db';
 import { attempt, exceptionMachine } from '@pb/workflows';
 import { z } from 'zod';
-import { decodeCursor, encodeCursor } from '../common/cursor.js';
+import { AT_ID_CURSOR, EXACT_AT_FORMAT, decodeAtIdCursor, encodeCursor } from '../common/cursor.js';
 import { ProblemError, workflowProblem } from '../common/problem.js';
 import { requireUuid } from '../common/validate.js';
 import { DbService } from '../db/db.service.js';
@@ -43,11 +43,10 @@ const stagedValue = schema.stagedValuation;
 const file = schema.intakeFile;
 const owner = alias(schema.appUser, 'owner');
 const candidateList = z.array(z.object({ reason: z.string() }));
-
-/** The cursor is "createdAt|id" of the last exception: the opening time to the microsecond and the id. */
-const CURSOR =
-  /^(\d{4}-\d{2}-\d{2})T((?:[01]\d|2[0-3]):[0-5]\d:[0-5]\d\.\d{6})Z\|([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/;
-const EXACT_AT_FORMAT = 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"';
+/** The staged row or value an exception is about belongs to one intake file (null for an exception about anything else). */
+const intakeFileOf = sql<
+  string | null
+>`coalesce(${stagedRow.intakeFileId}, ${stagedValue.intakeFileId})`;
 
 /** An exception row as the queue reads it, with the staged row or value it is about, when there is one. */
 interface LoadedException {
@@ -95,9 +94,9 @@ export class ExceptionsService {
   constructor(private readonly db: DbService) {}
 
   /**
-   * Exceptions newest first, paged on (createdAt, id), filtered by state, source and severity.
-   * Row-level security decides which the caller sees; the controller adds a 403 for roles
-   * outside the queue.
+   * Exceptions newest first, paged on (createdAt, id), filtered by state, source, severity and
+   * the intake file (or run) whose rows they are about. Row-level security decides which the
+   * caller sees; the controller adds a 403 for roles outside the queue.
    */
   async list(
     principal: Principal,
@@ -109,11 +108,15 @@ export class ExceptionsService {
       if (opts.state !== undefined) conditions.push(eq(x.state, opts.state));
       if (opts.source !== undefined) conditions.push(eq(x.source, opts.source));
       if (opts.severity !== undefined) conditions.push(eq(x.severity, opts.severity));
+      // The file's rows are joined by select(); a row the caller cannot see leaves its exception out.
+      if (opts.intakeFileId !== undefined)
+        conditions.push(sql`${intakeFileOf} = ${opts.intakeFileId}::uuid`);
+      // The cursor is "createdAt|id" of the last exception (common/cursor.ts).
       if (opts.cursor !== undefined) {
-        const [date = '', time = '', id = ''] = decodeCursor(opts.cursor, CURSOR, [1]);
-        const at = sql`${`${date}T${time}Z`}::timestamptz`;
+        const key = decodeAtIdCursor(opts.cursor, AT_ID_CURSOR);
+        const at = sql`${key.at}::timestamptz`;
         conditions.push(
-          or(lt(x.createdAt, at), and(eq(x.createdAt, at), lt(x.id, sql`${id}::uuid`))),
+          or(lt(x.createdAt, at), and(eq(x.createdAt, at), lt(x.id, sql`${key.id}::uuid`))),
         );
       }
       const rows = await this.select(tx)
@@ -148,9 +151,9 @@ export class ExceptionsService {
    * acknowledge, resolve and wont_fix move the exception through docs/18 section 9 (operations
    * only; resolve and wont_fix need the reason the table requires); set_ticket records the
    * external ticket and changes no state. The row stays locked until the transaction ends, so a
-   * second command waits and then reads the state this one left; the write guards on the state
-   * it read all the same, and answers 409 when it no longer holds. Every command is audited with
-   * the state before and after, the reason and the ticket.
+   * second command waits and then reads the state this one left; the write (claim) guards on the
+   * state and the row version it read all the same, and answers 409 when they no longer hold.
+   * Every command is audited with the state before and after, the reason and the ticket.
    */
   async command(
     principal: Principal,
@@ -178,12 +181,7 @@ export class ExceptionsService {
 
       if (body.command === 'set_ticket') {
         const ticket = body.externalTicket ?? null;
-        const updated = await tx
-          .update(x)
-          .set({ externalTicket: ticket })
-          .where(and(eq(x.id, id), eq(x.state, from), eq(x.rowVersion, locked.rowVersion)))
-          .returning();
-        if (updated[0] === undefined) throw conflict();
+        await this.claim(tx, locked, from, { externalTicket: ticket });
         await audit({
           action: 'data_exception.set_ticket',
           entity: ENTITY,
@@ -203,12 +201,7 @@ export class ExceptionsService {
         if (!result.ok) throw workflowProblem(result);
         // The acknowledging operator takes the exception; a later resolve or close keeps the owner.
         const ownerId = body.command === 'acknowledge' ? principal.userId : locked.ownerId;
-        const updated = await tx
-          .update(x)
-          .set({ state: result.to, ownerId })
-          .where(and(eq(x.id, id), eq(x.state, from)))
-          .returning();
-        if (updated[0] === undefined) throw conflict();
+        await this.claim(tx, locked, from, { state: result.to, ownerId });
         await audit({
           action: `data_exception.${body.command}`,
           entity: ENTITY,
@@ -225,6 +218,25 @@ export class ExceptionsService {
       if (after === null) throw new ProblemError(404, 'not-found', NOT_FOUND);
       return after;
     });
+  }
+
+  /**
+   * The one write of a command: the columns given, on the exception as it was read (its state
+   * and its row version). Nothing written means another command changed it first, in the window
+   * between this command's read and its write; that is the conflict, and the batch rolls back.
+   */
+  private async claim(
+    tx: Tx,
+    locked: LockedException,
+    from: DataExceptionState,
+    patch: Partial<Pick<typeof x.$inferInsert, 'state' | 'ownerId' | 'externalTicket'>>,
+  ): Promise<void> {
+    const updated = await tx
+      .update(x)
+      .set(patch)
+      .where(and(eq(x.id, locked.id), eq(x.state, from), eq(x.rowVersion, locked.rowVersion)))
+      .returning();
+    if (updated[0] === undefined) throw conflict();
   }
 
   /** The stored state as the machine knows it; anything else is a record the queue cannot work. */
@@ -263,9 +275,7 @@ export class ExceptionsService {
         updatedAt: x.updatedAt,
         rowVersion: x.rowVersion,
         exactAt: sql<string>`to_char(${x.createdAt} at time zone 'UTC', ${EXACT_AT_FORMAT})`,
-        intakeFileId: sql<
-          string | null
-        >`coalesce(${stagedRow.intakeFileId}, ${stagedValue.intakeFileId})`,
+        intakeFileId: intakeFileOf,
         intakeFileName: file.fileName,
         rowNo: sql<number | null>`coalesce(${stagedRow.rowNo}, ${stagedValue.rowNo})`,
         investmentId: sql<
@@ -275,10 +285,7 @@ export class ExceptionsService {
       .from(x)
       .leftJoin(stagedRow, and(eq(x.entity, 'stg.intake_row'), eq(stagedRow.id, x.entityId)))
       .leftJoin(stagedValue, and(eq(x.entity, 'stg.valuation'), eq(stagedValue.id, x.entityId)))
-      .leftJoin(
-        file,
-        eq(file.id, sql`coalesce(${stagedRow.intakeFileId}, ${stagedValue.intakeFileId})`),
-      )
+      .leftJoin(file, eq(file.id, intakeFileOf))
       .leftJoin(owner, eq(owner.id, x.ownerId))
       .$dynamic();
   }

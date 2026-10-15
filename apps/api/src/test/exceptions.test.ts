@@ -1,5 +1,6 @@
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { sql } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { D, toDecimalString } from '@pb/calc';
 import {
@@ -7,11 +8,13 @@ import {
   dataExceptionPage,
   lookthroughReconcileResult,
   problemDetails,
+  weeklyImportResult,
 } from '@pb/contracts';
 import type { DataException, LookthroughReconcileResult } from '@pb/contracts';
-import { lookthroughExtract } from '@pb/synthetic';
+import { lookthroughExtract, weeklyValues } from '@pb/synthetic';
 import type { AliasedDataset } from '@pb/synthetic';
-import type { SyntheticDataset } from '@pb/db';
+import type { SyntheticDataset, Tx } from '@pb/db';
+import { ExceptionsService } from '../exceptions/exceptions.service.js';
 import { startHarness } from './harness.js';
 import type { Harness } from './harness.js';
 
@@ -228,6 +231,63 @@ describe('data exceptions (M1 Data Health, docs/18 section 9): the queue the int
     expect(problemDetails.parse(res.body).detail).toBe('Invalid cursor');
   });
 
+  it('filters by the intake file or run the exceptions are about, in stg.intake_row or stg.valuation, pages within it, and refuses an id that is not a UUID', async () => {
+    const ofRun = await list('ops.one', `?intakeFileId=${run.id}`);
+    expect(ofRun.items.length).toBe(run.exceptions);
+    expect(ofRun.items.every((x) => x.context.intakeFileId === run.id)).toBe(true);
+    // The walled run's one exception sits past the wall: nothing for an outsider, one for a member.
+    expect((await list('ops.one', `?intakeFileId=${walledRun.id}`)).items).toEqual([]);
+    const member = await list('deal.three', `?intakeFileId=${walledRun.id}`);
+    expect(member.items.map((x) => x.context.intakeFileId)).toEqual([walledRun.id]);
+    // A weekly file's exceptions are about staged values (stg.valuation): the filter reaches them too.
+    const weekly = weeklyValues(aliased(h.dataset), { scenario: 'defects' });
+    const weeklyFile = weeklyImportResult.parse(
+      (
+        await h
+          .http()
+          .post('/api/v1/intake/weekly')
+          .set('authorization', h.as('operations'))
+          .set('x-request-id', 'req-x-weekly-1')
+          .send({ fileName: weekly.fileName, csv: weekly.csv })
+          .expect(201)
+      ).body,
+    );
+    expect(weeklyFile.exceptions).toBeGreaterThan(0);
+    const ofWeekly = await list('ops.one', `?intakeFileId=${weeklyFile.id}`);
+    expect(ofWeekly.items.length).toBe(weeklyFile.exceptions);
+    for (const x of ofWeekly.items) {
+      expect(x.entity).toBe('stg.valuation');
+      expect(x.source).toBe('weekly_intake');
+      expect(x.context.intakeFileId).toBe(weeklyFile.id);
+      expect(x.context.intakeFileName).toBe(weekly.fileName);
+      expect(x.context.rowNo).not.toBeNull();
+    }
+    expect((await list('ops.one', `?intakeFileId=${run.id}&source=weekly_intake`)).items).toEqual(
+      [],
+    );
+    // Paged within the filter: every page is of the run, nothing repeated, nothing missed.
+    const seen: string[] = [];
+    let cursor: string | null = null;
+    do {
+      const page = await list(
+        'ops.one',
+        `?intakeFileId=${run.id}&limit=2${cursor === null ? '' : `&cursor=${cursor}`}`,
+      );
+      expect(page.items.length).toBeLessThanOrEqual(2);
+      expect(page.items.every((x) => x.context.intakeFileId === run.id)).toBe(true);
+      seen.push(...page.items.map((x) => x.id));
+      cursor = page.nextCursor;
+    } while (cursor !== null);
+    expect(seen).toEqual(ofRun.items.map((x) => x.id));
+    const bad = problemDetails.parse(
+      (await listAs('ops.one', '?intakeFileId=not-a-uuid').expect(400)).body,
+    );
+    expect(bad.errors?.map((e) => e.path)).toEqual(['intakeFileId']);
+    expect(
+      (await list('ops.one', '?intakeFileId=00000000-0000-4000-8000-00000000dead')).items,
+    ).toEqual([]);
+  });
+
   it("shows one exception with its context and audits the read; a walled row's exception is 404 outside the wall", async () => {
     const [first] = (await list('ops.one')).items;
     const one = await detail('ops.one', first!.id, 'req-x-detail-1');
@@ -372,5 +432,48 @@ describe('data exceptions (M1 Data Health, docs/18 section 9): the queue the int
         [walled.id],
       ),
     ).toBe(0);
+  });
+
+  it('answers 409 when another command changed the exception between this command reading it and writing it, and audits nothing', async () => {
+    const target = await openOf('LT-DIFF-01');
+    // The row stays locked for the transaction, so the window another command could use is the
+    // one between this command reading the state and writing on it. The test database has one
+    // connection: the other operator's change is replayed inside the command's own transaction,
+    // right before its write (the service's private write step, reached as the seam this test needs).
+    interface WriteSeam {
+      claim: (tx: Tx, ...rest: unknown[]) => Promise<void>;
+    }
+    const seam = h.app.get<ExceptionsService, WriteSeam>(ExceptionsService);
+    const original = seam.claim;
+    seam.claim = async (tx, ...rest) => {
+      await tx.execute(
+        sql`update ops.data_exception set state = 'acknowledged' where id = ${target.id}`,
+      );
+      return original.call(seam, tx, ...rest);
+    };
+    try {
+      for (const body of [
+        { command: 'acknowledge' },
+        { command: 'set_ticket', externalTicket: 'HD-409' },
+      ]) {
+        const res = await commandAs('operations', target.id, body, 'req-x-conflict-1').expect(409);
+        expect(problemDetails.parse(res.body).type).toBe(`${PROBLEM}conflict`);
+      }
+    } finally {
+      seam.claim = original;
+    }
+    // Nothing of either command is kept: the state, the ticket and the row version read as
+    // before, and no event names the command (the batch rolled back, the other change with it).
+    const after = await detail('ops.one', target.id);
+    expect(after.state).toBe('open');
+    expect(after.externalTicket).toBeNull();
+    expect(after.rowVersion).toBe(target.rowVersion);
+    expect(
+      await count(
+        "select count(*)::int as n from audit.event where request_id = 'req-x-conflict-1' and action <> 'data_exception.read'",
+      ),
+    ).toBe(0);
+    // Read and written in one go, the same command goes through.
+    expect((await command(target.id, { command: 'acknowledge' })).state).toBe('acknowledged');
   });
 });

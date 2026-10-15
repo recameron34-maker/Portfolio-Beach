@@ -271,6 +271,9 @@ describe('data exceptions', () => {
     ).toMatchObject({ limit: 50, state: 'open' });
     expect(dataExceptionListQuery.safeParse({ state: 'done' }).success).toBe(false);
     expect(dataExceptionListQuery.safeParse({ owner: 'x' }).success).toBe(false);
+    const fileId = '00000000-0000-4000-8000-000000000010';
+    expect(dataExceptionListQuery.parse({ intakeFileId: fileId }).intakeFileId).toBe(fileId);
+    expect(dataExceptionListQuery.safeParse({ intakeFileId: 'run-1' }).success).toBe(false);
   });
 
   it('needs a reason to resolve or close, a ticket to set one, and nothing to acknowledge', () => {
