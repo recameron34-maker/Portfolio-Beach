@@ -176,7 +176,7 @@ Phase 1 (M1, M2) as planned in Session 1, now with every read screen in place to
 
 ## Session 6 (2026-10-14 to 2026-10-15): the three remaining Phase 1 intakes, aliases, the exceptions queue and the preview
 
-**Branch:** `claude/gifted-tesla-eg7s85` (about 205 commits over `main`; the PR is still to be opened at the owner's request). Synthetic data only; no employer information anywhere. Decisions 0010 (the intakes) and 0011 (`packages/xlsx`).
+**Branch:** `claude/gifted-tesla-eg7s85` (205 commits over `main`; the PR is still to be opened at the owner's request). Synthetic data only; no employer information anywhere. Decisions 0010 (the intakes) and 0011 (`packages/xlsx`).
 
 **What changed**
 
@@ -194,8 +194,8 @@ Phase 1 (M1, M2) as planned in Session 1, now with every read screen in place to
 
 - `pnpm typecheck`, `pnpm lint` (eslint and prettier), `pnpm check:style` (627 files), `pnpm check:employer-data` (628 files), `pnpm check:classification` (592 columns): all pass.
 - `pnpm test`: 138 files, 2063 tests pass (validation rule sets with a passing and a failing case per rule and the exact finding set per case: accounting 34, weekly 15, look-through 13; the API suites for intake, weekly, look-through, exceptions, ops drop, identity and composition; the RLS matrix with the service actor and the new tables; the xlsx package's 73; the web preview routes).
-- `pnpm test:e2e`: 32 of 34 pass on the first full run (16.8 minutes); the two failures are the axe scan of the weekly, look-through and exceptions pages at both widths, being fixed as this entry is written (the close-out below records the final run).
-- `pnpm build:preview` and `pnpm probe:preview`: 82 passed, 0 failed, 0 skipped on the tree before the workbook carriers; the rerun on the carrier bundle and the republish are recorded in the close-out below.
+- `pnpm test:e2e`: the full run of 34 journeys found the one defect of the slice: the axe scan of the exception detail page failed at both widths (aria-hidden-focus: the arrow-key toolbar group planted hidden focusable sentinels around the action buttons). With the fix (`5cf7cf2`: plain tab stops, the focus finders keeping Fluent's focus manager alive across the reason dialog, focus following the actions after a command) the 17 accessibility tests and the look-through and exceptions journey pass again (19 of 19, 11.2 minutes); the other 15 journeys passed on the same tree before the fix (32 of 34, 16.8 minutes).
+- `pnpm build:preview` and `pnpm probe:preview`: 82 passed, 0 failed, 0 skipped, no recording misses, no page errors, on the final tree (book.json 52,987 bytes, twelve samples, publish.json 17 files); the artifact at the same private URL is republished as version 6 with the new assets, the book, the samples and the workbook carriers, and the previous assets removed.
 
 **Open items for the owner**
 
