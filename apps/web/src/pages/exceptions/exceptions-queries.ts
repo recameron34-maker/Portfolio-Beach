@@ -8,19 +8,23 @@ import { retryUnlessUnavailable } from '../../lib/unavailable.js';
 
 /*
  * Reads and the one write of Data > Exceptions (docs/04 M1 Data Health, docs/18 section 9). The
- * queue is read with its filters as fixed, sorted parameters; a command posts to the exception's
- * own route and refreshes what it can change.
+ * queue is read with its filters as fixed, sorted parameters (opened from a run or a staged file,
+ * that file's exceptions alone: GET /data-exceptions?intakeFileId=...); a command posts to the
+ * exception's own route and refreshes what it can change.
  */
 
 export interface ExceptionFilters {
   state?: string | undefined;
   source?: string | undefined;
   severity?: string | undefined;
+  /** The staged file or reconcile run the queue was opened from; the API answers its exceptions alone. */
+  intakeFileId?: string | undefined;
 }
 
 export function exceptionsQuery(filters: ExceptionFilters = {}) {
   const params = new URLSearchParams();
   params.set('limit', String(LIST_LIMIT));
+  if (filters.intakeFileId) params.set('intakeFileId', filters.intakeFileId);
   if (filters.severity) params.set('severity', filters.severity);
   if (filters.source) params.set('source', filters.source);
   if (filters.state) params.set('state', filters.state);

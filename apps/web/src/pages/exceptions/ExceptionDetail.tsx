@@ -274,7 +274,9 @@ export function ExceptionDetailPage(): ReactNode {
   const { id } = useParams({ from: '/app/data/exceptions/$id' });
   const me = useQuery(meQuery);
   const q = useQuery(exceptionQuery(id));
-  if (q.isPending) return <PageSkeleton rows={6} />;
+  // The roles decide what the actions card says, so nothing is said until they are known: an
+  // operations user must never read "your role reads it" for the moment the identity is in flight.
+  if (q.isPending || me.isPending) return <PageSkeleton rows={6} />;
   if (q.isError) {
     const missing = q.error instanceof ApiError && q.error.status === 404;
     return (

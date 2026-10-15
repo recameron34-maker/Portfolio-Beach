@@ -7,8 +7,10 @@ import {
   ArrowSwap20Regular,
   BookOpen20Regular,
   Briefcase20Regular,
+  CalendarWeekStart20Regular,
   ChartMultiple20Regular,
   DocumentTable20Regular,
+  Eye20Regular,
   Flowchart20Regular,
   Folder20Regular,
   Handshake20Regular,
@@ -18,6 +20,7 @@ import {
   Settings20Regular,
   Sparkle20Regular,
   TagMultiple20Regular,
+  Warning20Regular,
 } from '@fluentui/react-icons';
 import { DATA_LINKS, NAV_GROUPS } from '../app/nav.js';
 import { meQuery, mockUsersQuery } from '../app/queries.js';
@@ -45,6 +48,9 @@ const NAV_ICONS: Record<string, ReactNode> = {
   '/data/dictionary': <BookOpen20Regular />,
   '/data/taxonomy': <TagMultiple20Regular />,
   '/data/intake': <ArrowImport20Regular />,
+  '/data/weekly': <CalendarWeekStart20Regular />,
+  '/data/lookthrough': <Eye20Regular />,
+  '/data/exceptions': <Warning20Regular />,
 };
 
 function NavItem({ to, label, exact }: { to: string; label: string; exact: boolean }): ReactNode {

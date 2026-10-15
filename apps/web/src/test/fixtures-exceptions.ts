@@ -2,6 +2,7 @@ import type { DataException, DataExceptionPage } from '@pb/contracts';
 import { LT_ROW_ID, RUN_AS_OF, RUN_ID } from './fixtures-lookthrough.js';
 import { FILE_ID, ROW_ID } from './fixtures-intake.js';
 import { POSITION_ID } from './fixtures-valuations.js';
+import { WEEKLY_FILE_ID, WEEKLY_ROW_ID } from './fixtures-weekly.js';
 
 /* Contract-shaped synthetic fixtures for the exceptions pages (docs/12 section 4: synthetic data only). */
 
@@ -12,6 +13,7 @@ export const EXCEPTION_ID = {
   unmatched: '00000000-0000-4000-8000-000000000804',
   accounting: '00000000-0000-4000-8000-000000000805',
   resolved: '00000000-0000-4000-8000-000000000806',
+  weekly: '00000000-0000-4000-8000-000000000807',
 } as const;
 
 export const OPENED_AT = '2025-07-02T10:15:00.000Z';
@@ -148,6 +150,28 @@ export function exceptions(): DataException[] {
       },
     }),
   ];
+}
+
+/** An open exception the weekly intake opened on a staged value (stg.valuation) whose name it could not link. */
+export function weeklyExceptionFixture(overrides: Partial<DataException> = {}): DataException {
+  return exceptionFixture({
+    id: EXCEPTION_ID.weekly,
+    source: 'weekly_import',
+    entity: 'stg.valuation',
+    entityId: WEEKLY_ROW_ID.unmatched,
+    ruleId: 'WK-XREF-01',
+    expected: 'a position on record',
+    actual: 'Harbor Example Holdings',
+    context: {
+      intakeFileId: WEEKLY_FILE_ID.update,
+      intakeFileName: 'weekly-values-2025-06-27-update.csv',
+      rowNo: 8,
+      investmentId: null,
+      investmentNumber: null,
+      companyName: null,
+    },
+    ...overrides,
+  });
 }
 
 export function exceptionPageFixture(

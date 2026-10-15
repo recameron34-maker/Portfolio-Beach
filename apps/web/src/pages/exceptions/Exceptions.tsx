@@ -17,7 +17,7 @@ import {
   TableWrap,
   Toolbar,
 } from '../../components/ui.js';
-import { MISSING } from '../../lib/format.js';
+import { MISSING, plural } from '../../lib/format.js';
 import { exceptionsQuery } from './exceptions-queries.js';
 import type { ExceptionFilters } from './exceptions-queries.js';
 import {
@@ -28,11 +28,9 @@ import {
   EXCEPTIONS_META,
   exceptionStateWord,
   exceptionTone,
-  filterByFile,
   isExceptionState,
   knownSources,
   positionText,
-  queueCountLine,
   rowText,
   SEVERITIES,
   severityLabel,
@@ -133,8 +131,8 @@ function QueueCard({
   file: string | undefined;
   onFilters: (next: ExceptionFilters) => void;
 }): ReactNode {
-  const shown = file === undefined ? page.items : filterByFile(page.items, file);
-  const fileName = shown[0]?.context.intakeFileName ?? null;
+  // Opened from a run or a staged file, the API answered that file's exceptions alone.
+  const fileName = page.items[0]?.context.intakeFileName ?? null;
   const narrowed =
     file !== undefined ||
     filters.state !== undefined ||
@@ -143,7 +141,7 @@ function QueueCard({
   const now = new Date();
   return (
     <Card testId="exceptions-card">
-      <SectionHeader aside={queueCountLine(shown.length, page.items.length)}>Queue</SectionHeader>
+      <SectionHeader aside={plural(page.items.length, 'exception')}>Queue</SectionHeader>
       <Toolbar>
         <Field>
           <Label htmlFor="exceptions-state">State</Label>
@@ -214,7 +212,7 @@ function QueueCard({
           </Link>
         </p>
       )}
-      {shown.length === 0 ? (
+      {page.items.length === 0 ? (
         <EmptyState
           title="No exceptions match"
           detail={
@@ -225,7 +223,7 @@ function QueueCard({
           testId="exceptions-empty"
         />
       ) : (
-        <QueueTable items={shown} now={now} />
+        <QueueTable items={page.items} now={now} />
       )}
       {page.nextCursor !== null ? (
         <p className="pb-meta" data-testid="exceptions-truncated">
@@ -239,8 +237,8 @@ function QueueCard({
 /**
  * Data exceptions (docs/04 M1 Data Health, docs/18 section 9): what the intakes could not decide,
  * newest first, filtered by state, source and severity on the API; opened from a reconcile run
- * or a staged file, the queue shows that file's exceptions alone. Each exception is worked on its
- * own page.
+ * or a staged file, the queue asks the API for that file's exceptions alone (intakeFileId). Each
+ * exception is worked on its own page.
  */
 export function ExceptionsPage(): ReactNode {
   const search = useSearch({ from: '/app/data/exceptions' });
@@ -249,7 +247,10 @@ export function ExceptionsPage(): ReactNode {
     source: search.source,
     severity: search.severity,
   });
-  const q = useQuery({ ...exceptionsQuery(filters), placeholderData: keepPreviousData });
+  const q = useQuery({
+    ...exceptionsQuery({ ...filters, intakeFileId: search.file }),
+    placeholderData: keepPreviousData,
+  });
   if (q.isPending) return <PageSkeleton rows={6} />;
   if (q.isError) {
     return (

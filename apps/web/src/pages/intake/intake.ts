@@ -64,6 +64,24 @@ export function sourceWord(source: IntakeSource): string {
   return SOURCE_WORDS[source];
 }
 
+/** The pages that show one intake file; the accounting detail reads accounting and ops drop files only. */
+export type FileRoute = '/data/intake/$id' | '/data/weekly/$id' | '/data/lookthrough/$id';
+
+export const FILE_ROUTES: Readonly<Record<IntakeSource, FileRoute>> = {
+  accounting: '/data/intake/$id',
+  ops_drop: '/data/intake/$id',
+  weekly: '/data/weekly/$id',
+  lookthrough: '/data/lookthrough/$id',
+};
+
+/**
+ * Where a file in the list opens: the page of its source, so a weekly or a look-through file never
+ * lands on the accounting detail, which does not know it (404).
+ */
+export function fileRoute(source: IntakeSource): FileRoute {
+  return FILE_ROUTES[source];
+}
+
 /**
  * "Template: quarterly-figures" for a workbook the ops drop matched, "Template: none matched" for
  * one it refused (its file findings say which templates exist), and nothing for any other source.
@@ -281,25 +299,30 @@ export interface IntakeActions {
   reject: ActionGate;
 }
 
-/** The contract's route for intake commands: POST /intake/files/{id}/commands. */
-const COMMANDS_ROUTE_SUFFIX = '/intake/files/{id}/commands';
+/** The contract's route for accounting intake commands: POST /intake/files/{id}/commands. */
+export const INTAKE_COMMANDS_ROUTE = '/intake/files/{id}/commands';
 
 /**
- * Roles that may issue intake commands at all, read from the commands route in the contract
- * (packages/contracts routes.ts) so the page never keeps its own copy of that list. Were the
- * route missing, nobody would be offered a command, which the unit test catches.
+ * Roles that may issue the commands of a route at all, read from that route in the contract
+ * (packages/contracts routes.ts) so no page keeps its own copy of the list. Were the route
+ * missing, nobody would be offered a command, which the unit tests catch.
  */
-export const COMMAND_ROLES: readonly string[] =
-  ROUTES.find((r) => r.method === 'POST' && r.path.endsWith(COMMANDS_ROUTE_SUFFIX))?.roles ?? [];
+export function commandRoles(routeSuffix: string): readonly string[] {
+  return ROUTES.find((r) => r.method === 'POST' && r.path.endsWith(routeSuffix))?.roles ?? [];
+}
+
+/** Roles that may issue accounting intake commands. */
+export const COMMAND_ROLES: readonly string[] = commandRoles(INTAKE_COMMANDS_ROUTE);
 
 function gate(
+  allowed: readonly string[],
   roles: readonly string[],
   from: StagingState,
   command: 'approve' | 'reject',
   count: number,
   nothing: string,
 ): ActionGate {
-  const offered = roles.some((r) => COMMAND_ROLES.includes(r));
+  const offered = roles.some((r) => allowed.includes(r));
   const option = commandOptions(stagingMachine, from, roles).find((o) => o.command === command);
   if (!offered || option === undefined) return { offered, enabled: false, title: null };
   if (!option.allowed)
@@ -313,14 +336,19 @@ function gate(
  * (docs/18 section 2): approve from validated for operations and the deal team, reject from
  * flagged for operations. A command acts on the rows the reviewer sees, so the gate counts those,
  * not the file's counts: a validated row past the reviewer's wall is counted in hiddenRows and
- * waits for a wall member. A button with nothing to act on is disabled and says so.
+ * waits for a wall member. A button with nothing to act on is disabled and says so. Whether a
+ * command is offered at all is read from the commands route of the intake the page serves: the
+ * accounting route unless the page names its own (the weekly page passes the weekly route).
  */
 export function intakeActions(
   roles: readonly string[],
   rows: readonly Pick<IntakeRow, 'status'>[],
+  commandsRoute: string = INTAKE_COMMANDS_ROUTE,
 ): IntakeActions {
+  const allowed = commandRoles(commandsRoute);
   return {
     approve: gate(
+      allowed,
       roles,
       'validated',
       'approve',
@@ -328,6 +356,7 @@ export function intakeActions(
       'No validated rows you can see to approve',
     ),
     reject: gate(
+      allowed,
       roles,
       'flagged',
       'reject',

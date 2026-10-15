@@ -37,6 +37,11 @@ export const SEVERITIES = [
   'exception_severity.medium',
   'exception_severity.low',
 ] as const;
+export type Severity = (typeof SEVERITIES)[number];
+
+export function isSeverity(value: string): value is Severity {
+  return (SEVERITIES as readonly string[]).includes(value);
+}
 
 const SEVERITY_TONES: Readonly<Record<string, Tone>> = {
   'exception_severity.high': 'bad',
@@ -88,15 +93,15 @@ export function knownSources(items: readonly Pick<DataException, 'source'>[]): s
 }
 
 export interface ContextLink {
-  to: '/data/lookthrough/$id' | '/data/intake/$id';
+  to: '/data/lookthrough/$id' | '/data/intake/$id' | '/data/weekly/$id';
   params: { id: string };
   label: string;
 }
 
 /**
  * Where the staged row an exception is about can be read: the reconcile run for a look-through
- * exception, the intake file for a staged row of any other intake. A staged value (the weekly
- * intake) has its own page, which this page does not know; the file is named without a link.
+ * exception, the weekly file for a staged value (stg.valuation), the intake file for a staged row
+ * of any other intake (stg.intake_row). An exception about nothing staged names its entity only.
  */
 export function contextLink(x: DataException): ContextLink | null {
   const id = x.context.intakeFileId;
@@ -104,6 +109,7 @@ export function contextLink(x: DataException): ContextLink | null {
   const label = x.context.intakeFileName ?? 'the staged file';
   if (x.source === 'lookthrough_reconcile')
     return { to: '/data/lookthrough/$id', params: { id }, label };
+  if (x.entity === 'stg.valuation') return { to: '/data/weekly/$id', params: { id }, label };
   if (x.entity === 'stg.intake_row') return { to: '/data/intake/$id', params: { id }, label };
   return null;
 }
@@ -205,12 +211,32 @@ export function isTicket(text: string): boolean {
   return trimmed.length >= 1 && trimmed.length <= MAX_TICKET_LENGTH;
 }
 
-/** The exceptions of one staged file, when the page was opened from a run or a file. */
-export function filterByFile(items: readonly DataException[], fileId: string): DataException[] {
-  return items.filter((x) => x.context.intakeFileId === fileId);
+/** The search of the queue's address: the API filters, and the file a run or a staged file opened it from. */
+export interface ExceptionsSearch {
+  file?: string;
+  state?: DataExceptionState;
+  source?: string;
+  severity?: Severity;
 }
 
-/** "3 of 12 exceptions": what the queue card says of its rows. */
-export function queueCountLine(shown: number, total: number): string {
-  return `${shown} of ${total} exception${total === 1 ? '' : 's'}`;
+/**
+ * The queue's search as the router validates it: a state the transition table knows and a
+ * severity the taxonomy lists are kept, any other value is dropped, so a stale bookmark opens the
+ * whole queue rather than an error page. The file and the source are free text the API reads.
+ */
+export function parseExceptionsSearch(search: Record<string, unknown>): ExceptionsSearch {
+  const text = (key: string): string | null => {
+    const value = search[key];
+    return typeof value === 'string' && value !== '' ? value : null;
+  };
+  const file = text('file');
+  const state = text('state');
+  const source = text('source');
+  const severity = text('severity');
+  return {
+    ...(file === null ? {} : { file }),
+    ...(state !== null && isExceptionState(state) ? { state } : {}),
+    ...(source === null ? {} : { source }),
+    ...(severity !== null && isSeverity(severity) ? { severity } : {}),
+  };
 }

@@ -15,16 +15,20 @@ import {
   candidatesText,
   COMMAND_ROLES,
   commandResult,
+  commandRoles,
   countsLine,
   dayOf,
   describeChange,
   EMPTY_FILE_PROBLEM,
   exactMoney,
   exceptionsText,
+  FILE_ROUTES,
+  fileRoute,
   filterRows,
   findingDetail,
   findingTone,
   hiddenRowsNote,
+  INTAKE_COMMANDS_ROUTE,
   INTAKE_FILTER_STATES,
   intakeActions,
   isStagingState,
@@ -36,6 +40,7 @@ import {
   rowSubject,
   sampleFileName,
   sampleUrl,
+  SOURCE_WORDS,
   sourceWord,
   templateLine,
   uploadSizeProblem,
@@ -193,6 +198,15 @@ describe('intake helpers', () => {
     expect(approvableRows([intakeRowFixture({ status: 'approved' })])).toEqual([]);
   });
 
+  it('opens each file on the page of its source, never a weekly or a look-through file on the accounting detail', () => {
+    expect(fileRoute('accounting')).toBe('/data/intake/$id');
+    expect(fileRoute('ops_drop')).toBe('/data/intake/$id');
+    expect(fileRoute('weekly')).toBe('/data/weekly/$id');
+    expect(fileRoute('lookthrough')).toBe('/data/lookthrough/$id');
+    // Every source the list can name has a page.
+    expect(Object.keys(FILE_ROUTES).sort()).toEqual(Object.keys(SOURCE_WORDS).sort());
+  });
+
   it('offers commands to the roles the contract names on the commands route, never a copy of them', () => {
     const route = ROUTES.find(
       (r) => r.method === 'POST' && r.path === `${API_PREFIX}/intake/files/{id}/commands`,
@@ -200,6 +214,15 @@ describe('intake helpers', () => {
     expect(route).toBeDefined();
     expect(COMMAND_ROLES.length).toBeGreaterThan(0);
     expect(COMMAND_ROLES).toEqual(route?.roles);
+    expect(commandRoles(INTAKE_COMMANDS_ROUTE)).toEqual(COMMAND_ROLES);
+    // The gate reads the route it is given: one the contract lacks offers nothing to anyone.
+    expect(commandRoles('/intake/no-such-route/{id}/commands')).toEqual([]);
+    const none = intakeActions(['operations'], intakeRows(), '/intake/no-such-route/{id}/commands');
+    expect(none.approve.offered).toBe(false);
+    expect(none.reject.offered).toBe(false);
+    expect(intakeActions(['operations'], intakeRows(), INTAKE_COMMANDS_ROUTE)).toEqual(
+      intakeActions(['operations'], intakeRows()),
+    );
     // The route agrees with the staging table: whoever may approve or reject a row may call it.
     const fromTable = new Set(
       stagingMachine.transitions

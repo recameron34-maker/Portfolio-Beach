@@ -3,10 +3,16 @@ import { cleanup, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { failing, mockApi, ok } from '../../test/api-mock.js';
 import type { MockRoutes } from '../../test/api-mock.js';
-import { EXCEPTION_ID, exceptionPageFixture, exceptions } from '../../test/fixtures-exceptions.js';
+import {
+  EXCEPTION_ID,
+  exceptionPageFixture,
+  exceptions,
+  weeklyExceptionFixture,
+} from '../../test/fixtures-exceptions.js';
 import { FILE_ID } from '../../test/fixtures-intake.js';
 import { RUN_ID } from '../../test/fixtures-lookthrough.js';
 import { POSITION_ID, sentRequests } from '../../test/fixtures-valuations.js';
+import { WEEKLY_FILE_ID } from '../../test/fixtures-weekly.js';
 import { renderWithQuery } from '../../test/render.js';
 import { ExceptionsPage } from './Exceptions.js';
 
@@ -27,6 +33,7 @@ const TIMEOUT = { timeout: 15_000 };
 /** The queue as the API filters it: every parameter the page sends narrows the fixture. */
 function filtered(): MockRoutes[string] {
   return (url: URL) => {
+    const intakeFileId = url.searchParams.get('intakeFileId');
     const state = url.searchParams.get('state');
     const source = url.searchParams.get('source');
     const severity = url.searchParams.get('severity');
@@ -34,6 +41,7 @@ function filtered(): MockRoutes[string] {
       exceptionPageFixture(
         exceptions().filter(
           (x) =>
+            (intakeFileId === null || x.context.intakeFileId === intakeFileId) &&
             (state === null || x.state === state) &&
             (source === null || x.source === source) &&
             (severity === null || x.severity === severity),
@@ -78,7 +86,7 @@ describe('the exceptions queue', () => {
     expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('Exceptions');
     expect(screen.getByTestId('exceptions-table')).toBe(table);
     expect(within(table).getAllByRole('row')).toHaveLength(7);
-    expect(screen.getByText('6 of 6 exceptions')).toBeInTheDocument();
+    expect(screen.getByText('6 exceptions')).toBeInTheDocument();
     expect(sentRequests().map(([url]) => url)).toEqual([`${LIST}?limit=200`]);
 
     const nav = rowOf('21500000.00');
@@ -149,14 +157,17 @@ describe('the exceptions queue', () => {
     );
   });
 
-  it('starts from the filters in the address, and shows one run’s exceptions when opened from it', async () => {
+  it('starts from the filters in the address, and asks the API for one run’s exceptions when opened from it', async () => {
     mockApi(routes());
     route.search = { state: 'open', file: RUN_ID.defects };
     renderWithQuery(<ExceptionsPage />);
     await screen.findByRole('table', { name: 'Data exceptions' });
-    expect(sentRequests().map(([url]) => url)).toEqual([`${LIST}?limit=200&state=open`]);
+    // The run's file id travels as intakeFileId; the page filters nothing itself.
+    expect(sentRequests().map(([url]) => url)).toEqual([
+      `${LIST}?limit=200&intakeFileId=${RUN_ID.defects}&state=open`,
+    ]);
     expect(rows()).toHaveLength(4);
-    expect(screen.getByText('4 of 4 exceptions')).toBeInTheDocument();
+    expect(screen.getByText('4 exceptions')).toBeInTheDocument();
     const note = screen.getByTestId('exceptions-file-note');
     expect(note).toHaveTextContent('Showing the exceptions of lookthrough-2025-06-30.json.');
     expect(within(note).getByRole('link', { name: 'Show every exception' })).toHaveAttribute(
@@ -164,6 +175,19 @@ describe('the exceptions queue', () => {
       '/data/exceptions',
     );
     expect(screen.getByRole('combobox', { name: 'State' })).toHaveTextContent('Open');
+  });
+
+  it("links a staged value's context to its weekly file, as a staged row's to its intake file", async () => {
+    mockApi(routes({ [LIST]: ok(exceptionPageFixture([weeklyExceptionFixture()])) }));
+    renderWithQuery(<ExceptionsPage />);
+    await screen.findByRole('table', { name: 'Data exceptions' });
+    const row = rowOf('Harbor Example Holdings');
+    expect(within(row).getByText('Weekly values')).toBeInTheDocument();
+    expect(
+      within(row).getByRole('link', { name: 'weekly-values-2025-06-27-update.csv' }),
+    ).toHaveAttribute('href', `/data/weekly/${WEEKLY_FILE_ID.update}`);
+    expect(within(row).getByText('Row 8')).toHaveClass('pb-key');
+    expect(screen.getByText('1 exception')).toBeInTheDocument();
   });
 
   it('says when nothing is waiting, and when only the first page is shown', async () => {

@@ -33,6 +33,7 @@ import { WeeklyPage } from '../pages/weekly/Weekly.js';
 import { WeeklyFilePage } from '../pages/weekly/WeeklyFile.js';
 import { ExceptionDetailPage } from '../pages/exceptions/ExceptionDetail.js';
 import { ExceptionsPage } from '../pages/exceptions/Exceptions.js';
+import { parseExceptionsSearch } from '../pages/exceptions/exceptions.js';
 import { LookthroughPage } from '../pages/lookthrough/Lookthrough.js';
 import { LookthroughRunPage } from '../pages/lookthrough/LookthroughRun.js';
 import { ActivityTab } from '../pages/deal/ActivityTab.js';
@@ -168,18 +169,15 @@ const dataLookthroughRunRoute = createRoute({
   validateSearch: (search: Record<string, unknown>): { duplicate?: boolean } =>
     search.duplicate === true || search.duplicate === 'true' ? { duplicate: true } : {},
 });
-/** The exceptions queue; the search carries the API filters and, from a run or a file, that file's id. */
+/**
+ * The exceptions queue; the search carries the API filters and, from a run or a file, that file's
+ * id. A state or a severity the queue does not know is dropped, never an error page.
+ */
 const dataExceptionsRoute = createRoute({
   getParentRoute: () => appRoute,
   path: '/data/exceptions',
   component: ExceptionsPage,
-  validateSearch: (
-    search: Record<string, unknown>,
-  ): { file?: string; state?: string; source?: string; severity?: string } => {
-    const text = (key: string): Record<string, string> =>
-      typeof search[key] === 'string' && search[key] !== '' ? { [key]: search[key] } : {};
-    return { ...text('file'), ...text('state'), ...text('source'), ...text('severity') };
-  },
+  validateSearch: parseExceptionsSearch,
 });
 const dataExceptionRoute = child('/data/exceptions/$id', ExceptionDetailPage);
 

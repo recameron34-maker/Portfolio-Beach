@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { cleanup, screen, waitFor, within } from '@testing-library/react';
+import { act, cleanup, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import type { DataException } from '@pb/contracts';
 import { failing, mockApi, ok } from '../../test/api-mock.js';
@@ -11,7 +11,12 @@ import {
   exceptions,
 } from '../../test/fixtures-exceptions.js';
 import { RUN_ID } from '../../test/fixtures-lookthrough.js';
-import { POSITION_ID, rolePrincipal, sentPosts } from '../../test/fixtures-valuations.js';
+import {
+  POSITION_ID,
+  rolePrincipal,
+  sentPosts,
+  sentRequests,
+} from '../../test/fixtures-valuations.js';
 import { renderWithQuery } from '../../test/render.js';
 import { ExceptionDetailPage } from './ExceptionDetail.js';
 
@@ -200,6 +205,42 @@ describe('an exception', () => {
     ).toBeInTheDocument();
     expect(status()).toHaveClass('pb-action-status');
     expect(within(banner()).getByText('Open')).toBeInTheDocument();
+  });
+
+  it('keeps the skeleton until the roles are known, so operations never reads the read-only note for a moment', async () => {
+    mockApi(routes(['operations']));
+    // The exception answers at once; the identity waits until the test releases it.
+    const answer = vi.mocked(globalThis.fetch).getMockImplementation();
+    if (answer === undefined) throw new Error('fetch is not mocked');
+    let release: ((response: Response) => void) | null = null;
+    const identity = new Promise<Response>((resolve) => {
+      release = resolve;
+    });
+    vi.mocked(globalThis.fetch).mockImplementation((input, init) => {
+      const raw = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
+      return new URL(raw, 'http://test.local').pathname === ME ? identity : answer(input, init);
+    });
+    renderWithQuery(<ExceptionDetailPage />);
+    await waitFor(() => expect(sentRequests().map(([url]) => url)).toContain(ME));
+    await waitFor(() =>
+      expect(sentRequests().map(([url]) => url)).toContain(detailPath(EXCEPTION_ID.nav)),
+    );
+    // Let the exception's answer settle: the page still waits for the roles.
+    await act(() => new Promise<void>((resolve) => setTimeout(resolve, 25)));
+    expect(screen.getByText('Loading')).toBeInTheDocument();
+    expect(screen.queryByTestId('exception-banner')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('exception-read-only')).not.toBeInTheDocument();
+
+    if (release === null) throw new Error('the identity request was never made');
+    (release as (response: Response) => void)(
+      new Response(JSON.stringify(rolePrincipal(['operations'])), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      }),
+    );
+    await screen.findByTestId('exception-banner');
+    expect(screen.getByRole('button', { name: 'Acknowledge' })).toBeEnabled();
+    expect(screen.queryByTestId('exception-read-only')).not.toBeInTheDocument();
   });
 
   it('offers no action to the reviewing roles, and no transition on a closed exception', async () => {

@@ -1,3 +1,4 @@
+import { expect } from '@playwright/test';
 import type { Page } from '@playwright/test';
 import { generateDataset } from '@pb/synthetic';
 
@@ -34,4 +35,13 @@ export async function signInAs(page: Page, externalId: string, d: E2eDataset): P
   await page.goto('/sign-in');
   await page.getByRole('button', { name: new RegExp(user.displayName) }).click();
   await page.getByTestId('current-user').waitFor();
+}
+
+/** Switches the acting user through the shell's role switcher (the prototype's sign-in). */
+export async function switchTo(page: Page, externalId: string, d: E2eDataset): Promise<void> {
+  const user = d.users.find((u) => u.externalId === externalId);
+  if (!user) throw new Error(`no user ${externalId}`);
+  await page.getByTestId('role-switcher').click();
+  await page.getByRole('option', { name: new RegExp(user.displayName) }).click();
+  await expect(page.getByTestId('current-user')).toHaveText(user.displayName);
 }

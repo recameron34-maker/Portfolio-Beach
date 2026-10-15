@@ -1,13 +1,34 @@
+import { mkdirSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
 import AxeBuilder from '@axe-core/playwright';
 import { expect, test } from '@playwright/test';
 import type { Locator, Page } from '@playwright/test';
-import { generateDataset } from '@pb/synthetic';
+import { generateDataset, lookthroughExtract, weeklyValues } from '@pb/synthetic';
 import { ANALYTICS_TABS, DEAL_TABS } from '../src/app/nav.js';
 import { loadDataset, signInAs, walledDeal } from './fixtures.js';
 
 /** WCAG 2.1 AA with zero critical or serious issues on every page (docs/12 section 1, docs/17 section 9). */
 const d = loadDataset();
 const full = generateDataset({ profile: 'small', seed: 42 });
+
+/**
+ * What the intake pages need before they can be scanned, built from the same dataset the API is
+ * seeded with: the weekly values with defects (findings on the file page, and the exceptions its
+ * unlinked names open) and a clean look-through extract for the record's as-of date (a run that
+ * agrees). Neither is the file the intake journeys stage, so their first import stays no duplicate.
+ */
+const weeklyDefects = weeklyValues(full, { scenario: 'defects' });
+const cleanExtract = lookthroughExtract(full, { scenario: 'clean' });
+
+test.beforeAll(() => {
+  // The e2e API reads the look-through folder under its scratch (scripts/e2e-api.mjs sets
+  // PB_DROP_ROOT there); the folder provider reads <asOf>.json at request time.
+  const scratch: unknown = test.info().config.metadata.scratch;
+  if (typeof scratch !== 'string') throw new Error('the Playwright config names no scratch folder');
+  const folder = join(scratch, 'drops', 'lookthrough');
+  mkdirSync(folder, { recursive: true });
+  writeFileSync(join(folder, `${cleanExtract.asOf}.json`), cleanExtract.json);
+});
 
 /** The rule ids and node counts axe reports as serious or critical on the page as it stands. */
 async function seriousViolations(page: Page): Promise<string[]> {
@@ -152,6 +173,48 @@ async function scanPages(page: Page, visits: readonly Visit[]): Promise<void> {
   expect(findings).toEqual([]);
 }
 
+/**
+ * Stages what the intake pages need, as operations, and names them: the weekly list and the file
+ * just staged, the look-through list and the run just reconciled, the queue and one exception on
+ * it. Staged once per width, so the second time the same file is a duplicate and says so in the
+ * search; the page is the same.
+ */
+async function stageIntakePages(page: Page): Promise<Visit[]> {
+  await page.goto('/data/weekly');
+  await page.getByLabel('Weekly values (CSV)').setInputFiles({
+    name: weeklyDefects.fileName,
+    mimeType: 'text/csv',
+    buffer: Buffer.from(weeklyDefects.csv, 'utf8'),
+  });
+  await page.getByRole('button', { name: 'Stage weekly values' }).click();
+  await expect(page).toHaveURL(/\/data\/weekly\/[0-9a-f-]{36}(\?duplicate=true)?$/);
+  const weeklyFile = new URL(page.url()).pathname;
+
+  await page.goto('/data/lookthrough');
+  await page.getByTestId('lookthrough-run').getByRole('button', { name: 'Reconcile' }).click();
+  await expect(page).toHaveURL(/\/data\/lookthrough\/[0-9a-f-]{36}(\?duplicate=true)?$/, {
+    timeout: 30_000,
+  });
+  const run = new URL(page.url()).pathname;
+
+  await page.goto('/data/exceptions');
+  const exception = await page
+    .getByRole('table', { name: 'Data exceptions' })
+    .locator('a[href^="/data/exceptions/"]')
+    .first()
+    .getAttribute('href');
+  if (exception === null) throw new Error('the queue lists no exception');
+
+  return [
+    { path: '/data/weekly', ready: (p) => p.getByTestId('weekly-upload') },
+    { path: weeklyFile, ready: (p) => p.getByTestId('weekly-banner') },
+    { path: '/data/lookthrough', ready: (p) => p.getByTestId('lookthrough-run') },
+    { path: run, ready: (p) => p.getByTestId('lookthrough-banner') },
+    { path: '/data/exceptions', ready: (p) => p.getByTestId('exceptions-table') },
+    { path: exception, ready: (p) => p.getByTestId('exception-banner') },
+  ];
+}
+
 for (const width of [1280, 390]) {
   test.describe(`at ${width} pixels wide`, () => {
     test.use({ viewport: { width, height: 900 } });
@@ -182,6 +245,14 @@ for (const width of [1280, 390]) {
       test.setTimeout(120_000);
       await signInAs(page, 'ops.one', d);
       await scanPages(page, EARLIER_PAGES);
+    });
+
+    test(`operations: weekly values, look-through and the exceptions queue @a11y`, async ({
+      page,
+    }) => {
+      test.setTimeout(180_000);
+      await signInAs(page, 'ops.one', d);
+      await scanPages(page, await stageIntakePages(page));
     });
 
     test(`operations: every deal workspace tab @a11y`, async ({ page }) => {

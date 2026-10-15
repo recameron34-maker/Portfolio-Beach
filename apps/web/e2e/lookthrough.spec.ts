@@ -1,9 +1,8 @@
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { expect, test } from '@playwright/test';
-import type { Page } from '@playwright/test';
 import { generateDataset, lookthroughExtract } from '@pb/synthetic';
-import { loadDataset, signInAs, walledDeal } from './fixtures.js';
+import { loadDataset, signInAs, switchTo, walledDeal } from './fixtures.js';
 
 /**
  * Look-through reconcile and the exceptions queue (docs/04 M2 lookthrough-reconcile, M1 Data
@@ -28,15 +27,6 @@ const exceptionsOpened =
 
 const walled = walledDeal(d);
 const walledNumber = d.investments.find((i) => i.id === walled.id)?.investmentNumber ?? '';
-
-/** Switches the acting user through the shell's role switcher (the prototype's sign-in). */
-async function switchTo(page: Page, externalId: string): Promise<void> {
-  const user = d.users.find((u) => u.externalId === externalId);
-  if (!user) throw new Error(`no user ${externalId}`);
-  await page.getByTestId('role-switcher').click();
-  await page.getByRole('option', { name: new RegExp(user.displayName) }).click();
-  await expect(page.getByTestId('current-user')).toHaveText(user.displayName);
-}
 
 test.beforeAll(() => {
   // The e2e API reads the look-through folder under its scratch (scripts/e2e-api.mjs sets
@@ -135,7 +125,7 @@ test('operations reconciles the defects extract, reads its differences and works
   await expect(whole.getByRole('row').filter({ hasText: 'Resolved' })).toHaveCount(1);
 
   // A wall member sees the walled rows of the run, the stale one with its finding.
-  await switchTo(page, 'deal.three');
+  await switchTo(page, 'deal.three', d);
   await page.goto(runUrl);
   await expect(page.getByTestId('lookthrough-banner')).toContainText(
     `lookthrough-${defects.asOf}.json`,
@@ -149,7 +139,7 @@ test('operations reconciles the defects extract, reads its differences and works
   await expect(memberRows.getByText('LT-STALE-01', { exact: true })).toHaveCount(1);
 
   // Back as operations: the same extract again is a duplicate and stages nothing new.
-  await switchTo(page, 'ops.one');
+  await switchTo(page, 'ops.one', d);
   await page.goto('/data/lookthrough');
   await page.getByTestId('lookthrough-run').getByRole('button', { name: 'Reconcile' }).click();
   await expect(page.getByTestId('lookthrough-duplicate')).toBeVisible({ timeout: 30_000 });

@@ -33,6 +33,7 @@ import {
   dayOf,
   EMPTY_FILE_PROBLEM,
   exceptionsText,
+  fileRoute,
   INTAKE_FORBIDDEN,
   INTAKE_META,
   MAX_WORKBOOK_BYTES,
@@ -374,7 +375,7 @@ function FilesTable({ files }: { files: readonly IntakeFile[] }): ReactNode {
           {files.map((file) => (
             <tr key={file.id}>
               <td>
-                <Link to="/data/intake/$id" params={{ id: file.id }}>
+                <Link to={fileRoute(file.source)} params={{ id: file.id }}>
                   {file.fileName}
                 </Link>
               </td>
@@ -430,9 +431,10 @@ function FilesCard({ page, isOps }: { page: IntakeFilePage; isOps: boolean }): R
 }
 
 /**
- * Intake (docs/04 M2, SEC-9.1): the files staged from the accounting system, newest first, and
- * for operations the ways to stage another. Every row stays in staging until a reviewer approves
- * it on the file's own page.
+ * Intake (docs/04 M2, SEC-9.1): every intake file (accounting exports, operations workbooks,
+ * weekly values and look-through runs), newest first, each opening on the page of its source,
+ * and for operations the ways to stage an export or a workbook. Every row stays in staging until
+ * a reviewer approves it on the file's own page.
  */
 export function IntakePage(): ReactNode {
   const me = useQuery(meQuery);
