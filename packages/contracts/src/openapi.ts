@@ -49,7 +49,11 @@ export function buildOpenApi(
       responses: {
         [String(route.responseStatus ?? 200)]: {
           description: 'Success',
-          content: { 'application/json': { schema: jsonSchema(route.response) } },
+          content: {
+            [route.responseContentType ?? 'application/json']: {
+              schema: jsonSchema(route.response),
+            },
+          },
         },
         '4XX': {
           description: 'Problem details (RFC 9457)',
