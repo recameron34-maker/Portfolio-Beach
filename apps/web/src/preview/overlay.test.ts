@@ -4,13 +4,14 @@ import { Recordings } from './fixtures.js';
 import {
   overlayCapitalNoticeDetail,
   overlayCapitalNoticePage,
+  overlayDataHealth,
   overlayFlags,
   overlayInvestmentDetail,
   overlayRecordedBody,
   overlayValuationPage,
 } from './overlay.js';
 import { createPreviewState } from './state.js';
-import type { SimNotice, SimValuation } from './state.js';
+import type { SimException, SimNotice, SimValuation } from './state.js';
 import {
   AS_OF,
   FixtureBuilder,
@@ -177,6 +178,56 @@ describe('flag overlay and the recorded-body dispatcher', () => {
     const list = { flags: [{ key: 'ai.extraction', enabled: false, description: 'd' }] };
     expect(overlayFlags(list, new Map([['ai.extraction', true]])).flags[0]?.enabled).toBe(true);
     expect(overlayFlags(list, new Map([['other', true]]))).toBe(list);
+  });
+
+  it('adds the open and acknowledged simulated exceptions to the recorded Data Health count', () => {
+    const health = {
+      asOf: AS_OF,
+      orphanInvestments: 0,
+      openExceptions: 2,
+      staleInvestments: 0,
+      staleAfterDays: 75,
+      vehiclesWithOwnershipGap: [],
+      lockedValuationsLatestQuarter: 1,
+      activeInvestments: 1,
+    };
+    const exception = (id: string, state: SimException['state']): SimException => ({
+      id,
+      source: 'accounting_import',
+      entity: 'stg.intake_row',
+      entityId: 'r',
+      ruleId: 'TIE-01',
+      expected: null,
+      actual: null,
+      severity: 'exception_severity.high',
+      ownerId: null,
+      ownerName: null,
+      state,
+      externalTicket: null,
+      candidates: [],
+      createdAt: '2025-07-01T00:00:00.000Z',
+      updatedAt: '2025-07-01T00:00:00.000Z',
+      rowVersion: 1,
+      context: { intakeFileId: 'f', intakeFileName: 'x.csv', rowNo: 1, investmentId: null },
+    });
+    expect(overlayDataHealth(health, [])).toBe(health);
+    expect(
+      overlayDataHealth(health, [
+        exception('a', 'open'),
+        exception('b', 'acknowledged'),
+        exception('c', 'resolved'),
+        exception('d', 'wont_fix'),
+      ]).openExceptions,
+    ).toBe(4);
+    const recordings = new Recordings(new FixtureBuilder([USERS.viewer]).build());
+    const state = createPreviewState();
+    state.exceptions.set('a', exception('a', 'open'));
+    const url = new URL('http://x.invalid/api/v1/data-health');
+    const text = JSON.stringify(health);
+    const out = JSON.parse(
+      overlayRecordedBody(url, text, { credential: 'viewer.one', recordings, state }),
+    ) as typeof health;
+    expect(out.openExceptions).toBe(3);
   });
 
   it('leaves the recorded text untouched when no overlay applies or the body is off contract', () => {

@@ -15,7 +15,7 @@ import { sha256Hex, subtleCrypto } from '../hash.js';
 import { overlayInvestmentDetail } from '../overlay.js';
 import { jsonResponse, problem, workflowProblem } from '../problems.js';
 import { ensureValuations, personFor } from '../state.js';
-import type { SimValuation } from '../state.js';
+import type { SimActor, SimValuation } from '../state.js';
 import { defineSimRoute, recordActivity, staleIfMatch } from './common.js';
 import type { SimContext } from './common.js';
 
@@ -29,7 +29,7 @@ import type { SimContext } from './common.js';
 const NOT_FOUND = 'Valuation not found';
 const POSITIVE_DECIMAL = /^\d+(\.\d+)?$/;
 
-function readDetail(
+export function readDetail(
   ctx: SimContext,
   credential: string,
   investmentId: string,
@@ -105,6 +105,71 @@ const freshFields = {
   rowVersion: 1,
 } as const;
 
+/** What a new Draft version takes: the period, the method and the value, and who prepared it when a staged value made it. */
+export interface DraftInput {
+  periodEnd: string;
+  method: string;
+  fairValue: string;
+  /** The reviewer whose approval of a staged weekly value created the Draft (the API's preparedBy); none for a Draft started on the board. */
+  preparedBy?: SimActor | undefined;
+}
+
+/**
+ * The "(new) to Draft" row of docs/18 section 1 as a simulated record: the next version for the
+ * investment and period among the versions the credential can see, its quarter and its prior
+ * Locked mark by the API's rules (@pb/calc, which only this lazily loaded chunk bundles), added
+ * to the valuation sims so the board and the one-pager show it. The caller checks what may refuse
+ * first (an inactive investment, a Locked quarter) and records the activity.
+ */
+export function createDraft(
+  ctx: SimContext,
+  credential: string,
+  detail: InvestmentDetail,
+  input: DraftInput,
+): ValuationRow {
+  const sims = ensureValuations(ctx.state, ctx.recordings);
+  const versions = versionsOf(ctx, credential, detail.id);
+  const { periodEnd, method, fairValue } = input;
+  const quarterEnd = alignedQuarterEnd(periodEnd, TOLERANCE_DAYS);
+  // The API's rule (packages/calc): the Locked mark that reports for the quarter before this
+  // one; the highest version first so the latest version wins.
+  const prior =
+    lockedNear(
+      [...versions].sort((a, b) => b.version - a.version),
+      latestQuarterEndOnOrBefore(addDays(quarterEnd, -1)),
+      TOLERANCE_DAYS,
+    ) ?? undefined;
+  const row: ValuationRow = {
+    ...freshFields,
+    id: ctx.env.newId(),
+    investmentId: detail.id,
+    investmentNumber: detail.investmentNumber,
+    companyName: detail.companyName,
+    vehicleName: detail.vehicleName,
+    dealType: detail.dealType,
+    periodEnd,
+    quarterEnd,
+    version: nextVersion(versions, sims.values(), detail.id, periodEnd),
+    method,
+    fairValue,
+    priorFairValue: prior?.fairValue ?? null,
+    // The API's rule from @pb/calc (docs/08 section 2): null without a recorded prior Locked
+    // mark or against a zero one.
+    changePct: toDecimalString(valueChange(fairValue, prior?.fairValue ?? null)),
+    preparedBy: input.preparedBy?.displayName ?? null,
+  };
+  sims.set(row.id, {
+    row,
+    origin: 'created',
+    changed: true,
+    vehicleId: detail.vehicleId,
+    preparedByIds: input.preparedBy === undefined ? [] : [input.preparedBy.userId],
+    dealTeamApprovedByIds: [],
+    approvedByIds: [],
+  });
+  return row;
+}
+
 export const createValuationRoute = defineSimRoute({
   method: 'POST',
   path: '/api/v1/valuations',
@@ -113,7 +178,6 @@ export const createValuationRoute = defineSimRoute({
   idempotent: true,
   handle: (req, ctx) => {
     const instance = req.url.pathname;
-    const sims = ensureValuations(ctx.state, ctx.recordings);
     const detail = readDetail(ctx, req.credential, req.body.investmentId);
     if (detail === undefined)
       return problem(404, 'not-found', 'Investment not found', { instance, simulated: true });
@@ -123,7 +187,7 @@ export const createValuationRoute = defineSimRoute({
         simulated: true,
       });
     const versions = versionsOf(ctx, req.credential, detail.id);
-    const { periodEnd, method, fairValue } = req.body;
+    const { periodEnd } = req.body;
     if (periodEnd < detail.entryDate)
       return problem(
         422,
@@ -133,7 +197,6 @@ export const createValuationRoute = defineSimRoute({
       );
     // One version chain per quarter: a sponsor reporting a few days early or late is the same
     // quarter (alignedQuarterEnd), so its versions block a second chain at the quarter end.
-    const quarterEnd = alignedQuarterEnd(periodEnd, TOLERANCE_DAYS);
     const sameQuarter = sameQuarterAs(versions, periodEnd);
     if (closedByLock(sameQuarter))
       return problem(
@@ -149,41 +212,7 @@ export const createValuationRoute = defineSimRoute({
         'valuation: a version for this investment and quarter is already in progress; continue that version',
         { instance, simulated: true },
       );
-    // The API's rule (packages/calc): the Locked mark that reports for the quarter before this
-    // one; the highest version first so the latest version wins.
-    const prior =
-      lockedNear(
-        [...versions].sort((a, b) => b.version - a.version),
-        latestQuarterEndOnOrBefore(addDays(quarterEnd, -1)),
-        TOLERANCE_DAYS,
-      ) ?? undefined;
-    const row: ValuationRow = {
-      ...freshFields,
-      id: ctx.env.newId(),
-      investmentId: detail.id,
-      investmentNumber: detail.investmentNumber,
-      companyName: detail.companyName,
-      vehicleName: detail.vehicleName,
-      dealType: detail.dealType,
-      periodEnd,
-      quarterEnd,
-      version: nextVersion(versions, sims.values(), detail.id, periodEnd),
-      method,
-      fairValue,
-      priorFairValue: prior?.fairValue ?? null,
-      // The API's rule from @pb/calc (docs/08 section 2), which only this lazily loaded chunk
-      // bundles: null without a recorded prior Locked mark or against a zero one.
-      changePct: toDecimalString(valueChange(fairValue, prior?.fairValue ?? null)),
-    };
-    sims.set(row.id, {
-      row,
-      origin: 'created',
-      changed: true,
-      vehicleId: detail.vehicleId,
-      preparedByIds: [],
-      dealTeamApprovedByIds: [],
-      approvedByIds: [],
-    });
+    const row = createDraft(ctx, req.credential, detail, req.body);
     recordActivity(ctx, req.actor, {
       action: 'valuation.create',
       entity: 'valuation',

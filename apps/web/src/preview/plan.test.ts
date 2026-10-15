@@ -30,6 +30,13 @@ import {
   weeklyReportQuery,
 } from '../app/queries.js';
 import { CREDIT_POSITIONS, REALIZED_POSITIONS } from '../pages/analytics/constants.js';
+import { exceptionQuery, exceptionsQuery } from '../pages/exceptions/exceptions-queries.js';
+import { opsDropDropsQuery } from '../pages/intake/ops-drop.js';
+import {
+  lookthroughRunQuery,
+  lookthroughRunsQuery,
+} from '../pages/lookthrough/lookthrough-queries.js';
+import { weeklyDropsQuery, weeklyFileQuery, weeklyFilesQuery } from '../pages/weekly/queries.js';
 import { getKey, isPublicPath, normalizeKey } from './keys.js';
 import { SIM_ROUTES } from './routes/index.js';
 import { NOTICES_PATH, VALUATIONS_PATH } from './state.js';
@@ -82,13 +89,15 @@ const planned = new Set([
   ...plan.families.flatMap((f) => f.paths.map((p) => planKeyFor('u', 'GET', p))),
 ]);
 
-/** The path a query option requests, captured at fetch. */
+/** The path a query option requests, captured at fetch (an infinite query reads its first page). */
 async function pathOf(options: { queryFn?: unknown }): Promise<string> {
   const spy = vi
     .spyOn(globalThis, 'fetch')
     .mockResolvedValue(new Response('{}', { status: 404, statusText: 'Not Found' }));
   try {
-    await (options.queryFn as () => Promise<unknown>)().catch(() => undefined);
+    await (options.queryFn as (context: { pageParam: null }) => Promise<unknown>)({
+      pageParam: null,
+    }).catch(() => undefined);
     const input = spy.mock.calls[0]?.[0];
     if (input === undefined) throw new Error('the query did not call fetch');
     return typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
@@ -142,6 +151,14 @@ describe('the recording plan', () => {
       healthReadyQuery,
       intakeFilesQuery,
       intakeExportsQuery,
+      weeklyDropsQuery,
+      weeklyFilesQuery(),
+      weeklyFileQuery(INV),
+      lookthroughRunsQuery,
+      lookthroughRunQuery(INV),
+      exceptionsQuery(),
+      exceptionQuery(INV),
+      opsDropDropsQuery,
       investmentQuery(INV),
       investmentPerformanceQuery(INV),
       sponsorQuery(SPO),
@@ -170,10 +187,19 @@ describe('the recording plan', () => {
       else if (!planned.has(keyOf(path))) missing.push(path);
     }
     expect(missing).toEqual([]);
-    // Intake files exist only once the simulation stages one, so the shim answers those reads.
+    // Intake files, reconcile runs and data exceptions exist only once the simulation stages
+    // them, so the shim answers those reads (every source, every drop folder, the queue).
     expect(simulated).toEqual([
       '/api/v1/intake/files?limit=200',
       '/api/v1/intake/accounting/exports',
+      '/api/v1/intake/weekly/drops',
+      '/api/v1/intake/files?limit=200&source=weekly',
+      `/api/v1/intake/weekly/files/${INV}`,
+      '/api/v1/intake/files?limit=200&source=lookthrough',
+      `/api/v1/intake/lookthrough/runs/${INV}`,
+      '/api/v1/data-exceptions?limit=200',
+      `/api/v1/data-exceptions/${INV}`,
+      '/api/v1/intake/ops-drop/drops',
     ]);
   });
 

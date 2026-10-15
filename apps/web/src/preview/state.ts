@@ -1,11 +1,16 @@
 import { capitalNoticePage, valuationPage } from '@pb/contracts';
 import type {
   CapitalNoticeRow,
+  DataExceptionState,
   IntakeFinding,
   IntakeLink,
   IntakeRow,
+  IntakeSource,
+  LookthroughDifference,
+  LookthroughRow,
   StagingState,
   ValuationRow,
+  WeeklyPriorSource,
 } from '@pb/contracts';
 import { LIST_LIMIT } from '../app/queries.js';
 import type { PreviewUser, Recordings } from './fixtures.js';
@@ -46,6 +51,19 @@ export interface SimNotice {
   ticketPreparedBy: string | null;
 }
 
+/** The header every simulated intake file shares (stg.intake_file), whatever its source. */
+export interface SimFileHeader {
+  id: string;
+  fileName: string;
+  /** SHA-256 of the file's content: with the source, the idempotency key (docs/04 M2). */
+  contentHash: string;
+  receivedAt: string;
+  receivedBy: string;
+  rowCount: number;
+  fileFindings: IntakeFinding[];
+  rowVersion: number;
+}
+
 /**
  * One staged row of a simulated import: what stg.intake_row holds in the API (the row as the
  * file said it, how the system actor linked it, its diff and findings) plus its decision.
@@ -72,19 +90,105 @@ export interface SimIntakeRow {
   findings: IntakeFinding[];
 }
 
-/** A simulated intake file: the header stg.intake_file holds, with every staged row. */
-export interface SimIntakeFile {
-  id: string;
-  fileName: string;
-  contentHash: string;
-  receivedAt: string;
-  receivedBy: string;
-  rowCount: number;
-  fileFindings: IntakeFinding[];
-  /** Data exceptions the import opened: one per unresolved link, one per fair value that does not tie. */
-  exceptions: number;
-  rowVersion: number;
+/** A simulated file of accounting-shaped rows: the accounting export, or an operations workbook mapped onto its layout. */
+export interface SimIntakeFile extends SimFileHeader {
+  source: Extract<IntakeSource, 'accounting' | 'ops_drop'>;
+  /** The ops-drop template the workbook matched (config/ops_drop_templates.json); null for the accounting export. */
+  templateSignature: string | null;
   rows: SimIntakeRow[];
+}
+
+/** One staged weekly value (stg.valuation): the cells as written, the typed readings, the prior and the decision. */
+export interface SimWeeklyRow {
+  id: string;
+  rowNo: number;
+  investmentNumber: string | null;
+  companyName: string | null;
+  investmentId: string | null;
+  /** The report date when it is a real day the intake reads; else null (the raw cell stays in `raw`). */
+  reportDate: string | null;
+  /** The value when it is a decimal the record holds as written; else null. */
+  reportedValue: string | null;
+  priorValue: string | null;
+  priorSource: WeeklyPriorSource | null;
+  priorDate: string | null;
+  variancePct: string | null;
+  flag: 'above_threshold' | null;
+  status: StagingState;
+  decision: string | null;
+  decidedBy: string | null;
+  decidedAt: string | null;
+  promotedAt: string | null;
+  /** The simulated Draft valuation the approval created, once promoted. */
+  valuationId: string | null;
+  link: IntakeLink;
+  findings: IntakeFinding[];
+  /** Every cell by its column name, as the file wrote it. */
+  raw: Record<string, string>;
+}
+
+/** A simulated weekly values file (source weekly) with every staged value. */
+export interface SimWeeklyFile extends SimFileHeader {
+  rows: SimWeeklyRow[];
+}
+
+/** One provider row of a simulated reconcile run, with what the mapping and the comparison made of it. */
+export interface SimLookthroughRow {
+  id: string;
+  rowNo: number;
+  status: StagingState;
+  provider: {
+    investmentNumber: string | null;
+    companyName: string;
+    sector: string;
+    geography: string;
+    exposureAtCost: string;
+    exposureAtNav: string;
+    asOf: string;
+  };
+  mapped: LookthroughRow['mapped'];
+  record: LookthroughRow['approved'] | null;
+  differences: LookthroughDifference[];
+  link: IntakeLink;
+  findings: IntakeFinding[];
+}
+
+/** A simulated reconcile run (source lookthrough) with every provider row. */
+export interface SimLookthroughRun extends SimFileHeader {
+  asOf: string;
+  rows: SimLookthroughRow[];
+}
+
+/**
+ * A simulated data exception (ops.data_exception): what an intake could not decide, with the
+ * staged row it is about. Visibility follows the row: a reader who cannot open the row's
+ * investment never sees the exception (the select policy of migration 0010).
+ */
+export interface SimException {
+  id: string;
+  /** The intake that opened it, such as accounting_import or lookthrough_reconcile. */
+  source: string;
+  entity: 'stg.intake_row' | 'stg.valuation';
+  entityId: string;
+  ruleId: string;
+  expected: string | null;
+  actual: string | null;
+  severity: string;
+  ownerId: string | null;
+  ownerName: string | null;
+  state: DataExceptionState;
+  externalTicket: string | null;
+  candidates: { reason: string }[];
+  createdAt: string;
+  updatedAt: string;
+  rowVersion: number;
+  context: {
+    intakeFileId: string;
+    intakeFileName: string;
+    rowNo: number;
+    /** The investment the staged row links to; null for an unresolved link. */
+    investmentId: string | null;
+  };
 }
 
 /** One simulated change, kept for this page session only; never shown as the audit trail. */
@@ -94,7 +198,13 @@ export interface SimAuditEvent {
   actorExternalId: string;
   actorName: string;
   action: string;
-  entity: 'valuation' | 'capital_notice' | 'feature_flag' | 'intake_file' | 'quarterly_performance';
+  entity:
+    | 'valuation'
+    | 'capital_notice'
+    | 'feature_flag'
+    | 'intake_file'
+    | 'quarterly_performance'
+    | 'data_exception';
   entityId: string;
   reason: string | null;
   from: string | null;
@@ -117,8 +227,14 @@ export interface PreviewState {
   /** Seeded lazily from the recordings on the first simulated write; null until then. */
   valuations: Map<string, SimValuation> | null;
   notices: Map<string, SimNotice> | null;
-  /** Files the simulated intake staged this session, by id; none exist until an import. */
+  /** Files of accounting-shaped rows (the accounting export, the ops drop) staged this session, by id. */
   intakeFiles: Map<string, SimIntakeFile>;
+  /** Weekly values files staged this session, by id. */
+  weeklyFiles: Map<string, SimWeeklyFile>;
+  /** Look-through reconcile runs staged this session, by id. */
+  lookthroughRuns: Map<string, SimLookthroughRun>;
+  /** Data exceptions the simulated intakes opened this session, by id. */
+  exceptions: Map<string, SimException>;
   audit: SimAuditEvent[];
   idempotency: Map<string, StoredResponse>;
 }
@@ -154,6 +270,9 @@ export function createPreviewState(): PreviewState {
     valuations: null,
     notices: null,
     intakeFiles: new Map(),
+    weeklyFiles: new Map(),
+    lookthroughRuns: new Map(),
+    exceptions: new Map(),
     audit: [],
     idempotency: new Map(),
   };
@@ -165,8 +284,16 @@ export function resetPreviewState(state: PreviewState): void {
   state.valuations = null;
   state.notices = null;
   state.intakeFiles.clear();
+  state.weeklyFiles.clear();
+  state.lookthroughRuns.clear();
+  state.exceptions.clear();
   state.audit.length = 0;
   state.idempotency.clear();
+}
+
+/** The data exceptions opened about the rows of a file, whichever intake opened them (the file header's count). */
+export function exceptionsOfFile(state: PreviewState, fileId: string): SimException[] {
+  return [...state.exceptions.values()].filter((x) => x.context.intakeFileId === fileId);
 }
 
 /** The unfiltered lists the seeds read; the same paths the pages request (src/app/queries.ts). */

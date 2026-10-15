@@ -1,10 +1,20 @@
 import { ROUTES, SIMULATED_ROUTES } from '@pb/contracts';
-import type { RouteDefinition } from '@pb/contracts';
+import type { IntakeFile, IntakeLink, IntakeSource, RouteDefinition } from '@pb/contracts';
+import { countsOf, fileStatusOf } from '@pb/validation';
+import type { StagingState } from '@pb/workflows';
 import type { z } from 'zod';
 import type { PreviewBook } from '../book.js';
 import type { Recordings } from '../fixtures.js';
 import { problem } from '../problems.js';
-import type { PreviewEnv, PreviewState, SimActor, SimAuditEvent } from '../state.js';
+import { exceptionsOfFile } from '../state.js';
+import type {
+  PreviewEnv,
+  PreviewState,
+  SimActor,
+  SimAuditEvent,
+  SimException,
+  SimFileHeader,
+} from '../state.js';
 
 /** What a simulated route can read and change. */
 export interface SimContext {
@@ -114,6 +124,15 @@ export function defineSimRoute<B, Q = undefined>(spec: {
   };
 }
 
+/** The contract's body schema of a route, for a route whose schema is built by a function (the ops drop upload). */
+export function contractBody<B>(method: RouteDefinition['method'], path: string): z.ZodType<B> {
+  const definition = CONTRACT.find((r) => r.method === method && r.path === path);
+  if (definition?.body === undefined)
+    throw new Error(`the contract has no body schema for ${method} ${path}`);
+  // The route table types every body as ZodTypeAny; the caller names the type its contract gives.
+  return definition.body as z.ZodType<B>;
+}
+
 /** 412 when an If-Match header names another row version (docs/17 section 3). No header, no check. */
 export function staleIfMatch(
   headers: Headers,
@@ -153,4 +172,192 @@ export function recordActivity(
     actorName: actor.displayName,
     ...event,
   });
+}
+
+/* ---- What the simulated intakes share: the book, the reader's view, the file header, paging ---- */
+
+/** The answer of every intake route while the preview carries no book (it could not be loaded). */
+export const noBook = (instance: string): Response =>
+  problem(503, 'unavailable', 'This preview carries no book to check an import against', {
+    instance,
+    simulated: true,
+  });
+
+/** The system actor's book, or null: the caller answers noBook. */
+export function bookOf(ctx: SimContext): PreviewBook | null {
+  return ctx.book;
+}
+
+/** Whether the credential may open the investment: its own recorded detail answered 200, so a wall still hides what it hid. */
+export function canOpen(ctx: SimContext, credential: string, investmentId: string): boolean {
+  return (
+    ctx.recordings.status(credential, `/api/v1/investments/${encodeURIComponent(investmentId)}`) ===
+    200
+  );
+}
+
+/**
+ * A reader's view of staged rows (SEC-5.3): a row linked to an investment they cannot open is
+ * left out (and counted by the caller), a candidate they cannot open is dropped from the link, so
+ * nothing in an answer reveals a walled position exists. The API reads the same through the
+ * caller's row-level security.
+ */
+export interface ReaderView {
+  rowVisible: (investmentId: string | null) => boolean;
+  linkFor: (link: IntakeLink) => IntakeLink;
+}
+
+export function readerView(
+  ctx: SimContext,
+  credential: string,
+  links: readonly IntakeLink[],
+): ReaderView {
+  const idOf = new Map((ctx.book?.investments ?? []).map((i) => [i.investmentNumber, i.id]));
+  const visibleNumbers = new Set<string>();
+  for (const link of links) {
+    for (const candidate of link.candidates) {
+      const id = idOf.get(candidate.investmentNumber);
+      if (id !== undefined && canOpen(ctx, credential, id))
+        visibleNumbers.add(candidate.investmentNumber);
+    }
+  }
+  return {
+    rowVisible: (investmentId) => investmentId === null || canOpen(ctx, credential, investmentId),
+    linkFor: (link) => ({
+      ...link,
+      candidates: link.candidates.filter((c) => visibleNumbers.has(c.investmentNumber)),
+    }),
+  };
+}
+
+/** The file header as the contract carries it, for any simulated source: counts over every row, exceptions whichever intake opened them. */
+export function fileOf(
+  ctx: SimContext,
+  sim: SimFileHeader & { rows: readonly { status: StagingState }[] },
+  source: IntakeSource,
+  templateSignature: string | null,
+): IntakeFile {
+  const counts = countsOf(sim.rows.map((r) => r.status));
+  return {
+    id: sim.id,
+    source,
+    fileName: sim.fileName,
+    contentHash: sim.contentHash,
+    templateSignature,
+    receivedAt: sim.receivedAt,
+    receivedBy: sim.receivedBy,
+    rowCount: sim.rowCount,
+    status: fileStatusOf(counts),
+    counts,
+    fileFindings: sim.fileFindings,
+    exceptions: exceptionsOfFile(ctx.state, sim.id).length,
+    rowVersion: sim.rowVersion,
+  };
+}
+
+/** A refused file (the reader rejected it, so it holds no rows) may be staged again once the cause is corrected. */
+export const restageable = (sim: { rows: readonly unknown[] }): boolean => sim.rows.length === 0;
+
+/** What an intake records when it opens a data exception about a staged row. */
+export interface OpenedExceptionInput {
+  source: string;
+  entity: SimException['entity'];
+  entityId: string;
+  ruleId: string;
+  expected: string | null;
+  actual: string | null;
+  severity: string;
+  candidates: readonly { reason: string }[];
+  file: { id: string; fileName: string };
+  rowNo: number;
+  investmentId: string | null;
+}
+
+/** Opens one simulated data exception (ops.data_exception, state open) about a staged row. */
+export function openException(ctx: SimContext, input: OpenedExceptionInput): SimException {
+  const at = ctx.env.now();
+  const sim: SimException = {
+    id: ctx.env.newId(),
+    source: input.source,
+    entity: input.entity,
+    entityId: input.entityId,
+    ruleId: input.ruleId,
+    expected: input.expected,
+    actual: input.actual,
+    severity: input.severity,
+    ownerId: null,
+    ownerName: null,
+    state: 'open',
+    externalTicket: null,
+    candidates: input.candidates.map((c) => ({ reason: c.reason })),
+    createdAt: at,
+    updatedAt: at,
+    rowVersion: 1,
+    context: {
+      intakeFileId: input.file.id,
+      intakeFileName: input.file.fileName,
+      rowNo: input.rowNo,
+      investmentId: input.investmentId,
+    },
+  };
+  ctx.state.exceptions.set(sim.id, sim);
+  return sim;
+}
+
+/* ---- Cursor paging, newest first on (time, id), the API's order ---- */
+
+/** A cursor decodes to "time|id" of the last item listed. */
+const CURSOR = /^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z)\|([0-9a-f-]{36})$/;
+
+export interface SortKey {
+  at: string;
+  id: string;
+}
+
+export const encodeCursor = (key: SortKey): string =>
+  btoa(`${key.at}|${key.id}`).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+
+export function decodeCursor(cursor: string): SortKey | null {
+  let text: string;
+  try {
+    text = atob(cursor.replace(/-/g, '+').replace(/_/g, '/'));
+  } catch {
+    return null;
+  }
+  const match = CURSOR.exec(text);
+  if (match === null) return null;
+  return { at: match[1] ?? '', id: match[2] ?? '' };
+}
+
+const byText = (a: string, b: string): number => (a < b ? -1 : a > b ? 1 : 0);
+
+export interface Page<T> {
+  items: T[];
+  nextCursor: string | null;
+}
+
+/**
+ * The items newest first (by time, then id), from the cursor on, one page of the limit with the
+ * cursor of the next page when more remain; null when the cursor cannot be read (a 400).
+ */
+export function pageNewestFirst<T>(
+  items: readonly T[],
+  keyOf: (item: T) => SortKey,
+  query: { limit: number; cursor?: string | undefined },
+): Page<T> | null {
+  const after = query.cursor === undefined ? null : decodeCursor(query.cursor);
+  if (query.cursor !== undefined && after === null) return null;
+  const sorted = [...items]
+    .map((item) => ({ item, key: keyOf(item) }))
+    .sort((a, b) => byText(b.key.at, a.key.at) || byText(b.key.id, a.key.id))
+    .filter(
+      ({ key }) =>
+        after === null || key.at < after.at || (key.at === after.at && key.id < after.id),
+    );
+  const page = sorted.slice(0, query.limit);
+  const last = page[page.length - 1];
+  return {
+    items: page.map((p) => p.item),
+    nextCursor: sorted.length > query.limit && last !== undefined ? encodeCursor(last.key) : null,
+  };
 }

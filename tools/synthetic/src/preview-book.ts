@@ -1,27 +1,44 @@
-import type { SyntheticDataset } from '@pb/db';
+import { addMonths, containingQuarterEnd } from '@pb/calc';
 import { accountingExports } from './accounting-export.js';
 import type { AccountingExportExpectations, ExportScenario } from './accounting-export.js';
+import { aliasesOf } from './aliases.js';
+import type { AliasedDataset } from './aliases.js';
+import { investedCost, lookthroughExtract } from './lookthrough-extract.js';
+import type {
+  LookthroughExpectations,
+  LookthroughExtract,
+  LookthroughScenario,
+} from './lookthrough-extract.js';
+import { opsDropWorkbooks } from './ops-drop.js';
+import type { OpsDropExpectations, OpsDropScenario, OpsDropWorkbook } from './ops-drop.js';
+import { weeklyValuesSet } from './weekly-values.js';
+import type { WeeklyScenario, WeeklyValues, WeeklyValuesExpectations } from './weekly-values.js';
 
 /**
  * The book as the system actor sees it (decision 0009), taken straight from a generated dataset:
- * what the static preview links, diffs and checks an accounting export against in the browser,
- * the same inputs the API's intake service reads from the database. scripts/build-preview.mjs
- * writes it as preview/book.json and apps/web/src/preview/book.ts parses it. It carries the
- * record's figures for the diff and the rules only; every figure a page shows still comes from
- * the recorded responses.
+ * what the static preview links, diffs and checks an accounting export, a weekly values file, a
+ * look-through extract or an operations workbook against in the browser, the same inputs the
+ * API's intake services read from the database. scripts/build-preview.mjs writes it as
+ * preview/book.json and apps/web/src/preview/book.ts parses it. It carries the record's figures
+ * for the diff and the rules only; every figure a page shows still comes from the recorded
+ * responses.
  */
 
-/** An investment with its company's names, as packages/validation links to it; aliases are not on record yet. */
+/** An investment with its company's names and taxonomy codes, as packages/validation links to it and the reconcile compares it. */
 export interface PreviewBookInvestment {
   id: string;
   investmentNumber: string;
   companyName: string;
   canonicalName: string;
+  /** The company's aliases (core.company_alias), as the API's investment directory lists them. */
   aliases: string[];
   dealType: string;
   entryDate: string;
   exitDate: string | null;
   isActive: boolean;
+  /** The company's taxonomy codes, which a look-through reconcile compares the provider's labels with. */
+  sector: string | null;
+  geography: string | null;
 }
 
 /** An approved quarter on record; `id` is the target a staged row would replace. */
@@ -49,6 +66,31 @@ export interface PreviewBookSample {
   expectations: AccountingExportExpectations;
 }
 
+/** A bundled weekly values file (the preview's weekly drop folder) with what the generator says it carries. */
+export interface PreviewBookWeeklySample {
+  scenario: WeeklyScenario;
+  fileName: string;
+  reportDate: string;
+  expectations: WeeklyValuesExpectations;
+}
+
+/** A bundled look-through extract (the preview's look-through folder), served for a reconcile of its as-of date. */
+export interface PreviewBookLookthroughSample {
+  scenario: LookthroughScenario;
+  fileName: string;
+  asOf: string;
+  expectations: LookthroughExpectations;
+}
+
+/** A bundled operations workbook (the preview's ops drop folder) with the template it was written for. */
+export interface PreviewBookOpsDropSample {
+  scenario: OpsDropScenario;
+  fileName: string;
+  template: string | null;
+  periodEnd: string;
+  expectations: OpsDropExpectations;
+}
+
 export interface PreviewBook {
   generatedFrom: string;
   asOf: string;
@@ -58,7 +100,17 @@ export interface PreviewBook {
   quarters: Record<string, PreviewBookQuarter[]>;
   /** Locked marks per investment id, by period end with the highest version first, so lockedNear keeps the latest version. */
   lockedMarks: Record<string, PreviewBookMark[]>;
+  /**
+   * The invested cost per investment id on each date a bundled look-through extract reconciles
+   * for, as the API computes `invested` (the approved contributions on or before the date through
+   * summarizeFlows in @pb/calc; null when nothing was contributed). The reconcile compares the
+   * provider's exposure at cost with it (CLAUDE.md rule 7: one derivation, never a second).
+   */
+  investedCost: Record<string, Record<string, string | null>>;
   samples: PreviewBookSample[];
+  weeklySamples: PreviewBookWeeklySample[];
+  lookthroughSamples: PreviewBookLookthroughSample[];
+  opsDropSamples: PreviewBookOpsDropSample[];
 }
 
 /** The fixed name the preview bundles a sample export under (the intake page requests it by this name). */
@@ -66,9 +118,48 @@ export function previewSampleFileName(scenario: ExportScenario): string {
   return `accounting-${scenario}.csv`;
 }
 
+/** The fixed name the preview bundles a weekly values file under (its drop folder lists it by this name). */
+export function previewWeeklyFileName(scenario: WeeklyScenario): string {
+  return `weekly-values-${scenario}.csv`;
+}
+
+/** The fixed name the preview bundles an operations workbook under (its ops drop folder lists it by this name). */
+export function previewOpsDropFileName(scenario: OpsDropScenario): string {
+  return `ops-drop-${scenario}.xlsx`;
+}
+
+/** The name the preview bundles a look-through extract under: the generator's own, `lookthrough-<asOf>[-<scenario>].json`. */
+export function previewLookthroughFileName(asOf: string, scenario: LookthroughScenario): string {
+  return `lookthrough-${asOf}${scenario === 'clean' ? '' : `-${scenario}`}.json`;
+}
+
+/**
+ * The extracts the preview's look-through folder holds, one per as-of date, so each is reachable
+ * through a reconcile of its date: the defects extract for the dataset's as-of date (a reconcile
+ * of the current quarter has differences and exceptions to work), and the clean extract for the
+ * quarter end before it (a reconcile of the last quarter agrees with the record).
+ */
+export function previewLookthroughExtracts(dataset: AliasedDataset): LookthroughExtract[] {
+  const priorQuarterEnd = containingQuarterEnd(addMonths(dataset.asOf, -3));
+  return [
+    lookthroughExtract(dataset, { scenario: 'clean', asOf: priorQuarterEnd }),
+    lookthroughExtract(dataset, { scenario: 'defects', asOf: dataset.asOf }),
+  ];
+}
+
+/** The weekly values files the preview's weekly drop folder holds, in scenario order. */
+export function previewWeeklyFiles(dataset: AliasedDataset): WeeklyValues[] {
+  return weeklyValuesSet(dataset);
+}
+
+/** The workbooks the preview's ops drop folder holds, in scenario order. */
+export function previewOpsDropWorkbooks(dataset: AliasedDataset): OpsDropWorkbook[] {
+  return opsDropWorkbooks(dataset);
+}
+
 const byText = (a: string, b: string): number => (a < b ? -1 : a > b ? 1 : 0);
 
-export function previewBook(dataset: SyntheticDataset): PreviewBook {
+export function previewBook(dataset: AliasedDataset): PreviewBook {
   const companies = new Map(dataset.portfolioCompanies.map((c) => [c.id, c]));
   const investments: PreviewBookInvestment[] = dataset.investments.map((inv) => {
     const company = companies.get(inv.portfolioCompanyId);
@@ -77,11 +168,13 @@ export function previewBook(dataset: SyntheticDataset): PreviewBook {
       investmentNumber: inv.investmentNumber,
       companyName: company?.name ?? '',
       canonicalName: company?.canonicalName ?? '',
-      aliases: [],
+      aliases: aliasesOf(dataset, inv.portfolioCompanyId),
       dealType: inv.dealType,
       entryDate: inv.entryDate,
       exitDate: inv.exitDate,
       isActive: inv.isActive,
+      sector: company?.sector ?? null,
+      geography: company?.geography ?? null,
     };
   });
 
@@ -123,6 +216,46 @@ export function previewBook(dataset: SyntheticDataset): PreviewBook {
     };
   });
 
+  const weeklySamples: PreviewBookWeeklySample[] = previewWeeklyFiles(dataset).map((file, i) => {
+    const scenario = (['clean', 'update', 'defects'] as const)[i];
+    if (scenario === undefined) throw new Error('weeklyValuesSet gave more than three files');
+    return {
+      scenario,
+      fileName: previewWeeklyFileName(scenario),
+      reportDate: file.reportDate,
+      expectations: file.expectations,
+    };
+  });
+
+  const extracts = previewLookthroughExtracts(dataset);
+  const lookthroughSamples: PreviewBookLookthroughSample[] = extracts.map((extract, i) => {
+    const scenario = (['clean', 'defects'] as const)[i];
+    if (scenario === undefined) throw new Error('previewLookthroughExtracts gave more than two');
+    return {
+      scenario,
+      fileName: previewLookthroughFileName(extract.asOf, scenario),
+      asOf: extract.asOf,
+      expectations: extract.expectations,
+    };
+  });
+  const investedCostByDate: Record<string, Record<string, string | null>> = {};
+  for (const extract of extracts) {
+    const byInvestment: Record<string, string | null> = {};
+    for (const inv of dataset.investments)
+      byInvestment[inv.id] = investedCost(dataset, inv.id, extract.asOf);
+    investedCostByDate[extract.asOf] = byInvestment;
+  }
+
+  const opsDropSamples: PreviewBookOpsDropSample[] = previewOpsDropWorkbooks(dataset).map(
+    (workbook) => ({
+      scenario: workbook.scenario,
+      fileName: previewOpsDropFileName(workbook.scenario),
+      template: workbook.template,
+      periodEnd: workbook.periodEnd,
+      expectations: workbook.expectations,
+    }),
+  );
+
   return {
     generatedFrom: `tools/synthetic ${dataset.profile} profile, seed ${dataset.seed}`,
     asOf: dataset.asOf,
@@ -130,6 +263,10 @@ export function previewBook(dataset: SyntheticDataset): PreviewBook {
     matchGuards: dataset.matchGuards.map((g) => ({ nameA: g.nameA, nameB: g.nameB })),
     quarters,
     lockedMarks,
+    investedCost: investedCostByDate,
     samples,
+    weeklySamples,
+    lookthroughSamples,
+    opsDropSamples,
   };
 }

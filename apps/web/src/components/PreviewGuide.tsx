@@ -17,7 +17,7 @@ interface Walkthrough {
   steps: ReactNode[];
 }
 
-/** Six walkthroughs of two to four steps each, in the order a reviewer would try them. */
+/** Nine walkthroughs of two to four steps each, in the order a reviewer would try them. */
 function walkthroughs(p: GuidePeople): Walkthrough[] {
   return [
     {
@@ -94,6 +94,59 @@ function walkthroughs(p: GuidePeople): Walkthrough[] {
           and the note is gone.
         </>,
         <>Switch to {p.viewer} and open Intake: it says who intake is for.</>,
+      ],
+    },
+    {
+      id: 'weekly',
+      title: 'Weekly values',
+      steps: [
+        <>
+          As {p.operations}, open <Link to="/data/weekly">Weekly values</Link> under Data and stage
+          weekly-values-defects.csv from the drop folder: every value is compared with its prior,
+          and a move beyond the threshold is flagged for a person.
+        </>,
+        <>
+          Approve the validated rows: each becomes a Draft valuation on the{' '}
+          <Link to="/valuations">Valuations</Link> board, never a Locked mark.
+        </>,
+        <>
+          Switch to {p.wallMember} and look at the same file: the walled position's value is listed
+          and the note is gone.
+        </>,
+      ],
+    },
+    {
+      id: 'lookthrough',
+      title: 'Look-through and exceptions',
+      steps: [
+        <>
+          As {p.operations}, open <Link to="/data/lookthrough">Look-through</Link> under Data and
+          reconcile the as-of date: the run counts the differences against the record and the
+          exceptions it opened, and nothing on record changes.
+        </>,
+        <>
+          Follow the exceptions link to the <Link to="/data/exceptions">Exceptions</Link> queue,
+          open one, acknowledge it, then resolve it with a reason or note a ticket.
+        </>,
+        <>
+          Reconcile the quarter end before: the provider's extract agrees with the record and
+          nothing is opened.
+        </>,
+      ],
+    },
+    {
+      id: 'ops-drop',
+      title: 'Workbook drop',
+      steps: [
+        <>
+          As {p.operations}, open <Link to="/data/intake">Intake</Link> under Data and stage
+          ops-drop-clean.xlsx from the ops drop folder: the workbook is matched to its template by
+          its sheets and header, then staged like an accounting export.
+        </>,
+        <>
+          Stage ops-drop-unknown-template.xlsx: it is refused with a finding that names the
+          templates the drop knows, and nothing is staged.
+        </>,
       ],
     },
     {
@@ -196,8 +249,8 @@ function Guide({
       </div>
       <p className="pb-meta pb-guide-intro">
         {compact
-          ? 'Six short walkthroughs on synthetic data. Sign in as the user a step names; after that, switch users with the user menu at the top of any page.'
-          : 'Six short walkthroughs on synthetic data. Switch users with the user menu at the top of any page.'}
+          ? 'Nine short walkthroughs on synthetic data. Sign in as the user a step names; after that, switch users with the user menu at the top of any page.'
+          : 'Nine short walkthroughs on synthetic data. Switch users with the user menu at the top of any page.'}
       </p>
       {folded ? (
         <div className="pb-guide-compact">

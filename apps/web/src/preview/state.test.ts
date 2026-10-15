@@ -69,10 +69,51 @@ describe('seeding from the recordings', () => {
     expect(ensureNotices(state, pending).size).toBe(0);
     expect(ensureValuations(state, recorded).size).toBeGreaterThan(0);
     state.flags.set('ai.extraction', true);
+    const header = {
+      fileName: 'x',
+      contentHash: 'h',
+      receivedAt: '2025-07-01T00:00:00.000Z',
+      receivedBy: 'Test Operator',
+      rowCount: 0,
+      fileFindings: [],
+      rowVersion: 1,
+      rows: [],
+    };
+    state.intakeFiles.set('a', {
+      ...header,
+      id: 'a',
+      source: 'accounting',
+      templateSignature: null,
+    });
+    state.weeklyFiles.set('w', { ...header, id: 'w' });
+    state.lookthroughRuns.set('l', { ...header, id: 'l', asOf: '2025-06-30' });
+    state.exceptions.set('x', {
+      id: 'x',
+      source: 'accounting_import',
+      entity: 'stg.intake_row',
+      entityId: 'r',
+      ruleId: 'TIE-01',
+      expected: null,
+      actual: null,
+      severity: 'exception_severity.high',
+      ownerId: null,
+      ownerName: null,
+      state: 'open',
+      externalTicket: null,
+      candidates: [],
+      createdAt: '2025-07-01T00:00:00.000Z',
+      updatedAt: '2025-07-01T00:00:00.000Z',
+      rowVersion: 1,
+      context: { intakeFileId: 'a', intakeFileName: 'x', rowNo: 1, investmentId: null },
+    });
     resetPreviewState(state);
     expect(state.valuations).toBeNull();
     expect(state.notices).toBeNull();
     expect(state.flags.size).toBe(0);
+    expect(state.intakeFiles.size).toBe(0);
+    expect(state.weeklyFiles.size).toBe(0);
+    expect(state.lookthroughRuns.size).toBe(0);
+    expect(state.exceptions.size).toBe(0);
   });
 });
 

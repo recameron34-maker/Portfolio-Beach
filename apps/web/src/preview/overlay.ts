@@ -1,6 +1,7 @@
 import {
   capitalNoticeDetail,
   capitalNoticePage,
+  dataHealth,
   featureFlagList,
   investmentDetail,
   valuationPage,
@@ -8,12 +9,13 @@ import {
 import type {
   CapitalNoticeDetail,
   CapitalNoticePage,
+  DataHealth,
   InvestmentDetail,
   ValuationPage,
 } from '@pb/contracts';
 import type { z } from 'zod';
 import type { Recordings } from './fixtures.js';
-import type { PreviewState, SimNotice, SimValuation } from './state.js';
+import type { PreviewState, SimException, SimNotice, SimValuation } from './state.js';
 
 /**
  * Read overlays: recorded GET bodies with this session's simulated changes laid over them, so lists
@@ -147,6 +149,17 @@ export function overlayFlags(
   };
 }
 
+/**
+ * Data Health's open exception count, as the API counts it (apps/api/src/data/data.controller.ts):
+ * every exception in open or acknowledged, whoever may see it, so the simulated intakes' exceptions
+ * add to the recorded count until they are resolved or closed.
+ */
+export function overlayDataHealth(health: DataHealth, sims: Iterable<SimException>): DataHealth {
+  let open = 0;
+  for (const sim of sims) if (sim.state === 'open' || sim.state === 'acknowledged') open += 1;
+  return open === 0 ? health : { ...health, openExceptions: health.openExceptions + open };
+}
+
 /** Context the overlays read: the credential's own recordings decide what it may see. */
 export interface OverlayContext {
   credential: string;
@@ -187,6 +200,11 @@ export function overlayRecordedBody(url: URL, text: string, ctx: OverlayContext)
 
   if (path === '/api/v1/flags' && state.flags.size > 0)
     return write(parse(featureFlagList), (list) => overlayFlags(list, state.flags));
+
+  if (path === '/api/v1/data-health' && state.exceptions.size > 0)
+    return write(parse(dataHealth), (health) =>
+      overlayDataHealth(health, state.exceptions.values()),
+    );
 
   if (state.valuations !== null) {
     const sims = state.valuations;

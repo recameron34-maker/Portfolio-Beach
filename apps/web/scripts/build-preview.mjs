@@ -7,7 +7,14 @@ import { mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync }
 import { spawnSync } from 'node:child_process';
 import { join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { accountingExports, generateDataset, previewBook } from '@pb/synthetic';
+import {
+  accountingExports,
+  generateDataset,
+  previewBook,
+  previewLookthroughExtracts,
+  previewOpsDropWorkbooks,
+  previewWeeklyFiles,
+} from '@pb/synthetic';
 import { createDb, loadSyntheticDataset, migrate } from '@pb/db';
 import { FixedClock } from '@pb/adapters';
 import { buildRuntime } from '../../api/dist/composition.js';
@@ -35,21 +42,31 @@ const started = Date.now();
 const dataset = generateDataset({ profile: 'small', seed: 42 });
 writeFileSync(join(scratch, 'dataset.json'), JSON.stringify(dataset));
 
-// The simulated intake's inputs (src/preview/routes/intake.ts): the three sample exports under the
-// names the intake page requests, and the book as the system actor sees it (decision 0009), both
-// straight from the generated dataset. The shim loads the book next to the recordings.
+// The simulated intakes' inputs (src/preview/routes/): the bundled samples under the names the
+// book records (the three accounting exports the intake page requests, the three weekly values
+// files, the two look-through extracts and the four operations workbooks, each simulated drop
+// folder), and the book as the system actor sees it (decision 0009), all straight from the
+// generated dataset. The shim loads the book next to the recordings.
 const book = previewBook(dataset);
 const samplesDir = join(out, 'preview', 'samples');
 mkdirSync(samplesDir, { recursive: true });
 const sampleFiles = [];
-for (const [i, sample] of accountingExports(dataset).entries()) {
-  const name = book.samples[i]?.fileName;
-  if (name === undefined) throw new Error('the book names fewer samples than the generator made');
-  writeFileSync(join(samplesDir, name), sample.csv);
-  sampleFiles.push(
-    `${name} (${Buffer.byteLength(sample.csv)} bytes, ${sample.expectations.rows} rows)`,
-  );
+function bundle(kind, listed, generated, contentOf) {
+  for (const [i, file] of generated.entries()) {
+    const name = listed[i]?.fileName;
+    if (name === undefined)
+      throw new Error(`the book names fewer ${kind} samples than the generator made`);
+    const content = contentOf(file);
+    writeFileSync(join(samplesDir, name), content);
+    sampleFiles.push(
+      `${name} (${Buffer.byteLength(content)} bytes, ${file.expectations.rows} rows)`,
+    );
+  }
 }
+bundle('accounting', book.samples, accountingExports(dataset), (f) => f.csv);
+bundle('weekly', book.weeklySamples, previewWeeklyFiles(dataset), (f) => f.csv);
+bundle('look-through', book.lookthroughSamples, previewLookthroughExtracts(dataset), (f) => f.json);
+bundle('ops drop', book.opsDropSamples, previewOpsDropWorkbooks(dataset), (f) => f.bytes);
 const bookJson = JSON.stringify(book);
 const bookBytes = Buffer.byteLength(bookJson);
 writeFileSync(join(out, 'preview', 'book.json'), bookJson);

@@ -70,13 +70,14 @@ describe('preview guide', () => {
     expect(vi.mocked(globalThis.fetch)).not.toHaveBeenCalled();
   });
 
-  it('names the people in five walkthroughs from the mock user list, with links', async () => {
+  it('names the people in the walkthroughs from the mock user list, with links', async () => {
     mockApi({ '/api/v1/auth/mock-users': ok(USERS) });
     renderWithQuery(<PreviewGuide variant="home" onHide={() => undefined} />);
     const guide = screen.getByTestId('preview-guide');
     expect(
       within(guide).getByRole('heading', { name: 'What to try in this preview' }),
     ).toBeVisible();
+    expect(guide).toHaveTextContent('Nine short walkthroughs');
     const titles = within(guide)
       .getAllByRole('heading', { level: 3 })
       .map((h) => h.textContent);
@@ -85,6 +86,9 @@ describe('preview guide', () => {
       'Valuation approval',
       'Capital controls',
       'Accounting import',
+      'Weekly values',
+      'Look-through and exceptions',
+      'Workbook drop',
       'Analytics and the weekly report',
       'Ask Portfolio Beach',
     ]);
@@ -109,19 +113,44 @@ describe('preview guide', () => {
     expect(intake).toHaveTextContent('As Opal Ops (operations), open Intake under Data');
     expect(intake).toHaveTextContent('Switch to Wade Wall (deal team) and look at the same file');
     expect(intake).toHaveTextContent('Switch to Vera Viewer (viewer) and open Intake');
-    for (const [name, href] of [
-      ['Clients', '/reporting/clients'],
-      ['Valuations', '/valuations'],
-      ['Capital activity', '/capital-activity'],
-      ['Intake', '/data/intake'],
-      ['Analytics', '/analytics'],
-      ['Weekly report', '/reporting'],
-      ['Assistants', '/assistants'],
+    const weekly = screen.getByTestId('guide-weekly');
+    expect(weekly).toHaveTextContent('As Opal Ops (operations), open Weekly values under Data');
+    expect(weekly).toHaveTextContent('weekly-values-defects.csv');
+    expect(weekly).toHaveTextContent('Switch to Wade Wall (deal team) and look at the same file');
+    const lookthrough = screen.getByTestId('guide-lookthrough');
+    expect(lookthrough).toHaveTextContent('As Opal Ops (operations), open Look-through under Data');
+    expect(lookthrough).toHaveTextContent('acknowledge it, then resolve it with a reason');
+    const opsDrop = screen.getByTestId('guide-ops-drop');
+    expect(opsDrop).toHaveTextContent('ops-drop-clean.xlsx');
+    expect(opsDrop).toHaveTextContent('ops-drop-unknown-template.xlsx');
+    for (const [name, href, count] of [
+      ['Clients', '/reporting/clients', 1],
+      ['Valuations', '/valuations', 2],
+      ['Capital activity', '/capital-activity', 1],
+      ['Intake', '/data/intake', 2],
+      ['Weekly values', '/data/weekly', 1],
+      ['Look-through', '/data/lookthrough', 1],
+      ['Exceptions', '/data/exceptions', 1],
+      ['Analytics', '/analytics', 1],
+      ['Weekly report', '/reporting', 1],
+      ['Assistants', '/assistants', 1],
     ] as const) {
-      expect(within(guide).getByRole('link', { name })).toHaveAttribute('href', href);
+      const links = within(guide).getAllByRole('link', { name });
+      expect(links, name).toHaveLength(count);
+      for (const link of links) expect(link).toHaveAttribute('href', href);
     }
     expect(within(guide).getAllByRole('link', { name: 'Portfolio' })).toHaveLength(2);
-    for (const w of ['walls', 'valuations', 'capital', 'intake', 'analytics', 'assistant']) {
+    for (const w of [
+      'walls',
+      'valuations',
+      'capital',
+      'intake',
+      'weekly',
+      'lookthrough',
+      'ops-drop',
+      'analytics',
+      'assistant',
+    ]) {
       const steps = within(screen.getByTestId(`guide-${w}`)).getAllByRole('listitem');
       expect(steps.length, w).toBeGreaterThanOrEqual(2);
       expect(steps.length, w).toBeLessThanOrEqual(4);
@@ -134,7 +163,7 @@ describe('preview guide', () => {
     renderWithQuery(<PreviewGuide variant="sign-in" />);
     const guide = screen.getByTestId('preview-guide');
     const summaries = [...guide.querySelectorAll('details > summary')].map((s) => s.textContent);
-    expect(summaries).toHaveLength(6);
+    expect(summaries).toHaveLength(9);
     expect(summaries[0]).toBe('Walls and entitlements');
     await waitFor(() =>
       expect(screen.getByTestId('guide-walls')).toHaveTextContent('Vera Viewer (viewer)'),
@@ -152,7 +181,7 @@ describe('preview guide', () => {
     mockApi({ '/api/v1/auth/mock-users': ok(USERS) });
     renderWithQuery(<PreviewGuide variant="home" onHide={() => undefined} />);
     const guide = screen.getByTestId('preview-guide');
-    expect(guide.querySelectorAll('details > summary')).toHaveLength(6);
+    expect(guide.querySelectorAll('details > summary')).toHaveLength(9);
     expect(guide.querySelector('.pb-guide-list')).toBeNull();
     await waitFor(() =>
       expect(screen.getByTestId('guide-walls')).toHaveTextContent('Vera Viewer (viewer)'),

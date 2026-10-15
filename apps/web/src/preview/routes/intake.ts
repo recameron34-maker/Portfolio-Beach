@@ -8,13 +8,12 @@ import type {
   IntakeFilePage,
   IntakeImportResult,
   IntakeRow,
+  IntakeSource,
   StagingState,
 } from '@pb/contracts';
 import {
   accountingLayout,
-  countsOf,
   exceptionsOpenedBy,
-  fileStatusOf,
   intakeSettingsFrom,
   linkOf,
   linkRows,
@@ -23,14 +22,28 @@ import {
   readAccountingFile,
   selectTargets,
 } from '@pb/validation';
-import type { RecordLookups } from '@pb/validation';
+import type {
+  AccountingFile,
+  AccountingLayout,
+  IntakeSettings,
+  RecordLookups,
+} from '@pb/validation';
 import { attempt, stagingMachine } from '@pb/workflows';
 import { samplePath } from '../../pages/intake/intake.js';
 import type { PreviewBook } from '../book.js';
 import { sha256Hex, subtleCrypto } from '../hash.js';
 import { jsonResponse, problem, workflowProblem } from '../problems.js';
 import type { SimActor, SimIntakeFile, SimIntakeRow } from '../state.js';
-import { defineSimRoute, recordActivity } from './common.js';
+import {
+  defineSimRoute,
+  fileOf,
+  noBook,
+  openException,
+  pageNewestFirst,
+  readerView,
+  recordActivity,
+  restageable,
+} from './common.js';
 import type { SimContext } from './common.js';
 
 /**
@@ -40,17 +53,19 @@ import type { SimContext } from './common.js';
  * checks every row through the preparation shared with the API (@pb/validation prepare.ts) against
  * the book as the system actor sees it (preview/book.json, decision 0009), with the thresholds of
  * config/definitions.json through the same reader as the API; the file is keyed by the SHA-256 of
- * its text, so the same text answers the file staged
- * before with duplicate true. A reader sees the rows and the candidates for the positions their own
- * recordings let them open; the rest are counted, never shown. Approve and reject run through the
- * staging transition table. The preview's standing rule: promotion changes the staged rows and the
- * simulated records only, never the recorded production figures, so the book and every recorded
- * response stay as they were.
+ * its text, so the same text answers the file staged before with duplicate true. The staging
+ * itself (stageAccountingFile) is shared with the operations workbook drop, as apps/api/src/intake/stage.ts
+ * is shared there (CLAUDE.md rule 7): each intake keeps its own reader and hands it in. A reader
+ * sees the rows and the candidates for the positions their own recordings let them open; the rest
+ * are counted, never shown. Approve and reject run through the staging transition table. The
+ * preview's standing rule: promotion changes the staged rows and the simulated records only, never
+ * the recorded production figures, so the book and every recorded response stay as they were.
  */
 
-const SOURCE = 'accounting';
 const TARGET_ENTITY = 'quarterly_performance';
 const NOT_FOUND = 'Intake file not found';
+/** A rule error opens a high exception (core.taxonomy_term exception_severity), as the API opens them. */
+const EXCEPTION_SEVERITY = 'exception_severity.high';
 /**
  * The system actor that promotes approved rows: the same id as SYSTEM_USER_ID in @pb/db (not
  * browser code) with the service role, never a sign-in role (decision 0009).
@@ -59,8 +74,12 @@ const SYSTEM_ACTOR = {
   actorId: '00000000-0000-0000-0000-000000000001',
   actorRoles: ['service'],
 } as const;
-/** A cursor decodes to "receivedAt|id" of the last file listed. */
-const CURSOR = /^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z)\|([0-9a-f-]{36})$/;
+
+/** The words the approval reason uses for an import of each source (apps/api/src/intake/stage.ts importLabel). */
+const IMPORT_LABEL: Readonly<Record<SimIntakeFile['source'], string>> = {
+  accounting: 'accounting import',
+  ops_drop: 'ops drop import',
+};
 
 /** A file with the rows the credential may see (for the response and the commands). */
 interface LoadedFile {
@@ -68,22 +87,8 @@ interface LoadedFile {
   visible: SimIntakeRow[];
 }
 
-const noBook = (instance: string): Response =>
-  problem(503, 'unavailable', 'This preview carries no book to check an import against', {
-    instance,
-    simulated: true,
-  });
-
 const notFound = (instance: string): Response =>
   problem(404, 'not-found', NOT_FOUND, { instance, simulated: true });
-
-/** Whether the credential may open the investment: its own recorded detail answered 200, so a wall still hides what it hid. */
-function canOpen(ctx: SimContext, credential: string, investmentId: string): boolean {
-  return (
-    ctx.recordings.status(credential, `/api/v1/investments/${encodeURIComponent(investmentId)}`) ===
-    200
-  );
-}
 
 /** What is on record in the book, as the shared preparation reads it (the API reads the same from the database). */
 const bookLookups = (book: PreviewBook): RecordLookups => ({
@@ -91,27 +96,25 @@ const bookLookups = (book: PreviewBook): RecordLookups => ({
   marksOf: (investmentId) => book.lockedMarks[investmentId] ?? [],
 });
 
-function toFile(sim: SimIntakeFile): IntakeFile {
-  const counts = countsOf(sim.rows.map((r) => r.status));
-  return {
-    id: sim.id,
-    source: SOURCE,
-    fileName: sim.fileName,
-    contentHash: sim.contentHash,
-    templateSignature: null,
-    receivedAt: sim.receivedAt,
-    receivedBy: sim.receivedBy,
-    rowCount: sim.rowCount,
-    status: fileStatusOf(counts),
-    counts,
-    fileFindings: sim.fileFindings,
-    exceptions: sim.exceptions,
-    rowVersion: sim.rowVersion,
-  };
+/** Every threshold through the one strict reader the API shares (CLAUDE.md rules 9 and 10). */
+export function intakeSettings(): IntakeSettings {
+  return intakeSettingsFrom(definitions);
+}
+
+/** config/accounting_layout.json checked against the layout schema, as the API checks it. */
+export function accountingLayoutOf(): AccountingLayout {
+  return accountingLayout.parse(layoutJson);
+}
+
+function toFile(ctx: SimContext, sim: SimIntakeFile): IntakeFile {
+  return fileOf(ctx, sim, sim.source, sim.templateSignature);
 }
 
 /** A staged row for the caller, with only the candidates among the investments they may see. */
-function toRow(row: SimIntakeRow, visibleNumbers: ReadonlySet<string>): IntakeRow {
+function toRow(
+  row: SimIntakeRow,
+  linkFor: (link: SimIntakeRow['link']) => IntakeRow['link'],
+): IntakeRow {
   return {
     id: row.id,
     rowNo: row.rowNo,
@@ -122,10 +125,7 @@ function toRow(row: SimIntakeRow, visibleNumbers: ReadonlySet<string>): IntakeRo
     companyName: row.companyName,
     periodEnd: row.periodEnd,
     figures: row.figures,
-    link: {
-      ...row.link,
-      candidates: row.link.candidates.filter((c) => visibleNumbers.has(c.investmentNumber)),
-    },
+    link: linkFor(row.link),
     diff: row.diff,
     findings: row.findings,
     status: row.status,
@@ -142,30 +142,24 @@ function toRow(row: SimIntakeRow, visibleNumbers: ReadonlySet<string>): IntakeRo
  * row, so the file reads the same for everyone.
  */
 function load(ctx: SimContext, credential: string, sim: SimIntakeFile): LoadedFile {
-  const idOf = new Map((ctx.book?.investments ?? []).map((i) => [i.investmentNumber, i.id]));
-  const visible = sim.rows.filter(
-    (r) => r.link.investmentId === null || canOpen(ctx, credential, r.link.investmentId),
+  const view = readerView(
+    ctx,
+    credential,
+    sim.rows.map((r) => r.link),
   );
-  const visibleNumbers = new Set<string>();
-  for (const row of sim.rows) {
-    for (const candidate of row.link.candidates) {
-      const id = idOf.get(candidate.investmentNumber);
-      if (id !== undefined && canOpen(ctx, credential, id))
-        visibleNumbers.add(candidate.investmentNumber);
-    }
-  }
+  const visible = sim.rows.filter((r) => view.rowVisible(r.link.investmentId));
   return {
     detail: {
-      ...toFile(sim),
-      rows: visible.map((r) => toRow(r, visibleNumbers)),
+      ...toFile(ctx, sim),
+      rows: visible.map((r) => toRow(r, view.linkFor)),
       hiddenRows: sim.rows.length - visible.length,
     },
     visible,
   };
 }
 
-function fileStatus(sim: SimIntakeFile): StagingState {
-  return fileStatusOf(countsOf(sim.rows.map((r) => r.status)));
+function fileStatus(ctx: SimContext, sim: SimIntakeFile): StagingState {
+  return toFile(ctx, sim).status;
 }
 
 /** GET /api/v1/intake/accounting/exports: the bundled samples are the drop folder (operations only, the contract's guard). */
@@ -188,6 +182,191 @@ export const intakeExportsRoute = defineSimRoute({
   },
 });
 
+/** What an intake's reader gives the staging: the file's rows and findings, and the template a workbook matched. */
+export interface AccountingRead {
+  file: AccountingFile;
+  /** The ops-drop template the workbook matched (config/ops_drop_templates.json); null for the accounting export. */
+  templateSignature: string | null;
+}
+
+export interface StageInput {
+  source: SimIntakeFile['source'];
+  /** ops.data_exception.source of the exceptions this intake opens. */
+  exceptionSource: string;
+  fileName: string;
+  /** SHA-256 of the file's content, the idempotency key with the source (docs/04 M2). */
+  contentHash: string;
+  /**
+   * Reads the file into the accounting layout's rows, or answers the problem that refuses the
+   * read (a workbook the parser refuses). Called only once the content is known not to be staged
+   * already, and again for a file that was refused before, so a corrected layout or template
+   * stages it.
+   */
+  read: () => Promise<AccountingRead | Response> | AccountingRead | Response;
+}
+
+/**
+ * Stage a file of accounting-shaped rows, as apps/api/src/intake/stage.ts does for the accounting
+ * export and the ops drop. Idempotent by content: the same content answers the file staged before
+ * with duplicate true and stages nothing. A file the reader refused (no rows) is the exception:
+ * the same content is read again, so a corrected layout or template stages it under the file the
+ * refusal left behind; refused again, it keeps its name and receipt, with the findings brought up
+ * to date, and answers duplicate. Otherwise the file, its rows and the data exceptions they open
+ * land together, with one activity entry that carries counts only.
+ */
+export async function stageAccountingFile(
+  ctx: SimContext,
+  req: { actor: SimActor; credential: string },
+  input: StageInput,
+  instance: string,
+): Promise<Response> {
+  const book = ctx.book;
+  if (book === null) return noBook(instance);
+  const existing = [...ctx.state.intakeFiles.values()].find(
+    (f) => f.source === input.source && f.contentHash === input.contentHash,
+  );
+  const answer = (sim: SimIntakeFile, duplicate: boolean): Response => {
+    const result: IntakeImportResult = { ...load(ctx, req.credential, sim).detail, duplicate };
+    return jsonResponse(201, result, { simulated: true });
+  };
+  if (existing !== undefined && !restageable(existing)) return answer(existing, true);
+
+  const read = await input.read();
+  if (read instanceof Response) return read;
+  // A file the reader refuses (an unknown or missing column, an unknown template, nothing to
+  // read) holds no rows: a renamed column must never be guessed at.
+  const refused = read.file.fileFindings.some((f) => f.severity === 'error');
+  if (existing !== undefined && refused) {
+    existing.fileFindings = read.file.fileFindings;
+    return answer(existing, true);
+  }
+  const settings = intakeSettings();
+  const layout = accountingLayoutOf();
+  const prepared = refused
+    ? []
+    : prepareRows(
+        linkRows(read.file.rows, book.investments, book.matchGuards),
+        bookLookups(book),
+        settings,
+        book.asOf,
+      );
+  const rows: SimIntakeRow[] = prepared.map((p) => ({
+    id: ctx.env.newId(),
+    rowNo: p.row.rowNo,
+    naturalKey: naturalKeyOf(p.row, layout),
+    targetId: p.targetId,
+    status: p.status,
+    decision: null,
+    decidedBy: null,
+    promotedAt: null,
+    investmentNumber: p.row.investmentNumber,
+    companyName: p.row.companyName,
+    periodEnd: p.row.periodEnd,
+    quarterEnd: p.quarterEnd,
+    figures: p.row.figures,
+    link: linkOf(p.link),
+    diff: p.diff,
+    findings: p.findings,
+  }));
+  const sim: SimIntakeFile = existing ?? {
+    id: ctx.env.newId(),
+    source: input.source,
+    templateSignature: null,
+    fileName: input.fileName,
+    contentHash: input.contentHash,
+    receivedAt: ctx.env.now(),
+    receivedBy: req.actor.displayName,
+    rowCount: 0,
+    fileFindings: [],
+    rowVersion: 1,
+    rows: [],
+  };
+  // A refused file staged again takes this receipt and this reading (the API's update).
+  sim.receivedAt = ctx.env.now();
+  sim.receivedBy = req.actor.displayName;
+  sim.rowCount = prepared.length;
+  sim.fileFindings = read.file.fileFindings;
+  sim.templateSignature = read.templateSignature;
+  sim.rows = rows;
+  ctx.state.intakeFiles.set(sim.id, sim);
+  // Which exceptions a row opens, and what they carry (candidates by reason only, SEC-5.3), is
+  // the shared rule in @pb/validation; the API inserts the same rows.
+  for (const [i, p] of prepared.entries()) {
+    const row = rows[i];
+    if (row === undefined) continue;
+    for (const opened of exceptionsOpenedBy(p)) {
+      openException(ctx, {
+        source: input.exceptionSource,
+        entity: 'stg.intake_row',
+        entityId: row.id,
+        ruleId: opened.ruleId,
+        expected: opened.expected,
+        actual: opened.actual,
+        severity: EXCEPTION_SEVERITY,
+        candidates: opened.candidates,
+        file: sim,
+        rowNo: row.rowNo,
+        investmentId: row.link.investmentId,
+      });
+    }
+  }
+  const file = toFile(ctx, sim);
+  recordActivity(ctx, req.actor, {
+    action: 'intake.import',
+    entity: 'intake_file',
+    entityId: sim.id,
+    reason: null,
+    from: null,
+    to: file.status,
+    details: { rowCount: sim.rowCount, ...file.counts },
+  });
+  return answer(sim, false);
+}
+
+/** The text of an import body: as uploaded, or a bundled sample fetched as a static asset beside the page. */
+export async function importText(
+  ctx: SimContext,
+  body: { fileName: string; csv: string } | { sampleName: string | undefined },
+  instance: string,
+  missing: string,
+): Promise<{ fileName: string; text: string } | Response> {
+  if ('csv' in body) return { fileName: body.fileName, text: body.csv };
+  if (body.sampleName === undefined)
+    return problem(404, 'not-found', missing, { instance, simulated: true });
+  const asset = await ctx.fetchAsset(samplePath(body.sampleName));
+  if (!asset.ok)
+    return problem(503, 'unavailable', 'The sample file is missing from this preview', {
+      instance,
+      simulated: true,
+    });
+  return { fileName: body.sampleName, text: await asset.text() };
+}
+
+/** The refusals every content-keyed import shares: the byte limit, and a browser without SHA-256. */
+export function contentRefusal(
+  text: string,
+  maxFileBytes: number,
+  instance: string,
+): Response | null {
+  if (new TextEncoder().encode(text).length > maxFileBytes)
+    return problem(400, 'validation', 'The file is larger than one import accepts', {
+      instance,
+      simulated: true,
+    });
+  return hashRefusal(instance);
+}
+
+/** 503 where the browser offers no SHA-256 (an insecure page), since an import is keyed by its content. */
+export function hashRefusal(instance: string): Response | null {
+  if (subtleCrypto() !== undefined) return null;
+  return problem(
+    503,
+    'unavailable',
+    'This browser offers SHA-256 only on secure (https) pages, so an import cannot be keyed by its content here.',
+    { instance, simulated: true },
+  );
+}
+
 /**
  * POST /api/v1/intake/accounting: stage an export, uploaded as text or named among the bundled
  * samples (fetched as a static asset beside the page, never through the shim). Idempotent by
@@ -203,137 +382,52 @@ export const intakeImportRoute = defineSimRoute({
     const book = ctx.book;
     if (book === null) return noBook(instance);
     const body = req.body;
-    let fileName: string;
-    let text: string;
-    if ('csv' in body) {
-      fileName = body.fileName;
-      text = body.csv;
-    } else {
-      const sample = book.samples.find((s) => s.fileName === body.exportId);
-      if (sample === undefined)
-        return problem(404, 'not-found', 'Export not found', { instance, simulated: true });
-      const asset = await ctx.fetchAsset(samplePath(sample.fileName));
-      if (!asset.ok)
-        return problem(503, 'unavailable', 'The sample export is missing from this preview', {
-          instance,
-          simulated: true,
-        });
-      fileName = sample.fileName;
-      text = await asset.text();
-    }
-    const settings = intakeSettingsFrom(definitions);
-    if (new TextEncoder().encode(text).length > settings.maxFileBytes)
-      return problem(400, 'validation', 'The file is larger than one import accepts', {
-        instance,
-        simulated: true,
-      });
-    if (subtleCrypto() === undefined)
-      return problem(
-        503,
-        'unavailable',
-        'This browser offers SHA-256 only on secure (https) pages, so an import cannot be keyed by its content here.',
-        { instance, simulated: true },
-      );
-    const contentHash = await sha256Hex(text);
-    const existing = [...ctx.state.intakeFiles.values()].find((f) => f.contentHash === contentHash);
-    if (existing !== undefined) {
-      const duplicate: IntakeImportResult = {
-        ...load(ctx, req.credential, existing).detail,
-        duplicate: true,
-      };
-      return jsonResponse(201, duplicate, { simulated: true });
-    }
-
-    const layout = accountingLayout.parse(layoutJson);
-    const read = readAccountingFile(text, layout, { maxRows: settings.maxRows });
-    // A file the layout refuses (an unknown or missing column, nothing to read) holds no rows:
-    // a renamed column must never be guessed at.
-    const refused = read.fileFindings.some((f) => f.severity === 'error');
-    const prepared = refused
-      ? []
-      : prepareRows(
-          linkRows(read.rows, book.investments, book.matchGuards),
-          bookLookups(book),
-          settings,
-          book.asOf,
-        );
-    const sim: SimIntakeFile = {
-      id: ctx.env.newId(),
-      fileName,
-      contentHash,
-      receivedAt: ctx.env.now(),
-      receivedBy: req.actor.displayName,
-      rowCount: prepared.length,
-      fileFindings: read.fileFindings,
-      // The data exceptions the API opens, counted by the rule it shares with the preview.
-      exceptions: prepared.flatMap(exceptionsOpenedBy).length,
-      rowVersion: 1,
-      rows: prepared.map((p) => ({
-        id: ctx.env.newId(),
-        rowNo: p.row.rowNo,
-        naturalKey: naturalKeyOf(p.row, layout),
-        targetId: p.targetId,
-        status: p.status,
-        decision: null,
-        decidedBy: null,
-        promotedAt: null,
-        investmentNumber: p.row.investmentNumber,
-        companyName: p.row.companyName,
-        periodEnd: p.row.periodEnd,
-        quarterEnd: p.quarterEnd,
-        figures: p.row.figures,
-        link: linkOf(p.link),
-        diff: p.diff,
-        findings: p.findings,
-      })),
-    };
-    ctx.state.intakeFiles.set(sim.id, sim);
-    const counts = countsOf(sim.rows.map((r) => r.status));
-    recordActivity(ctx, req.actor, {
-      action: 'intake.import',
-      entity: 'intake_file',
-      entityId: sim.id,
-      reason: null,
-      from: null,
-      to: fileStatusOf(counts),
-      details: { rowCount: sim.rowCount, ...counts },
-    });
-    const result: IntakeImportResult = {
-      ...load(ctx, req.credential, sim).detail,
-      duplicate: false,
-    };
-    return jsonResponse(201, result, { simulated: true });
+    const source = await importText(
+      ctx,
+      'csv' in body
+        ? body
+        : { sampleName: book.samples.find((s) => s.fileName === body.exportId)?.fileName },
+      instance,
+      'Export not found',
+    );
+    if (source instanceof Response) return source;
+    const settings = intakeSettings();
+    const refusal = contentRefusal(source.text, settings.maxFileBytes, instance);
+    if (refusal !== null) return refusal;
+    return stageAccountingFile(
+      ctx,
+      req,
+      {
+        source: 'accounting',
+        exceptionSource: 'accounting_import',
+        fileName: source.fileName,
+        contentHash: await sha256Hex(source.text),
+        read: () => ({
+          file: readAccountingFile(source.text, accountingLayoutOf(), {
+            maxRows: settings.maxRows,
+          }),
+          templateSignature: null,
+        }),
+      },
+      instance,
+    );
   },
 });
 
-const encodeCursor = (file: IntakeFile): string =>
-  btoa(`${file.receivedAt}|${file.id}`).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
-
-function decodeCursor(cursor: string): { receivedAt: string; id: string } | null {
-  let text: string;
-  try {
-    text = atob(cursor.replace(/-/g, '+').replace(/_/g, '/'));
-  } catch {
-    return null;
-  }
-  const match = CURSOR.exec(text);
-  if (match === null) return null;
-  return { receivedAt: match[1] ?? '', id: match[2] ?? '' };
+/** Every simulated file of every source as the list carries it (the API lists stg.intake_file whole). */
+export function allFiles(ctx: SimContext): IntakeFile[] {
+  const sourced = <S extends IntakeSource>(
+    sims: Iterable<Parameters<typeof fileOf>[1]>,
+    source: S,
+  ): IntakeFile[] => [...sims].map((sim) => fileOf(ctx, sim, source, null));
+  return [
+    ...[...ctx.state.intakeFiles.values()].map((sim) => toFile(ctx, sim)),
+    ...sourced(ctx.state.weeklyFiles.values(), 'weekly'),
+    ...sourced(ctx.state.lookthroughRuns.values(), 'lookthrough'),
+  ];
 }
 
-/** Newest first, by receipt time then id, the API's order. */
-const newestFirst = (a: IntakeFile, b: IntakeFile): number =>
-  a.receivedAt === b.receivedAt
-    ? a.id < b.id
-      ? 1
-      : a.id > b.id
-        ? -1
-        : 0
-    : a.receivedAt < b.receivedAt
-      ? 1
-      : -1;
-
-/** GET /api/v1/intake/files: the files staged this session, newest first, with a status filter and cursor paging. */
+/** GET /api/v1/intake/files: every file staged this session, of every source, newest first, with the status and source filters and cursor paging. */
 export const intakeFilesRoute = defineSimRoute({
   method: 'GET',
   path: '/api/v1/intake/files',
@@ -342,27 +436,20 @@ export const intakeFilesRoute = defineSimRoute({
   query: intakeFileListQuery,
   handle: (req, ctx) => {
     const instance = req.url.pathname;
-    const after = req.query.cursor === undefined ? null : decodeCursor(req.query.cursor);
-    if (req.query.cursor !== undefined && after === null)
-      return problem(400, 'validation', 'Invalid cursor', { instance, simulated: true });
-    const status = req.query.status;
-    const files = [...ctx.state.intakeFiles.values()]
-      .map(toFile)
-      .sort(newestFirst)
-      .filter(
+    const { status, source } = req.query;
+    const page = pageNewestFirst(
+      allFiles(ctx).filter(
         (f) =>
           (status === undefined || f.status === status) &&
-          (after === null ||
-            f.receivedAt < after.receivedAt ||
-            (f.receivedAt === after.receivedAt && f.id < after.id)),
-      );
-    const items = files.slice(0, req.query.limit);
-    const last = items[items.length - 1];
-    const page: IntakeFilePage = {
-      items,
-      nextCursor: files.length > req.query.limit && last !== undefined ? encodeCursor(last) : null,
-    };
-    return jsonResponse(200, page, { simulated: true });
+          (source === undefined || f.source === source),
+      ),
+      (f) => ({ at: f.receivedAt, id: f.id }),
+      req.query,
+    );
+    if (page === null)
+      return problem(400, 'validation', 'Invalid cursor', { instance, simulated: true });
+    const body: IntakeFilePage = page;
+    return jsonResponse(200, body, { simulated: true });
   },
 });
 
@@ -385,14 +472,8 @@ function approvalRefusal(
   targets: readonly SimIntakeRow[],
   instance: string,
 ): Response | null {
-  const approved = attempt(stagingMachine, 'validated', 'approve', {
-    actorId: actor.userId,
-    actorRoles: actor.roles,
-    record: {},
-  });
-  if (!approved.ok) return workflowProblem(approved, { instance, simulated: true });
-  const promoted = attempt(stagingMachine, 'approved', 'promote', { ...SYSTEM_ACTOR, record: {} });
-  if (!promoted.ok) return workflowProblem(promoted, { instance, simulated: true });
+  const refusal = stagingRefusal(actor, instance);
+  if (refusal !== null) return refusal;
   for (const target of targets) {
     if (target.link.investmentId === null)
       return problem(
@@ -412,7 +493,21 @@ function approvalRefusal(
   return null;
 }
 
-function rejectionRefusal(
+/** The staging table's answer to an approval: validated > approved by the actor, then approved > promoted by the system actor. */
+export function stagingRefusal(actor: SimActor, instance: string): Response | null {
+  const approved = attempt(stagingMachine, 'validated', 'approve', {
+    actorId: actor.userId,
+    actorRoles: actor.roles,
+    record: {},
+  });
+  if (!approved.ok) return workflowProblem(approved, { instance, simulated: true });
+  const promoted = attempt(stagingMachine, 'approved', 'promote', { ...SYSTEM_ACTOR, record: {} });
+  if (!promoted.ok) return workflowProblem(promoted, { instance, simulated: true });
+  return null;
+}
+
+/** The staging table's answer to a rejection: flagged > rejected, with the reason it requires. */
+export function rejectionRefusal(
   actor: SimActor,
   reason: string | undefined,
   instance: string,
@@ -441,7 +536,7 @@ function promote(
   reason: string | undefined,
   at: string,
 ): void {
-  const decision = reason ?? `accounting import ${sim.fileName}`;
+  const decision = reason ?? `${IMPORT_LABEL[sim.source]} ${sim.fileName}`;
   const entityId = target.targetId ?? ctx.env.newId();
   target.status = 'promoted';
   target.decision = decision;
@@ -513,7 +608,7 @@ export const intakeCommandRoute = defineSimRoute({
       entityId: sim.id,
       reason: reason ?? null,
       from: null,
-      to: fileStatus(sim),
+      to: fileStatus(ctx, sim),
       details: { rows: targets.length },
     });
     return jsonResponse(200, load(ctx, req.credential, sim).detail, { simulated: true });
