@@ -138,6 +138,10 @@ const EXPOSURE_LABEL: Record<ExposureField, string> = {
 
 const blank = (value: string | null): boolean => value === null || value.trim() === '';
 
+/** True when the row names no position: both the investment number and the company name are blank. */
+const nameless = (row: Pick<LookthroughRow, 'investmentNumber' | 'companyName'>): boolean =>
+  blank(row.investmentNumber) && blank(row.companyName);
+
 /** The figure as a Decimal when it is a well-formed decimal string, else null. */
 const decimal = (value: string | null): Decimal | null =>
   value !== null && DECIMAL.test(value.trim()) ? D(value.trim()) : null;
@@ -186,7 +190,7 @@ const LT_REQ_01: LookthroughRule = {
   title: 'A number or a name identifies the row, and both exposures are present',
   check: ({ row }) => {
     const out: Finding[] = [];
-    if (blank(row.investmentNumber) && blank(row.companyName))
+    if (nameless(row))
       out.push(
         finding(
           LT_REQ_01,
@@ -238,7 +242,7 @@ const LT_XREF_01: LookthroughRule = {
   severity: 'error',
   title: 'The row links to a position on record',
   check: ({ link, row }) =>
-    link.status === 'unmatched' && !(blank(row.investmentNumber) && blank(row.companyName))
+    link.status === 'unmatched' && !nameless(row)
       ? finding(
           LT_XREF_01,
           'No position on record matches the number or the name; any candidates a person may see are listed on the row',
@@ -582,12 +586,16 @@ const EXCEPTION_TIER: Readonly<Record<string, LookthroughExceptionTier>> = {
 /** The link rule ids: their exception is opened from the link itself, not from the finding. */
 const LINK_RULE_IDS: ReadonlySet<string> = new Set(Object.values(LINK_EXCEPTION));
 
-/** The exceptions a prepared row opens: the unresolved link first, then unmapped labels and differences in rule order. */
+/**
+ * The exceptions a prepared row opens: the unresolved link first, then unmapped labels and
+ * differences in rule order. A row that names nothing fails LT-REQ-01 and opens no link
+ * exception, the same guard as LT-XREF-01: there is nothing to link and nothing to show as actual.
+ */
 export function lookthroughExceptionsOpenedBy(
   prepared: Pick<PreparedLookthroughRow, 'row' | 'link' | 'findings'>,
 ): LookthroughOpenedException[] {
   const out: LookthroughOpenedException[] = [];
-  if (prepared.link.status !== 'matched') {
+  if (prepared.link.status !== 'matched' && !nameless(prepared.row)) {
     const ruleId = LINK_EXCEPTION[prepared.link.status];
     const named = blank(prepared.row.investmentNumber)
       ? prepared.row.companyName.trim()

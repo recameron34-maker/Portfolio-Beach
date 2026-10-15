@@ -186,6 +186,39 @@ describe('look-through reconcile', () => {
     expect(lookthroughReconcileResult.safeParse(run).success).toBe(false);
     expect(lookthroughReconcileResult.safeParse({ ...run, duplicate: false }).success).toBe(true);
   });
+
+  it("keeps a row's as-of as the text the provider sent, so a flagged date never makes the run unreadable", () => {
+    // The API stages the text as sent and LT-TYPE-01 names it; the row must still parse.
+    const malformed = {
+      ...row,
+      asOf: 'June 2025',
+      status: 'flagged',
+      findings: [
+        {
+          ruleId: 'LT-TYPE-01',
+          severity: 'error',
+          message: 'The as-of date is not a date of the form YYYY-MM-DD',
+          field: 'asOf',
+          expected: 'YYYY-MM-DD',
+          actual: 'June 2025',
+        },
+      ],
+    };
+    expect(lookthroughRow.safeParse(malformed).success).toBe(true);
+    expect(lookthroughRow.safeParse({ ...row, asOf: '2025-06-31' }).success).toBe(true);
+    expect(lookthroughRow.safeParse({ ...row, asOf: 7 }).success).toBe(false);
+    const run = {
+      ...file,
+      source: 'lookthrough',
+      asOf: '2025-06-30',
+      rows: [malformed],
+      hiddenRows: 0,
+      duplicate: false,
+    };
+    expect(lookthroughReconcileResult.safeParse(run).success).toBe(true);
+    // The run's own as-of date is still a real calendar day.
+    expect(lookthroughReconcileResult.safeParse({ ...run, asOf: 'June 2025' }).success).toBe(false);
+  });
 });
 
 describe('ops drop workbooks', () => {

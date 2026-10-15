@@ -236,7 +236,8 @@ const WK_REQ_01: WeeklyRule = {
   id: 'WK-REQ-01',
   category: 'required',
   severity: 'error',
-  title: 'An investment number or a company name identifies the row, and it carries a value',
+  title:
+    'An investment number or a company name identifies the row, and it carries a report date and a value',
   check: ({ row }) => {
     const out: Finding[] = [];
     if (row.investmentNumber === null && row.companyName === null)
@@ -247,6 +248,10 @@ const WK_REQ_01: WeeklyRule = {
           { field: 'InvestmentNumber' },
         ),
       );
+    // Required like the accounting REQ-02: a Draft valuation needs a date to value at, so a row
+    // with no report date is flagged here and never lands validated only to fail at approval.
+    if (row.reportDate === null)
+      out.push(finding(WK_REQ_01, 'The row carries no report date', { field: 'ReportDate' }));
     if (row.reportedValue === null)
       out.push(finding(WK_REQ_01, 'The row carries no value', { field: 'ReportedValue' }));
     return out;
@@ -499,6 +504,23 @@ const WK_XREF_03: WeeklyRule = {
         )
       : null,
 };
+// Approval opens a Draft valuation, and (new) > Draft needs an active investment (docs/18 section
+// 1): an exited position is flagged here so one row never blocks the whole file's approval. The
+// service's own check stays as the last guard, for a position exited between staging and approval.
+const WK_XREF_04: WeeklyRule = {
+  id: 'WK-XREF-04',
+  category: 'cross_entity',
+  severity: 'error',
+  title: 'The linked investment is active, so approval can open a Draft valuation for it',
+  check: ({ link }) =>
+    link.investment !== null && !link.investment.isActive
+      ? finding(
+          WK_XREF_04,
+          'The linked investment is not active: a weekly value cannot open a Draft valuation for it',
+          { field: 'InvestmentNumber' },
+        )
+      : null,
+};
 
 /* ---- Stale ---- */
 const WK_STALE_01: WeeklyRule = {
@@ -562,6 +584,7 @@ export const WEEKLY_RULES: readonly WeeklyRule[] = [
   WK_XREF_01,
   WK_XREF_02,
   WK_XREF_03,
+  WK_XREF_04,
   WK_STALE_01,
   WK_PRIOR_01,
 ];
