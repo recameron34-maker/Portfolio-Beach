@@ -24,6 +24,10 @@ import {
 import type { Runtime } from './composition.js';
 import { DataController } from './data/data.controller.js';
 import { DbService } from './db/db.service.js';
+import { DocumentsController } from './documents/documents.controller.js';
+import { DocumentsService } from './documents/documents.service.js';
+import { ExpectedDocumentsService } from './documents/expected.service.js';
+import { EXTRACTION_SCHEMAS } from './documents/settings.js';
 import { ExceptionsController } from './exceptions/exceptions.controller.js';
 import { ExceptionsService } from './exceptions/exceptions.service.js';
 import { FlagsController } from './flags/flags.controller.js';
@@ -70,6 +74,7 @@ export const CONTROLLERS = [
   WeeklyController,
   LookthroughController,
   ExceptionsController,
+  DocumentsController,
 ] as const;
 
 @Module({})
@@ -87,6 +92,7 @@ export class AppModule implements NestModule {
         { provide: ACCOUNTING_LAYOUT, useValue: runtime.accountingLayout },
         { provide: LOOKTHROUGH_MAPPING, useValue: runtime.lookthroughMapping },
         { provide: OPS_DROP_TEMPLATES, useValue: runtime.opsDropTemplates },
+        { provide: EXTRACTION_SCHEMAS, useValue: runtime.extractionSchemas },
         DbService,
         FlagsService,
         PortfolioService,
@@ -103,6 +109,8 @@ export class AppModule implements NestModule {
         WeeklyService,
         LookthroughService,
         ExceptionsService,
+        DocumentsService,
+        ExpectedDocumentsService,
         { provide: APP_GUARD, useClass: AuthGuard },
         { provide: APP_FILTER, useClass: ProblemFilter },
       ],
