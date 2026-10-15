@@ -9,6 +9,7 @@ pnpm synth:verify --in .synthetic/dataset.json              # consistency, scena
 pnpm db:seed:synthetic .synthetic/dataset.json              # load into the local database
 pnpm synth:exports --profile small --seed 42 --out .synthetic/accounting/in   # the three accounting exports
 pnpm synth:drops --profile small --seed 42 --root .synthetic/drops            # the weekly and look-through drops
+pnpm synth:documents --profile small --seed 42 --root .synthetic/documents   # the PDF inbox and truth sidecars (docs/14 section 9)
 ```
 
 `.synthetic/` is gitignored; only the generator is committed.
@@ -30,7 +31,10 @@ Each source is a pure function of the dataset, byte-identical for a seed, in thr
 
 In `weeklyValues` and `lookthroughExtract` one row carries one of the company's aliases and no number (`expectations.aliased`); the accounting export and the ops-drop sheets carry no alias row. In every source the walled position's rows are listed in `expectations.walled`.
 
+## Synthetic documents (docs/04 M3 and M4)
+`generateDocuments` (`documents.ts`) writes the PDF set of docs/14 section 9 with the deterministic writer of `packages/pdf`: a quarterly report (letter, financial summary, position summary, notes) per equity or CV position for the entry snapshot and the latest two approved quarters, the capital call and distribution notices of the trailing year, and a capital account statement per committed sponsor fund, every figure from the dataset in US$ millions. Each document carries a truth sidecar (every field with value, unit, page and the exact line the reader returns) and the set reports `expectations` (counts per type, scenario files, the walled investment's files, the late report). The scenarios `restatement`, `injection_doc`, `duplicate_doc`, `untagged_doc` and `late_financials` each take one investment outside the wall. `pnpm synth:documents` writes `inbox/` and `truth/<sha256>.json` under `PB_DOCUMENT_ROOT`.
+
 ## Scenario tags
 `dataset.scenarios` maps each tag to the ids that carry it. Data-level tags (all present in every profile): `missing_prior_year`, `period_end_shift`, `forward_entry_snapshot`, `negative_ebitda`, `near_miss_names`, `two_clients_one_fund`, `restatement`, `stale_valuation`, `roll_forward_break`, `wire_change`, `equalization`, `walled_deal`, `multiple_irr`, `pik_toggle`, `covenant_breach`, `credit_amortization`, `credit_prepayment`, `lp_second_closing`.
 
-Document-level tags (`units_millions`, `qtd_ytd_basis`, `sign_flip`, `injection_doc`, `duplicate_doc`, `untagged_doc`, `late_financials`) arrive with the synthetic PDF generator in Phase 2; contacts, interactions and mail fixtures arrive with the relationship module in Phase 5.
+Document-level tags live on the truth sidecars of the document set (`injection_doc`, `duplicate_doc`, `untagged_doc`, `late_financials` and the document form of `restatement`; `expectations.scenarioFiles` names their files). The tags `units_millions`, `qtd_ytd_basis` and `sign_flip` are not produced yet; contacts, interactions and mail fixtures arrive with the relationship module in Phase 5.
