@@ -62,27 +62,27 @@ export const dict = (entries: Record<string, PdfObject> = {}): PdfDict => ({
 export const array = (items: PdfObject[]): PdfArray => ({ kind: 'array', items });
 export const string = (bytes: Uint8Array): PdfString => ({ kind: 'string', bytes });
 
-export const isName = (o: PdfObject, value?: string): o is PdfName =>
+export const isName = (o: PdfObject | undefined, value?: string): o is PdfName =>
   o !== null &&
   typeof o === 'object' &&
   o.kind === 'name' &&
   (value === undefined || o.name === value);
-export const isDict = (o: PdfObject): o is PdfDict =>
+export const isDict = (o: PdfObject | undefined): o is PdfDict =>
   o !== null && typeof o === 'object' && o.kind === 'dict';
-export const isStream = (o: PdfObject): o is PdfStream =>
+export const isStream = (o: PdfObject | undefined): o is PdfStream =>
   o !== null && typeof o === 'object' && o.kind === 'stream';
-export const isArray = (o: PdfObject): o is PdfArray =>
+export const isArray = (o: PdfObject | undefined): o is PdfArray =>
   o !== null && typeof o === 'object' && o.kind === 'array';
-export const isRef = (o: PdfObject): o is PdfRef =>
+export const isRef = (o: PdfObject | undefined): o is PdfRef =>
   o !== null && typeof o === 'object' && o.kind === 'ref';
-export const isString = (o: PdfObject): o is PdfString =>
+export const isString = (o: PdfObject | undefined): o is PdfString =>
   o !== null && typeof o === 'object' && o.kind === 'string';
-export const isNumber = (o: PdfObject): o is number => typeof o === 'number';
-export const isOperator = (o: PdfObject): o is PdfOperator =>
+export const isNumber = (o: PdfObject | undefined): o is number => typeof o === 'number';
+export const isOperator = (o: PdfObject | undefined): o is PdfOperator =>
   o !== null && typeof o === 'object' && o.kind === 'op';
 
 /** The dictionary of a dict or a stream, or null. */
-export function dictOf(o: PdfObject): PdfDict | null {
+export function dictOf(o: PdfObject | undefined): PdfDict | null {
   if (isDict(o)) return o;
   if (isStream(o)) return o.dict;
   return null;

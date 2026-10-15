@@ -55,7 +55,7 @@ export interface AssembleOptions {
 /** PNG "up" filtering of fixed-width rows (filter type byte 2 before each row). */
 export function pngUpEncode(rows: readonly Uint8Array[], rowLength: number): Uint8Array {
   const out: Uint8Array[] = [];
-  let previous = new Uint8Array(rowLength);
+  let previous: Uint8Array = new Uint8Array(rowLength);
   for (const row of rows) {
     const encoded = new Uint8Array(rowLength + 1);
     encoded[0] = 2;

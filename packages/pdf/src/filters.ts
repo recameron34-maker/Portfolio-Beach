@@ -265,6 +265,7 @@ export async function applyFilter(
   inflate: Inflate,
   limits: StreamLimits,
 ): Promise<Uint8Array> {
+  const flate = filter === 'FlateDecode' || filter === 'Fl';
   let out: Uint8Array;
   switch (filter) {
     case 'FlateDecode':
@@ -318,7 +319,7 @@ export async function applyFilter(
       'too_large',
     );
   }
-  if (filter === 'FlateDecode' || filter === 'Fl' || filter === 'LZWDecode' || filter === 'LZW') {
+  if (flate) {
     out = applyPredictor(out, parms);
   }
   return out;
