@@ -82,6 +82,40 @@ export const CLASSIFICATION: Record<string, TableClassification> = {
   'mon.capital_notice': { default: 'restricted_mnpi', retention: 'books_and_records' },
   'mon.cash_flow': { default: 'restricted_mnpi', retention: 'books_and_records' },
   'mon.realization_outlook': { default: 'restricted_mnpi', retention: 'books_and_records' },
+  // The document index (migration 0011): what a document is about is MNPI (its title, links,
+  // period, text excerpt and search vector); where it sits in the store and how it was handled are
+  // operational metadata. Who classified it is personal.
+  'doc.document': {
+    default: 'restricted_mnpi',
+    retention: 'books_and_records',
+    columns: {
+      source_system: 'internal',
+      source_item_id: 'internal',
+      folder: 'internal',
+      confidentiality: 'internal',
+      content_hash: 'internal',
+      size_bytes: 'internal',
+      page_count: 'internal',
+      received_at: 'internal',
+      indexed_at: 'internal',
+      review_status: 'internal',
+      classification_confidence: 'internal',
+      classified_by: 'confidential_personal',
+      classified_at: 'internal',
+      duplicate_of_id: 'internal',
+    },
+  },
+  'doc.expected_document': { default: 'internal', retention: 'books_and_records' },
+  // A run's bookkeeping (schema, prompt, state, tokens, cost, retries); the figures are on its values.
+  'doc.extraction_run': {
+    default: 'internal',
+    retention: 'operational_2y',
+    columns: {
+      requested_by: 'confidential_personal',
+      approved_by: 'confidential_personal',
+      promoted_record_id: 'restricted_mnpi',
+    },
+  },
   'ops.schema_migration': { default: 'internal', retention: 'permanent' },
   'ops.feature_flag': { default: 'internal', retention: 'permanent' },
   'ops.task': {
@@ -108,6 +142,17 @@ export const CLASSIFICATION: Record<string, TableClassification> = {
   'stg.intake_file': { default: 'internal', retention: 'operational_2y' },
   'stg.intake_row': { default: 'restricted_mnpi', retention: 'operational_2y' },
   'stg.valuation': { default: 'restricted_mnpi', retention: 'operational_2y' },
+  // An extracted value is a figure from a sponsor report until approved; the reviewer is personal.
+  'stg.extracted_value': {
+    default: 'restricted_mnpi',
+    retention: 'operational_2y',
+    columns: {
+      validation_state: 'internal',
+      reviewer_id: 'confidential_personal',
+      decision: 'internal',
+      decided_at: 'internal',
+    },
+  },
   'audit.event': {
     default: 'internal',
     retention: 'permanent',

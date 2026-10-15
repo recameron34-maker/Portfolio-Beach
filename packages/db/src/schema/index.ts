@@ -1,4 +1,5 @@
 export * from './core.js';
+export * from './doc.js';
 export * from './mon.js';
 export * from './ops.js';
 export * from './stg.js';

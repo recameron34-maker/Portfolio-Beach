@@ -63,7 +63,7 @@ describe('migrations', () => {
     const tables = await handle.query<{ name: string; enabled: boolean; forced: boolean }>(`
       select n.nspname || '.' || c.relname as name, c.relrowsecurity as enabled, c.relforcerowsecurity as forced
       from pg_class c join pg_namespace n on n.oid = c.relnamespace
-      where c.relkind = 'r' and n.nspname in ('core','mon','ops','stg','audit')
+      where c.relkind = 'r' and n.nspname in ('core','mon','doc','ops','stg','audit')
         and c.relname <> 'schema_migration'
       order by 1`);
     expect(tables.length).toBeGreaterThan(30);
@@ -139,6 +139,142 @@ describe('migrations', () => {
       { key: 'adapter.ops_drop', enabled: true },
       { key: 'adapter.weekly_drop', enabled: true },
     ]);
+  });
+
+  it('0011: the document hub tables, the doc_type taxonomy and the classifier switch (decision 0012)', async () => {
+    const terms = await handle.query<{ code: string; label: string }>(
+      "select code, label from core.taxonomy_term where domain = 'doc_type' order by sort_order",
+    );
+    expect(terms.map((t) => t.code)).toEqual([
+      'doc_type.quarterly_financials',
+      'doc_type.quarterly_letter',
+      'doc_type.capital_call',
+      'doc_type.distribution_notice',
+      'doc_type.capital_account_statement',
+      'doc_type.k1',
+      'doc_type.audited_financials',
+      'doc_type.cim',
+      'doc_type.management_presentation',
+      'doc_type.lpa',
+      'doc_type.side_letter',
+      'doc_type.subscription_docs',
+      'doc_type.closing_set',
+      'doc_type.valuation_support',
+      'doc_type.agm_materials',
+      'doc_type.other',
+    ]);
+    expect(terms.find((t) => t.code === 'doc_type.k1')?.label).toBe('K-1');
+    const flags = await handle.query<{ key: string; enabled: boolean }>(
+      "select key, enabled from ops.feature_flag where key in ('ai.classifier', 'ai.extraction') order by key",
+    );
+    expect(flags).toEqual([
+      { key: 'ai.classifier', enabled: true },
+      { key: 'ai.extraction', enabled: false },
+    ]);
+    // The search vector is generated from the title, the file name and the text excerpt.
+    const generated = await handle.query<{ column_name: string; is_generated: string }>(
+      "select column_name, is_generated from information_schema.columns where table_schema = 'doc' and table_name = 'document' and column_name = 'search_text'",
+    );
+    expect(generated).toEqual([{ column_name: 'search_text', is_generated: 'ALWAYS' }]);
+    const indexes = await handle.query<{ indexname: string; indexdef: string }>(
+      "select indexname, indexdef from pg_indexes where schemaname = 'doc' order by indexname",
+    );
+    const names = indexes.map((i) => i.indexname);
+    expect(names).toEqual(
+      expect.arrayContaining([
+        'document_content_hash_idx',
+        'document_investment_idx',
+        'document_sponsor_fund_idx',
+        'document_review_status_idx',
+        'document_search_idx',
+        'expected_document_investment_key',
+        'expected_document_sponsor_fund_key',
+        'extraction_run_document_idx',
+        'extraction_run_state_idx',
+        'extraction_run_batch_idx',
+      ]),
+    );
+    expect(indexes.find((i) => i.indexname === 'document_search_idx')?.indexdef).toContain(
+      'USING gin',
+    );
+    // One expected row per investment or per sponsor fund, period and type: partial unique indexes.
+    for (const key of ['expected_document_investment_key', 'expected_document_sponsor_fund_key']) {
+      const def = indexes.find((i) => i.indexname === key)?.indexdef ?? '';
+      expect(def, key).toContain('UNIQUE');
+      expect(def, key).toContain('IS NOT NULL');
+    }
+    const policies = await handle.query<{ table: string; policyname: string; cmd: string }>(
+      "select schemaname || '.' || tablename as \"table\", policyname, cmd from pg_policies where (schemaname = 'doc' or tablename = 'extracted_value') order by 1, 2",
+    );
+    expect(policies).toEqual([
+      { table: 'doc.document', policyname: 'read_visible', cmd: 'SELECT' },
+      { table: 'doc.document', policyname: 'review_update', cmd: 'UPDATE' },
+      { table: 'doc.document', policyname: 'write_insert', cmd: 'INSERT' },
+      { table: 'doc.document', policyname: 'write_update', cmd: 'UPDATE' },
+      { table: 'doc.expected_document', policyname: 'read_visible', cmd: 'SELECT' },
+      { table: 'doc.expected_document', policyname: 'write_delete', cmd: 'DELETE' },
+      { table: 'doc.expected_document', policyname: 'write_insert', cmd: 'INSERT' },
+      { table: 'doc.expected_document', policyname: 'write_update', cmd: 'UPDATE' },
+      { table: 'doc.extraction_run', policyname: 'read_visible', cmd: 'SELECT' },
+      { table: 'doc.extraction_run', policyname: 'review_update', cmd: 'UPDATE' },
+      { table: 'doc.extraction_run', policyname: 'write_insert', cmd: 'INSERT' },
+      { table: 'doc.extraction_run', policyname: 'write_update', cmd: 'UPDATE' },
+      { table: 'stg.extracted_value', policyname: 'read_visible', cmd: 'SELECT' },
+      { table: 'stg.extracted_value', policyname: 'review_update', cmd: 'UPDATE' },
+      { table: 'stg.extracted_value', policyname: 'write_insert', cmd: 'INSERT' },
+    ]);
+    // No delete is granted on any of the four, so nothing an extraction staged can be erased.
+    const deletes = await handle.query<{ table: string }>(`
+      select table_schema || '.' || table_name as "table" from information_schema.role_table_grants
+      where grantee = 'pb_app' and privilege_type = 'DELETE'
+        and table_schema || '.' || table_name in ('doc.document', 'doc.expected_document', 'doc.extraction_run', 'stg.extracted_value')`);
+    expect(deletes).toEqual([]);
+  });
+
+  it('0011: the checks refuse a two-parent expected document, a long quote and a repeated field', async () => {
+    const insertDocument = `insert into doc.document (id, source_system, source_item_id, file_name, folder, title, content_hash, size_bytes, received_at)
+      values ('a1000000-0000-4000-8000-000000000001', 'local_folder', 'inbox/check.pdf', 'check.pdf', 'inbox', 'check', 'hash-check', 10, now())`;
+    await handle.exec(insertDocument);
+    await expect(
+      handle.exec(
+        "insert into doc.expected_document (investment_id, sponsor_fund_id, period_end, doc_type, due_date) values (null, null, '2024-06-30', 'doc_type.quarterly_financials', '2024-08-14')",
+      ),
+    ).rejects.toThrow(/check constraint/);
+    await expect(
+      handle.exec(
+        "insert into doc.document (source_system, source_item_id, file_name, folder, title, content_hash, size_bytes, received_at, review_status) values ('local_folder', 'inbox/other.pdf', 'other.pdf', 'inbox', 'other', 'hash-other', 10, now(), 'Pending')",
+      ),
+    ).rejects.toThrow(/check constraint/);
+    await expect(
+      handle.exec(
+        "insert into doc.document (source_system, source_item_id, file_name, folder, title, content_hash, size_bytes, received_at) values ('local_folder', 'inbox/check.pdf', 'again.pdf', 'inbox', 'again', 'hash-again', 10, now())",
+      ),
+    ).rejects.toThrow(/unique/);
+    await handle.exec(
+      "insert into doc.extraction_run (id, document_id, schema_id, prompt_id, prompt_version) values ('a1000000-0000-4000-8000-000000000002', 'a1000000-0000-4000-8000-000000000001', 'quarterly_financials', 'quarterly_extraction', '1')",
+    );
+    await expect(
+      handle.exec(
+        `insert into stg.extracted_value (run_id, field, value, unit, page, quote) values ('a1000000-0000-4000-8000-000000000002', 'revenue_ltm', '1', 'USD_M', 1, '${'x'.repeat(151)}')`,
+      ),
+    ).rejects.toThrow(/check constraint/);
+    await handle.exec(
+      "insert into stg.extracted_value (run_id, field, value, unit, page, quote) values ('a1000000-0000-4000-8000-000000000002', 'revenue_ltm', '1', 'USD_M', 1, 'one')",
+    );
+    await expect(
+      handle.exec(
+        "insert into stg.extracted_value (run_id, field, value, unit, page, quote) values ('a1000000-0000-4000-8000-000000000002', 'revenue_ltm', '2', 'USD_M', 1, 'two')",
+      ),
+    ).rejects.toThrow(/unique/);
+    await expect(
+      handle.exec(
+        "insert into stg.extracted_value (run_id, field, value, unit) values ('a1000000-0000-4000-8000-000000000002', 'cash', '1', 'EUR')",
+      ),
+    ).rejects.toThrow(/check constraint/);
+    const searched = await handle.query<{ n: number }>(
+      "select count(*)::int as n from doc.document where search_text @@ plainto_tsquery('simple', 'check')",
+    );
+    expect(searched[0]?.n).toBe(1);
   });
 
   it('never grant DELETE on financial tables or UPDATE/DELETE on the audit trail to the application role', async () => {
