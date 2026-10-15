@@ -1,8 +1,9 @@
 import { describe, expect, it } from 'vitest';
+import { API_PREFIX, ROUTES } from '@pb/contracts';
 import definitions from '../../../../../config/definitions.json';
 import { weeklyFileFixture, weeklyRowFixture } from '../../test/fixtures-weekly.js';
 import { MISSING } from '../../lib/format.js';
-import { intakeActions, filterRows, noRowsState } from '../intake/intake.js';
+import { commandRoles, intakeActions, filterRows, noRowsState } from '../intake/intake.js';
 import {
   ABOVE_THRESHOLD_LABEL,
   decisionText,
@@ -13,6 +14,7 @@ import {
   thresholdLabel,
   VARIANCE_THRESHOLD_PCT,
   varianceText,
+  WEEKLY_COMMANDS_ROUTE,
   WEEKLY_FORBIDDEN,
   WEEKLY_META,
   weeklyCommandResult,
@@ -90,10 +92,10 @@ describe('weekly helpers', () => {
       weeklyRowFixture({ id: 'x', rowNo: 2, status: 'flagged' }),
       weeklyRowFixture({ id: 'y', rowNo: 3, status: 'promoted' }),
     ];
-    const ops = intakeActions(['operations'], rows);
+    const ops = intakeActions(['operations'], rows, WEEKLY_COMMANDS_ROUTE);
     expect(ops.approve.enabled).toBe(true);
     expect(ops.reject.enabled).toBe(true);
-    const deal = intakeActions(['deal_team'], rows);
+    const deal = intakeActions(['deal_team'], rows, WEEKLY_COMMANDS_ROUTE);
     expect(deal.approve.enabled).toBe(true);
     expect(deal.reject.enabled).toBe(false);
     expect(filterRows(rows, { state: 'flagged', search: '' }).map((r) => r.rowNo)).toEqual([2]);
@@ -103,6 +105,34 @@ describe('weekly helpers', () => {
       noRowsState({ rowCount: 3, rows: [], hiddenRows: 3, fileFindings: [] })?.title,
     ).toContain('linked to positions you cannot see');
     expect(noRowsState({ rowCount: 3, rows, hiddenRows: 0, fileFindings: [] })).toBeNull();
+  });
+
+  it('gates the commands by the weekly commands route in the contract, not the accounting one', () => {
+    const route = ROUTES.find(
+      (r) => r.method === 'POST' && r.path === `${API_PREFIX}${WEEKLY_COMMANDS_ROUTE}`,
+    );
+    expect(route).toBeDefined();
+    expect(route?.roles.length).toBeGreaterThan(0);
+    expect(commandRoles(WEEKLY_COMMANDS_ROUTE)).toEqual(route?.roles);
+    const rows = [weeklyRowFixture()];
+    for (const role of [
+      'operations',
+      'deal_team',
+      'approver',
+      'auditor',
+      'viewer',
+      'platform_admin',
+    ]) {
+      const offered = route?.roles.includes(role) ?? false;
+      expect(intakeActions([role], rows, WEEKLY_COMMANDS_ROUTE).approve.offered, role).toBe(
+        offered,
+      );
+      expect(intakeActions([role], rows, WEEKLY_COMMANDS_ROUTE).reject.offered, role).toBe(offered);
+    }
+    // The gate reads the route it is given, so a route the contract lacks offers nothing.
+    const none = intakeActions(['operations'], rows, '/intake/weekly/no-such-route/{id}/commands');
+    expect(none.approve.offered).toBe(false);
+    expect(none.reject.offered).toBe(false);
   });
 
   it('never carries an em dash in its words', () => {

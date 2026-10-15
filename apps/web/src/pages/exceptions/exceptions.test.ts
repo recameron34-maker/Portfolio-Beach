@@ -1,7 +1,13 @@
 import { describe, expect, it } from 'vitest';
-import { EXCEPTION_ID, exceptionFixture, exceptions } from '../../test/fixtures-exceptions.js';
-import { FILE_ID, ROW_ID } from '../../test/fixtures-intake.js';
+import {
+  EXCEPTION_ID,
+  exceptionFixture,
+  exceptions,
+  weeklyExceptionFixture,
+} from '../../test/fixtures-exceptions.js';
+import { FILE_ID } from '../../test/fixtures-intake.js';
 import { RUN_ID } from '../../test/fixtures-lookthrough.js';
+import { WEEKLY_FILE_ID } from '../../test/fixtures-weekly.js';
 import {
   ageLabel,
   blockedReason,
@@ -12,12 +18,12 @@ import {
   exceptionActions,
   exceptionStateWord,
   exceptionTone,
-  filterByFile,
   isExceptionState,
+  isSeverity,
   isTicket,
   knownSources,
+  parseExceptionsSearch,
   positionText,
-  queueCountLine,
   rowText,
   severityLabel,
   severityTone,
@@ -68,7 +74,7 @@ describe('exceptions helpers', () => {
     ]);
   });
 
-  it('links a look-through exception to its run and a staged row to its intake file, nothing else', () => {
+  it('links a look-through exception to its run, a staged row to its intake file and a staged value to its weekly file', () => {
     expect(contextLink(exceptionFixture())).toEqual({
       to: '/data/lookthrough/$id',
       params: { id: RUN_ID.defects },
@@ -80,14 +86,14 @@ describe('exceptions helpers', () => {
       params: { id: FILE_ID.update },
       label: 'accounting-export-2025-06-30-update.csv',
     });
+    expect(contextLink(weeklyExceptionFixture())).toEqual({
+      to: '/data/weekly/$id',
+      params: { id: WEEKLY_FILE_ID.update },
+      label: 'weekly-values-2025-06-27-update.csv',
+    });
+    // An entity the pages do not show is named, never linked.
     expect(
-      contextLink(
-        exceptionFixture({
-          source: 'weekly_import',
-          entity: 'stg.valuation',
-          entityId: ROW_ID.unchanged,
-        }),
-      ),
+      contextLink(exceptionFixture({ source: 'ownership_check', entity: 'core.investment' })),
     ).toBeNull();
     expect(
       contextLink(
@@ -168,15 +174,31 @@ describe('exceptions helpers', () => {
     expect(isTicket('x'.repeat(65))).toBe(false);
   });
 
-  it('filters the queue to one file and counts what is shown', () => {
-    expect(filterByFile(exceptions(), RUN_ID.defects).map((x) => x.ruleId)).toEqual([
-      'LT-TIE-01',
-      'LT-DIFF-01',
-      'LT-MAP-01',
-      'LT-XREF-01',
-    ]);
-    expect(filterByFile(exceptions(), FILE_ID.clean)).toEqual([]);
-    expect(queueCountLine(4, 6)).toBe('4 of 6 exceptions');
-    expect(queueCountLine(1, 1)).toBe('1 of 1 exception');
+  it('keeps a known state and severity from the address and drops anything else, so a stale bookmark opens the queue', () => {
+    expect(
+      parseExceptionsSearch({
+        file: RUN_ID.defects,
+        state: 'open',
+        source: 'weekly_import',
+        severity: 'exception_severity.high',
+      }),
+    ).toEqual({
+      file: RUN_ID.defects,
+      state: 'open',
+      source: 'weekly_import',
+      severity: 'exception_severity.high',
+    });
+    expect(
+      parseExceptionsSearch({ state: 'closed', severity: 'urgent', file: 7, source: '' }),
+    ).toEqual({});
+    expect(
+      parseExceptionsSearch({ state: 'wont_fix', severity: 'exception_severity.low' }),
+    ).toEqual({
+      state: 'wont_fix',
+      severity: 'exception_severity.low',
+    });
+    expect(parseExceptionsSearch({})).toEqual({});
+    expect(isSeverity('exception_severity.medium')).toBe(true);
+    expect(isSeverity('medium')).toBe(false);
   });
 });

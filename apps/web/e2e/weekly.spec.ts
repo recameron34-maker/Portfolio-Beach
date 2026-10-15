@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test';
 import type { Page } from '@playwright/test';
 import { generateDataset, weeklyValues } from '@pb/synthetic';
-import { loadDataset, signInAs, walledDeal } from './fixtures.js';
+import { loadDataset, signInAs, switchTo, walledDeal } from './fixtures.js';
 
 /**
  * Weekly values (docs/04 M2 weekly-report-intake, decision 0010) over the real API: operations
@@ -30,15 +30,6 @@ const shownVariance = (pct: string): string => {
   const text = `${Math.abs(value).toFixed(1)}%`;
   return value < 0 ? `-${text}` : `+${text}`;
 };
-
-/** Switches the acting user through the shell's role switcher (the prototype's sign-in). */
-async function switchTo(page: Page, externalId: string): Promise<void> {
-  const user = d.users.find((u) => u.externalId === externalId);
-  if (!user) throw new Error(`no user ${externalId}`);
-  await page.getByTestId('role-switcher').click();
-  await page.getByRole('option', { name: new RegExp(user.displayName) }).click();
-  await expect(page.getByTestId('current-user')).toHaveText(user.displayName);
-}
 
 const walled = walledDeal(d);
 const walledNumber = d.investments.find((i) => i.id === walled.id)?.investmentNumber ?? '';
@@ -110,7 +101,7 @@ test('operations stages the update file, reviews the moved values and promotes w
   await expect(page.getByRole('button', { name: 'Approve validated rows' })).toBeDisabled();
 
   // A wall member sees that row and finishes the file.
-  await switchTo(page, 'deal.three');
+  await switchTo(page, 'deal.three', d);
   await page.goto(fileUrl);
   await expect(page.getByTestId('weekly-banner')).toContainText(update.fileName);
   await expect(page.getByText('linked to positions you cannot see')).toHaveCount(0);
@@ -127,7 +118,7 @@ test('operations stages the update file, reviews the moved values and promotes w
   );
 
   // Back as operations: the list shows the file as promoted, and the same text stages nothing new.
-  await switchTo(page, 'ops.one');
+  await switchTo(page, 'ops.one', d);
   await page.goto('/data/weekly');
   const files = page.getByRole('table', { name: 'Weekly files' });
   await expect(files.getByRole('row').filter({ hasText: update.fileName })).toContainText(

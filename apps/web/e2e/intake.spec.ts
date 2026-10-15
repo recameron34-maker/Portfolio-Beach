@@ -2,7 +2,7 @@ import { expect, test } from '@playwright/test';
 import type { Page } from '@playwright/test';
 import { addMonths, latestQuarterEndOnOrBefore } from '@pb/calc';
 import { accountingExport, generateDataset } from '@pb/synthetic';
-import { loadDataset, signInAs, walledDeal } from './fixtures.js';
+import { loadDataset, signInAs, switchTo, walledDeal } from './fixtures.js';
 
 /**
  * Intake (docs/04 M2, SEC-9.1) over the real API: operations stages the synthetic "update" export,
@@ -44,15 +44,6 @@ const shownDate = (isoDate: string): string =>
 
 // The supplied quarter is a year before the export's quarter; that position also has its usual row.
 const addedPeriod = shownDate(addMonths(latestQuarterEndOnOrBefore(full.asOf), -12));
-
-/** Switches the acting user through the shell's role switcher (the prototype's sign-in). */
-async function switchTo(page: Page, externalId: string): Promise<void> {
-  const user = d.users.find((u) => u.externalId === externalId);
-  if (!user) throw new Error(`no user ${externalId}`);
-  await page.getByTestId('role-switcher').click();
-  await page.getByRole('option', { name: new RegExp(user.displayName) }).click();
-  await expect(page.getByTestId('current-user')).toHaveText(user.displayName);
-}
 
 const walled = walledDeal(d);
 const walledNumber = d.investments.find((i) => i.id === walled.id)?.investmentNumber ?? '';
@@ -114,7 +105,7 @@ test('operations stages the update export, reviews the diff and promotes what it
   await expect(page.getByRole('button', { name: 'Approve validated rows' })).toBeDisabled();
 
   // A wall member sees that row and finishes the file.
-  await switchTo(page, 'deal.three');
+  await switchTo(page, 'deal.three', d);
   await page.goto(fileUrl);
   await expect(page.getByTestId('intake-banner')).toContainText(update.fileName);
   await expect(page.getByText('linked to positions you cannot see')).toHaveCount(0);
@@ -129,7 +120,7 @@ test('operations stages the update export, reviews the diff and promotes what it
   );
 
   // Back as operations: the list shows the file as promoted, and the same text stages nothing new.
-  await switchTo(page, 'ops.one');
+  await switchTo(page, 'ops.one', d);
   await page.goto('/data/intake');
   const files = page.getByRole('table', { name: 'Intake files' });
   await expect(files.getByRole('row').filter({ hasText: update.fileName })).toContainText(

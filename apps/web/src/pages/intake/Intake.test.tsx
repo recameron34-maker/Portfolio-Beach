@@ -6,6 +6,7 @@ import type { MockRoutes } from '../../test/api-mock.js';
 import {
   FILE_ID,
   intakeExportListFixture,
+  intakeFileFixture,
   intakeFilePageFixture,
   intakeFiles,
   intakeImportResultFixture,
@@ -13,7 +14,9 @@ import {
   opsDropFileFixture,
   opsDropRefusedFileFixture,
 } from '../../test/fixtures-intake.js';
+import { lookthroughRunFixture, RUN_ID } from '../../test/fixtures-lookthrough.js';
 import { rolePrincipal, sentPosts, sentRequests } from '../../test/fixtures-valuations.js';
+import { WEEKLY_FILE_ID, weeklyFileFixture } from '../../test/fixtures-weekly.js';
 import { renderWithQuery } from '../../test/render.js';
 import { navigate } from '../../test/router-mock.js';
 import { IntakePage } from './Intake.js';
@@ -167,6 +170,55 @@ describe('intake list', () => {
       .closest('tr')!;
     expect(within(accounting).getByText('Accounting')).toBeInTheDocument();
     expect(within(accounting).queryByText(/Template:/)).not.toBeInTheDocument();
+  });
+
+  it('lists every intake file and opens each on the page of its source, named in plain words', async () => {
+    mockApi(
+      routes(['auditor'], {
+        [FILES]: ok(
+          intakeFilePageFixture([
+            weeklyFileFixture(),
+            lookthroughRunFixture({ id: RUN_ID.clean, fileName: 'lookthrough-2025-03-31.json' }),
+            opsDropFileFixture(),
+            intakeFileFixture(),
+          ]),
+        ),
+      }),
+    );
+    renderWithQuery(<IntakePage />);
+    const table = await screen.findByRole('table', { name: 'Intake files' });
+    // The list is every intake file, unfiltered: the API is asked for the files of every source.
+    expect(sentRequests().map(([url]) => url)).toContain(FILES);
+    const rowOf = (fileName: string): HTMLElement =>
+      within(table).getByRole('link', { name: fileName }).closest('tr')!;
+
+    const weekly = rowOf('weekly-values-2025-06-27-update.csv');
+    expect(within(weekly).getByRole('link')).toHaveAttribute(
+      'href',
+      `/data/weekly/${WEEKLY_FILE_ID.update}`,
+    );
+    expect(within(weekly).getByText('Weekly values')).toBeInTheDocument();
+
+    const run = rowOf('lookthrough-2025-03-31.json');
+    expect(within(run).getByRole('link')).toHaveAttribute(
+      'href',
+      `/data/lookthrough/${RUN_ID.clean}`,
+    );
+    expect(within(run).getByText('Look-through')).toBeInTheDocument();
+
+    const workbook = rowOf('ops-drop-2025-06-30-clean.xlsx');
+    expect(within(workbook).getByRole('link')).toHaveAttribute(
+      'href',
+      `/data/intake/${FILE_ID.opsDrop}`,
+    );
+    expect(within(workbook).getByText('Ops drop')).toBeInTheDocument();
+
+    const accounting = rowOf('accounting-export-2025-06-30-update.csv');
+    expect(within(accounting).getByRole('link')).toHaveAttribute(
+      'href',
+      `/data/intake/${FILE_ID.update}`,
+    );
+    expect(within(accounting).getByText('Accounting')).toBeInTheDocument();
   });
 
   it('reads a chosen workbook as bytes, posts it as base64 and opens the staged file', async () => {

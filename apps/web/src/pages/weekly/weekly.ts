@@ -21,6 +21,9 @@ export const WEEKLY_FORBIDDEN = {
     'Operations stages the weekly report values; operations, the deal team, approvers and auditors read them. Ask a platform administrator if you need access.',
 };
 
+/** The contract's route for weekly commands: POST /intake/weekly/files/{id}/commands; the action gates read their roles from it. */
+export const WEEKLY_COMMANDS_ROUTE = '/intake/weekly/files/{id}/commands';
+
 /** The move against the prior that flags a value (config/definitions.json intake.weeklyVarianceThresholdPct). */
 export const VARIANCE_THRESHOLD_PCT: number = definitions.intake.weeklyVarianceThresholdPct;
 

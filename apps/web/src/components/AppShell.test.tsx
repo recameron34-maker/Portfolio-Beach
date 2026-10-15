@@ -1,7 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { cleanup, render, screen, waitFor } from '@testing-library/react';
+import { cleanup, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { DATA_LINKS, NAV_GROUPS } from '../app/nav.js';
 import { clearCredential, getCredential, setCredential } from '../app/session.js';
 import { AppShell } from './AppShell.js';
 
@@ -46,6 +47,37 @@ describe('app shell with a rejected credential', () => {
     );
     await waitFor(() => expect(navigate).toHaveBeenCalledWith({ to: '/sign-in' }));
     expect(getCredential()).toBeNull();
+  });
+});
+
+describe('the main navigation', () => {
+  beforeEach(() => {
+    setCredential('viewer.one');
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response('{}', { status: 404, headers: { 'content-type': 'application/json' } }),
+    );
+  });
+  afterEach(() => {
+    cleanup();
+    vi.restoreAllMocks();
+    clearCredential();
+    navigate.mockReset();
+  });
+
+  it('gives every link an icon, the Data group included', () => {
+    const { container } = render(
+      <QueryClientProvider
+        client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}
+      >
+        <AppShell />
+      </QueryClientProvider>,
+    );
+    const nav = within(container).getByRole('navigation', { name: 'Main' });
+    for (const link of [...NAV_GROUPS, ...DATA_LINKS]) {
+      const item = within(nav).getByText(link.label).closest('a');
+      expect(item, link.to).not.toBeNull();
+      expect(item?.querySelector('.pb-nav-icon svg'), link.to).not.toBeNull();
+    }
   });
 });
 

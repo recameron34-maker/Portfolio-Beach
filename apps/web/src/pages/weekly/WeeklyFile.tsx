@@ -50,6 +50,7 @@ import {
   reportDateText,
   thresholdLabel,
   varianceText,
+  WEEKLY_COMMANDS_ROUTE,
   WEEKLY_FORBIDDEN,
   weeklyCommandResult,
 } from './weekly.js';
@@ -209,8 +210,9 @@ function RowsCard({
     rejectButton.current?.focus();
   }, [rejecting]);
   // The gates, the filters and the wall note are the intake page's: a command acts on the rows
-  // the reviewer sees, and a validated row past their wall waits for a wall member.
-  const actions = intakeActions(roles, file.rows);
+  // the reviewer sees, and a validated row past their wall waits for a wall member. The gates
+  // read their roles from the weekly commands route, not the accounting one.
+  const actions = intakeActions(roles, file.rows, WEEKLY_COMMANDS_ROUTE);
   const rows = filterRows(file.rows, { state, search });
   const hidden = hiddenRowsNote(file.hiddenRows);
   const noRows = noRowsState(file);
