@@ -154,3 +154,61 @@ tr.pb-deal-note-row > td {
     grid-column: 1 / -1;
   }
 }
+
+/* Source of a quarter (click-to-source): the page link and, when a run read it, the run link beside it. */
+.pb-deal-source {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 2px 8px;
+  white-space: nowrap;
+}
+
+/* Realization outlook edit form: the controls in a row on a laptop, each on its own line on a phone. */
+.pb-deal-outlook-form {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: 10px 14px;
+  margin: 12px 0 0;
+}
+.pb-deal-outlook-control {
+  min-width: 0;
+  width: 150px;
+}
+.pb-deal-outlook-control.is-short {
+  width: 110px;
+}
+.pb-deal-outlook-control.is-wide {
+  width: 240px;
+}
+@media (max-width: 760px) {
+  .pb-deal-outlook-form > .pb-field {
+    flex: 1 1 100%;
+  }
+  .pb-deal-outlook-control,
+  .pb-deal-outlook-control.is-short,
+  .pb-deal-outlook-control.is-wide {
+    width: 100%;
+  }
+}
+
+/* Documents tab: the title as the link with the file name under it; the run badge is its own link. */
+.pb-deal-document {
+  display: grid;
+  gap: 2px;
+  min-width: 220px;
+}
+.pb-deal-document > .pb-meta {
+  font-size: 12px;
+  line-height: 16px;
+  overflow-wrap: anywhere;
+}
+.pb-deal-run-link {
+  text-decoration: none;
+}
+.pb-deal-run-link:focus-visible {
+  outline: 2px solid var(--pb-brand-accent);
+  outline-offset: 2px;
+  border-radius: 4px;
+}

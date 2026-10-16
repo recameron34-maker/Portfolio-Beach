@@ -8,6 +8,7 @@ import {
   commitmentList,
   dataDictionary,
   dataHealth,
+  documentPage,
   featureFlagList,
   healthReady,
   intakeExportList,
@@ -18,6 +19,7 @@ import {
   investmentPerformance,
   mockUserList,
   principal,
+  realizationOutlookDetail,
   sponsorDetail,
   sponsorPage,
   taxonomy,
@@ -236,6 +238,31 @@ export const intakeExportsQuery = queryOptions({
   queryFn: () => api('/api/v1/intake/accounting/exports', intakeExportList),
   retry: retryUnlessUnavailable,
 });
+/* Phase 2 (docs/04 M3, M9): the documents of one position and its realization outlook. */
+
+/** The documents linked to one position, newest first (SEC-8.5: only what the caller may see). */
+export function documentsOfInvestmentQuery(investmentId: string) {
+  const params = new URLSearchParams();
+  params.set('limit', String(LIST_LIMIT));
+  params.set('investmentId', investmentId);
+  return queryOptions({
+    queryKey: ['documents', { investmentId }],
+    queryFn: () => api(`/api/v1/documents?${params.toString()}`, documentPage),
+    retry: retryUnlessUnavailable,
+  });
+}
+/** The realization outlook of one position, or the API's default when nobody has set one. */
+export function realizationOutlookQuery(investmentId: string) {
+  return queryOptions({
+    queryKey: ['realization-outlook', investmentId],
+    queryFn: () =>
+      api(
+        `/api/v1/monitoring/outlook/${encodeURIComponent(investmentId)}`,
+        realizationOutlookDetail,
+      ),
+    retry: false,
+  });
+}
 export const healthReadyQuery = queryOptions({
   queryKey: ['health-ready'],
   queryFn: () => api('/health/ready', healthReady),

@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react';
-import { dealStageMachine, documentClassificationMachine } from '@pb/workflows';
+import { dealStageMachine } from '@pb/workflows';
 import { PhasePage } from '../../components/ui.js';
 import { WorkflowSpec } from '../../components/WorkflowSpec.js';
 import './deal.css';
@@ -43,26 +43,6 @@ export function ClosingTab(): ReactNode {
         before funding, and the allocation across vehicles is tied out before the deal closes.
       </Arrives>
     </PhasePage>
-  );
-}
-
-export function DocumentsTab(): ReactNode {
-  return (
-    <>
-      <PhasePage title="Documents" phase="Phase 2" modules="M3 document hub, M4 extraction">
-        <Arrives>
-          M3 brings the document hub for this position, with AI tagging of sponsor, period and
-          document type and a review queue for anything below the confidence threshold. The
-          expected-document tracker shows which quarterly reports and notices have arrived and which
-          are missing or late.
-        </Arrives>
-      </PhasePage>
-      <WorkflowSpec
-        machine={documentClassificationMachine}
-        title="Document classification"
-        detail="How each document for this position will be tagged, and when a person reviews it."
-      />
-    </>
   );
 }
 

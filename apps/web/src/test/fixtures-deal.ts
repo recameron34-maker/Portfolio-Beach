@@ -1,10 +1,13 @@
 import type {
   AuditPage,
   CapitalNoticePage,
+  DocumentPage,
+  DocumentSummary,
   InvestmentDetail,
   InvestmentPerformance,
   Principal,
   QuarterRow,
+  RealizationOutlookDetail,
   SponsorDetail,
   ValuationPage,
   ValuationRow,
@@ -43,6 +46,8 @@ export const DEAL_PATHS = {
   me: '/api/v1/auth/me',
   detail: `/api/v1/investments/${DEAL_ID}`,
   performance: `/api/v1/investments/${DEAL_ID}/performance`,
+  documents: `/api/v1/documents?limit=200&investmentId=${DEAL_ID}`,
+  outlook: `/api/v1/monitoring/outlook/${DEAL_ID}`,
   valuations: `/api/v1/valuations?limit=200&investmentId=${DEAL_ID}`,
   notices: `/api/v1/capital-notices?limit=200&investmentId=${DEAL_ID}`,
   sponsor: `/api/v1/sponsors/${ID.sponsor1}`,
@@ -494,4 +499,96 @@ export function operationsPrincipalFixture(): Principal {
     displayName: 'Avery Mbeki',
     roles: ['operations'],
   };
+}
+
+/* ---- Phase 2 (docs/04 M3, M9): the documents of the position and its realization outlook ---- */
+
+export const DEAL_DOCUMENT_ID = {
+  report: '00000000-0000-4000-8000-00000000d101',
+  scan: '00000000-0000-4000-8000-00000000d102',
+  run: '00000000-0000-4000-8000-00000000e101',
+} as const;
+
+/** A quarterly report the classifier linked to this position, with a Succeeded extraction run. */
+export function dealDocumentFixture(overrides: Partial<DocumentSummary> = {}): DocumentSummary {
+  return {
+    id: DEAL_DOCUMENT_ID.report,
+    title: 'Meridian Data Partners quarterly report Q2 2025',
+    fileName: '2025-06-30 Kelpwood Fund IV - Quarterly financials - Meridian Data Partners.pdf',
+    folder: 'inbox',
+    docType: 'doc_type.quarterly_financials',
+    reviewStatus: 'Classified',
+    sponsorId: ID.sponsor1,
+    sponsorFundId: DEAL_IDS.fundIv,
+    sponsorFundName: 'Kelpwood Fund IV',
+    investmentId: DEAL_ID,
+    investmentNumber: 'INV-0001',
+    companyName: 'Meridian Data Partners',
+    periodEnd: AS_OF,
+    confidentiality: 'confidential',
+    contentHash: 'c0ffee00c0ffee00c0ffee00c0ffee00c0ffee00c0ffee00c0ffee00c0ffee00',
+    sizeBytes: 10240,
+    pageCount: 4,
+    receivedAt: '2025-08-02T09:15:00.000Z',
+    indexedAt: '2025-08-02T10:00:00.000Z',
+    classificationConfidence: '0.97',
+    classifierEvidence: { keywords: ['quarterly report'], candidates: [] },
+    classifiedBy: null,
+    classifiedAt: '2025-08-02T10:00:00.000Z',
+    duplicateOfId: null,
+    latestRun: { id: DEAL_DOCUMENT_ID.run, state: 'Succeeded' },
+    ...overrides,
+  };
+}
+
+/** Two documents as the API lists them, newest first: the report, then a scan the classifier was not sure about. */
+export function dealDocumentPageFixture(items?: DocumentSummary[]): DocumentPage {
+  return {
+    items: items ?? [
+      dealDocumentFixture(),
+      dealDocumentFixture({
+        id: DEAL_DOCUMENT_ID.scan,
+        title: 'scan_0042',
+        fileName: 'scan_0042.pdf',
+        docType: null,
+        reviewStatus: 'NeedsReview',
+        periodEnd: null,
+        receivedAt: '2025-07-20T08:00:00.000Z',
+        indexedAt: '2025-07-20T09:00:00.000Z',
+        classificationConfidence: '0.30',
+        classifierEvidence: { keywords: [], candidates: [{ reason: 'file name only' }] },
+        classifiedAt: null,
+        latestRun: null,
+      }),
+    ],
+    nextCursor: null,
+  };
+}
+
+/** The outlook the deal team set on this position. */
+export function outlookFixture(
+  overrides: Partial<RealizationOutlookDetail> = {},
+): RealizationOutlookDetail {
+  return {
+    investmentId: DEAL_ID,
+    investmentNumber: 'INV-0001',
+    companyName: 'Meridian Data Partners',
+    outlook: 'partial',
+    horizonMonths: 18,
+    note: 'Sponsor has engaged advisors.',
+    setBy: 'Emerson Marchetti',
+    setAt: '2025-05-02T09:30:00.000Z',
+    ...overrides,
+  };
+}
+
+/** The API's answer when nobody has set an outlook: none within 18 months, set by nobody. */
+export function defaultOutlookFixture(): RealizationOutlookDetail {
+  return outlookFixture({
+    outlook: 'none',
+    horizonMonths: 18,
+    note: null,
+    setBy: null,
+    setAt: null,
+  });
 }

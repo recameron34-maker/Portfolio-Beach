@@ -1,16 +1,21 @@
 import { useParams } from '@tanstack/react-router';
 import { useQuery } from '@tanstack/react-query';
 import type { UseQueryResult } from '@tanstack/react-query';
-import { API_PREFIX, ROUTES } from '@pb/contracts';
+import { API_PREFIX, realizationOutlookCode, ROUTES } from '@pb/contracts';
 import type {
   CapitalNoticeRow,
+  DocumentReviewStatus,
+  ExtractionRunState,
   InvestmentDetail,
   InvestmentPerformance,
   QuarterRow,
+  QuarterSource,
+  RealizationOutlookCode,
 } from '@pb/contracts';
 import definitions from '../../../../../config/definitions.json';
 import { investmentQuery } from '../../app/queries.js';
-import { formatDate, formatMoneyM, labelOf } from '../../lib/format.js';
+import type { Tone } from '../../components/ui.js';
+import { formatDate, formatMoneyM, labelOf, MISSING } from '../../lib/format.js';
 import { humanizeState } from '../../lib/states.js';
 
 /* Data helpers shared by the deal workspace tabs. Pure functions and hooks only: components live in .tsx files. */
@@ -42,6 +47,74 @@ export const AUDIT_ROLES: readonly string[] = AUDIT_ROUTE?.roles ?? [];
 /** True when the signed-in roles may read the audit trail; an empty role list means any signed-in user. */
 export function canReadAudit(roles: readonly string[]): boolean {
   return AUDIT_ROLES.length === 0 || roles.some((r) => AUDIT_ROLES.includes(r));
+}
+
+/** Roles that may set the realization outlook, from the route table (PUT /monitoring/outlook/{investmentId}). */
+const OUTLOOK_ROUTE = ROUTES.find(
+  (r) => r.method === 'PUT' && r.path === `${API_PREFIX}/monitoring/outlook/{investmentId}`,
+);
+export const OUTLOOK_ROLES: readonly string[] = OUTLOOK_ROUTE?.roles ?? [];
+
+/** True when the signed-in roles may set the outlook; an empty role list would mean any signed-in user. */
+export function canSetOutlook(roles: readonly string[]): boolean {
+  return OUTLOOK_ROLES.length === 0 || roles.some((r) => OUTLOOK_ROLES.includes(r));
+}
+
+/** The outlook codes the contract allows, in the order the form lists them: none, partial, full. */
+export const OUTLOOK_CODES: readonly RealizationOutlookCode[] = realizationOutlookCode.options;
+
+export function isOutlookCode(value: string): value is RealizationOutlookCode {
+  return (OUTLOOK_CODES as readonly string[]).includes(value);
+}
+
+/** The taxonomy label of an outlook code ("Partial"): the contract carries the code without its domain. */
+export function outlookLabel(code: RealizationOutlookCode): string {
+  return labelOf(`realization_outlook.${code}`);
+}
+
+/** The horizon the contract accepts (realizationOutlookBody: 1 to 120 months). */
+export const HORIZON_MONTHS = { min: 1, max: 120 } as const;
+
+/** A whole number of months inside the contract's bounds, typed as the user typed it. */
+export function isHorizon(text: string): boolean {
+  if (!/^\d{1,3}$/.test(text.trim())) return false;
+  const n = Number(text.trim());
+  return n >= HORIZON_MONTHS.min && n <= HORIZON_MONTHS.max;
+}
+
+/**
+ * Paths of the document hub pages (the Documents navigation group). Built as plain hrefs rather
+ * than typed routes so the deal tabs can link to a document or a run whichever build of the hub
+ * they ship with; the router resolves them like any other in-app link.
+ */
+export const documentHref = (documentId: string): string =>
+  `/documents/${encodeURIComponent(documentId)}`;
+export const runHref = (runId: string): string =>
+  `/documents/extraction/${encodeURIComponent(runId)}`;
+
+/**
+ * What the source link of a quarter says (docs/11 I1 click-to-source): "page 3" when the lineage
+ * names the page, "document" when only the document is known, and the missing placeholder for a
+ * quarter whose figures have no source document. A page is never guessed.
+ */
+export function sourceLabel(source: QuarterSource | null): string {
+  if (source === null) return MISSING;
+  return source.page === null ? 'document' : `page ${source.page}`;
+}
+
+/** docs/18 section 6: Classified is settled, NeedsReview waits on a person, the rest is neutral. */
+export function documentStatusTone(status: DocumentReviewStatus): Tone {
+  if (status === 'Classified') return 'good';
+  if (status === 'NeedsReview') return 'watch';
+  return 'neutral';
+}
+
+/** docs/18 section 7: Succeeded reads good, Failed bad, NeedsRetry watch, the in-flight states neutral. */
+export function runStateTone(state: ExtractionRunState): Tone {
+  if (state === 'Succeeded') return 'good';
+  if (state === 'Failed') return 'bad';
+  if (state === 'NeedsRetry') return 'watch';
+  return 'neutral';
 }
 
 /** Numbers feed chart geometry only; every displayed figure is formatted from the API's decimal string. */

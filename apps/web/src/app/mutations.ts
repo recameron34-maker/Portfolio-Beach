@@ -7,6 +7,7 @@ import {
   intakeFileDetail,
   intakeImportResult,
   previewResetResult,
+  realizationOutlookDetail,
   valuationRow,
 } from '@pb/contracts';
 import type {
@@ -16,6 +17,8 @@ import type {
   IntakeFileDetail,
   IntakeImportBody,
   IntakeImportResult,
+  RealizationOutlookBody,
+  RealizationOutlookDetail,
   ValuationCommand,
   ValuationRow,
 } from '@pb/contracts';
@@ -279,6 +282,57 @@ export function useIntakeCommand(): UseMutationResult<
     onSuccess: (updated) => {
       queryClient.setQueryData(['intake-file', updated.id], updated);
       invalidate(queryClient, INTAKE_KEYS);
+    },
+  });
+}
+
+/**
+ * PUT /api/v1/monitoring/outlook/{investmentId}: the deal team sets the realization outlook by
+ * hand, with a reason the API keeps on the audit event (docs/04 M9, SEC-11.1). Nothing automated
+ * ever writes it: the API refuses unless definitions.realizationFlagEditableOnlyManually is on.
+ */
+export function putRealizationOutlook(
+  investmentId: string,
+  body: RealizationOutlookBody,
+): Promise<RealizationOutlookDetail> {
+  return api(
+    `/api/v1/monitoring/outlook/${encodeURIComponent(investmentId)}`,
+    realizationOutlookDetail,
+    { method: 'PUT', body: JSON.stringify(body) },
+  );
+}
+
+export interface OutlookVariables {
+  investmentId: string;
+  body: RealizationOutlookBody;
+}
+
+/**
+ * The reads an outlook edit can change: the position's performance series carries the outlook
+ * too, the watchlist and the realizations analytics read it, and the edit is audited.
+ */
+const OUTLOOK_KEYS: QueryKey[] = [
+  ['realization-outlook'],
+  ['investment-performance'],
+  ['watchlist'],
+  ['analytics-summary'],
+  ['weekly-report'],
+  ['audit'],
+];
+
+export function useSetRealizationOutlook(): UseMutationResult<
+  RealizationOutlookDetail,
+  Error,
+  OutlookVariables
+> {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ investmentId, body }: OutlookVariables) =>
+      putRealizationOutlook(investmentId, body),
+    onSuccess: (detail) => {
+      // The card shows the answer at once instead of waiting for a second read.
+      queryClient.setQueryData(['realization-outlook', detail.investmentId], detail);
+      invalidate(queryClient, OUTLOOK_KEYS);
     },
   });
 }
