@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { assertProductionSafe, SystemClock } from '@pb/adapters';
 import type { AdapterSet, Clock } from '@pb/adapters';
@@ -13,6 +13,14 @@ import {
   SyntheticBenchmarkProvider,
 } from '@pb/adapters/mocks';
 import type { MockUser } from '@pb/adapters/mocks';
+import {
+  AiError,
+  fixtureExtractor,
+  keywordClassifier,
+  loadExtractionSchemas,
+  parseTruth,
+} from '@pb/ai';
+import type { ExtractionSchemas, Truth } from '@pb/ai';
 import { lookthroughMapping, opsDropTemplates } from '@pb/contracts';
 import type { LookthroughMapping, OpsDropTemplates } from '@pb/contracts';
 import { APP_ROLES, createDb, dbConfigFromEnv, migrate } from '@pb/db';
@@ -22,6 +30,7 @@ import type { ApiConfig } from './config.js';
 import { createLogger } from './common/logging.js';
 import type { Logger } from './common/logging.js';
 import { zodIssues } from './common/problem.js';
+import { documentSettingsOf, extractionSettingsOf } from './documents/settings.js';
 
 export interface Runtime {
   config: ApiConfig;
@@ -35,6 +44,10 @@ export interface Runtime {
   lookthroughMapping: LookthroughMapping;
   /** config/ops_drop_templates.json, checked at startup: a bad template file stops the process. */
   opsDropTemplates: OpsDropTemplates;
+  /** config/extraction_schema.json as @pb/ai loads it, checked at startup: a bad schema file stops the process. */
+  extractionSchemas: ExtractionSchemas;
+  /** The recorded truths of <PB_DOCUMENT_ROOT>/truth/<contentHash>.json, the prototype extractor's fixtures (decision 0012). */
+  truths: ReadonlyMap<string, Truth>;
 }
 
 export interface RuntimeOverrides {
@@ -124,6 +137,65 @@ export function loadOpsDropTemplates(configDir: string): OpsDropTemplates {
   return loadStrict(configDir, 'ops_drop_templates.json', opsDropTemplates);
 }
 
+/** config/extraction_schema.json through @pb/ai's loader (docs/04 M4): a missing or unusable file stops the process. */
+export function loadExtractionSchemaConfig(configDir: string): ExtractionSchemas {
+  const fileName = 'extraction_schema.json';
+  const path = join(configDir, fileName);
+  if (!existsSync(path)) throw new Error(`config file is missing: ${fileName}`);
+  try {
+    return loadExtractionSchemas(JSON.parse(readFileSync(path, 'utf8')));
+  } catch (error) {
+    if (error instanceof AiError)
+      throw new Error(`config file is not valid (${fileName}): ${error.message}`, { cause: error });
+    throw error;
+  }
+}
+
+const CONTENT_HASH_FILE = /^[0-9a-f]{64}\.json$/;
+
+/**
+ * The truth sidecars the synthetic document set wrote next to its inbox, keyed by content hash
+ * (the file's base name): what the fixture-backed extractor answers for each document. A
+ * missing folder means no fixtures, which is fine until documents are generated; a sidecar that
+ * does not parse stops the process by name, since a half-read fixture would fail every run of
+ * that document for no visible reason.
+ */
+export function loadTruths(documentRoot: string): Map<string, Truth> {
+  const folder = join(documentRoot, 'truth');
+  const truths = new Map<string, Truth>();
+  if (!existsSync(folder)) return truths;
+  for (const name of readdirSync(folder).sort()) {
+    if (!CONTENT_HASH_FILE.test(name)) continue;
+    try {
+      truths.set(
+        name.slice(0, -5),
+        parseTruth(JSON.parse(readFileSync(join(folder, name), 'utf8'))),
+      );
+    } catch (error) {
+      throw new Error(
+        `truth sidecar is not usable (truth/${name}): ${error instanceof Error ? error.message : String(error)}`,
+        { cause: error },
+      );
+    }
+  }
+  return truths;
+}
+
+/**
+ * The prototype models behind the mock client (decision 0012): the keyword classifier answers
+ * the document_classifier prompt from the input, and the fixture extractor answers the
+ * quarterly_extraction prompt from the recorded truth of the document's content hash. A client
+ * that is not the mock is left as it is.
+ */
+export function registerPrototypeModels(
+  ai: AdapterSet['ai'],
+  truths: ReadonlyMap<string, Truth>,
+): void {
+  if (!(ai instanceof MockAiClient)) return;
+  ai.register('document_classifier', keywordClassifier);
+  ai.register('quarterly_extraction', fixtureExtractor(truths));
+}
+
 /** The drop folders under PB_DROP_ROOT, one per intake that reads files from a folder. */
 export function dropFolders(dropRoot: string): {
   weekly: string;
@@ -177,6 +249,9 @@ export async function buildRuntime(
     NODE_ENV: config.NODE_ENV,
     PB_MOCK_IDENTITY: config.PB_MOCK_IDENTITY,
   });
+  const truths = loadTruths(config.PB_DOCUMENT_ROOT);
+  registerPrototypeModels(adapters.ai, truths);
+  logger.info({ truths: truths.size }, 'document truths loaded');
 
   let db = overrides.db;
   if (db === undefined) {
@@ -197,14 +272,21 @@ export async function buildRuntime(
       'no mock users found; run pnpm synth and pnpm db:seed:synthetic',
     );
   }
+  const definitions = loadDefinitions(config.PB_CONFIG_DIR);
+  // The document hub and the extraction engine read their blocks at every request; a bad block
+  // is refused here, before anything is served (rule 9), with the same readers.
+  documentSettingsOf(definitions);
+  extractionSettingsOf(definitions);
   return {
     config,
     db,
     adapters,
     logger,
-    definitions: loadDefinitions(config.PB_CONFIG_DIR),
+    definitions,
     accountingLayout: loadAccountingLayout(config.PB_CONFIG_DIR),
     lookthroughMapping: loadLookthroughMapping(config.PB_CONFIG_DIR),
     opsDropTemplates: loadOpsDropTemplates(config.PB_CONFIG_DIR),
+    extractionSchemas: loadExtractionSchemaConfig(config.PB_CONFIG_DIR),
+    truths,
   };
 }
