@@ -11,5 +11,5 @@ export { FixtureLookThroughProvider } from './lookthrough/mock.js';
 export { LocalFolderLookThroughProvider } from './lookthrough/local-folder.js';
 export { LocalFolderDrop } from './drops/local-folder.js';
 export { MockAiClient } from './ai/mock.js';
-export type { AiCallRecord } from './ai/mock.js';
+export type { AiCallRecord, AiFixtureResolver } from './ai/mock.js';
 export { SyntheticBenchmarkProvider } from './benchmarks/mock.js';

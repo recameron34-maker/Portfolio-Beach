@@ -42,7 +42,7 @@ jobs:
       - run: pnpm test # unit + db (in-process Postgres, no Docker)
       - run: pnpm test:rls && pnpm test:workflows
       - run: pnpm test:calc # golden + property + Python cross-check
-      - run: pnpm test:evals -- --mock
+      - run: pnpm test:evals # the gold-set eval with the fixture-backed models (vitest takes no --mock flag)
       - run: pnpm check:classification
   e2e:
     needs: ci

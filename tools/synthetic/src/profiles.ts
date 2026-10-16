@@ -1,3 +1,5 @@
+import type { DOCUMENT_SET_SCENARIOS } from './documents.js';
+
 /** Volumes per profile (docs/14 section 2). `small` keeps unit tests fast. */
 export interface Profile {
   name: string;
@@ -53,13 +55,17 @@ export const DATA_SCENARIOS = [
 ] as const;
 export type DataScenario = (typeof DATA_SCENARIOS)[number];
 
-/** Tags that live in documents or expected-document records and arrive with the PDF generator (Phase 2). */
-export const DOCUMENT_SCENARIOS = [
-  'units_millions',
-  'qtd_ytd_basis',
-  'sign_flip',
+/**
+ * Tags that live on the truth sidecars of the document set and must appear in every profile
+ * (docs/14 section 9). Typed as the generator's own list (`DOCUMENT_SET_SCENARIOS` in
+ * documents.ts), so the two cannot drift: a tag listed here but not produced, or produced but
+ * not listed, fails the type check. `units_millions`, `qtd_ytd_basis` and `sign_flip` from the
+ * docs/14 scenario table are not produced yet and are not listed.
+ */
+export const DOCUMENT_SCENARIOS: typeof DOCUMENT_SET_SCENARIOS = [
   'injection_doc',
   'duplicate_doc',
   'untagged_doc',
   'late_financials',
-] as const;
+  'restatement',
+];

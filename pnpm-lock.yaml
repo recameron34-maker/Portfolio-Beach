@@ -225,6 +225,13 @@ importers:
       zod:
         specifier: 4.6.5
         version: 4.6.5
+    devDependencies:
+      '@pb/pdf':
+        specifier: workspace:*
+        version: link:../pdf
+      '@pb/synthetic':
+        specifier: workspace:*
+        version: link:../../tools/synthetic
 
   packages/calc:
     dependencies:

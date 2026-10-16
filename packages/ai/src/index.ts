@@ -125,3 +125,23 @@ export {
   type ExtractionEvalResult,
   type EvalResults,
 } from './evals/harness.js';
+export {
+  goldCasesFromSet,
+  truthsOf,
+  redactGoldCases,
+  classifierThresholdFrom,
+  splitByThreshold,
+  classificationMisses,
+  evalSummaryLines,
+  type GoldSourceTruth,
+  type GoldSourceDocument,
+  type GoldSource,
+  type GoldPages,
+  type ReadPagesFn,
+  type ExpectedClassification,
+  type GoldSetCase,
+  type RedactedGoldCases,
+  type GoldSplit,
+  type ClassificationMissReason,
+  type ClassificationMiss,
+} from './evals/gold.js';
