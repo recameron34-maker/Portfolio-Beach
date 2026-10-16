@@ -3,6 +3,9 @@ import type { QueryClient, QueryKey, UseMutationResult } from '@tanstack/react-q
 import type { z } from 'zod';
 import {
   capitalNoticeRow,
+  documentDetail,
+  documentIndexResult,
+  expectedDocumentGenerateResult,
   featureFlag,
   intakeFileDetail,
   intakeImportResult,
@@ -12,6 +15,11 @@ import {
 import type {
   CapitalNoticeCommand,
   CapitalNoticeRow,
+  DocumentCommandBody,
+  DocumentDetail,
+  DocumentIndexResult,
+  ExpectedDocumentGenerateBody,
+  ExpectedDocumentGenerateResult,
   IntakeCommandBody,
   IntakeFileDetail,
   IntakeImportBody,
@@ -280,6 +288,87 @@ export function useIntakeCommand(): UseMutationResult<
       queryClient.setQueryData(['intake-file', updated.id], updated);
       invalidate(queryClient, INTAKE_KEYS);
     },
+  });
+}
+
+/* Documents (docs/04 M3, docs/18 section 6, decision 0012). */
+
+/** POST /api/v1/documents/index: scan the store; operations only; idempotent (a second scan answers unchanged). */
+export function postIndexDocuments(): Promise<DocumentIndexResult> {
+  return post('/api/v1/documents/index', documentIndexResult);
+}
+
+/** POST /api/v1/documents/{id}/commands: classify a NeedsReview document by hand (deal team, operations); audited. */
+export function postDocumentCommand(
+  id: string,
+  body: DocumentCommandBody,
+): Promise<DocumentDetail> {
+  return post(`/api/v1/documents/${encodeURIComponent(id)}/commands`, documentDetail, body);
+}
+
+/** POST /api/v1/expected-documents/generate: the expected rows of a quarter; operations only; existing rows kept. */
+export function postGenerateExpectedDocuments(
+  body: ExpectedDocumentGenerateBody,
+): Promise<ExpectedDocumentGenerateResult> {
+  return post('/api/v1/expected-documents/generate', expectedDocumentGenerateResult, body);
+}
+
+/**
+ * An index or a classification changes the hub, the queue, a document and its duplicates, the
+ * expected rows a classified document matches, the monitoring board that reads them, the data
+ * exceptions an unreadable file opens, and the audit trail.
+ */
+const DOCUMENT_KEYS: QueryKey[] = [
+  ['documents'],
+  ['document'],
+  ['review-queue'],
+  ['expected-documents'],
+  ['monitoring-board'],
+  ['data-health'],
+  ['data-exceptions'],
+  ['audit'],
+];
+
+export function useIndexDocuments(): UseMutationResult<DocumentIndexResult, Error, void> {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: () => postIndexDocuments(),
+    onSuccess: () => invalidate(queryClient, DOCUMENT_KEYS),
+  });
+}
+
+export interface DocumentCommandVariables {
+  id: string;
+  body: DocumentCommandBody;
+}
+
+export function useClassifyDocument(): UseMutationResult<
+  DocumentDetail,
+  Error,
+  DocumentCommandVariables
+> {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, body }: DocumentCommandVariables) => postDocumentCommand(id, body),
+    onSuccess: (updated) => {
+      queryClient.setQueryData(['document', updated.id], updated);
+      invalidate(queryClient, DOCUMENT_KEYS);
+    },
+  });
+}
+
+/** Generated rows appear on the tracker and the monitoring board; the generation is audited. */
+const EXPECTED_KEYS: QueryKey[] = [['expected-documents'], ['monitoring-board'], ['audit']];
+
+export function useGenerateExpectedDocuments(): UseMutationResult<
+  ExpectedDocumentGenerateResult,
+  Error,
+  ExpectedDocumentGenerateBody
+> {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (body: ExpectedDocumentGenerateBody) => postGenerateExpectedDocuments(body),
+    onSuccess: () => invalidate(queryClient, EXPECTED_KEYS),
   });
 }
 
