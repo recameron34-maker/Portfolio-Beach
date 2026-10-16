@@ -1,4 +1,4 @@
-import { queryOptions } from '@tanstack/react-query';
+import { infiniteQueryOptions, queryOptions } from '@tanstack/react-query';
 import {
   analyticsSummary,
   auditPage,
@@ -8,6 +8,9 @@ import {
   commitmentList,
   dataDictionary,
   dataHealth,
+  extractionBatchPage,
+  extractionRunDetail,
+  extractionRunPage,
   featureFlagList,
   healthReady,
   intakeExportList,
@@ -241,3 +244,49 @@ export const healthReadyQuery = queryOptions({
   queryFn: () => api('/health/ready', healthReady),
   retry: false,
 });
+
+/* Extraction (docs/04 M4, docs/18 section 7, SEC-9.1): batches of runs, the runs, and one run's review. */
+
+/** Batches newest first; the first page only (the page says when more exist). */
+export const extractionBatchesQuery = queryOptions({
+  queryKey: ['extraction-batches'],
+  queryFn: () => api(`/api/v1/extraction/batches?limit=${LIST_LIMIT}`, extractionBatchPage),
+  retry: retryUnlessUnavailable,
+});
+
+export interface ExtractionRunFilters {
+  state?: string | undefined;
+  documentId?: string | undefined;
+  investmentId?: string | undefined;
+  batchId?: string | undefined;
+}
+
+/** Runs newest first, a page at a time on the API's cursor (GET /extraction/runs). */
+export function extractionRunsQuery(filters: ExtractionRunFilters = {}) {
+  return infiniteQueryOptions({
+    queryKey: ['extraction-runs', filters],
+    queryFn: ({ pageParam }) => {
+      const params = new URLSearchParams();
+      params.set('limit', String(LIST_LIMIT));
+      if (filters.state) params.set('state', filters.state);
+      if (filters.documentId) params.set('documentId', filters.documentId);
+      if (filters.investmentId) params.set('investmentId', filters.investmentId);
+      if (filters.batchId) params.set('batchId', filters.batchId);
+      if (pageParam !== null) params.set('cursor', pageParam);
+      return api(`/api/v1/extraction/runs?${params.toString()}`, extractionRunPage);
+    },
+    initialPageParam: null as string | null,
+    getNextPageParam: (last) => last.nextCursor,
+    retry: retryUnlessUnavailable,
+  });
+}
+
+/** One run with its document, values, narrative and page layouts; an audited read, so held fresh for a minute. */
+export function extractionRunQuery(id: string) {
+  return queryOptions({
+    queryKey: ['extraction-run', id],
+    queryFn: () => api(`/api/v1/extraction/runs/${encodeURIComponent(id)}`, extractionRunDetail),
+    retry: retryUnlessUnavailable,
+    staleTime: AUDITED_READ_STALE_MS,
+  });
+}

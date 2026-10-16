@@ -44,6 +44,8 @@ import { PerformanceTab } from '../pages/deal/PerformanceTab.js';
 import { SponsorTab } from '../pages/deal/SponsorTab.js';
 import { ValuationsTab } from '../pages/deal/ValuationsTab.js';
 import { DocumentsPage } from '../pages/documents/Documents.js';
+import { ExtractionPage } from '../pages/extraction/Extraction.js';
+import { ExtractionRunPage } from '../pages/extraction/ExtractionRun.js';
 import { HomePage } from '../pages/Home.js';
 import { InvestmentDetailPage } from '../pages/InvestmentDetail.js';
 import { PipelinePage } from '../pages/pipeline/Pipeline.js';
@@ -113,6 +115,8 @@ const pipelineRoute = child('/pipeline', PipelinePage);
 const sponsorsRoute = child('/sponsors', SponsorsPage);
 const sponsorRoute = child('/sponsors/$id', SponsorDetailPage);
 const documentsRoute = child('/documents', DocumentsPage);
+const documentsExtractionRoute = child('/documents/extraction', ExtractionPage);
+const documentsExtractionRunRoute = child('/documents/extraction/$id', ExtractionRunPage);
 const valuationsRoute = child('/valuations', ValuationsPage);
 const capitalRoute = child('/capital-activity', CapitalActivityPage);
 const commitmentsRoute = child('/capital-activity/commitments', CommitmentsPage);
@@ -205,6 +209,8 @@ const routeTree = rootRoute.addChildren([
     sponsorsRoute,
     sponsorRoute,
     documentsRoute,
+    documentsExtractionRoute,
+    documentsExtractionRunRoute,
     valuationsRoute,
     capitalRoute,
     commitmentsRoute,
