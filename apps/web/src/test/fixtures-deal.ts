@@ -177,6 +177,7 @@ const quarter = (
   revenueYoy: null,
   ebitdaYoy: null,
   highlights,
+  source: null,
   ...values,
 });
 

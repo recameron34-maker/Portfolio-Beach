@@ -15,6 +15,7 @@ import {
   pageQuery,
   plainText,
   problemDetails,
+  quarterRow,
   valuationListQuery,
 } from './schemas.js';
 
@@ -206,6 +207,51 @@ describe('contracts', () => {
       {}) as ObjectSchema;
     expect(row.properties?.entryDate?.format).toBe('date');
     expect(responseSchema(doc, '/api/v1/sponsors/{id}').properties?.asOf?.format).toBe('date');
+  });
+
+  it('carries the source document of each quarter, or null when the figures have no document', () => {
+    const base = {
+      periodEnd: '2025-06-30',
+      isEntrySnapshot: false,
+      status: 'record_status.approved',
+      revenueLtm: '14088185.61',
+      ebitdaLtm: '4168976.44',
+      ev: null,
+      netDebt: null,
+      cash: null,
+      totalEquity: null,
+      evToEbitda: null,
+      netDebtToEbitda: null,
+      ebitdaMargin: '0.2959200393',
+      revenueYoy: null,
+      ebitdaYoy: null,
+      highlights: [],
+    };
+    const source = {
+      documentId: 'a0000000-0000-4000-8000-000000000001',
+      runId: 'a0000000-0000-4000-8000-000000000005',
+      page: 2,
+      locator: 'field:revenue_ltm',
+    };
+    expect(quarterRow.parse({ ...base, source })).toMatchObject({ source });
+    // A document without a run (an accounting import that names its source) and no page yet.
+    expect(
+      quarterRow.safeParse({
+        ...base,
+        source: { documentId: source.documentId, runId: null, page: null, locator: null },
+      }).success,
+    ).toBe(true);
+    expect(quarterRow.parse({ ...base, source: null }).source).toBeNull();
+    // The key is never left out: a reader must be able to tell "no source" from "not sent".
+    expect(quarterRow.safeParse(base).success).toBe(false);
+    expect(quarterRow.safeParse({ ...base, source: { ...source, page: '2' } }).success).toBe(false);
+    expect(quarterRow.safeParse({ ...base, source: { ...source, documentId: null } }).success).toBe(
+      false,
+    );
+    const doc = buildOpenApi('0.1.0');
+    const quarter = (responseSchema(doc, '/api/v1/investments/{id}/performance').properties
+      ?.quarters?.items ?? {}) as ObjectSchema;
+    expect(quarter.required).toContain('source');
   });
 
   it('problem details never carry a stack', () => {

@@ -673,6 +673,20 @@ export type CapitalNoticeDetail = z.infer<typeof capitalNoticeDetail>;
 
 /* ---- Investment performance series (M9 Performance tab) ---- */
 
+/**
+ * Where a quarter's figures came from (the lineage columns of mon.quarterly_performance, SEC-9.4,
+ * docs/11 I1 click-to-source): the document, the extraction run that read it when one did, the
+ * page the leading figure sits on and the locator inside it. Null for a quarter with no source
+ * document, such as the synthetic seed or an accounting import.
+ */
+export const quarterSource = z.object({
+  documentId: uuid,
+  runId: uuid.nullable(),
+  page: z.number().int().nullable(),
+  locator: z.string().nullable(),
+});
+export type QuarterSource = z.infer<typeof quarterSource>;
+
 export const quarterRow = z.object({
   periodEnd: isoDate,
   isEntrySnapshot: z.boolean(),
@@ -689,6 +703,7 @@ export const quarterRow = z.object({
   revenueYoy: decimalString.nullable(),
   ebitdaYoy: decimalString.nullable(),
   highlights: z.array(z.string()),
+  source: quarterSource.nullable(),
 });
 export type QuarterRow = z.infer<typeof quarterRow>;
 

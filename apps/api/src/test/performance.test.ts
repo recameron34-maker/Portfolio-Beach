@@ -260,6 +260,55 @@ describe('investment performance (M9): GET /api/v1/investments/{id}/performance'
     expect(none.realizationOutlook).toBeNull();
   });
 
+  it('names the source document, run, page and locator of a quarter, and null where the figures have no document', async () => {
+    const id = idOf('INV-0001');
+    const before = await performanceFor('viewer.one', id, 'req-performance-source-before');
+    // The synthetic seed carries no lineage: every quarter and the entry snapshot say so with null,
+    // never with an invented document or page (CLAUDE.md rule 10).
+    expect(before.quarters.length).toBeGreaterThan(1);
+    expect(before.quarters.every((q) => q.source === null)).toBe(true);
+    expect(before.entry!.source).toBeNull();
+
+    // The lineage columns as the extraction review's promotion writes them (SEC-9.4) on the latest
+    // quarter, and a document-only lineage (an import naming its source) on an earlier one.
+    const documentId = 'a0000000-0000-4000-8000-00000000d001';
+    const runId = 'a0000000-0000-4000-8000-00000000e001';
+    const importedDocumentId = 'a0000000-0000-4000-8000-00000000d002';
+    await h.runtime.db.query(
+      `update mon.quarterly_performance
+         set source_document_id = $1, source_page = 3, source_locator = 'field:revenue_ltm', extraction_run_id = $2
+       where investment_id = $3 and period_end = '2025-06-30' and is_entry_snapshot = false`,
+      [documentId, runId, id],
+    );
+    await h.runtime.db.query(
+      `update mon.quarterly_performance
+         set source_document_id = $1
+       where investment_id = $2 and period_end = '2025-03-31' and is_entry_snapshot = false`,
+      [importedDocumentId, id],
+    );
+    const after = await performanceFor('viewer.one', id, 'req-performance-source-after');
+    const latest = after.quarters.find((q) => q.periodEnd === '2025-06-30')!;
+    expect(latest.source).toEqual({
+      documentId,
+      runId,
+      page: 3,
+      locator: 'field:revenue_ltm',
+    });
+    const imported = after.quarters.find((q) => q.periodEnd === '2025-03-31')!;
+    expect(imported.source).toEqual({
+      documentId: importedDocumentId,
+      runId: null,
+      page: null,
+      locator: null,
+    });
+    expect(after.quarters.filter((q) => q.source !== null)).toHaveLength(2);
+    expect(after.entry!.source).toBeNull();
+    // The figures themselves are untouched by lineage.
+    expect(latest.revenueLtm).toBe(
+      before.quarters.find((q) => q.periodEnd === '2025-06-30')!.revenueLtm,
+    );
+  });
+
   it('returns 404, never 403, for a walled, unknown or malformed id and audits a member open', async () => {
     const walledId = h.dataset.scenarios.walled_deal![0]!;
     expect(walledId).toBe(idOf('INV-0010'));
