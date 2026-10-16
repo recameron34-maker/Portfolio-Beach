@@ -41,6 +41,8 @@ import { WeeklyController } from './intake/weekly/weekly.controller.js';
 import { WeeklyService } from './intake/weekly/weekly.service.js';
 import { LookthroughController } from './intake/lookthrough/lookthrough.controller.js';
 import { LookthroughService } from './intake/lookthrough/lookthrough.service.js';
+import { MonitoringController } from './monitoring/monitoring.controller.js';
+import { MonitoringService } from './monitoring/monitoring.service.js';
 import { PerformanceController } from './performance/performance.controller.js';
 import { PerformanceService } from './performance/performance.service.js';
 import { PortfolioController } from './portfolio/portfolio.controller.js';
@@ -75,6 +77,7 @@ export const CONTROLLERS = [
   LookthroughController,
   ExceptionsController,
   DocumentsController,
+  MonitoringController,
 ] as const;
 
 @Module({})
@@ -111,6 +114,7 @@ export class AppModule implements NestModule {
         ExceptionsService,
         DocumentsService,
         ExpectedDocumentsService,
+        MonitoringService,
         { provide: APP_GUARD, useClass: AuthGuard },
         { provide: APP_FILTER, useClass: ProblemFilter },
       ],
