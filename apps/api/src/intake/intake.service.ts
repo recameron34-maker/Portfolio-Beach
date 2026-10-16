@@ -48,6 +48,7 @@ import {
   toFile,
 } from './stage.js';
 import type { StagedRow } from './stage.js';
+import { promoteQuarterlyPerformance, quarterPrecondition } from './promote.js';
 
 /*
  * The accounting import (docs/04 M2, SEC-9.1): a file is read against config/accounting_layout.json,
@@ -76,12 +77,9 @@ export type IntakeExportList = z.infer<typeof intakeExportList>;
 
 const SOURCE = 'accounting';
 const EXCEPTION_SOURCE = 'accounting_import';
-/** The four figures the import writes; the fair value only ties to the Locked mark (TIE-01) and is never written. */
-type PromotedFigures = Record<'revenueLtm' | 'ebitdaLtm' | 'ev' | 'netDebt', string | null>;
 
 const file = schema.intakeFile;
 const row = schema.intakeRow;
-const quarter = schema.quarterlyPerformance;
 
 /** The same diff: the same kind and the same field changes, values compared as decimals. */
 function sameDiff(a: RowDiff, b: RowDiff): boolean {
@@ -277,9 +275,11 @@ export class IntakeService {
   }
 
   /**
-   * One row's approval and promotion. The approved figures replace the matched quarter or create
-   * the quarter the record lacked, with the approver, the time, the reason and the lineage to the
-   * file and row (SEC-9.4); the audit event carries the figures before and after (CLAUDE.md rule 6).
+   * One row's approval and promotion. The four figures the import writes (the fair value only
+   * ties to the Locked mark, TIE-01, and is never written) replace the matched quarter or create
+   * the quarter the record lacked through the one promotion write (promote.ts, shared with the
+   * extraction review), with the approver, the time, the reason and the lineage to the file and
+   * row (SEC-9.4); the audit event carries the figures before and after (CLAUDE.md rule 6).
    */
   private async promote(
     tx: Tx,
@@ -316,116 +316,41 @@ export class IntakeService {
         'workflow-precondition',
         'staging: the row has no period end to promote to',
       );
-    const figures: PromotedFigures = {
-      revenueLtm: target.payload.figures.revenueLtm,
-      ebitdaLtm: target.payload.figures.ebitdaLtm,
-      ev: target.payload.figures.ev,
-      netDebt: target.payload.figures.netDebt,
-    };
-    const approval = {
-      status: 'record_status.approved',
-      approvedBy: principal.userId,
-      approvedAt: at,
-      approvalReason: reason ?? importLabel(detail),
-      sourceLocator: `intake_file:${detail.id}/row:${target.rowNo}`,
-    };
-    const precondition = (detail: string): ProblemError =>
-      new ProblemError(422, 'workflow-precondition', detail);
-
-    // The quarter on record: the one the diff was made against, or any row at the period end
-    // (docs/04 M2 asks for an upsert), each visible to the caller under row-level security.
-    const existing = (
-      await tx
-        .select({
-          id: quarter.id,
-          periodEnd: quarter.periodEnd,
-          revenueLtm: quarter.revenueLtm,
-          ebitdaLtm: quarter.ebitdaLtm,
-          ev: quarter.ev,
-          netDebt: quarter.netDebt,
-          status: quarter.status,
-          isEntrySnapshot: quarter.isEntrySnapshot,
-        })
-        .from(quarter)
-        .where(
-          target.targetId !== null
-            ? eq(quarter.id, target.targetId)
-            : and(eq(quarter.investmentId, investmentId), eq(quarter.periodEnd, periodEnd)),
-        )
-        .limit(1)
-    )[0];
-    // The diff the reviewer approved is a snapshot taken at staging. The record is read again
-    // here, in the approval transaction: an entry snapshot is never written from an import, a
-    // quarter that is not approved is not the record, and a record that no longer gives the same
-    // diff (a restatement approved from another file in between) would be overwritten blind.
-    if (existing?.isEntrySnapshot === true)
-      throw precondition(
-        'staging: the quarter on record is the entry snapshot, which an import never changes',
-      );
-    if (existing !== undefined && existing.status !== 'record_status.approved')
-      throw precondition('staging: the quarter on record is not approved; import the file again');
-    if (!sameDiff(diffRow(fileRowOf(target), existing ?? null), target.diff))
-      throw precondition(
-        'staging: the quarter on record changed since the file was staged; import the file again',
-      );
-
-    let written: { id: string } & PromotedFigures;
-    let before: PromotedFigures;
-    if (existing !== undefined) {
-      const updated = await tx
-        .update(quarter)
-        .set({ ...figures, ...approval })
-        .where(eq(quarter.id, existing.id))
-        .returning();
-      const result = updated[0];
-      if (result === undefined)
-        throw precondition('staging: the quarter on record cannot be updated by this caller');
-      written = result;
-      before = {
-        revenueLtm: existing.revenueLtm,
-        ebitdaLtm: existing.ebitdaLtm,
-        ev: existing.ev,
-        netDebt: existing.netDebt,
-      };
-    } else {
-      const inserted = await tx
-        .insert(quarter)
-        .values({
-          investmentId,
-          periodEnd,
-          ...figures,
-          ...approval,
-          isEntrySnapshot: false,
-          currency: 'USD',
-          highlights: [],
-          commentary: null,
-        })
-        .returning();
-      const result = inserted[0];
-      if (result === undefined) throw precondition('staging: the quarter was not written');
-      written = result;
-      before = { revenueLtm: null, ebitdaLtm: null, ev: null, netDebt: null };
-    }
-    // The figures after are the values as stored, read back from the row written, never the
-    // file's text (rule 6: the audit records what the record now holds).
-    const after: PromotedFigures = {
-      revenueLtm: written.revenueLtm,
-      ebitdaLtm: written.ebitdaLtm,
-      ev: written.ev,
-      netDebt: written.netDebt,
-    };
-    await audit({
-      action: 'quarterly_performance.promote',
-      entity: 'mon.quarterly_performance',
-      entityId: written.id,
-      reason: approval.approvalReason,
+    const approvalReason = reason ?? importLabel(detail);
+    // The quarter on record is the one the diff was made against, or any row at the period end
+    // (docs/04 M2 asks for an upsert), each visible to the caller under row-level security. The
+    // diff the reviewer approved is a snapshot taken at staging, so the record is read again in
+    // the approval transaction by the shared write (promote.ts): a quarter that is not approved
+    // is not the record, and a record that no longer gives the same diff (a restatement approved
+    // from another file in between) would be overwritten blind.
+    const written = await promoteQuarterlyPerformance(tx, audit, {
+      label: 'staging',
+      investmentId,
+      periodEnd,
+      targetId: target.targetId,
+      figures: {
+        revenueLtm: target.payload.figures.revenueLtm,
+        ebitdaLtm: target.payload.figures.ebitdaLtm,
+        ev: target.payload.figures.ev,
+        netDebt: target.payload.figures.netDebt,
+      },
+      approval: { approvedBy: principal.userId, approvedAt: at, approvalReason },
+      lineage: { sourceLocator: `intake_file:${detail.id}/row:${target.rowNo}` },
+      check: (existing) => {
+        if (existing !== null && existing.status !== 'record_status.approved')
+          throw quarterPrecondition(
+            'staging: the quarter on record is not approved; import the file again',
+          );
+        if (!sameDiff(diffRow(fileRowOf(target), existing), target.diff))
+          throw quarterPrecondition(
+            'staging: the quarter on record changed since the file was staged; import the file again',
+          );
+      },
       details: {
         intakeFileId: detail.id,
         intakeRowId: target.id,
         fileName: detail.fileName,
         rowNo: target.rowNo,
-        before,
-        after,
       },
     });
     // The row is claimed in the state the command read it in; another command that changed it
@@ -434,7 +359,7 @@ export class IntakeService {
       .update(row)
       .set({
         status: 'promoted',
-        decision: approval.approvalReason,
+        decision: approvalReason,
         reviewerId: principal.userId,
         decidedAt: at,
         promotedAt: at,
