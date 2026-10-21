@@ -77,7 +77,7 @@ describe('preview guide', () => {
     expect(
       within(guide).getByRole('heading', { name: 'What to try in this preview' }),
     ).toBeVisible();
-    expect(guide).toHaveTextContent('Nine short walkthroughs');
+    expect(guide).toHaveTextContent('Twelve short walkthroughs');
     const titles = within(guide)
       .getAllByRole('heading', { level: 3 })
       .map((h) => h.textContent);
@@ -89,6 +89,9 @@ describe('preview guide', () => {
       'Weekly values',
       'Look-through and exceptions',
       'Workbook drop',
+      'Documents and classification',
+      'Extraction review',
+      'Monitoring board',
       'Analytics and the weekly report',
       'Ask Portfolio Beach',
     ]);
@@ -123,6 +126,18 @@ describe('preview guide', () => {
     const opsDrop = screen.getByTestId('guide-ops-drop');
     expect(opsDrop).toHaveTextContent('ops-drop-clean.xlsx');
     expect(opsDrop).toHaveTextContent('ops-drop-unknown-template.xlsx');
+    const documents = screen.getByTestId('guide-documents');
+    expect(documents).toHaveTextContent('As Opal Ops (operations), open Documents');
+    expect(documents).toHaveTextContent('Switch to Wade Wall (deal team) and search the hub');
+    const extraction = screen.getByTestId('guide-extraction');
+    expect(extraction).toHaveTextContent('As Abe Admin (platform admin), turn ai.extraction on');
+    expect(extraction).toHaveTextContent('then as Opal Ops (operations), open Extraction');
+    expect(extraction).toHaveTextContent('Approve and promote');
+    const monitoring = screen.getByTestId('guide-monitoring');
+    expect(monitoring).toHaveTextContent('Open Monitoring under Portfolio');
+    expect(monitoring).toHaveTextContent(
+      'Switch to Dana Deal (deal team) and set the realization outlook',
+    );
     for (const [name, href, count] of [
       ['Clients', '/reporting/clients', 1],
       ['Valuations', '/valuations', 2],
@@ -131,6 +146,12 @@ describe('preview guide', () => {
       ['Weekly values', '/data/weekly', 1],
       ['Look-through', '/data/lookthrough', 1],
       ['Exceptions', '/data/exceptions', 1],
+      ['Documents', '/documents', 1],
+      ['Review queue', '/documents/review', 1],
+      ['Expected documents', '/documents/expected', 1],
+      ['Flags', '/admin/flags', 1],
+      ['Extraction', '/documents/extraction', 1],
+      ['Monitoring', '/portfolio/monitoring', 1],
       ['Analytics', '/analytics', 1],
       ['Weekly report', '/reporting', 1],
       ['Assistants', '/assistants', 1],
@@ -148,6 +169,9 @@ describe('preview guide', () => {
       'weekly',
       'lookthrough',
       'ops-drop',
+      'documents',
+      'extraction',
+      'monitoring',
       'analytics',
       'assistant',
     ]) {
@@ -163,7 +187,7 @@ describe('preview guide', () => {
     renderWithQuery(<PreviewGuide variant="sign-in" />);
     const guide = screen.getByTestId('preview-guide');
     const summaries = [...guide.querySelectorAll('details > summary')].map((s) => s.textContent);
-    expect(summaries).toHaveLength(9);
+    expect(summaries).toHaveLength(12);
     expect(summaries[0]).toBe('Walls and entitlements');
     await waitFor(() =>
       expect(screen.getByTestId('guide-walls')).toHaveTextContent('Vera Viewer (viewer)'),
@@ -181,7 +205,7 @@ describe('preview guide', () => {
     mockApi({ '/api/v1/auth/mock-users': ok(USERS) });
     renderWithQuery(<PreviewGuide variant="home" onHide={() => undefined} />);
     const guide = screen.getByTestId('preview-guide');
-    expect(guide.querySelectorAll('details > summary')).toHaveLength(9);
+    expect(guide.querySelectorAll('details > summary')).toHaveLength(12);
     expect(guide.querySelector('.pb-guide-list')).toBeNull();
     await waitFor(() =>
       expect(screen.getByTestId('guide-walls')).toHaveTextContent('Vera Viewer (viewer)'),

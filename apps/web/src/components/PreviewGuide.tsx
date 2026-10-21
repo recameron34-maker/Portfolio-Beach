@@ -17,7 +17,7 @@ interface Walkthrough {
   steps: ReactNode[];
 }
 
-/** Nine walkthroughs of two to four steps each, in the order a reviewer would try them. */
+/** Twelve walkthroughs of two to four steps each, in the order a reviewer would try them. */
 function walkthroughs(p: GuidePeople): Walkthrough[] {
   return [
     {
@@ -150,6 +150,66 @@ function walkthroughs(p: GuidePeople): Walkthrough[] {
       ],
     },
     {
+      id: 'documents',
+      title: 'Documents and classification',
+      steps: [
+        <>
+          As {p.operations}, open <Link to="/documents">Documents</Link> and choose Index documents:
+          every bundled report, notice and statement is read, hashed and classified in the browser,
+          and the second copy of one report is marked a duplicate.
+        </>,
+        <>
+          Open the <Link to="/documents/review">Review queue</Link>: the untitled scan waits for a
+          person. Open it, read its pages, and classify it with its position and quarter.
+        </>,
+        <>
+          Open <Link to="/documents/expected">Expected documents</Link> and generate the latest
+          quarter: one position's report is absent and stays expected; move Judged as of past the
+          due date to see it turn late, then missing.
+        </>,
+        <>
+          Switch to {p.wallMember} and search the hub for the walled company: its reports appear for
+          a wall member only.
+        </>,
+      ],
+    },
+    {
+      id: 'extraction',
+      title: 'Extraction review',
+      steps: [
+        <>
+          As {p.admin}, turn ai.extraction on under <Link to="/admin/flags">Flags</Link>; then as{' '}
+          {p.operations}, open <Link to="/documents/extraction">Extraction</Link> and start a batch
+          for the latest quarter's quarterly financials: each run reads its report through the
+          recorded fixture and the validator.
+        </>,
+        <>
+          Open a run: accept the clean values, edit one value through its dialog, and choose a page
+          number to see the quote highlighted on the page.
+        </>,
+        <>
+          Approve and promote: the figures reach the position's Performance tab in dollars, with a
+          source link to the page they were read from.
+        </>,
+      ],
+    },
+    {
+      id: 'monitoring',
+      title: 'Monitoring board',
+      steps: [
+        <>
+          Open <Link to="/portfolio/monitoring">Monitoring</Link> under Portfolio: one row per
+          position held at the quarter end, with its expected report, its latest run and its
+          approval; move As of past the due date to see the absent report turn late.
+        </>,
+        <>Choose Export CSV: the download holds the same rows the board shows you.</>,
+        <>
+          Switch to {p.dealTeam} and set the realization outlook on a position's Performance tab
+          with a reason; every other role reads it.
+        </>,
+      ],
+    },
+    {
       id: 'analytics',
       title: 'Analytics and the weekly report',
       steps: [
@@ -249,8 +309,8 @@ function Guide({
       </div>
       <p className="pb-meta pb-guide-intro">
         {compact
-          ? 'Nine short walkthroughs on synthetic data. Sign in as the user a step names; after that, switch users with the user menu at the top of any page.'
-          : 'Nine short walkthroughs on synthetic data. Switch users with the user menu at the top of any page.'}
+          ? 'Twelve short walkthroughs on synthetic data. Sign in as the user a step names; after that, switch users with the user menu at the top of any page.'
+          : 'Twelve short walkthroughs on synthetic data. Switch users with the user menu at the top of any page.'}
       </p>
       {folded ? (
         <div className="pb-guide-compact">
