@@ -16,6 +16,9 @@ import { nodeInflate } from './node.js';
 import { isDict, ref, type PdfDict } from './objects.js';
 import { PdfFile } from './xref.js';
 
+/** The content of form Fm2, which inherits the page's resources. */
+const FORM_OPERATORS = 'BT /F1 10 Tf 0 0 Td (inherit) Tj ET';
+
 const OBJECTS: FixtureObject[] = [
   { num: 1, body: '<< /Type /Catalog /Pages 2 0 R >>' },
   { num: 2, body: '<< /Type /Pages /Kids [] /Count 0 >>' },
@@ -33,10 +36,7 @@ const OBJECTS: FixtureObject[] = [
       'BT /F1 10 Tf 0 0 Td (form) Tj ET',
     ),
   },
-  {
-    num: 6,
-    body: streamBody('/Type /XObject /Subtype /Form', 'BT /F1 10 Tf 0 0 Td (inherit) Tj ET'),
-  },
+  { num: 6, body: streamBody('/Type /XObject /Subtype /Form', FORM_OPERATORS) },
   { num: 7, body: streamBody('/Type /XObject /Subtype /Image /Width 1 /Height 1', 'x') },
   {
     num: 8,
@@ -195,6 +195,17 @@ describe('interpretContent', () => {
     await expect(interpret(ops, { budget: { used: 0, max: 3 } })).rejects.toMatchObject({
       code: 'too_large',
     });
+  });
+
+  it('counts a form against the total stream bytes every time it is drawn (PDF-6)', async () => {
+    const draws = '/Fm2 Do '.repeat(10);
+    const total = FORM_OPERATORS.length * 10;
+    await expect(
+      interpret(draws, { limits: { maxTotalStreamBytes: total - 1 } }),
+    ).rejects.toMatchObject({ code: 'too_large' });
+    await expect(
+      interpret(draws, { limits: { maxTotalStreamBytes: total } }),
+    ).resolves.toHaveLength(10);
   });
 
   it('refuses saved states nested past maxDepth', async () => {

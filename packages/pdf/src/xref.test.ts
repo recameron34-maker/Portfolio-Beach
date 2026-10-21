@@ -461,9 +461,10 @@ describe('PdfFile.open', () => {
       { num: 6, body: streamBody('/Filter [7]', encodeUtf8('x')) },
       { num: 7, body: streamBody('/Filter /DCTDecode', encodeUtf8('x')) },
     ];
+    // Three reads of the 200-byte stream fit the total exactly; the cached bytes count each time.
     const file = await open(assemble(objects, { trailer: '/Root 1 0 R' }), {
       maxStreamBytes: 200,
-      maxTotalStreamBytes: 300,
+      maxTotalStreamBytes: 600,
     });
     const chained = await file.fetch(ref(3, 0));
     if (!isStream(chained)) throw new Error('expected a stream');

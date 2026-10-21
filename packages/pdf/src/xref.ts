@@ -606,11 +606,16 @@ export class PdfFile {
     return this.resolve(dictionary.map.get(key) ?? null);
   }
 
-  /** The decoded bytes of a stream, within the stream and total limits; cached per stream. */
+  /**
+   * The decoded bytes of a stream, within the stream and total limits; cached per stream. Every
+   * read counts against the total, a cached one too: a content stream listed twice or a form
+   * drawn on every page is worked through again each time, so the bytes the reader handles stay
+   * bounded however often one stream is referenced.
+   */
   async streamData(stream: PdfStream): Promise<Uint8Array> {
     const cached = this.decoded.get(stream);
-    if (cached) return cached;
-    const { maxStreamBytes, maxTotalStreamBytes } = this.limits;
+    if (cached) return this.charge(cached);
+    const { maxStreamBytes } = this.limits;
     if (stream.raw.length > maxStreamBytes) {
       throw new PdfError(
         `A stream holds ${stream.raw.length} bytes, more than the ${maxStreamBytes} the reader accepts`,
@@ -622,14 +627,20 @@ export class PdfFile {
     for (const { filter, parms } of filters) {
       data = await applyFilter(filter, data, parms, this.inflate, { maxStreamBytes });
     }
+    this.decoded.set(stream, data);
+    return this.charge(data);
+  }
+
+  /** Counts a stream read against the total limit. */
+  private charge(data: Uint8Array): Uint8Array {
+    const { maxTotalStreamBytes } = this.limits;
     this.totalStreamBytes += data.length;
     if (this.totalStreamBytes > maxTotalStreamBytes) {
       throw new PdfError(
-        `The streams of the document decode to more than the ${maxTotalStreamBytes} bytes the reader accepts together`,
+        `The streams of the document, counted each time one is read, hold more than the ${maxTotalStreamBytes} bytes the reader accepts together`,
         'too_large',
       );
     }
-    this.decoded.set(stream, data);
     return data;
   }
 
