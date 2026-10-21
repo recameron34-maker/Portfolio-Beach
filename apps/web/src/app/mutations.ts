@@ -434,12 +434,3 @@ export function useSetRealizationOutlook(): UseMutationResult<
     },
   });
 }
-
-/** Preview only: forgets every simulated change in this page session. */
-export function usePreviewReset(): UseMutationResult<{ reset: true }, Error, void> {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: () => postPreviewReset(),
-    onSuccess: () => void queryClient.invalidateQueries(),
-  });
-}
