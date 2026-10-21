@@ -17,7 +17,9 @@ import {
   investmentPage,
   investmentPerformance,
   mockUserList,
+  monitoringBoard,
   principal,
+  problemDetails,
   sponsorDetail,
   sponsorPage,
   taxonomy,
@@ -28,8 +30,10 @@ import {
   watchlist,
   weeklyReport,
 } from '@pb/contracts';
-import { api } from '../api/client.js';
+import type { ProblemDetails } from '@pb/contracts';
+import { api, ApiError } from '../api/client.js';
 import { retryUnlessUnavailable } from '../lib/unavailable.js';
+import { getCredential } from './session.js';
 
 export const meQuery = queryOptions({
   queryKey: ['me'],
@@ -236,6 +240,63 @@ export const intakeExportsQuery = queryOptions({
   queryFn: () => api('/api/v1/intake/accounting/exports', intakeExportList),
   retry: retryUnlessUnavailable,
 });
+/* Monitoring board (docs/04 M9, decision 0012): per active investment, the expected report, the run and the approval. */
+export interface MonitoringBoardFilters {
+  /** A quarter end; the API answers the latest quarter end on or before the as-of day when absent. */
+  periodEnd?: string | undefined;
+  /** The day statuses are judged on; the API's clock today when absent. */
+  asOf?: string | undefined;
+}
+
+/** The query string of a board read, parameters sorted so the preview records one shape per filter set. */
+function monitoringQueryString(filters: MonitoringBoardFilters): string {
+  const params = new URLSearchParams();
+  if (filters.asOf) params.set('asOf', filters.asOf);
+  if (filters.periodEnd) params.set('periodEnd', filters.periodEnd);
+  const text = params.toString();
+  return text === '' ? '' : `?${text}`;
+}
+
+export function monitoringBoardQuery(filters: MonitoringBoardFilters = {}) {
+  return queryOptions({
+    queryKey: ['monitoring-board', filters],
+    queryFn: () =>
+      api(`/api/v1/monitoring/board${monitoringQueryString(filters)}`, monitoringBoard),
+    retry: retryUnlessUnavailable,
+  });
+}
+
+/**
+ * GET /api/v1/monitoring/board/export: the same rows as text/csv, the one read of the API whose
+ * body is not JSON, so it bypasses the typed client and parses nothing. The credential travels
+ * in the header exactly as every other call (SEC-4.5), which is why the page fetches the text and
+ * offers it as a download instead of linking the URL. A failure is the API's problem, as an
+ * ApiError, so the page words it the way it words every other refusal.
+ */
+export async function fetchMonitoringExport(filters: MonitoringBoardFilters = {}): Promise<string> {
+  const headers = new Headers({ accept: 'text/csv' });
+  const credential = getCredential();
+  if (credential !== null) headers.set('authorization', `Bearer ${credential}`);
+  const res = await fetch(`/api/v1/monitoring/board/export${monitoringQueryString(filters)}`, {
+    headers,
+  });
+  if (!res.ok) {
+    let problem: ProblemDetails;
+    try {
+      problem = problemDetails.parse(await res.json());
+    } catch {
+      problem = {
+        type: 'about:blank',
+        title: res.statusText || 'Request failed',
+        status: res.status,
+        request_id: res.headers.get('x-request-id') ?? 'unknown',
+      };
+    }
+    throw new ApiError(problem);
+  }
+  return res.text();
+}
+
 export const healthReadyQuery = queryOptions({
   queryKey: ['health-ready'],
   queryFn: () => api('/health/ready', healthReady),

@@ -17,6 +17,7 @@ export const PORTFOLIO_TABS = [
   { to: '/portfolio', label: 'Positions', exact: true },
   { to: '/portfolio/vehicles', label: 'Vehicles' },
   { to: '/portfolio/watchlist', label: 'Watchlist' },
+  { to: '/portfolio/monitoring', label: 'Monitoring' },
 ];
 export const CAPITAL_TABS = [
   { to: '/capital-activity', label: 'Notices', exact: true },
