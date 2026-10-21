@@ -45,6 +45,26 @@ const runtime = await buildRuntime(config, {
 });
 const app = await createApp(runtime);
 await app.listen(config.PORT, '127.0.0.1');
+
+/**
+ * The extraction kill switch is off by default (migration 0003); the journeys need it on. It is
+ * turned on the way the API harness does it: through the flags endpoint as a platform admin,
+ * audited like any flag change (decision 0012).
+ */
+const admin = dataset.users.find((u) => u.roles.includes('platform_admin'));
+if (admin === undefined) throw new Error('the synthetic dataset has no platform admin');
+const flag = await fetch(`http://127.0.0.1:${config.PORT}/api/v1/flags/ai.extraction`, {
+  method: 'PATCH',
+  headers: {
+    authorization: `Bearer ${admin.externalId}`,
+    'content-type': 'application/json',
+    accept: 'application/json',
+  },
+  body: JSON.stringify({ enabled: true, reason: 'enabled by the e2e API script' }),
+});
+if (!flag.ok)
+  throw new Error(`could not enable ai.extraction: ${flag.status} ${await flag.text()}`);
+
 process.stdout.write(
-  `e2e api listening on ${config.PORT}; dataset at ${join(dir, 'dataset.json')}\n`,
+  `e2e api listening on ${config.PORT}; dataset at ${join(dir, 'dataset.json')}; documents at ${documentRoot}\n`,
 );

@@ -1,0 +1,162 @@
+/* Extraction pages (docs/04 M4). Tokens only; shared table, tile and badge styles live in styles.css,
+   which loads first, so a page class wins over a shared class of the same specificity. Filters keep
+   .pb-toolbar in front to outrank Fluent's own classes. */
+
+.pb-toolbar .pb-extraction-filter {
+  min-width: 0;
+  width: 190px;
+}
+.pb-toolbar .pb-extraction-period {
+  min-width: 0;
+  width: 150px;
+}
+
+/* The batch form: period, type and the button on one row on a laptop, stacked on a phone. */
+.pb-extraction-form {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: 10px 14px;
+  margin: 0 0 12px;
+}
+.pb-extraction-form > .pb-notice {
+  flex-basis: 100%;
+  margin: 0;
+}
+.pb-extraction-form-problem {
+  flex-basis: 100%;
+  margin: 0;
+  font-size: 12px;
+  line-height: 16px;
+  color: var(--pb-bad-ink);
+}
+
+/* Load more under a table. */
+.pb-extraction-more {
+  margin: 12px 0 0;
+}
+
+/* The review table: values and quotes keep their lines; every cell starts at its top. */
+.pb-extraction-fields td {
+  vertical-align: top;
+}
+.pb-extraction-fields .is-selected td {
+  background: var(--pb-accent-tint-10);
+}
+.pb-extraction-quote {
+  display: block;
+  max-width: 260px;
+  font-size: 12px;
+  line-height: 16px;
+  color: var(--pb-muted-strong);
+  overflow-wrap: anywhere;
+}
+.pb-extraction-was {
+  display: block;
+  font-size: 12px;
+  line-height: 16px;
+  color: var(--pb-muted);
+}
+.pb-extraction-findings {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.pb-extraction-details {
+  margin-top: 4px;
+  font-size: 12px;
+  line-height: 16px;
+  color: var(--pb-muted);
+}
+.pb-extraction-details > summary {
+  cursor: pointer;
+  color: var(--pb-brand-primary);
+}
+.pb-extraction-details > .pb-list {
+  margin-top: 4px;
+  color: var(--pb-text);
+}
+.pb-extraction-actions {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 2px 4px;
+}
+.pb-extraction-actions > button {
+  white-space: nowrap;
+}
+
+/* The drafted narrative: the highlights as a list, the commentary as a paragraph, each with its actions. */
+.pb-extraction-narrative {
+  display: grid;
+  gap: 14px;
+}
+.pb-extraction-narrative h3 {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 6px;
+  font-size: 13px;
+  line-height: 20px;
+  font-weight: 600;
+}
+.pb-extraction-narrative h3 > .pb-extraction-actions {
+  margin-left: auto;
+}
+
+/* The page view: the page drawn from its text runs, scrolling inside a focusable frame, with the
+   cited quote behind an accent-tinted rectangle (docs/06: the accent marks highlights). */
+.pb-extraction-page-frame {
+  position: relative;
+  max-height: 720px;
+  overflow: auto;
+  border: 1px solid var(--pb-border);
+  border-radius: 6px;
+  background: var(--pb-surface-2);
+}
+.pb-extraction-page-frame:focus-visible {
+  outline-offset: 0;
+}
+.pb-extraction-page {
+  display: block;
+  width: 100%;
+  max-width: 820px;
+  height: auto;
+  margin: 0 auto;
+  font-family: var(--pb-font-ui);
+}
+.pb-extraction-page .pb-extraction-page-sheet {
+  fill: var(--pb-bg);
+  stroke: var(--pb-border);
+  stroke-width: 1;
+}
+.pb-extraction-page text {
+  fill: var(--pb-text);
+}
+.pb-extraction-page .pb-extraction-highlight {
+  fill: rgba(var(--pb-accent-rgb), 0.3);
+  stroke: var(--pb-brand-accent);
+  stroke-width: 1;
+}
+.pb-extraction-page-note {
+  margin: 10px 0 0;
+}
+
+@media (max-width: 760px) {
+  .pb-toolbar .pb-extraction-filter,
+  .pb-toolbar .pb-extraction-period {
+    width: 100%;
+  }
+  .pb-extraction-quote {
+    max-width: 200px;
+  }
+}
+
+/* Secondary text on the selected row's tinted surface keeps its contrast (docs/06 section 1). */
+.pb-extraction-fields .is-selected .pb-cell-sub,
+.pb-extraction-fields .is-selected .pb-extraction-was,
+.pb-extraction-fields .is-selected .pb-extraction-quote,
+.pb-extraction-fields .is-selected .pb-extraction-details,
+.pb-extraction-fields .is-selected .pb-meta {
+  color: var(--pb-muted-strong);
+}

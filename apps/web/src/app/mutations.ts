@@ -6,6 +6,8 @@ import {
   documentDetail,
   documentIndexResult,
   expectedDocumentGenerateResult,
+  extractionBatch,
+  extractionRunDetail,
   featureFlag,
   intakeFileDetail,
   intakeImportResult,
@@ -21,6 +23,10 @@ import type {
   DocumentIndexResult,
   ExpectedDocumentGenerateBody,
   ExpectedDocumentGenerateResult,
+  ExtractionBatch,
+  ExtractionBatchBody,
+  ExtractionRunCommandBody,
+  ExtractionRunDetail,
   IntakeCommandBody,
   IntakeFileDetail,
   IntakeImportBody,
@@ -356,6 +362,83 @@ export function useClassifyDocument(): UseMutationResult<
     onSuccess: (updated) => {
       queryClient.setQueryData(['document', updated.id], updated);
       invalidate(queryClient, DOCUMENT_KEYS);
+    },
+  });
+}
+
+/**
+ * POST /api/v1/extraction/batches: queue and run an extraction over the documents named or over
+ * every classified document of a type for a quarter (operations; refused while ai.extraction is
+ * off). The API processes the batch before it answers, so the batch arrives terminal.
+ */
+export function postExtractionBatch(body: ExtractionBatchBody): Promise<ExtractionBatch> {
+  return post('/api/v1/extraction/batches', extractionBatch, body);
+}
+
+/** POST /api/v1/extraction/runs/{id}/commands: accept, edit, reject, acceptClean, approve (promotes) or retry. */
+export function postExtractionRunCommand(
+  id: string,
+  body: ExtractionRunCommandBody,
+): Promise<ExtractionRunDetail> {
+  return post(
+    `/api/v1/extraction/runs/${encodeURIComponent(id)}/commands`,
+    extractionRunDetail,
+    body,
+  );
+}
+
+/**
+ * A batch writes runs and values, changes each document's latest run, the monitoring board, and
+ * opens a data exception when a run fails; a review decision changes the run and, on approval,
+ * the promoted quarter that every read of a position's figures pools (docs/04 M4, SEC-9.1).
+ */
+const EXTRACTION_KEYS: QueryKey[] = [
+  ['extraction-batches'],
+  ['extraction-runs'],
+  ['extraction-run'],
+  ['documents'],
+  ['document'],
+  ['monitoring-board'],
+  ['investment'],
+  ['investments'],
+  ['investment-performance'],
+  ['data-health'],
+  ['data-exceptions'],
+  ['analytics-summary'],
+  ['watchlist'],
+  ['weekly-report'],
+  ['audit'],
+];
+
+export function useStartExtractionBatch(): UseMutationResult<
+  ExtractionBatch,
+  Error,
+  ExtractionBatchBody
+> {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (body: ExtractionBatchBody) => postExtractionBatch(body),
+    onSuccess: () => invalidate(queryClient, EXTRACTION_KEYS),
+  });
+}
+
+export interface ExtractionRunCommandVariables {
+  id: string;
+  body: ExtractionRunCommandBody;
+}
+
+export function useExtractionRunCommand(): UseMutationResult<
+  ExtractionRunDetail,
+  Error,
+  ExtractionRunCommandVariables
+> {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, body }: ExtractionRunCommandVariables) => postExtractionRunCommand(id, body),
+    onSuccess: (updated) => {
+      // A retry of a Failed run answers with the new run; the page opens on it without a second read.
+      queryClient.setQueryData(['extraction-run', updated.run.id], updated);
+      invalidate(queryClient, EXTRACTION_KEYS);
     },
   });
 }

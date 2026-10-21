@@ -48,6 +48,8 @@ import { DocumentDetailPage } from '../pages/documents/DocumentDetail.js';
 import { DocumentsPage } from '../pages/documents/Documents.js';
 import { ExpectedDocumentsPage } from '../pages/documents/ExpectedDocuments.js';
 import { ReviewQueuePage } from '../pages/documents/ReviewQueue.js';
+import { ExtractionPage } from '../pages/extraction/Extraction.js';
+import { ExtractionRunPage } from '../pages/extraction/ExtractionRun.js';
 import { HomePage } from '../pages/Home.js';
 import { InvestmentDetailPage } from '../pages/InvestmentDetail.js';
 import { PipelinePage } from '../pages/pipeline/Pipeline.js';
@@ -120,6 +122,8 @@ const documentsRoute = child('/documents', DocumentsPage);
 const documentsReviewRoute = child('/documents/review', ReviewQueuePage);
 const documentsExpectedRoute = child('/documents/expected', ExpectedDocumentsPage);
 const documentRoute = child('/documents/$id', DocumentDetailPage);
+const documentsExtractionRoute = child('/documents/extraction', ExtractionPage);
+const documentsExtractionRunRoute = child('/documents/extraction/$id', ExtractionRunPage);
 const valuationsRoute = child('/valuations', ValuationsPage);
 const capitalRoute = child('/capital-activity', CapitalActivityPage);
 const commitmentsRoute = child('/capital-activity/commitments', CommitmentsPage);
@@ -215,6 +219,8 @@ const routeTree = rootRoute.addChildren([
     documentsReviewRoute,
     documentsExpectedRoute,
     documentRoute,
+    documentsExtractionRoute,
+    documentsExtractionRunRoute,
     valuationsRoute,
     capitalRoute,
     commitmentsRoute,
