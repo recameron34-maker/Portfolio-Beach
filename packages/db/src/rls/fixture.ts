@@ -10,7 +10,8 @@ import type { AppRole } from '../roles.js';
  * each investment and one with no link; one staged weekly value per investment and one unlinked; one
  * company alias; three data exceptions, one about each staged accounting row; one indexed quarterly
  * report per investment with its expected-document row, one extraction run and two extracted values
- * (migration 0011). Loaded as the owner, outside RLS.
+ * (migration 0011); one data exception about each document and each run (migration 0012). Loaded
+ * as the owner, outside RLS.
  */
 export const ids = {
   users: {
@@ -61,6 +62,12 @@ export const ids = {
   extractedValueOpenEbitda: 'a0000000-0000-4000-8000-000000000008',
   extractedValueWalledRevenue: 'a0000000-0000-4000-8000-000000000009',
   extractedValueWalledEbitda: 'a0000000-0000-4000-8000-00000000000a',
+  // Exceptions about the documents and the runs (migration 0012): one per document (DOC-READ-01) and
+  // one per run (EXT-RUN-01), so the walled ones must stay inside the wall.
+  exceptionOpenDocument: 'a0000000-0000-4000-8000-00000000000b',
+  exceptionWalledDocument: 'a0000000-0000-4000-8000-00000000000c',
+  exceptionOpenRun: 'a0000000-0000-4000-8000-00000000000d',
+  exceptionWalledRun: 'a0000000-0000-4000-8000-00000000000e',
 } as const;
 
 export interface Actor {
@@ -186,5 +193,10 @@ export async function loadFixture(handle: DbHandle): Promise<void> {
       ('${ids.extractedValueOpenEbitda}', '${ids.extractionRunOpen}', '${ids.investment1}', 'ebitda_ltm', '30.00', 'USD_M', 2, 'LTM EBITDA 30.00', 0.72, 'flagged'),
       ('${ids.extractedValueWalledRevenue}', '${ids.extractionRunWalled}', '${ids.investmentWalled}', 'revenue_ltm', '80.00', 'USD_M', 2, 'LTM revenue 80.00', 0.95, 'clean'),
       ('${ids.extractedValueWalledEbitda}', '${ids.extractionRunWalled}', '${ids.investmentWalled}', 'ebitda_ltm', '16.00', 'USD_M', 2, 'LTM EBITDA 16.00', 0.95, 'clean');
+    insert into ops.data_exception (id, source, entity, entity_id, rule_id, severity, state) values
+      ('${ids.exceptionOpenDocument}', 'documents', 'doc.document', '${ids.documentOpen}', 'DOC-READ-01', 'exception_severity.high', 'open'),
+      ('${ids.exceptionWalledDocument}', 'documents', 'doc.document', '${ids.documentWalled}', 'DOC-READ-01', 'exception_severity.high', 'open'),
+      ('${ids.exceptionOpenRun}', 'extraction', 'doc.extraction_run', '${ids.extractionRunOpen}', 'EXT-RUN-01', 'exception_severity.high', 'open'),
+      ('${ids.exceptionWalledRun}', 'extraction', 'doc.extraction_run', '${ids.extractionRunWalled}', 'EXT-RUN-01', 'exception_severity.high', 'open');
   `);
 }

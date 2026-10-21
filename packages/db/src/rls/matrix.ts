@@ -69,9 +69,11 @@ export const READ_MATRIX: Record<string, Row> = {
   'mon.cash_flow': row(2, 2, 2, 2, 2, 2, 2, 3, 3),
   'mon.valuation_history': row(0, 0, 2, 2, 0, 0, 2, 0, 0),
   'ops.feature_flag': row(10, 10, 10, 10, 10, 10, 10, 10, 10),
-  // An exception about a staged row is visible to whoever the row's own policy admits (migration
-  // 0010): the three fixture exceptions are about the open, the walled and the unlinked accounting row.
-  'ops.data_exception': row(0, 2, 2, 2, 0, 0, 2, 3, 3),
+  // An exception about a staged row, a document or an extraction run is visible to whoever that
+  // record's own policy admits (migrations 0010 and 0012): three fixture exceptions are about the
+  // open, the walled and the unlinked accounting row (reviewers only), and four are about the open
+  // and the walled document and run (every authenticated user, under the wall).
+  'ops.data_exception': row(2, 4, 4, 4, 2, 2, 4, 7, 7),
   'audit.event': row(0, 0, 2, 2, 0, 2, 2, 0, 0),
   // Staging: reviewers (operations, deal team, approver, auditor) and the service read files, and
   // rows under the wall of the investment they link to (migration 0009); an unlinked row is every
@@ -260,6 +262,12 @@ export const WRITE_MATRIX: WriteCase[] = [
   {
     name: 'record a decision on an extracted value of the open run',
     sql: "update stg.extracted_value set decision = 'accepted', reviewer_id = '10000000-0000-4000-8000-000000000002', decided_at = now() where id = 'a0000000-0000-4000-8000-000000000008'",
+    allowed: ['deal_team', 'operations', 'wall_member(deal_team)', 'service'],
+  },
+  {
+    name: 'record an edit with its own unit on an extracted value of the open run',
+    sql: "update stg.extracted_value set decision = 'edited', edited_value = '30000', edited_unit = 'USD_K', reviewer_id = '10000000-0000-4000-8000-000000000002', decided_at = now() where id = 'a0000000-0000-4000-8000-000000000008'",
+    // The edit keeps its own unit beside the model's (migration 0012), under the same review policy.
     allowed: ['deal_team', 'operations', 'wall_member(deal_team)', 'service'],
   },
   {

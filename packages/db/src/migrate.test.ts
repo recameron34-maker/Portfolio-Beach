@@ -277,6 +277,31 @@ describe('migrations', () => {
     expect(searched[0]?.n).toBe(1);
   });
 
+  it("0012: exceptions about documents and runs read under their record's policy, and an edit keeps its own unit", async () => {
+    // W2: the read policy on ops.data_exception walls doc.document and doc.extraction_run as it walls
+    // the two staging tables (migration 0010), so a walled run's exception stays inside the wall.
+    const policy = await handle.query<{ qual: string }>(
+      "select qual from pg_policies where schemaname = 'ops' and tablename = 'data_exception' and policyname = 'read_all'",
+    );
+    expect(policy).toHaveLength(1);
+    for (const entity of ['stg.intake_row', 'stg.valuation', 'doc.extraction_run', 'doc.document'])
+      expect(policy[0]?.qual, entity).toContain(`'${entity}'`);
+    // WF-1: the reviewer's unit sits beside the model's, never over it.
+    const columns = await handle.query<{ column_name: string; is_nullable: string }>(
+      "select column_name, is_nullable from information_schema.columns where table_schema = 'stg' and table_name = 'extracted_value' and column_name in ('unit', 'edited_value', 'edited_unit') order by column_name",
+    );
+    expect(columns).toEqual([
+      { column_name: 'edited_unit', is_nullable: 'YES' },
+      { column_name: 'edited_value', is_nullable: 'YES' },
+      { column_name: 'unit', is_nullable: 'YES' },
+    ]);
+    await expect(
+      handle.exec(
+        "insert into stg.extracted_value (run_id, field, value, unit, edited_value, edited_unit) values ('a1000000-0000-4000-8000-000000000002', 'ev', '1', 'USD_M', '1000', 'EUR')",
+      ),
+    ).rejects.toThrow(/check constraint/);
+  });
+
   it('never grant DELETE on financial tables or UPDATE/DELETE on the audit trail to the application role', async () => {
     const grants = await handle.query<{ table: string; privilege: string }>(`
       select table_schema || '.' || table_name as "table", privilege_type as privilege

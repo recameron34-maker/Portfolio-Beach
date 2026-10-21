@@ -1585,9 +1585,10 @@ export const documentIndexResult = z.object({
 export type DocumentIndexResult = z.infer<typeof documentIndexResult>;
 
 /**
- * A person classifies a document (NeedsReview or Received > Classified, docs/18 section 6): the
- * type, and the links the type needs. The service's own commands (autoClassify, flagForReview,
- * markDuplicate) are internal and never arrive through this body.
+ * A person classifies a document (NeedsReview > Classified, docs/18 section 6; the index leaves no
+ * document in Received, a classifier that is off or fails flags it for review): the type, and the
+ * links the type needs. The service's own commands (autoClassify, flagForReview, markDuplicate)
+ * are internal and never arrive through this body.
  */
 const documentClassifyCommand = z
   .object({
@@ -1693,8 +1694,11 @@ export type ExtractionFinding = z.infer<typeof extractionFinding>;
 /**
  * A staged field of a run as the review page shows it: the model's answer with its citation and
  * confidence, the validation's verdict, and the reviewer's decision. `value` is decimal text, an
- * ISO date or text, never a float; `editedValue` replaces it once a reviewer edits. The label, kind
- * and requirement come from config/extraction_schema.json.
+ * ISO date or text, never a float; once a reviewer edits, `editedValue` in `editedUnit` is the
+ * figure promotion takes, while `value` and `unit` stay what the model declared (migration 0012).
+ * `editedUnit` is left out by a server that does not write it yet (the extraction service of the
+ * Phase 2 review); it becomes a required key once every server emits it. The label, kind and
+ * requirement come from config/extraction_schema.json.
  */
 export const extractedValue = z.object({
   id: uuid,
@@ -1711,6 +1715,8 @@ export const extractedValue = z.object({
   findings: z.array(extractionFinding),
   decision: extractionDecision.nullable(),
   editedValue: z.string().nullable(),
+  /** The unit of editedValue; null until a reviewer edits the row. */
+  editedUnit: extractionUnit.nullable().optional(),
   decidedBy: z.string().nullable(),
   decidedAt: z.string().nullable(),
 });
