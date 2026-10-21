@@ -1,4 +1,4 @@
-import { writeFileSync } from 'node:fs';
+import { rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { D, addDays, daysBetween, latestQuarterEndOnOrBefore } from '@pb/calc';
@@ -412,19 +412,54 @@ describe('document hub (M3, docs/18 section 6): index, classify, search under th
     expect(problemDetails.parse(bad.body).type).toBe(`${PROBLEM}validation`);
   });
 
-  it('generates the expected documents of a quarter once, matched with the reports already classified', async () => {
-    const periodEnd = quarterEnd();
-    const investments = h.dataset.investments.filter(
+  /** The rows generation wants for a quarter: one per reporting investment held on the day, one per committed fund. */
+  const wanted = (periodEnd: string): { investments: number; funds: number } => ({
+    investments: h.dataset.investments.filter(
       (i) =>
         QUARTERLY_REPORTING_DEAL_TYPES.includes(i.dealType) &&
         i.entryDate <= periodEnd &&
         (i.exitDate === null || i.exitDate > periodEnd),
-    );
-    const funds = new Set(
+    ).length,
+    funds: new Set(
       h.dataset.commitments
         .filter((c) => c.commitmentDate <= periodEnd)
         .map((c) => c.sponsorFundId),
-    );
+    ).size,
+  });
+
+  /**
+   * The in-process database runs one transaction at a time, so a concurrent writer cannot be
+   * staged; a trigger that writes the same row first, from inside the service's own insert, meets
+   * the unique key exactly as the loser of a real race does (WF-7). Dropped afterwards.
+   */
+  const withRacingWriter = async (
+    table: string,
+    columns: readonly string[],
+    body: () => Promise<void>,
+  ): Promise<void> => {
+    const fn = 'public.pb_test_racing_writer';
+    await h.runtime.db.exec(`
+      create function ${fn}() returns trigger language plpgsql as $$
+      begin
+        if pg_trigger_depth() = 1 then
+          insert into ${table} (${columns.join(', ')}) values (${columns.map((c) => `new.${c}`).join(', ')});
+        end if;
+        return new;
+      end $$;
+      create trigger pb_test_racing_writer before insert on ${table} for each row execute function ${fn}();`);
+    try {
+      await body();
+    } finally {
+      await h.runtime.db.exec(
+        `drop trigger pb_test_racing_writer on ${table}; drop function ${fn}();`,
+      );
+    }
+  };
+
+  it('generates the expected documents of a quarter once, matched with the reports already classified', async () => {
+    const periodEnd = quarterEnd();
+    const investments = { length: wanted(periodEnd).investments };
+    const funds = { size: wanted(periodEnd).funds };
     const first = expectedDocumentGenerateResult.parse(
       (await generate('operations', periodEnd, 'req-doc-generate-1').expect(201)).body,
     );
@@ -644,6 +679,83 @@ describe('document hub (M3, docs/18 section 6): index, classify, search under th
     expect(classified.docType).toBe(QF);
   });
 
+  it('answers the idempotent counts, not a 500, when another generate wrote the quarter first (WF-7)', async () => {
+    const periodEnd = latestQuarterEndOnOrBefore(addDays(quarterEnd(), -1));
+    const rows = wanted(periodEnd).investments + wanted(periodEnd).funds;
+    expect(rows).toBeGreaterThan(0);
+    await withRacingWriter(
+      'doc.expected_document',
+      ['investment_id', 'sponsor_fund_id', 'period_end', 'doc_type', 'due_date'],
+      async () => {
+        const raced = expectedDocumentGenerateResult.parse(
+          (await generate('operations', periodEnd, 'req-doc-generate-race').expect(201)).body,
+        );
+        // The loser of the race counts the rows it wrote (none) and the rest as existing.
+        expect(raced).toEqual({ periodEnd, created: 0, existing: rows });
+      },
+    );
+    expect(
+      await count('select count(*)::int as n from doc.expected_document where period_end = $1', [
+        periodEnd,
+      ]),
+    ).toBe(rows);
+    expect(
+      await count(
+        "select count(*)::int as n from audit.event where action = 'expected_documents.generate' and request_id = 'req-doc-generate-race'",
+      ),
+    ).toBe(1);
+    const again = expectedDocumentGenerateResult.parse(
+      (await generate('operations', periodEnd).expect(201)).body,
+    );
+    expect(again).toEqual({ periodEnd, created: 0, existing: rows });
+  });
+
+  it('answers unchanged, not a 500, when another scan indexed an item first (WF-7)', async () => {
+    const RACED = 'raced.pdf';
+    const path = join(h.runtime.config.PB_DOCUMENT_ROOT, 'inbox', RACED);
+    writeFileSync(
+      path,
+      onePage('Quarterly Report: raced', ['Quarterly Report', 'A page another scan read first.']),
+    );
+    try {
+      await withRacingWriter(
+        'doc.document',
+        [
+          'source_system',
+          'source_item_id',
+          'file_name',
+          'folder',
+          'title',
+          'content_hash',
+          'size_bytes',
+          'received_at',
+        ],
+        async () => {
+          const result = documentIndexResult.parse(
+            (await index('operations', 'req-doc-index-race').expect(200)).body,
+          );
+          // The item another scan wrote first reads as unchanged: no second row, no classification.
+          expect(result).toEqual({
+            indexed: 0,
+            duplicates: 0,
+            unchanged: set().documents.length + 4,
+          });
+        },
+      );
+      expect(
+        await count('select count(*)::int as n from doc.document where file_name = $1', [RACED]),
+      ).toBe(1);
+      expect(
+        await count(
+          "select count(*)::int as n from audit.event where action = 'document.index' and request_id = 'req-doc-index-race'",
+        ),
+      ).toBe(0);
+    } finally {
+      await h.runtime.db.query('delete from doc.document where file_name = $1', [RACED]);
+      rmSync(path, { force: true });
+    }
+  });
+
   it('answers a 500 configuration problem when the documents block is missing', async () => {
     const bare = await startHarness({ withoutDefinitions: ['documents'] });
     try {
@@ -787,7 +899,7 @@ describe('document hub with the classifier off: every path links from the file n
 
   it('keeps the data exception about the walled unreadable report inside the wall (W2)', async () => {
     const id = byName(everything, unreadableName).id;
-    const exceptionsOf = async (who: string): Promise<string[]> =>
+    const exceptionsOf = async (who: string): Promise<(string | null)[]> =>
       dataExceptionPage
         .parse(
           (await get(who, '/api/v1/data-exceptions?limit=200&source=documents').expect(200)).body,

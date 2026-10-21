@@ -119,7 +119,10 @@ export class ExpectedDocumentsService {
 
   /**
    * Generate the rows of a quarter (operations). Idempotent: rows the quarter already has are
-   * counted as existing and left as they were. Audited with the counts only.
+   * counted as existing and left as they were, and so are the rows another generate for the same
+   * quarter writes between this one's read and its insert (on conflict do nothing on the two
+   * partial unique keys), so an overlapping call answers the counts, never a unique violation
+   * (docs/17 section 3). Audited with the counts only.
    */
   async generate(
     principal: Principal,
@@ -168,12 +171,17 @@ export class ExpectedDocumentsService {
         }) => `${r.investmentId ?? ''}|${r.sponsorFundId ?? ''}|${r.docType}`;
         const have = new Set(existing.map(key));
         const missing = wanted.filter((w) => !have.has(key(w)));
-        for (let i = 0; i < missing.length; i += INSERT_CHUNK)
-          await stx
+        let created = 0;
+        for (let i = 0; i < missing.length; i += INSERT_CHUNK) {
+          const inserted = await stx
             .insert(x)
-            .values(missing.slice(i, i + INSERT_CHUNK).map((m) => ({ ...m, periodEnd, dueDate })));
+            .values(missing.slice(i, i + INSERT_CHUNK).map((m) => ({ ...m, periodEnd, dueDate })))
+            .onConflictDoNothing()
+            .returning();
+          created += inserted.length;
+        }
         const matched = await this.matchIndexed(stx, periodEnd);
-        return { created: missing.length, existing: wanted.length - missing.length, matched };
+        return { created, existing: wanted.length - created, matched };
       });
       await audit({
         action: 'expected_documents.generate',

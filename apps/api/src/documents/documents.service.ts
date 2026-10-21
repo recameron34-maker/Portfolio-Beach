@@ -139,6 +139,20 @@ function linksFromName(
   );
 }
 
+/**
+ * Writes a document row and answers its id, or null when the store's key (source_system,
+ * source_item_id) is already taken: another scan indexed the item between this scan's read and
+ * its write, and the item is then unchanged for this scan (docs/17 section 3, idempotency).
+ */
+async function insertDocument(stx: Tx, values: typeof d.$inferInsert): Promise<string | null> {
+  const inserted = await stx
+    .insert(d)
+    .values(values)
+    .onConflictDoNothing({ target: [d.sourceSystem, d.sourceItemId] })
+    .returning();
+  return inserted[0]?.id ?? null;
+}
+
 /** A file name with the " (n)" a mail client adds to a second delivery taken out, so the original sorts first. */
 const baseName = (name: string): string => name.replace(/ \(\d+\)(\.[^.]*)?$/, '$1');
 
@@ -175,7 +189,9 @@ export class DocumentsService {
   /**
    * Scan the store (operations): every item of the inbox is indexed, linked to its original or
    * left as it is, in one transaction, with an audit event per document written and one with
-   * the counts. Idempotent: a second scan over the same inbox changes nothing.
+   * the counts. Idempotent: a second scan over the same inbox changes nothing, and a scan that
+   * overlaps another finds the items the other wrote first unchanged (the insert does nothing on
+   * the store's key), never a unique violation (docs/17 section 3).
    */
   async index(principal: Principal, requestId: string): Promise<DocumentIndexResult> {
     const settings = documentSettingsOf(this.definitions);
@@ -303,23 +319,18 @@ export class DocumentsService {
       // The duplicate carries the original's links (not its type: it is not classified), so the
       // wall on the original is the wall on the copy from the start; the classify command keeps
       // them aligned afterwards.
-      const inserted = await stx
-        .insert(d)
-        .values({
-          ...base,
-          title: original.title,
-          pageCount: original.pageCount,
-          reviewStatus: marked.to,
-          duplicateOfId: original.id,
-          investmentId: original.investmentId,
-          sponsorFundId: original.sponsorFundId,
-          sponsorId: original.sponsorId,
-          periodEnd: original.periodEnd,
-        })
-        .returning();
-      const id = inserted[0]?.id;
-      if (id === undefined)
-        throw new ProblemError(500, 'internal', 'document: the row was not written');
+      const id = await insertDocument(stx, {
+        ...base,
+        title: original.title,
+        pageCount: original.pageCount,
+        reviewStatus: marked.to,
+        duplicateOfId: original.id,
+        investmentId: original.investmentId,
+        sponsorFundId: original.sponsorFundId,
+        sponsorId: original.sponsorId,
+        periodEnd: original.periodEnd,
+      });
+      if (id === null) return { kind: 'unchanged' };
       return { kind: 'duplicate', id, duplicateOfId: original.id };
     }
 
@@ -331,13 +342,8 @@ export class DocumentsService {
       const flagged = attempt(machine, machine.initial, 'flagForReview', { ...SYSTEM, record: {} });
       if (!flagged.ok) throw workflowProblem(flagged);
       const reason = `unreadable (${error.code})`;
-      const inserted = await stx
-        .insert(d)
-        .values({ ...base, ...links, title: stripExtension(ref.name) })
-        .returning();
-      const id = inserted[0]?.id;
-      if (id === undefined)
-        throw new ProblemError(500, 'internal', 'document: the row was not written');
+      const id = await insertDocument(stx, { ...base, ...links, title: stripExtension(ref.name) });
+      if (id === null) return { kind: 'unchanged' };
       await stx
         .update(d)
         .set({
@@ -373,19 +379,14 @@ export class DocumentsService {
     }
 
     const pageTexts = doc.pages.map((p) => p.text);
-    const inserted = await stx
-      .insert(d)
-      .values({
-        ...base,
-        ...links,
-        title: titleOf(doc, ref.name),
-        pageCount: doc.pageCount,
-        textExcerpt: excerptOf(pageTexts),
-      })
-      .returning();
-    const id = inserted[0]?.id;
-    if (id === undefined)
-      throw new ProblemError(500, 'internal', 'document: the row was not written');
+    const id = await insertDocument(stx, {
+      ...base,
+      ...links,
+      title: titleOf(doc, ref.name),
+      pageCount: doc.pageCount,
+      textExcerpt: excerptOf(pageTexts),
+    });
+    if (id === null) return { kind: 'unchanged' };
     if (!classifierOn) {
       // The kill switch is a graceful degradation (docs/17 section 5): the item queues for a
       // person through the same transition a failed call takes, so nothing stays in Received.
