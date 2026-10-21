@@ -4,12 +4,15 @@ import type {
   CapitalNoticeRow,
   DataHealth,
   InvestmentDetail,
+  InvestmentPerformance,
   Principal,
+  QuarterRow,
+  RealizationOutlookDetail,
   ValuationPage,
   ValuationRow,
 } from '@pb/contracts';
 import { problemDetails } from '@pb/contracts';
-import type { PreviewBook } from './book.js';
+import type { BookInvestment, BookQuarter, PreviewBook } from './book.js';
 import type { PreviewFixtures, PreviewUser } from './fixtures.js';
 import { getKey } from './keys.js';
 import { VALUATIONS_PATH } from './state.js';
@@ -44,10 +47,20 @@ export async function send(
   const text = await res.text();
   return {
     status: res.status,
-    json: text === '' ? null : JSON.parse(text),
+    json: jsonOf(text),
     text,
     headers: res.headers,
   };
+}
+
+/** The body as JSON, or null for an empty body or one that is not JSON (the CSV export). */
+function jsonOf(text: string): unknown {
+  if (text === '') return null;
+  try {
+    return JSON.parse(text);
+  } catch {
+    return null;
+  }
 }
 
 /** The problem code (the last segment of its type) and detail of a refused answer. */
@@ -141,11 +154,63 @@ export const WALL_MEMBERS: readonly string[] = [
   USERS.all.externalId,
 ];
 
+/** A quarter row as the API records a seeded quarter: the book's figures, no ratios, no narrative, no source. */
+function recordedQuarter(q: BookQuarter): QuarterRow {
+  return {
+    periodEnd: q.periodEnd,
+    isEntrySnapshot: q.isEntrySnapshot,
+    status: 'record_status.approved',
+    revenueLtm: q.revenueLtm,
+    ebitdaLtm: q.ebitdaLtm,
+    ev: q.ev,
+    netDebt: q.netDebt,
+    cash: null,
+    totalEquity: null,
+    evToEbitda: null,
+    netDebtToEbitda: null,
+    ebitdaMargin: null,
+    revenueYoy: null,
+    ebitdaYoy: null,
+    highlights: [],
+    source: null,
+  };
+}
+
+/** The performance of a book investment as the build would record it: the approved quarters, the entry snapshot apart. */
+export function performanceFixture(book: PreviewBook, inv: BookInvestment): InvestmentPerformance {
+  const rows = (book.quarters[inv.id] ?? []).map(recordedQuarter);
+  return {
+    investmentId: inv.id,
+    asOf: book.asOf,
+    entry: rows.find((r) => r.isEntrySnapshot) ?? null,
+    quarters: rows.filter((r) => !r.isEntrySnapshot),
+    sinceEntry: null,
+    credit: null,
+    realizationOutlook: null,
+    calcVersion: 'test',
+  };
+}
+
+/** The outlook the API records for an investment nobody set one for. */
+export function defaultOutlookFixture(inv: BookInvestment): RealizationOutlookDetail {
+  return {
+    investmentId: inv.id,
+    investmentNumber: inv.investmentNumber,
+    companyName: inv.companyName,
+    outlook: 'none',
+    horizonMonths: 18,
+    note: null,
+    setBy: null,
+    setAt: null,
+  };
+}
+
 /**
- * The recordings of a world over the real generator's book (the simulated intake tests): every
- * mock user's own sign-in, their view of each of the book's investments (the walled deal answers
- * 404 outside the wall, as the build records it), an empty valuations board for the simulated
- * Drafts to land on, and Data Health with no open exception for the overlay to count onto.
+ * The recordings of a world over the real generator's book (the simulated intake, document,
+ * extraction and monitoring tests): every mock user's own sign-in and flag list, their view of
+ * each of the book's investments with its performance and default outlook (the walled deal
+ * answers 404 outside the wall, as the build records it), an empty valuations board for the
+ * simulated Drafts to land on, and Data Health with no open exception for the overlay to count onto.
  */
 export function generatedWorld(book: PreviewBook, walledId: string): PreviewFixtures {
   const users = Object.values(USERS);
@@ -176,9 +241,15 @@ export function generatedWorld(book: PreviewBook, walledId: string): PreviewFixt
     });
     b.add(c, '/api/v1/data-health', health);
     b.add(c, VALUATIONS_PATH, board);
+    b.add(c, '/api/v1/flags', {
+      flags: [
+        { key: 'ai.classifier', enabled: true, description: 'Classifier switch' },
+        { key: 'ai.extraction', enabled: false, description: 'Extraction kill switch' },
+      ],
+    });
     for (const inv of book.investments) {
       const path = `/api/v1/investments/${inv.id}`;
-      if (inv.id !== walledId || WALL_MEMBERS.includes(c))
+      if (inv.id !== walledId || WALL_MEMBERS.includes(c)) {
         b.add(
           c,
           path,
@@ -191,17 +262,23 @@ export function generatedWorld(book: PreviewBook, walledId: string): PreviewFixt
             isActive: inv.isActive,
           }),
         );
-      else b.notFound(c, path);
+        b.add(c, `${path}/performance`, performanceFixture(book, inv));
+        b.add(c, `/api/v1/monitoring/outlook/${inv.id}`, defaultOutlookFixture(inv));
+      } else {
+        b.notFound(c, path);
+        b.notFound(c, `${path}/performance`);
+        b.notFound(c, `/api/v1/monitoring/outlook/${inv.id}`);
+      }
     }
   }
   return b.build();
 }
 
-/** The static assets beside the page (the bundled samples), served by file name as text or bytes; anything else is 404. */
+/** The static assets beside the page (the bundled samples), served by their URL-decoded file name as text or bytes; anything else is 404. */
 export function serveSamples(files: ReadonlyMap<string, string | Uint8Array>): typeof fetch {
   return (input) => {
     const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
-    const found = files.get(url.split('/').pop() ?? '');
+    const found = files.get(decodeURIComponent(url.split('/').pop() ?? ''));
     if (found === undefined) return Promise.resolve(new Response('', { status: 404 }));
     const body: BodyInit = typeof found === 'string' ? found : new Uint8Array(found);
     return Promise.resolve(new Response(body, { status: 200 }));

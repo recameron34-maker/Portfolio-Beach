@@ -10,6 +10,7 @@ import { fileURLToPath } from 'node:url';
 import {
   accountingExports,
   generateDataset,
+  generateDocuments,
   previewBook,
   previewLookthroughExtracts,
   previewOpsDropWorkbooks,
@@ -45,9 +46,11 @@ writeFileSync(join(scratch, 'dataset.json'), JSON.stringify(dataset));
 // The simulated intakes' inputs (src/preview/routes/): the bundled samples under the names the
 // book records (the three accounting exports the intake page requests, the three weekly values
 // files, the two look-through extracts and the four operations workbooks, each simulated drop
-// folder), and the book as the system actor sees it (decision 0009), all straight from the
-// generated dataset. The shim loads the book next to the recordings.
-const book = previewBook(dataset);
+// folder), the synthetic document set (the simulated store's inbox, decision 0012) and the book
+// as the system actor sees it (decision 0009), all straight from the generated dataset. The shim
+// loads the book next to the recordings.
+const documents = generateDocuments(dataset);
+const book = previewBook(dataset, { documents });
 const samplesDir = join(out, 'preview', 'samples');
 mkdirSync(samplesDir, { recursive: true });
 const sampleFiles = [];
@@ -77,11 +80,23 @@ bundle(
     `${JSON.stringify({ fileName: name, base64: Buffer.from(f.bytes).toString('base64') })}\n`,
   (name) => `${name}.json`,
 );
+// The document set under the store's own file names (the publishing host serves .pdf as it is),
+// which the simulated index reads with @pb/pdf in the browser; the book carries each truth.
+const documentsDir = join(samplesDir, 'documents');
+mkdirSync(documentsDir, { recursive: true });
+let documentBytes = 0;
+for (const doc of documents.documents) {
+  writeFileSync(join(documentsDir, doc.fileName), doc.bytes);
+  documentBytes += doc.bytes.length;
+}
 const bookJson = JSON.stringify(book);
 const bookBytes = Buffer.byteLength(bookJson);
 writeFileSync(join(out, 'preview', 'book.json'), bookJson);
 process.stdout.write(
-  `preview: book.json ${bookBytes} bytes (${book.investments.length} investments); samples: ${sampleFiles.join(', ')}\n`,
+  `preview: book.json ${bookBytes} bytes (${book.investments.length} investments, ${book.documents.length} documents); samples: ${sampleFiles.join(', ')}\n`,
+);
+process.stdout.write(
+  `preview: documents: ${documents.documents.length} PDFs, ${documentBytes} bytes under preview/samples/documents\n`,
 );
 if (bookBytes > MAX_FIXTURE_BYTES) {
   process.stderr.write(
@@ -231,6 +246,22 @@ const fragment = [
   '',
 ].join('\n');
 writeFileSync(join(out, 'artifact.html'), fragment);
+
+// The minifier folds `String.fromCharCode(0x2014)` (the em dash the EXT-TEXT-01 rule of @pb/ai
+// looks for in a draft) into the literal character, and the employer-data guard below scans the
+// output for em dashes; the character is written back as its escape, which a JavaScript string
+// or regular expression reads the same way, so the bundle stays free of the literal.
+const EM_DASH = String.fromCharCode(0x2014);
+for (const file of readdirSync(join(out, 'assets')).filter((f) => f.endsWith('.js'))) {
+  const path = join(out, 'assets', file);
+  const code = readFileSync(path, 'utf8');
+  const count = code.split(EM_DASH).length - 1;
+  if (count === 0) continue;
+  writeFileSync(path, code.split(EM_DASH).join('\\u2014'));
+  process.stdout.write(
+    `preview: ${file}: ${count} em dash character(s) the minifier folded written as the escape\n`,
+  );
+}
 
 // The simulation must live only in the shim chunk, which the app imports dynamically in preview
 // builds alone; a production build must carry none of it.

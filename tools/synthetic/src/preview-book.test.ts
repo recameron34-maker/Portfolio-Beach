@@ -1,11 +1,14 @@
 import { describe, expect, it } from 'vitest';
 import { accountingExports } from './accounting-export.js';
 import { aliasesOf } from './aliases.js';
+import { generateDocuments } from './documents.js';
 import { generateDataset } from './generate.js';
 import { investedCost, lookthroughExtract } from './lookthrough-extract.js';
 import { opsDropWorkbooks } from './ops-drop.js';
 import {
+  QUARTERLY_REPORTING_DEAL_TYPES,
   previewBook,
+  previewDocumentPath,
   previewLookthroughExtracts,
   previewLookthroughFileName,
   previewOpsDropFileName,
@@ -17,6 +20,64 @@ import { weeklyValuesSet } from './weekly-values.js';
 describe('the preview book: the system actor view of a generated dataset', () => {
   const dataset = generateDataset({ profile: 'small', seed: 42 });
   const book = previewBook(dataset);
+
+  it('names each position parents and vehicle, every sponsor fund with its aliases, and what the tracker expects', () => {
+    for (const inv of book.investments) {
+      const source = dataset.investments.find((i) => i.id === inv.id);
+      expect(inv.sponsorId).toBe(source?.sponsorId);
+      expect(inv.sponsorFundId).toBe(source?.sponsorFundId);
+      expect(inv.vehicleId).toBe(source?.vehicleId);
+      expect(inv.vehicleName).toBe(dataset.vehicles.find((v) => v.id === inv.vehicleId)?.name);
+    }
+    expect(book.sponsorFunds.map((f) => f.id)).toEqual(dataset.sponsorFunds.map((f) => f.id));
+    expect(dataset.fundAliases.length).toBeGreaterThan(0);
+    for (const fund of book.sponsorFunds)
+      expect(fund.aliases).toEqual(
+        dataset.fundAliases.filter((a) => a.sponsorFundId === fund.id).map((a) => a.alias),
+      );
+    expect(book.expectedDocumentDefaults.reportingDealTypes).toEqual([
+      ...QUARTERLY_REPORTING_DEAL_TYPES,
+    ]);
+    // One entry per committed fund with its earliest commitment date, in id order.
+    const funds = book.expectedDocumentDefaults.fundCommitments;
+    expect(new Set(funds.map((f) => f.sponsorFundId))).toEqual(
+      new Set(dataset.commitments.map((c) => c.sponsorFundId)),
+    );
+    for (const { sponsorFundId, commitmentDate } of funds) {
+      const dates = dataset.commitments
+        .filter((c) => c.sponsorFundId === sponsorFundId)
+        .map((c) => c.commitmentDate)
+        .sort();
+      expect(commitmentDate).toBe(dates[0]);
+    }
+    expect(funds.map((f) => f.sponsorFundId)).toEqual(
+      [...funds.map((f) => f.sponsorFundId)].sort(),
+    );
+  });
+
+  it('carries the bundled document set with each truth sidecar, and takes a set already generated', () => {
+    const set = generateDocuments(dataset);
+    expect(book.documents).toHaveLength(set.documents.length);
+    expect(book.documents.map((d) => d.fileName)).toEqual(set.documents.map((d) => d.fileName));
+    for (const [i, doc] of book.documents.entries()) {
+      const source = set.documents[i]!;
+      expect(doc.folder).toBe('inbox');
+      expect(doc.contentHash).toBe(source.truth.contentHash);
+      expect(doc.sizeBytes).toBe(source.bytes.length);
+      expect(doc.pageCount).toBe(source.truth.pageCount);
+      expect(doc.truth).toEqual(source.truth);
+    }
+    expect(book.documentExpectations).toEqual(set.expectations);
+    // The duplicate pair: two entries, one hash.
+    const [original, copy] = set.expectations.scenarioFiles.duplicate_doc;
+    expect(book.documents.find((d) => d.fileName === original)?.contentHash).toBe(
+      book.documents.find((d) => d.fileName === copy)?.contentHash,
+    );
+    expect(previewBook(dataset, { documents: set }).documents).toEqual(book.documents);
+    expect(previewDocumentPath('2025-06-30 Fund A - Quarterly financials - Co.pdf')).toBe(
+      'preview/samples/documents/2025-06-30%20Fund%20A%20-%20Quarterly%20financials%20-%20Co.pdf',
+    );
+  });
 
   it('lists every investment with its company names and the match guards', () => {
     expect(book.asOf).toBe(dataset.asOf);

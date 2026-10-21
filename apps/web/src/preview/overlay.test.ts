@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import type { CapitalNoticeDetail, CapitalNoticePage, ValuationPage } from '@pb/contracts';
+import type {
+  CapitalNoticeDetail,
+  CapitalNoticePage,
+  InvestmentPerformance,
+  QuarterRow,
+  ValuationPage,
+} from '@pb/contracts';
 import { Recordings } from './fixtures.js';
 import {
   overlayCapitalNoticeDetail,
@@ -7,11 +13,12 @@ import {
   overlayDataHealth,
   overlayFlags,
   overlayInvestmentDetail,
+  overlayInvestmentPerformance,
   overlayRecordedBody,
   overlayValuationPage,
 } from './overlay.js';
 import { createPreviewState } from './state.js';
-import type { SimException, SimNotice, SimValuation } from './state.js';
+import type { SimException, SimNotice, SimPromotedQuarter, SimValuation } from './state.js';
 import {
   AS_OF,
   FixtureBuilder,
@@ -228,6 +235,146 @@ describe('flag overlay and the recorded-body dispatcher', () => {
       overlayRecordedBody(url, text, { credential: 'viewer.one', recordings, state }),
     ) as typeof health;
     expect(out.openExceptions).toBe(3);
+  });
+
+  it('lays a promoted quarter over the recorded performance with its source and derives the ratios again', () => {
+    const quarter = (periodEnd: string, revenue: string, ebitda: string): QuarterRow => ({
+      periodEnd,
+      isEntrySnapshot: false,
+      status: 'record_status.approved',
+      revenueLtm: revenue,
+      ebitdaLtm: ebitda,
+      ev: '500000000',
+      netDebt: '100000000',
+      cash: null,
+      totalEquity: null,
+      evToEbitda: '9.99',
+      netDebtToEbitda: '9.99',
+      ebitdaMargin: '9.99',
+      revenueYoy: null,
+      ebitdaYoy: null,
+      highlights: ['As recorded.'],
+      source: null,
+    });
+    const entry: QuarterRow = {
+      ...quarter('2023-06-30', '80000000', '16000000'),
+      isEntrySnapshot: true,
+    };
+    const perf: InvestmentPerformance = {
+      investmentId: IDS.open,
+      asOf: '2025-06-30',
+      entry,
+      quarters: [
+        quarter('2024-06-30', '100000000', '20000000'),
+        quarter('2025-03-31', '110000000', '22000000'),
+      ],
+      sinceEntry: null,
+      credit: null,
+      realizationOutlook: null,
+      calcVersion: 'test',
+    };
+    const promoted = (
+      periodEnd: string,
+      figures: SimPromotedQuarter['figures'],
+    ): SimPromotedQuarter => ({
+      id: 'q-1',
+      investmentId: IDS.open,
+      periodEnd,
+      created: false,
+      figures,
+      approvedById: USERS.deal.userId,
+      approvedBy: USERS.deal.displayName,
+      approvedAt: '2025-07-01T09:00:00.000Z',
+      approvalReason: 'checked',
+      highlights: ['LTM revenue rose.'],
+      source: {
+        documentId: IDS.states,
+        runId: IDS.twoChains,
+        page: 2,
+        locator: 'field:revenue_ltm',
+      },
+      promptVersion: '1',
+      modelId: 'mock',
+    });
+    // Nothing promoted for this investment: the answer is the very object.
+    expect(
+      overlayInvestmentPerformance(
+        perf,
+        [{ ...promoted('2025-06-30', { revenueLtm: '1' }), investmentId: IDS.walled }],
+        7,
+      ),
+    ).toBe(perf);
+    // A new quarter is added with its figures, the recorded one is replaced; both carry the source.
+    const out = overlayInvestmentPerformance(
+      perf,
+      [
+        promoted('2025-06-30', { revenueLtm: '120000000', ebitdaLtm: '30000000' }),
+        { ...promoted('2025-03-31', { revenueLtm: '111000000' }), highlights: undefined },
+      ],
+      7,
+    );
+    expect(out.quarters.map((q) => q.periodEnd)).toEqual([
+      '2024-06-30',
+      '2025-03-31',
+      '2025-06-30',
+    ]);
+    const added = out.quarters[2]!;
+    expect(added.revenueLtm).toBe('120000000');
+    expect(added.ebitdaLtm).toBe('30000000');
+    expect(added.ev).toBeNull();
+    expect(added.status).toBe('record_status.approved');
+    expect(added.source).toEqual({
+      documentId: IDS.states,
+      runId: IDS.twoChains,
+      page: 2,
+      locator: 'field:revenue_ltm',
+    });
+    expect(added.highlights).toEqual(['LTM revenue rose.']);
+    expect(added.ebitdaMargin).toBe('0.25');
+    expect(added.evToEbitda).toBeNull();
+    // Year on year against the quarter a year before, now that the promoted figures stand.
+    expect(added.revenueYoy).toBe('0.2');
+    expect(added.ebitdaYoy).toBe('0.5');
+    const replaced = out.quarters[1]!;
+    expect(replaced.revenueLtm).toBe('111000000');
+    expect(replaced.ebitdaLtm).toBe('22000000');
+    expect(replaced.ev).toBe('500000000');
+    expect(replaced.highlights).toEqual(['As recorded.']);
+    expect(replaced.evToEbitda).not.toBe('9.99');
+    expect(replaced.source?.documentId).toBe(IDS.states);
+    // An untouched quarter keeps the ratios the API answered.
+    expect(out.quarters[0]?.evToEbitda).toBe('9.99');
+    expect(out.quarters[0]?.highlights).toEqual(['As recorded.']);
+    // Since entry is derived again from the latest approved quarter on or before the as-of day.
+    expect(out.sinceEntry?.periodEnd).toBe('2025-06-30');
+    expect(out.sinceEntry?.revenueGrowth).toBe('0.5');
+    expect(out.sinceEntry?.ebitdaGrowth).toBe('0.875');
+    expect(out.entry).toBe(perf.entry);
+    // Through the recorded body, for the performance path only.
+    const recordings = new Recordings(new FixtureBuilder([USERS.viewer]).build());
+    const state = createPreviewState();
+    state.promotedQuarters.set(
+      `${IDS.open}|2025-06-30`,
+      promoted('2025-06-30', { revenueLtm: '120000000' }),
+    );
+    const ctx = { credential: 'viewer.one', recordings, state };
+    const text = JSON.stringify(perf);
+    const url = new URL(`http://x.invalid/api/v1/investments/${IDS.open}/performance`);
+    const laid = JSON.parse(overlayRecordedBody(url, text, ctx)) as InvestmentPerformance;
+    expect(laid.quarters).toHaveLength(3);
+    expect(laid.quarters[2]?.revenueLtm).toBe('120000000');
+    expect(
+      overlayRecordedBody(new URL(`http://x.invalid/api/v1/investments/${IDS.open}`), text, ctx),
+    ).toBe(text);
+    // Another position's recorded performance (its own id in the body) is left as recorded.
+    const other = JSON.stringify({ ...perf, investmentId: IDS.walled });
+    expect(
+      overlayRecordedBody(
+        new URL(`http://x.invalid/api/v1/investments/${IDS.walled}/performance`),
+        other,
+        ctx,
+      ),
+    ).toBe(other);
   });
 
   it('leaves the recorded text untouched when no overlay applies or the body is off contract', () => {

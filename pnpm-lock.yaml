@@ -132,12 +132,18 @@ importers:
       '@fluentui/react-icons':
         specifier: 2.0.343
         version: 2.0.343(react@19.3.0)
+      '@pb/ai':
+        specifier: workspace:*
+        version: link:../../packages/ai
       '@pb/calc':
         specifier: workspace:*
         version: link:../../packages/calc
       '@pb/contracts':
         specifier: workspace:*
         version: link:../../packages/contracts
+      '@pb/pdf':
+        specifier: workspace:*
+        version: link:../../packages/pdf
       '@pb/validation':
         specifier: workspace:*
         version: link:../../packages/validation

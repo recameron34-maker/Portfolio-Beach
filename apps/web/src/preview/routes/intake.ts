@@ -35,6 +35,8 @@ import { sha256Hex, subtleCrypto } from '../hash.js';
 import { jsonResponse, problem, workflowProblem } from '../problems.js';
 import type { SimActor, SimIntakeFile, SimIntakeRow } from '../state.js';
 import {
+  EXCEPTION_SEVERITY,
+  SYSTEM_ACTOR,
   defineSimRoute,
   fileOf,
   noBook,
@@ -64,16 +66,6 @@ import type { SimContext } from './common.js';
 
 const TARGET_ENTITY = 'quarterly_performance';
 const NOT_FOUND = 'Intake file not found';
-/** A rule error opens a high exception (core.taxonomy_term exception_severity), as the API opens them. */
-const EXCEPTION_SEVERITY = 'exception_severity.high';
-/**
- * The system actor that promotes approved rows: the same id as SYSTEM_USER_ID in @pb/db (not
- * browser code) with the service role, never a sign-in role (decision 0009).
- */
-const SYSTEM_ACTOR = {
-  actorId: '00000000-0000-0000-0000-000000000001',
-  actorRoles: ['service'],
-} as const;
 
 /** The words the approval reason uses for an import of each source (apps/api/src/intake/stage.ts importLabel). */
 const IMPORT_LABEL: Readonly<Record<SimIntakeFile['source'], string>> = {

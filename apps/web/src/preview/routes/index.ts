@@ -3,7 +3,24 @@ import { problem, validationProblem } from '../problems.js';
 import type { SimActor } from '../state.js';
 import { capitalNoticeCommandRoute } from './capitalNotices.js';
 import type { SimContext, SimRoute } from './common.js';
+import {
+  documentCommandRoute,
+  documentPagesRoute,
+  documentRoute,
+  documentsRoute,
+  expectedDocumentsRoute,
+  generateExpectedDocumentsRoute,
+  indexDocumentsRoute,
+  reviewQueueRoute,
+} from './documents.js';
 import { exceptionCommandRoute, exceptionRoute, exceptionsRoute } from './exceptions.js';
+import {
+  batchesRoute,
+  createBatchRoute,
+  runCommandRoute,
+  runRoute,
+  runsRoute,
+} from './extraction.js';
 import { flagRoute } from './flags.js';
 import {
   intakeCommandRoute,
@@ -13,6 +30,7 @@ import {
   intakeImportRoute,
 } from './intake.js';
 import { lookthroughReconcileRoute, lookthroughRunRoute } from './lookthrough.js';
+import { boardExportRoute, boardRoute, outlookRoute, setOutlookRoute } from './monitoring.js';
 import { opsDropDropsRoute, opsDropImportRoute } from './opsDrop.js';
 import { resetRoute } from './reset.js';
 import { createValuationRoute, valuationCommandRoute } from './valuations.js';
@@ -28,7 +46,9 @@ export type { SimContext, SimRoute } from './common.js';
 /**
  * Simulated routes, checked before the recordings: the writes, and the reads of records that
  * exist only once the simulation stages them (the intake files of every source, the reconcile
- * runs and the data exceptions). Anything else that is not a GET is a miss.
+ * runs, the data exceptions, the documents, the expected documents, the extraction batches and
+ * runs, the monitoring board). A literal path is listed before the parameterized path it would
+ * also match (the review queue before the document). Anything else that is not a GET is a miss.
  */
 export const SIM_ROUTES: readonly SimRoute[] = [
   flagRoute,
@@ -51,6 +71,23 @@ export const SIM_ROUTES: readonly SimRoute[] = [
   exceptionsRoute,
   exceptionRoute,
   exceptionCommandRoute,
+  documentsRoute,
+  reviewQueueRoute,
+  indexDocumentsRoute,
+  documentRoute,
+  documentPagesRoute,
+  documentCommandRoute,
+  expectedDocumentsRoute,
+  generateExpectedDocumentsRoute,
+  createBatchRoute,
+  batchesRoute,
+  runsRoute,
+  runRoute,
+  runCommandRoute,
+  boardRoute,
+  boardExportRoute,
+  outlookRoute,
+  setOutlookRoute,
   resetRoute,
 ];
 

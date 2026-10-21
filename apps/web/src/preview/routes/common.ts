@@ -1,4 +1,4 @@
-import { ROUTES, SIMULATED_ROUTES } from '@pb/contracts';
+import { ROUTES, SIMULATED_ROUTES, featureFlagList } from '@pb/contracts';
 import type { IntakeFile, IntakeLink, IntakeSource, RouteDefinition } from '@pb/contracts';
 import { countsOf, fileStatusOf } from '@pb/validation';
 import type { StagingState } from '@pb/workflows';
@@ -91,7 +91,7 @@ function matcher(template: string): (pathname: string) => Record<string, string>
  * the API would refuse, or the other way round.
  */
 export function defineSimRoute<B, Q = undefined>(spec: {
-  method: 'GET' | 'POST' | 'PATCH';
+  method: 'GET' | 'POST' | 'PATCH' | 'PUT';
   path: string;
   what: string;
   body: z.ZodType<B> | null;
@@ -157,6 +157,38 @@ export function staleIfMatch(
       simulated: true,
     },
   );
+}
+
+/**
+ * The system actor the simulation writes as where the API uses `asSystemActor`: the same id as
+ * SYSTEM_USER_ID in @pb/db (not browser code) with the service role, never a sign-in role
+ * (decision 0009). The intakes promote with it; the index, the expected-document generation and
+ * the extraction runs transition with it.
+ */
+export const SYSTEM_ACTOR = {
+  actorId: '00000000-0000-0000-0000-000000000001',
+  actorRoles: ['service'],
+} as const;
+
+/** A rule error opens a high exception (core.taxonomy_term exception_severity), as the API opens them. */
+export const EXCEPTION_SEVERITY = 'exception_severity.high';
+
+/**
+ * Whether a feature flag is on for the simulation: the value a simulated flag change set this
+ * session, else the credential's recorded flag list, else the fallback (the migration's default).
+ */
+export function flagEnabled(
+  ctx: SimContext,
+  credential: string,
+  key: string,
+  fallback: boolean,
+): boolean {
+  const changed = ctx.state.flags.get(key);
+  if (changed !== undefined) return changed;
+  const recorded = ctx.recordings
+    .read(credential, '/api/v1/flags', featureFlagList)
+    ?.flags.find((f) => f.key === key);
+  return recorded?.enabled ?? fallback;
 }
 
 /** Appends one simulated change to this session's activity list. */
@@ -268,12 +300,13 @@ export interface OpenedExceptionInput {
   actual: string | null;
   severity: string;
   candidates: readonly { reason: string }[];
-  file: { id: string; fileName: string };
-  rowNo: number;
+  /** The staged file and row the exception is about; null for one about a document or an extraction run. */
+  file: { id: string; fileName: string } | null;
+  rowNo: number | null;
   investmentId: string | null;
 }
 
-/** Opens one simulated data exception (ops.data_exception, state open) about a staged row. */
+/** Opens one simulated data exception (ops.data_exception, state open) about a staged row, a document or a run. */
 export function openException(ctx: SimContext, input: OpenedExceptionInput): SimException {
   const at = ctx.env.now();
   const sim: SimException = {
@@ -294,8 +327,8 @@ export function openException(ctx: SimContext, input: OpenedExceptionInput): Sim
     updatedAt: at,
     rowVersion: 1,
     context: {
-      intakeFileId: input.file.id,
-      intakeFileName: input.file.fileName,
+      intakeFileId: input.file?.id ?? null,
+      intakeFileName: input.file?.fileName ?? null,
       rowNo: input.rowNo,
       investmentId: input.investmentId,
     },

@@ -150,6 +150,33 @@ export function buildPlan(dataset, { dealTypes }) {
           withQuery('/api/v1/capital-notices', { investmentId: id, limit: LIST_LIMIT }),
         ),
       },
+      // The document hub, the extraction engine and the monitoring board are simulated in the
+      // page (src/preview/routes/documents.ts, extraction.ts, monitoring.ts) over the bundled
+      // document set, so the shim answers these reads itself. They are still recorded, for every
+      // user, so the recordings hold the API's own empty state (the as-built answer of each list
+      // before any index, generation or batch) and the simulation can fall back to it, and the
+      // realization outlook keeps the seeded rows and the wall's 404 per credential.
+      {
+        name: 'document hub',
+        paths: [
+          withQuery('/api/v1/documents', { limit: LIST_LIMIT }),
+          withQuery('/api/v1/documents/review-queue', { limit: LIST_LIMIT }),
+          withQuery('/api/v1/expected-documents', { limit: LIST_LIMIT }),
+          withQuery('/api/v1/extraction/batches', { limit: LIST_LIMIT }),
+          withQuery('/api/v1/extraction/runs', { limit: LIST_LIMIT }),
+          '/api/v1/monitoring/board',
+        ],
+      },
+      {
+        name: 'investment documents',
+        paths: investmentIds.map((id) =>
+          withQuery('/api/v1/documents', { investmentId: id, limit: LIST_LIMIT }),
+        ),
+      },
+      {
+        name: 'realization outlook',
+        paths: investmentIds.map((id) => segment('/api/v1/monitoring/outlook', id)),
+      },
       {
         name: 'vehicle detail',
         paths: dataset.vehicles.map((v) => segment('/api/v1/vehicles', v.id)),
