@@ -288,6 +288,3 @@ export function ageTitle(row: Pick<ExpectedDocument, 'ageDays' | 'status'>): str
       ? 'Due today'
       : `${days} past due`;
 }
-
-/** The link to an extraction run review page, registered by the extraction routes (merged alongside this slice). */
-export const RUN_ROUTE = '/documents/extraction/$id' as unknown as '/documents/$id';

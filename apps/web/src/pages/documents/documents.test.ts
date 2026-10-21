@@ -33,7 +33,6 @@ import {
   REVIEW_STATUSES,
   reviewTone,
   reviewWord,
-  RUN_ROUTE,
   runTone,
   sizeText,
   subjectOf,
@@ -252,9 +251,5 @@ describe('documents helpers', () => {
     expect(ageTitle(expectedDocumentFixture({ status: 'received', ageDays: 2 }))).toBe(
       'Received 2 days after due',
     );
-  });
-
-  it('links a run to the extraction review page', () => {
-    expect(RUN_ROUTE).toBe('/documents/extraction/$id');
   });
 });

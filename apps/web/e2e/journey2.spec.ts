@@ -225,10 +225,10 @@ test('operations indexes, generates and extracts; a reviewer accepts, edits, rej
   const after = await runDetail(page, run.id);
   expect(after.run.approvedBy).not.toBeNull();
   expect(after.run.promotedRecordId).not.toBeNull();
+  // The runs list names the approver on this run's own row (the same document may have other
+  // runs from earlier batches of this API process).
   await page.goto('/documents/extraction');
-  await expect(
-    page.getByTestId('extraction-runs').getByRole('row').filter({ hasText: run.fileName }),
-  ).toContainText('Approved by');
+  await expect(page.getByTestId(`extraction-run-${run.id}`)).toContainText('Approved by');
 
   // The deal team reads the quarter on the Performance tab: the reviewer's revenue, approved.
   await switchTo(page, 'deal.one', d);
@@ -243,19 +243,14 @@ test('operations indexes, generates and extracts; a reviewer accepts, edits, rej
   await expect(row).toContainText(moneyM(toDollars(promoted, unit).toFixed(2)));
   await expect(row).toContainText('Approved');
 
-  await test.step('the quarter links to its source document (performance-source-<periodEnd>, added by the citations agent in parallel; asserted once its Performance tab is merged)', async () => {
-    const source = page.getByTestId(`performance-source-${quarter}`);
-    if ((await source.count()) === 0) {
-      test.info().annotations.push({
-        type: 'pending',
-        description:
-          'performance-source-<periodEnd> is not on the Performance tab of this build yet (citations agent, wave 3)',
-      });
-      return;
-    }
-    await expect(source).toHaveAttribute('href', new RegExp(`/documents/${run.documentId}`));
-    await expect(source).toContainText(`page ${revenue.page}`);
-  });
+  // Click-to-source on the record (I1): the quarter links to the document the figures came from,
+  // on the page the revenue was read from, and to the run that read it.
+  const source = page.getByTestId(`performance-source-${quarter}`);
+  await expect(source).toHaveAttribute('href', `/documents/${run.documentId}`);
+  await expect(source).toContainText(`page ${revenue.page}`);
+  await expect(
+    page.getByRole('link', { name: `run that read ${shownDate(quarter)}`, exact: true }),
+  ).toHaveAttribute('href', `/documents/extraction/${run.id}`);
 });
 
 test('the injection document extracts its real figures: no 999.00 on the review page', async ({

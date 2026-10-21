@@ -9,7 +9,6 @@ import {
   docTypeLabel,
   reviewTone,
   reviewWord,
-  RUN_ROUTE,
   runTone,
   runWord,
   subjectOf,
@@ -91,7 +90,7 @@ export function DocumentsTable({
                 {doc.latestRun === null ? (
                   <span className="pb-meta">{MISSING}</span>
                 ) : (
-                  <Link to={RUN_ROUTE} params={{ id: doc.latestRun.id }}>
+                  <Link to="/documents/extraction/$id" params={{ id: doc.latestRun.id }}>
                     <Badge tone={runTone(doc.latestRun.state)}>
                       {runWord(doc.latestRun.state)}
                     </Badge>

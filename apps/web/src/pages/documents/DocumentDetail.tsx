@@ -46,7 +46,6 @@ import {
   mayClassify,
   reviewTone,
   reviewWord,
-  RUN_ROUTE,
   runTone,
   runWord,
   sizeText,
@@ -130,7 +129,7 @@ function MetadataCard({ doc }: { doc: DocumentDetail }): ReactNode {
               doc.latestRun === null ? (
                 MISSING
               ) : (
-                <Link to={RUN_ROUTE} params={{ id: doc.latestRun.id }}>
+                <Link to="/documents/extraction/$id" params={{ id: doc.latestRun.id }}>
                   <Badge tone={runTone(doc.latestRun.state)}>{runWord(doc.latestRun.state)}</Badge>
                 </Link>
               ),

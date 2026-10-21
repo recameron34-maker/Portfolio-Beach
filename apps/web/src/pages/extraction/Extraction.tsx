@@ -170,7 +170,7 @@ function BatchesTable({ batches }: { batches: readonly ExtractionBatch[] }): Rea
         </thead>
         <tbody>
           {batches.map((b) => (
-            <tr key={b.id}>
+            <tr key={b.id} data-testid={`extraction-batch-${b.id}`}>
               <td className="pb-nowrap">{formatDateTime(b.createdAt)}</td>
               <td>
                 <Badge tone={batchTone(b.state)}>{batchStateWord(b.state)}</Badge>
@@ -249,7 +249,7 @@ function RunsTable({ runs }: { runs: readonly ExtractionRun[] }): ReactNode {
         </thead>
         <tbody>
           {runs.map((r) => (
-            <tr key={r.id}>
+            <tr key={r.id} data-testid={`extraction-run-${r.id}`}>
               <td>
                 <span>{r.documentTitle}</span>
                 <span className="pb-cell-sub">{r.fileName}</span>
