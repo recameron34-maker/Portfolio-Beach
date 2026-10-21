@@ -131,6 +131,7 @@ const PORTFOLIO_PAGES: Visit[] = [
   { path: '/', ready: (p) => p.getByTestId('home-tiles') },
   ...ANALYTICS_TABS.map((t) => ({ path: t.to, ready: heading })),
   { path: '/portfolio/watchlist', ready: heading },
+  { path: '/portfolio/monitoring', ready: (p) => p.getByTestId('monitoring-board') },
   { path: '/portfolio/vehicles', ready: (p) => p.getByRole('table', { name: 'Vehicles' }) },
   { path: `/portfolio/vehicles/${vehicle}`, ready: (p) => p.getByTestId('vehicle-banner') },
   { path: '/sponsors', ready: (p) => p.getByRole('table', { name: 'Sponsors' }) },

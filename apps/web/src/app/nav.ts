@@ -17,6 +17,7 @@ export const PORTFOLIO_TABS = [
   { to: '/portfolio', label: 'Positions', exact: true },
   { to: '/portfolio/vehicles', label: 'Vehicles' },
   { to: '/portfolio/watchlist', label: 'Watchlist' },
+  { to: '/portfolio/monitoring', label: 'Monitoring' },
 ];
 /** Documents group tabs (docs/04 M3 and M4, decision 0012): the hub, the queue, the tracker and extraction. */
 export const DOCUMENTS_TABS = [

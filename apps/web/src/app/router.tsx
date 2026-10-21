@@ -36,6 +36,7 @@ import { ExceptionsPage } from '../pages/exceptions/Exceptions.js';
 import { parseExceptionsSearch } from '../pages/exceptions/exceptions.js';
 import { LookthroughPage } from '../pages/lookthrough/Lookthrough.js';
 import { LookthroughRunPage } from '../pages/lookthrough/LookthroughRun.js';
+import { MonitoringPage } from '../pages/monitoring/Monitoring.js';
 import { ActivityTab } from '../pages/deal/ActivityTab.js';
 import { CapitalTab } from '../pages/deal/CapitalTab.js';
 import { DealWorkspace } from '../pages/deal/DealWorkspace.js';
@@ -95,6 +96,7 @@ const portfolioRoute = child('/portfolio', PortfolioPage);
 const vehiclesRoute = child('/portfolio/vehicles', VehiclesPage);
 const vehicleRoute = child('/portfolio/vehicles/$id', VehicleDetailPage);
 const watchlistRoute = child('/portfolio/watchlist', WatchlistPage);
+const monitoringRoute = child('/portfolio/monitoring', MonitoringPage);
 
 /** Deal workspace: the one-pager is the Overview tab; the other tabs are children (docs/06 section 2). */
 const investmentRoute = createRoute({
@@ -200,6 +202,7 @@ const routeTree = rootRoute.addChildren([
     vehiclesRoute,
     vehicleRoute,
     watchlistRoute,
+    monitoringRoute,
     investmentRoute.addChildren([
       dealOverviewRoute,
       dealPerformanceRoute,
