@@ -1,4 +1,4 @@
-import { queryOptions } from '@tanstack/react-query';
+import { infiniteQueryOptions, queryOptions } from '@tanstack/react-query';
 import {
   analyticsSummary,
   auditPage,
@@ -8,7 +8,10 @@ import {
   commitmentList,
   dataDictionary,
   dataHealth,
+  documentDetail,
   documentPage,
+  documentPages,
+  expectedDocumentPage,
   featureFlagList,
   healthReady,
   intakeExportList,
@@ -30,6 +33,7 @@ import {
   watchlist,
   weeklyReport,
 } from '@pb/contracts';
+import type { DocumentReviewStatus, ExpectedDocumentStatus } from '@pb/contracts';
 import { api } from '../api/client.js';
 import { retryUnlessUnavailable } from '../lib/unavailable.js';
 
@@ -268,3 +272,93 @@ export const healthReadyQuery = queryOptions({
   queryFn: () => api('/health/ready', healthReady),
   retry: false,
 });
+
+/* Documents (docs/04 M3, decision 0012): the hub, one document, its pages, the review queue and the expected-document tracker. */
+
+export interface DocumentFilters {
+  /** Full-text query over title, file name and text excerpt (plainto_tsquery on the API). */
+  q?: string | undefined;
+  docType?: string | undefined;
+  reviewStatus?: DocumentReviewStatus | undefined;
+  investmentId?: string | undefined;
+  sponsorFundId?: string | undefined;
+  periodEnd?: string | undefined;
+}
+
+/**
+ * Documents newest first (indexedAt, id), a page at a time on the API's cursor
+ * (GET /documents); only what the caller may see (SEC-8.5). An infinite query, so the hub's
+ * "Load more" appends the next page; a tab that wants one page reads pages[0].
+ */
+export function documentsQuery(filters: DocumentFilters = {}) {
+  return infiniteQueryOptions({
+    queryKey: ['documents', filters],
+    queryFn: ({ pageParam }) => {
+      const params = new URLSearchParams();
+      params.set('limit', String(LIST_LIMIT));
+      if (filters.q) params.set('q', filters.q);
+      if (filters.docType) params.set('docType', filters.docType);
+      if (filters.reviewStatus) params.set('reviewStatus', filters.reviewStatus);
+      if (filters.investmentId) params.set('investmentId', filters.investmentId);
+      if (filters.sponsorFundId) params.set('sponsorFundId', filters.sponsorFundId);
+      if (filters.periodEnd) params.set('periodEnd', filters.periodEnd);
+      if (pageParam !== null) params.set('cursor', pageParam);
+      return api(`/api/v1/documents?${params.toString()}`, documentPage);
+    },
+    initialPageParam: null as string | null,
+    getNextPageParam: (last) => last.nextCursor,
+    retry: retryUnlessUnavailable,
+  });
+}
+
+/** One document with its links, evidence, duplicates and latest run (GET /documents/{id}; 404 when not visible). */
+export function documentQuery(id: string) {
+  return queryOptions({
+    queryKey: ['document', id],
+    queryFn: () => api(`/api/v1/documents/${encodeURIComponent(id)}`, documentDetail),
+    retry: retryUnlessUnavailable,
+    staleTime: AUDITED_READ_STALE_MS,
+  });
+}
+
+/** The text of a document page by page, read from the store on demand (GET /documents/{id}/pages, audited). */
+export function documentPagesQuery(id: string) {
+  return queryOptions({
+    queryKey: ['document-pages', id],
+    queryFn: () => api(`/api/v1/documents/${encodeURIComponent(id)}/pages`, documentPages),
+    retry: retryUnlessUnavailable,
+    staleTime: AUDITED_READ_STALE_MS,
+  });
+}
+
+/** Documents the classifier was not sure about (NeedsReview), newest first (GET /documents/review-queue). */
+export const reviewQueueQuery = queryOptions({
+  queryKey: ['review-queue'],
+  queryFn: () => api(`/api/v1/documents/review-queue?limit=${LIST_LIMIT}`, documentPage),
+  retry: retryUnlessUnavailable,
+});
+
+export interface ExpectedDocumentFilters {
+  periodEnd?: string | undefined;
+  status?: ExpectedDocumentStatus | undefined;
+  investmentId?: string | undefined;
+  sponsorFundId?: string | undefined;
+  /** The day the status is judged on; the API's clock when left out. */
+  asOf?: string | undefined;
+}
+
+/** Expected documents with their derived status and age, newest period first (GET /expected-documents). */
+export function expectedDocumentsQuery(filters: ExpectedDocumentFilters = {}) {
+  const params = new URLSearchParams();
+  params.set('limit', String(LIST_LIMIT));
+  if (filters.periodEnd) params.set('periodEnd', filters.periodEnd);
+  if (filters.status) params.set('status', filters.status);
+  if (filters.investmentId) params.set('investmentId', filters.investmentId);
+  if (filters.sponsorFundId) params.set('sponsorFundId', filters.sponsorFundId);
+  if (filters.asOf) params.set('asOf', filters.asOf);
+  return queryOptions({
+    queryKey: ['expected-documents', filters],
+    queryFn: () => api(`/api/v1/expected-documents?${params.toString()}`, expectedDocumentPage),
+    retry: retryUnlessUnavailable,
+  });
+}
