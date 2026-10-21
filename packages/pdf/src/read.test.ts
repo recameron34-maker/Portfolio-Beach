@@ -218,6 +218,17 @@ describe('readPdf', () => {
     expect(text(document)).toBe('Recovered');
   });
 
+  it('reads a long run of stray delimiters in a content stream and in a file object (PDF-3)', async () => {
+    const content = await read(one(`${')'.repeat(100_000)} BT /F1 12 Tf 72 700 Td (Hi) Tj ET`));
+    expect(text(content)).toBe('Hi');
+    const junk = assemble(onePage('BT /F1 12 Tf 72 700 Td (Hi) Tj ET'), {
+      trailer: `/Root 1 0 R /Junk ${'> '.repeat(50_000)}5`,
+    });
+    const fileObject = await read(junk);
+    expect(fileObject.reconstructed).toBe(false);
+    expect(text(fileObject)).toBe('Hi');
+  });
+
   it('round-trips documents the writer produces, runs identical', async () => {
     const input = {
       title: 'Round trip',

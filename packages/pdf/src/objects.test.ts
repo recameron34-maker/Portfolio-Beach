@@ -118,6 +118,15 @@ describe('Lexer', () => {
     expect(tokens(') > 1')).toEqual([{ kind: 'number', value: 1 }, { kind: 'eof' }]);
   });
 
+  it('skips a long run of stray closing delimiters without recursing (PDF-3)', () => {
+    const one = [{ kind: 'number', value: 1 }, { kind: 'eof' }];
+    expect(tokens(`${')'.repeat(100_000)} 1`)).toEqual(one);
+    expect(tokens(`${'> '.repeat(50_000)}1`)).toEqual(one);
+    expect(tokens(`${')>'.repeat(50_000)} 1`)).toEqual(one);
+    // A lone ">" before ">>" is skipped and the pair still closes a dictionary.
+    expect(tokens('> >>')).toEqual([{ kind: 'delimiter', value: '>>' }, { kind: 'eof' }]);
+  });
+
   it('peeks without moving', () => {
     const lexer = new Lexer(latin1Bytes('1 2'));
     expect(lexer.peek()).toEqual({ kind: 'number', value: 1 });

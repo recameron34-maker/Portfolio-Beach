@@ -153,39 +153,37 @@ export class Lexer {
   }
 
   next(): Token {
-    this.skipWhitespace();
     const { bytes } = this;
-    if (this.pos >= bytes.length) return { kind: 'eof' };
-    const b = bytes[this.pos] ?? 0;
-    if (isDigit(b) || b === 0x2b || b === 0x2d || b === 0x2e) return this.number();
-    if (b === 0x28) return this.literalString();
-    if (b === 0x2f) return this.name();
-    if (b === 0x3c) {
-      if (bytes[this.pos + 1] === 0x3c) {
-        this.pos += 2;
-        return { kind: 'delimiter', value: '<<' };
+    for (;;) {
+      this.skipWhitespace();
+      if (this.pos >= bytes.length) return { kind: 'eof' };
+      const b = bytes[this.pos] ?? 0;
+      if (b === 0x29 || (b === 0x3e && bytes[this.pos + 1] !== 0x3e)) {
+        // A stray ")" or a lone ">" is not PDF syntax; skip it as the common readers do. A loop,
+        // not a recursive call, so a long run of them cannot overflow the stack.
+        this.pos += 1;
+        continue;
       }
-      return this.hexString();
-    }
-    if (b === 0x3e) {
-      if (bytes[this.pos + 1] === 0x3e) {
+      if (isDigit(b) || b === 0x2b || b === 0x2d || b === 0x2e) return this.number();
+      if (b === 0x28) return this.literalString();
+      if (b === 0x2f) return this.name();
+      if (b === 0x3c) {
+        if (bytes[this.pos + 1] === 0x3c) {
+          this.pos += 2;
+          return { kind: 'delimiter', value: '<<' };
+        }
+        return this.hexString();
+      }
+      if (b === 0x3e) {
         this.pos += 2;
         return { kind: 'delimiter', value: '>>' };
       }
-      // A lone ">" is not PDF syntax; skip it as the common readers do.
-      this.pos += 1;
-      return this.next();
+      if (b === 0x5b || b === 0x5d || b === 0x7b || b === 0x7d) {
+        this.pos += 1;
+        return { kind: 'delimiter', value: String.fromCharCode(b) as '[' | ']' | '{' | '}' };
+      }
+      return this.keyword();
     }
-    if (b === 0x5b || b === 0x5d || b === 0x7b || b === 0x7d) {
-      this.pos += 1;
-      return { kind: 'delimiter', value: String.fromCharCode(b) as '[' | ']' | '{' | '}' };
-    }
-    if (b === 0x29) {
-      // A stray ")" is not PDF syntax; skip it.
-      this.pos += 1;
-      return this.next();
-    }
-    return this.keyword();
   }
 
   private number(): Token {
