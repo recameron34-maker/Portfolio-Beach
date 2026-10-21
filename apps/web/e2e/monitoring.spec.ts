@@ -1,5 +1,4 @@
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { readFileSync } from 'node:fs';
 import { expect, test } from '@playwright/test';
 import type { APIRequestContext, Page } from '@playwright/test';
 import { addDays, latestQuarterEndOnOrBefore } from '@pb/calc';
@@ -11,13 +10,15 @@ import { loadDataset, signInAs, switchTo, walledDeal } from './fixtures.js';
 
 /**
  * The monitoring board (docs/04 M9, decision 0012) over the real API: after the document set is
- * indexed and the quarter's expected documents are generated, operations reads the board under
- * the Portfolio tabs, pins the quarter, moves the as-of day past the grace period and past the
- * missing threshold and sees the late_financials investment turn late, then missing; a quarter
- * the seed approved shows as approved (with the placeholder where the seed recorded no time);
- * the CSV export holds the header plus one line per row the reader sees; the walled position is
- * absent for a non-member and present for a wall member (SEC-5.3). Everything is built from the
- * dataset the API is seeded with (small profile, seed 42), so the expectations name the rows.
+ * indexed, the quarter's expected documents are generated and a batch has run over the quarter's
+ * reports, operations reads the board under the Portfolio tabs, pins the quarter, moves the
+ * as-of day past the grace period and past the missing threshold and sees the late_financials
+ * investment turn late, then missing; the rows with a run show its state, its flags and a link
+ * to its review; a quarter the record approved shows as approved (with the placeholder where the
+ * seed recorded no time); the CSV export holds the header plus one line per row the reader sees;
+ * the walled position is absent for a non-member and present for a wall member (SEC-5.3).
+ * Everything is built from the dataset the API is seeded with (small profile, seed 42), so the
+ * expectations name the rows.
  */
 const d = loadDataset();
 const full = generateDataset({ profile: 'small', seed: 42 });
@@ -49,6 +50,9 @@ const shownDate = (isoDate: string): string =>
 const quarterOption = (isoDate: string): string =>
   `Q${Math.ceil(Number(isoDate.slice(5, 7)) / 3)} ${isoDate.slice(0, 4)} (${shownDate(isoDate)})`;
 
+/** A run state as the page words it ("Needs retry"); written independently of src/lib/states.ts. */
+const shownState = (state: string): string => (state === 'NeedsRetry' ? 'Needs retry' : state);
+
 interface IndexCounts {
   indexed: number;
   duplicates: number;
@@ -61,6 +65,7 @@ interface BoardRow {
   documentStatus: string;
   runId: string | null;
   runState: string | null;
+  flagsCount: number;
   approval: string;
   approvedAt: string | null;
 }
@@ -74,62 +79,37 @@ const asUser = (externalId: string): Record<string, string> => ({
   authorization: `Bearer ${externalId}`,
 });
 
-/** Writes the synthetic document set the way scripts/e2e-api.mjs would, into the API's document root. */
-function writeDocumentRoot(root: string): void {
-  const inbox = join(root, 'inbox');
-  const truth = join(root, 'truth');
-  mkdirSync(inbox, { recursive: true });
-  mkdirSync(truth, { recursive: true });
-  const written = new Set<string>();
-  for (const doc of set.documents) {
-    writeFileSync(join(inbox, doc.fileName), doc.bytes);
-    if (written.has(doc.truth.contentHash)) continue;
-    written.add(doc.truth.contentHash);
-    writeFileSync(join(truth, `${doc.truth.contentHash}.json`), JSON.stringify(doc.truth));
-  }
-}
-
 /**
- * Indexes the store, generates the quarter's expected documents and, when the API started over
- * a generated document root (so its extraction fixtures are loaded), switches ai.extraction on
- * and runs a batch for the quarter's reports. When the e2e API script wrote no document root,
- * the spec writes the synthetic set into it and indexes that instead; the truths it writes are
- * read only at the API's start, so a batch would fail for want of fixtures and is left out.
+ * What the board reads, staged through the API as the intake spec does: the document set that
+ * scripts/e2e-api.mjs wrote into the store is indexed, the quarter's expected documents are
+ * generated, ai.extraction is switched on (audited, as platform_admin) and a batch runs over the
+ * quarter's reports so the rows carry runs. Every call is idempotent or additive, since the specs
+ * share one API process: a second index finds everything unchanged, a second generation counts
+ * the rows as existing, a second batch adds newer runs.
  */
-async function prepare(request: APIRequestContext): Promise<{ batchRan: boolean }> {
-  const index = async (): Promise<IndexCounts> => {
-    const res = await request.post('/api/v1/documents/index', { headers: asUser('ops.one') });
-    expect(res.ok(), `index answered ${res.status()}`).toBe(true);
-    return (await res.json()) as IndexCounts;
-  };
-  const first = await index();
-  const rootExisted = first.indexed + first.duplicates + first.unchanged > 0;
-  if (!rootExisted) {
-    const scratch: unknown = test.info().config.metadata.scratch;
-    if (typeof scratch !== 'string')
-      throw new Error('the Playwright config names no scratch folder');
-    writeDocumentRoot(join(scratch, 'documents'));
-    const second = await index();
-    expect(second.indexed + second.duplicates).toBe(set.expectations.total);
-  }
+async function prepare(request: APIRequestContext): Promise<void> {
+  const index = await request.post('/api/v1/documents/index', { headers: asUser('ops.one') });
+  expect(index.ok(), `index answered ${index.status()}`).toBe(true);
+  const counts = (await index.json()) as IndexCounts;
+  expect(counts.indexed + counts.duplicates + counts.unchanged).toBe(set.expectations.total);
+
   const generated = await request.post('/api/v1/expected-documents/generate', {
     headers: asUser('ops.one'),
     data: { periodEnd: quarterEnd },
   });
-  expect(generated.status(), 'expected documents generated').toBe(201);
-  if (!rootExisted) return { batchRan: false };
+  expect(generated.status(), `generate answered ${generated.status()}`).toBe(201);
 
   const flag = await request.patch('/api/v1/flags/ai.extraction', {
     headers: asUser('admin.one'),
     data: { enabled: true, reason: 'monitoring journey: extraction on for the batch' },
   });
   expect(flag.ok(), `flag answered ${flag.status()}`).toBe(true);
+
   const batch = await request.post('/api/v1/extraction/batches', {
     headers: asUser('ops.one'),
     data: { periodEnd: quarterEnd, docType: 'doc_type.quarterly_financials' },
   });
-  expect(batch.status(), 'batch created').toBe(201);
-  return { batchRan: true };
+  expect(batch.status(), `batch answered ${batch.status()}`).toBe(201);
 }
 
 async function boardFor(
@@ -140,7 +120,7 @@ async function boardFor(
   const res = await request.get(`/api/v1/monitoring/board?asOf=${asOf}&periodEnd=${quarterEnd}`, {
     headers: asUser(externalId),
   });
-  expect(res.ok()).toBe(true);
+  expect(res.ok(), `board answered ${res.status()}`).toBe(true);
   return (await res.json()) as Board;
 }
 
@@ -159,12 +139,12 @@ async function judgeOn(page: Page, asOf: string): Promise<void> {
   await expect(page.locator('[aria-busy="true"]')).toHaveCount(0);
 }
 
-test('operations reads the board, sees the late report turn late then missing, exports the rows it may see; a wall member sees one more', async ({
+test('operations reads the board, sees the late report turn late then missing, the runs and approvals, and exports the rows it may see; a wall member sees one more', async ({
   page,
 }) => {
   test.setTimeout(180_000);
   expect(late.periodEnd, 'the absent report is the latest quarter').toBe(quarterEnd);
-  const { batchRan } = await prepare(page.request);
+  await prepare(page.request);
 
   await signInAs(page, 'ops.one', d);
   await page.goto('/portfolio/monitoring');
@@ -180,7 +160,7 @@ test('operations reads the board, sees the late report turn late then missing, e
   await expect(boardTable(page)).not.toContainText(walled.companyName);
   await expect(page.getByText(`${heldOutsideWall.length} positions`)).toBeVisible();
 
-  // On the clock's today every report is still expected; the absent one says when it is due.
+  // On the clock's today the absent report is still expected and says when it is due.
   const lateRow = rowFor(page, late.investmentNumber);
   await expect(lateRow).toContainText(late.companyName);
   await expect(lateRow).toContainText('Expected');
@@ -192,6 +172,9 @@ test('operations reads the board, sees the late report turn late then missing, e
     'href',
     `/portfolio/${late.investmentId}`,
   );
+  // No report, so no run and no flags: the placeholder, never a zero (rule 10).
+  await expect(lateRow.getByRole('link', { name: `Run, ${late.companyName}` })).toHaveCount(0);
+  await expect(lateRow.locator('td').nth(7)).toHaveText(brand.missingValue);
 
   // Past the grace period the report is late; past the missing threshold it is missing.
   await judgeOn(page, lateDay);
@@ -208,31 +191,53 @@ test('operations reads the board, sees the late report turn late then missing, e
   // The API's own answer for the same day names the rows to check against the page.
   const board = await boardFor(page.request, 'ops.one', missingDay);
   expect(board.rows).toHaveLength(heldOutsideWall.length);
-  await expect(tile(page, 'Approved')).toContainText(String(board.counts.approved));
-  await expect(tile(page, 'Received')).toContainText(String(board.counts.received));
+  for (const [label, key] of [
+    ['Expected', 'expected'],
+    ['Received', 'received'],
+    ['Late', 'late'],
+    ['Missing', 'missing'],
+    ['In review', 'inReview'],
+    ['Approved', 'approved'],
+  ] as const) {
+    await expect(tile(page, label)).toContainText(String(board.counts[key]));
+  }
+
+  // The batch gave every received report a run: its state, its flags and a link to its review.
+  const withRuns = board.rows.filter((r) => r.runId !== null);
+  expect(withRuns.length, 'the batch left runs on the board').toBeGreaterThan(0);
+  for (const r of withRuns) {
+    const row = rowFor(page, r.investmentNumber);
+    await expect(row).toContainText(shownState(r.runState ?? ''));
+    await expect(row.locator('td').nth(7)).toHaveText(String(r.flagsCount));
+    await expect(row.getByRole('link', { name: `Run, ${r.companyName}` })).toHaveAttribute(
+      'href',
+      `/documents/extraction/${r.runId ?? ''}`,
+    );
+  }
+  for (const r of board.rows.filter((row) => row.documentStatus === 'received')) {
+    const row = rowFor(page, r.investmentNumber);
+    await expect(row).toContainText('Received');
+    await expect(row.getByRole('link', { name: `Document, ${r.companyName}` })).toHaveAttribute(
+      'href',
+      /^\/documents\/[0-9a-f-]{36}$/,
+    );
+  }
+
+  // A quarter the record approved reads as approved; the seed records no time, so the
+  // placeholder stands where the date would (rule 10), and a run awaiting review reads pending.
   const approved = board.rows.find((r) => r.approval === 'approved');
   expect(approved, 'the seed approves at least one quarter on the board').toBeDefined();
   if (approved !== undefined) {
     const row = rowFor(page, approved.investmentNumber);
     await expect(row).toContainText('Approved');
-    // The seed approves quarters without a time: the placeholder, never an error (rule 10).
-    if (approved.approvedAt === null)
-      await expect(row.locator('td').last()).toContainText(brand.missingValue);
-  }
-  for (const r of board.rows.filter((row) => row.runId !== null)) {
-    const row = rowFor(page, r.investmentNumber);
-    await expect(row.getByRole('link', { name: `Run, ${r.companyName}` })).toHaveAttribute(
-      'href',
-      `/documents/extraction/${r.runId ?? ''}`,
+    await expect(row.locator('td').last()).toContainText(
+      approved.approvedAt === null
+        ? brand.missingValue
+        : shownDate(approved.approvedAt.slice(0, 10)),
     );
-    if (batchRan) await expect(row).toContainText(/Succeeded|Failed|Queued|Running|Needs retry/);
   }
-  for (const r of board.rows.filter((row) => row.documentStatus === 'received')) {
-    await expect(rowFor(page, r.investmentNumber)).toContainText('Received');
-    await expect(
-      rowFor(page, r.investmentNumber).getByRole('link', { name: `Document, ${r.companyName}` }),
-    ).toHaveAttribute('href', /^\/documents\/[0-9a-f-]{36}$/);
-  }
+  for (const r of board.rows.filter((row) => row.approval === 'pending'))
+    await expect(rowFor(page, r.investmentNumber)).toContainText('Pending');
 
   // The export is the same rows as CSV: the header line plus one line per row, nothing else.
   const [download] = await Promise.all([
@@ -241,7 +246,6 @@ test('operations reads the board, sees the late report turn late then missing, e
   ]);
   expect(download.suggestedFilename()).toBe(`monitoring-board-${quarterEnd}.csv`);
   const saved = await download.path();
-  if (saved === null) throw new Error('the export was not saved');
   const lines = readFileSync(saved, 'utf8').split('\n');
   expect(lines[0]).toBe(
     'investmentNumber,companyName,vehicleName,sponsorFundName,dealType,periodEnd,documentStatus,dueDate,ageDays,runState,flagsCount,approval,approvedAt,investmentId,expectedDocumentId,documentId,runId',
@@ -249,8 +253,9 @@ test('operations reads the board, sees the late report turn late then missing, e
   expect(lines[lines.length - 1]).toBe('');
   expect(lines).toHaveLength(board.rows.length + 2);
   expect(lines.some((line) => line.includes(walled.companyName))).toBe(false);
-  expect(lines.some((line) => line.startsWith(`${late.investmentNumber},`))).toBe(true);
-  expect(lines.find((line) => line.startsWith(`${late.investmentNumber},`))).toContain(',missing,');
+  const lateLine = lines.find((line) => line.startsWith(`${late.investmentNumber},`));
+  expect(lateLine).toBeDefined();
+  expect(lateLine).toContain(`,${quarterEnd},missing,${dueDate},`);
   await expect(page.getByTestId('monitoring-action-status')).toContainText(
     `Exported ${board.rows.length} rows to monitoring-board-${quarterEnd}.csv`,
   );
