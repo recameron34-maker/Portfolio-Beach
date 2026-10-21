@@ -97,7 +97,7 @@ function flatten<T extends { low: number; high: number }>(ranges: readonly T[]):
     const low = sorted[j] ?? 0;
     const high = (sorted[j + 1] ?? 0) - 1;
     const last = out[out.length - 1];
-    if (last && last.item === item && last.high + 1 === low) last.high = high;
+    if (last?.item === item && last.high + 1 === low) last.high = high;
     else out.push({ low, high, item });
   }
   return out;

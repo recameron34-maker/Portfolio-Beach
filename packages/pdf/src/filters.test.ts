@@ -75,9 +75,7 @@ describe('runLengthDecode', () => {
     expect((await refusal(() => runLengthDecode(new Uint8Array([3, 0x61]), CAP))).code).toBe(
       'corrupt',
     );
-    expect((await refusal(() => runLengthDecode(new Uint8Array([254]), CAP))).code).toBe(
-      'corrupt',
-    );
+    expect((await refusal(() => runLengthDecode(new Uint8Array([254]), CAP))).code).toBe('corrupt');
   });
 });
 
