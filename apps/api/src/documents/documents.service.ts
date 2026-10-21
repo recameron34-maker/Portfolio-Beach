@@ -10,7 +10,7 @@ import {
   promptRef,
   redact,
 } from '@pb/ai';
-import type { ClassifierOutput } from '@pb/ai';
+import type { ClassifierOutput, DocumentFileName } from '@pb/ai';
 import { D } from '@pb/calc';
 import type { Decimal } from '@pb/calc';
 import type {
@@ -37,7 +37,7 @@ import { DbService } from '../db/db.service.js';
 import { FlagsService } from '../flags/flags.service.js';
 import { matchExpectedDocument } from './expected.service.js';
 import { documentDirectory, linkDocument } from './link.js';
-import type { DocumentDirectory } from './link.js';
+import type { DocumentDirectory, DocumentLinks } from './link.js';
 import {
   excerptOf,
   isPdfError,
@@ -64,12 +64,16 @@ import type { DocumentDefinitions } from '@pb/contracts';
  * The document hub (docs/04 M3, docs/18 section 6, decision 0012). The index scans the store's
  * inbox: an item already indexed under its path and hash is unchanged, an item whose bytes are
  * already indexed under another path is a Duplicate linked to the original, and a new item is
- * read with @pb/pdf, inserted as Received and classified through the model client (the keyword
- * classifier in the prototype) when the ai.classifier switch is on: the investment is linked by
- * number or exact name, the sponsor fund by exact name or alias, and a confidence at or above
- * definitions.classifierConfidenceThreshold classifies the document, below it goes to the review
- * queue with the evidence. An item the reader refuses stays in NeedsReview and opens a data
- * exception (DOC-READ-01). Every state change goes through documentClassificationMachine; the
+ * read with @pb/pdf and inserted as Received with the links its file name resolves (the
+ * investment by exact company name, the sponsor fund by exact name or alias), so the wall of the
+ * position it names holds from the first write on every path, with or without a model (SEC-5.3);
+ * then classified through the model client (the keyword classifier in the prototype) when the
+ * ai.classifier switch is on: the investment is linked again by the number the model read or the
+ * name, and a confidence at or above definitions.classifierConfidenceThreshold classifies the
+ * document, below it goes to the review queue with the evidence. With the switch off, a refused
+ * or failed call, or an item the reader refuses, the document is flagged for review instead
+ * (docs/18 section 6: nothing stays in Received), the unreadable one with a data exception
+ * (DOC-READ-01). Every state change goes through documentClassificationMachine; the
  * index writes as the system actor inside the caller's transaction (migration 0011: walled
  * positions get their documents) and the caller's audit event records each change. Everything a
  * caller reads runs under their own row-level security: a document attached to a position past
@@ -108,8 +112,31 @@ type IndexOutcome =
 interface Classifiable {
   id: string;
   fileName: string;
+  fromName: DocumentFileName | null;
   contentHash: string;
   pageCount: number;
+}
+
+/** The links a document carries, as the file name or the classifier resolved them. */
+type Links = Pick<DocumentLinks, 'investmentId' | 'sponsorFundId' | 'sponsorId'>;
+
+/**
+ * The links the file name alone resolves, before any model runs: `<period> <Fund> - <Type> -
+ * <Company>.pdf` names the position exactly or not at all (never fuzzy), so a report of a walled
+ * position is attached to it on every path, the classifier off, failed or the file unreadable.
+ */
+function linksFromName(
+  fromName: DocumentFileName | null,
+  directory: DocumentDirectory,
+): DocumentLinks {
+  return linkDocument(
+    {
+      investmentNumber: null,
+      companyName: fromName?.companyName ?? null,
+      sponsorFundName: fromName?.sponsorFundName ?? null,
+    },
+    directory,
+  );
 }
 
 /** A file name with the " (n)" a mail client adds to a second delivery taken out, so the original sorts first. */
@@ -236,6 +263,15 @@ export class DocumentsService {
       sizeBytes: ref.sizeBytes,
       receivedAt: new Date(ref.modifiedAt),
     };
+    // The links the file name resolves are written with the row on every path below, so the wall
+    // of the position named holds whether or not a model ever reads the document (SEC-5.3).
+    const fromName = parseDocumentFileName(ref.name);
+    const named = linksFromName(fromName, directory);
+    const links: Links = {
+      investmentId: named.investmentId,
+      sponsorFundId: named.sponsorFundId,
+      sponsorId: named.sponsorId,
+    };
 
     // The same bytes indexed before: the earliest non-duplicate row is the original.
     const original = (
@@ -297,7 +333,7 @@ export class DocumentsService {
       const reason = `unreadable (${error.code})`;
       const inserted = await stx
         .insert(d)
-        .values({ ...base, title: stripExtension(ref.name) })
+        .values({ ...base, ...links, title: stripExtension(ref.name) })
         .returning();
       const id = inserted[0]?.id;
       if (id === undefined)
@@ -308,7 +344,7 @@ export class DocumentsService {
           reviewStatus: flagged.to,
           classifierEvidence: {
             keywords: [],
-            candidates: [{ reason }],
+            candidates: [{ reason }, ...named.candidates],
             reason: 'unreadable',
             code: error.code,
           },
@@ -341,6 +377,7 @@ export class DocumentsService {
       .insert(d)
       .values({
         ...base,
+        ...links,
         title: titleOf(doc, ref.name),
         pageCount: doc.pageCount,
         textExcerpt: excerptOf(pageTexts),
@@ -350,22 +387,33 @@ export class DocumentsService {
     if (id === undefined)
       throw new ProblemError(500, 'internal', 'document: the row was not written');
     if (!classifierOn) {
+      // The kill switch is a graceful degradation (docs/17 section 5): the item queues for a
+      // person through the same transition a failed call takes, so nothing stays in Received.
+      const flagged = attempt(machine, machine.initial, 'flagForReview', { ...SYSTEM, record: {} });
+      if (!flagged.ok) throw workflowProblem(flagged);
       await stx
         .update(d)
-        .set({ classifierEvidence: { keywords: [], candidates: [], reason: 'classifier off' } })
+        .set({
+          reviewStatus: flagged.to,
+          classifierEvidence: {
+            keywords: [],
+            candidates: named.candidates,
+            reason: 'classifier off',
+          },
+        })
         .where(eq(d.id, id));
       return {
         kind: 'indexed',
         id,
-        command: null,
-        state: machine.initial,
+        command: 'flagForReview',
+        state: flagged.to,
         docType: null,
         reason: 'classifier off',
       };
     }
     return this.classify(
       stx,
-      { id, fileName: ref.name, contentHash: ref.contentHash, pageCount: doc.pageCount },
+      { id, fileName: ref.name, fromName, contentHash: ref.contentHash, pageCount: doc.pageCount },
       pageTexts,
       directory,
       threshold,
@@ -375,9 +423,9 @@ export class DocumentsService {
 
   /**
    * One model call over the redacted pages, then the links and the transition: autoClassify at
-   * or above the threshold, flagForReview below it or when the call fails. The input is the
-   * shared frame of @pb/ai (metadata, then the pages as data); the log line carries ids, token
-   * counts, latency and redaction counts only.
+   * or above the threshold, flagForReview below it or when the call fails (the row then keeps
+   * the links its file name resolved). The input is the shared frame of @pb/ai (metadata, then
+   * the pages as data); the log line carries ids, token counts, latency and redaction counts only.
    */
   private async classify(
     stx: Tx,
@@ -460,7 +508,7 @@ export class DocumentsService {
       };
     }
 
-    const fromName = parseDocumentFileName(row.fileName);
+    const { fromName } = row;
     const links = linkDocument(
       {
         investmentNumber: output.investmentNumber ?? null,

@@ -3,6 +3,7 @@ import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { D, addDays, daysBetween, latestQuarterEndOnOrBefore } from '@pb/calc';
 import {
+  dataExceptionPage,
   documentDetail,
   documentIndexResult,
   documentPage,
@@ -27,6 +28,33 @@ const CAS = 'doc_type.capital_account_statement';
 const BROKEN = 'broken.pdf';
 const LATE_ARRIVAL = 'late-arrival.pdf';
 const NO_SUCH_ID = '00000000-0000-4000-8000-00000000abcd';
+
+/** A one-page synthetic PDF: a bold first line, then the lines given. */
+function onePage(title: string, lines: readonly string[]): Uint8Array {
+  return writePdf({
+    title,
+    pages: [
+      {
+        items: [
+          { kind: 'text', x: 72, y: 720, size: 14, font: 'Helvetica-Bold', text: lines[0] ?? '' },
+          ...lines.slice(1).map((text, i) => ({
+            kind: 'text' as const,
+            x: 72,
+            y: 700 - i * 16,
+            size: 10,
+            font: 'Helvetica' as const,
+            text,
+          })),
+        ],
+      },
+    ],
+  });
+}
+
+/** The name a report of the walled position would arrive under for another period: the file name alone names the company. */
+function renamedForPeriod(walledFileName: string, periodEnd: string): string {
+  return `${periodEnd}${walledFileName.slice(periodEnd.length)}`;
+}
 
 describe('document hub (M3, docs/18 section 6): index, classify, search under the wall, expected documents', () => {
   let h: Harness;
@@ -521,52 +549,99 @@ describe('document hub (M3, docs/18 section 6): index, classify, search under th
     expect(JSON.stringify(outsider)).not.toContain(companyOf(walledId()));
   });
 
-  it('leaves a new item in Received when the classifier switch is off, and a scan with it on again changes nothing', async () => {
-    await setFlag('ai.classifier', false);
-    const bytes = writePdf({
-      title: 'Quarterly Report: a late arrival',
-      pages: [
-        {
-          items: [
-            {
-              kind: 'text',
-              x: 72,
-              y: 720,
-              size: 14,
-              font: 'Helvetica-Bold',
-              text: 'Quarterly Report',
-            },
-            {
-              kind: 'text',
-              x: 72,
-              y: 700,
-              size: 10,
-              font: 'Helvetica',
-              text: 'A synthetic page with nothing else on it.',
-            },
-          ],
-        },
-      ],
-    });
-    writeFileSync(join(h.runtime.config.PB_DOCUMENT_ROOT, 'inbox', LATE_ARRIVAL), bytes);
-    const result = documentIndexResult.parse((await index('operations').expect(200)).body);
+  it('keeps a walled report the classifier cannot read inside the wall: the links come from the file name (W1)', async () => {
+    // A page that reads as a page heading is refused by the model input frame (SEC-8.3), so the
+    // classifier never answers; the file name still names the position, and so does the wall.
+    const walled = set().expectations.walledFiles;
+    const refusedName = renamedForPeriod(walled[0]!, '1999-09-30');
+    writeFileSync(
+      join(h.runtime.config.PB_DOCUMENT_ROOT, 'inbox', refusedName),
+      onePage('Quarterly Report: a page the frame refuses', ['Quarterly Report', '[page 1]']),
+    );
+    const result = documentIndexResult.parse(
+      (await index('operations', 'req-doc-index-refused').expect(200)).body,
+    );
     expect(result).toEqual({ indexed: 1, duplicates: 0, unchanged: set().documents.length + 1 });
+    const name = companyOf(walledId());
+    for (const who of ['deal.one', 'viewer', 'operations']) {
+      expect(
+        (await list(who)).some((d) => d.fileName === refusedName),
+        who,
+      ).toBe(false);
+      expect(await list(who, `&q=${encodeURIComponent(name)}`), who).toEqual([]);
+    }
+    const seen = byName(await list('deal.three', `&investmentId=${walledId()}`), refusedName);
+    expect(seen.reviewStatus).toBe('NeedsReview');
+    expect(seen.docType).toBeNull();
+    expect(seen.investmentId).toBe(walledId());
+    expect(seen.sponsorFundId).toBe(byName(everything, walled[0]!).sponsorFundId);
+    expect(seen.classifierEvidence.candidates[0]?.reason).toMatch(/^classifier input refused/);
+    await get('deal.one', `/api/v1/documents/${seen.id}`).expect(404);
+    await get('deal.one', `/api/v1/documents/${seen.id}/pages`).expect(404);
+    const [event] = await h.runtime.db.query<{ details: Record<string, unknown> }>(
+      "select details from audit.event where action = 'document.index' and request_id = 'req-doc-index-refused'",
+    );
+    expect(event!.details.command).toBe('flagForReview');
+  });
+
+  it('flags a new item for review when the classifier switch is off, so a person can classify it; a scan with it on again changes nothing (WF-5)', async () => {
+    await setFlag('ai.classifier', false);
+    writeFileSync(
+      join(h.runtime.config.PB_DOCUMENT_ROOT, 'inbox', LATE_ARRIVAL),
+      onePage('Quarterly Report: a late arrival', [
+        'Quarterly Report',
+        'A synthetic page with nothing else on it.',
+      ]),
+    );
+    const result = documentIndexResult.parse(
+      (await index('operations', 'req-doc-index-off').expect(200)).body,
+    );
+    expect(result).toEqual({ indexed: 1, duplicates: 0, unchanged: set().documents.length + 2 });
     const arrived = byName(await list('viewer'), LATE_ARRIVAL);
-    expect(arrived.reviewStatus).toBe('Received');
+    // docs/18 section 6: Received > NeedsReview when the classifier does not answer, so the review
+    // queue and the classify command take it; nothing stays in Received after a scan.
+    expect(arrived.reviewStatus).toBe('NeedsReview');
     expect(arrived.docType).toBeNull();
+    expect(arrived.investmentId).toBeNull();
     expect(arrived.title).toBe('Quarterly Report: a late arrival');
     expect(arrived.pageCount).toBe(1);
+    expect(arrived.classifierEvidence).toEqual({ keywords: [], candidates: [] });
     const [evidence] = await h.runtime.db.query<{ classifier_evidence: Record<string, unknown> }>(
       'select classifier_evidence from doc.document where file_name = $1',
       [LATE_ARRIVAL],
     );
     expect(evidence!.classifier_evidence.reason).toBe('classifier off');
+    const [event] = await h.runtime.db.query<{
+      reason: string | null;
+      details: Record<string, unknown>;
+    }>(
+      "select reason, details from audit.event where action = 'document.index' and request_id = 'req-doc-index-off'",
+    );
+    expect(event!.reason).toBe('classifier off');
+    expect(event!.details.command).toBe('flagForReview');
+    expect(event!.details.state).toEqual({ before: 'Received', after: 'NeedsReview' });
+    const queue = documentPage.parse(
+      (await get('viewer', '/api/v1/documents/review-queue').expect(200)).body,
+    );
+    expect(queue.items.map((d) => d.fileName)).toContain(LATE_ARRIVAL);
+    expect(
+      await count("select count(*)::int as n from doc.document where review_status = 'Received'"),
+    ).toBe(0);
     await setFlag('ai.classifier', true);
     const again = documentIndexResult.parse((await index('operations').expect(200)).body);
-    expect(again).toEqual({ indexed: 0, duplicates: 0, unchanged: set().documents.length + 2 });
-    expect(byName(await list('viewer'), LATE_ARRIVAL).reviewStatus).toBe('Received');
-    // Received is not a state the classify command works from (docs/18 section 6).
-    await command('operations', arrived.id, { command: 'classify', docType: QF }).expect(409);
+    expect(again).toEqual({ indexed: 0, duplicates: 0, unchanged: set().documents.length + 3 });
+    expect(byName(await list('viewer'), LATE_ARRIVAL).reviewStatus).toBe('NeedsReview');
+    const classified = documentDetail.parse(
+      (
+        await command('operations', arrived.id, {
+          command: 'classify',
+          docType: QF,
+          reason: 'read by hand after the switch was off',
+        }).expect(200)
+      ).body,
+    );
+    expect(classified.reviewStatus).toBe('Classified');
+    expect(classified.docType).toBe(QF);
   });
 
   it('answers a 500 configuration problem when the documents block is missing', async () => {
@@ -586,5 +661,161 @@ describe('document hub (M3, docs/18 section 6): index, classify, search under th
     } finally {
       await bare.close();
     }
+  });
+});
+
+describe('document hub with the classifier off: every path links from the file name, under the wall (W1, WF-5, W2)', () => {
+  let h: Harness;
+  let unreadableName: string;
+  let everything: DocumentSummary[];
+
+  beforeAll(async () => {
+    h = await startHarness();
+    await h
+      .http()
+      .patch('/api/v1/flags/ai.classifier')
+      .set('authorization', h.as('platform_admin'))
+      .send({ enabled: false, reason: 'documents test: classifier off' })
+      .expect(200);
+    // A file the reader refuses, named as a report of the walled position for another period.
+    unreadableName = renamedForPeriod(h.documents.expectations.walledFiles[0]!, '1999-12-31');
+    writeFileSync(
+      join(h.runtime.config.PB_DOCUMENT_ROOT, 'inbox', unreadableName),
+      'not a pdf at all',
+    );
+  });
+  afterAll(async () => {
+    await h.close();
+  });
+
+  const set = () => h.documents;
+  const walledId = (): string => h.dataset.scenarios.walled_deal![0]!;
+  const companyOf = (investmentId: string): string => {
+    const inv = h.dataset.investments.find((i) => i.id === investmentId)!;
+    return h.dataset.portfolioCompanies.find((c) => c.id === inv.portfolioCompanyId)!.name;
+  };
+  const get = (who: string, path: string) =>
+    h.http().get(path).set('authorization', h.as(who)).set('x-request-id', 'req-doc-off-get');
+  const list = async (who: string, query = ''): Promise<DocumentSummary[]> =>
+    documentPage.parse((await get(who, `/api/v1/documents?limit=200${query}`).expect(200)).body)
+      .items;
+  const byName = (items: readonly DocumentSummary[], fileName: string): DocumentSummary =>
+    items.find((i) => i.fileName === fileName)!;
+  const titled = (): SyntheticDocument[] =>
+    set().documents.filter(
+      (d) =>
+        d.fileName !== UNTAGGED_FILE_NAME &&
+        d.fileName !== set().expectations.scenarioFiles.duplicate_doc[1],
+    );
+
+  it('indexes the inbox with no model call: every titled document is flagged for review and linked as the truth records', async () => {
+    const result = documentIndexResult.parse(
+      (
+        await h
+          .http()
+          .post('/api/v1/documents/index')
+          .set('authorization', h.as('operations'))
+          .set('x-request-id', 'req-doc-off-index')
+          .expect(200)
+      ).body,
+    );
+    expect(result).toEqual({
+      indexed: new Set(set().documents.map((d) => d.truth.contentHash)).size + 1,
+      duplicates: 1,
+      unchanged: 0,
+    });
+    everything = await list('head.one');
+    for (const doc of titled()) {
+      const found = byName(everything, doc.fileName);
+      expect(found.reviewStatus, doc.fileName).toBe('NeedsReview');
+      expect(found.docType).toBeNull();
+      expect(found.investmentId, doc.fileName).toBe(doc.truth.investmentId);
+      expect(found.sponsorFundId, doc.fileName).toBe(doc.truth.sponsorFundId);
+      expect(found.sponsorId, doc.fileName).toBe(doc.truth.sponsorId);
+      expect(found.classifierEvidence.keywords).toEqual([]);
+    }
+    const scan = byName(everything, UNTAGGED_FILE_NAME);
+    expect(scan.reviewStatus).toBe('NeedsReview');
+    expect(scan.investmentId).toBeNull();
+    const [a, b] = set().expectations.scenarioFiles.duplicate_doc as [string, string];
+    const pair = [byName(everything, a), byName(everything, b)];
+    const duplicate = pair.find((d) => d.reviewStatus === 'Duplicate')!;
+    const original = pair.find((d) => d.reviewStatus === 'NeedsReview')!;
+    expect(duplicate.investmentId).toBe(original.investmentId);
+    const unreadable = byName(everything, unreadableName);
+    expect(unreadable.reviewStatus).toBe('NeedsReview');
+    expect(unreadable.investmentId).toBe(walledId());
+    expect(unreadable.classifierEvidence.candidates[0]?.reason).toMatch(/^unreadable/);
+  });
+
+  it('hides the walled reports from a non-member and from the search, and shows them to a wall member', async () => {
+    const walled = [...set().expectations.walledFiles, unreadableName];
+    const name = companyOf(walledId());
+    for (const who of ['deal.one', 'viewer', 'operations']) {
+      const outsider = await list(who);
+      expect(
+        outsider.filter((d) => walled.includes(d.fileName)).map((d) => d.fileName),
+        who,
+      ).toEqual([]);
+      expect(outsider.length, who).toBe(everything.length - walled.length);
+      expect(JSON.stringify(outsider), who).not.toContain(walledId());
+      expect(await list(who, `&q=${encodeURIComponent(name)}`), who).toEqual([]);
+      const queue = documentPage.parse(
+        (await get(who, '/api/v1/documents/review-queue?limit=200').expect(200)).body,
+      );
+      expect(
+        queue.items.some((d) => walled.includes(d.fileName)),
+        who,
+      ).toBe(false);
+    }
+    const member = await list('deal.three', `&investmentId=${walledId()}`);
+    expect(member.map((d) => d.fileName).sort()).toEqual([...walled].sort());
+    const found = await list('deal.three', `&q=${encodeURIComponent(name)}`);
+    expect(found.length).toBeGreaterThan(0);
+    expect(found.every((d) => d.investmentId === walledId())).toBe(true);
+    const id = byName(member, unreadableName).id;
+    await get('deal.one', `/api/v1/documents/${id}`).expect(404);
+    await get('deal.one', `/api/v1/documents/${id}/pages`).expect(404);
+    await get('deal.three', `/api/v1/documents/${id}`).expect(200);
+    // An open position's report still links from its name, so anyone finds it by the company.
+    const open = titled().find(
+      (d) => d.truth.docType === QF && d.truth.investmentId !== walledId(),
+    )!;
+    const byCompany = await list('viewer', `&q=${encodeURIComponent(open.truth.companyName!)}`);
+    expect(byCompany.map((d) => d.fileName)).toContain(open.fileName);
+  });
+
+  it('keeps the data exception about the walled unreadable report inside the wall (W2)', async () => {
+    const id = byName(everything, unreadableName).id;
+    const exceptionsOf = async (who: string): Promise<string[]> =>
+      dataExceptionPage
+        .parse(
+          (await get(who, '/api/v1/data-exceptions?limit=200&source=documents').expect(200)).body,
+        )
+        .items.map((x) => x.entityId);
+    expect(await exceptionsOf('deal.three')).toContain(id);
+    expect(await exceptionsOf('operations')).not.toContain(id);
+    expect(await exceptionsOf('deal.one')).not.toContain(id);
+  });
+
+  it('lets a wall member classify a walled report from the queue, and nobody else (WF-5)', async () => {
+    const report = set().documents.find(
+      (d) => d.truth.investmentId === walledId() && d.truth.docType === QF,
+    )!;
+    const id = byName(everything, report.fileName).id;
+    const classify = (who: string) =>
+      h
+        .http()
+        .post(`/api/v1/documents/${id}/commands`)
+        .set('authorization', h.as(who))
+        .set('x-request-id', 'req-doc-off-classify')
+        .send({ command: 'classify', docType: QF, periodEnd: report.truth.periodEnd });
+    await classify('deal.one').expect(404);
+    await classify('operations').expect(404);
+    const classified = documentDetail.parse((await classify('deal.three').expect(200)).body);
+    expect(classified.reviewStatus).toBe('Classified');
+    expect(classified.docType).toBe(QF);
+    expect(classified.investmentId).toBe(walledId());
+    expect(classified.periodEnd).toBe(report.truth.periodEnd);
   });
 });
