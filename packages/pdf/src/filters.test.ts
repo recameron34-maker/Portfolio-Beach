@@ -26,43 +26,110 @@ async function refusal(run: () => unknown): Promise<PdfError> {
   throw new Error('expected a PdfError');
 }
 
+/** A cap no test below reaches by accident. */
+const CAP = 1 << 20;
+
 describe('asciiHexDecode', () => {
   it('decodes pairs, skips white space, pads an odd digit and stops at >', () => {
-    expect(asciiHexDecode(latin1Bytes('48 65\n6c6C 6F>ignored'))).toEqual(latin1Bytes('Hello'));
-    expect(asciiHexDecode(latin1Bytes('4'))).toEqual(new Uint8Array([0x40]));
-    expect(asciiHexDecode(latin1Bytes(''))).toEqual(new Uint8Array(0));
+    expect(asciiHexDecode(latin1Bytes('48 65\n6c6C 6F>ignored'), CAP)).toEqual(
+      latin1Bytes('Hello'),
+    );
+    expect(asciiHexDecode(latin1Bytes('4'), CAP)).toEqual(new Uint8Array([0x40]));
+    expect(asciiHexDecode(latin1Bytes(''), CAP)).toEqual(new Uint8Array(0));
   });
 
   it('refuses a digit that is not hexadecimal', async () => {
-    expect((await refusal(() => asciiHexDecode(latin1Bytes('4G')))).code).toBe('corrupt');
+    expect((await refusal(() => asciiHexDecode(latin1Bytes('4G'), CAP))).code).toBe('corrupt');
   });
 });
 
 describe('ascii85Decode', () => {
   it('decodes whole groups, a partial group, z and the <~ ~> markers', () => {
-    expect(ascii85Decode(latin1Bytes('87cURD_*#4DfTZ)~>'))).toEqual(latin1Bytes('Hello, World'));
-    expect(ascii85Decode(latin1Bytes('<~87cURD_*#4DfTZ)~>'))).toEqual(latin1Bytes('Hello, World'));
-    expect(ascii85Decode(latin1Bytes('87cU\nRD_*#4DfTZ)'))).toEqual(latin1Bytes('Hello, World'));
-    expect(ascii85Decode(latin1Bytes('z~>'))).toEqual(new Uint8Array([0, 0, 0, 0]));
-    expect(ascii85Decode(latin1Bytes('~>'))).toEqual(new Uint8Array(0));
+    expect(ascii85Decode(latin1Bytes('87cURD_*#4DfTZ)~>'), CAP)).toEqual(
+      latin1Bytes('Hello, World'),
+    );
+    expect(ascii85Decode(latin1Bytes('<~87cURD_*#4DfTZ)~>'), CAP)).toEqual(
+      latin1Bytes('Hello, World'),
+    );
+    expect(ascii85Decode(latin1Bytes('87cU\nRD_*#4DfTZ)'), CAP)).toEqual(
+      latin1Bytes('Hello, World'),
+    );
+    expect(ascii85Decode(latin1Bytes('z~>'), CAP)).toEqual(new Uint8Array([0, 0, 0, 0]));
+    expect(ascii85Decode(latin1Bytes('~>'), CAP)).toEqual(new Uint8Array(0));
   });
 
   it('refuses a character outside the alphabet, a single trailing digit and an overflow', async () => {
-    expect((await refusal(() => ascii85Decode(latin1Bytes('87cUv')))).code).toBe('corrupt');
-    expect((await refusal(() => ascii85Decode(latin1Bytes('87cUR8')))).code).toBe('corrupt');
-    expect((await refusal(() => ascii85Decode(latin1Bytes('uuuuu')))).code).toBe('corrupt');
+    expect((await refusal(() => ascii85Decode(latin1Bytes('87cUv'), CAP))).code).toBe('corrupt');
+    expect((await refusal(() => ascii85Decode(latin1Bytes('87cUR8'), CAP))).code).toBe('corrupt');
+    expect((await refusal(() => ascii85Decode(latin1Bytes('uuuuu'), CAP))).code).toBe('corrupt');
   });
 });
 
 describe('runLengthDecode', () => {
   it('decodes literal and repeated runs and stops at 128', () => {
     const data = new Uint8Array([2, 0x61, 0x62, 0x63, 254, 0x7a, 128, 0x41]);
-    expect(runLengthDecode(data)).toEqual(latin1Bytes('abczzz'));
+    expect(runLengthDecode(data, CAP)).toEqual(latin1Bytes('abczzz'));
   });
 
   it('refuses runs that end early', async () => {
-    expect((await refusal(() => runLengthDecode(new Uint8Array([3, 0x61])))).code).toBe('corrupt');
-    expect((await refusal(() => runLengthDecode(new Uint8Array([254])))).code).toBe('corrupt');
+    expect((await refusal(() => runLengthDecode(new Uint8Array([3, 0x61]), CAP))).code).toBe(
+      'corrupt',
+    );
+    expect((await refusal(() => runLengthDecode(new Uint8Array([254]), CAP))).code).toBe(
+      'corrupt',
+    );
+  });
+});
+
+describe('decoders within the stream cap (PDF-2)', () => {
+  /** Pairs [129, 0x41]: every two input bytes expand to 128 output bytes. */
+  const repeatedRuns = (rawBytes: number): Uint8Array => {
+    const raw = new Uint8Array(rawBytes);
+    for (let i = 0; i < raw.length; i += 2) {
+      raw[i] = 129;
+      raw[i + 1] = 0x41;
+    }
+    return raw;
+  };
+
+  it('refuses a run-length stream that expands past the cap before building the output', async () => {
+    const limit = 16 << 20;
+    expect((await refusal(() => runLengthDecode(repeatedRuns(1 << 20), limit))).code).toBe(
+      'too_large',
+    );
+    // 4 MiB of raw pairs would be 256 MiB of output: a RangeError before, a refusal now.
+    expect((await refusal(() => runLengthDecode(repeatedRuns(4 << 20), limit))).code).toBe(
+      'too_large',
+    );
+    const through = await refusal(() =>
+      applyFilter('RunLengthDecode', repeatedRuns(1 << 20), DEFAULT_DECODE_PARMS, nodeInflate, {
+        maxStreamBytes: limit,
+      }),
+    );
+    expect(through.code).toBe('too_large');
+  });
+
+  it('refuses an ASCII85 stream of z groups that expands past the cap', async () => {
+    const zs = latin1Bytes('z'.repeat(1 << 20));
+    expect((await refusal(() => ascii85Decode(zs, (4 << 20) - 1))).code).toBe('too_large');
+    expect(ascii85Decode(zs, 4 << 20)).toHaveLength(4 << 20);
+  });
+
+  it('accepts output exactly at the cap and refuses one byte more, for every decoder', async () => {
+    const pair = new Uint8Array([129, 0x41]);
+    expect(runLengthDecode(pair, 128)).toEqual(new Uint8Array(128).fill(0x41));
+    expect((await refusal(() => runLengthDecode(pair, 127))).code).toBe('too_large');
+    const literal = new Uint8Array([1, 0x68, 0x69]);
+    expect(runLengthDecode(literal, 2)).toEqual(latin1Bytes('hi'));
+    expect((await refusal(() => runLengthDecode(literal, 1))).code).toBe('too_large');
+    expect(ascii85Decode(latin1Bytes('zz'), 8)).toEqual(new Uint8Array(8));
+    expect((await refusal(() => ascii85Decode(latin1Bytes('zz'), 7))).code).toBe('too_large');
+    expect(ascii85Decode(latin1Bytes('87cUR'), 4)).toEqual(latin1Bytes('Hell'));
+    expect((await refusal(() => ascii85Decode(latin1Bytes('87cUR'), 3))).code).toBe('too_large');
+    expect(asciiHexDecode(latin1Bytes('4142'), 2)).toEqual(latin1Bytes('AB'));
+    expect((await refusal(() => asciiHexDecode(latin1Bytes('4142'), 1))).code).toBe('too_large');
+    // The padded odd final digit is a byte of output too.
+    expect((await refusal(() => asciiHexDecode(latin1Bytes('414'), 1))).code).toBe('too_large');
   });
 });
 
