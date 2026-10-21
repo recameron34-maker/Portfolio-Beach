@@ -3,6 +3,7 @@ import { join } from 'node:path';
 import AxeBuilder from '@axe-core/playwright';
 import { expect, test } from '@playwright/test';
 import type { Locator, Page } from '@playwright/test';
+import { latestQuarterEndOnOrBefore } from '@pb/calc';
 import { generateDataset, lookthroughExtract, weeklyValues } from '@pb/synthetic';
 import { ANALYTICS_TABS, DEAL_TABS } from '../src/app/nav.js';
 import { loadDataset, signInAs, walledDeal } from './fixtures.js';
@@ -216,6 +217,40 @@ async function stageIntakePages(page: Page): Promise<Visit[]> {
   ];
 }
 
+/**
+ * What the documents pages need before they can be scanned: the store indexed and the latest
+ * quarter's expected rows generated, as operations through the API (both idempotent). Then the
+ * hub, the newest document, the document waiting for review with its classify form (the scan,
+ * until a journey classifies it), the review queue and the expected-document tracker.
+ */
+async function documentPages(page: Page): Promise<Visit[]> {
+  const headers = { authorization: 'Bearer ops.one' };
+  expect((await page.request.post('/api/v1/documents/index', { headers })).ok()).toBe(true);
+  const generated = await page.request.post('/api/v1/expected-documents/generate', {
+    headers,
+    data: { periodEnd: latestQuarterEndOnOrBefore(full.asOf) },
+  });
+  expect(generated.ok()).toBe(true);
+  const firstOf = async (path: string): Promise<string | undefined> => {
+    const body = (await (await page.request.get(path, { headers })).json()) as {
+      items: { id: string }[];
+    };
+    return body.items[0]?.id;
+  };
+  const newest = await firstOf('/api/v1/documents?limit=1');
+  if (newest === undefined) throw new Error('the hub lists no document after the index');
+  const queued = await firstOf('/api/v1/documents/review-queue?limit=1');
+  return [
+    { path: '/documents', ready: (p) => p.getByTestId('documents-table') },
+    { path: `/documents/${newest}`, ready: (p) => p.getByTestId('document-banner') },
+    ...(queued === undefined
+      ? []
+      : [{ path: `/documents/${queued}`, ready: (p: Page) => p.getByTestId('document-classify') }]),
+    { path: '/documents/review', ready: heading },
+    { path: '/documents/expected', ready: (p) => p.getByTestId('expected-table') },
+  ];
+}
+
 for (const width of [1280, 390]) {
   test.describe(`at ${width} pixels wide`, () => {
     test.use({ viewport: { width, height: 900 } });
@@ -254,6 +289,14 @@ for (const width of [1280, 390]) {
       test.setTimeout(180_000);
       await signInAs(page, 'ops.one', d);
       await scanPages(page, await stageIntakePages(page));
+    });
+
+    test(`operations: the document hub, a document, the review queue and the expected tracker @a11y`, async ({
+      page,
+    }) => {
+      test.setTimeout(180_000);
+      await signInAs(page, 'ops.one', d);
+      await scanPages(page, await documentPages(page));
     });
 
     test(`operations: every deal workspace tab @a11y`, async ({ page }) => {

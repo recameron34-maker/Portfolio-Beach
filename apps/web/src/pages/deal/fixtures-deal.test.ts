@@ -2,9 +2,11 @@ import { describe, expect, it } from 'vitest';
 import {
   auditPage,
   capitalNoticePage,
+  documentPage,
   investmentDetail,
   investmentPerformance,
   principal,
+  realizationOutlookDetail,
   sponsorDetail,
   valuationPage,
 } from '@pb/contracts';
@@ -13,9 +15,12 @@ import {
   creditDetailFixture,
   creditPerformanceFixture,
   dealDetailFixture,
+  dealDocumentPageFixture,
   dealNoticePageFixture,
+  defaultOutlookFixture,
   equityPerformanceFixture,
   operationsPrincipalFixture,
+  outlookFixture,
   sponsorDetailFixture,
   valuationPageFixture,
 } from '../../test/fixtures-deal.js';
@@ -35,6 +40,9 @@ describe('deal workspace fixtures match the contracts', () => {
     ['sponsor detail', sponsorDetail, sponsorDetailFixture()],
     ['audit page', auditPage, auditPageFixture()],
     ['operations principal', principal, operationsPrincipalFixture()],
+    ['document page', documentPage, dealDocumentPageFixture()],
+    ['realization outlook', realizationOutlookDetail, outlookFixture()],
+    ['default realization outlook', realizationOutlookDetail, defaultOutlookFixture()],
   ])('%s', (_name, schema, fixture) => {
     const result = schema.safeParse(fixture);
     expect(result.success, JSON.stringify(result.error?.issues)).toBe(true);

@@ -5,17 +5,30 @@ import {
   equityPerformanceFixture,
   valuationPageFixture,
 } from '../../test/fixtures-deal.js';
+import { clearTaxonomyLabels, MISSING, registerTaxonomyLabels } from '../../lib/format.js';
 import {
   ALERT_DAYS_BEFORE_DUE,
   approvedQuarters,
   AUDIT_ROLES,
   canReadAudit,
+  canSetOutlook,
   datePart,
+  documentHref,
+  documentStatusTone,
+  HORIZON_MONTHS,
   isApproved,
+  isHorizon,
+  isOutlookCode,
   isSettled,
   lockedSeries,
+  OUTLOOK_CODES,
+  OUTLOOK_ROLES,
+  outlookLabel,
   quarterRowsNewestFirst,
+  runHref,
+  runStateTone,
   sinceEntryGap,
+  sourceLabel,
   timelineEntries,
   versionsNewestFirst,
 } from './data.js';
@@ -112,5 +125,76 @@ describe('deal tab helpers', () => {
 
   it('keeps the date part of a timestamp', () => {
     expect(datePart('2025-05-02T09:30:00.000Z')).toBe('2025-05-02');
+  });
+});
+
+describe('deal tab helpers for Phase 2: sources, documents and the outlook', () => {
+  it('reads the outlook roles from the route table and checks a role set against them', () => {
+    expect([...OUTLOOK_ROLES]).toEqual(['deal_team']);
+    expect(canSetOutlook(['deal_team'])).toBe(true);
+    expect(canSetOutlook(['viewer', 'deal_team'])).toBe(true);
+    expect(canSetOutlook(['operations'])).toBe(false);
+    expect(canSetOutlook(['approver'])).toBe(false);
+    expect(canSetOutlook([])).toBe(false);
+  });
+
+  it('lists the outlook codes the contract allows and labels them from the taxonomy', () => {
+    expect([...OUTLOOK_CODES]).toEqual(['none', 'partial', 'full']);
+    expect(isOutlookCode('partial')).toBe(true);
+    expect(isOutlookCode('soon')).toBe(false);
+    expect(isOutlookCode('')).toBe(false);
+    expect(outlookLabel('partial')).toBe('Partial');
+    registerTaxonomyLabels([{ code: 'realization_outlook.full', label: 'Full realization' }]);
+    try {
+      expect(outlookLabel('full')).toBe('Full realization');
+      expect(outlookLabel('none')).toBe('None');
+    } finally {
+      clearTaxonomyLabels();
+    }
+  });
+
+  it('accepts a horizon only as a whole number of months inside the contract bounds', () => {
+    expect(HORIZON_MONTHS).toEqual({ min: 1, max: 120 });
+    expect(isHorizon('18')).toBe(true);
+    expect(isHorizon(' 1 ')).toBe(true);
+    expect(isHorizon('120')).toBe(true);
+    expect(isHorizon('0')).toBe(false);
+    expect(isHorizon('121')).toBe(false);
+    expect(isHorizon('-3')).toBe(false);
+    expect(isHorizon('1.5')).toBe(false);
+    expect(isHorizon('1e1')).toBe(false);
+    expect(isHorizon('')).toBe(false);
+    expect(isHorizon('twelve')).toBe(false);
+  });
+
+  it('builds the hub paths with the id encoded', () => {
+    expect(documentHref('a0000000-0000-4000-8000-000000000001')).toBe(
+      '/documents/a0000000-0000-4000-8000-000000000001',
+    );
+    expect(runHref('a0000000-0000-4000-8000-000000000005')).toBe(
+      '/documents/extraction/a0000000-0000-4000-8000-000000000005',
+    );
+    expect(documentHref('odd/id?x')).toBe('/documents/odd%2Fid%3Fx');
+  });
+
+  it('words the source of a quarter as the page, the document, or the missing placeholder', () => {
+    const documentId = 'a0000000-0000-4000-8000-000000000001';
+    expect(sourceLabel(null)).toBe(MISSING);
+    expect(sourceLabel({ documentId, runId: null, page: 3, locator: 'field:revenue_ltm' })).toBe(
+      'page 3',
+    );
+    expect(sourceLabel({ documentId, runId: null, page: null, locator: null })).toBe('document');
+  });
+
+  it('tones document statuses and run states so colour never stands alone', () => {
+    expect(documentStatusTone('Classified')).toBe('good');
+    expect(documentStatusTone('NeedsReview')).toBe('watch');
+    expect(documentStatusTone('Duplicate')).toBe('neutral');
+    expect(documentStatusTone('Received')).toBe('neutral');
+    expect(runStateTone('Succeeded')).toBe('good');
+    expect(runStateTone('Failed')).toBe('bad');
+    expect(runStateTone('NeedsRetry')).toBe('watch');
+    expect(runStateTone('Queued')).toBe('neutral');
+    expect(runStateTone('Running')).toBe('neutral');
   });
 });

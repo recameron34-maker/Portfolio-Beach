@@ -19,6 +19,13 @@ export const PORTFOLIO_TABS = [
   { to: '/portfolio/watchlist', label: 'Watchlist' },
   { to: '/portfolio/monitoring', label: 'Monitoring' },
 ];
+/** Documents group tabs (docs/04 M3 and M4, decision 0012): the hub, the queue, the tracker and extraction. */
+export const DOCUMENTS_TABS = [
+  { to: '/documents', label: 'Hub', exact: true },
+  { to: '/documents/review', label: 'Review queue' },
+  { to: '/documents/expected', label: 'Expected documents' },
+  { to: '/documents/extraction', label: 'Extraction' },
+];
 export const CAPITAL_TABS = [
   { to: '/capital-activity', label: 'Notices', exact: true },
   { to: '/capital-activity/commitments', label: 'Commitments and unfunded' },

@@ -40,11 +40,15 @@ import { MonitoringPage } from '../pages/monitoring/Monitoring.js';
 import { ActivityTab } from '../pages/deal/ActivityTab.js';
 import { CapitalTab } from '../pages/deal/CapitalTab.js';
 import { DealWorkspace } from '../pages/deal/DealWorkspace.js';
-import { ClosingTab, DiligenceTab, DocumentsTab, TasksTab } from '../pages/deal/LaterTabs.js';
+import { DocumentsTab } from '../pages/deal/DocumentsTab.js';
+import { ClosingTab, DiligenceTab, TasksTab } from '../pages/deal/LaterTabs.js';
 import { PerformanceTab } from '../pages/deal/PerformanceTab.js';
 import { SponsorTab } from '../pages/deal/SponsorTab.js';
 import { ValuationsTab } from '../pages/deal/ValuationsTab.js';
+import { DocumentDetailPage } from '../pages/documents/DocumentDetail.js';
 import { DocumentsPage } from '../pages/documents/Documents.js';
+import { ExpectedDocumentsPage } from '../pages/documents/ExpectedDocuments.js';
+import { ReviewQueuePage } from '../pages/documents/ReviewQueue.js';
 import { HomePage } from '../pages/Home.js';
 import { InvestmentDetailPage } from '../pages/InvestmentDetail.js';
 import { PipelinePage } from '../pages/pipeline/Pipeline.js';
@@ -115,6 +119,9 @@ const pipelineRoute = child('/pipeline', PipelinePage);
 const sponsorsRoute = child('/sponsors', SponsorsPage);
 const sponsorRoute = child('/sponsors/$id', SponsorDetailPage);
 const documentsRoute = child('/documents', DocumentsPage);
+const documentsReviewRoute = child('/documents/review', ReviewQueuePage);
+const documentsExpectedRoute = child('/documents/expected', ExpectedDocumentsPage);
+const documentRoute = child('/documents/$id', DocumentDetailPage);
 const valuationsRoute = child('/valuations', ValuationsPage);
 const capitalRoute = child('/capital-activity', CapitalActivityPage);
 const commitmentsRoute = child('/capital-activity/commitments', CommitmentsPage);
@@ -208,6 +215,9 @@ const routeTree = rootRoute.addChildren([
     sponsorsRoute,
     sponsorRoute,
     documentsRoute,
+    documentsReviewRoute,
+    documentsExpectedRoute,
+    documentRoute,
     valuationsRoute,
     capitalRoute,
     commitmentsRoute,

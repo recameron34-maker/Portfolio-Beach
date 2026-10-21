@@ -22,7 +22,11 @@ import {
 } from '@pb/calc';
 import type { Decimal, PaymentFrequency } from '@pb/calc';
 import { DECIMAL_PATTERN, isCalendarDate } from '@pb/contracts';
-import type { InvestmentPerformance, QuarterRow } from '@pb/contracts';
+import type {
+  InvestmentPerformance,
+  QuarterRow,
+  QuarterSource as QuarterLineage,
+} from '@pb/contracts';
 import { schema } from '@pb/db';
 import { configInteger } from '../common/definitions.js';
 import { DEFINITIONS } from '../common/tokens.js';
@@ -43,7 +47,10 @@ type CreditDetail = NonNullable<InvestmentPerformance['credit']>;
 type CreditTermsDetail = CreditDetail['terms'];
 type CreditQuarterRow = CreditDetail['quarters'][number];
 
-/** One mon.quarterly_performance row as selected below; highlights is the raw jsonb column. */
+/**
+ * One mon.quarterly_performance row as selected below; highlights is the raw jsonb column and the
+ * last four fields are the lineage columns the promotion writes (SEC-9.4).
+ */
 interface QuarterSource {
   periodEnd: string;
   isEntrySnapshot: boolean;
@@ -55,6 +62,10 @@ interface QuarterSource {
   cash: string | null;
   totalEquity: string | null;
   highlights: unknown;
+  sourceDocumentId: string | null;
+  sourcePage: number | null;
+  sourceLocator: string | null;
+  extractionRunId: string | null;
 }
 
 /** One mon.credit_performance row as selected below. */
@@ -143,6 +154,22 @@ const evMultiple = (row: QuarterSource): Decimal | null =>
 const leverage = (row: QuarterSource): Decimal | null =>
   row.netDebt === null ? null : netDebtToEbitda(row.netDebt, row.ebitdaLtm);
 
+/**
+ * The quarter's source for click-to-source (docs/11 I1): the document the figures were read from,
+ * with the run, page and locator when the extraction review promoted them. A row with no source
+ * document (the synthetic seed, an accounting import) says so with null; a page or run is never
+ * guessed.
+ */
+function sourceOf(row: QuarterSource): QuarterLineage | null {
+  if (row.sourceDocumentId === null) return null;
+  return {
+    documentId: row.sourceDocumentId,
+    runId: row.extractionRunId,
+    page: row.sourcePage,
+    locator: row.sourceLocator,
+  };
+}
+
 /** A quarter with its ratios; the year-on-year columns compare against the matched prior-year row. */
 function quarterRow(row: QuarterSource, prior: QuarterSource | null): QuarterRow {
   return {
@@ -161,6 +188,7 @@ function quarterRow(row: QuarterSource, prior: QuarterSource | null): QuarterRow
     revenueYoy: str(yoyGrowth(row.revenueLtm, prior?.revenueLtm ?? null)),
     ebitdaYoy: str(yoyGrowth(row.ebitdaLtm, prior?.ebitdaLtm ?? null)),
     highlights: highlightsOf(row.highlights),
+    source: sourceOf(row),
   };
 }
 
@@ -343,6 +371,10 @@ export class PerformanceService {
           cash: q.cash,
           totalEquity: q.totalEquity,
           highlights: q.highlights,
+          sourceDocumentId: q.sourceDocumentId,
+          sourcePage: q.sourcePage,
+          sourceLocator: q.sourceLocator,
+          extractionRunId: q.extractionRunId,
         })
         .from(q)
         .where(eq(q.investmentId, investment.id))

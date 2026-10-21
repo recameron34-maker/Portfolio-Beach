@@ -1,22 +1,34 @@
+import { useId, useState } from 'react';
 import type { ReactNode } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import type { InvestmentPerformance } from '@pb/contracts';
-import { investmentPerformanceQuery } from '../../app/queries.js';
+import { Button, Dropdown, Input, Label, Option, Spinner } from '@fluentui/react-components';
+import type {
+  InvestmentPerformance,
+  QuarterRow,
+  RealizationOutlookCode,
+  RealizationOutlookDetail,
+} from '@pb/contracts';
+import { describeActionError, useSetRealizationOutlook } from '../../app/mutations.js';
+import { investmentPerformanceQuery, meQuery, realizationOutlookQuery } from '../../app/queries.js';
 import { LineChart } from '../../components/charts/index.js';
 import { UnavailableState } from '../../components/UnavailableState.js';
 import {
   Badge,
   Card,
   EmptyState,
+  Field,
   KeyValueTable,
   NumCell,
   PageSkeleton,
   SectionHeader,
+  SimulatedBadge,
   StatTile,
   TableWrap,
 } from '../../components/ui.js';
+import { ActionStatus } from '../../components/WorkflowActions.js';
 import {
   formatDate,
+  formatDateTime,
   formatMoneyM,
   formatMonthYear,
   formatMonthYearShort,
@@ -28,25 +40,34 @@ import {
   plural,
 } from '../../lib/format.js';
 import { creditStatusTone } from '../../lib/labels.js';
+import { isReason, resultSuffix, useActionLog } from '../../lib/workflow.js';
+import type { ActionLog } from '../../lib/workflow.js';
 import {
   approvedQuarters,
-  datePart,
+  canSetOutlook,
+  documentHref,
   HIGHLIGHT_QUARTERS,
+  HORIZON_MONTHS,
   isApproved,
+  isHorizon,
+  isOutlookCode,
   newestFirst,
   oldestFirst,
+  OUTLOOK_CODES,
+  outlookLabel,
   quarterRowsNewestFirst,
+  runHref,
   sinceEntryGap,
+  sourceLabel,
   toNumber,
   useDealDetail,
   useDealId,
 } from './data.js';
-import { PeriodCell, RecordStatusBadge } from './parts.js';
+import { HubLink, PeriodCell, RecordStatusBadge } from './parts.js';
 import './deal.css';
 import { balanceTiles } from '../../lib/tiles.js';
 
 type CreditBlock = NonNullable<InvestmentPerformance['credit']>;
-type Outlook = InvestmentPerformance['realizationOutlook'];
 
 /* ---- Equity and CV positions ---- */
 
@@ -150,6 +171,37 @@ function LtmChart({ perf, company }: { perf: InvestmentPerformance; company: str
   );
 }
 
+/**
+ * Click-to-source (docs/11 I1): the quarter's figures link to the page of the document they were
+ * read from, and to the extraction run that read them when one did. A quarter with no source
+ * document shows the missing placeholder, never a guessed page.
+ */
+function SourceCell({ q }: { q: QuarterRow }): ReactNode {
+  const testId = `performance-source-${q.periodEnd}`;
+  if (q.source === null)
+    return (
+      <td className="is-missing">
+        <span data-testid={testId}>{MISSING}</span>
+      </td>
+    );
+  return (
+    <td>
+      <span className="pb-deal-source">
+        <HubLink href={documentHref(q.source.documentId)} testId={testId}>
+          {sourceLabel(q.source)}
+          <span className="pb-visually-hidden">{`, source of ${formatDate(q.periodEnd)}`}</span>
+        </HubLink>
+        {q.source.runId === null ? null : (
+          <HubLink href={runHref(q.source.runId)} className="pb-meta">
+            {/* The space sits outside the hidden span: a leading space inside it is dropped from the name. */}
+            run <span className="pb-visually-hidden">{`that read ${formatDate(q.periodEnd)}`}</span>
+          </HubLink>
+        )}
+      </span>
+    </td>
+  );
+}
+
 function QuarterlyCard({
   perf,
   company,
@@ -172,7 +224,11 @@ function QuarterlyCard({
         <>
           <LtmChart perf={perf} company={company} />
           <TableWrap label="Quarterly financials">
-            <table className="pb-table pb-deal-dense" aria-label="Quarterly financials">
+            <table
+              className="pb-table pb-deal-dense"
+              aria-label="Quarterly financials"
+              data-testid="performance-sources"
+            >
               <thead>
                 <tr>
                   <th>Period</th>
@@ -188,6 +244,7 @@ function QuarterlyCard({
                   <th className="num">Net debt / EBITDA</th>
                   <th className="num">Revenue YoY</th>
                   <th className="num">EBITDA YoY</th>
+                  <th>Source</th>
                 </tr>
               </thead>
               <tbody>
@@ -210,6 +267,7 @@ function QuarterlyCard({
                     <NumCell>{formatMultiple(q.netDebtToEbitda)}</NumCell>
                     <NumCell>{formatPct(q.revenueYoy)}</NumCell>
                     <NumCell>{formatPct(q.ebitdaYoy)}</NumCell>
+                    <SourceCell q={q} />
                   </tr>
                 ))}
               </tbody>
@@ -217,7 +275,8 @@ function QuarterlyCard({
           </TableWrap>
           <p className="pb-meta pb-deal-note">
             Year on year compares with the same fiscal quarter one year earlier only; when that
-            quarter is missing the change is not calculated ({MISSING}).
+            quarter is missing the change is not calculated ({MISSING}). Source is the document page
+            the quarter's figures were read from; a quarter with no source document shows {MISSING}.
           </p>
         </>
       )}
@@ -265,31 +324,206 @@ function HighlightsCard({ perf }: { perf: InvestmentPerformance }): ReactNode {
   );
 }
 
-function OutlookCard({ outlook }: { outlook: Outlook }): ReactNode {
+/* ---- Realization outlook (docs/04 M9): read by everyone, set by the deal team ---- */
+
+const OUTLOOK_READ_ONLY = 'The deal team sets the outlook; your role reads it.';
+
+/**
+ * The edit form: outlook, horizon in months, an optional note and the reason the audit event
+ * keeps. Every write goes through PUT /monitoring/outlook, which the API refuses unless the config
+ * guard allows a hand edit; nothing automated ever sets the outlook. The form starts from the
+ * recorded outlook and keeps what the user typed; the table above always shows what is on record.
+ */
+function OutlookForm({
+  detail,
+  investmentId,
+  log,
+}: {
+  detail: RealizationOutlookDetail;
+  investmentId: string;
+  log: ActionLog;
+}): ReactNode {
+  const ids = { outlook: useId(), horizon: useId(), note: useId(), reason: useId() };
+  const set = useSetRealizationOutlook();
+  const [outlook, setOutlook] = useState<RealizationOutlookCode>(detail.outlook);
+  const [horizon, setHorizon] = useState(String(detail.horizonMonths));
+  const [note, setNote] = useState(detail.note ?? '');
+  const [reason, setReason] = useState('');
+  const valid = isHorizon(horizon) && isReason(reason);
+  const busy = set.isPending;
   return (
-    <Card testId="deal-outlook">
-      <SectionHeader>Realization outlook</SectionHeader>
-      {outlook === null ? (
-        <EmptyState
-          title="No outlook recorded"
-          detail="The deal team records whether a partial or full realization is expected, and within how many months."
-        />
-      ) : (
+    <>
+      <form
+        className="pb-deal-outlook-form"
+        data-testid="outlook-form"
+        aria-label="Set the realization outlook"
+        onSubmit={(event) => {
+          event.preventDefault();
+          if (!valid || busy) return;
+          const trimmedNote = note.trim();
+          set.mutate(
+            {
+              investmentId,
+              body: {
+                outlook,
+                horizonMonths: Number(horizon.trim()),
+                note: trimmedNote === '' ? null : trimmedNote,
+                reason: reason.trim(),
+              },
+            },
+            {
+              onSuccess: (after) => {
+                setReason('');
+                log.record(
+                  'good',
+                  `Outlook set to ${outlookLabel(after.outlook)} ${resultSuffix()}`,
+                );
+              },
+              onError: (error) => log.record('bad', `Set outlook: ${describeActionError(error)}`),
+            },
+          );
+        }}
+      >
+        <Field>
+          <Label htmlFor={ids.outlook}>Outlook</Label>
+          <Dropdown
+            id={ids.outlook}
+            className="pb-deal-outlook-control"
+            value={outlookLabel(outlook)}
+            selectedOptions={[outlook]}
+            onOptionSelect={(_e, d) => {
+              const v = d.optionValue ?? '';
+              if (isOutlookCode(v)) setOutlook(v);
+            }}
+          >
+            {OUTLOOK_CODES.map((code) => (
+              <Option key={code} value={code}>
+                {outlookLabel(code)}
+              </Option>
+            ))}
+          </Dropdown>
+        </Field>
+        <Field>
+          <Label htmlFor={ids.horizon}>Horizon (months)</Label>
+          <Input
+            id={ids.horizon}
+            className="pb-deal-outlook-control is-short"
+            type="number"
+            min={HORIZON_MONTHS.min}
+            max={HORIZON_MONTHS.max}
+            value={horizon}
+            onChange={(_e, d) => setHorizon(d.value)}
+          />
+        </Field>
+        <Field>
+          <Label htmlFor={ids.note}>Note</Label>
+          <Input
+            id={ids.note}
+            className="pb-deal-outlook-control is-wide"
+            value={note}
+            maxLength={500}
+            placeholder="Optional"
+            onChange={(_e, d) => setNote(d.value)}
+          />
+        </Field>
+        <Field>
+          <Label htmlFor={ids.reason}>Reason</Label>
+          <Input
+            id={ids.reason}
+            className="pb-deal-outlook-control is-wide"
+            value={reason}
+            maxLength={500}
+            placeholder="Required, kept on the audit trail"
+            onChange={(_e, d) => setReason(d.value)}
+          />
+        </Field>
+        {/* Stays focusable while it cannot act, so keyboard focus is not lost mid-edit. */}
+        <Button
+          type="submit"
+          size="small"
+          appearance="primary"
+          disabledFocusable={!valid || busy}
+          {...(valid
+            ? {}
+            : {
+                title: `Needs a horizon of ${HORIZON_MONTHS.min} to ${HORIZON_MONTHS.max} months and a reason of at least three characters`,
+              })}
+        >
+          Set outlook
+        </Button>
+      </form>
+    </>
+  );
+}
+
+/**
+ * The realization outlook of the position: what the deal team expects (none, a partial or a full
+ * realization) and within how many months, read from the monitoring API, with the edit form for
+ * the deal team. Everyone else reads it. Changes only by explicit edit, audited (SEC-11.1).
+ */
+function OutlookCard({ id }: { id: string }): ReactNode {
+  const me = useQuery(meQuery);
+  const q = useQuery(realizationOutlookQuery(id));
+  // The page's one status region lives with the card, so an edit's result outlives the form.
+  const log = useActionLog();
+  const roles = me.data?.roles ?? [];
+  let body: ReactNode;
+  // Nothing is said about the role until it is known: a deal team member must never read "your
+  // role reads it" for the moment the identity is in flight.
+  if (q.isPending || me.isPending) {
+    body = <Spinner size="tiny" label="Loading the realization outlook" />;
+  } else if (q.isLoadingError) {
+    body = (
+      <UnavailableState
+        inline
+        error={q.error}
+        subject="The realization outlook"
+        notReady={{ title: 'The realization outlook is not available in this build' }}
+        testId="outlook-unavailable"
+      />
+    );
+  } else {
+    const o = q.data;
+    body = (
+      <>
         <KeyValueTable
           label="Realization outlook"
           columns={1}
           rows={[
-            { label: 'Outlook', value: labelOf(outlook.outlook) },
-            { label: 'Horizon', value: `Within ${outlook.horizonMonths} months` },
-            { label: 'Note', value: outlook.note ?? MISSING },
+            {
+              label: 'Outlook',
+              value: (
+                <Badge tone={o.outlook === 'none' ? 'neutral' : 'brand'}>
+                  {outlookLabel(o.outlook)}
+                </Badge>
+              ),
+            },
+            { label: 'Horizon', value: `Within ${plural(o.horizonMonths, 'month')}` },
+            { label: 'Note', value: o.note ?? MISSING },
+            { label: 'Set by', value: o.setBy ?? MISSING },
+            { label: 'Set', value: o.setAt === null ? MISSING : formatDateTime(o.setAt) },
           ]}
         />
-      )}
+        {canSetOutlook(roles) ? (
+          <>
+            <OutlookForm detail={o} investmentId={id} log={log} />
+            <ActionStatus latest={log.latest} testId="outlook-action-status" />
+          </>
+        ) : (
+          <p className="pb-meta pb-deal-note" data-testid="outlook-read-only">
+            {OUTLOOK_READ_ONLY}
+          </p>
+        )}
+      </>
+    );
+  }
+  return (
+    <Card testId="outlook-card">
+      <SectionHeader aside={<SimulatedBadge />}>Realization outlook</SectionHeader>
+      {body}
       <p className="pb-meta pb-deal-note">
-        {outlook?.setAt !== null && outlook?.setAt !== undefined
-          ? `Set ${formatDate(datePart(outlook.setAt))}. `
-          : ''}
-        Changes only by explicit edit (docs/04 M9); the edit form arrives with Phase 2.
+        Changes only by explicit edit, with a reason on the audit trail (docs/04 M9); nothing
+        automated sets it.
       </p>
     </Card>
   );
@@ -308,7 +542,7 @@ function EquityPerformance({
       <QuarterlyCard perf={perf} company={company} />
       <div className="pb-two-col">
         <HighlightsCard perf={perf} />
-        <OutlookCard outlook={perf.realizationOutlook} />
+        <OutlookCard id={perf.investmentId} />
       </div>
     </>
   );
@@ -609,7 +843,7 @@ function CreditPerformance({
       </div>
       <div className="pb-two-col">
         <CovenantsCard credit={credit} />
-        <OutlookCard outlook={perf.realizationOutlook} />
+        <OutlookCard id={perf.investmentId} />
       </div>
     </>
   );
@@ -617,8 +851,9 @@ function CreditPerformance({
 
 /**
  * Performance tab (docs/04 M9, docs/08 section 4): growth since entry, the approved quarterly
- * series and highlights for equity and CV positions; terms, quarterly credit metrics and schedules
- * for private credit; the realization outlook for every position.
+ * series with the source of each quarter, and highlights for equity and CV positions; terms,
+ * quarterly credit metrics and schedules for private credit; the realization outlook, with its
+ * edit for the deal team, for every position.
  */
 export function PerformanceTab(): ReactNode {
   const id = useDealId();
