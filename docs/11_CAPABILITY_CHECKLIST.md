@@ -57,14 +57,14 @@ Status: N = not started, P = partial, B = built. Phase 0 built the foundations (
 ## E. Portfolio monitoring and valuation
 | # | Capability | Module | Status |
 |---|---|---|---|
-| E1 | Document hub with AI tagging + expected document tracker | M3 | N |
-| E2 | Quarterly extraction (15 fields + commentary) | M4 | N |
-| E3 | Review by exception with page citations | M4 | N |
-| E4 | Primary fund report extraction | M4 | N |
+| E1 | Document hub with AI tagging + expected document tracker | M3 | P (Documents hub over the local folder store with full-text search, filters, indexing with duplicate detection by hash, the keyword classifier with a confidence threshold and the review queue, the expected-document tracker with derived expected, late and missing status; semantic search and the SharePoint adapter are production work; decision 0012) |
+| E2 | Quarterly extraction (15 fields + commentary) | M4 | P (`config/extraction_schema.json` names the 15 fields; batches run through `extractionRunMachine` with retry and token budgets, every value carries unit, page, quote and confidence, ten validation rules in `packages/ai`, approval promotes into `mon.quarterly_performance` with lineage; the prototype model is the fixture extractor over the synthetic truth, a real model needs an approved key) |
+| E3 | Review by exception with page citations | M4 | Y (the run review page lists flagged and invalid values first, draws the cited page from the document layout with the quote highlighted, and offers accept, edit, reject, accept clean, approve and promote, retry) |
+| E4 | Primary fund report extraction | M4 | N (capital account statements are generated, indexed and classified; no extraction schema for them yet) |
 | E5 | Deal workspace one-pager (Overview, Performance, Sponsor & Contacts, Tasks, Documents) | M5, M9 | P (workspace tabs: Overview, Performance, Sponsor, Valuations, Capital activity, Activity; Diligence, Closing, Documents and Tasks arrive with their modules) |
 | E6 | Entry vs. current multiple analysis, leverage, growth | M9 | P (quarterly series with ratios, prior-year YoY and since-entry comparison in the performance endpoint and tab) |
 | E7 | Watchlist rules and alerts | M9 | P (rules from config thresholds evaluated in the API and shown on the watchlist and home; alert dispatch pending) |
-| E8 | Realization outlook (next 18 months) changed only by explicit edit | M9 | P (read on the performance tab; the edit workflow is pending) |
+| E8 | Realization outlook (next 18 months) changed only by explicit edit | M9 | Y (the outlook card on the Performance tab; the deal team edits it with a reason, audited with before and after, behind the `realizationFlagEditableOnlyManually` config guard) |
 | E9 | Valuation staging, approvals, lock / reopen, batch approve | M10 | P (state machine and database rules in place; valuation board read view; approvals and locks are simulated in the static preview only, decision 0006) |
 | E10 | Deal change requests routed to Ops | M11 | N |
 | E11 | **New:** NAV roll-forward when sponsor marks are late, with automatic footnote | M9, M19 | P (the weekly report footnotes a position carried at an earlier Locked mark, wording from config; the roll-forward itself is pending) |
@@ -105,7 +105,7 @@ Status: N = not started, P = partial, B = built. Phase 0 built the foundations (
 | H1 | Task and notification hub, missed-items digest | M15 | N |
 | H2 | **New:** Weekly team meeting pack auto-generated | M18 | N |
 | H3 | Audit trail and ODD evidence export | M15 | P (append-only audit.event, full-row history and an audit trail view for the four permitted roles; evidence export pending) |
-| H4 | Exceptions dashboard (the look-through data provider, the accounting system, extraction, reports) | M2, M15 | P (Data > Exceptions: the queue every intake feeds (accounting, ops drop, weekly values, look-through), filtered by state, source and severity, with acknowledge, resolve and won't fix through `exceptionMachine` and an external ticket number; walled rows' exceptions stay behind the wall; extraction and report exceptions arrive with M4 and M12) |
+| H4 | Exceptions dashboard (the look-through data provider, the accounting system, extraction, reports) | M2, M15 | P (Data > Exceptions: the queue every intake feeds (accounting, ops drop, weekly values, look-through), filtered by state, source and severity, with acknowledge, resolve and won't fix through `exceptionMachine` and an external ticket number; walled rows' exceptions stay behind the wall; a failed extraction run and an unreadable document open exceptions too (sources `extraction` and `documents`); report exceptions arrive with M12) |
 | H5 | Systems issue intake (problem, lane, scores, decision log) | M15 | N |
 | H6 | Data clearance gates enforced in code | docs/10 | P (employer-data and style guards in CI, production guard against mocks; connector gates with the connectors) |
 | H7 | Backup admin, runbooks, cost tracking | M15 | N |
@@ -117,7 +117,7 @@ Fund-accounting general ledger, investor onboarding / KYC, fixing the look-throu
 ## I. Advanced capabilities
 | # | Capability | Module | Status |
 |---|---|---|---|
-| I1 | Click-to-source on every reported number | M4, SEC-9.4 | N |
+| I1 | Click-to-source on every reported number | M4, SEC-9.4 | P (every quarter on the Performance tab links to its source document and page and to the run that read it; the other reported numbers (valuations, cash flows, credit metrics) do not carry a source yet) |
 | I2 | 100+ automated validations; restatement history | M2 | P (`packages/validation`: 62 rules across the accounting import (34), the weekly values intake (15) and the look-through reconcile (13), each with a passing and a failing test and the exact set of findings asserted per case, run on every staged row in the API and in the preview; the document and report rule sets and restatement history pending) |
 | I3 | Look-through exposures on our taxonomy | M20 | P (exposure buckets by sector, geography, deal type, vehicle, sponsor and vintage; client look-through by ownership) |
 | I4 | Benchmarking, PME, quartiles | M20 | N |

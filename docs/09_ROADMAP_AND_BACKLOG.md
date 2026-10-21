@@ -25,10 +25,11 @@ Synthetic data and mock adapters throughout. Every phase ends with: all CI gates
 **Status (session 6):** every Phase 1 item is built on synthetic data and proven by tests: the exit journey and the three other intakes each have an API suite and a Playwright journey over the real API (`apps/web/e2e/{intake,weekly,lookthrough,ops-drop}.spec.ts`), walls hold on every intake (a walled position links and waits for a wall member), and the static preview simulates all four intakes and the exceptions queue. Open owner decisions are listed in `docs/SESSION_LOG.md`.
 
 ## Phase 2: Documents, extraction, monitoring (M3, M4, M9)
-- [ ] Document index on local adapter; classifier with review queue and evals; duplicate detection
-- [ ] Extraction pipeline with citations; review-by-exception UI; batch status board; injection tests
-- [ ] Monitoring board, metrics, watchlist, realization outlook, primary fund view
+- [x] Document index on local adapter; classifier with review queue and evals; duplicate detection (the hub over the local folder store, `packages/pdf`, the keyword classifier under `ai.classifier`, the review queue, duplicates by content hash, the expected-document tracker; decision 0012)
+- [x] Extraction pipeline with citations; review-by-exception UI; batch status board; injection tests (batches as jobs, runs through the docs/18 machine with retry and token budgets, ten validation rules, the review page with the page drawn beside the fields and the quote highlighted, approval promoting into `mon.quarterly_performance` with lineage; the injection document extracts its real figures in the API suite, the eval harness and journey 2)
+- [x] Monitoring board, metrics, watchlist, realization outlook, primary fund view (the board under Portfolio with derived document status, run state, flags and approval and a CSV export; the audited outlook edit on the Performance tab; metrics and the watchlist from Phase 0 and session 3; watchlist alert dispatch and primary fund report extraction stay open, docs/11 E4 and E7)
 **Exit:** critical journey 2 (`docs/12`) passes; eval thresholds in M4 met with the mock and recorded fixtures.
+**Status (session 7):** journey 2 passes over the real API (`apps/web/e2e/journey2.spec.ts`: index, generate, batch, review flagged values, approve and promote, the one-pager shows the figure with its source link); `pnpm test:evals` builds the gold set from the synthetic documents and asserts the docs/04 thresholds (classifier precision 1.0 per type, numeric accuracy 1.0, no unit errors, no missing citations, no hallucinations, the injection probe changes nothing). OCR, semantic search and a real model stay out of the prototype (decision 0012).
 
 ## Phase 3: Controls (M10, M11, M8, M16, M22)
 - [ ] Valuation state machine, lock hash, batch approval, reporting gate
