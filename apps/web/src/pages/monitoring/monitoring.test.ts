@@ -12,7 +12,6 @@ import {
   approvalTone,
   approvedOnText,
   csvRowCount,
-  DOCUMENT_ROUTE,
   DOCUMENT_STATUS_WORDS,
   documentStatusTone,
   downloadText,
@@ -27,7 +26,6 @@ import {
   periodOptions,
   quarterEndsBetween,
   quarterLabel,
-  RUN_ROUTE,
   runStateTone,
   runStateWord,
   thresholdsLine,
@@ -161,8 +159,6 @@ describe('monitoring helpers', () => {
     expect(thresholdsLine()).toBe(
       `A report counts as late ${definitions.documents.lateAfterDays} days after its due date and as missing after ${definitions.documents.missingAfterDays} days (config/definitions.json documents).`,
     );
-    expect(DOCUMENT_ROUTE).toBe('/documents/$id');
-    expect(RUN_ROUTE).toBe('/documents/extraction/$id');
   });
 
   it('reads the board with its parameters sorted and retries only what a retry can change', async () => {

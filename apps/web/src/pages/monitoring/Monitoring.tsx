@@ -38,7 +38,6 @@ import {
   approvalWord,
   approvedOnText,
   csvRowCount,
-  DOCUMENT_ROUTE,
   documentStatusTone,
   documentStatusWord,
   downloadText,
@@ -50,7 +49,6 @@ import {
   MONITORING_META,
   periodOptions,
   quarterLabel,
-  RUN_ROUTE,
   runStateTone,
   runStateWord,
   thresholdsLine,
@@ -113,7 +111,7 @@ function DocumentCell({ row }: { row: MonitoringBoardRow }): ReactNode {
         {age === null ? null : <span>{age}</span>}
         {row.documentId === null ? null : (
           <Link
-            to={DOCUMENT_ROUTE}
+            to="/documents/$id"
             params={{ id: row.documentId }}
             aria-label={`Document, ${row.companyName}`}
           >
@@ -136,7 +134,11 @@ function RunCell({ row }: { row: MonitoringBoardRow }): ReactNode {
       )}
       {row.runId === null ? null : (
         <span className="pb-monitoring-lines">
-          <Link to={RUN_ROUTE} params={{ id: row.runId }} aria-label={`Run, ${row.companyName}`}>
+          <Link
+            to="/documents/extraction/$id"
+            params={{ id: row.runId }}
+            aria-label={`Run, ${row.companyName}`}
+          >
             Run
           </Link>
         </span>
