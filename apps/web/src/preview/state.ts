@@ -1,13 +1,24 @@
 import { capitalNoticePage, valuationPage } from '@pb/contracts';
 import type {
   CapitalNoticeRow,
+  ClassifierEvidence,
   DataExceptionState,
+  DocumentReviewStatus,
+  ExtractionBatchState,
+  ExtractionDecision,
+  ExtractionErrorKind,
+  ExtractionFinding,
+  ExtractionRunState,
+  ExtractionUnit,
+  ExtractionValidationState,
   IntakeFinding,
   IntakeLink,
   IntakeRow,
   IntakeSource,
   LookthroughDifference,
   LookthroughRow,
+  QuarterSource,
+  RealizationOutlookCode,
   StagingState,
   ValuationRow,
   WeeklyPriorSource,
@@ -166,9 +177,9 @@ export interface SimLookthroughRun extends SimFileHeader {
  */
 export interface SimException {
   id: string;
-  /** The intake that opened it, such as accounting_import or lookthrough_reconcile. */
+  /** The intake or job that opened it, such as accounting_import, lookthrough_reconcile, documents or extraction. */
   source: string;
-  entity: 'stg.intake_row' | 'stg.valuation';
+  entity: 'stg.intake_row' | 'stg.valuation' | 'doc.document' | 'doc.extraction_run';
   entityId: string;
   ruleId: string;
   expected: string | null;
@@ -183,9 +194,10 @@ export interface SimException {
   updatedAt: string;
   rowVersion: number;
   context: {
-    intakeFileId: string;
-    intakeFileName: string;
-    rowNo: number;
+    /** The staged file and row it is about; null for an exception about a document or an extraction run. */
+    intakeFileId: string | null;
+    intakeFileName: string | null;
+    rowNo: number | null;
     /** The investment the staged row links to; null for an unresolved link. */
     investmentId: string | null;
   };
@@ -204,7 +216,13 @@ export interface SimAuditEvent {
     | 'feature_flag'
     | 'intake_file'
     | 'quarterly_performance'
-    | 'data_exception';
+    | 'data_exception'
+    | 'document'
+    | 'expected_document'
+    | 'extraction_batch'
+    | 'extraction_run'
+    | 'extracted_value'
+    | 'realization_outlook';
   entityId: string;
   reason: string | null;
   from: string | null;
@@ -212,6 +230,182 @@ export interface SimAuditEvent {
   /** Counts only, never row content (the intake events). */
   details?: Readonly<Record<string, number>> | undefined;
 }
+
+/* ---- The document hub, the extraction engine and the monitoring board (Phase 2, decision 0012) ---- */
+
+/** One page of an indexed item as @pb/pdf read it: the text for search and the model, the lines for the pages viewer, the runs for click-to-source. */
+export interface SimDocumentPage {
+  number: number;
+  width: number;
+  height: number;
+  text: string;
+  lines: string[];
+  runs: { x: number; y: number; size: number; text: string }[];
+}
+
+/** One indexed item of the simulated store (doc.document), with the pages read from its bundled PDF. */
+export interface SimDocument {
+  id: string;
+  /** The store's id: the path relative to the root (inbox/<fileName>). */
+  sourceItemId: string;
+  fileName: string;
+  folder: string;
+  title: string;
+  docType: string | null;
+  reviewStatus: DocumentReviewStatus;
+  sponsorId: string | null;
+  sponsorFundId: string | null;
+  investmentId: string | null;
+  periodEnd: string | null;
+  contentHash: string;
+  sizeBytes: number;
+  pageCount: number | null;
+  receivedAt: string;
+  indexedAt: string;
+  classificationConfidence: string | null;
+  classifierEvidence: ClassifierEvidence;
+  /** The person who classified it by hand (user id and display name); null when the classifier did, or nobody yet. */
+  classifiedById: string | null;
+  classifiedBy: string | null;
+  classifiedAt: string | null;
+  duplicateOfId: string | null;
+  /** The first 2000 characters of the text, for search only. */
+  textExcerpt: string | null;
+  /** The pages as read; null for an item the reader refused. */
+  pages: SimDocumentPage[] | null;
+  /** The reader's refusal code for an unreadable item (PdfErrorCode), else null. */
+  unreadableCode: string | null;
+  rowVersion: number;
+}
+
+/** One expected document of a quarter (doc.expected_document); status and age are derived when read. */
+export interface SimExpectedDocument {
+  id: string;
+  investmentId: string | null;
+  sponsorFundId: string | null;
+  periodEnd: string;
+  docType: string;
+  dueDate: string;
+  receivedDocumentId: string | null;
+  createdAt: string;
+}
+
+/** An extraction batch (ops.job of type extraction_batch). */
+export interface SimBatch {
+  id: string;
+  state: ExtractionBatchState;
+  progress: number;
+  requestedById: string;
+  requestedBy: string;
+  createdAt: string;
+  startedAt: string | null;
+  finishedAt: string | null;
+  errorCode: string | null;
+}
+
+/** An extraction run (doc.extraction_run). */
+export interface SimRun {
+  id: string;
+  documentId: string;
+  investmentId: string | null;
+  periodEnd: string | null;
+  schemaId: string;
+  promptId: string;
+  promptVersion: string;
+  modelId: string | null;
+  state: ExtractionRunState;
+  batchId: string | null;
+  tokensIn: number | null;
+  tokensOut: number | null;
+  costUsd: string | null;
+  startedAt: string | null;
+  finishedAt: string | null;
+  errorCode: string | null;
+  errorKind: ExtractionErrorKind | null;
+  schemaRetries: number;
+  transientRetries: number;
+  requestedById: string | null;
+  requestedBy: string | null;
+  approvedById: string | null;
+  approvedBy: string | null;
+  approvedAt: string | null;
+  promotedRecordId: string | null;
+  createdAt: string;
+  rowVersion: number;
+}
+
+/** One staged value of a run (stg.extracted_value): a schema field, or the highlights or commentary row. */
+export interface SimValue {
+  id: string;
+  runId: string;
+  investmentId: string | null;
+  field: string;
+  value: string | null;
+  unit: ExtractionUnit | null;
+  page: number | null;
+  quote: string | null;
+  confidence: string | null;
+  validationState: ExtractionValidationState;
+  findings: ExtractionFinding[];
+  reviewerId: string | null;
+  decidedBy: string | null;
+  decision: ExtractionDecision | null;
+  editedValue: string | null;
+  decidedAt: string | null;
+  rowVersion: number;
+}
+
+/** The figure columns a promotion writes into mon.quarterly_performance, in the record's order. */
+export const QUARTERLY_FIGURE_KEYS = [
+  'revenueLtm',
+  'ebitdaLtm',
+  'ev',
+  'netDebt',
+  'cash',
+  'totalEquity',
+] as const;
+export type QuarterlyFigureKey = (typeof QUARTERLY_FIGURE_KEYS)[number];
+export type QuarterlyFigures = Partial<Record<QuarterlyFigureKey, string | null>>;
+
+/**
+ * A quarter an approved extraction run promoted (mon.quarterly_performance as the promotion
+ * writes it): the figures in dollars for the keys written, the approval and the lineage. The
+ * Performance tab overlay lays it over the recorded quarter of the same period end, or adds it.
+ */
+export interface SimPromotedQuarter {
+  /** The record's id: the quarter on record it replaced, or a new id for the quarter it created. */
+  id: string;
+  investmentId: string;
+  periodEnd: string;
+  created: boolean;
+  figures: QuarterlyFigures;
+  approvedById: string;
+  approvedBy: string;
+  approvedAt: string;
+  approvalReason: string;
+  /** The narrative written only when its rows were accepted; a key left out keeps the record's. */
+  highlights?: string[] | undefined;
+  commentary?: string | null | undefined;
+  source: QuarterSource;
+  promptVersion: string | null;
+  modelId: string | null;
+}
+
+/** The realization outlook set by hand this session (mon.realization_outlook), one per investment. */
+export interface SimOutlook {
+  investmentId: string;
+  outlook: RealizationOutlookCode;
+  horizonMonths: number;
+  note: string | null;
+  setById: string;
+  setBy: string;
+  setAt: string;
+  rowVersion: number;
+}
+
+/** The key of a promoted quarter: its investment and period end. */
+export const quarterKey = (investmentId: string, periodEnd: string): string =>
+  `${investmentId}|${periodEnd}`;
 
 /** A successful answer kept for an Idempotency-Key (docs/17 section 3). */
 export interface StoredResponse {
@@ -235,6 +429,20 @@ export interface PreviewState {
   lookthroughRuns: Map<string, SimLookthroughRun>;
   /** Data exceptions the simulated intakes opened this session, by id. */
   exceptions: Map<string, SimException>;
+  /** Documents the simulated index wrote this session, by id (insertion order is index order). */
+  documents: Map<string, SimDocument>;
+  /** Expected documents generated this session, by id. */
+  expectedDocuments: Map<string, SimExpectedDocument>;
+  /** Extraction batches started this session, by id. */
+  batches: Map<string, SimBatch>;
+  /** Extraction runs queued this session, by id. */
+  runs: Map<string, SimRun>;
+  /** Staged values of every run, by id. */
+  values: Map<string, SimValue>;
+  /** Quarters promoted by approved runs this session, by investment and period end (quarterKey). */
+  promotedQuarters: Map<string, SimPromotedQuarter>;
+  /** Realization outlooks set this session, by investment id. */
+  outlooks: Map<string, SimOutlook>;
   audit: SimAuditEvent[];
   idempotency: Map<string, StoredResponse>;
 }
@@ -273,6 +481,13 @@ export function createPreviewState(): PreviewState {
     weeklyFiles: new Map(),
     lookthroughRuns: new Map(),
     exceptions: new Map(),
+    documents: new Map(),
+    expectedDocuments: new Map(),
+    batches: new Map(),
+    runs: new Map(),
+    values: new Map(),
+    promotedQuarters: new Map(),
+    outlooks: new Map(),
     audit: [],
     idempotency: new Map(),
   };
@@ -287,8 +502,35 @@ export function resetPreviewState(state: PreviewState): void {
   state.weeklyFiles.clear();
   state.lookthroughRuns.clear();
   state.exceptions.clear();
+  state.documents.clear();
+  state.expectedDocuments.clear();
+  state.batches.clear();
+  state.runs.clear();
+  state.values.clear();
+  state.promotedQuarters.clear();
+  state.outlooks.clear();
   state.audit.length = 0;
   state.idempotency.clear();
+}
+
+/** The staged values of a run, in the order they were staged (schema order, then the narrative rows). */
+export function valuesOfRun(state: PreviewState, runId: string): SimValue[] {
+  return [...state.values.values()].filter((v) => v.runId === runId);
+}
+
+/** The newest run of a document by (createdAt, id), or null. */
+export function latestRunOf(state: PreviewState, documentId: string): SimRun | null {
+  let latest: SimRun | null = null;
+  for (const run of state.runs.values()) {
+    if (run.documentId !== documentId) continue;
+    if (
+      latest === null ||
+      run.createdAt > latest.createdAt ||
+      (run.createdAt === latest.createdAt && run.id > latest.id)
+    )
+      latest = run;
+  }
+  return latest;
 }
 
 /** The data exceptions opened about the rows of a file, whichever intake opened them (the file header's count). */

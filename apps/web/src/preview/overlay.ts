@@ -1,9 +1,23 @@
+import definitions from '../../../../config/definitions.json';
+import {
+  ebitdaMargin,
+  evToEbitda,
+  growthSinceEntry,
+  latestPeriod,
+  multipleDelta,
+  netDebtToEbitda,
+  sameQuarterPriorYear,
+  toDecimalString,
+  yoyGrowth,
+} from '@pb/calc';
+import type { Decimal } from '@pb/calc';
 import {
   capitalNoticeDetail,
   capitalNoticePage,
   dataHealth,
   featureFlagList,
   investmentDetail,
+  investmentPerformance,
   valuationPage,
 } from '@pb/contracts';
 import type {
@@ -11,11 +25,20 @@ import type {
   CapitalNoticePage,
   DataHealth,
   InvestmentDetail,
+  InvestmentPerformance,
+  QuarterRow,
   ValuationPage,
 } from '@pb/contracts';
 import type { z } from 'zod';
 import type { Recordings } from './fixtures.js';
-import type { PreviewState, SimException, SimNotice, SimValuation } from './state.js';
+import { QUARTERLY_FIGURE_KEYS } from './state.js';
+import type {
+  PreviewState,
+  SimException,
+  SimNotice,
+  SimPromotedQuarter,
+  SimValuation,
+} from './state.js';
 
 /**
  * Read overlays: recorded GET bodies with this session's simulated changes laid over them, so lists
@@ -160,6 +183,128 @@ export function overlayDataHealth(health: DataHealth, sims: Iterable<SimExceptio
   return open === 0 ? health : { ...health, openExceptions: health.openExceptions + open };
 }
 
+/* ---- The Performance tab: the quarters an approved extraction run promoted ---- */
+
+const str = toDecimalString;
+const APPROVED_STATUS = 'record_status.approved';
+const isApproved = (status: string): boolean =>
+  status.slice(status.indexOf('.') + 1) === 'approved';
+
+/** A quarter the record lacked, before the promoted figures are laid over it. */
+function blankQuarter(periodEnd: string): QuarterRow {
+  return {
+    periodEnd,
+    isEntrySnapshot: false,
+    status: APPROVED_STATUS,
+    revenueLtm: null,
+    ebitdaLtm: null,
+    ev: null,
+    netDebt: null,
+    cash: null,
+    totalEquity: null,
+    evToEbitda: null,
+    netDebtToEbitda: null,
+    ebitdaMargin: null,
+    revenueYoy: null,
+    ebitdaYoy: null,
+    highlights: [],
+    source: null,
+  };
+}
+
+const evMultiple = (row: Pick<QuarterRow, 'ev' | 'ebitdaLtm'>): Decimal | null =>
+  row.ev === null ? null : evToEbitda(row.ev, row.ebitdaLtm);
+const leverage = (row: Pick<QuarterRow, 'netDebt' | 'ebitdaLtm'>): Decimal | null =>
+  row.netDebt === null ? null : netDebtToEbitda(row.netDebt, row.ebitdaLtm);
+
+/** The quarter's own ratios from its figures, as apps/api/src/performance/performance.service.ts derives them. */
+function withRatios(row: QuarterRow, prior: QuarterRow | null): QuarterRow {
+  return {
+    ...row,
+    evToEbitda: str(evMultiple(row)),
+    netDebtToEbitda: str(leverage(row)),
+    ebitdaMargin: row.ebitdaLtm === null ? null : str(ebitdaMargin(row.ebitdaLtm, row.revenueLtm)),
+    revenueYoy: str(yoyGrowth(row.revenueLtm, prior?.revenueLtm ?? null)),
+    ebitdaYoy: str(yoyGrowth(row.ebitdaLtm, prior?.ebitdaLtm ?? null)),
+  };
+}
+
+/** The rows with the status word packages/calc reads ('approved'), for the latest-period rule. */
+const withCalcStatus = (rows: readonly QuarterRow[]): QuarterRow[] =>
+  rows.map((r) => (isApproved(r.status) ? { ...r, status: 'approved' } : r));
+
+/**
+ * The recorded performance with the promoted quarters laid over it: a promoted quarter replaces
+ * the recorded quarter of its period end (the figures written in dollars, the status approved,
+ * the source lineage, the narrative when accepted; every other column stays as recorded) or is
+ * added when the record lacked it. The ratios of the promoted quarters, the year-on-year columns
+ * and the since-entry block are derived again with the same @pb/calc functions the API uses, so
+ * no ratio is left standing next to a figure it no longer describes (rule 10). Nothing else is
+ * recomputed; a performance answer with no promoted quarter is returned as it is.
+ */
+export function overlayInvestmentPerformance(
+  perf: InvestmentPerformance,
+  promoted: Iterable<SimPromotedQuarter>,
+  toleranceDays: number,
+): InvestmentPerformance {
+  const own = [...promoted].filter((q) => q.investmentId === perf.investmentId);
+  if (own.length === 0) return perf;
+  const byPeriod = new Map(perf.quarters.map((q) => [q.periodEnd, q]));
+  for (const q of own) {
+    const base = byPeriod.get(q.periodEnd) ?? blankQuarter(q.periodEnd);
+    const row: QuarterRow = { ...base, status: APPROVED_STATUS, source: { ...q.source } };
+    for (const key of QUARTERLY_FIGURE_KEYS) {
+      const value = q.figures[key];
+      if (value !== undefined) row[key] = value;
+    }
+    if (q.highlights !== undefined) row.highlights = [...q.highlights];
+    byPeriod.set(q.periodEnd, row);
+  }
+  const ordered = [...byPeriod.values()].sort((a, b) =>
+    a.periodEnd < b.periodEnd ? -1 : a.periodEnd > b.periodEnd ? 1 : 0,
+  );
+  const approved = ordered.filter((r) => isApproved(r.status));
+  const promotedPeriods = new Set(own.map((q) => q.periodEnd));
+  const quarters = ordered.map((row) =>
+    withRatios(row, sameQuarterPriorYear(approved, row.periodEnd, { toleranceDays })),
+  );
+  // Only a promoted quarter's own ratios and every year-on-year column are derived again; an
+  // untouched quarter keeps the ratios the API answered.
+  const quartersKept = quarters.map((row, i) => {
+    const recorded = ordered[i];
+    if (recorded === undefined || promotedPeriods.has(row.periodEnd)) return row;
+    return {
+      ...row,
+      evToEbitda: recorded.evToEbitda,
+      netDebtToEbitda: recorded.netDebtToEbitda,
+      ebitdaMargin: recorded.ebitdaMargin,
+    };
+  });
+  const entry = perf.entry;
+  let sinceEntry = perf.sinceEntry;
+  if (entry !== null && entry.periodEnd <= perf.asOf) {
+    const latest = latestPeriod(withCalcStatus(quartersKept), perf.asOf);
+    sinceEntry =
+      latest === null
+        ? null
+        : {
+            periodEnd: latest.periodEnd,
+            revenueGrowth: str(growthSinceEntry(latest.revenueLtm, entry.revenueLtm)),
+            ebitdaGrowth: str(growthSinceEntry(latest.ebitdaLtm, entry.ebitdaLtm)),
+            multipleDelta: str(multipleDelta(evMultiple(latest), evMultiple(entry))),
+            evToEbitdaAtEntry: str(evMultiple(entry)),
+            netDebtToEbitdaAtEntry: str(leverage(entry)),
+          };
+  }
+  return { ...perf, quarters: quartersKept, sinceEntry };
+}
+
+/** `definitions.priorYearPeriodEndToleranceDays`, the tolerance the prior-year match reads. */
+function priorYearTolerance(): number {
+  const value: unknown = (definitions as Record<string, unknown>).priorYearPeriodEndToleranceDays;
+  return typeof value === 'number' && Number.isInteger(value) ? value : 7;
+}
+
 /** Context the overlays read: the credential's own recordings decide what it may see. */
 export interface OverlayContext {
   credential: string;
@@ -168,6 +313,7 @@ export interface OverlayContext {
 }
 
 const INVESTMENT = /^\/api\/v1\/investments\/([^/]+)$/;
+const PERFORMANCE = /^\/api\/v1\/investments\/([^/]+)\/performance$/;
 const NOTICE = /^\/api\/v1\/capital-notices\/([^/]+)$/;
 
 function param(url: URL, name: string): string | undefined {
@@ -204,6 +350,11 @@ export function overlayRecordedBody(url: URL, text: string, ctx: OverlayContext)
   if (path === '/api/v1/data-health' && state.exceptions.size > 0)
     return write(parse(dataHealth), (health) =>
       overlayDataHealth(health, state.exceptions.values()),
+    );
+
+  if (state.promotedQuarters.size > 0 && PERFORMANCE.test(path))
+    return write(parse(investmentPerformance), (perf) =>
+      overlayInvestmentPerformance(perf, state.promotedQuarters.values(), priorYearTolerance()),
     );
 
   if (state.valuations !== null) {

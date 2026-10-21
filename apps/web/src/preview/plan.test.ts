@@ -10,6 +10,14 @@ import {
   commitmentsQuery,
   dataDictionaryQuery,
   dataHealthQuery,
+  documentPagesQuery,
+  documentQuery,
+  documentsOfInvestmentQuery,
+  documentsQuery,
+  expectedDocumentsQuery,
+  extractionBatchesQuery,
+  extractionRunQuery,
+  extractionRunsQuery,
   flagsQuery,
   healthReadyQuery,
   intakeExportsQuery,
@@ -19,6 +27,9 @@ import {
   investmentsQuery,
   meQuery,
   mockUsersQuery,
+  monitoringBoardQuery,
+  realizationOutlookQuery,
+  reviewQueueQuery,
   sponsorQuery,
   sponsorsQuery,
   taxonomyQuery,
@@ -172,6 +183,21 @@ describe('the recording plan', () => {
       auditQuery({ entityId: INV }),
       investmentsQuery(CREDIT_POSITIONS),
       investmentsQuery(REALIZED_POSITIONS),
+      documentsQuery(),
+      documentsQuery({ q: 'report', reviewStatus: 'NeedsReview' }),
+      documentsOfInvestmentQuery(INV),
+      documentQuery(INV),
+      documentPagesQuery(INV),
+      reviewQueueQuery,
+      expectedDocumentsQuery(),
+      expectedDocumentsQuery({ periodEnd: '2025-06-30', status: 'late', asOf: '2025-09-30' }),
+      extractionBatchesQuery,
+      extractionRunsQuery(),
+      extractionRunsQuery({ state: 'Succeeded' }),
+      extractionRunQuery(INV),
+      monitoringBoardQuery(),
+      monitoringBoardQuery({ periodEnd: '2025-06-30', asOf: '2025-09-30' }),
+      realizationOutlookQuery(INV),
     ];
     for (const limit of [undefined, ...INVESTMENT_LIMITS])
       for (const dealType of [undefined, ...DEAL_TYPES])
@@ -188,7 +214,9 @@ describe('the recording plan', () => {
     }
     expect(missing).toEqual([]);
     // Intake files, reconcile runs and data exceptions exist only once the simulation stages
-    // them, so the shim answers those reads (every source, every drop folder, the queue).
+    // them, so the shim answers those reads (every source, every drop folder, the queue); the
+    // document hub, the extraction engine and the monitoring board are simulated the same way
+    // over the bundled document set.
     expect(simulated).toEqual([
       '/api/v1/intake/files?limit=200',
       '/api/v1/intake/accounting/exports',
@@ -200,7 +228,35 @@ describe('the recording plan', () => {
       '/api/v1/data-exceptions?limit=200',
       `/api/v1/data-exceptions/${INV}`,
       '/api/v1/intake/ops-drop/drops',
+      '/api/v1/documents?limit=200',
+      '/api/v1/documents?limit=200&q=report&reviewStatus=NeedsReview',
+      `/api/v1/documents?limit=200&investmentId=${INV}`,
+      `/api/v1/documents/${INV}`,
+      `/api/v1/documents/${INV}/pages`,
+      '/api/v1/documents/review-queue?limit=200',
+      '/api/v1/expected-documents?limit=200',
+      '/api/v1/expected-documents?limit=200&periodEnd=2025-06-30&status=late&asOf=2025-09-30',
+      '/api/v1/extraction/batches?limit=200',
+      '/api/v1/extraction/runs?limit=200',
+      '/api/v1/extraction/runs?limit=200&state=Succeeded',
+      `/api/v1/extraction/runs/${INV}`,
+      '/api/v1/monitoring/board',
+      '/api/v1/monitoring/board?asOf=2025-09-30&periodEnd=2025-06-30',
+      `/api/v1/monitoring/outlook/${INV}`,
     ]);
+    // The hub's empty state, each investment's documents and its outlook are recorded all the
+    // same, so the recordings hold the API's own answer before the simulation adds anything.
+    for (const path of [
+      '/api/v1/documents?limit=200',
+      '/api/v1/documents/review-queue?limit=200',
+      '/api/v1/expected-documents?limit=200',
+      '/api/v1/extraction/batches?limit=200',
+      '/api/v1/extraction/runs?limit=200',
+      '/api/v1/monitoring/board',
+      `/api/v1/documents?limit=200&investmentId=${INV}`,
+      `/api/v1/monitoring/outlook/${INV}`,
+    ])
+      expect(planned.has(keyOf(path)), path).toBe(true);
   });
 
   it('records every id for every family that takes one, and the audit trail first', () => {
@@ -211,6 +267,10 @@ describe('the recording plan', () => {
     expect(paths('vehicle detail')).toEqual([`/api/v1/vehicles/${VEH}`]);
     expect(paths('sponsor detail')).toEqual([`/api/v1/sponsors/${SPO}`]);
     expect(paths('capital notice detail')).toEqual([`/api/v1/capital-notices/${NOT}`]);
+    expect(paths('investment documents')).toEqual([
+      `/api/v1/documents?investmentId=${INV}&limit=200`,
+    ]);
+    expect(paths('realization outlook')).toEqual([`/api/v1/monitoring/outlook/${INV}`]);
     expect(plan.families.map((f) => f.name)).not.toContain('intake');
     expect(paths('investment lists')).toHaveLength(
       INVESTMENT_LIMITS.length * (DEAL_TYPES.length + 1) * ACTIVE_FILTERS.length,

@@ -106,6 +106,26 @@ describe('seeding from the recordings', () => {
       rowVersion: 1,
       context: { intakeFileId: 'a', intakeFileName: 'x', rowNo: 1, investmentId: null },
     });
+    state.expectedDocuments.set('e', {
+      id: 'e',
+      investmentId: null,
+      sponsorFundId: 'fund',
+      periodEnd: '2025-06-30',
+      docType: 'doc_type.capital_account_statement',
+      dueDate: '2025-08-14',
+      receivedDocumentId: null,
+      createdAt: '2025-07-01T00:00:00.000Z',
+    });
+    state.outlooks.set('i', {
+      investmentId: 'i',
+      outlook: 'full',
+      horizonMonths: 6,
+      note: null,
+      setById: 'u',
+      setBy: 'Test Deal Lead',
+      setAt: '2025-07-01T00:00:00.000Z',
+      rowVersion: 1,
+    });
     resetPreviewState(state);
     expect(state.valuations).toBeNull();
     expect(state.notices).toBeNull();
@@ -114,6 +134,16 @@ describe('seeding from the recordings', () => {
     expect(state.weeklyFiles.size).toBe(0);
     expect(state.lookthroughRuns.size).toBe(0);
     expect(state.exceptions.size).toBe(0);
+    expect(state.expectedDocuments.size).toBe(0);
+    expect(state.outlooks.size).toBe(0);
+    for (const map of [
+      state.documents,
+      state.batches,
+      state.runs,
+      state.values,
+      state.promotedQuarters,
+    ])
+      expect(map.size).toBe(0);
   });
 });
 

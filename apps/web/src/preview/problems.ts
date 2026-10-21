@@ -105,3 +105,15 @@ export function jsonResponse(
     headers: headers('application/json', options.simulated === true, options.etag),
   });
 }
+
+/** A text answer of the media type given (the board's CSV export), with a download file name when one is given. */
+export function textResponse(
+  status: number,
+  text: string,
+  options: { mediaType: string; fileName?: string; simulated?: boolean },
+): Response {
+  const h = headers(`${options.mediaType}; charset=utf-8`, options.simulated === true);
+  if (options.fileName !== undefined)
+    h.set('content-disposition', `attachment; filename="${options.fileName}"`);
+  return new Response(text, { status, headers: h });
+}
