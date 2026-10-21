@@ -188,6 +188,34 @@ describe('Parser', () => {
     expect(refusal(() => parse('<< >>\nstream\nhello')).code).toBe('corrupt');
   });
 
+  it('finds endstream through the index hook and skips only a little white space after /Length (PDF-4)', () => {
+    const text = '<< >>\nstream\nhello\nendstream';
+    const bytes = latin1Bytes(text);
+    const calls: number[] = [];
+    const parser = new Parser(bytes, {
+      maxDepth: 4,
+      allowRefs: true,
+      endstreamAfter: (data, from) => {
+        calls.push(from);
+        return data === bytes ? text.indexOf('endstream') : -1;
+      },
+    });
+    const s = parser.parse();
+    expect(isStream(s) ? Array.from(s.raw) : null).toEqual(Array.from(latin1Bytes('hello')));
+    expect(calls).toEqual([text.indexOf('hello')]);
+    expect(
+      refusal(() =>
+        new Parser(bytes, { maxDepth: 4, allowRefs: true, endstreamAfter: () => -1 }).parse(),
+      ).code,
+    ).toBe('corrupt');
+    // A /Length that lands a few spaces before endstream is right; one that lands a long way
+    // before it is wrong, and the stream ends where endstream is found (the spaces included).
+    const near = parse(`<< /Length 5 >>\nstream\nhello${' '.repeat(16)}endstream`);
+    expect(isStream(near) ? near.raw.length : -1).toBe(5);
+    const far = parse(`<< /Length 5 >>\nstream\nhello${' '.repeat(200)}endstream`);
+    expect(isStream(far) ? far.raw.length : -1).toBe(205);
+  });
+
   it('refuses nesting past the depth limit', () => {
     const deep = '['.repeat(70) + ']'.repeat(70);
     expect(refusal(() => parse(deep)).code).toBe('too_large');

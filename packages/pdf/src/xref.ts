@@ -49,6 +49,13 @@ export type XrefEntry =
 const HEADER = '%PDF-';
 const HEADER_WINDOW = 1024;
 
+/**
+ * The most bytes the fallback scan may parse, as a multiple of the file's size. A sound repair
+ * parses each byte once or twice (an object, and again when it sits inside another's stream); a
+ * file whose every occurrence parses far ahead would otherwise cost the square of its size.
+ */
+const REPAIR_WORK_FACTOR = 4;
+
 interface ObjectStreamIndex {
   data: Uint8Array;
   first: number;
@@ -67,6 +74,8 @@ export class PdfFile {
   private readonly cache = new Map<number, PdfObject>();
   private readonly objectStreams = new Map<number, ObjectStreamIndex>();
   private readonly decoded = new WeakMap<PdfStream, Uint8Array>();
+  /** Every `endstream` position per byte array (the file, an object stream's data), built on first need. */
+  private readonly endstreams = new WeakMap<Uint8Array, Uint32Array>();
   private readonly resolving = new Set<number>();
   private totalStreamBytes = 0;
   private fetched = 0;
@@ -358,6 +367,35 @@ export class PdfFile {
     const { bytes } = this;
     const found = new Map<number, number>();
     const trailer = new Map<string, PdfObject>();
+    // The bytes the lexer walks across every parse of the repair, summed against the budget. A
+    // stream's raw bytes are a view found through the endstream index, never walked.
+    let parsed = 0;
+    const maxParsed = bytes.length * REPAIR_WORK_FACTOR;
+    const parseAt = (from: number): { object: PdfObject | undefined; end: number } | null => {
+      const parser = new Parser(bytes, this.parseOptions(), from);
+      const charge = (object?: PdfObject): void => {
+        let walked = parser.pos - from;
+        if (isStream(object)) walked -= object.raw.length;
+        parsed += Math.max(0, walked);
+        if (parsed > maxParsed) {
+          throw new PdfError(
+            'The damaged file needs more repair work than the reader accepts',
+            'too_large',
+          );
+        }
+      };
+      try {
+        const object = parser.parse();
+        charge(object);
+        return { object, end: parser.pos };
+      } catch (error) {
+        if (error instanceof PdfError && error.code === 'corrupt') {
+          charge();
+          return null;
+        }
+        throw error;
+      }
+    };
     let pos = 0;
     for (;;) {
       const at = indexOfBytes(bytes, 'obj', pos);
@@ -379,14 +417,11 @@ export class PdfFile {
     for (;;) {
       const at = indexOfBytes(bytes, 'trailer', pos);
       if (at < 0) break;
-      pos = at + 7;
-      try {
-        const object = new Parser(bytes, this.parseOptions(), at + 7).parse();
-        if (isDict(object)) for (const [key, value] of object.map) trailer.set(key, value);
-      } catch (error) {
-        if (error instanceof PdfError && error.code === 'corrupt') continue;
-        throw error;
-      }
+      const result = parseAt(at + 7);
+      // The search goes on after what was parsed: a "trailer" inside it was part of it.
+      pos = Math.max(at + 7, result?.end ?? 0);
+      const object = result?.object;
+      if (isDict(object)) for (const [key, value] of object.map) trailer.set(key, value);
     }
     for (const [num, offset] of found) {
       this.table.set(num, { kind: 'offset', offset, gen: 0 });
@@ -397,14 +432,9 @@ export class PdfFile {
     for (const [num, offset] of found) {
       const header = readObjectHeader(bytes, offset);
       if (!header) continue;
-      let object: PdfObject | undefined;
-      try {
-        object = new Parser(bytes, this.parseOptions(), header.after).parse();
-      } catch (error) {
-        if (error instanceof PdfError && error.code === 'corrupt') continue;
-        throw error;
-      }
-      if (object === undefined) continue;
+      const result = parseAt(header.after);
+      if (result?.object === undefined) continue;
+      const { object } = result;
       const map = isStream(object) ? object.dict.map : isDict(object) ? object.map : null;
       if (!map) continue;
       const type = map.get('Type');
@@ -451,12 +481,40 @@ export class PdfFile {
     maxDepth: number;
     allowRefs: true;
     resolveLength: (r: PdfRef) => number | null;
+    endstreamAfter: (bytes: Uint8Array, from: number) => number;
   } {
     return {
       maxDepth: this.limits.maxDepth,
       allowRefs: true,
       resolveLength: (r) => this.lengthOf(r),
+      endstreamAfter: (bytes, from) => this.endstreamAfter(bytes, from),
     };
+  }
+
+  /**
+   * The first `endstream` at or after `from`, from an index of every occurrence in the byte
+   * array built on its first use, so a stream whose /Length is missing or wrong costs one
+   * binary search rather than a scan to the end of the file. -1 when there is none.
+   */
+  private endstreamAfter(bytes: Uint8Array, from: number): number {
+    let index = this.endstreams.get(bytes);
+    if (!index) {
+      const positions: number[] = [];
+      for (let at = indexOfBytes(bytes, 'endstream'); at >= 0;) {
+        positions.push(at);
+        at = indexOfBytes(bytes, 'endstream', at + 'endstream'.length);
+      }
+      index = Uint32Array.from(positions);
+      this.endstreams.set(bytes, index);
+    }
+    let lo = 0;
+    let hi = index.length;
+    while (lo < hi) {
+      const mid = (lo + hi) >>> 1;
+      if ((index[mid] ?? 0) < from) lo = mid + 1;
+      else hi = mid;
+    }
+    return lo < index.length ? (index[lo] ?? -1) : -1;
   }
 
   /** A stream /Length held in a direct object, read without touching the async path; else null. */

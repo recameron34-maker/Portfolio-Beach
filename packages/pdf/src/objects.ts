@@ -5,7 +5,7 @@
  * streams and CMaps; the parser takes a mode (file objects allow `n g R` references, content
  * streams return operators) and a nesting budget.
  */
-import { hexValue, isDigit, isRegular, isWhitespace, latin1 } from './bytes.js';
+import { bytesAt, hexValue, isDigit, isRegular, isWhitespace, latin1 } from './bytes.js';
 import { PdfError } from './errors.js';
 
 export interface PdfName {
@@ -338,7 +338,20 @@ export interface ParseOptions {
    * returns null, the stream's end is found by searching for `endstream`.
    */
   resolveLength?: (ref: PdfRef) => number | null;
+  /**
+   * The first `endstream` at or after `from` in `bytes`, or -1. A file reader answers from an
+   * index built once per byte array, so a stream with a missing or wrong /Length never scans
+   * the rest of the file; absent, the parser scans forward itself.
+   */
+  endstreamAfter?: (bytes: Uint8Array, from: number) => number;
 }
+
+/**
+ * How much white space may sit between the bytes a stream's /Length counts and `endstream` for
+ * the length to be taken as right. More than this and the length is wrong: the end is searched
+ * for instead, so a hostile /Length cannot make every stream skip a long run of spaces.
+ */
+const STREAM_END_SLACK = 64;
 
 /** The object parser. One instance per byte array; `parse()` reads the object at the lexer position. */
 export class Parser {
@@ -501,16 +514,19 @@ export class Parser {
       length >= 0 &&
       start + length <= bytes.length
     ) {
-      const probe = new Lexer(bytes, start + length);
-      const token = probe.next();
-      if (token.kind === 'keyword' && token.value === 'endstream') {
+      let probe = start + length;
+      const limit = Math.min(bytes.length, probe + STREAM_END_SLACK);
+      while (probe < limit && isWhitespace(bytes[probe] ?? 0)) probe += 1;
+      if (bytesAt(bytes, probe, 'endstream') && !isRegular(bytes[probe + 9] ?? 0x20)) {
         end = start + length;
-        this.lexer.pos = probe.pos;
+        this.lexer.pos = probe + 9;
       }
     }
     if (end < 0) {
       // The /Length is missing or wrong: the stream ends where "endstream" is found.
-      const marker = findEndstream(bytes, start);
+      const marker = this.options.endstreamAfter
+        ? this.options.endstreamAfter(bytes, start)
+        : findEndstream(bytes, start);
       if (marker < 0) throw new PdfError('A stream has no endstream keyword', 'corrupt');
       end = marker;
       if (bytes[end - 1] === 0x0a) end -= 1;
