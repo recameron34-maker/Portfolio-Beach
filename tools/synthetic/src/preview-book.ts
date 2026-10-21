@@ -3,6 +3,8 @@ import { accountingExports } from './accounting-export.js';
 import type { AccountingExportExpectations, ExportScenario } from './accounting-export.js';
 import { aliasesOf } from './aliases.js';
 import type { AliasedDataset } from './aliases.js';
+import { generateDocuments } from './documents.js';
+import type { DocumentSet, DocumentSetExpectations, Truth } from './documents.js';
 import { investedCost, lookthroughExtract } from './lookthrough-extract.js';
 import type {
   LookthroughExpectations,
@@ -39,6 +41,45 @@ export interface PreviewBookInvestment {
   /** The company's taxonomy codes, which a look-through reconcile compares the provider's labels with. */
   sector: string | null;
   geography: string | null;
+  /** The position's parents (core.investment), which a classified document inherits and the monitoring board names. */
+  sponsorId: string;
+  sponsorFundId: string | null;
+  vehicleId: string;
+  vehicleName: string;
+}
+
+/** A sponsor fund with its names and aliases (core.fund_alias), which the document linker matches a file name's fund against. */
+export interface PreviewBookSponsorFund {
+  id: string;
+  sponsorId: string;
+  name: string;
+  canonicalName: string;
+  aliases: string[];
+}
+
+/**
+ * What the expected-document generation needs beside the investments: the deal types whose
+ * sponsors report quarterly figures (one quarterly_financials row each per quarter) and the
+ * sponsor funds the firm has a commitment to, with the earliest commitment date (one
+ * capital_account_statement row each for a quarter ending on or after it).
+ */
+export interface PreviewBookExpectedDocumentDefaults {
+  reportingDealTypes: string[];
+  fundCommitments: { sponsorFundId: string; commitmentDate: string }[];
+}
+
+/**
+ * One bundled document of the synthetic set (preview/samples/documents/<fileName>): its store
+ * metadata and its truth sidecar, the recorded fixture the simulated extraction answers for its
+ * content hash. The duplicate pair is two entries sharing one hash and one truth.
+ */
+export interface PreviewBookDocument {
+  fileName: string;
+  folder: 'inbox';
+  contentHash: string;
+  sizeBytes: number;
+  pageCount: number;
+  truth: Truth;
 }
 
 /** An approved quarter on record; `id` is the target a staged row would replace. */
@@ -95,6 +136,8 @@ export interface PreviewBook {
   generatedFrom: string;
   asOf: string;
   investments: PreviewBookInvestment[];
+  sponsorFunds: PreviewBookSponsorFund[];
+  expectedDocumentDefaults: PreviewBookExpectedDocumentDefaults;
   matchGuards: { nameA: string; nameB: string }[];
   /** Approved quarters per investment id, oldest first (period end, then id), as the API reads them. */
   quarters: Record<string, PreviewBookQuarter[]>;
@@ -111,6 +154,31 @@ export interface PreviewBook {
   weeklySamples: PreviewBookWeeklySample[];
   lookthroughSamples: PreviewBookLookthroughSample[];
   opsDropSamples: PreviewBookOpsDropSample[];
+  /** The synthetic document set the preview bundles, in generation order, with what the generator says it carries. */
+  documents: PreviewBookDocument[];
+  documentExpectations: DocumentSetExpectations;
+}
+
+/**
+ * The deal types whose sponsors report quarterly figures, so the tracker expects a quarterly
+ * report per quarter (apps/api/src/documents/expected.ts QUARTERLY_REPORTING_DEAL_TYPES, a
+ * constant until the owner names its config key). Carried in the book so the preview reads it
+ * from data rather than repeating it in browser code.
+ */
+export const QUARTERLY_REPORTING_DEAL_TYPES: readonly string[] = [
+  'deal_type.co_invest_equity',
+  'deal_type.cv_single_asset',
+  'deal_type.cv_multi_asset',
+];
+
+/** Where the preview bundles a document of the set, relative to the page: the store's file name, URL-encoded. */
+export function previewDocumentPath(fileName: string): string {
+  return `preview/samples/documents/${encodeURIComponent(fileName)}`;
+}
+
+export interface PreviewBookOptions {
+  /** The document set already generated for the same dataset, so the build writes it once. */
+  documents?: DocumentSet;
 }
 
 /** The fixed name the preview bundles a sample export under (the intake page requests it by this name). */
@@ -159,8 +227,12 @@ export function previewOpsDropWorkbooks(dataset: AliasedDataset): OpsDropWorkboo
 
 const byText = (a: string, b: string): number => (a < b ? -1 : a > b ? 1 : 0);
 
-export function previewBook(dataset: AliasedDataset): PreviewBook {
+export function previewBook(
+  dataset: AliasedDataset,
+  options: PreviewBookOptions = {},
+): PreviewBook {
   const companies = new Map(dataset.portfolioCompanies.map((c) => [c.id, c]));
+  const vehicleName = new Map(dataset.vehicles.map((v) => [v.id, v.name]));
   const investments: PreviewBookInvestment[] = dataset.investments.map((inv) => {
     const company = companies.get(inv.portfolioCompanyId);
     return {
@@ -175,8 +247,38 @@ export function previewBook(dataset: AliasedDataset): PreviewBook {
       isActive: inv.isActive,
       sector: company?.sector ?? null,
       geography: company?.geography ?? null,
+      sponsorId: inv.sponsorId,
+      sponsorFundId: inv.sponsorFundId,
+      vehicleId: inv.vehicleId,
+      vehicleName: vehicleName.get(inv.vehicleId) ?? '',
     };
   });
+
+  const fundAliases = new Map<string, string[]>();
+  for (const a of dataset.fundAliases)
+    fundAliases.set(a.sponsorFundId, [...(fundAliases.get(a.sponsorFundId) ?? []), a.alias]);
+  const sponsorFunds: PreviewBookSponsorFund[] = dataset.sponsorFunds.map((f) => ({
+    id: f.id,
+    sponsorId: f.sponsorId,
+    name: f.name,
+    canonicalName: f.canonicalName,
+    aliases: fundAliases.get(f.id) ?? [],
+  }));
+
+  // The earliest commitment per sponsor fund: a statement is expected for a quarter ending on
+  // or after it (apps/api/src/documents/expected.service.ts generate).
+  const earliest = new Map<string, string>();
+  for (const c of dataset.commitments) {
+    const known = earliest.get(c.sponsorFundId);
+    if (known === undefined || c.commitmentDate < known)
+      earliest.set(c.sponsorFundId, c.commitmentDate);
+  }
+  const expectedDocumentDefaults: PreviewBookExpectedDocumentDefaults = {
+    reportingDealTypes: [...QUARTERLY_REPORTING_DEAL_TYPES],
+    fundCommitments: [...earliest]
+      .map(([sponsorFundId, commitmentDate]) => ({ sponsorFundId, commitmentDate }))
+      .sort((a, b) => byText(a.sponsorFundId, b.sponsorFundId)),
+  };
 
   const quarters: Record<string, PreviewBookQuarter[]> = {};
   const approved = dataset.quarterlyPerformance
@@ -256,10 +358,22 @@ export function previewBook(dataset: AliasedDataset): PreviewBook {
     }),
   );
 
+  const set = options.documents ?? generateDocuments(dataset);
+  const documents: PreviewBookDocument[] = set.documents.map((doc) => ({
+    fileName: doc.fileName,
+    folder: doc.folder,
+    contentHash: doc.truth.contentHash,
+    sizeBytes: doc.bytes.length,
+    pageCount: doc.truth.pageCount,
+    truth: doc.truth,
+  }));
+
   return {
     generatedFrom: `tools/synthetic ${dataset.profile} profile, seed ${dataset.seed}`,
     asOf: dataset.asOf,
     investments,
+    sponsorFunds,
+    expectedDocumentDefaults,
     matchGuards: dataset.matchGuards.map((g) => ({ nameA: g.nameA, nameB: g.nameB })),
     quarters,
     lockedMarks,
@@ -268,5 +382,7 @@ export function previewBook(dataset: AliasedDataset): PreviewBook {
     weeklySamples,
     lookthroughSamples,
     opsDropSamples,
+    documents,
+    documentExpectations: set.expectations,
   };
 }

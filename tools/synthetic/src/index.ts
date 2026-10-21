@@ -12,7 +12,9 @@ export type {
   ExportScenario,
 } from './accounting-export.js';
 export {
+  QUARTERLY_REPORTING_DEAL_TYPES,
   previewBook,
+  previewDocumentPath,
   previewLookthroughExtracts,
   previewLookthroughFileName,
   previewOpsDropFileName,
@@ -23,12 +25,16 @@ export {
 } from './preview-book.js';
 export type {
   PreviewBook,
+  PreviewBookDocument,
+  PreviewBookExpectedDocumentDefaults,
   PreviewBookInvestment,
   PreviewBookLookthroughSample,
   PreviewBookMark,
   PreviewBookOpsDropSample,
+  PreviewBookOptions,
   PreviewBookQuarter,
   PreviewBookSample,
+  PreviewBookSponsorFund,
   PreviewBookWeeklySample,
 } from './preview-book.js';
 export {

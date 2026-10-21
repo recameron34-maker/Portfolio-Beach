@@ -26,6 +26,90 @@ const bookInvestment = z.object({
   /** The company's taxonomy codes, which a look-through reconcile compares the provider's labels with. */
   sector: z.string().nullable(),
   geography: z.string().nullable(),
+  /** The position's parents (core.investment), which a classified document inherits and the monitoring board names. */
+  sponsorId: z.string().min(1),
+  sponsorFundId: z.string().nullable(),
+  vehicleId: z.string().min(1),
+  vehicleName: z.string(),
+});
+
+/** A sponsor fund with its names and aliases (core.fund_alias), which the document linker matches a file name's fund against. */
+const bookSponsorFund = z.object({
+  id: z.string().min(1),
+  sponsorId: z.string().min(1),
+  name: z.string(),
+  canonicalName: z.string(),
+  aliases: z.array(z.string()),
+});
+
+/** What the expected-document generation reads beside the investments (apps/api/src/documents/expected.service.ts). */
+const bookExpectedDocumentDefaults = z.object({
+  /** The deal types whose sponsors report quarterly figures (QUARTERLY_REPORTING_DEAL_TYPES). */
+  reportingDealTypes: z.array(z.string()),
+  /** The sponsor funds the firm has a commitment to, each with its earliest commitment date. */
+  fundCommitments: z.array(z.object({ sponsorFundId: z.string().min(1), commitmentDate: isoDate })),
+});
+
+const unit = z.enum(['USD', 'USD_K', 'USD_M', 'USD_B', 'PCT', 'COUNT', 'DATE']);
+
+/** One truth field as the sidecar records it (packages/ai parseTruth reads the same keys). */
+const bookTruthField = z.object({
+  value: z.string().nullable(),
+  unit: unit.nullable(),
+  page: z.number().int().nullable(),
+  quote: z.string().nullable(),
+});
+
+/**
+ * A document's truth sidecar: the recorded fixture output the simulated extraction answers for
+ * the document's content hash (fields, highlights, commentary) and what the generator says about
+ * the document (its type, links, period and scenarios), which the tests and the probe read.
+ */
+const bookTruth = z.object({
+  fileName: z.string(),
+  fileNames: z.array(z.string()),
+  contentHash: z.string().regex(/^[0-9a-f]{64}$/),
+  docType: z.string(),
+  sponsorId: z.string(),
+  sponsorFundId: z.string(),
+  sponsorFundName: z.string(),
+  investmentId: z.string().nullable(),
+  investmentNumber: z.string().nullable(),
+  companyName: z.string().nullable(),
+  periodEnd: isoDate,
+  pageCount: z.number().int(),
+  fields: z.record(z.string(), bookTruthField),
+  highlights: z.array(z.string()),
+  commentary: z.string().nullable(),
+  scenarios: z.array(z.string()),
+  expectedClassification: z.object({ docType: z.string(), confidenceAtLeast: decimal }),
+});
+
+/** One bundled document of the synthetic set (preview/samples/documents/<fileName>) with its truth. */
+const bookDocument = z.object({
+  fileName: z.string().min(1),
+  folder: z.literal('inbox'),
+  contentHash: z.string().regex(/^[0-9a-f]{64}$/),
+  sizeBytes: z.number().int(),
+  pageCount: z.number().int(),
+  truth: bookTruth,
+});
+
+/** What the generator says the document set carries (tools/synthetic DocumentSetExpectations). */
+const bookDocumentExpectations = z.object({
+  byDocType: z.record(z.string(), z.number().int()),
+  scenarioFiles: z.record(z.string(), z.array(z.string())),
+  walledFiles: z.array(z.string()),
+  total: z.number().int(),
+  lateFinancials: z
+    .object({
+      investmentId: z.string(),
+      investmentNumber: z.string(),
+      companyName: z.string(),
+      periodEnd: isoDate,
+      fileName: z.string(),
+    })
+    .nullable(),
 });
 
 /** An approved quarter on record; `id` is the target a staged row would replace. */
@@ -109,6 +193,8 @@ export const previewBook = z.object({
   generatedFrom: z.string(),
   asOf: isoDate,
   investments: z.array(bookInvestment),
+  sponsorFunds: z.array(bookSponsorFund),
+  expectedDocumentDefaults: bookExpectedDocumentDefaults,
   matchGuards: z.array(z.object({ nameA: z.string(), nameB: z.string() })),
   /** Approved quarters per investment id, oldest first, as the API reads them. */
   quarters: z.record(z.string(), z.array(bookQuarter)),
@@ -124,10 +210,16 @@ export const previewBook = z.object({
   weeklySamples: z.array(bookWeeklySample),
   lookthroughSamples: z.array(bookLookthroughSample),
   opsDropSamples: z.array(bookOpsDropSample),
+  /** The synthetic document set the preview bundles, in the generator's order (the store's inbox). */
+  documents: z.array(bookDocument),
+  documentExpectations: bookDocumentExpectations,
 });
 
 export type PreviewBook = z.infer<typeof previewBook>;
 export type BookInvestment = z.infer<typeof bookInvestment>;
+export type BookSponsorFund = z.infer<typeof bookSponsorFund>;
+export type BookDocument = z.infer<typeof bookDocument>;
+export type BookTruth = z.infer<typeof bookTruth>;
 export type BookQuarter = z.infer<typeof bookQuarter>;
 export type BookMark = z.infer<typeof bookMark>;
 export type BookSample = z.infer<typeof bookSample>;
@@ -136,6 +228,11 @@ export type BookLookthroughSample = z.infer<typeof bookLookthroughSample>;
 export type BookOpsDropSample = z.infer<typeof bookOpsDropSample>;
 
 const REBUILD = 'rebuild it with pnpm --filter @pb/web build:preview';
+
+/** Where the preview bundles a document of the set, relative to the page: the store's file name, URL-encoded (tools/synthetic previewDocumentPath). */
+export function documentSamplePath(fileName: string): string {
+  return `preview/samples/documents/${encodeURIComponent(fileName)}`;
+}
 
 /** Validates a loaded book file; the error names the first problem and how to fix it. */
 export function parseBook(raw: unknown): PreviewBook {
