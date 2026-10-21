@@ -6,6 +6,13 @@ import type { Locator, Page } from '@playwright/test';
 import { generateDataset, lookthroughExtract, weeklyValues } from '@pb/synthetic';
 import { ANALYTICS_TABS, DEAL_TABS } from '../src/app/nav.js';
 import { loadDataset, signInAs, walledDeal } from './fixtures.js';
+import {
+  ensureExtractionOn,
+  indexDocuments,
+  latestQuarter,
+  listRuns,
+  startExtractionBatch,
+} from './fixtures.js';
 
 /** WCAG 2.1 AA with zero critical or serious issues on every page (docs/12 section 1, docs/17 section 9). */
 const d = loadDataset();
@@ -215,6 +222,26 @@ async function stageIntakePages(page: Page): Promise<Visit[]> {
   ];
 }
 
+/**
+ * Indexes the hub and runs an extraction batch over the latest quarter's reports, as operations,
+ * so the extraction pages have batches, runs and a run to review (the API processes the batch
+ * before it answers). Run once per width; the index is idempotent and a second batch is one more.
+ */
+async function stageExtractionPages(page: Page): Promise<Visit[]> {
+  await ensureExtractionOn(page, d);
+  await indexDocuments(page);
+  const batch = await startExtractionBatch(page, {
+    periodEnd: latestQuarter(d),
+    docType: 'doc_type.quarterly_financials',
+  });
+  const [run] = await listRuns(page, `&batchId=${batch.id}`);
+  if (run === undefined) throw new Error('the extraction batch queued no run');
+  return [
+    { path: '/documents/extraction', ready: (p) => p.getByTestId('extraction-runs') },
+    { path: `/documents/extraction/${run.id}`, ready: (p) => p.getByTestId('run-fields') },
+  ];
+}
+
 for (const width of [1280, 390]) {
   test.describe(`at ${width} pixels wide`, () => {
     test.use({ viewport: { width, height: 900 } });
@@ -265,6 +292,12 @@ for (const width of [1280, 390]) {
       test.setTimeout(180_000);
       await signInAs(page, 'head.one', d);
       await scanPages(page, dealTabs(walled));
+    });
+
+    test(`operations: extraction batches, runs and a run review @a11y`, async ({ page }) => {
+      test.setTimeout(180_000);
+      await signInAs(page, 'ops.one', d);
+      await scanPages(page, await stageExtractionPages(page));
     });
   });
 }

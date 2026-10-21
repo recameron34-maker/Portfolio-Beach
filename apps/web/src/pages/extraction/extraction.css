@@ -151,3 +151,12 @@
     max-width: 200px;
   }
 }
+
+/* Secondary text on the selected row's tinted surface keeps its contrast (docs/06 section 1). */
+.pb-extraction-fields .is-selected .pb-cell-sub,
+.pb-extraction-fields .is-selected .pb-extraction-was,
+.pb-extraction-fields .is-selected .pb-extraction-quote,
+.pb-extraction-fields .is-selected .pb-extraction-details,
+.pb-extraction-fields .is-selected .pb-meta {
+  color: var(--pb-muted-strong);
+}
