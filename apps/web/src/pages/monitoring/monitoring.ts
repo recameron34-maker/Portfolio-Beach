@@ -23,17 +23,13 @@ export const MONITORING_META =
   'Expected reports, extraction runs and approvals per active position, judged on the as-of day';
 
 /**
- * The pages a row links to: the document and the run review, which land with this wave's
- * documents and extraction slices. Until router.tsx carries them they are plain path strings
- * (the router accepts a string target and resolves it at run time); once it does, the two can
- * become route literals and the links typed.
+ * The pages a row links to. The document page landed with this wave's documents slice, so its
+ * link is a typed route; the run review lands with the extraction slice built in parallel, so
+ * until router.tsx carries it the target is a plain path string (the router interpolates the id
+ * and resolves the path at run time) and the constant can become a route literal once it does.
  */
-export const LINKED_ROUTES: Readonly<Record<'document' | 'run', string>> = {
-  document: '/documents/$id',
-  run: '/documents/extraction/$id',
-};
-export const DOCUMENT_ROUTE = LINKED_ROUTES.document;
-export const RUN_ROUTE = LINKED_ROUTES.run;
+export const DOCUMENT_ROUTE = '/documents/$id' as const;
+export const RUN_ROUTE = '/documents/extraction/$id' as string;
 
 /** docs/04 M3: a report is late this many days after its due date, and missing after this many. */
 export const LATE_AFTER_DAYS: number = definitions.documents.lateAfterDays;

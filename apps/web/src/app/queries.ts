@@ -35,11 +35,7 @@ import {
   watchlist,
   weeklyReport,
 } from '@pb/contracts';
-import type {
-  DocumentReviewStatus,
-  ExpectedDocumentStatus,
-  ProblemDetails,
-} from '@pb/contracts';
+import type { DocumentReviewStatus, ExpectedDocumentStatus, ProblemDetails } from '@pb/contracts';
 import { api, ApiError } from '../api/client.js';
 import { retryUnlessUnavailable } from '../lib/unavailable.js';
 import { getCredential } from './session.js';
