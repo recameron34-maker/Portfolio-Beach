@@ -1,4 +1,4 @@
-import { useId, useState } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import { Link, useParams } from '@tanstack/react-router';
 import { useQuery } from '@tanstack/react-query';
@@ -435,11 +435,28 @@ function DocumentBody({
 }): ReactNode {
   const log = useActionLog();
   const offered = classifyOffered(roles, doc);
+  // The classify form leaves the page the moment the document reads as classified, taking the
+  // button that sent the command with it, so focus would fall to the body and a keyboard or
+  // screen-reader user would lose their place (docs/17 section 9). Once the form has gone, focus
+  // moves to the document's title; focus the reader had already moved elsewhere is left alone.
+  const title = useRef<HTMLSpanElement | null>(null);
+  const formShown = useRef(offered);
+  useEffect(() => {
+    const wasShown = formShown.current;
+    formShown.current = offered;
+    if (!wasShown || offered) return;
+    const active = document.activeElement;
+    if (active === null || active === document.body) title.current?.focus();
+  }, [offered]);
   return (
     <>
       <BackLink />
       <PageHeader
-        title={doc.title}
+        title={
+          <span ref={title} tabIndex={-1}>
+            {doc.title}
+          </span>
+        }
         meta={
           <span className="pb-meta-list">
             <span>{doc.fileName}</span>
