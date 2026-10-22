@@ -3,16 +3,8 @@ import { Link } from '@tanstack/react-router';
 import type { DocumentSummary } from '@pb/contracts';
 import { Badge, NumCell, TableWrap } from '../../components/ui.js';
 import { formatDate, MISSING } from '../../lib/format.js';
-import {
-  confidenceText,
-  dayOf,
-  docTypeLabel,
-  reviewTone,
-  reviewWord,
-  runTone,
-  runWord,
-  subjectOf,
-} from './documents.js';
+import { reviewStatusTone, runStateTone, runStateWord } from '../../lib/states.js';
+import { confidenceText, dayOf, docTypeLabel, reviewWord, subjectOf } from './documents.js';
 import './documents.css';
 
 /** The company or fund a document is about, as a link where the reader may follow it. */
@@ -82,7 +74,9 @@ export function DocumentsTable({
               <SubjectCell doc={doc} />
               <td className="pb-nowrap">{formatDate(doc.periodEnd)}</td>
               <td>
-                <Badge tone={reviewTone(doc.reviewStatus)}>{reviewWord(doc.reviewStatus)}</Badge>
+                <Badge tone={reviewStatusTone(doc.reviewStatus)}>
+                  {reviewWord(doc.reviewStatus)}
+                </Badge>
               </td>
               <td className="pb-nowrap">{dayOf(doc.receivedAt)}</td>
               <NumCell>{confidenceText(doc.classificationConfidence)}</NumCell>
@@ -91,8 +85,8 @@ export function DocumentsTable({
                   <span className="pb-meta">{MISSING}</span>
                 ) : (
                   <Link to="/documents/extraction/$id" params={{ id: doc.latestRun.id }}>
-                    <Badge tone={runTone(doc.latestRun.state)}>
-                      {runWord(doc.latestRun.state)}
+                    <Badge tone={runStateTone(doc.latestRun.state)}>
+                      {runStateWord(doc.latestRun.state)}
                     </Badge>
                   </Link>
                 )}

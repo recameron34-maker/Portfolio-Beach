@@ -8,13 +8,13 @@ import {
   approveBlocker,
   approvedPhrase,
   BATCH_ROLES,
+  batchDocTypeOptions,
   batchFormProblem,
   batchStartedPhrase,
   canReview,
   canStartBatch,
   decisionPhrase,
   describeExtractionError,
-  docTypeOptions,
   editBody,
   editProblems,
   estimateWidth,
@@ -28,7 +28,6 @@ import {
   reviewOrder,
   runGates,
   runsByState,
-  runStateWord,
   tokensText,
   undecidedClean,
   unitLabel,
@@ -106,8 +105,7 @@ describe('review order and words', () => {
     expect(finalValue(cleanValues()[1]!)).toEqual({ value: '125.40', unit: 'USD_M' });
   });
 
-  it('words the states, flags, approval, tokens and runs by state', () => {
-    expect(runStateWord('NeedsRetry')).toBe('Needs retry');
+  it('words the flags, approval, tokens and runs by state', () => {
     expect(flagsText({ values: 15, clean: 12, flagged: 2, invalid: 1, decided: 0 })).toBe(
       '2 flagged, 1 invalid',
     );
@@ -269,12 +267,12 @@ describe('the batch form', () => {
     ).toBeNull();
   });
 
-  it('lists the active document types of the taxonomy in order, with a fallback before it loads', () => {
-    expect(docTypeOptions(undefined)).toEqual([
+  it("offers the default type until the taxonomy loads, then the hub's own options", () => {
+    expect(batchDocTypeOptions(undefined)).toEqual([
       { code: 'doc_type.quarterly_financials', label: 'Quarterly financials' },
     ]);
     expect(
-      docTypeOptions({
+      batchDocTypeOptions({
         domains: [
           {
             domain: 'doc_type',

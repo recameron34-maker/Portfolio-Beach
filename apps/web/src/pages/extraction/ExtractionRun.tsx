@@ -32,7 +32,9 @@ import {
 import { ActionStatus, ReasonDialog } from '../../components/WorkflowActions.js';
 import { formatDate, formatDateTime, MISSING, plural } from '../../lib/format.js';
 import { balanceTiles } from '../../lib/tiles.js';
+import { runStateTone, runStateWord } from '../../lib/states.js';
 import { resultSuffix, useActionLog } from '../../lib/workflow.js';
+import { confidenceText } from '../documents/documents.js';
 import { ApproveDialog, EditValueDialog } from './dialogs.js';
 import {
   acceptBlocker,
@@ -42,7 +44,6 @@ import {
   approveBlocker,
   approvedPhrase,
   canReview,
-  confidenceText,
   costText,
   decisionPhrase,
   decisionTone,
@@ -58,8 +59,6 @@ import {
   REVIEW_READ_ONLY,
   reviewOrder,
   runGates,
-  runStateWord,
-  runTone,
   tokensText,
   undecidedClean,
   validationTone,
@@ -118,7 +117,7 @@ function Banner({ detail }: { detail: ExtractionRunDetail }): ReactNode {
       }
       actions={
         <span className="pb-extraction-actions">
-          <Badge tone={runTone(run.state)}>{runStateWord(run.state)}</Badge>
+          <Badge tone={runStateTone(run.state)}>{runStateWord(run.state)}</Badge>
           <Badge tone={approvalTone(run)}>{approvalText(run)}</Badge>
         </span>
       }

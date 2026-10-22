@@ -27,7 +27,9 @@ import { describeActionError, plainRule } from '../../app/mutations.js';
 import type { Tone } from '../../components/ui.js';
 import type { UnavailableReason } from '../../lib/unavailable.js';
 import { formatDate, formatPct, MISSING, plural } from '../../lib/format.js';
-import { humanizeState, rolesLabel } from '../../lib/states.js';
+import { humanizeState, rolesLabel, runStateWord } from '../../lib/states.js';
+import { docTypeLabel, docTypeOptions } from '../documents/documents.js';
+import type { DocTypeOption } from '../documents/documents.js';
 
 /*
  * Pure helpers of the extraction pages (docs/04 M4, docs/18 section 7, decision 0012): who may
@@ -71,24 +73,7 @@ export const EXTRACTION_FORBIDDEN: UnavailableReason = {
     'Any signed-in user reads the runs of the documents they may see; ask a platform administrator if you need access.',
 };
 
-/* ---- Words and tones ---- */
-
-const RUN_TONES: Readonly<Record<ExtractionRunState, Tone>> = {
-  Queued: 'neutral',
-  Running: 'watch',
-  Succeeded: 'good',
-  Failed: 'bad',
-  NeedsRetry: 'watch',
-};
-
-export function runTone(state: ExtractionRunState): Tone {
-  return RUN_TONES[state];
-}
-
-/** "NeedsRetry" reads "Needs retry"; the other states are single words. */
-export function runStateWord(state: ExtractionRunState): string {
-  return humanizeState(state);
-}
+/* ---- Words and tones (the run state's are lib/states.ts, shared by every page) ---- */
 
 const BATCH_TONES: Readonly<Record<ExtractionBatchState, Tone>> = {
   queued: 'neutral',
@@ -212,11 +197,6 @@ export function finalValue(v: ExtractedValue): {
 export function finalValueText(v: ExtractedValue): string {
   const final = finalValue(v);
   return valueText(final.value, final.unit, v.kind);
-}
-
-/** "100%" from the model's confidence; the missing placeholder when it gave none. */
-export function confidenceText(confidence: string | null): string {
-  return confidence === null ? MISSING : formatPct(confidence, 0);
 }
 
 /** "1 flagged, 2 invalid" for a run's counts; the missing placeholder when both are zero. */
@@ -395,14 +375,12 @@ export function batchFormProblem(form: BatchForm): string | null {
   return null;
 }
 
-/** The document types of the taxonomy, active ones, in their sort order. */
-export function docTypeOptions(taxonomy: Taxonomy | undefined): { code: string; label: string }[] {
-  const domain = taxonomy?.domains.find((d) => d.domain === 'doc_type');
-  if (domain === undefined) return [{ code: DEFAULT_DOC_TYPE, label: 'Quarterly financials' }];
-  return [...domain.terms]
-    .filter((t) => t.active)
-    .sort((a, b) => a.sortOrder - b.sortOrder)
-    .map((t) => ({ code: t.code, label: t.label }));
+/** The hub's document type options (documents.ts), with the default type standing in until the taxonomy loads. */
+export function batchDocTypeOptions(taxonomy: Taxonomy | undefined): DocTypeOption[] {
+  const options = docTypeOptions(taxonomy);
+  return options.length === 0
+    ? [{ code: DEFAULT_DOC_TYPE, label: docTypeLabel(DEFAULT_DOC_TYPE) }]
+    : options;
 }
 
 /* ---- The edit dialog ---- */

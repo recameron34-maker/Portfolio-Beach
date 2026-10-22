@@ -7,19 +7,17 @@ import type {
   ExpectedDocument,
   ExpectedDocumentGenerateResult,
   ExpectedDocumentStatus,
-  ExtractionRunState,
   Taxonomy,
 } from '@pb/contracts';
 import { documentReviewStatus, expectedDocumentStatus, ROUTES } from '@pb/contracts';
 import { isCalendarDate, isQuarterEnd, latestQuarterEndOnOrBefore } from '@pb/calc';
-import type { Tone } from '../../components/ui.js';
 import { formatDate, formatPct, labelOf, MISSING } from '../../lib/format.js';
 import { humanizeState } from '../../lib/states.js';
 
 /*
  * Pure helpers of the documents pages (docs/04 M3, docs/18 section 6, decision 0012): words,
- * tones, the roles each write needs and the status phrases. Nothing here reads the network or
- * the DOM.
+ * the roles each write needs and the status phrases; the tones are the shared ones of
+ * lib/states.ts. Nothing here reads the network or the DOM.
  */
 
 /** The page headers' context lines. */
@@ -50,55 +48,14 @@ export function isExpectedStatus(value: string): value is ExpectedDocumentStatus
   return (EXPECTED_STATUSES as readonly string[]).includes(value);
 }
 
-/** Classified is done, NeedsReview waits for a person, a Duplicate points at its original, Received waits for the classifier. */
-const REVIEW_TONES: Readonly<Record<DocumentReviewStatus, Tone>> = {
-  Received: 'neutral',
-  Classified: 'good',
-  NeedsReview: 'watch',
-  Duplicate: 'neutral',
-};
-
-export function reviewTone(status: DocumentReviewStatus): Tone {
-  return REVIEW_TONES[status];
-}
-
 /** "Needs review", "Classified". */
 export function reviewWord(status: DocumentReviewStatus): string {
   return humanizeState(status);
 }
 
-/** A received document is done; late waits on the sponsor; missing is a gap the board must show. */
-const EXPECTED_TONES: Readonly<Record<ExpectedDocumentStatus, Tone>> = {
-  expected: 'neutral',
-  received: 'good',
-  late: 'watch',
-  missing: 'bad',
-};
-
-export function expectedTone(status: ExpectedDocumentStatus): Tone {
-  return EXPECTED_TONES[status];
-}
-
 /** "Expected", "Received", "Late", "Missing". */
 export function expectedWord(status: ExpectedDocumentStatus): string {
   return humanizeState(status);
-}
-
-/** docs/18 section 7: Succeeded is done, Failed is a data exception, the rest are in flight. */
-const RUN_TONES: Readonly<Record<ExtractionRunState, Tone>> = {
-  Queued: 'neutral',
-  Running: 'brand',
-  Succeeded: 'good',
-  Failed: 'bad',
-  NeedsRetry: 'watch',
-};
-
-export function runTone(state: ExtractionRunState): Tone {
-  return RUN_TONES[state];
-}
-
-export function runWord(state: ExtractionRunState): string {
-  return humanizeState(state);
 }
 
 /** "Quarterly financials": the taxonomy's own label once loaded; the missing placeholder when untyped. */
@@ -111,7 +68,7 @@ export interface DocTypeOption {
   label: string;
 }
 
-/** The active doc_type terms of the taxonomy in its order, for the filters and the classify form. */
+/** The active doc_type terms of the taxonomy in its order, for the filters, the classify form and the batch form. */
 export function docTypeOptions(taxonomy: Taxonomy | undefined): DocTypeOption[] {
   const domain = taxonomy?.domains.find((d) => d.domain === 'doc_type');
   if (domain === undefined) return [];
@@ -161,7 +118,7 @@ export function sizeText(bytes: number): string {
   return `${(bytes / 1_000_000).toFixed(1)} MB`;
 }
 
-/** "97%" from the classifier's decimal confidence; the missing placeholder until classified. */
+/** "97%" from a classifier's or an extractor's decimal confidence; the missing placeholder when there is none. */
 export function confidenceText(value: string | null): string {
   return formatPct(value, 0);
 }

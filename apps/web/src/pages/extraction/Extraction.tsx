@@ -30,11 +30,13 @@ import {
 } from '../../components/ui.js';
 import { ActionStatus } from '../../components/WorkflowActions.js';
 import { formatDate, formatDateTime, labelOf, MISSING, plural } from '../../lib/format.js';
+import { runStateTone, runStateWord } from '../../lib/states.js';
 import { resultSuffix, useActionLog } from '../../lib/workflow.js';
 import {
   approvalText,
   approvalTone,
   BATCH_READ_ONLY,
+  batchDocTypeOptions,
   batchFormProblem,
   batchStartedPhrase,
   batchStateWord,
@@ -43,15 +45,12 @@ import {
   costText,
   DEFAULT_DOC_TYPE,
   describeExtractionError,
-  docTypeOptions,
   EXTRACTION_FORBIDDEN,
   EXTRACTION_META,
   flagsText,
   isRunState,
   RUN_STATES,
   runsByState,
-  runStateWord,
-  runTone,
   tokensText,
 } from './extraction.js';
 import type { BatchForm } from './extraction.js';
@@ -72,7 +71,7 @@ function BatchForm(): ReactNode {
   const [form, setForm] = useState<BatchForm>({ periodEnd: '', docType: DEFAULT_DOC_TYPE });
   const [touched, setTouched] = useState(false);
   const problem = batchFormProblem(form);
-  const types = docTypeOptions(taxonomy.data);
+  const types = batchDocTypeOptions(taxonomy.data);
   const typeLabel = types.find((t) => t.code === form.docType)?.label ?? labelOf(form.docType);
   return (
     <>
@@ -270,7 +269,7 @@ function RunsTable({ runs }: { runs: readonly ExtractionRun[] }): ReactNode {
               </td>
               <td className="pb-nowrap">{formatDate(r.periodEnd)}</td>
               <td>
-                <Badge tone={runTone(r.state)}>{runStateWord(r.state)}</Badge>
+                <Badge tone={runStateTone(r.state)}>{runStateWord(r.state)}</Badge>
                 {r.errorCode === null ? null : <span className="pb-cell-sub">{r.errorCode}</span>}
               </td>
               <td>{flagsText(r.counts)}</td>

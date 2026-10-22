@@ -4,20 +4,15 @@ import {
   latestQuarterEndOnOrBefore,
   nextQuarterEnd,
 } from '@pb/calc';
-import type {
-  ExpectedDocumentStatus,
-  ExtractionRunState,
-  MonitoringApproval,
-  MonitoringBoardRow,
-} from '@pb/contracts';
+import type { ExpectedDocumentStatus, MonitoringApproval, MonitoringBoardRow } from '@pb/contracts';
 import definitions from '../../../../../config/definitions.json';
 import type { Tone } from '../../components/ui.js';
 import { formatDate, formatQuarter, MISSING, plural } from '../../lib/format.js';
-import { humanizeState } from '../../lib/states.js';
 
 /*
- * Pure helpers of the monitoring board (docs/04 M9, decision 0012): words and tones for the
- * three statuses a row carries, the age of a report against its due date, the quarters a reader
+ * Pure helpers of the monitoring board (docs/04 M9, decision 0012): words for the three statuses
+ * a row carries (their tones are the shared ones of lib/states.ts, the approval's is here), the
+ * age of a report against its due date, the quarters a reader
  * may pick, and the CSV export's file name and row count. Nothing here reads the network or the
  * DOM; the download itself is the one browser call, kept at the bottom.
  */
@@ -42,38 +37,8 @@ export const DOCUMENT_STATUS_WORDS: Readonly<Record<ExpectedDocumentStatus, stri
   missing: 'Missing',
 };
 
-/** docs/06: late and missing are the two states that need a person; received is done; expected is on its way. */
-const DOCUMENT_STATUS_TONES: Readonly<Record<ExpectedDocumentStatus, Tone>> = {
-  expected: 'neutral',
-  received: 'good',
-  late: 'watch',
-  missing: 'bad',
-};
-
 export function documentStatusWord(status: ExpectedDocumentStatus): string {
   return DOCUMENT_STATUS_WORDS[status];
-}
-
-export function documentStatusTone(status: ExpectedDocumentStatus): Tone {
-  return DOCUMENT_STATUS_TONES[status];
-}
-
-/** docs/18 section 7: a run that succeeded is done, a failed one is a refusal, the rest are in flight. */
-const RUN_STATE_TONES: Readonly<Record<ExtractionRunState, Tone>> = {
-  Queued: 'watch',
-  Running: 'watch',
-  Succeeded: 'good',
-  Failed: 'bad',
-  NeedsRetry: 'watch',
-};
-
-export function runStateTone(state: ExtractionRunState): Tone {
-  return RUN_STATE_TONES[state];
-}
-
-/** "Succeeded", "Needs retry". */
-export function runStateWord(state: ExtractionRunState): string {
-  return humanizeState(state);
 }
 
 export const APPROVAL_WORDS: Readonly<Record<MonitoringApproval, string>> = {

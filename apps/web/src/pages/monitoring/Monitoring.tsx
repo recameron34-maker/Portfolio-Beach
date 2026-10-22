@@ -31,6 +31,7 @@ import {
 } from '../../components/ui.js';
 import { ActionStatus } from '../../components/WorkflowActions.js';
 import { formatDate, labelOf, MISSING, plural } from '../../lib/format.js';
+import { expectedStatusTone, runStateTone, runStateWord } from '../../lib/states.js';
 import { balanceTiles } from '../../lib/tiles.js';
 import { retryUnlessUnavailable } from '../../lib/unavailable.js';
 import { useActionLog } from '../../lib/workflow.js';
@@ -40,7 +41,6 @@ import {
   approvalWord,
   approvedOnText,
   csvRowCount,
-  documentStatusTone,
   documentStatusWord,
   downloadText,
   dueLabel,
@@ -52,8 +52,6 @@ import {
   MONITORING_META,
   periodOptions,
   quarterLabel,
-  runStateTone,
-  runStateWord,
   thresholdsLine,
 } from './monitoring.js';
 import './monitoring.css';
@@ -106,7 +104,7 @@ function DocumentCell({ row }: { row: MonitoringBoardRow }): ReactNode {
   const age = ageLabel(row.documentStatus, row.ageDays);
   return (
     <td className="pb-monitoring-status">
-      <Badge tone={documentStatusTone(row.documentStatus)}>
+      <Badge tone={expectedStatusTone(row.documentStatus)}>
         {documentStatusWord(row.documentStatus)}
       </Badge>
       <span className="pb-monitoring-lines">
