@@ -16,6 +16,7 @@ import {
   documentStatusTone,
   downloadText,
   dueLabel,
+  everyPage,
   exportFileName,
   exportResult,
   flagsText,
@@ -81,6 +82,33 @@ describe('monitoring helpers', () => {
     expect(flagsText(boardRowFixture({ flagsCount: 0 }))).toBe('0');
     expect(approvedOnText(null)).toBe(MISSING);
     expect(approvedOnText('2025-07-20T10:00:00.000Z')).toBe('Jul 20, 2025');
+  });
+
+  it('pages a list to its end on its cursor, and refuses a list that never ends', async () => {
+    const pages: Record<string, { items: string[]; nextCursor: string | null }> = {
+      first: { items: ['a', 'b'], nextCursor: 'p2' },
+      p2: { items: ['c'], nextCursor: 'p3' },
+      p3: { items: [], nextCursor: null },
+    };
+    const asked: (string | undefined)[] = [];
+    await expect(
+      everyPage((cursor) => {
+        asked.push(cursor);
+        return Promise.resolve(pages[cursor ?? 'first']!);
+      }),
+    ).resolves.toEqual(['a', 'b', 'c']);
+    expect(asked).toEqual([undefined, 'p2', 'p3']);
+    // A cursor that comes back again, or a list longer than the page cap, is a fault, not a range.
+    await expect(
+      everyPage(() => Promise.resolve({ items: ['x'], nextCursor: 'again' })),
+    ).rejects.toThrow('did not end');
+    let n = 0;
+    await expect(
+      everyPage(() => {
+        n += 1;
+        return Promise.resolve({ items: [n], nextCursor: `p${n}` });
+      }),
+    ).rejects.toThrow('did not end');
   });
 
   it('lists every quarter end between two dates and offers them newest first', () => {
