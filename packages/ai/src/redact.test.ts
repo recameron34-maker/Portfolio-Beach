@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { REDACTION_KINDS, isAbaRoutingNumber, redact } from './redact.js';
+import { REDACTION_KINDS, isAbaRoutingNumber, redact, redactPages } from './redact.js';
 
 /*
  * Every value below is an obviously fake pattern (reserved example domains, 555-01xx numbers,
@@ -113,6 +113,21 @@ describe('redact (SEC-8.7)', () => {
     ])
       expect(r.text).not.toContain(original);
     expect(r.text.split('\n')).toHaveLength(3);
+  });
+
+  it('redacts every page of a document and sums the counts: the one loop the API calls and the gold set share', () => {
+    const r = redactPages([
+      'Questions to ir@sponsor.example or 555-555-0123.',
+      'Revenue grew 12.5% to $125.4 million.',
+      'Tax id 000-00-0000; a/c 00001234.',
+    ]);
+    expect(r.pages).toEqual([
+      'Questions to [redacted:email] or [redacted:phone].',
+      'Revenue grew 12.5% to $125.4 million.',
+      'Tax id [redacted:ssn]; a/c [redacted:account].',
+    ]);
+    expect(r.counts).toEqual({ ...zero, email: 1, phone: 1, ssn: 1, account: 1 });
+    expect(redactPages([])).toEqual({ pages: [], counts: zero });
   });
 
   // AI-2: the ordinary layout of a capital call's wire block, one form per line. Every value is a

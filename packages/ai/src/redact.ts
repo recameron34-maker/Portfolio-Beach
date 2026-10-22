@@ -29,6 +29,22 @@ export function redactionMarker(kind: RedactionKind): string {
   return `[redacted:${kind}]`;
 }
 
+/** Zero replacements of every kind: where any count starts. */
+export function zeroRedactionCounts(): Record<RedactionKind, number> {
+  return Object.fromEntries(REDACTION_KINDS.map((kind) => [kind, 0])) as Record<
+    RedactionKind,
+    number
+  >;
+}
+
+/** Adds one result's counts into a running total, kind by kind. */
+export function addRedactionCounts(
+  into: Record<RedactionKind, number>,
+  counts: Readonly<Record<RedactionKind, number>>,
+): void {
+  for (const kind of REDACTION_KINDS) into[kind] += counts[kind];
+}
+
 const EMAIL = /[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g;
 
 /** ISO 13616: country, two check digits, 11 to 30 more characters, written solid or in groups of four, in either case. */
@@ -87,10 +103,7 @@ export function isAbaRoutingNumber(digits: string): boolean {
  * in the order of REDACTION_KINDS, so an email address is never half eaten by the phone pattern.
  */
 export function redact(text: string): RedactionResult {
-  const counts = Object.fromEntries(REDACTION_KINDS.map((kind) => [kind, 0])) as Record<
-    RedactionKind,
-    number
-  >;
+  const counts = zeroRedactionCounts();
   const hit = (kind: RedactionKind): string => {
     counts[kind] += 1;
     return redactionMarker(kind);
@@ -112,4 +125,25 @@ export function redact(text: string): RedactionResult {
   out = out.replace(PHONE_NA, () => hit('phone'));
   out = out.replace(PHONE_INTL, () => hit('phone'));
   return { text: out, counts };
+}
+
+export interface RedactedPages {
+  pages: string[];
+  /** Replacements made across every page, per kind (every kind present, zero when none): what a call's log line carries. */
+  counts: Record<RedactionKind, number>;
+}
+
+/**
+ * Every page redacted and the counts summed, as a model reads a document: the classifier call
+ * and the extraction runner in the API and the gold-set loader go through this one loop, so what
+ * reaches a model and what its log line carries (SEC-8.7, SEC-8.9) are decided once.
+ */
+export function redactPages(pageTexts: readonly string[]): RedactedPages {
+  const counts = zeroRedactionCounts();
+  const pages = pageTexts.map((text) => {
+    const result = redact(text);
+    addRedactionCounts(counts, result.counts);
+    return result.text;
+  });
+  return { pages, counts };
 }

@@ -31,10 +31,12 @@ export {
 export {
   REDACTION_KINDS,
   redact,
+  redactPages,
   redactionMarker,
   isAbaRoutingNumber,
   type RedactionKind,
   type RedactionResult,
+  type RedactedPages,
 } from './redact.js';
 export { parseMonthDayYear, MONTH_NAMES } from './dates.js';
 export {

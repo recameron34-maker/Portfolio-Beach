@@ -9,7 +9,7 @@ import {
   extractionSettingsFrom,
   outputSchemaFor,
   promptRef,
-  redact,
+  redactPages,
   validateExtraction,
 } from '@pb/ai';
 import type {
@@ -33,7 +33,7 @@ import { ProblemError, workflowProblem } from '../common/problem.js';
 import { ADAPTERS, DEFINITIONS, LOGGER } from '../common/tokens.js';
 import { DbService } from '../db/db.service.js';
 import type { AuditEntry } from '../db/db.service.js';
-import { isPdfError, readDocument } from '../documents/read.js';
+import { DocumentMissingError, isPdfError, readStoredDocument } from '../documents/read.js';
 import {
   EXTRACTION_SCHEMAS,
   documentSettingsOf,
@@ -415,28 +415,23 @@ export class ExtractionRunner {
         tokensOut: null,
         modelId: null,
       };
-    let bytes: Uint8Array;
-    try {
-      bytes = await this.adapters.documents.read(ctx.sourceItemId);
-    } catch (error) {
-      this.warn(ctx, error, 'store read failed');
-      return { kind: 'error', errorKind: 'transient', errorCode: 'store_read' };
-    }
     let doc: PdfDocument;
     try {
-      doc = await readDocument(bytes, documentSettingsOf(this.definitions));
+      doc = await readStoredDocument(
+        this.adapters.documents,
+        documentSettingsOf(this.definitions),
+        ctx.sourceItemId,
+      );
     } catch (error) {
+      if (error instanceof DocumentMissingError) {
+        this.warn(ctx, error.cause, 'store read failed');
+        return { kind: 'error', errorKind: 'transient', errorCode: 'store_read' };
+      }
       if (!isPdfError(error)) throw error;
       this.warn(ctx, error, 'document is unreadable');
       return { kind: 'failed', errorCode: `unreadable_${error.code}` };
     }
-    const redactions: Record<string, number> = {};
-    const pageTexts = doc.pages.map((p) => {
-      const r = redact(p.text);
-      for (const [kind, n] of Object.entries(r.counts))
-        if (n > 0) redactions[kind] = (redactions[kind] ?? 0) + n;
-      return r.text;
-    });
+    const { pages: pageTexts, counts: redactions } = redactPages(doc.pages.map((p) => p.text));
     const ref = promptRef(ctx.schema.promptId);
     let output: ExtractionOutput;
     let tokensIn: number;

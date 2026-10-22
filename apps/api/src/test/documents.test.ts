@@ -1,6 +1,7 @@
 import { rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import type { DocumentStore } from '@pb/adapters';
 import { D, addDays, daysBetween, latestQuarterEndOnOrBefore } from '@pb/calc';
 import {
   dataExceptionPage,
@@ -18,6 +19,13 @@ import { UNTAGGED_FILE_NAME } from '@pb/synthetic';
 import type { SyntheticDocument } from '@pb/synthetic';
 import { QUARTERLY_REPORTING_DEAL_TYPES, dueDateFor } from '../documents/expected.js';
 import { UNREADABLE_RULE } from '../documents/documents.service.js';
+import {
+  DocumentMissingError,
+  UNREADABLE,
+  isPdfError,
+  readStoredDocument,
+  storedDocumentProblem,
+} from '../documents/read.js';
 import { documentSettingsOf } from '../documents/settings.js';
 import { startHarness } from './harness.js';
 import type { Harness } from './harness.js';
@@ -929,5 +937,45 @@ describe('document hub with the classifier off: every path links from the file n
     expect(classified.docType).toBe(QF);
     expect(classified.investmentId).toBe(walledId());
     expect(classified.periodEnd).toBe(report.truth.periodEnd);
+  });
+});
+
+describe('readStoredDocument: the one store read the pages route, the layouts route and the runner share', () => {
+  const settings = { maxPdfBytes: 1_000_000, maxPages: 10 };
+  const store = (answer: Uint8Array | Error): Pick<DocumentStore, 'read'> => ({
+    read: () => (answer instanceof Error ? Promise.reject(answer) : Promise.resolve(answer)),
+  });
+
+  it('parses an item the store has, within the configured limits', async () => {
+    const bytes = onePage('A report', ['Quarterly report', 'Revenue 10']);
+    const doc = await readStoredDocument(store(bytes), settings, 'item-1');
+    expect(doc.pageCount).toBe(1);
+    expect(doc.pages[0]?.lines.map((l) => l.text).join('\n')).toContain('Revenue 10');
+  });
+
+  it('names a vanished item as missing (404 for a route), with the store error as the cause', async () => {
+    const gone = new Error('no such item');
+    const error: unknown = await readStoredDocument(store(gone), settings, 'item-2').catch(
+      (e: unknown) => e,
+    );
+    expect(error).toBeInstanceOf(DocumentMissingError);
+    expect((error as DocumentMissingError).cause).toBe(gone);
+    const problem = storedDocumentProblem(error);
+    expect(problem.getStatus()).toBe(404);
+    expect(problem.code).toBe('not-found');
+    expect(problem.message).toBe('The document is no longer in the store');
+  });
+
+  it('passes the reader refusal through as it is (422 for a route) and rethrows anything else', async () => {
+    const bytes = new TextEncoder().encode('not a pdf at all');
+    const error: unknown = await readStoredDocument(store(bytes), settings, 'item-3').catch(
+      (e: unknown) => e,
+    );
+    expect(isPdfError(error)).toBe(true);
+    const problem = storedDocumentProblem(error);
+    expect(problem.getStatus()).toBe(422);
+    expect(problem.code).toBe(UNREADABLE);
+    const other = new Error('boom');
+    expect(() => storedDocumentProblem(other)).toThrow(other);
   });
 });

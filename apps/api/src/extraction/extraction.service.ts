@@ -23,7 +23,7 @@ import { ProblemError } from '../common/problem.js';
 import { ADAPTERS, DEFINITIONS } from '../common/tokens.js';
 import { requireUuid } from '../common/validate.js';
 import { DbService } from '../db/db.service.js';
-import { isPdfError, readDocument, unreadableProblem } from '../documents/read.js';
+import { readStoredDocument, storedDocumentProblem } from '../documents/read.js';
 import { NOT_FOUND as DOCUMENT_NOT_FOUND } from '../documents/rows.js';
 import {
   EXTRACTION_SCHEMAS,
@@ -357,18 +357,15 @@ export class ExtractionService {
 
   /** The page layouts of an indexed item: every positioned text run per page, for click-to-source. */
   private async layouts(sourceItemId: string): Promise<PageLayout[]> {
-    let bytes: Uint8Array;
-    try {
-      bytes = await this.adapters.documents.read(sourceItemId);
-    } catch {
-      throw new ProblemError(404, 'not-found', 'The document is no longer in the store');
-    }
     let doc: PdfDocument;
     try {
-      doc = await readDocument(bytes, documentSettingsOf(this.definitions));
+      doc = await readStoredDocument(
+        this.adapters.documents,
+        documentSettingsOf(this.definitions),
+        sourceItemId,
+      );
     } catch (error) {
-      if (isPdfError(error)) throw unreadableProblem(error);
-      throw error;
+      throw storedDocumentProblem(error);
     }
     return doc.pages.map((p) => ({
       number: p.number,
