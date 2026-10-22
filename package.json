@@ -14,7 +14,7 @@
     "dev": "pnpm -r --parallel --filter \"./apps/*\" dev",
     "build": "tsc -b && pnpm --filter @pb/web build",
     "typecheck": "tsc -b",
-    "lint": "eslint . && prettier --check .",
+    "lint": "node --max-old-space-size=4096 node_modules/eslint/bin/eslint.js . && prettier --check .",
     "format": "prettier --write .",
     "test": "vitest run",
     "test:calc": "vitest run --project calc && pnpm --filter @pb/worker-py test && pnpm --filter @pb/calc cross-check",
