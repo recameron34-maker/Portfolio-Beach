@@ -28,6 +28,7 @@ import {
   monitoringBoard,
   monitoringBoardQuery,
   monitoringBoardRow,
+  naturalUnitOf,
   quarterEndDate,
   realizationOutlookBody,
   realizationOutlookDetail,
@@ -390,6 +391,13 @@ describe('extraction', () => {
     expect(valueFitsUnit('412.0', 'COUNT')).toBe(false);
     expect(valueFitsUnit('2024-06-30', 'DATE')).toBe(true);
     expect(valueFitsUnit('2024-06-31', 'DATE')).toBe(false);
+  });
+
+  it('names the unit a kind carries when nobody names one, and none for money (the edit command and the review page read it)', () => {
+    expect(naturalUnitOf('percent')).toBe('PCT');
+    expect(naturalUnitOf('count')).toBe('COUNT');
+    expect(naturalUnitOf('date')).toBe('DATE');
+    expect(naturalUnitOf('money')).toBeNull();
   });
 
   it('keeps every value with its citation, confidence, verdict and decision', () => {

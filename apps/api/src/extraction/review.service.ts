@@ -4,7 +4,12 @@ import type { AdapterSet, Principal } from '@pb/adapters';
 import { UNITS_BY_KIND, boundsFrom } from '@pb/ai';
 import type { ExtractionField, ExtractionSchema, ExtractionSchemas } from '@pb/ai';
 import { CalcError, isQuarterEnd, toDollars, unitSanityFlag } from '@pb/calc';
-import { extractionRunCommandBody, extractionUnit, valueFitsUnit } from '@pb/contracts';
+import {
+  extractionRunCommandBody,
+  extractionUnit,
+  naturalUnitOf,
+  valueFitsUnit,
+} from '@pb/contracts';
 import type { ExtractionRunCommandBody, ExtractionRunDetail, ExtractionUnit } from '@pb/contracts';
 import { asSystemActor, schema } from '@pb/db';
 import type { Tx } from '@pb/db';
@@ -33,7 +38,6 @@ import {
   HIGHLIGHTS_FIELD,
   NARRATIVE_FIELDS,
   moneyFieldKeys,
-  naturalUnitOf,
 } from './settings.js';
 
 /*
@@ -371,7 +375,7 @@ export class ExtractionReviewService {
       throw new ProblemError(400, 'validation', 'Invalid command', [
         { path: 'field', message: 'Only a schema field can be edited' },
       ]);
-    const unit: ExtractionUnit | null = body.unit ?? naturalUnitOf(definition);
+    const unit: ExtractionUnit | null = body.unit ?? naturalUnitOf(definition.kind);
     const errors: { path: string; message: string }[] = [];
     if (unit === null) errors.push({ path: 'unit', message: 'A money edit needs a money unit' });
     else if (!UNITS_BY_KIND[definition.kind].includes(unit))
