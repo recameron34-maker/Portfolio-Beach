@@ -27,13 +27,15 @@ import type {
   Truth,
   ValidationFinding,
 } from '@pb/ai';
-import { CalcError, D, toDollars } from '@pb/calc';
+import { CalcError, D, toDollars, unitSanityFlag } from '@pb/calc';
 import {
   extractionBatchBody,
   extractionDefinitions,
   extractionRunCommandBody,
   extractionRunListQuery,
   extractionUnit,
+  investmentPerformance,
+  isQuarterEnd,
   pageQuery,
   valueFitsUnit,
 } from '@pb/contracts';
@@ -99,10 +101,18 @@ import {
  * document's instructions cannot move it), the output is checked against the schema's shape and
  * validated with the bounds, the style and the thresholds of config, and one value per schema
  * field plus the highlights and the commentary rows are staged. Retries, budgets and failures
- * follow the config and the table; a failed run opens a data exception (EXT-RUN-01). The review
- * commands decide values, and approval promotes the final values of the target fields, converted
- * to dollars, into the simulated quarters the Performance tab overlay reads, with the run's
- * lineage. A reader sees the runs of documents their own recordings let them open.
+ * follow the config and the table; the switch is read before every attempt, so a batch whose
+ * switch is turned off part way fails its remaining runs with kill_switch (SEC-8.10, AI-6); the
+ * day budget counts a whole run budget for every run still Running (budget note); a failed run
+ * opens a data exception (EXT-RUN-01). The review commands decide values under the rules the
+ * validator holds the model to (a money edit inside the configured range, a date edit on the
+ * quarter the run covers: FIN-1, FIN-2), a highlight or commentary row that breaks the house
+ * style can only be rejected (AI-4), and approval names an undecided record figure, refuses a
+ * period end off the run's quarter and a superseded quarter, then promotes the final values of
+ * the target fields, converted to dollars, into the simulated quarters the Performance tab
+ * overlay reads, with the run's lineage citing the first accepted figure and a fixed default
+ * reason that never names the file (W3). A reader sees the runs of documents their own
+ * recordings let them open.
  */
 
 /** The kill switch for batch creation and run processing (migration 0003, SEC-8.10): off by default. */
@@ -117,8 +127,12 @@ export const COMMENTARY_FIELD = 'commentary';
 export const NARRATIVE_FIELDS: readonly string[] = [HIGHLIGHTS_FIELD, COMMENTARY_FIELD];
 /** The longest quote the stg.extracted_value column holds (migration 0011). */
 const QUOTE_COLUMN_CHARS = 150;
-/** The field whose page the record's source_page points at. */
-const LOCATOR_FIELD = 'revenue_ltm';
+/** The approval reason when the reviewer gives none: a fixed sentence, never the file name (W3, SEC-5.3). */
+export const DEFAULT_APPROVAL_REASON = 'Approved from the AI extraction review';
+/** The error code of a run that found the switch off when its attempt began (SEC-8.10, AI-6). */
+export const KILL_SWITCH_CODE = 'kill_switch';
+/** The record status of a quarter that a later approval replaced; a promotion never revives one. */
+const SUPERSEDED_STATUS = 'record_status.superseded';
 /** The mon.quarterly_performance column a schema target names. */
 const TARGET_KEYS: Readonly<Record<string, QuarterlyFigureKey>> = {
   revenue_ltm: 'revenueLtm',
@@ -457,7 +471,8 @@ type Outcome =
       tokensOut: number | null;
       modelId: string | null;
     }
-  | { kind: 'unreadable'; errorCode: string };
+  /** Failed outright: an unreadable document, or the switch off. */
+  | { kind: 'failed'; errorCode: string };
 
 /** A table refusal of a system transition is a fault of the simulation, answered as a problem. */
 class SimulationFault extends Error {
@@ -477,18 +492,38 @@ function systemTransition(
   return result.to;
 }
 
-/** Queued > Running (start) or NeedsRetry > Running (retry), stamping started_at; answers the tokens of the other runs started that calendar day. */
+/**
+ * The day's use when a run starts: the tokens the other runs started that calendar day
+ * recorded, plus a whole run budget for each one still Running (its tokens are not known yet),
+ * so runs driven together cannot overshoot the day budget by a run each (the API's start step).
+ */
+export function dayTokensOf(
+  runs: Iterable<SimRun>,
+  runId: string,
+  today: string,
+  settings: Pick<ExtractionDefinitions, 'runTokenBudget'>,
+): number {
+  let tokens = 0;
+  for (const other of runs) {
+    if (other.id === runId || other.startedAt?.startsWith(today) !== true) continue;
+    tokens += (other.tokensIn ?? 0) + (other.tokensOut ?? 0);
+    if (other.state === 'Running') tokens += settings.runTokenBudget;
+  }
+  return tokens;
+}
+
+/** Queued > Running (start) or NeedsRetry > Running (retry), stamping started_at; answers the day's use by the other runs. */
 function start(ctx: SimContext, actor: SimActor, run: SimRun, instance: string): number {
   const from = run.state;
   const command: ExtractionCommand = from === 'NeedsRetry' ? 'retry' : 'start';
   const to = systemTransition(from, command, {}, instance);
   const now = ctx.env.now();
-  const today = now.slice(0, 10);
-  let dayTokens = 0;
-  for (const other of ctx.state.runs.values()) {
-    if (other.id === run.id || other.startedAt?.startsWith(today) !== true) continue;
-    dayTokens += (other.tokensIn ?? 0) + (other.tokensOut ?? 0);
-  }
+  const dayTokens = dayTokensOf(
+    ctx.state.runs.values(),
+    run.id,
+    now.slice(0, 10),
+    extractionSettings(),
+  );
   run.state = to;
   run.startedAt = now;
   recordActivity(ctx, actor, {
@@ -502,14 +537,19 @@ function start(ctx: SimContext, actor: SimActor, run: SimRun, instance: string):
   return dayTokens;
 }
 
-/** One attempt: the budgets, the indexed pages, the redaction, the model call and the validation. Nothing here writes. */
+/** One attempt: the switch, the budgets, the indexed pages, the redaction, the model call and the validation. Nothing here writes. */
 function attemptRun(
   ctx: SimContext,
   book: PreviewBook,
+  credential: string,
   run: SimRun,
   schema: ExtractionSchema,
   dayTokens: number,
 ): Outcome {
+  // The switch is read per run, not once per batch, so turning it off stops the next run before
+  // the store or the model is touched (SEC-8.10, AI-6).
+  if (!flagEnabled(ctx, credential, EXTRACTION_SWITCH, false))
+    return { kind: 'failed', errorCode: KILL_SWITCH_CODE };
   const settings = extractionSettings();
   if (dayTokens > settings.dayTokenBudget)
     return {
@@ -522,7 +562,7 @@ function attemptRun(
   const doc = ctx.state.documents.get(run.documentId);
   if (doc === undefined) return { kind: 'error', errorKind: 'transient', errorCode: 'store_read' };
   if (doc.pages === null)
-    return { kind: 'unreadable', errorCode: `unreadable_${doc.unreadableCode ?? 'corrupt'}` };
+    return { kind: 'failed', errorCode: `unreadable_${doc.unreadableCode ?? 'corrupt'}` };
   const pageTexts = doc.pages.map((p) => redact(p.text).text);
   const investment = investmentOf(book, run.investmentId);
   let output: ExtractionOutput;
@@ -800,10 +840,11 @@ function settle(
 function processOne(
   ctx: SimContext,
   book: PreviewBook,
-  actor: SimActor,
+  req: { actor: SimActor; credential: string },
   run: SimRun,
   instance: string,
 ): 'Succeeded' | 'Failed' | Response {
+  const { actor, credential } = req;
   const schema = extractionSchemas()[run.schemaId];
   if (schema === undefined)
     return problem(
@@ -815,7 +856,7 @@ function processOne(
   try {
     for (;;) {
       const dayTokens = start(ctx, actor, run, instance);
-      const outcome = attemptRun(ctx, book, run, schema, dayTokens);
+      const outcome = attemptRun(ctx, book, credential, run, schema, dayTokens);
       const next = settle(ctx, actor, run, schema, outcome, instance);
       if (next === 'Succeeded' || next === 'Failed') return next;
     }
@@ -986,7 +1027,7 @@ export const createBatchRoute = defineSimRoute({
     batch.startedAt = ctx.env.now();
     let failed = 0;
     for (const [i, run] of runs.entries()) {
-      const outcome = processOne(ctx, book, req.actor, run, instance);
+      const outcome = processOne(ctx, book, req, run, instance);
       if (outcome instanceof Response) return outcome;
       if (outcome === 'Failed') failed += 1;
       batch.progress = Math.round(((i + 1) / runs.length) * 100);
@@ -1133,15 +1174,70 @@ function decide(
 const finalOf = (row: SimValue): string | null =>
   row.decision === EDITED ? row.editedValue : row.decision === ACCEPTED ? row.value : null;
 
+/** An edited row converts with the edit's own unit, the model's value with the model's (WF-1). */
+const unitOf = (row: SimValue): ExtractionUnit | null =>
+  row.decision === EDITED ? row.editedUnit : row.unit;
+
+/**
+ * The rules the validator applies to the model's answer, applied to the reviewer's: a money
+ * value converted to dollars must sit inside the configured range, which catches dollars typed
+ * with the $M unit (docs/08 section 6, FIN-1); a date must be a quarter end, and the quarter the
+ * run was opened for, since a report for another quarter is reclassified, not edited (docs/08
+ * section 5, FIN-2).
+ */
+export function valueProblem(
+  run: Pick<SimRun, 'periodEnd'>,
+  definition: ExtractionField,
+  value: string,
+  unit: ExtractionUnit,
+): string | null {
+  if (definition.kind === 'money' && definition.bounds !== null) {
+    const range = boundsFrom(definitions)[definition.bounds];
+    const dollars = toDollars(value, unit);
+    if (unitSanityFlag(dollars, { min: range.minUsd, max: range.maxUsd }))
+      return `The value converts to ${dollars.toFixed()} dollars, outside the ${definition.bounds} range ${range.minUsd} to ${range.maxUsd}; check the unit`;
+  }
+  if (definition.kind === 'date') {
+    if (!isQuarterEnd(value)) return 'The date must be a quarter end';
+    if (run.periodEnd !== null && value !== run.periodEnd)
+      return `The run covers ${run.periodEnd}; a report for another quarter is reclassified, not edited`;
+  }
+  return null;
+}
+
+/**
+ * The status of the quarter on record for the period, as the credential's own recorded
+ * performance holds it: the API reads mon.quarterly_performance as the system actor, and the
+ * recording is the preview's record of a status (every row is served with its stored status).
+ * Null when the record holds no quarter for the period.
+ */
+function statusOnRecord(
+  ctx: SimContext,
+  credential: string,
+  investmentId: string,
+  periodEnd: string,
+): string | null {
+  const perf = ctx.recordings.read(
+    credential,
+    `/api/v1/investments/${investmentId}/performance`,
+    investmentPerformance,
+  );
+  return perf?.quarters.find((q) => q.periodEnd === periodEnd)?.status ?? null;
+}
+
 /**
  * approve: the blockers first (409 naming the first), then the promotion as the system actor
- * into the simulated quarters, then the run's approval. A rejected or undecided target leaves the
- * record's column as it was; an accepted value the document did not state (null) likewise.
+ * into the simulated quarters, then the run's approval. A rejected target leaves the record's
+ * column as it was, and so does an accepted value the document did not state (null), since a
+ * promotion never writes a number the document did not give; an undecided target is named,
+ * never silently left out. The period end must be the quarter the run was opened for, and the
+ * quarter on record must not be the entry snapshot or a superseded quarter (422 otherwise:
+ * docs/08 section 5, docs/03 record_status, rule 10).
  */
 function approve(
   ctx: SimContext,
   book: PreviewBook,
-  actor: SimActor,
+  req: { actor: SimActor; credential: string },
   run: SimRun,
   schema: ExtractionSchema,
   values: readonly SimValue[],
@@ -1149,6 +1245,7 @@ function approve(
   at: string,
   instance: string,
 ): Response | null {
+  const { actor } = req;
   const byField = new Map(values.map((v) => [v.field, v]));
   for (const field of schema.fields) {
     const row = byField.get(field.key);
@@ -1161,6 +1258,11 @@ function approve(
       return blocked(`extraction: ${field.label} is invalid and not edited or rejected`, instance);
     if (row.validationState === 'flagged' && row.decision === null)
       return blocked(`extraction: ${field.label} is flagged and undecided`, instance);
+    if (field.target !== null && row.decision === null)
+      return blocked(
+        `extraction: ${field.label} is a record figure and undecided; accept, edit or reject it`,
+        instance,
+      );
   }
   if (run.investmentId === null)
     return refused(
@@ -1171,6 +1273,12 @@ function approve(
   const periodEnd = periodEndRow === undefined ? null : finalOf(periodEndRow);
   if (periodEnd === null)
     return blocked('extraction: Period end is required and not accepted or edited', instance);
+  // The figures land on the quarter the run was opened for and no other (FIN-2).
+  if (!isQuarterEnd(periodEnd) || (run.periodEnd !== null && periodEnd !== run.periodEnd))
+    return refused(
+      `extraction: the period end ${periodEnd} is not the quarter the run covers (${run.periodEnd ?? 'a quarter end'}); edit it`,
+      instance,
+    );
   const figures: QuarterlyFigures = {};
   const promotedFields: string[] = [];
   for (const field of schema.fields) {
@@ -1181,8 +1289,9 @@ function approve(
     if (final === null) continue;
     const key = TARGET_KEYS[field.target];
     if (key === undefined) continue;
-    // An edited row converts with the edit's own unit; the model's value with the model's.
-    const unit = row.decision === EDITED ? row.editedUnit : row.unit;
+    const unit = unitOf(row);
+    if (unit === null)
+      return blocked(`extraction: ${field.label} carries no money unit to convert from`, instance);
     try {
       figures[key] = toDollars(final, extractionUnit.parse(unit)).toFixed();
     } catch (error) {
@@ -1196,7 +1305,8 @@ function approve(
     promotedFields.push(field.key);
   }
   // The quarter on record, read again at approval (decision 0009): the book's approved quarter
-  // for the period, or the one an earlier approval promoted; the entry snapshot is never written.
+  // for the period, or the one an earlier approval promoted; the entry snapshot is never written
+  // and a superseded quarter is history that a promotion never revives (docs/03 record_status).
   const investmentId = run.investmentId;
   const onRecord = (book.quarters[investmentId] ?? []).find((q) => q.periodEnd === periodEnd);
   if (onRecord?.isEntrySnapshot === true)
@@ -1206,10 +1316,25 @@ function approve(
     );
   const key = quarterKey(investmentId, periodEnd);
   const previous = ctx.state.promotedQuarters.get(key);
-  const locator = byField.get(LOCATOR_FIELD);
+  if (
+    previous === undefined &&
+    statusOnRecord(ctx, req.credential, investmentId, periodEnd) === SUPERSEDED_STATUS
+  )
+    return refused(
+      'extraction: the quarter on record is superseded, which a promotion never revives',
+      instance,
+    );
+  // The citation: the first promoted figure read from the document, in schema order (an edited
+  // value has no page of its own), named in the locator; none when every target was edited.
+  const cited = schema.fields.find((field) => {
+    if (field.target === null) return false;
+    const row = byField.get(field.key);
+    return row?.decision === ACCEPTED && row.value !== null;
+  });
+  const citedRow = cited === undefined ? undefined : byField.get(cited.key);
   const highlightsRow = byField.get(HIGHLIGHTS_FIELD);
   const commentaryRow = byField.get(COMMENTARY_FIELD);
-  const approvalReason = reason ?? `AI extraction of ${toRun(ctx, run).fileName}`;
+  const approvalReason = reason ?? DEFAULT_APPROVAL_REASON;
   const promoted: SimPromotedQuarter = {
     id: onRecord?.id ?? previous?.id ?? ctx.env.newId(),
     investmentId,
@@ -1233,8 +1358,8 @@ function approve(
     source: {
       documentId: run.documentId,
       runId: run.id,
-      page: locator?.page ?? null,
-      locator: `field:${LOCATOR_FIELD}`,
+      page: citedRow?.page ?? null,
+      locator: cited === undefined ? null : `field:${cited.key}`,
     },
     promptVersion: run.promptVersion,
     modelId: run.modelId,
@@ -1321,7 +1446,7 @@ function retry(
       { instance, simulated: true },
     );
   }
-  const outcome = processOne(ctx, book, req.actor, target, instance);
+  const outcome = processOne(ctx, book, req, target, instance);
   if (outcome instanceof Response) return outcome;
   return answerDetail(ctx, req.credential, target, instance);
 }
@@ -1363,17 +1488,24 @@ export const runCommandRoute = defineSimRoute({
     const at = ctx.env.now();
     switch (body.command) {
       case 'accept': {
+        // The value as the model answered it (an earlier edit is dropped). An invalid value is
+        // refused with its first finding, and so is a highlights or commentary row with any
+        // finding: a banned phrase, a wrong opening or an em dash never reaches the record (AI-4).
         const found = rowOf(schema, values, body.field, instance);
         if (found instanceof Response) return found;
-        if (found.row.validationState === 'invalid') {
-          const finding = found.row.findings[0];
+        const label = labelOf(found.definition, body.field);
+        const finding = found.row.findings[0];
+        const named = finding === undefined ? '' : `: ${finding.message}`;
+        if (found.row.validationState === 'invalid')
           return blocked(
-            `extraction: ${labelOf(found.definition, body.field)} is invalid and cannot be accepted${
-              finding === undefined ? '' : `: ${finding.message}`
-            }; edit or reject it`,
+            `extraction: ${label} is invalid and cannot be accepted${named}; edit or reject it`,
             instance,
           );
-        }
+        if (found.definition === null && found.row.validationState !== 'clean')
+          return blocked(
+            `extraction: ${label} breaks the house style and cannot be accepted${named}; reject it`,
+            instance,
+          );
         decide(
           ctx,
           req.actor,
@@ -1416,22 +1548,24 @@ export const runCommandRoute = defineSimRoute({
             [{ path: 'field', message: 'Only a schema field can be edited' }],
             instance,
           );
+        // A money field takes a money unit, any other field its own unit, the value must fit it,
+        // and the value must pass the rules the validator holds the model to (valueProblem).
         const unit: ExtractionUnit | null = body.unit ?? naturalUnitOf(found.definition);
+        const errors: { path: string; message: string }[] = [];
         if (unit === null)
-          return invalidCommand(
-            [{ path: 'unit', message: 'A money edit needs a money unit' }],
-            instance,
-          );
-        if (!UNITS_BY_KIND[found.definition.kind].includes(unit))
-          return invalidCommand(
-            [{ path: 'unit', message: `A ${found.definition.kind} field does not take ${unit}` }],
-            instance,
-          );
-        if (!valueFitsUnit(body.value, unit))
-          return invalidCommand(
-            [{ path: 'value', message: 'The value does not fit the unit' }],
-            instance,
-          );
+          errors.push({ path: 'unit', message: 'A money edit needs a money unit' });
+        else if (!UNITS_BY_KIND[found.definition.kind].includes(unit))
+          errors.push({
+            path: 'unit',
+            message: `A ${found.definition.kind} field does not take ${unit}`,
+          });
+        else if (!valueFitsUnit(body.value, unit))
+          errors.push({ path: 'value', message: 'The value does not fit the unit' });
+        else {
+          const problem = valueProblem(run, found.definition, body.value, unit);
+          if (problem !== null) errors.push({ path: 'value', message: problem });
+        }
+        if (errors.length > 0 || unit === null) return invalidCommand(errors, instance);
         decide(
           ctx,
           req.actor,
@@ -1444,6 +1578,8 @@ export const runCommandRoute = defineSimRoute({
         break;
       }
       case 'acceptClean': {
+        // Every undecided clean value, the narrative rows included; a flagged highlights or
+        // commentary row is left for the reviewer to reject (AI-4).
         const targets = values.filter((v) => v.validationState === 'clean' && v.decision === null);
         for (const row of targets) {
           row.decision = ACCEPTED;
@@ -1466,17 +1602,7 @@ export const runCommandRoute = defineSimRoute({
         break;
       }
       case 'approve': {
-        const refusal = approve(
-          ctx,
-          book,
-          req.actor,
-          run,
-          schema,
-          values,
-          body.reason,
-          at,
-          instance,
-        );
+        const refusal = approve(ctx, book, req, run, schema, values, body.reason, at, instance);
         if (refusal !== null) return refusal;
         break;
       }
