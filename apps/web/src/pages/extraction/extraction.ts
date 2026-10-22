@@ -200,13 +200,13 @@ export function valueText(
   }
 }
 
-/** The value a promotion would take: the reviewer's edit when there is one, else the model's answer. */
+/** The value a promotion would take: the reviewer's edit in its own unit when there is one, else the model's answer (WF-1). */
 export function finalValue(v: ExtractedValue): {
   value: string | null;
   unit: ExtractionUnit | null;
 } {
   return v.decision === 'edited' && v.editedValue !== null
-    ? { value: v.editedValue, unit: v.unit }
+    ? { value: v.editedValue, unit: v.editedUnit ?? v.unit }
     : { value: v.value, unit: v.unit };
 }
 

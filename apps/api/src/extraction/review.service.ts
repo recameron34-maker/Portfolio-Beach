@@ -1,15 +1,20 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { and, eq } from 'drizzle-orm';
 import type { AdapterSet, Principal } from '@pb/adapters';
-import { UNITS_BY_KIND } from '@pb/ai';
+import { UNITS_BY_KIND, boundsFrom } from '@pb/ai';
 import type { ExtractionField, ExtractionSchema, ExtractionSchemas } from '@pb/ai';
-import { CalcError, toDollars } from '@pb/calc';
-import { extractionRunCommandBody, extractionUnit, valueFitsUnit } from '@pb/contracts';
+import { CalcError, toDollars, unitSanityFlag } from '@pb/calc';
+import {
+  extractionRunCommandBody,
+  extractionUnit,
+  isQuarterEnd,
+  valueFitsUnit,
+} from '@pb/contracts';
 import type { ExtractionRunCommandBody, ExtractionRunDetail, ExtractionUnit } from '@pb/contracts';
 import { asSystemActor, schema } from '@pb/db';
 import type { Tx } from '@pb/db';
 import { ProblemError, zodIssues } from '../common/problem.js';
-import { ADAPTERS } from '../common/tokens.js';
+import { ADAPTERS, DEFINITIONS } from '../common/tokens.js';
 import { requireUuid } from '../common/validate.js';
 import { DbService } from '../db/db.service.js';
 import type { AuditEntry } from '../db/db.service.js';
@@ -39,16 +44,24 @@ import {
 /*
  * Review by exception (docs/04 M4, SEC-9.1, SEC-11.1, decision 0012). A reviewer (deal team,
  * operations) decides the staged values of a Succeeded, unapproved run they can see: accept,
- * reject with a reason, edit (a corrected value, with its unit for money), or accept every clean
- * undecided value at once; an invalid value can only be edited or rejected. Approval checks that
- * every required field is accepted or edited, that no invalid value stands and that no flagged
- * value is undecided, then promotes the final values of the target fields, converted to dollars,
- * into mon.quarterly_performance through the one promotion write the accounting import uses
- * (intake/promote.ts), as the system actor, in the same transaction, with the lineage of the run
- * and the document; the highlights and the commentary are written only when their rows are
- * accepted. Every decision and the approval are audited with before and after. retry drives a
- * NeedsRetry run again through the machine, or queues a fresh run for a Failed one (the machine
- * has no Failed > Running row: a failed run stays on record as it failed).
+ * reject with a reason, edit (a corrected value in its own unit, kept beside the model's value
+ * and unit, never over them: WF-1), or accept every clean undecided value at once; an invalid
+ * value can only be edited or rejected, and a highlight or commentary row that breaks the house
+ * style can only be rejected (docs/07 section 3, AI-4). An edit is held to the rules the
+ * validator applies to the model (docs/08 sections 5 and 6): a money value must convert to
+ * dollars inside the configured range, a date must be the quarter end the run was opened for.
+ * Approval checks that every required field is accepted or edited, that no invalid value stands,
+ * that no flagged value and no record figure is undecided, and that the period end is the run's
+ * quarter, then promotes the final values of the target fields, converted to dollars (an edited
+ * value with the edit's unit), into mon.quarterly_performance through the one promotion write the
+ * accounting import uses (intake/promote.ts), as the system actor, in the same transaction, with
+ * the lineage of the run and the document, citing the first promoted figure read from the
+ * document; the highlights and the commentary are written only when their rows are accepted.
+ * The default approval reason is a fixed sentence, since the file name names the company and
+ * the audit trail is read by role, not by wall (W3). Every decision and the approval are audited
+ * with before and after. retry drives a NeedsRetry run again through the machine, or queues a
+ * fresh run for a Failed one (the machine has no Failed > Running row: a failed run stays on
+ * record as it failed).
  */
 
 const ENTITY = 'doc.extraction_run';
@@ -66,8 +79,8 @@ const TARGET_KEYS: Readonly<Record<string, QuarterlyFigureKey>> = {
   cash: 'cash',
   total_equity: 'totalEquity',
 };
-/** The field whose page the record's source_page points at. */
-const LOCATOR_FIELD = 'revenue_ltm';
+/** The approval reason when the reviewer gives none: a fixed sentence, never the file name (W3, SEC-5.3). */
+export const DEFAULT_APPROVAL_REASON = 'Approved from the AI extraction review';
 
 /** The run as locked for a command. */
 interface LockedRun {
@@ -75,6 +88,8 @@ interface LockedRun {
   documentId: string;
   fileName: string;
   investmentId: string | null;
+  /** The quarter the run was opened for (the document's period end), which the promotion lands on. */
+  periodEnd: string | null;
   schemaId: string;
   promptVersion: string;
   modelId: string | null;
@@ -100,6 +115,7 @@ export class ExtractionReviewService {
     private readonly extraction: ExtractionService,
     private readonly runner: ExtractionRunner,
     @Inject(ADAPTERS) private readonly adapters: AdapterSet,
+    @Inject(DEFINITIONS) private readonly definitions: unknown,
     @Inject(EXTRACTION_SCHEMAS) private readonly schemas: ExtractionSchemas,
   ) {}
 
@@ -164,6 +180,7 @@ export class ExtractionReviewService {
           id: run.id,
           documentId: run.documentId,
           investmentId: run.investmentId,
+          periodEnd: run.periodEnd,
           schemaId: run.schemaId,
           promptVersion: run.promptVersion,
           modelId: run.modelId,
@@ -220,14 +237,18 @@ export class ExtractionReviewService {
         : field;
   }
 
-  /** Writes one decision, claimed on the row version the command read; audited with before and after. */
+  /**
+   * Writes one decision, claimed on the row version the command read; audited with before and
+   * after. The model's value and unit are never overwritten: an edit lives in its own two columns
+   * and an accept clears them, so the row always shows what the model said (WF-1).
+   */
   private async decide(
     tx: Tx,
     audit: (entry: AuditEntry) => Promise<void>,
     principal: Principal,
     locked: LockedRun,
     row: LoadedValue,
-    set: { decision: string; editedValue: string | null; unit?: string | null },
+    set: { decision: string; editedValue: string | null; editedUnit: string | null },
     reason: string | undefined,
     at: Date,
   ): Promise<void> {
@@ -236,7 +257,7 @@ export class ExtractionReviewService {
       .set({
         decision: set.decision,
         editedValue: set.editedValue,
-        ...(set.unit !== undefined ? { unit: set.unit } : {}),
+        editedUnit: set.editedUnit,
         reviewerId: principal.userId,
         decidedAt: at,
       })
@@ -257,18 +278,22 @@ export class ExtractionReviewService {
         before: {
           decision: row.decision,
           editedValue: row.editedValue,
-          unit: row.unit,
+          editedUnit: row.editedUnit,
         },
         after: {
           decision: set.decision,
           editedValue: set.editedValue,
-          unit: set.unit !== undefined ? set.unit : row.unit,
+          editedUnit: set.editedUnit,
         },
       },
     });
   }
 
-  /** accept: the value as the model answered it; an invalid value is refused with its first finding. */
+  /**
+   * accept: the value as the model answered it (an earlier edit is dropped). An invalid value is
+   * refused with its first finding, and so is a highlights or commentary row with any finding:
+   * a banned phrase, a wrong opening or an em dash is never written to the record (AI-4).
+   */
   private async accept(
     tx: Tx,
     audit: (entry: AuditEntry) => Promise<void>,
@@ -280,21 +305,23 @@ export class ExtractionReviewService {
     at: Date,
   ): Promise<void> {
     const { row, definition } = this.rowOf(extractionSchema, values, field);
-    if (row.validationState === 'invalid') {
-      const finding = findingsOf(row.findings)[0];
+    const finding = findingsOf(row.findings)[0];
+    const named = finding === undefined ? '' : `: ${finding.message}`;
+    if (row.validationState === 'invalid')
       throw blocked(
-        `extraction: ${this.labelOf(definition, field)} is invalid and cannot be accepted${
-          finding === undefined ? '' : `: ${finding.message}`
-        }; edit or reject it`,
+        `extraction: ${this.labelOf(definition, field)} is invalid and cannot be accepted${named}; edit or reject it`,
       );
-    }
+    if (definition === null && row.validationState !== 'clean')
+      throw blocked(
+        `extraction: ${this.labelOf(definition, field)} breaks the house style and cannot be accepted${named}; reject it`,
+      );
     await this.decide(
       tx,
       audit,
       principal,
       locked,
       row,
-      { decision: ACCEPTED, editedValue: null },
+      { decision: ACCEPTED, editedValue: null, editedUnit: null },
       undefined,
       at,
     );
@@ -318,7 +345,7 @@ export class ExtractionReviewService {
       principal,
       locked,
       row,
-      { decision: REJECTED, editedValue: null },
+      { decision: REJECTED, editedValue: null, editedUnit: null },
       body.reason,
       at,
     );
@@ -327,8 +354,9 @@ export class ExtractionReviewService {
   /**
    * edit: a corrected value for a schema field, checked against the field's kind: a money field
    * takes a money unit (the contract, built with the schema's money fields), any other field takes
-   * its own unit, and the value must fit it. The edited value replaces the model's at promotion;
-   * the unit written is the edit's (the row has no second unit column: wave 1 open item).
+   * its own unit, the value must fit it, and the value must pass the rules the validator holds the
+   * model to (valueProblem). The edited value, in the edit's unit, replaces the model's at
+   * promotion; the model's value and unit stay on the row (WF-1).
    */
   private async edit(
     tx: Tx,
@@ -355,6 +383,10 @@ export class ExtractionReviewService {
       errors.push({ path: 'unit', message: `A ${definition.kind} field does not take ${unit}` });
     else if (!valueFitsUnit(body.value, unit))
       errors.push({ path: 'value', message: 'The value does not fit the unit' });
+    else {
+      const problem = this.valueProblem(locked, definition, body.value, unit);
+      if (problem !== null) errors.push({ path: 'value', message: problem });
+    }
     if (errors.length > 0 || unit === null)
       throw new ProblemError(400, 'validation', 'Invalid command', errors);
     await this.decide(
@@ -363,10 +395,37 @@ export class ExtractionReviewService {
       principal,
       locked,
       row,
-      { decision: EDITED, editedValue: body.value, unit },
+      { decision: EDITED, editedValue: body.value, editedUnit: unit },
       body.reason,
       at,
     );
+  }
+
+  /**
+   * The rules the validator applies to the model's answer, applied to the reviewer's: a money
+   * value converted to dollars must sit inside the configured range, which catches dollars typed
+   * with the $M unit (docs/08 section 6, FIN-1); a date must be a quarter end, and the quarter the
+   * run was opened for, since a report for another quarter is reclassified, not edited (docs/08
+   * section 5, FIN-2).
+   */
+  private valueProblem(
+    locked: LockedRun,
+    definition: ExtractionField,
+    value: string,
+    unit: ExtractionUnit,
+  ): string | null {
+    if (definition.kind === 'money' && definition.bounds !== null) {
+      const range = boundsFrom(this.definitions)[definition.bounds];
+      const dollars = toDollars(value, unit);
+      if (unitSanityFlag(dollars, { min: range.minUsd, max: range.maxUsd }))
+        return `The value converts to ${dollars.toFixed()} dollars, outside the ${definition.bounds} range ${range.minUsd} to ${range.maxUsd}; check the unit`;
+    }
+    if (definition.kind === 'date') {
+      if (!isQuarterEnd(value)) return 'The date must be a quarter end';
+      if (locked.periodEnd !== null && value !== locked.periodEnd)
+        return `The run covers ${locked.periodEnd}; a report for another quarter is reclassified, not edited`;
+    }
+    return null;
   }
 
   /** acceptClean: every undecided clean value, the narrative rows included, in one audited sweep. */
@@ -382,7 +441,13 @@ export class ExtractionReviewService {
     for (const row of targets) {
       const claimed = await tx
         .update(value)
-        .set({ decision: ACCEPTED, editedValue: null, reviewerId: principal.userId, decidedAt: at })
+        .set({
+          decision: ACCEPTED,
+          editedValue: null,
+          editedUnit: null,
+          reviewerId: principal.userId,
+          decidedAt: at,
+        })
         .where(and(eq(value.id, row.id), eq(value.rowVersion, row.rowVersion)))
         .returning();
       if (claimed[0] === undefined) throw conflict();
@@ -401,9 +466,11 @@ export class ExtractionReviewService {
 
   /**
    * approve: the blockers first (409 naming the first), then the promotion as the system actor,
-   * then the run's approval columns claimed on the row version the command read. A rejected or
-   * undecided target leaves the record's column as it was; an accepted value the document did not
-   * state (null) likewise, since a promotion never writes a number the document did not give.
+   * then the run's approval columns claimed on the row version the command read. A rejected
+   * target leaves the record's column as it was, and so does an accepted value the document did
+   * not state (null), since a promotion never writes a number the document did not give; an
+   * undecided target is named, never silently left out. The period end must be the quarter the
+   * run was opened for (422 otherwise: docs/08 section 5, rule 10).
    */
   private async approve(
     tx: Tx,
@@ -427,6 +494,10 @@ export class ExtractionReviewService {
         throw blocked(`extraction: ${field.label} is invalid and not edited or rejected`);
       if (row.validationState === 'flagged' && row.decision === null)
         throw blocked(`extraction: ${field.label} is flagged and undecided`);
+      if (field.target !== null && row.decision === null)
+        throw blocked(
+          `extraction: ${field.label} is a record figure and undecided; accept, edit or reject it`,
+        );
     }
     if (locked.investmentId === null)
       throw new ProblemError(
@@ -440,6 +511,16 @@ export class ExtractionReviewService {
     const periodEnd = periodEndRow === undefined ? null : finalOf(periodEndRow);
     if (periodEnd === null)
       throw blocked('extraction: Period end is required and not accepted or edited');
+    // The figures land on the quarter the run was opened for and no other (FIN-2).
+    if (!isQuarterEnd(periodEnd) || (locked.periodEnd !== null && periodEnd !== locked.periodEnd))
+      throw new ProblemError(
+        422,
+        'workflow-precondition',
+        `extraction: the period end ${periodEnd} is not the quarter the run covers (${locked.periodEnd ?? 'a quarter end'}); edit it`,
+      );
+    // An edited row converts with the edit's own unit, the model's value with the model's (WF-1).
+    const unitOf = (row: LoadedValue): string | null =>
+      row.decision === EDITED ? row.editedUnit : row.unit;
     const figures: QuarterlyFigures = {};
     const promotedFields: string[] = [];
     for (const field of extractionSchema.fields) {
@@ -450,8 +531,11 @@ export class ExtractionReviewService {
       if (final === null) continue;
       const key = TARGET_KEYS[field.target];
       if (key === undefined) continue;
+      const unit = unitOf(row);
+      if (unit === null)
+        throw blocked(`extraction: ${field.label} carries no money unit to convert from`);
       try {
-        figures[key] = toDollars(final, extractionUnit.parse(row.unit)).toFixed();
+        figures[key] = toDollars(final, extractionUnit.parse(unit)).toFixed();
       } catch (error) {
         if (error instanceof CalcError)
           throw blocked(`extraction: ${field.label} carries no money unit to convert from`);
@@ -459,7 +543,14 @@ export class ExtractionReviewService {
       }
       promotedFields.push(field.key);
     }
-    const locator = byField.get(LOCATOR_FIELD);
+    // The citation: the first promoted figure read from the document, in schema order (an edited
+    // value has no page of its own), named in the locator.
+    const cited = extractionSchema.fields.find((field) => {
+      if (field.target === null) return false;
+      const row = byField.get(field.key);
+      return row?.decision === ACCEPTED && row.value !== null;
+    });
+    const citedRow = cited === undefined ? undefined : byField.get(cited.key);
     const highlightsRow = byField.get(HIGHLIGHTS_FIELD);
     const commentaryRow = byField.get(COMMENTARY_FIELD);
     const narrative = {
@@ -468,7 +559,7 @@ export class ExtractionReviewService {
         : {}),
       ...(commentaryRow?.decision === ACCEPTED ? { commentary: commentaryRow.value } : {}),
     };
-    const approvalReason = reason ?? `AI extraction of ${locked.fileName}`;
+    const approvalReason = reason ?? DEFAULT_APPROVAL_REASON;
     const investmentId = locked.investmentId;
     const promoted = await asSystemActor(tx, (stx) =>
       promoteQuarterlyPerformance(stx, audit, {
@@ -479,8 +570,8 @@ export class ExtractionReviewService {
         approval: { approvedBy: principal.userId, approvedAt: at, approvalReason },
         lineage: {
           sourceDocumentId: locked.documentId,
-          sourcePage: locator?.page ?? null,
-          sourceLocator: `field:${LOCATOR_FIELD}`,
+          sourcePage: citedRow?.page ?? null,
+          sourceLocator: cited === undefined ? null : `field:${cited.key}`,
           extractionRunId: locked.id,
           promptVersion: locked.promptVersion,
           modelId: locked.modelId,

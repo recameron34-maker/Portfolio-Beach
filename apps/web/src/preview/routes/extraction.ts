@@ -81,7 +81,13 @@ import {
   recordActivity,
 } from './common.js';
 import type { SimContext } from './common.js';
-import { docTypeLabel, investmentOf, toSummary, visibleDocument } from './documents.js';
+import {
+  docTypeLabel,
+  documentSettings,
+  investmentOf,
+  toSummary,
+  visibleDocument,
+} from './documents.js';
 
 /**
  * AI extraction (docs/04 M4, docs/18 section 7, decision 0012) simulated in the browser, the way
@@ -359,6 +365,7 @@ function toValue(row: SimValue, field: ExtractionField): ExtractedValue {
     findings: row.findings.map((f) => ({ ...f })),
     decision: row.decision,
     editedValue: row.editedValue,
+    editedUnit: row.editedUnit,
     decidedBy: row.decidedBy,
     decidedAt: row.decidedAt,
   };
@@ -533,7 +540,9 @@ function attemptRun(
     });
     // The prototype model: the recorded truth for the content hash, checked against the schema's
     // output shape as the mock client checks it; the token counts are the mock client's.
-    output = outputSchemaFor(schema).parse(fixtureExtractor(truthsOf(book))(input));
+    output = outputSchemaFor(schema, { maxPage: documentSettings().maxPages }).parse(
+      fixtureExtractor(truthsOf(book))(input),
+    );
     tokensIn = Math.ceil(input.length / 4);
   } catch (error) {
     if (error instanceof ZodError)
@@ -597,6 +606,7 @@ function succeed(
       decidedBy: null,
       decision: null,
       editedValue: null,
+      editedUnit: null,
       decidedAt: null,
       rowVersion: 1,
     };
@@ -1088,7 +1098,7 @@ const labelOf = (definition: ExtractionField | null, field: string): string =>
         ? 'Commentary'
         : field;
 
-/** Writes one decision on a row; recorded with the decision before and after. */
+/** Writes one decision on a row; recorded with the decision before and after. The model's value and unit are never overwritten (WF-1). */
 function decide(
   ctx: SimContext,
   actor: SimActor,
@@ -1097,7 +1107,7 @@ function decide(
   set: {
     decision: 'accepted' | 'edited' | 'rejected';
     editedValue: string | null;
-    unit?: ExtractionUnit | null;
+    editedUnit: ExtractionUnit | null;
   },
   reason: string | undefined,
   at: string,
@@ -1105,7 +1115,7 @@ function decide(
   const before = row.decision;
   row.decision = set.decision;
   row.editedValue = set.editedValue;
-  if (set.unit !== undefined) row.unit = set.unit;
+  row.editedUnit = set.editedUnit;
   row.reviewerId = actor.userId;
   row.decidedBy = actor.displayName;
   row.decidedAt = at;
@@ -1171,8 +1181,10 @@ function approve(
     if (final === null) continue;
     const key = TARGET_KEYS[field.target];
     if (key === undefined) continue;
+    // An edited row converts with the edit's own unit; the model's value with the model's.
+    const unit = row.decision === EDITED ? row.editedUnit : row.unit;
     try {
-      figures[key] = toDollars(final, extractionUnit.parse(row.unit)).toFixed();
+      figures[key] = toDollars(final, extractionUnit.parse(unit)).toFixed();
     } catch (error) {
       if (error instanceof CalcError || error instanceof ZodError)
         return blocked(
@@ -1367,7 +1379,7 @@ export const runCommandRoute = defineSimRoute({
           req.actor,
           run,
           found.row,
-          { decision: ACCEPTED, editedValue: null },
+          { decision: ACCEPTED, editedValue: null, editedUnit: null },
           undefined,
           at,
         );
@@ -1381,7 +1393,7 @@ export const runCommandRoute = defineSimRoute({
           req.actor,
           run,
           found.row,
-          { decision: REJECTED, editedValue: null },
+          { decision: REJECTED, editedValue: null, editedUnit: null },
           body.reason,
           at,
         );
@@ -1425,7 +1437,7 @@ export const runCommandRoute = defineSimRoute({
           req.actor,
           run,
           found.row,
-          { decision: EDITED, editedValue: body.value, unit },
+          { decision: EDITED, editedValue: body.value, editedUnit: unit },
           body.reason,
           at,
         );
@@ -1436,6 +1448,7 @@ export const runCommandRoute = defineSimRoute({
         for (const row of targets) {
           row.decision = ACCEPTED;
           row.editedValue = null;
+          row.editedUnit = null;
           row.reviewerId = req.actor.userId;
           row.decidedBy = req.actor.displayName;
           row.decidedAt = at;

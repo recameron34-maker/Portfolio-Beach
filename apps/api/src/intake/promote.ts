@@ -163,6 +163,12 @@ export async function promoteQuarterlyPerformance(
     throw quarterPrecondition(
       `${label}: the quarter on record is the entry snapshot, which a promotion never changes`,
     );
+  // A superseded quarter is history (docs/03 record_status): a promotion never revives it; a
+  // draft may be approved.
+  if (existing?.status === 'record_status.superseded')
+    throw quarterPrecondition(
+      `${label}: the quarter on record is superseded, which a promotion never revives`,
+    );
   input.check?.(existing);
 
   const keys = QUARTERLY_FIGURE_KEYS.filter((key) => key in input.figures);
