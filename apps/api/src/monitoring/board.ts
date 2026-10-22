@@ -59,9 +59,11 @@ export function reportsQuarterly(dealType: string): boolean {
 }
 
 /**
- * approved when the quarter's record is approved or the run is; pending when a run succeeded
- * and nobody approved it yet; none otherwise. The run's approval time comes first because it is
- * the lineage the record carries; the record's own time answers for figures approved another way.
+ * approved when the latest run is approved; pending when the latest run succeeded and nobody
+ * approved it yet, whatever the record holds (a revised report waits in review even where an
+ * earlier approval stands, FIN-5); approved when the quarter's record was approved another way;
+ * none otherwise. The run's approval time comes first because it is the lineage the record
+ * carries; the record's own time answers for figures approved another way.
  */
 export function approvalOf(
   run: BoardRun | null,
@@ -69,8 +71,8 @@ export function approvalOf(
 ): { approval: MonitoringApproval; approvedAt: string | null } {
   if (run !== null && run.approvedAt !== null)
     return { approval: 'approved', approvedAt: run.approvedAt };
-  if (record !== null) return { approval: 'approved', approvedAt: record.approvedAt };
   if (run !== null && run.state === 'Succeeded') return { approval: 'pending', approvedAt: null };
+  if (record !== null) return { approval: 'approved', approvedAt: record.approvedAt };
   return { approval: 'none', approvedAt: null };
 }
 

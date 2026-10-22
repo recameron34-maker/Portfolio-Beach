@@ -316,6 +316,72 @@ describe('monitoring (M9, decision 0012): the board, the export and the realizat
     expect(latest.approval).toBe('none');
   });
 
+  it('judges a newer succeeded run before the approved record: a revised report waits in review (FIN-5)', async () => {
+    // A reporting investment whose quarter is approved in the seed, outside the wall.
+    const investment = held().find(
+      (i) =>
+        QUARTERLY_REPORTING_DEAL_TYPES.includes(i.dealType) &&
+        approvedIds().has(i.id) &&
+        i.id !== walledId(),
+    )!;
+    expect(investment).toBeDefined();
+    const before = await board('deal.one', '');
+    expect(rowOf(before, investment.id).approval).toBe('approved');
+    expect(rowOf(before, investment.id).runId).toBeNull();
+    const document =
+      documents.find((d) => d.investmentId === investment.id && d.docType === QF) ??
+      documents.find((d) => d.docType === QF && d.investmentId !== walledId())!;
+    const asService = <T>(fn: (tx: Tx) => Promise<T>): Promise<T> =>
+      withUserContext(h.runtime.db.db, { userId: SYSTEM_USER_ID, roles: ['service'] }, fn);
+    const runId = await asService(async (tx) => {
+      const [run] = await tx
+        .insert(schema.extractionRun)
+        .values({
+          documentId: document.id,
+          investmentId: investment.id,
+          periodEnd: quarterEnd(),
+          schemaId: 'quarterly_financials',
+          promptId: 'quarterly_extraction',
+          promptVersion: '1',
+          state: 'Succeeded',
+          requestedBy: user('ops.one').id,
+        })
+        .returning();
+      await tx.insert(schema.extractedValue).values({
+        runId: run!.id,
+        investmentId: investment.id,
+        field: 'revenue_ltm',
+        value: '1.00',
+        unit: 'USD_M',
+        validationState: 'flagged',
+        decision: null,
+      });
+      return run!.id;
+    });
+    // The revised report's run succeeded with a flag nobody decided: the quarter is in review,
+    // whatever the record says, and the board counts it there.
+    const pending = await board('deal.one', '');
+    const row = rowOf(pending, investment.id);
+    expect(row.runId).toBe(runId);
+    expect(row.runState).toBe('Succeeded');
+    expect(row.flagsCount).toBe(1);
+    expect(row.approval).toBe('pending');
+    expect(row.approvedAt).toBeNull();
+    expect(pending.counts.inReview).toBe(before.counts.inReview + 1);
+    expect(pending.counts.approved).toBe(before.counts.approved - 1);
+    // Once the run is approved, the quarter is approved with the run's own time.
+    const approvedAt = '2025-08-02T10:00:00.000Z';
+    await asService(async (tx) => {
+      await tx
+        .update(schema.extractionRun)
+        .set({ approvedBy: user('head.one').id, approvedAt: new Date(approvedAt) })
+        .where(eq(schema.extractionRun.id, runId));
+    });
+    const approved = rowOf(await board('deal.one', ''), investment.id);
+    expect(approved.approval).toBe('approved');
+    expect(approved.approvedAt).toBe(approvedAt);
+  });
+
   it('exports the rows the caller sees as CSV: a header line, one line per row, text/csv', async () => {
     const b = await board('deal.three', '');
     const res = await get(
