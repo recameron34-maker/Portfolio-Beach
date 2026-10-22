@@ -225,7 +225,11 @@ Phase 1 (M1, M2) as planned in Session 1, now with every read screen in place to
 
 **Verified (command output summarized, final tree)**
 
-- Final gates and journeys are recorded in the close-out paragraph below once the last fix groups land.
+- Final tree (after every fix group, `1f9341b` and later): `pnpm typecheck`, `pnpm lint` (eslint now runs with a 4 GB heap, since the type-aware pass over the grown repo exceeded Node's default), `pnpm check:style` (764 files), `pnpm check:employer-data` (765 files), `pnpm check:classification` (683 columns): all pass.
+- `pnpm test`: 184 files, 2833 tests pass (pdf 191 with the hardening tests; ai 102; api 310 with the review regression tests; db 806 with migration 0012 and the matrix rows; web 759 with the preview simulation and the page tests).
+- `pnpm test:evals`: 77 gold cases from 78 documents; classifier accuracy 1.0, precision 1.0 on every type (threshold 0.95), injection cases changed 0; extraction numeric accuracy 1.0 over 753 fields (threshold 0.98), unit errors 0, missing citations 0, hallucinations 0, injection cases changed 0 of 53.
+- `pnpm test:e2e`: 49 journeys pass (21.2 minutes), critical journey 2 included.
+- `pnpm build:preview` and `pnpm probe:preview`: 106 passed, 0 failed, 0 skipped, no recording misses, no page errors; the artifact at the same private URL is republished as version 8 with 95 files beside the page (78 PDFs, the book, the recordings, the samples).
 
 **Open items for the owner**
 
