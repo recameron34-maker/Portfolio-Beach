@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import type { ReactNode } from 'react';
 import { Link } from '@tanstack/react-router';
-import { keepPreviousData, useMutation, useQuery } from '@tanstack/react-query';
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Button, Dropdown, Input, Label, Option } from '@fluentui/react-components';
 import { ArrowDownload16Regular } from '@fluentui/react-icons';
 import type { MonitoringBoard, MonitoringBoardRow } from '@pb/contracts';
@@ -10,6 +10,7 @@ import { PORTFOLIO_TABS } from '../../app/nav.js';
 import {
   fetchMonitoringExport,
   investmentsQuery,
+  LIST_LIMIT,
   monitoringBoardQuery,
 } from '../../app/queries.js';
 import type { MonitoringBoardFilters } from '../../app/queries.js';
@@ -31,6 +32,7 @@ import {
 import { ActionStatus } from '../../components/WorkflowActions.js';
 import { formatDate, labelOf, MISSING, plural } from '../../lib/format.js';
 import { balanceTiles } from '../../lib/tiles.js';
+import { retryUnlessUnavailable } from '../../lib/unavailable.js';
 import { useActionLog } from '../../lib/workflow.js';
 import {
   ageLabel,
@@ -42,6 +44,7 @@ import {
   documentStatusWord,
   downloadText,
   dueLabel,
+  everyPage,
   exportFileName,
   exportResult,
   flagsText,
@@ -220,8 +223,21 @@ export function MonitoringPage(): ReactNode {
     ...(asOfInput !== null && isAsOfDate(asOfInput) ? { asOf: asOfInput.trim() } : {}),
   };
   const board = useQuery({ ...monitoringBoardQuery(filters), placeholderData: keepPreviousData });
-  // The quarters a reader may pick span the positions held: from the earliest entry to the as-of day.
-  const positions = useQuery(investmentsQuery({ active: 'true', limit: 100 }));
+  // The quarters a reader may pick span the positions held, from the earliest entry to the as-of
+  // day. The board answers for every position held on a quarter end, those since exited included,
+  // so the picker reads the whole list the reader may see, paged to its end: one page ordered by
+  // investment number need not hold the earliest entry (docs/17 section 3).
+  const client = useQueryClient();
+  const positions = useQuery({
+    queryKey: ['investments', 'every-page'],
+    queryFn: () =>
+      everyPage((cursor) =>
+        client.fetchQuery(
+          investmentsQuery({ limit: LIST_LIMIT, ...(cursor === undefined ? {} : { cursor }) }),
+        ),
+      ),
+    retry: retryUnlessUnavailable,
+  });
   const log = useActionLog();
   const exporter = useMutation({
     mutationFn: (f: MonitoringBoardFilters) => fetchMonitoringExport(f),
@@ -293,7 +309,7 @@ export function MonitoringPage(): ReactNode {
                   }}
                 >
                   {periodOptions(
-                    positions.data?.items.map((i) => i.entryDate) ?? [],
+                    positions.data?.map((i) => i.entryDate) ?? [],
                     filters.asOf ?? data.asOf,
                     data.periodEnd,
                   ).map((end) => (

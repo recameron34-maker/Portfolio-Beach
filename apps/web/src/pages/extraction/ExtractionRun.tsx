@@ -53,6 +53,7 @@ import {
   finalValueText,
   firstPage,
   NARRATIVE_FIELDS,
+  promotedPeriod,
   retriedPhrase,
   REVIEW_READ_ONLY,
   reviewOrder,
@@ -722,7 +723,7 @@ function RunBody({
         />
       ) : dialog?.kind === 'approve' ? (
         <ApproveDialog
-          subject={`${plural(accepted, 'accepted value')} and ${plural(edited, 'edited value')} of ${detail.run.companyName ?? detail.run.fileName}, ${formatDate(detail.run.periodEnd)}`}
+          subject={`${plural(accepted, 'accepted value')} and ${plural(edited, 'edited value')} of ${detail.run.companyName ?? detail.run.fileName}, ${formatDate(promotedPeriod(detail))}`}
           onCancel={() => setDialog(null)}
           onSubmit={(reason) => {
             issue({

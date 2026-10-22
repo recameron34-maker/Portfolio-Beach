@@ -261,6 +261,10 @@ describe('a document', () => {
       expect(screen.queryByTestId('document-classify')).not.toBeInTheDocument();
       expect(value('Classified by')).toHaveTextContent('Avery Castellanos, Jul 2, 2025');
       expect(status()).toHaveTextContent('Classified as Quarterly financials');
+      // The button that sent the command left with the form, so focus moves to the document's
+      // title rather than falling to the body (docs/17 section 9: keyboard navigation, visible focus).
+      await waitFor(() => expect(within(banner()).getByText('scan_0042')).toHaveFocus());
+      expect(document.activeElement).not.toBe(document.body);
     },
   );
 

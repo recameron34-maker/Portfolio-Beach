@@ -17,9 +17,9 @@ vi.mock('@tanstack/react-router', async () =>
 const ME = '/api/v1/auth/me';
 const BOARD = '/api/v1/monitoring/board';
 const EXPORT = '/api/v1/monitoring/board/export';
-const POSITIONS = '/api/v1/investments?limit=100&active=true';
+const POSITIONS = '/api/v1/investments?limit=200';
 
-/** The two active positions the quarter picker reads its range from: entered in Q4 2024 and Q1 2025. */
+/** The two positions the quarter picker reads its range from: entered in Q4 2024 and Q1 2025. */
 function positions() {
   return investmentPageFixture([
     investmentFixture({ entryDate: '2024-11-15' }),
@@ -317,6 +317,47 @@ describe('monitoring board', () => {
     );
     expect(screen.queryByRole('table', { name: 'Monitoring board' })).not.toBeInTheDocument();
     expect(screen.getByText('0 positions')).toBeInTheDocument();
+  });
+
+  it('reads every page of every position, exited ones included, so the earliest quarter can be picked', async () => {
+    // A full first page of positions entered in 2025; the position that opened the book, entered
+    // in 2023 and since exited, sits on the second page. The board answers for it on the quarter
+    // ends it was held on, so the picker must reach back to Q2 2023.
+    const fullPage = Array.from({ length: 200 }, (_, i) =>
+      investmentFixture({
+        id: `00000000-0000-4000-8000-${(i + 1).toString(16).padStart(12, '0')}`,
+        investmentNumber: `INV-${String(i + 1).padStart(4, '0')}`,
+        entryDate: '2025-02-01',
+      }),
+    );
+    const exited = investmentFixture({
+      id: ID.inv2,
+      investmentNumber: 'INV-0201',
+      entryDate: '2023-05-10',
+      exitDate: '2024-09-30',
+      isActive: false,
+    });
+    mockApi(
+      routes(['deal_team'], {
+        [POSITIONS]: ok(investmentPageFixture(fullPage, 'page-2')),
+        [`${POSITIONS}&cursor=page-2`]: ok(investmentPageFixture([exited])),
+      }),
+    );
+    renderWithQuery(<MonitoringPage />);
+    await screen.findByTestId('monitoring-tiles');
+    await userEvent.click(screen.getByRole('combobox', { name: 'Quarter' }));
+    await waitFor(() =>
+      expect(screen.getByRole('option', { name: 'Q2 2023 (Jun 30, 2023)' })).toBeInTheDocument(),
+    );
+    const options = screen.getAllByRole('option').map((o) => o.textContent);
+    expect(options).toHaveLength(9);
+    expect(options[0]).toBe('Q2 2025 (Jun 30, 2025)');
+    expect(options[8]).toBe('Q2 2023 (Jun 30, 2023)');
+    expect(
+      sentRequests()
+        .map(([url]) => url)
+        .filter((url) => url.startsWith('/api/v1/investments')),
+    ).toEqual([POSITIONS, `${POSITIONS}&cursor=page-2`]);
   });
 
   it('keeps the picker usable before the positions have loaded, or when they cannot', async () => {

@@ -162,6 +162,41 @@ export function periodOptions(
   return [...ends].sort((a, b) => b.localeCompare(a));
 }
 
+/** One page of a cursor-paged list, as every list of the contract answers it. */
+export interface ListPage<T> {
+  items: T[];
+  nextCursor: string | null;
+}
+
+/**
+ * The most pages a list is followed for: with the contract's largest page (200) this covers far
+ * more positions than docs/17 budgets, so reaching it means the cursor is broken, not the book.
+ */
+export const MAX_LIST_PAGES = 50;
+
+/**
+ * Every item of a cursor-paged list, following nextCursor from the first page to the last
+ * (docs/17 section 3: one page is not the whole list). A cursor that comes back again, or a
+ * list that has not ended within MAX_LIST_PAGES, is refused rather than returned short, so the
+ * caller never mistakes part of a list for all of it.
+ */
+export async function everyPage<T>(
+  fetchPage: (cursor: string | undefined) => Promise<ListPage<T>>,
+): Promise<T[]> {
+  const items: T[] = [];
+  const seen = new Set<string>();
+  let cursor: string | undefined;
+  for (let page = 0; page < MAX_LIST_PAGES; page += 1) {
+    const result = await fetchPage(cursor);
+    items.push(...result.items);
+    if (result.nextCursor === null) return items;
+    if (seen.has(result.nextCursor)) break;
+    seen.add(result.nextCursor);
+    cursor = result.nextCursor;
+  }
+  throw new Error(`The list did not end within ${MAX_LIST_PAGES} pages`);
+}
+
 /** A complete calendar day the as-of control may send; a partial or cleared value falls back to the API's today. */
 export function isAsOfDate(value: string): boolean {
   return isCalendarDate(value.trim());
