@@ -27,7 +27,7 @@ import type {
   Truth,
   ValidationFinding,
 } from '@pb/ai';
-import { CalcError, D, toDollars, unitSanityFlag } from '@pb/calc';
+import { CalcError, D, isQuarterEnd, toDollars, unitSanityFlag } from '@pb/calc';
 import {
   extractionBatchBody,
   extractionDefinitions,
@@ -35,7 +35,6 @@ import {
   extractionRunListQuery,
   extractionUnit,
   investmentPerformance,
-  isQuarterEnd,
   pageQuery,
   valueFitsUnit,
 } from '@pb/contracts';
