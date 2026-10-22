@@ -19,7 +19,9 @@ import { ADAPTERS, DEFINITIONS } from '../common/tokens.js';
 import { requireUuid } from '../common/validate.js';
 import { DbService } from '../db/db.service.js';
 import { EXPECTED_DOC_TYPES } from '../documents/expected.js';
+import { receivedOnSql } from '../documents/rows.js';
 import { documentSettingsOf } from '../documents/settings.js';
+import { APPROVED } from '../intake/promote.js';
 import { heldOn, loadInvestmentRows } from '../portfolio/loaders.js';
 import type { InvestmentBaseRow } from '../portfolio/loaders.js';
 import { boardCounts, boardCsv, boardRowOf, reportsQuarterly } from './board.js';
@@ -49,7 +51,6 @@ export const INVESTMENT_NOT_FOUND = 'Investment not found';
 export const OUTLOOK_GUARD_PROBLEM = 'realization-outlook-guard';
 /** The default every investment carries until somebody sets an outlook. */
 export const DEFAULT_OUTLOOK = { outlook: 'none', horizonMonths: 18, note: null } as const;
-const APPROVED = 'record_status.approved';
 const OUTLOOK_ENTITY = 'mon.realization_outlook';
 
 const x = schema.expectedDocument;
@@ -187,7 +188,7 @@ export class MonitoringService {
         docType: x.docType,
         dueDate: x.dueDate,
         receivedDocumentId: x.receivedDocumentId,
-        receivedOn: sql<string | null>`to_char(${d.receivedAt} at time zone 'UTC', 'YYYY-MM-DD')`,
+        receivedOn: receivedOnSql(),
       })
       .from(x)
       .leftJoin(d, eq(d.id, x.receivedDocumentId))

@@ -2,7 +2,7 @@ import { Inject, Injectable } from '@nestjs/common';
 import { and, eq } from 'drizzle-orm';
 import type { AdapterSet, Principal } from '@pb/adapters';
 import { UNITS_BY_KIND, boundsFrom } from '@pb/ai';
-import type { ExtractionField, ExtractionSchema, ExtractionSchemas } from '@pb/ai';
+import type { ExtractionField, ExtractionSchema, ExtractionSchemas, TargetColumn } from '@pb/ai';
 import { CalcError, isQuarterEnd, toDollars, unitSanityFlag } from '@pb/calc';
 import {
   extractionRunCommandBody,
@@ -69,8 +69,8 @@ const ACCEPTED = 'accepted';
 const EDITED = 'edited';
 const REJECTED = 'rejected';
 
-/** The mon.quarterly_performance column a schema target names. */
-const TARGET_KEYS: Readonly<Record<string, QuarterlyFigureKey>> = {
+/** The mon.quarterly_performance column each schema target names, keyed by TARGET_COLUMNS of @pb/ai so the two lists stay in step at compile time. */
+const TARGET_KEYS: Readonly<Record<TargetColumn, QuarterlyFigureKey>> = {
   revenue_ltm: 'revenueLtm',
   ebitda_ltm: 'ebitdaLtm',
   ev: 'ev',
@@ -529,7 +529,6 @@ export class ExtractionReviewService {
       const final = finalOf(row);
       if (final === null) continue;
       const key = TARGET_KEYS[field.target];
-      if (key === undefined) continue;
       const unit = unitOf(row);
       if (unit === null)
         throw blocked(`extraction: ${field.label} carries no money unit to convert from`);

@@ -16,8 +16,8 @@ import type { AuditEntry } from '../db/db.service.js';
  */
 
 const quarter = schema.quarterlyPerformance;
-/** The record status a promotion writes (docs/03): what reports and the one-pager read. */
-const APPROVED = 'record_status.approved';
+/** The record status a promotion writes (docs/03): what reports, the one-pager and the monitoring board read. */
+export const APPROVED = 'record_status.approved';
 
 /** The figure columns a promotion may write, in the record's order. */
 export const QUARTERLY_FIGURE_KEYS = [

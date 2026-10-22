@@ -40,6 +40,7 @@ import {
   extractionSettingsOf,
 } from '../documents/settings.js';
 import { FlagsService } from '../flags/flags.service.js';
+import { EXCEPTION_SEVERITY } from '../intake/stage.js';
 import { job, run, value } from './rows.js';
 import {
   COMMENTARY_FIELD,
@@ -83,7 +84,6 @@ import {
 const machine = extractionRunMachine;
 const SYSTEM = { actorId: SYSTEM_USER_ID, actorRoles: ['service'] } as const;
 const ENTITY = 'doc.extraction_run';
-const EXCEPTION_SEVERITY = 'exception_severity.high';
 /** The longest quote the stg.extracted_value column holds (migration 0011). */
 const QUOTE_COLUMN_CHARS = 150;
 const d = schema.document;

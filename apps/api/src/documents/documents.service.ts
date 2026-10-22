@@ -35,6 +35,7 @@ import { ADAPTERS, DEFINITIONS, LOGGER } from '../common/tokens.js';
 import { requireUuid } from '../common/validate.js';
 import { DbService } from '../db/db.service.js';
 import { FlagsService } from '../flags/flags.service.js';
+import { EXCEPTION_SEVERITY } from '../intake/stage.js';
 import { matchExpectedDocument } from './expected.service.js';
 import { documentDirectory, linkDocument } from './link.js';
 import type { DocumentDirectory, DocumentLinks } from './link.js';
@@ -91,7 +92,6 @@ export const CLASSIFIER_SWITCH = 'ai.classifier';
 const EXCEPTION_SOURCE = 'documents';
 /** The rule of the data exception an unreadable item opens. */
 export const UNREADABLE_RULE = 'DOC-READ-01';
-const EXCEPTION_SEVERITY = 'exception_severity.high';
 const ENTITY = 'doc.document';
 const SYSTEM = { actorId: SYSTEM_USER_ID, actorRoles: ['service'] } as const;
 const machine = documentClassificationMachine;
