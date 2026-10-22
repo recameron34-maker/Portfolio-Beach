@@ -1,5 +1,5 @@
+import { ISO_DATE, isCalendarDate } from '@pb/calc';
 import { z } from 'zod';
-import { ISO_DATE, isCalendarDate } from './dates.js';
 import { AiError } from './errors.js';
 import { PROMPT_IDS } from './registry.js';
 import type { PromptId } from './registry.js';

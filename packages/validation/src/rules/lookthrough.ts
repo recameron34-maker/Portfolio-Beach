@@ -12,7 +12,7 @@ import type {
 import { IntakeSettingsError } from '../settings.js';
 import { finding, runRules, statusFromFindings } from '../types.js';
 import type { Finding, Rule } from '../types.js';
-import { isCalendarDate } from './accounting.js';
+import { isCalendarDate } from '@pb/calc';
 
 /*
  * The look-through reconcile rules (docs/04 M2 lookthrough-reconcile, decision 0010): the

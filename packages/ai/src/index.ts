@@ -36,7 +36,7 @@ export {
   type RedactionKind,
   type RedactionResult,
 } from './redact.js';
-export { ISO_DATE, isCalendarDate, isQuarterEnd, parseMonthDayYear, MONTH_NAMES } from './dates.js';
+export { parseMonthDayYear, MONTH_NAMES } from './dates.js';
 export {
   FIELD_KINDS,
   MONEY_UNITS,

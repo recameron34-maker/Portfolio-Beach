@@ -11,7 +11,8 @@ import type {
   LinkStatus,
   MatchGuardPair,
 } from './linking.js';
-import { ACCOUNTING_RULES, isCalendarDate } from './rules/accounting.js';
+import { isCalendarDate } from '@pb/calc';
+import { ACCOUNTING_RULES } from './rules/accounting.js';
 import type { LinkedRow } from './rules/accounting.js';
 import type { IntakeSettings } from './settings.js';
 import { runRules, statusFromFindings } from './types.js';

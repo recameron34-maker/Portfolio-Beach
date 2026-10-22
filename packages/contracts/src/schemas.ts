@@ -1,3 +1,4 @@
+import { ISO_DATE, isCalendarDate, isQuarterEnd } from '@pb/calc';
 import { z } from 'zod';
 
 /** A decimal amount or rate as text, never a float: the one pattern every reader checks against. */
@@ -6,30 +7,12 @@ export const DECIMAL_PATTERN = /^-?\d+(\.\d+)?$/;
 /** Money, rates and multiples travel as decimal strings; the missing placeholder is null (docs/06 section 3). */
 export const decimalString = z.string().regex(DECIMAL_PATTERN);
 
-const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
-
-/**
- * True when a YYYY-MM-DD string names a real day: set as a UTC date, it reads back unchanged, so
- * 2025-02-30 (which UTC rolls over to March 2) and 2025-13-01 are not days.
- */
-export function isCalendarDate(value: string): boolean {
-  if (!ISO_DATE.test(value)) return false;
-  // The calendar has no year 0 (1 BC is followed by AD 1), and neither does the database.
-  if (Number(value.slice(0, 4)) < 1) return false;
-  const day = new Date(0);
-  day.setUTCFullYear(
-    Number(value.slice(0, 4)),
-    Number(value.slice(5, 7)) - 1,
-    Number(value.slice(8)),
-  );
-  return day.toISOString().slice(0, 10) === value;
-}
-
 /**
  * A calendar date (YYYY-MM-DD) that exists, so an impossible date is a 400 'validation' at the
- * boundary instead of an error deep in Postgres or packages/calc. The calendar check judges only
- * strings of the right shape (the pattern reports the rest), and the OpenAPI document carries
- * format date.
+ * boundary instead of an error deep in Postgres or packages/calc. The calendar check is
+ * packages/calc's isCalendarDate, the one every package judges a date by (CLAUDE.md rule 7); it
+ * judges only strings of the right shape (the pattern reports the rest), and the OpenAPI document
+ * carries format date.
  */
 export const isoDate = z
   .string()
@@ -1457,16 +1440,7 @@ export type OpsDropTemplates = z.infer<typeof opsDropTemplates>;
 
 /* ---- Documents (M3 document hub, docs/18 section 6, migration 0011, decision 0012) ---- */
 
-/** True when a calendar date is the last day of a quarter (March 31, June 30, September 30, December 31). */
-export function isQuarterEnd(value: string): boolean {
-  if (!isCalendarDate(value)) return false;
-  const monthDay = value.slice(5);
-  return (
-    monthDay === '03-31' || monthDay === '06-30' || monthDay === '09-30' || monthDay === '12-31'
-  );
-}
-
-/** A quarter end, the period a report covers: the only date a tracker or a batch runs for. */
+/** A quarter end (packages/calc isQuarterEnd), the period a report covers: the only date a tracker or a batch runs for. */
 export const quarterEndDate = isoDate
   .refine((value) => !isCalendarDate(value) || isQuarterEnd(value), 'Not a quarter end')
   .meta({ format: 'date' });
@@ -1910,6 +1884,24 @@ export function valueFitsUnit(value: string, unit: ExtractionUnit): boolean {
       return /^\d+$/.test(value);
     case 'DATE':
       return isCalendarDate(value);
+  }
+}
+
+/**
+ * The unit a value of a kind carries when nobody names one: a percent is a fraction, a count a
+ * whole number, a date a calendar day. A money field always names its own unit (null here), so
+ * an edit of one without a unit is refused by extractionRunCommandBody.
+ */
+export function naturalUnitOf(kind: ExtractionFieldKind): ExtractionUnit | null {
+  switch (kind) {
+    case 'money':
+      return null;
+    case 'percent':
+      return 'PCT';
+    case 'count':
+      return 'COUNT';
+    case 'date':
+      return 'DATE';
   }
 }
 

@@ -7,7 +7,8 @@ import type { LinkResult } from '../linking.js';
 import { IntakeSettingsError } from '../settings.js';
 import { finding } from '../types.js';
 import type { Finding, Rule } from '../types.js';
-import { digitsOf, isCalendarDate } from './accounting.js';
+import { isCalendarDate } from '@pb/calc';
+import { digitsOf } from './accounting.js';
 
 /*
  * The weekly report values (docs/04 M2 weekly-report-intake, decision 0010): a four-column file

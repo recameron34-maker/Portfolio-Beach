@@ -1,6 +1,5 @@
-import { D, isMoneyUnit, toDollars, unitSanityFlag } from '@pb/calc';
+import { D, isMoneyUnit, isQuarterEnd, toDollars, unitSanityFlag } from '@pb/calc';
 import { z } from 'zod';
-import { isQuarterEnd } from './dates.js';
 import { AiError } from './errors.js';
 import type { BoundsKind, ExtractedField, ExtractionOutput, ExtractionSchema } from './schema.js';
 import { UNITS_BY_KIND } from './units.js';
