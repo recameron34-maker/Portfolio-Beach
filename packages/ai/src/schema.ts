@@ -159,20 +159,41 @@ export interface ExtractionOutput {
   commentary: string | null;
 }
 
+/** The largest page number a PostgreSQL `integer` column (stg.extracted_value.page) can hold. */
+export const PAGE_STORAGE_MAX = 2_147_483_647;
+
+export interface OutputSchemaOptions {
+  /**
+   * The highest page number an answer may cite: the caller's `documents.maxPages`, the most
+   * pages the reader ever returns. Without it the storage limit applies, so an answer that no
+   * column could hold is still a schema failure and not a failed write after the run started.
+   */
+  maxPage?: number;
+}
+
 /**
  * The strict output schema of an extraction call for one config schema: exactly the schema's
  * field keys, each with value (typed by the field's kind), unit (one of the known units or
- * null), page, quote and confidence. Length, citation and range rules are the validator's, so
- * that a wrong-but-parseable answer becomes a finding a person reviews rather than a schema
- * failure that is retried.
+ * null), page (1 to `maxPage`), quote and confidence. Length, citation and range rules are the
+ * validator's, so that a wrong-but-parseable answer becomes a finding a person reviews rather
+ * than a schema failure that is retried; a page beyond any document is not an answer at all.
  */
-export function outputSchemaFor(schema: ExtractionSchema): z.ZodType<ExtractionOutput> {
+export function outputSchemaFor(
+  schema: ExtractionSchema,
+  options: OutputSchemaOptions = {},
+): z.ZodType<ExtractionOutput> {
+  const maxPage = options.maxPage ?? PAGE_STORAGE_MAX;
+  if (!Number.isInteger(maxPage) || maxPage < 1 || maxPage > PAGE_STORAGE_MAX)
+    throw new AiError(
+      `outputSchemaFor: maxPage must be a whole number from 1 to ${PAGE_STORAGE_MAX}`,
+      'invalid_config',
+    );
   const shape: Record<string, z.ZodType<ExtractedField>> = {};
   for (const field of schema.fields) {
     shape[field.key] = z.strictObject({
       value: valueSchemaFor(field.kind).nullable(),
       unit: z.enum(UNITS).nullable(),
-      page: z.number().int().min(1).nullable(),
+      page: z.number().int().min(1).max(maxPage).nullable(),
       quote: z.string().nullable(),
       confidence: confidenceText,
     });
