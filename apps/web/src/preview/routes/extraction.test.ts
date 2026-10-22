@@ -369,7 +369,9 @@ describe('the simulated extraction engine (docs/04 M4) over the bundled set', ()
     const editedEbitda = edited.values.find((v) => v.field === 'ebitda_ltm');
     expect(editedEbitda?.decision).toBe('edited');
     expect(editedEbitda?.editedValue).toBe('12.50');
-    expect(editedEbitda?.unit).toBe('USD_K');
+    // The edit carries its own unit; the model's value and unit stay on the row (WF-1).
+    expect(editedEbitda?.editedUnit).toBe('USD_K');
+    expect(editedEbitda?.unit).toBe(ebitda.unit);
     expect(editedEbitda?.value).toBe(ebitda.value);
 
     const rejected = extractionRunDetail.parse(

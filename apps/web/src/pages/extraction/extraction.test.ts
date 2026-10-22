@@ -88,11 +88,21 @@ describe('review order and words', () => {
     expect(unitLabel('PCT')).toBe('%');
   });
 
-  it('takes the edited value over the model answer', () => {
-    const [v] = cleanValues({ revenue_ltm: { decision: 'edited', editedValue: '130.00' } }).filter(
-      (x) => x.field === 'revenue_ltm',
-    );
-    expect(finalValue(v!)).toEqual({ value: '130.00', unit: 'USD_M' });
+  it('takes the edited value in its own unit over the model answer (WF-1)', () => {
+    const revenue = (patch: Partial<ExtractedValue>): ExtractedValue =>
+      cleanValues({ revenue_ltm: patch }).find((x) => x.field === 'revenue_ltm')!;
+    // The edit's unit is the one the promotion converts with, never the model's.
+    expect(
+      finalValue(revenue({ decision: 'edited', editedValue: '130000', editedUnit: 'USD_K' })),
+    ).toEqual({ value: '130000', unit: 'USD_K' });
+    expect(finalValue(revenue({ decision: 'edited', editedValue: '130.00' }))).toEqual({
+      value: '130.00',
+      unit: 'USD_M',
+    });
+    // An edit accepted again stands as the model answered it.
+    expect(
+      finalValue(revenue({ decision: 'accepted', editedValue: null, editedUnit: null })),
+    ).toEqual({ value: '125.40', unit: 'USD_M' });
     expect(finalValue(cleanValues()[1]!)).toEqual({ value: '125.40', unit: 'USD_M' });
   });
 

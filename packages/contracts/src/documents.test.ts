@@ -84,6 +84,7 @@ const value = {
   findings: [],
   decision: null,
   editedValue: null,
+  editedUnit: null,
   decidedBy: null,
   decidedAt: null,
 };
@@ -412,10 +413,15 @@ describe('extraction', () => {
         ],
         decision: 'edited',
         editedValue: '118.50',
+        editedUnit: 'USD_K',
         decidedBy: 'Deal Team One',
         decidedAt: '2024-08-13T09:00:00.000Z',
       }).success,
     ).toBe(true);
+    // The edit's own unit is a key of its own, beside the model's (WF-1, migration 0012).
+    const { editedUnit: _omitted, ...withoutEditedUnit } = value;
+    expect(extractedValue.safeParse(withoutEditedUnit).success).toBe(false);
+    expect(extractedValue.safeParse({ ...value, editedUnit: 'EUR' }).success).toBe(false);
     expect(extractedValue.safeParse({ ...value, quote: 'x'.repeat(151) }).success).toBe(false);
     expect(extractedValue.safeParse({ ...value, quote: 'x'.repeat(150) }).success).toBe(true);
     expect(extractedValue.safeParse({ ...value, page: 0 }).success).toBe(false);

@@ -335,7 +335,17 @@ export class IntakeService {
         netDebt: target.payload.figures.netDebt,
       },
       approval: { approvedBy: principal.userId, approvedAt: at, approvalReason },
-      lineage: { sourceLocator: `intake_file:${detail.id}/row:${target.rowNo}` },
+      // A promotion names its whole lineage (SEC-9.4, FIN-3): the file and row the figures came
+      // from, and no document, page, run, prompt or model, so a quarter restated from the
+      // accounting system never keeps the citation of an earlier extraction.
+      lineage: {
+        sourceDocumentId: null,
+        sourcePage: null,
+        sourceLocator: `intake_file:${detail.id}/row:${target.rowNo}`,
+        extractionRunId: null,
+        promptVersion: null,
+        modelId: null,
+      },
       check: (existing) => {
         if (existing !== null && existing.status !== 'record_status.approved')
           throw quarterPrecondition(

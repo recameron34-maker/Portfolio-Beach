@@ -351,6 +351,8 @@ export interface SimValue {
   decidedBy: string | null;
   decision: ExtractionDecision | null;
   editedValue: string | null;
+  /** The unit of editedValue; null until a reviewer edits the row (migration 0012, WF-1). */
+  editedUnit: ExtractionUnit | null;
   decidedAt: string | null;
   rowVersion: number;
 }

@@ -102,6 +102,7 @@ export function cleanValues(
       findings: [],
       decision: null,
       editedValue: null,
+      editedUnit: null,
       decidedBy: null,
       decidedAt: null,
     };
@@ -374,6 +375,7 @@ export function editedDetailFixture(): ExtractionRunDetail {
           ...v,
           decision: 'edited' as const,
           editedValue: '118',
+          editedUnit: 'COUNT' as const,
           decidedBy: REVIEWER,
           decidedAt: RUN_AT,
         }
@@ -398,7 +400,13 @@ export function readyDetailFixture(): ExtractionRunDetail {
     const decided = { decidedBy: REVIEWER, decidedAt: RUN_AT };
     if (v.field === 'cash') return { ...v, decision: 'rejected' as const, ...decided };
     if (v.field === 'headcount')
-      return { ...v, decision: 'edited' as const, editedValue: '118', ...decided };
+      return {
+        ...v,
+        decision: 'edited' as const,
+        editedValue: '118',
+        editedUnit: 'COUNT' as const,
+        ...decided,
+      };
     return { ...v, decision: 'accepted' as const, ...decided };
   });
   return detailFixture({ values, run: runFixture({ counts: countsOf(values) }) });

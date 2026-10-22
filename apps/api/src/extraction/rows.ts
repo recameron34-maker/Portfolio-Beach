@@ -244,6 +244,8 @@ export interface LoadedValue {
   decidedBy: string | null;
   decision: string | null;
   editedValue: string | null;
+  /** The unit of editedValue (migration 0012, WF-1); null until an edit, and again after an accept. */
+  editedUnit: string | null;
   decidedAt: Date | null;
   rowVersion: number;
 }
@@ -266,6 +268,7 @@ export function loadValues(tx: Tx, runId: string): Promise<LoadedValue[]> {
       decidedBy: reviewer.displayName,
       decision: value.decision,
       editedValue: value.editedValue,
+      editedUnit: value.editedUnit,
       decidedAt: value.decidedAt,
       rowVersion: value.rowVersion,
     })
@@ -299,6 +302,7 @@ export function toValue(r: LoadedValue, field: ExtractionField): ExtractedValue 
     findings: findingsOf(r.findings),
     decision: r.decision === null ? null : extractionDecision.parse(r.decision),
     editedValue: r.editedValue,
+    editedUnit: r.editedUnit === null ? null : extractionUnit.parse(r.editedUnit),
     decidedBy: r.decidedBy,
     decidedAt: iso(r.decidedAt),
   };

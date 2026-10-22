@@ -1,27 +1,45 @@
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { fixtureExtractor, parseMetadata } from '@pb/ai';
-import type { ExtractFn } from '@pb/ai';
+import type { ExtractFn, HighlightStyle } from '@pb/ai';
 import type { MockAiClient } from '@pb/adapters/mocks';
-import { D, latestQuarterEndOnOrBefore, toDollars, unitSanityFlag } from '@pb/calc';
 import {
+  D,
+  addMonths,
+  containingQuarterEnd,
+  latestQuarterEndOnOrBefore,
+  toDollars,
+  unitSanityFlag,
+} from '@pb/calc';
+import {
+  auditPage,
   documentPage,
   extractionBatch,
   extractionBatchPage,
   extractionRunDetail,
   extractionRunPage,
+  intakeImportResult,
+  investmentPerformance,
   problemDetails,
 } from '@pb/contracts';
 import type {
+  AuditPage,
   ExtractedValue,
   ExtractionBatch,
   ExtractionRun,
   ExtractionRunDetail,
   DocumentSummary,
 } from '@pb/contracts';
-import { UNTAGGED_FILE_NAME } from '@pb/synthetic';
+import { UNTAGGED_FILE_NAME, accountingExport } from '@pb/synthetic';
 import type { DocumentScenario, SyntheticDocument } from '@pb/synthetic';
-import { RUN_EXCEPTION_RULE, costOf } from '../extraction/settings.js';
+import { DEFAULT_APPROVAL_REASON } from '../extraction/review.service.js';
+import {
+  EXTRACTION_SWITCH,
+  HIGHLIGHT_STYLE,
+  RUN_EXCEPTION_RULE,
+  costOf,
+} from '../extraction/settings.js';
 import { extractionSettingsOf } from '../documents/settings.js';
+import { FlagsService } from '../flags/flags.service.js';
 import { startHarness } from './harness.js';
 import type { Harness } from './harness.js';
 
@@ -449,6 +467,7 @@ describe('extraction engine (M4, docs/18 section 7): batches, runs, review by ex
       expect(v.value, v.field).toBe(truth.fields[v.field]!.value);
       expect(v.value).not.toBe('999.00');
       expect(v.editedValue).toBeNull();
+      expect(v.editedUnit).toBeNull();
     }
     expect(valueOf(d, 'revenue_ltm').value).toBe(truth.fields.revenue_ltm!.value);
     expect(d.values.some((v) => v.quote?.includes('999.00') === true)).toBe(false);
@@ -457,7 +476,8 @@ describe('extraction engine (M4, docs/18 section 7): batches, runs, review by ex
   });
 
   it('reads the page layouts with the detail: one layout per page with positioned text runs; the open is audited', async () => {
-    const run = firstRuns[0]!;
+    // Any run outside the wall: the viewer cannot see the walled one (SEC-5.3).
+    const run = firstRuns.find((r) => r.investmentId !== walledId())!;
     const truth = docOf(run.fileName).truth;
     const d = await detail('viewer', run.id, 'req-ext-detail-1');
     expect(d.pages.length).toBe(truth.pageCount);
@@ -582,10 +602,20 @@ describe('extraction engine (M4, docs/18 section 7): batches, runs, review by ex
     expect(editEvent!.reason).toBe('the report shows 4.10 in the table footnote');
     expect(editEvent!.details.field).toBe('ebitda_ltm');
     expect(editEvent!.details.before.decision).toBeNull();
+    // The edit carries its own unit; the model's value and unit stay on the row (WF-1).
     expect(editEvent!.details.after).toEqual({
       decision: 'edited',
       editedValue: '4.10',
-      unit: 'USD_M',
+      editedUnit: 'USD_M',
+    });
+    expect(editEvent!.details.before).toEqual({
+      decision: null,
+      editedValue: null,
+      editedUnit: null,
+    });
+    expect(valueOf(edited, 'ebitda_ltm')).toMatchObject({
+      unit: truth.fields.ebitda_ltm!.unit,
+      editedUnit: 'USD_M',
     });
     // A count edit takes the field's own unit.
     const headcount = extractionRunDetail.parse(
@@ -600,6 +630,7 @@ describe('extraction engine (M4, docs/18 section 7): batches, runs, review by ex
     expect(valueOf(headcount, 'headcount')).toMatchObject({
       decision: 'edited',
       editedValue: '120',
+      editedUnit: 'COUNT',
       unit: 'COUNT',
     });
 
@@ -723,6 +754,51 @@ describe('extraction engine (M4, docs/18 section 7): batches, runs, review by ex
     ).toBe(1);
   });
 
+  it('drops the extraction lineage when an accounting row restates the quarter: no page or run is cited for figures from the file (FIN-3)', async () => {
+    const plain = plainReports()[0]!;
+    const truth = plain.truth;
+    const promoted = await onRecord(truth.investmentId!, quarterEnd());
+    expect(promoted.extraction_run_id).not.toBeNull();
+    expect(promoted.source_page).not.toBeNull();
+    const file = accountingExport(h.dataset, { scenario: 'clean' });
+    const staged = intakeImportResult.parse(
+      (
+        await h
+          .http()
+          .post('/api/v1/intake/accounting')
+          .set('authorization', h.as('operations'))
+          .set('x-request-id', 'req-ext-intake-1')
+          .send({ fileName: file.fileName, csv: file.csv })
+          .expect(201)
+      ).body,
+    );
+    const row = staged.rows.find((r) => r.investmentNumber === truth.investmentNumber)!;
+    expect(row).toBeDefined();
+    expect(row.status).toBe('validated');
+    await h
+      .http()
+      .post(`/api/v1/intake/files/${staged.id}/commands`)
+      .set('authorization', h.as('operations'))
+      .set('x-request-id', 'req-ext-intake-approve-1')
+      .send({ command: 'approve', rowIds: [row.id], reason: 'restated from the accounting export' })
+      .expect(200);
+    const record = await onRecord(truth.investmentId!, quarterEnd());
+    expect(record.id).toBe(promoted.id);
+    expect(record.status).toBe('record_status.approved');
+    expect(record.source_locator).toBe(`intake_file:${staged.id}/row:${row.rowNo}`);
+    expect(record.source_document_id).toBeNull();
+    expect(record.source_page).toBeNull();
+    expect(record.extraction_run_id).toBeNull();
+    expect(record.prompt_version).toBeNull();
+    expect(record.model_id).toBeNull();
+    // The Performance tab cites no document for figures that came from the file (SEC-9.4).
+    const performance = investmentPerformance.parse(
+      (await get('deal.one', `/api/v1/investments/${truth.investmentId}/performance`).expect(200))
+        .body,
+    );
+    expect(performance.quarters.find((q) => q.periodEnd === quarterEnd())!.source).toBeNull();
+  });
+
   it('refuses approval while an invalid or undecided flagged value remains; a rejected target leaves the record alone', async () => {
     const plain = plainReports()[1]!;
     const doc = byName(plain.fileName);
@@ -794,8 +870,320 @@ describe('extraction engine (M4, docs/18 section 7): batches, runs, review by ex
     expect(
       D(record.revenue_ltm!).eq(D(plain.truth.fields.revenue_ltm!.value!).times(MILLION)),
     ).toBe(true);
-    expect(record.approval_reason).toBe(`AI extraction of ${plain.fileName}`);
+    // The default reason is a fixed sentence: the file name names the company (W3).
+    expect(record.approval_reason).toBe(DEFAULT_APPROVAL_REASON);
+    expect(record.approval_reason).not.toContain(plain.fileName);
     expect(record.extraction_run_id).toBe(runId);
+  });
+
+  it('approves the walled run without a reason: the audit trail other roles read never names the walled file or company (W3)', async () => {
+    const walledRun = firstRuns.find((r) => r.investmentId === walledId())!;
+    const company = docOf(walledRun.fileName).truth.companyName!;
+    expect(walledRun.fileName).toContain(company);
+    await command('deal.three', walledRun.id, { command: 'acceptClean' }).expect(200);
+    const d = await detail('deal.three', walledRun.id);
+    for (const v of d.values) {
+      if (v.decision !== null) continue;
+      if (v.validationState === 'invalid')
+        await command('deal.three', walledRun.id, {
+          command: 'reject',
+          field: v.field,
+          reason: 'the citation does not hold',
+        }).expect(200);
+      else
+        await command('deal.three', walledRun.id, { command: 'accept', field: v.field }).expect(
+          200,
+        );
+    }
+    const approved = extractionRunDetail.parse(
+      (
+        await command(
+          'deal.three',
+          walledRun.id,
+          { command: 'approve' },
+          'req-ext-approve-walled',
+        ).expect(200)
+      ).body,
+    );
+    expect(approved.run.approvedBy).toBe(user('deal.three').displayName);
+    const record = await onRecord(walledId(), quarterEnd());
+    expect(record.approval_reason).toBe(DEFAULT_APPROVAL_REASON);
+    expect(record.extraction_run_id).toBe(walledRun.id);
+    // The trail is read by role, not by wall: nothing it answers may carry the walled name.
+    for (const who of ['operations', 'auditor']) {
+      const events: AuditPage['items'] = [];
+      let cursor: string | null = null;
+      for (let page = 0; page < 50; page += 1) {
+        const res = auditPage.parse(
+          (
+            await get(
+              who,
+              `/api/v1/audit/events?limit=200${cursor === null ? '' : `&cursor=${cursor}`}`,
+            ).expect(200)
+          ).body,
+        );
+        events.push(...res.items);
+        cursor = res.nextCursor;
+        if (cursor === null) break;
+      }
+      const text = JSON.stringify(events);
+      expect(text, who).not.toContain(walledRun.fileName);
+      expect(text, who).not.toContain(company);
+      const approval = events.find(
+        (e) => e.requestId === 'req-ext-approve-walled' && e.action === 'extraction_run.approve',
+      );
+      expect(approval?.reason, who).toBe(DEFAULT_APPROVAL_REASON);
+      const promotion = events.find(
+        (e) =>
+          e.requestId === 'req-ext-approve-walled' && e.action === 'quarterly_performance.promote',
+      );
+      expect(promotion?.reason, who).toBe(DEFAULT_APPROVAL_REASON);
+    }
+  });
+
+  it('keeps the model unit when an edited value is accepted again, and cites the first accepted figure (WF-1, locator note)', async () => {
+    const plain = plainReports()[0]!;
+    const doc = byName(plain.fileName);
+    const truth = plain.truth;
+    const batch = extractionBatch.parse(
+      (await createBatch('operations', { documentIds: [doc.id] }).expect(201)).body,
+    );
+    const [run] = await runsOf('operations', `&batchId=${batch.id}`);
+    const runId = run!.id;
+    const ebitda = truth.fields.ebitda_ltm!;
+    expect(ebitda.unit).toBe('USD_M');
+    // An edit in another money unit: the row keeps the model's value and unit beside the edit's own.
+    const edited = extractionRunDetail.parse(
+      (
+        await command('deal.one', runId, {
+          command: 'edit',
+          field: 'ebitda_ltm',
+          value: '4100',
+          unit: 'USD_K',
+          reason: 'the footnote states thousands',
+        }).expect(200)
+      ).body,
+    );
+    expect(valueOf(edited, 'ebitda_ltm')).toMatchObject({
+      decision: 'edited',
+      editedValue: '4100',
+      editedUnit: 'USD_K',
+      value: ebitda.value,
+      unit: 'USD_M',
+    });
+    // Accepted again: the edit is dropped and the model's answer stands in the model's unit.
+    const accepted = extractionRunDetail.parse(
+      (await command('deal.one', runId, { command: 'accept', field: 'ebitda_ltm' }).expect(200))
+        .body,
+    );
+    expect(valueOf(accepted, 'ebitda_ltm')).toMatchObject({
+      decision: 'accepted',
+      editedValue: null,
+      editedUnit: null,
+      value: ebitda.value,
+      unit: 'USD_M',
+    });
+    // Revenue edited: its final value came from the reviewer, so it has no page to cite.
+    await command('deal.one', runId, {
+      command: 'edit',
+      field: 'revenue_ltm',
+      value: '130.00',
+      unit: 'USD_M',
+      reason: 'restated in the cover letter',
+    }).expect(200);
+    await command('deal.one', runId, { command: 'acceptClean' }).expect(200);
+    await command('deal.one', runId, {
+      command: 'approve',
+      reason: 'figures tie to the report',
+    }).expect(200);
+    const record = await onRecord(truth.investmentId!, quarterEnd());
+    expect(record.extraction_run_id).toBe(runId);
+    expect(D(record.ebitda_ltm!).eq(toDollars(ebitda.value!, 'USD_M'))).toBe(true);
+    expect(D(record.ebitda_ltm!).eq(toDollars('4100', 'USD_M'))).toBe(false);
+    expect(D(record.revenue_ltm!).eq(D('130000000'))).toBe(true);
+    // The citation is the first promoted figure read from the document, in schema order.
+    expect(record.source_page).toBe(ebitda.page);
+    expect(record.source_locator).toBe('field:ebitda_ltm');
+  });
+
+  it('refuses a money edit outside the configured dollar range and a period end off the quarter the run covers (FIN-1, FIN-2)', async () => {
+    const plain = plainReports()[1]!;
+    const doc = byName(plain.fileName);
+    const truth = plain.truth;
+    const batch = extractionBatch.parse(
+      (await createBatch('operations', { documentIds: [doc.id] }).expect(201)).body,
+    );
+    const [run] = await runsOf('operations', `&batchId=${batch.id}`);
+    const runId = run!.id;
+    const refusal = async (body: object, path: string, text: string): Promise<void> => {
+      const res = await command('deal.one', runId, body).expect(400);
+      const problem = problemDetails.parse(res.body);
+      expect(problem.type).toBe(`${PROBLEM}validation`);
+      expect(problem.errors?.map((e) => e.path)).toEqual([path]);
+      expect(problem.errors?.[0]?.message).toContain(text);
+    };
+    // Dollars typed with the $M unit: a thousand million times too large (docs/08 section 6).
+    await refusal(
+      { command: 'edit', field: 'revenue_ltm', value: '125400000', unit: 'USD_M', reason: 'typed' },
+      'value',
+      'outside the revenue range',
+    );
+    // EBITDA takes the revenue range when the config gives it none of its own.
+    await refusal(
+      { command: 'edit', field: 'ebitda_ltm', value: '0.001', unit: 'USD_K', reason: 'typed' },
+      'value',
+      'outside the ebitda range',
+    );
+    // A value inside the range is taken.
+    await command('deal.one', runId, {
+      command: 'edit',
+      field: 'revenue_ltm',
+      value: '125.40',
+      unit: 'USD_M',
+      reason: 'restated',
+    }).expect(200);
+    // A period end must be a quarter end, and the quarter the run was opened for.
+    const nextQuarter = containingQuarterEnd(addMonths(quarterEnd(), 3));
+    expect(run!.periodEnd).toBe(quarterEnd());
+    await refusal(
+      { command: 'edit', field: 'period_end', value: '2025-06-15', reason: 'typo' },
+      'value',
+      'quarter end',
+    );
+    await refusal(
+      { command: 'edit', field: 'period_end', value: nextQuarter, reason: 'next quarter' },
+      'value',
+      quarterEnd(),
+    );
+    await command('deal.one', runId, {
+      command: 'edit',
+      field: 'period_end',
+      value: quarterEnd(),
+      reason: 'confirmed',
+    }).expect(200);
+    await command('deal.one', runId, { command: 'acceptClean' }).expect(200);
+    // A record figure left undecided is named, never silently left out (undecided-target note).
+    await h.runtime.db.query(
+      "update stg.extracted_value set decision = null, edited_value = null, edited_unit = null where run_id = $1 and field = 'cash'",
+      [runId],
+    );
+    const undecided = await command('deal.one', runId, { command: 'approve' }).expect(409);
+    expect(problemDetails.parse(undecided.body).detail).toContain('Cash is a record figure');
+    await command('deal.one', runId, { command: 'accept', field: 'cash' }).expect(200);
+    // Another period slipped onto the row past the edit rule is refused at approval, and no row
+    // is written for it (CLAUDE.md rule 10: never another period).
+    await h.runtime.db.query(
+      "update stg.extracted_value set edited_value = $1 where run_id = $2 and field = 'period_end'",
+      [nextQuarter, runId],
+    );
+    const other = await command('deal.one', runId, { command: 'approve' }).expect(422);
+    expect(problemDetails.parse(other.body).type).toBe(`${PROBLEM}workflow-precondition`);
+    expect(problemDetails.parse(other.body).detail).toContain(nextQuarter);
+    expect(
+      await count(
+        'select count(*)::int as n from mon.quarterly_performance where investment_id = $1 and period_end = $2',
+        [truth.investmentId, nextQuarter],
+      ),
+    ).toBe(0);
+    await h.runtime.db.query(
+      "update stg.extracted_value set edited_value = $1 where run_id = $2 and field = 'period_end'",
+      [quarterEnd(), runId],
+    );
+    // A superseded quarter is never revived by a promotion (superseded note).
+    await h.runtime.db.query(
+      "update mon.quarterly_performance set status = 'record_status.superseded' where investment_id = $1 and period_end = $2",
+      [truth.investmentId, quarterEnd()],
+    );
+    const superseded = await command('deal.one', runId, { command: 'approve' }).expect(422);
+    expect(problemDetails.parse(superseded.body).detail).toContain('superseded');
+    await h.runtime.db.query(
+      "update mon.quarterly_performance set status = 'record_status.approved' where investment_id = $1 and period_end = $2",
+      [truth.investmentId, quarterEnd()],
+    );
+    const approved = extractionRunDetail.parse(
+      (await command('deal.one', runId, { command: 'approve' }).expect(200)).body,
+    );
+    expect(approved.run.approvedBy).toBe(user('deal.one').displayName);
+    const record = await onRecord(truth.investmentId!, quarterEnd());
+    expect(D(record.revenue_ltm!).eq(D('125400000'))).toBe(true);
+    expect(record.extraction_run_id).toBe(runId);
+  });
+
+  it('refuses to accept a highlight or a commentary that breaks the house style; the text never reaches the record (AI-4)', async () => {
+    const plain = plainReports()[0]!;
+    const doc = byName(plain.fileName);
+    const truth = plain.truth;
+    const emDash = String.fromCharCode(0x2014);
+    // The first banned phrase of config/style.json, never spelled here (the style scan reads the repo).
+    const banned = h.app.get<HighlightStyle>(HIGHLIGHT_STYLE).bannedPhrases[0]!;
+    const before = await onRecord(truth.investmentId!, quarterEnd());
+    let runId = '';
+    await withExtractor(
+      (input) => {
+        const out = extractor(input);
+        if (parseMetadata(input).content_hash !== truth.contentHash) return out;
+        const [first, ...rest] = out.highlights;
+        return {
+          ...out,
+          highlights: [`${first} ${emDash} a dash`, ...rest],
+          commentary: `${out.commentary ?? ''} The ${banned} are expected.`,
+        };
+      },
+      async () => {
+        const batch = extractionBatch.parse(
+          (await createBatch('operations', { documentIds: [doc.id] }).expect(201)).body,
+        );
+        expect(batch.state).toBe('succeeded');
+        const [run] = await runsOf('operations', `&batchId=${batch.id}`);
+        runId = run!.id;
+      },
+    );
+    const narrative = await h.runtime.db.query<{
+      field: string;
+      validation_state: string;
+      findings: { ruleId: string }[];
+    }>(
+      "select field, validation_state, findings from stg.extracted_value where run_id = $1 and field in ('highlights', 'commentary') order by field",
+      [runId],
+    );
+    expect(narrative.map((r) => [r.field, r.validation_state])).toEqual([
+      ['commentary', 'flagged'],
+      ['highlights', 'flagged'],
+    ]);
+    expect(narrative[0]!.findings.map((f) => f.ruleId)).toEqual(['EXT-STYLE-01']);
+    expect(narrative[1]!.findings.map((f) => f.ruleId)).toEqual(['EXT-TEXT-01']);
+    const highlights = await command('deal.one', runId, {
+      command: 'accept',
+      field: 'highlights',
+    }).expect(409);
+    expect(problemDetails.parse(highlights.body).type).toBe(`${PROBLEM}review-blocked`);
+    expect(problemDetails.parse(highlights.body).detail).toContain('em dash');
+    const commentary = await command('deal.one', runId, {
+      command: 'accept',
+      field: 'commentary',
+    }).expect(409);
+    expect(problemDetails.parse(commentary.body).detail).toContain(banned);
+    // The sweep takes clean rows only: both narrative rows stay undecided.
+    await command('deal.one', runId, { command: 'acceptClean' }).expect(200);
+    expect(
+      await count(
+        "select count(*)::int as n from stg.extracted_value where run_id = $1 and field in ('highlights', 'commentary') and decision is null",
+        [runId],
+      ),
+    ).toBe(2);
+    for (const field of ['highlights', 'commentary'])
+      await command('deal.one', runId, {
+        command: 'reject',
+        field,
+        reason: 'house style',
+      }).expect(200);
+    await command('deal.one', runId, { command: 'approve' }).expect(200);
+    const record = await onRecord(truth.investmentId!, quarterEnd());
+    expect(record.extraction_run_id).toBe(runId);
+    expect(record.highlights).toEqual(before.highlights);
+    expect(record.highlights.join(' ')).not.toContain(emDash);
+    expect(record.commentary).toBe(before.commentary);
+    expect(record.commentary ?? '').not.toContain(banned);
   });
 
   it('retries a schema failure once, then fails the run with a data exception; a failed run is retried by hand as a fresh run', async () => {
@@ -1022,6 +1410,137 @@ describe('extraction engine (M4, docs/18 section 7): batches, runs, review by ex
       expect(stopped.documentId).toBe(b!.id);
       expect(runs.find((r) => r.state === 'Succeeded')!.documentId).toBe(a!.id);
     });
+  });
+
+  it('reserves the run budget of a running run against the day budget, so concurrent runs cannot overshoot it together (budget note)', async () => {
+    const [a, b] = [plainReports()[0]!, plainReports()[1]!].map((p) => byName(p.fileName));
+    const usedToday = await count(
+      'select coalesce(sum(tokens_in + tokens_out), 0)::int as n from doc.extraction_run',
+    );
+    expect(
+      await count("select count(*)::int as n from doc.extraction_run where state = 'Running'"),
+    ).toBe(0);
+    // Room for the tokens used so far plus one run short of a whole run budget: the first run
+    // starts, and the second, started while the first still runs, finds the budget reserved.
+    await withExtraction(
+      { dayTokenBudget: usedToday + settings().runTokenBudget - 1, batchConcurrency: 2 },
+      async () => {
+        const callsBefore = extractionCalls();
+        const batch = extractionBatch.parse(
+          (await createBatch('operations', { documentIds: [a!.id, b!.id] }).expect(201)).body,
+        );
+        expect(batch.state).toBe('failed');
+        expect(batch.runs).toMatchObject({ total: 2, succeeded: 1, failed: 1 });
+        expect(extractionCalls() - callsBefore).toBe(1);
+        const runs = await runsOf('operations', `&batchId=${batch.id}`);
+        const stopped = runs.find((r) => r.state === 'Failed')!;
+        expect(stopped.errorCode).toBe('day_budget');
+        expect(stopped.tokensIn).toBeNull();
+      },
+    );
+  });
+
+  it('ends a run whose settle throws as Failed with one data exception, never Running (WF-2)', async () => {
+    const plain = plainReports()[1]!;
+    const doc = byName(plain.fileName);
+    const fn = 'public.pb_test_failing_stage';
+    await h.runtime.db.exec(`
+      create function ${fn}() returns trigger language plpgsql as $$
+      begin
+        raise exception 'the staging write failed';
+      end $$;
+      create trigger pb_test_failing_stage before insert on stg.extracted_value for each row execute function ${fn}();`);
+    const runId = await (async (): Promise<string> => {
+      try {
+        const batch = extractionBatch.parse(
+          (
+            await createBatch('operations', { documentIds: [doc.id] }, 'req-ext-settle-1').expect(
+              201,
+            )
+          ).body,
+        );
+        expect(batch.state).toBe('failed');
+        expect(batch.errorCode).toBe('runs_failed');
+        expect(batch.runs).toMatchObject({ total: 1, running: 0, failed: 1, succeeded: 0 });
+        const [run] = await runsOf('operations', `&batchId=${batch.id}`);
+        expect(run!.state).toBe('Failed');
+        expect(run!.errorCode).toBe('unexpected');
+        expect(run!.errorKind).toBeNull();
+        expect(run!.finishedAt).toBe(now());
+        expect(run!.counts.values).toBe(0);
+        return run!.id;
+      } finally {
+        await h.runtime.db.exec(
+          `drop trigger pb_test_failing_stage on stg.extracted_value; drop function ${fn}();`,
+        );
+      }
+    })();
+    expect(
+      await count("select count(*)::int as n from doc.extraction_run where state = 'Running'"),
+    ).toBe(0);
+    const exceptions = await h.runtime.db.query<{ rule_id: string; state: string; actual: string }>(
+      "select rule_id, state, actual from ops.data_exception where source = 'extraction' and entity_id = $1",
+      [runId],
+    );
+    expect(exceptions).toEqual([
+      { rule_id: RUN_EXCEPTION_RULE, state: 'open', actual: 'the run failed (unexpected)' },
+    ]);
+    expect(await auditCount('extraction_run.fail', 'req-ext-settle-1')).toBe(1);
+    // Failed is a state the hand retry takes: the fresh run succeeds once the store is well again.
+    const retried = extractionRunDetail.parse(
+      (await command('operations', runId, { command: 'retry' }).expect(200)).body,
+    );
+    expect(retried.run.state).toBe('Succeeded');
+    expect(retried.run.id).not.toBe(runId);
+  });
+
+  it('stops the runs of a batch as soon as the switch is turned off, with no model call (AI-6)', async () => {
+    const [a, b] = [plainReports()[0]!, plainReports()[1]!];
+    const flags = h.app.get(FlagsService);
+    const original = flags.isEnabled.bind(flags);
+    let on = true;
+    const spy = vi
+      .spyOn(flags, 'isEnabled')
+      .mockImplementation((key, at) =>
+        key === EXTRACTION_SWITCH && !on ? Promise.resolve(false) : original(key, at),
+      );
+    try {
+      // The first run's model call is when the admin turns the switch off.
+      await withExtractor(
+        (input) => {
+          if (parseMetadata(input).content_hash === a.truth.contentHash) on = false;
+          return extractor(input);
+        },
+        () =>
+          withExtraction({ batchConcurrency: 1 }, async () => {
+            const callsBefore = extractionCalls();
+            const batch = extractionBatch.parse(
+              (
+                await createBatch('operations', {
+                  documentIds: [byName(a.fileName).id, byName(b.fileName).id],
+                }).expect(201)
+              ).body,
+            );
+            expect(batch.state).toBe('failed');
+            expect(batch.runs).toMatchObject({ total: 2, succeeded: 1, failed: 1 });
+            expect(extractionCalls() - callsBefore).toBe(1);
+            const runs = await runsOf('operations', `&batchId=${batch.id}`);
+            const stopped = runs.find((r) => r.state === 'Failed')!;
+            expect(stopped.documentId).toBe(byName(b.fileName).id);
+            expect(stopped.errorCode).toBe('kill_switch');
+            expect(stopped.errorKind).toBeNull();
+            expect(stopped.tokensIn).toBeNull();
+            expect(
+              await count(
+                "select count(*)::int as n from ops.data_exception where source = 'extraction' and entity_id = $1",
+                [stopped.id],
+              ),
+            ).toBe(1);
+          }),
+      );
+    } finally {
+      spy.mockRestore();
+    }
   });
 
   it('pages the runs and the batches without a gap or a repeat, and filters runs by state and document', async () => {

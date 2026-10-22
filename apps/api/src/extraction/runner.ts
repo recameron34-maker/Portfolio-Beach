@@ -72,7 +72,12 @@ import {
  * - Success validates the output deterministically and stages one stg.extracted_value row per
  *   schema field plus the highlights and the commentary rows, each with its validation state and
  *   findings; nothing reaches the record until a reviewer approves (SEC-9.1).
- * - A failed run opens a data exception (EXT-RUN-01) and marks the batch failed.
+ * - The switch is read before every attempt: turned off mid-batch, the next run fails with
+ *   'kill_switch' before the store or the model is touched (SEC-8.10).
+ * - An error no step expected fails the run with 'unexpected' in a fresh transaction, so no run
+ *   is left Running (docs/18 section 7).
+ * - A failed run opens a data exception (EXT-RUN-01) and marks the batch failed. Logs name an
+ *   error by its name and a bounded code, never its message (SEC-8.9).
  */
 
 const machine = extractionRunMachine;
@@ -120,9 +125,17 @@ type Outcome =
       tokensOut: number | null;
       modelId: string | null;
     }
-  | { kind: 'unreadable'; errorCode: string };
+  /** Failed outright: an unreadable document, the switch off, or an error no step expected. */
+  | { kind: 'failed'; errorCode: string };
 
 type Audit = (entry: AuditEntry) => Promise<void>;
+
+/** What a log line may say about an error: its name and a bounded code, never its message (SEC-8.9). */
+function errorSummary(error: unknown): { name: string; code: string | null } {
+  if (!(error instanceof Error)) return { name: typeof error, code: null };
+  const code = (error as { code?: unknown }).code;
+  return { name: error.name, code: typeof code === 'string' ? code : null };
+}
 
 /** The problem a caller gets while the switch is off (SEC-8.10). */
 export const extractionOff = (): ProblemError =>
@@ -213,13 +226,8 @@ export class ExtractionRunner {
         failed += 1;
         unexpected.push(error instanceof Error ? error : new Error(String(error)));
         this.logger.error(
-          {
-            run_id: runId,
-            batch_id: jobId,
-            err:
-              error instanceof Error ? { name: error.name, message: error.message } : String(error),
-          },
-          'extraction run step failed unexpectedly',
+          { run_id: runId, batch_id: jobId, err: errorSummary(error) },
+          'extraction run could not be settled',
         );
       }
       done += 1;
@@ -256,7 +264,13 @@ export class ExtractionRunner {
     );
   }
 
-  /** Drives one run to a terminal state: start, attempt, settle, and again from NeedsRetry while the budget allows. */
+  /**
+   * Drives one run to a terminal state: start, attempt, settle, and again from NeedsRetry while
+   * the budget allows. Nothing between start and a terminal state may leave the run Running
+   * (docs/18 section 7, WF-2): an error no step expected (a store, reader or validator throw, a
+   * failed staging write) fails the run in a fresh transaction with its data exception, and only
+   * a failure of that write itself reaches the caller.
+   */
   async processOne(
     principal: Principal,
     requestId: string,
@@ -264,8 +278,20 @@ export class ExtractionRunner {
   ): Promise<'Succeeded' | 'Failed'> {
     for (;;) {
       const ctx = await this.start(principal, requestId, runId);
-      const outcome = await this.attempt(ctx);
-      const next = await this.settle(principal, requestId, ctx, outcome);
+      let next: ExtractionState;
+      try {
+        const outcome = await this.attempt(ctx);
+        next = await this.settle(principal, requestId, ctx, outcome);
+      } catch (error) {
+        this.logger.error(
+          { run_id: ctx.id, document_id: ctx.documentId, err: errorSummary(error) },
+          'extraction run step failed unexpectedly',
+        );
+        next = await this.settle(principal, requestId, ctx, {
+          kind: 'failed',
+          errorCode: 'unexpected',
+        });
+      }
       if (next === 'Succeeded' || next === 'Failed') return next;
     }
   }
@@ -318,20 +344,26 @@ export class ExtractionRunner {
         const command: ExtractionCommand = from === 'NeedsRetry' ? 'retry' : 'start';
         const result = attempt(machine, from, command, { ...SYSTEM, record: {} });
         if (!result.ok) throw workflowProblem(result);
+        // The day's use: the tokens the other runs started today recorded, plus a whole run
+        // budget for each one still running (its tokens are not known yet), so N concurrent runs
+        // cannot overshoot the day budget together by (N - 1) runs.
+        const used = (
+          await stx
+            .select({
+              tokens: sql<number>`coalesce(sum(${run.tokensIn} + ${run.tokensOut}), 0)::int`,
+              running: sql<number>`count(*) filter (where ${run.state} = 'Running')::int`,
+            })
+            .from(run)
+            .where(
+              and(
+                sql`(${run.startedAt} at time zone 'UTC')::date = ${today}::date`,
+                ne(run.id, runId),
+              ),
+            )
+        )[0];
         const dayTokens =
-          (
-            await stx
-              .select({
-                tokens: sql<number>`coalesce(sum(${run.tokensIn} + ${run.tokensOut}), 0)::int`,
-              })
-              .from(run)
-              .where(
-                and(
-                  sql`(${run.startedAt} at time zone 'UTC')::date = ${today}::date`,
-                  ne(run.id, runId),
-                ),
-              )
-          )[0]?.tokens ?? 0;
+          (used?.tokens ?? 0) +
+          (used?.running ?? 0) * extractionSettingsOf(this.definitions).runTokenBudget;
         await stx.update(run).set({ state: result.to, startedAt: now }).where(eq(run.id, runId));
         await audit({
           action: `extraction_run.${command}`,
@@ -370,6 +402,10 @@ export class ExtractionRunner {
    * model call and the validation. Nothing here writes; the outcome is settled afterwards.
    */
   private async attempt(ctx: RunContext): Promise<Outcome> {
+    // The switch is read per run, not once per batch, so turning it off stops the next run
+    // before the store or the model is touched (SEC-8.10, AI-6).
+    if (!(await this.flags.isEnabled(EXTRACTION_SWITCH)))
+      return { kind: 'failed', errorCode: 'kill_switch' };
     const settings = extractionSettingsOf(this.definitions);
     if (ctx.dayTokens > settings.dayTokenBudget)
       return {
@@ -392,7 +428,7 @@ export class ExtractionRunner {
     } catch (error) {
       if (!isPdfError(error)) throw error;
       this.warn(ctx, error, 'document is unreadable');
-      return { kind: 'unreadable', errorCode: `unreadable_${error.code}` };
+      return { kind: 'failed', errorCode: `unreadable_${error.code}` };
     }
     const redactions: Record<string, number> = {};
     const pageTexts = doc.pages.map((p) => {
@@ -419,7 +455,7 @@ export class ExtractionRunner {
       });
       const res = await this.adapters.ai.complete(
         { promptId: ref.promptId, promptVersion: ref.promptVersion, input },
-        outputSchemaFor(ctx.schema),
+        outputSchemaFor(ctx.schema, { maxPage: documentSettingsOf(this.definitions).maxPages }),
       );
       this.logger.info(
         {
@@ -464,11 +500,7 @@ export class ExtractionRunner {
 
   private warn(ctx: RunContext, error: unknown, message: string): void {
     this.logger.warn(
-      {
-        run_id: ctx.id,
-        document_id: ctx.documentId,
-        err: error instanceof Error ? { name: error.name, message: error.message } : String(error),
-      },
+      { run_id: ctx.id, document_id: ctx.documentId, err: errorSummary(error) },
       message,
     );
   }
