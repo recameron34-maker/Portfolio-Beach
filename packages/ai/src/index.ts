@@ -114,6 +114,7 @@ export { type GoldCase } from './evals/types.js';
 export {
   EVAL_THRESHOLDS,
   INJECTION_PROBE,
+  CLASSIFIER_INJECTION_PROBE,
   runClassifierEval,
   runExtractionEval,
   checkThresholds,

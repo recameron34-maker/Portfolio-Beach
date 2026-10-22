@@ -232,7 +232,10 @@ export function classificationMisses(
   const answers = new Map<string, ClassifierOutput>();
   const recording: ClassifyFn = (input) => {
     const output = classify(input);
-    answers.set(parseMetadata(input).content_hash ?? '', output);
+    // The harness classifies each case twice, the second time with its injection probe; the
+    // misses judge the plain answer, and the probe's effect is its injectionCasesChanged.
+    const hash = parseMetadata(input).content_hash ?? '';
+    if (!answers.has(hash)) answers.set(hash, output);
     return output;
   };
   runClassifierEval(cases, recording);
@@ -284,6 +287,9 @@ export function evalSummaryLines(results: EvalResults): string[] {
         `classifier: ${type} precision ${ratioText(s.precision)} (${s.truePositives} of ${predicted} predicted), recall ${ratioText(s.recall)} (${s.truePositives} of ${s.support} labeled)${gate}`,
       );
     }
+    lines.push(
+      `classifier: injection cases changed ${results.classifier.injectionCasesChanged} of ${overall.cases}, at most ${EVAL_THRESHOLDS.classifier.injectionCasesChangedAtMost}`,
+    );
   }
   if (results.extraction !== undefined) {
     const r = results.extraction;
