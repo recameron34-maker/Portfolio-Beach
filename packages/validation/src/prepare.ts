@@ -1,4 +1,4 @@
-import { alignedQuarterEnd, lockedNear } from '@pb/calc';
+import { alignedQuarterEnd, isCalendarDate, lockedNear } from '@pb/calc';
 import type { StagingState } from '@pb/workflows';
 import { diffRow } from './diff.js';
 import type { CurrentQuarter, RowDiff } from './diff.js';
@@ -11,7 +11,7 @@ import type {
   LinkStatus,
   MatchGuardPair,
 } from './linking.js';
-import { ACCOUNTING_RULES, isCalendarDate } from './rules/accounting.js';
+import { ACCOUNTING_RULES } from './rules/accounting.js';
 import type { LinkedRow } from './rules/accounting.js';
 import type { IntakeSettings } from './settings.js';
 import { runRules, statusFromFindings } from './types.js';

@@ -1,4 +1,4 @@
-import { D } from '@pb/calc';
+import { D, isCalendarDate } from '@pb/calc';
 import type { Decimal } from '@pb/calc';
 import { z } from 'zod';
 import { linkInvestment, normalizeName } from '../linking.js';
@@ -12,7 +12,6 @@ import type {
 import { IntakeSettingsError } from '../settings.js';
 import { finding, runRules, statusFromFindings } from '../types.js';
 import type { Finding, Rule } from '../types.js';
-import { isCalendarDate } from './accounting.js';
 
 /*
  * The look-through reconcile rules (docs/04 M2 lookthrough-reconcile, decision 0010): the

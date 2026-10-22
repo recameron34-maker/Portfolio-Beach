@@ -1,9 +1,9 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { AiError, highlightStyleFrom } from '@pb/ai';
-import type { ExtractionField, ExtractionSchema, ExtractionSchemas, HighlightStyle } from '@pb/ai';
+import type { ExtractionSchema, ExtractionSchemas, HighlightStyle } from '@pb/ai';
 import { D } from '@pb/calc';
-import type { ExtractionDefinitions, ExtractionUnit } from '@pb/contracts';
+import type { ExtractionDefinitions } from '@pb/contracts';
 
 /*
  * The names and config the extraction engine runs on (docs/04 M4, docs/18 section 7, decision
@@ -57,20 +57,6 @@ export function schemaForDocType(
 /** The keys of a schema's money fields: an edit of one of them needs a money unit (contract). */
 export function moneyFieldKeys(schema: ExtractionSchema): string[] {
   return schema.fields.filter((f) => f.kind === 'money').map((f) => f.key);
-}
-
-/** The unit a value of a kind carries when the reviewer names none: a money field always names one. */
-export function naturalUnitOf(field: Pick<ExtractionField, 'kind'>): ExtractionUnit | null {
-  switch (field.kind) {
-    case 'money':
-      return null;
-    case 'percent':
-      return 'PCT';
-    case 'count':
-      return 'COUNT';
-    case 'date':
-      return 'DATE';
-  }
 }
 
 /** The cost of a call: tokens per thousand times the configured rate, in and out, rounded to four places. */

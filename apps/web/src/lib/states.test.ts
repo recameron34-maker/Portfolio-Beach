@@ -1,13 +1,18 @@
 import { describe, expect, it } from 'vitest';
+import { documentReviewStatus, expectedDocumentStatus, extractionRunState } from '@pb/contracts';
 import { capitalNoticeMachine, stagingMachine, valuationMachine } from '@pb/workflows';
 import {
   commandLabel,
   commandOptions,
   dueLabel,
   dueTone,
+  expectedStatusTone,
   humanizeState,
   noticeTone,
+  reviewStatusTone,
   rolesLabel,
+  runStateTone,
+  runStateWord,
   stagingTone,
   valuationTone,
 } from './states.js';
@@ -39,6 +44,29 @@ describe('state words', () => {
     expect(stagingTone('validated')).toBe('neutral');
     expect(stagingTone('new')).toBe('neutral');
     expect(humanizeState('validated')).toBe('Validated');
+  });
+
+  it('tones the document hub states once for every page (docs/18 sections 6 and 7)', () => {
+    for (const s of documentReviewStatus.options) expect(typeof reviewStatusTone(s)).toBe('string');
+    expect(reviewStatusTone('Classified')).toBe('good');
+    expect(reviewStatusTone('NeedsReview')).toBe('watch');
+    expect(reviewStatusTone('Duplicate')).toBe('neutral');
+    expect(reviewStatusTone('Received')).toBe('neutral');
+    for (const s of expectedDocumentStatus.options)
+      expect(typeof expectedStatusTone(s)).toBe('string');
+    expect(expectedStatusTone('received')).toBe('good');
+    expect(expectedStatusTone('late')).toBe('watch');
+    expect(expectedStatusTone('missing')).toBe('bad');
+    expect(expectedStatusTone('expected')).toBe('neutral');
+    for (const s of extractionRunState.options) expect(typeof runStateTone(s)).toBe('string');
+    expect(runStateTone('Succeeded')).toBe('good');
+    expect(runStateTone('Failed')).toBe('bad');
+    expect(runStateTone('NeedsRetry')).toBe('watch');
+    // In flight on the service's side: neutral on the hub, the extraction page, the board and the deal tab alike.
+    expect(runStateTone('Queued')).toBe('neutral');
+    expect(runStateTone('Running')).toBe('neutral');
+    expect(runStateWord('NeedsRetry')).toBe('Needs retry');
+    expect(runStateWord('Succeeded')).toBe('Succeeded');
   });
 
   it('grades due dates against the configured alert window', () => {

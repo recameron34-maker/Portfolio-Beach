@@ -13,6 +13,10 @@ import {
   fromDayNumber,
   holdingPeriodYears,
   indexLevelAt,
+  ISO_DATE,
+  isCalendarDate,
+  isQuarterEnd,
+  latestQuarterEndOnOrBefore,
   moic,
   multipleDelta,
   growthSinceEntry,
@@ -63,6 +67,53 @@ describe('dates', () => {
     expect(() => parseIso('2023-02-29')).toThrow(CalcError);
     expect(() => parseIso('2023-13-01')).toThrow(CalcError);
     expect(() => parseIso('23-01-01')).toThrow(CalcError);
+  });
+  it('judges calendar dates without throwing, leap days included and year 0 refused', () => {
+    for (const day of ['2025-06-30', '2024-02-29', '2000-02-29', '1999-12-31', '0001-01-01'])
+      expect(isCalendarDate(day), day).toBe(true);
+    for (const day of [
+      '2025-02-30',
+      '2025-02-29',
+      '1900-02-29',
+      '0000-01-01',
+      '2025-04-31',
+      '2025-06-31',
+      '2025-13-01',
+      '2025-00-10',
+      '2025-01-00',
+      '2025-12-32',
+      '2025-2-3',
+      '20250630',
+      '2025-06-30T00:00:00Z',
+      '',
+      'today',
+    ])
+      expect(isCalendarDate(day), day).toBe(false);
+    expect(ISO_DATE.test('2025-06-30')).toBe(true);
+    expect(ISO_DATE.test('2025-6-30')).toBe(false);
+  });
+  it('knows the four quarter ends and refuses any other day or non-day', () => {
+    for (const day of ['2024-03-31', '2024-06-30', '2024-09-30', '2024-12-31', '2000-12-31'])
+      expect(isQuarterEnd(day), day).toBe(true);
+    for (const day of [
+      '2024-06-29',
+      '2024-02-29',
+      '2024-07-01',
+      '2024-12-30',
+      '2024-06-31',
+      '0000-12-31',
+      'June 2024',
+      'not a date',
+    ])
+      expect(isQuarterEnd(day), day).toBe(false);
+    // Every day the arithmetic can produce is a calendar date, and a quarter end is its own floor.
+    fc.assert(
+      fc.property(fc.integer({ min: -20000, max: 40000 }), (n) => {
+        const day = fromDayNumber(n);
+        expect(isCalendarDate(day)).toBe(true);
+        expect(isQuarterEnd(day)).toBe(latestQuarterEndOnOrBefore(day) === day);
+      }),
+    );
   });
   it('clamps month arithmetic to the end of the month', () => {
     expect(addMonths('2024-01-31', 1)).toBe('2024-02-29');

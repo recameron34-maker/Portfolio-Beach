@@ -10,7 +10,6 @@ import {
   investmentDetail,
   investmentListQuery,
   investmentSummary,
-  isCalendarDate,
   isoDate,
   pageQuery,
   plainText,
@@ -113,7 +112,6 @@ describe('contracts', () => {
   it('accepts only days that exist on the calendar, leap days included', () => {
     for (const day of ['2025-06-30', '2024-02-29', '2000-02-29', '1999-12-31', '0001-01-01']) {
       expect(isoDate.safeParse(day).success, day).toBe(true);
-      expect(isCalendarDate(day), day).toBe(true);
     }
     for (const day of [
       '2025-02-30',
@@ -129,7 +127,6 @@ describe('contracts', () => {
     ]) {
       const result = isoDate.safeParse(day);
       expect(result.success, day).toBe(false);
-      expect(isCalendarDate(day), day).toBe(false);
       // One plain message, never the value itself.
       expect(result.error?.issues.map((i) => i.message)).toEqual(['Not a real calendar date']);
     }
@@ -167,7 +164,6 @@ describe('contracts', () => {
       expect(result.success, bad).toBe(false);
       expect(result.error?.issues.length, bad).toBe(1);
       expect(result.error?.issues[0]?.code, bad).toBe('invalid_format');
-      expect(isCalendarDate(bad), bad).toBe(false);
     }
   });
 

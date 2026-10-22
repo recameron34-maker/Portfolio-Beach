@@ -16,7 +16,6 @@ import {
   docTypeLabel,
   docTypeOptions,
   EXPECTED_STATUSES,
-  expectedTone,
   expectedWord,
   GENERATE_ROLES,
   generateResultText,
@@ -31,9 +30,7 @@ import {
   mayIndex,
   quarterEndProblem,
   REVIEW_STATUSES,
-  reviewTone,
   reviewWord,
-  runTone,
   sizeText,
   subjectOf,
 } from './documents.js';
@@ -56,20 +53,9 @@ describe('documents helpers', () => {
     expect(isExpectedStatus('Late')).toBe(false);
   });
 
-  it('gives each status a tone and a word, never colour alone', () => {
-    expect(reviewTone('Classified')).toBe('good');
-    expect(reviewTone('NeedsReview')).toBe('watch');
-    expect(reviewTone('Duplicate')).toBe('neutral');
-    expect(reviewTone('Received')).toBe('neutral');
+  it('words each status beside the shared tone of lib/states, never colour alone', () => {
     expect(reviewWord('NeedsReview')).toBe('Needs review');
-    expect(expectedTone('received')).toBe('good');
-    expect(expectedTone('late')).toBe('watch');
-    expect(expectedTone('missing')).toBe('bad');
-    expect(expectedTone('expected')).toBe('neutral');
     expect(expectedWord('missing')).toBe('Missing');
-    expect(runTone('Succeeded')).toBe('good');
-    expect(runTone('Failed')).toBe('bad');
-    expect(runTone('NeedsRetry')).toBe('watch');
   });
 
   it('labels a document type from the taxonomy, with the placeholder when untyped', () => {

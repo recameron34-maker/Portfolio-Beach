@@ -13,7 +13,6 @@ import {
   approvedOnText,
   csvRowCount,
   DOCUMENT_STATUS_WORDS,
-  documentStatusTone,
   downloadText,
   dueLabel,
   everyPage,
@@ -27,8 +26,6 @@ import {
   periodOptions,
   quarterEndsBetween,
   quarterLabel,
-  runStateTone,
-  runStateWord,
   thresholdsLine,
 } from './monitoring.js';
 import { BOARD_CSV, boardRowFixture } from './fixtures.js';
@@ -38,27 +35,17 @@ describe('monitoring helpers', () => {
     vi.restoreAllMocks();
   });
 
-  it('words and tones each status without colour as the only signal', () => {
+  it('words each status and tones the approval, beside the shared tones of lib/states', () => {
     expect(DOCUMENT_STATUS_WORDS).toEqual({
       expected: 'Expected',
       received: 'Received',
       late: 'Late',
       missing: 'Missing',
     });
-    expect(documentStatusTone('received')).toBe('good');
-    expect(documentStatusTone('expected')).toBe('neutral');
-    expect(documentStatusTone('late')).toBe('watch');
-    expect(documentStatusTone('missing')).toBe('bad');
     expect(APPROVAL_WORDS).toEqual({ none: 'None', pending: 'Pending', approved: 'Approved' });
     expect(approvalTone('none')).toBe('neutral');
     expect(approvalTone('pending')).toBe('watch');
     expect(approvalTone('approved')).toBe('good');
-    expect(runStateTone('Succeeded')).toBe('good');
-    expect(runStateTone('Failed')).toBe('bad');
-    expect(runStateTone('Queued')).toBe('watch');
-    expect(runStateTone('Running')).toBe('watch');
-    expect(runStateTone('NeedsRetry')).toBe('watch');
-    expect(runStateWord('NeedsRetry')).toBe('Needs retry');
   });
 
   it('describes the age of a report against its due date, and nothing without a due date', () => {

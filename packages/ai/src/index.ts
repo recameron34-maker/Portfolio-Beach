@@ -31,12 +31,14 @@ export {
 export {
   REDACTION_KINDS,
   redact,
+  redactPages,
   redactionMarker,
   isAbaRoutingNumber,
   type RedactionKind,
   type RedactionResult,
+  type RedactedPages,
 } from './redact.js';
-export { ISO_DATE, isCalendarDate, isQuarterEnd, parseMonthDayYear, MONTH_NAMES } from './dates.js';
+export { parseMonthDayYear, MONTH_NAMES } from './dates.js';
 export {
   FIELD_KINDS,
   MONEY_UNITS,

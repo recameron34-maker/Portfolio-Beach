@@ -7,15 +7,8 @@ import { documentsOfInvestmentQuery, LIST_LIMIT } from '../../app/queries.js';
 import { UnavailableState } from '../../components/UnavailableState.js';
 import { Badge, Card, EmptyState, SectionHeader, TableWrap } from '../../components/ui.js';
 import { formatDate, labelOf, MISSING, plural } from '../../lib/format.js';
-import { humanizeState } from '../../lib/states.js';
-import {
-  datePart,
-  documentHref,
-  documentStatusTone,
-  runHref,
-  runStateTone,
-  useDealId,
-} from './data.js';
+import { humanizeState, reviewStatusTone, runStateTone } from '../../lib/states.js';
+import { datePart, documentHref, runHref, useDealId } from './data.js';
 import { HubLink } from './parts.js';
 import './deal.css';
 
@@ -47,7 +40,7 @@ function DocumentsTable({ items }: { items: readonly DocumentSummary[] }): React
               </td>
               <td>
                 <span className="pb-deal-stack">
-                  <Badge tone={documentStatusTone(d.reviewStatus)}>
+                  <Badge tone={reviewStatusTone(d.reviewStatus)}>
                     {humanizeState(d.reviewStatus)}
                   </Badge>
                   {d.latestRun === null ? null : (

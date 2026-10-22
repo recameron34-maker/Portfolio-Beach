@@ -8,7 +8,7 @@ import {
   classifierOutputSchema,
   parseDocumentFileName,
   promptRef,
-  redact,
+  redactPages,
 } from '@pb/ai';
 import type { ClassifierOutput, DocumentFileName } from '@pb/ai';
 import { D } from '@pb/calc';
@@ -35,6 +35,7 @@ import { ADAPTERS, DEFINITIONS, LOGGER } from '../common/tokens.js';
 import { requireUuid } from '../common/validate.js';
 import { DbService } from '../db/db.service.js';
 import { FlagsService } from '../flags/flags.service.js';
+import { EXCEPTION_SEVERITY } from '../intake/stage.js';
 import { matchExpectedDocument } from './expected.service.js';
 import { documentDirectory, linkDocument } from './link.js';
 import type { DocumentDirectory, DocumentLinks } from './link.js';
@@ -42,9 +43,10 @@ import {
   excerptOf,
   isPdfError,
   readDocument,
+  readStoredDocument,
+  storedDocumentProblem,
   stripExtension,
   titleOf,
-  unreadableProblem,
 } from './read.js';
 import {
   INBOX,
@@ -90,7 +92,6 @@ export const CLASSIFIER_SWITCH = 'ai.classifier';
 const EXCEPTION_SOURCE = 'documents';
 /** The rule of the data exception an unreadable item opens. */
 export const UNREADABLE_RULE = 'DOC-READ-01';
-const EXCEPTION_SEVERITY = 'exception_severity.high';
 const ENTITY = 'doc.document';
 const SYSTEM = { actorId: SYSTEM_USER_ID, actorRoles: ['service'] } as const;
 const machine = documentClassificationMachine;
@@ -436,13 +437,7 @@ export class DocumentsService {
     threshold: Decimal,
     now: Date,
   ): Promise<IndexOutcome> {
-    const redactions: Record<string, number> = {};
-    const pages = pageTexts.map((text) => {
-      const r = redact(text);
-      for (const [kind, n] of Object.entries(r.counts))
-        if (n > 0) redactions[kind] = (redactions[kind] ?? 0) + n;
-      return r.text;
-    });
+    const { pages, counts: redactions } = redactPages(pageTexts);
     const ref = promptRef('document_classifier');
     let output: ClassifierOutput | null = null;
     let failure: string | null = null;
@@ -642,18 +637,11 @@ export class DocumentsService {
       await audit({ action: 'document.pages.read', entity: ENTITY, entityId: id });
       return found;
     });
-    let bytes: Uint8Array;
-    try {
-      bytes = await this.adapters.documents.read(row.sourceItemId);
-    } catch {
-      throw new ProblemError(404, 'not-found', 'The document is no longer in the store');
-    }
     let doc: PdfDocument;
     try {
-      doc = await readDocument(bytes, settings);
+      doc = await readStoredDocument(this.adapters.documents, settings, row.sourceItemId);
     } catch (error) {
-      if (isPdfError(error)) throw unreadableProblem(error);
-      throw error;
+      throw storedDocumentProblem(error);
     }
     return {
       documentId: id,

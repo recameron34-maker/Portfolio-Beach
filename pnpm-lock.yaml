@@ -251,6 +251,9 @@ importers:
 
   packages/contracts:
     dependencies:
+      '@pb/calc':
+        specifier: workspace:*
+        version: link:../calc
       zod:
         specifier: 4.6.5
         version: 4.6.5

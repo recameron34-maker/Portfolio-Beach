@@ -28,6 +28,7 @@ import {
 } from '../../components/ui.js';
 import { ActionStatus } from '../../components/WorkflowActions.js';
 import { formatDate, MISSING, plural } from '../../lib/format.js';
+import { reviewStatusTone, runStateTone, runStateWord } from '../../lib/states.js';
 import { resultSuffix, useActionLog } from '../../lib/workflow.js';
 import type { ActionLog } from '../../lib/workflow.js';
 import {
@@ -44,10 +45,7 @@ import {
   hashShort,
   keywordsText,
   mayClassify,
-  reviewTone,
   reviewWord,
-  runTone,
-  runWord,
   sizeText,
   subjectOf,
 } from './documents.js';
@@ -130,7 +128,9 @@ function MetadataCard({ doc }: { doc: DocumentDetail }): ReactNode {
                 MISSING
               ) : (
                 <Link to="/documents/extraction/$id" params={{ id: doc.latestRun.id }}>
-                  <Badge tone={runTone(doc.latestRun.state)}>{runWord(doc.latestRun.state)}</Badge>
+                  <Badge tone={runStateTone(doc.latestRun.state)}>
+                    {runStateWord(doc.latestRun.state)}
+                  </Badge>
                 </Link>
               ),
           },
@@ -168,7 +168,7 @@ function DuplicatesCard({ doc }: { doc: DocumentDetail }): ReactNode {
               </Link>
               <span className="pb-meta">{d.folder}</span>
               <span className="pb-meta">Indexed {dayOf(d.indexedAt)}</span>
-              <Badge tone={reviewTone(d.reviewStatus)}>{reviewWord(d.reviewStatus)}</Badge>
+              <Badge tone={reviewStatusTone(d.reviewStatus)}>{reviewWord(d.reviewStatus)}</Badge>
             </li>
           ))}
         </ul>
@@ -470,7 +470,7 @@ function DocumentBody({
             <Badge plain tone="brand">
               {docTypeLabel(doc.docType)}
             </Badge>
-            <Badge tone={reviewTone(doc.reviewStatus)}>{reviewWord(doc.reviewStatus)}</Badge>
+            <Badge tone={reviewStatusTone(doc.reviewStatus)}>{reviewWord(doc.reviewStatus)}</Badge>
           </span>
         }
         testId="document-banner"

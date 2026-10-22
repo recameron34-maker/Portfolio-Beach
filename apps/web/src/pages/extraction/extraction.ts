@@ -1,4 +1,12 @@
-import { API_PREFIX, isQuarterEnd, MONEY_UNITS, ROUTES, valueFitsUnit } from '@pb/contracts';
+import { normalizeWhitespace } from '@pb/ai';
+import { isMoneyUnit, isQuarterEnd } from '@pb/calc';
+import {
+  API_PREFIX,
+  extractionRunState,
+  naturalUnitOf,
+  ROUTES,
+  valueFitsUnit,
+} from '@pb/contracts';
 import type {
   ExtractedValue,
   ExtractionBatch,
@@ -19,7 +27,9 @@ import { describeActionError, plainRule } from '../../app/mutations.js';
 import type { Tone } from '../../components/ui.js';
 import type { UnavailableReason } from '../../lib/unavailable.js';
 import { formatDate, formatPct, MISSING, plural } from '../../lib/format.js';
-import { humanizeState, rolesLabel } from '../../lib/states.js';
+import { humanizeState, rolesLabel, runStateWord } from '../../lib/states.js';
+import { docTypeLabel, docTypeOptions } from '../documents/documents.js';
+import type { DocTypeOption } from '../documents/documents.js';
 
 /*
  * Pure helpers of the extraction pages (docs/04 M4, docs/18 section 7, decision 0012): who may
@@ -63,24 +73,7 @@ export const EXTRACTION_FORBIDDEN: UnavailableReason = {
     'Any signed-in user reads the runs of the documents they may see; ask a platform administrator if you need access.',
 };
 
-/* ---- Words and tones ---- */
-
-const RUN_TONES: Readonly<Record<ExtractionRunState, Tone>> = {
-  Queued: 'neutral',
-  Running: 'watch',
-  Succeeded: 'good',
-  Failed: 'bad',
-  NeedsRetry: 'watch',
-};
-
-export function runTone(state: ExtractionRunState): Tone {
-  return RUN_TONES[state];
-}
-
-/** "NeedsRetry" reads "Needs retry"; the other states are single words. */
-export function runStateWord(state: ExtractionRunState): string {
-  return humanizeState(state);
-}
+/* ---- Words and tones (the run state's are lib/states.ts, shared by every page) ---- */
 
 const BATCH_TONES: Readonly<Record<ExtractionBatchState, Tone>> = {
   queued: 'neutral',
@@ -98,13 +91,8 @@ export function batchStateWord(state: ExtractionBatchState): string {
   return humanizeState(state);
 }
 
-export const RUN_STATES: readonly ExtractionRunState[] = [
-  'Queued',
-  'Running',
-  'Succeeded',
-  'Failed',
-  'NeedsRetry',
-];
+/** docs/18 section 7, from the contract's enum: Queued, Running, Succeeded, Failed, NeedsRetry. */
+export const RUN_STATES: readonly ExtractionRunState[] = extractionRunState.options;
 
 export function isRunState(value: string): value is ExtractionRunState {
   return (RUN_STATES as readonly string[]).includes(value);
@@ -166,10 +154,6 @@ const MONEY_SUFFIX: Readonly<Record<string, string>> = {
   USD_B: 'B',
 };
 
-export function isMoneyUnit(unit: string | null | undefined): unit is ExtractionUnit {
-  return unit !== null && unit !== undefined && (MONEY_UNITS as readonly string[]).includes(unit);
-}
-
 /** The unit as a short label for a select: "$M", "%", "count", "date". */
 export function unitLabel(unit: ExtractionUnit): string {
   if (isMoneyUnit(unit)) return `$${MONEY_SUFFIX[unit] ?? ''}`;
@@ -190,7 +174,7 @@ export function valueText(
   if (value === null || value === '') return MISSING;
   switch (kind) {
     case 'money':
-      return isMoneyUnit(unit) ? `$${value}${MONEY_SUFFIX[unit] ?? ''}` : value;
+      return unit !== null && isMoneyUnit(unit) ? `$${value}${MONEY_SUFFIX[unit] ?? ''}` : value;
     case 'percent':
       return formatPct(value, 2);
     case 'date':
@@ -213,11 +197,6 @@ export function finalValue(v: ExtractedValue): {
 export function finalValueText(v: ExtractedValue): string {
   const final = finalValue(v);
   return valueText(final.value, final.unit, v.kind);
-}
-
-/** "100%" from the model's confidence; the missing placeholder when it gave none. */
-export function confidenceText(confidence: string | null): string {
-  return confidence === null ? MISSING : formatPct(confidence, 0);
 }
 
 /** "1 flagged, 2 invalid" for a run's counts; the missing placeholder when both are zero. */
@@ -396,14 +375,12 @@ export function batchFormProblem(form: BatchForm): string | null {
   return null;
 }
 
-/** The document types of the taxonomy, active ones, in their sort order. */
-export function docTypeOptions(taxonomy: Taxonomy | undefined): { code: string; label: string }[] {
-  const domain = taxonomy?.domains.find((d) => d.domain === 'doc_type');
-  if (domain === undefined) return [{ code: DEFAULT_DOC_TYPE, label: 'Quarterly financials' }];
-  return [...domain.terms]
-    .filter((t) => t.active)
-    .sort((a, b) => a.sortOrder - b.sortOrder)
-    .map((t) => ({ code: t.code, label: t.label }));
+/** The hub's document type options (documents.ts), with the default type standing in until the taxonomy loads. */
+export function batchDocTypeOptions(taxonomy: Taxonomy | undefined): DocTypeOption[] {
+  const options = docTypeOptions(taxonomy);
+  return options.length === 0
+    ? [{ code: DEFAULT_DOC_TYPE, label: docTypeLabel(DEFAULT_DOC_TYPE) }]
+    : options;
 }
 
 /* ---- The edit dialog ---- */
@@ -412,20 +389,6 @@ export interface EditForm {
   value: string;
   unit: string;
   reason: string;
-}
-
-/** The unit a non-money kind always carries; a money field takes the reviewer's. */
-export function naturalUnit(kind: ExtractionFieldKind): ExtractionUnit | null {
-  switch (kind) {
-    case 'percent':
-      return 'PCT';
-    case 'count':
-      return 'COUNT';
-    case 'date':
-      return 'DATE';
-    case 'money':
-      return null;
-  }
 }
 
 export const MIN_REASON_LENGTH = 3;
@@ -451,9 +414,10 @@ export interface EditProblems {
 export function editProblems(v: ExtractedValue, form: EditForm): EditProblems {
   const problems: EditProblems = {};
   const value = form.value.trim();
-  const unit = v.kind === 'money' ? form.unit : naturalUnit(v.kind);
+  const unit = v.kind === 'money' ? form.unit : naturalUnitOf(v.kind);
   if (value === '') problems.value = 'A value is required';
-  if (v.kind === 'money' && !isMoneyUnit(unit)) problems.unit = 'A money edit needs a money unit';
+  if (v.kind === 'money' && (unit === null || !isMoneyUnit(unit)))
+    problems.unit = 'A money edit needs a money unit';
   else if (
     value !== '' &&
     unit !== null &&
@@ -467,7 +431,7 @@ export function editProblems(v: ExtractedValue, form: EditForm): EditProblems {
 }
 
 export function editBody(v: ExtractedValue, form: EditForm): ExtractionRunCommandBody {
-  const unit = v.kind === 'money' ? form.unit : naturalUnit(v.kind);
+  const unit = v.kind === 'money' ? form.unit : naturalUnitOf(v.kind);
   return {
     command: 'edit',
     field: v.field,
@@ -481,11 +445,6 @@ export function editBody(v: ExtractedValue, form: EditForm): ExtractionRunComman
 
 /** Runs within this many page units of each other sit on one baseline (packages/pdf's rule). */
 export const BASELINE_TOLERANCE = 2;
-
-/** Whitespace runs folded to one space, as the citation check reads the page (EXT-CITE-02). */
-export function normalizeWhitespace(text: string): string {
-  return text.replace(/\s+/g, ' ').trim();
-}
 
 /**
  * The runs of a page, grouped by baseline (top of the page first, left to right within a line),
@@ -509,8 +468,9 @@ export function pageLines(page: PageLayout): number[][] {
 
 /**
  * The runs that carry a quote on a page: the quote is matched against each line's runs joined
- * by single spaces, whitespace folded, case kept (the validator's own rule), and the runs the
- * match overlaps are returned as indices into page.runs. Empty when the quote is not on the page.
+ * by single spaces, whitespace folded by the validator's own normalizeWhitespace (EXT-CITE-02),
+ * case kept, and the runs the match overlaps are returned as indices into page.runs. Empty when
+ * the quote is not on the page.
  */
 export function findQuote(page: PageLayout, quote: string | null): number[] {
   if (quote === null) return [];

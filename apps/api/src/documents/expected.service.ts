@@ -23,6 +23,7 @@ import {
   deriveExpected,
   dueDateFor,
 } from './expected.js';
+import { receivedOnSql } from './rows.js';
 import { documentSettingsOf } from './settings.js';
 
 /*
@@ -298,7 +299,7 @@ export class ExpectedDocumentsService {
         docType: x.docType,
         dueDate: x.dueDate,
         receivedDocumentId: x.receivedDocumentId,
-        receivedOn: sql<string | null>`to_char(${d.receivedAt} at time zone 'UTC', 'YYYY-MM-DD')`,
+        receivedOn: receivedOnSql(),
       })
       .from(x)
       .leftJoin(schema.investment, eq(schema.investment.id, x.investmentId))

@@ -2,12 +2,12 @@ import { Inject, Injectable } from '@nestjs/common';
 import { and, eq } from 'drizzle-orm';
 import type { AdapterSet, Principal } from '@pb/adapters';
 import { UNITS_BY_KIND, boundsFrom } from '@pb/ai';
-import type { ExtractionField, ExtractionSchema, ExtractionSchemas } from '@pb/ai';
-import { CalcError, toDollars, unitSanityFlag } from '@pb/calc';
+import type { ExtractionField, ExtractionSchema, ExtractionSchemas, TargetColumn } from '@pb/ai';
+import { CalcError, isQuarterEnd, toDollars, unitSanityFlag } from '@pb/calc';
 import {
   extractionRunCommandBody,
   extractionUnit,
-  isQuarterEnd,
+  naturalUnitOf,
   valueFitsUnit,
 } from '@pb/contracts';
 import type { ExtractionRunCommandBody, ExtractionRunDetail, ExtractionUnit } from '@pb/contracts';
@@ -38,7 +38,6 @@ import {
   HIGHLIGHTS_FIELD,
   NARRATIVE_FIELDS,
   moneyFieldKeys,
-  naturalUnitOf,
 } from './settings.js';
 
 /*
@@ -70,8 +69,8 @@ const ACCEPTED = 'accepted';
 const EDITED = 'edited';
 const REJECTED = 'rejected';
 
-/** The mon.quarterly_performance column a schema target names. */
-const TARGET_KEYS: Readonly<Record<string, QuarterlyFigureKey>> = {
+/** The mon.quarterly_performance column each schema target names, keyed by TARGET_COLUMNS of @pb/ai so the two lists stay in step at compile time. */
+const TARGET_KEYS: Readonly<Record<TargetColumn, QuarterlyFigureKey>> = {
   revenue_ltm: 'revenueLtm',
   ebitda_ltm: 'ebitdaLtm',
   ev: 'ev',
@@ -376,7 +375,7 @@ export class ExtractionReviewService {
       throw new ProblemError(400, 'validation', 'Invalid command', [
         { path: 'field', message: 'Only a schema field can be edited' },
       ]);
-    const unit: ExtractionUnit | null = body.unit ?? naturalUnitOf(definition);
+    const unit: ExtractionUnit | null = body.unit ?? naturalUnitOf(definition.kind);
     const errors: { path: string; message: string }[] = [];
     if (unit === null) errors.push({ path: 'unit', message: 'A money edit needs a money unit' });
     else if (!UNITS_BY_KIND[definition.kind].includes(unit))
@@ -530,7 +529,6 @@ export class ExtractionReviewService {
       const final = finalOf(row);
       if (final === null) continue;
       const key = TARGET_KEYS[field.target];
-      if (key === undefined) continue;
       const unit = unitOf(row);
       if (unit === null)
         throw blocked(`extraction: ${field.label} carries no money unit to convert from`);

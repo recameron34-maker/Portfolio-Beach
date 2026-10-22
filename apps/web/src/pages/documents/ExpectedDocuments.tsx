@@ -25,6 +25,7 @@ import {
 } from '../../components/ui.js';
 import { ActionStatus } from '../../components/WorkflowActions.js';
 import { formatDate, MISSING, plural } from '../../lib/format.js';
+import { expectedStatusTone } from '../../lib/states.js';
 import { resultSuffix, useActionLog } from '../../lib/workflow.js';
 import {
   ageTitle,
@@ -33,7 +34,6 @@ import {
   docTypeLabel,
   EXPECTED_META,
   EXPECTED_STATUSES,
-  expectedTone,
   expectedWord,
   GENERATE_READ_ONLY,
   generateResultText,
@@ -153,7 +153,7 @@ function ExpectedTable({ items }: { items: readonly ExpectedDocument[] }): React
               <td className="pb-nowrap">{formatDate(row.periodEnd)}</td>
               <td className="pb-nowrap">{formatDate(row.dueDate)}</td>
               <td>
-                <Badge tone={expectedTone(row.status)}>{expectedWord(row.status)}</Badge>
+                <Badge tone={expectedStatusTone(row.status)}>{expectedWord(row.status)}</Badge>
               </td>
               <td className="num" title={ageTitle(row)}>
                 {String(row.ageDays)}

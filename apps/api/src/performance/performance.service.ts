@@ -11,6 +11,7 @@ import {
   evToEbitda,
   growthSinceEntry,
   interestCoverage,
+  isCalendarDate,
   latestPeriod,
   leverageThroughTranche,
   loanToValue,
@@ -21,7 +22,7 @@ import {
   yoyGrowth,
 } from '@pb/calc';
 import type { Decimal, PaymentFrequency } from '@pb/calc';
-import { DECIMAL_PATTERN, isCalendarDate } from '@pb/contracts';
+import { DECIMAL_PATTERN } from '@pb/contracts';
 import type {
   InvestmentPerformance,
   QuarterRow,

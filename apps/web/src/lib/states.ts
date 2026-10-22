@@ -1,3 +1,8 @@
+import type {
+  DocumentReviewStatus,
+  ExpectedDocumentStatus,
+  ExtractionRunState,
+} from '@pb/contracts';
 import type { Machine } from '@pb/workflows';
 import { requireReason } from '@pb/workflows';
 import type { Tone } from '../components/ui.js';
@@ -75,6 +80,62 @@ const STAGING_TONES: Readonly<Record<string, Tone>> = {
 
 export function stagingTone(state: string): Tone {
   return STAGING_TONES[state] ?? 'neutral';
+}
+
+/**
+ * docs/18 section 6: Classified is settled, NeedsReview waits on a person, Received waits on the
+ * classifier and a Duplicate points at its original (neither needs anyone). One map for the hub,
+ * the review queue and the deal workspace's Documents tab.
+ */
+const REVIEW_STATUS_TONES: Readonly<Record<DocumentReviewStatus, Tone>> = {
+  Received: 'neutral',
+  Classified: 'good',
+  NeedsReview: 'watch',
+  Duplicate: 'neutral',
+};
+
+export function reviewStatusTone(status: DocumentReviewStatus): Tone {
+  return REVIEW_STATUS_TONES[status];
+}
+
+/**
+ * docs/04 M3: a received document is done, a late one waits on the sponsor and a chaser, a
+ * missing one is a gap the board must show; expected is on its way. One map for the tracker and
+ * the monitoring board.
+ */
+const EXPECTED_STATUS_TONES: Readonly<Record<ExpectedDocumentStatus, Tone>> = {
+  expected: 'neutral',
+  received: 'good',
+  late: 'watch',
+  missing: 'bad',
+};
+
+export function expectedStatusTone(status: ExpectedDocumentStatus): Tone {
+  return EXPECTED_STATUS_TONES[status];
+}
+
+/**
+ * docs/18 section 7, decided once for every page (docs/06: a colour carries one meaning): Queued
+ * and Running wait on the extraction service, so they read neutral as Received does in section
+ * 3 (watch is a person's turn, brand an approved ticket); Succeeded is done (the approval has its
+ * own tone), Failed is a data exception, NeedsRetry waits for the retry a reviewer may also
+ * trigger.
+ */
+const RUN_STATE_TONES: Readonly<Record<ExtractionRunState, Tone>> = {
+  Queued: 'neutral',
+  Running: 'neutral',
+  Succeeded: 'good',
+  Failed: 'bad',
+  NeedsRetry: 'watch',
+};
+
+export function runStateTone(state: ExtractionRunState): Tone {
+  return RUN_STATE_TONES[state];
+}
+
+/** "Needs retry"; the other run states are single words. */
+export function runStateWord(state: ExtractionRunState): string {
+  return humanizeState(state);
 }
 
 /** Urgency of a due date against the alert window (config capitalActivity.alertDaysBeforeDue). */

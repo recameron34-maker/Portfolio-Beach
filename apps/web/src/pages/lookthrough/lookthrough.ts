@@ -5,7 +5,7 @@ import type {
   LookthroughRow,
   LookthroughRunDetail,
 } from '@pb/contracts';
-import { isCalendarDate } from '@pb/contracts';
+import { isCalendarDate } from '@pb/calc';
 import type { Tone } from '../../components/ui.js';
 import { labelOf, MISSING, plural } from '../../lib/format.js';
 import { exactMoney } from '../intake/intake.js';

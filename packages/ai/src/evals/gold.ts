@@ -4,7 +4,7 @@ import { AiError } from '../errors.js';
 import { parseMetadata } from '../input.js';
 import { parseTruth } from '../models/extractor.js';
 import type { Truth } from '../models/extractor.js';
-import { REDACTION_KINDS, redact } from '../redact.js';
+import { addRedactionCounts, redactPages, zeroRedactionCounts } from '../redact.js';
 import type { RedactionKind } from '../redact.js';
 import { CONFIDENCE_TEXT } from '../schema.js';
 import type { ClassifierOutput } from '../schema.js';
@@ -157,17 +157,11 @@ export interface RedactedGoldCases<C extends GoldCase> {
  * stops reading back after redaction is then counted as a missing citation, which is the point.
  */
 export function redactGoldCases<C extends GoldCase>(cases: readonly C[]): RedactedGoldCases<C> {
-  const counts = Object.fromEntries(REDACTION_KINDS.map((kind) => [kind, 0])) as Record<
-    RedactionKind,
-    number
-  >;
+  const counts = zeroRedactionCounts();
   const redacted = cases.map((c) => {
-    const pageTexts = c.pageTexts.map((text) => {
-      const result = redact(text);
-      for (const kind of REDACTION_KINDS) counts[kind] += result.counts[kind];
-      return result.text;
-    });
-    return { ...c, pageTexts };
+    const result = redactPages(c.pageTexts);
+    addRedactionCounts(counts, result.counts);
+    return { ...c, pageTexts: result.pages };
   });
   return { cases: redacted, counts };
 }

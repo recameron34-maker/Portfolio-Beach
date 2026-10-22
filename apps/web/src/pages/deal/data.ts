@@ -4,8 +4,6 @@ import type { UseQueryResult } from '@tanstack/react-query';
 import { API_PREFIX, realizationOutlookCode, ROUTES } from '@pb/contracts';
 import type {
   CapitalNoticeRow,
-  DocumentReviewStatus,
-  ExtractionRunState,
   InvestmentDetail,
   InvestmentPerformance,
   QuarterRow,
@@ -14,7 +12,6 @@ import type {
 } from '@pb/contracts';
 import definitions from '../../../../../config/definitions.json';
 import { investmentQuery } from '../../app/queries.js';
-import type { Tone } from '../../components/ui.js';
 import { formatDate, formatMoneyM, labelOf, MISSING } from '../../lib/format.js';
 import { humanizeState } from '../../lib/states.js';
 
@@ -100,21 +97,6 @@ export const runHref = (runId: string): string =>
 export function sourceLabel(source: QuarterSource | null): string {
   if (source === null) return MISSING;
   return source.page === null ? 'document' : `page ${source.page}`;
-}
-
-/** docs/18 section 6: Classified is settled, NeedsReview waits on a person, the rest is neutral. */
-export function documentStatusTone(status: DocumentReviewStatus): Tone {
-  if (status === 'Classified') return 'good';
-  if (status === 'NeedsReview') return 'watch';
-  return 'neutral';
-}
-
-/** docs/18 section 7: Succeeded reads good, Failed bad, NeedsRetry watch, the in-flight states neutral. */
-export function runStateTone(state: ExtractionRunState): Tone {
-  if (state === 'Succeeded') return 'good';
-  if (state === 'Failed') return 'bad';
-  if (state === 'NeedsRetry') return 'watch';
-  return 'neutral';
 }
 
 /** Numbers feed chart geometry only; every displayed figure is formatted from the API's decimal string. */

@@ -1,12 +1,8 @@
 import { desc, eq, inArray, sql } from 'drizzle-orm';
 import type { SQL } from 'drizzle-orm';
 import { alias } from 'drizzle-orm/pg-core';
-import {
-  classifierEvidence,
-  documentReviewStatus,
-  extractionRunState,
-  isCalendarDate,
-} from '@pb/contracts';
+import { isCalendarDate } from '@pb/calc';
+import { classifierEvidence, documentReviewStatus, extractionRunState } from '@pb/contracts';
 import type {
   DocumentDetail,
   DocumentDuplicate,
@@ -34,6 +30,10 @@ export const INBOX = 'inbox';
 
 export const d = schema.document;
 const run = schema.extractionRun;
+
+/** The calendar day (UTC) a document was received, as an expected row carries it (expected.ts receivedOn): one expression for the tracker and the board. */
+export const receivedOnSql = (): SQL<string | null> =>
+  sql<string | null>`to_char(${d.receivedAt} at time zone 'UTC', 'YYYY-MM-DD')`;
 const classifier = alias(schema.appUser, 'classifier');
 
 export const documentColumns = {

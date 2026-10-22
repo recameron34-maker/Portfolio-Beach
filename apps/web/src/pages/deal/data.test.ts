@@ -14,7 +14,6 @@ import {
   canSetOutlook,
   datePart,
   documentHref,
-  documentStatusTone,
   HORIZON_MONTHS,
   isApproved,
   isHorizon,
@@ -26,7 +25,6 @@ import {
   outlookLabel,
   quarterRowsNewestFirst,
   runHref,
-  runStateTone,
   sinceEntryGap,
   sourceLabel,
   timelineEntries,
@@ -184,17 +182,5 @@ describe('deal tab helpers for Phase 2: sources, documents and the outlook', () 
       'page 3',
     );
     expect(sourceLabel({ documentId, runId: null, page: null, locator: null })).toBe('document');
-  });
-
-  it('tones document statuses and run states so colour never stands alone', () => {
-    expect(documentStatusTone('Classified')).toBe('good');
-    expect(documentStatusTone('NeedsReview')).toBe('watch');
-    expect(documentStatusTone('Duplicate')).toBe('neutral');
-    expect(documentStatusTone('Received')).toBe('neutral');
-    expect(runStateTone('Succeeded')).toBe('good');
-    expect(runStateTone('Failed')).toBe('bad');
-    expect(runStateTone('NeedsRetry')).toBe('watch');
-    expect(runStateTone('Queued')).toBe('neutral');
-    expect(runStateTone('Running')).toBe('neutral');
   });
 });

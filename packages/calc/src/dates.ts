@@ -6,7 +6,8 @@ import { CalcError } from './decimal.js';
  */
 export type IsoDate = string;
 
-const ISO = /^(\d{4})-(\d{2})-(\d{2})$/;
+/** The shape of an ISO date (four digits, two, two); whether it names a day is judged by the calendar below. */
+export const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
 
 export interface CivilDate {
   year: number;
@@ -14,16 +15,44 @@ export interface CivilDate {
   day: number;
 }
 
+/** The fields of a string of the ISO shape, not yet judged against the calendar; null for any other shape. */
+function fieldsOf(iso: string): CivilDate | null {
+  if (!ISO_DATE.test(iso)) return null;
+  return {
+    year: Number(iso.slice(0, 4)),
+    month: Number(iso.slice(5, 7)),
+    day: Number(iso.slice(8, 10)),
+  };
+}
+
+/** True when the month and the day exist in that year (February 29 in a leap year only). */
+function onCalendar(d: CivilDate): boolean {
+  return d.month >= 1 && d.month <= 12 && d.day >= 1 && d.day <= daysInMonth(d.year, d.month);
+}
+
 export function parseIso(iso: IsoDate): CivilDate {
-  const m = ISO.exec(iso);
-  if (!m) throw new CalcError(`invalid ISO date: ${iso}`, 'invalid_date');
-  const year = Number(m[1]);
-  const month = Number(m[2]);
-  const day = Number(m[3]);
-  if (month < 1 || month > 12 || day < 1 || day > daysInMonth(year, month)) {
-    throw new CalcError(`invalid calendar date: ${iso}`, 'invalid_date');
-  }
-  return { year, month, day };
+  const d = fieldsOf(iso);
+  if (d === null) throw new CalcError(`invalid ISO date: ${iso}`, 'invalid_date');
+  if (!onCalendar(d)) throw new CalcError(`invalid calendar date: ${iso}`, 'invalid_date');
+  return d;
+}
+
+/**
+ * True when a string names a day that exists on the calendar, never throwing: the ISO shape, a
+ * month and a day within that year, and a year from 1 on (the calendar has no year 0, and neither
+ * does the database). The one calendar check the contracts, the validators and the models share,
+ * so a period end is judged the same way at every boundary (CLAUDE.md rule 7).
+ */
+export function isCalendarDate(value: string): boolean {
+  const d = fieldsOf(value);
+  return d !== null && d.year >= 1 && onCalendar(d);
+}
+
+/** True when a calendar date is the last day of a quarter (March 31, June 30, September 30 or December 31). */
+export function isQuarterEnd(value: string): boolean {
+  if (!isCalendarDate(value)) return false;
+  const { year, month, day } = parseIso(value);
+  return month % 3 === 0 && day === daysInMonth(year, month);
 }
 
 export function formatIso(d: CivilDate): IsoDate {
