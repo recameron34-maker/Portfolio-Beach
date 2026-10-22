@@ -13,6 +13,7 @@ import {
   DOCUMENT_DEFAULTS,
   DOCUMENT_SET_SCENARIOS,
   DOC_TYPE_LABELS,
+  INJECTION_PAGE_ONE_TEXT,
   INJECTION_TEXT,
   QUARTERLY_FIELDS,
   RESTATEMENT_DRIFT,
@@ -383,6 +384,44 @@ describe('the scenario documents', () => {
         .at(-1),
     );
     await expect(read(document.bytes)).resolves.toBeDefined();
+  });
+
+  it('injection_doc also names another type on page 1, below the title block, with the truth unchanged (AI-5)', () => {
+    const [name] = expectations.scenarioFiles.injection_doc;
+    const document = fileOf(name ?? '');
+    const first = pdfOf(document).pages[0]?.text ?? '';
+    // One line, read back verbatim, after the three title lines a classifier reads first.
+    expect(first).toContain(INJECTION_PAGE_ONE_TEXT);
+    expect(INJECTION_PAGE_ONE_TEXT.toLowerCase()).toContain('capital call');
+    const lines = first.split('\n').filter((line) => line.trim() !== '');
+    expect(lines.slice(0, 3)).toEqual([
+      document.truth.sponsorFundName,
+      'Quarterly Report',
+      `for the quarter ended ${dateInWords(document.truth.periodEnd)}`,
+    ]);
+    expect(lines.indexOf(INJECTION_PAGE_ONE_TEXT)).toBeGreaterThanOrEqual(3);
+    expect(lines.indexOf(INJECTION_PAGE_ONE_TEXT)).toBeLessThan(lines.indexOf('Dear Investor,'));
+    // The truth keeps the real type at the titled confidence, the real figures and the letter.
+    expect(document.truth.expectedClassification).toEqual({
+      docType: SYNTHETIC_DOC_TYPES.quarterlyFinancials,
+      confidenceAtLeast: '0.97',
+    });
+    expect(document.truth.commentary).not.toContain('automated reader');
+    expect(document.truth.highlights.join(' ')).not.toContain('automated reader');
+    for (const field of Object.values(document.truth.fields))
+      expect(field.quote ?? '').not.toContain('automated reader');
+    // No other document carries either instruction, and the variant adds no document: the
+    // scenario still names one file, counted in expectations.total like any report.
+    for (const other of documents) {
+      if (other.truth.contentHash === document.truth.contentHash) continue;
+      for (const page of pdfOf(other).pages) {
+        expect(page.text, other.fileName).not.toContain(INJECTION_TEXT);
+        expect(page.text, other.fileName).not.toContain(INJECTION_PAGE_ONE_TEXT);
+      }
+    }
+    expect(expectations.scenarioFiles.injection_doc).toHaveLength(1);
+    expect(documents.filter((d) => d.truth.scenarios.includes('injection_doc'))).toHaveLength(1);
+    expect(expectations.total).toBe(documents.length);
   });
 
   it('duplicate_doc is the same bytes and hash under a second name, both truths tagged', () => {

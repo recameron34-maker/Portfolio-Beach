@@ -88,6 +88,7 @@ describe('redact (SEC-8.7)', () => {
     const page = [
       'Wire instructions (example): IBAN GB00TEST00000000000000, SWIFT TESTGB2L, a/c 00001234,',
       'routing 123456780. Questions to ir@sponsor.example or 555-555-0123. Tax id 000-00-0000.',
+      'EIN 00-0000000.',
     ].join('\n');
     const r = redact(page);
     expect(r.counts).toEqual({
@@ -97,6 +98,7 @@ describe('redact (SEC-8.7)', () => {
       account: 1,
       routing: 1,
       ssn: 1,
+      tax_id: 1,
       phone: 1,
     });
     for (const original of [
@@ -107,8 +109,110 @@ describe('redact (SEC-8.7)', () => {
       '@sponsor',
       '555-0123',
       '000-00-0000',
+      '00-0000000',
     ])
       expect(r.text).not.toContain(original);
-    expect(r.text.split('\n')).toHaveLength(2);
+    expect(r.text.split('\n')).toHaveLength(3);
+  });
+
+  // AI-2: the ordinary layout of a capital call's wire block, one form per line. Every value is a
+  // placeholder (repeated or sequential digits, "TEST" bank codes); none belongs to anyone.
+  describe('the common wire-block forms (AI-2)', () => {
+    const digitsOf = (text: string): string[] => text.match(/\d{6,}/g) ?? [];
+
+    it('redacts an account number after a bare "Account:", "Acct #", "bank account" or "for further credit to"', () => {
+      const forms: [string, string][] = [
+        ['Account: 1234567890', 'Account: [redacted:account]'],
+        ['Acct #: 9876543210', 'Acct #: [redacted:account]'],
+        ['Acct. No. 1122334455', 'Acct. No. [redacted:account]'],
+        ['Bank account 1234567890123', 'Bank account [redacted:account]'],
+        ['Beneficiary account 0000 1111 2222 3333', 'Beneficiary account [redacted:account]'],
+        [
+          'For further credit to account 5555666677',
+          'For further credit to account [redacted:account]',
+        ],
+        [
+          'For credit to 5555666677 (placeholder)',
+          'For credit to [redacted:account] (placeholder)',
+        ],
+        ['FFC: 5555666677', 'FFC: [redacted:account]'],
+        [
+          'Account number 1234-5678-9012 (placeholder)',
+          'Account number [redacted:account] (placeholder)',
+        ],
+      ];
+      for (const [text, expected] of forms) {
+        const r = redact(text);
+        expect(r.text, text).toBe(expected);
+        expect(r.counts.account, text).toBe(1);
+        for (const run of digitsOf(text)) expect(r.text, text).not.toContain(run);
+      }
+    });
+
+    it('still leaves prose and figures after the word "account" alone', () => {
+      for (const text of [
+        'the account of the quarter',
+        'capital account balance 12,345,678.00',
+        'Capital Account Statement as of 2025-06-30',
+        'account for 12.5% of revenue',
+        'Account 2025',
+      ]) {
+        const r = redact(text);
+        expect(r.text, text).toBe(text);
+        expect(r.counts.account, text).toBe(0);
+      }
+    });
+
+    it('redacts a SWIFT or BIC code after "SWIFT Code:", "BIC no." or "SWIFT/BIC", letters-only location codes included', () => {
+      const forms: [string, string][] = [
+        ['SWIFT Code: TESTDEFF', 'SWIFT Code: [redacted:swift]'],
+        ['SWIFT code TESTDEFFXXX', 'SWIFT code [redacted:swift]'],
+        ['BIC no. TESTGB2L', 'BIC no. [redacted:swift]'],
+        ['SWIFT/BIC: TESTUS33', 'SWIFT/BIC: [redacted:swift]'],
+        ['Swift ID: testdeff', 'Swift ID: [redacted:swift]'],
+      ];
+      for (const [text, expected] of forms) {
+        const r = redact(text);
+        expect(r.text, text).toBe(expected);
+        expect(r.counts.swift, text).toBe(1);
+      }
+      // the label words alone, with no code after them, are left alone
+      expect(redact('the SWIFT code is sent separately').counts.swift).toBe(0);
+    });
+
+    it('redacts an IBAN written in lower case', () => {
+      const r = redact(
+        'IBAN: gb29 test 6016 1331 9268 19 (placeholder); iban gb29test60161331926819.',
+      );
+      expect(r.text).toBe('IBAN: [redacted:iban] (placeholder); iban [redacted:iban].');
+      expect(r.counts.iban).toBe(2);
+      expect(r.text).not.toContain('6016');
+    });
+
+    it('redacts a US employer identification number as a tax id', () => {
+      const r = redact('EIN: 00-0000000; Tax ID 12-3456789 (placeholder); invoice 12-345.');
+      expect(r.text).toBe(
+        'EIN: [redacted:tax_id]; Tax ID [redacted:tax_id] (placeholder); invoice 12-345.',
+      );
+      expect(r.counts.tax_id).toBe(2);
+      expect(REDACTION_KINDS).toContain('tax_id');
+    });
+
+    it('leaves no digit of a whole wire block behind', () => {
+      const block = [
+        'Wire instructions (placeholder values)',
+        'Bank: Example Bank, SWIFT Code: TESTGB2L',
+        'ABA routing number: 123456780',
+        'Account: 1234567890',
+        'For further credit to: 5555666677',
+        'IBAN: gb29 test 6016 1331 9268 19',
+        'EIN: 00-0000000',
+      ].join('\n');
+      const r = redact(block);
+      expect(digitsOf(r.text)).toEqual([]);
+      expect(r.text).not.toContain('TESTGB2L');
+      expect(r.counts).toMatchObject({ swift: 1, routing: 1, account: 2, iban: 1, tax_id: 1 });
+      expect(r.text.split('\n')).toHaveLength(7);
+    });
   });
 });

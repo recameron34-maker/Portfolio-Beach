@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { AiError } from './errors.js';
 import {
   BOUNDS_KINDS,
+  PAGE_STORAGE_MAX,
   TARGET_COLUMNS,
   classifierOutputSchema,
   loadExtractionSchemas,
@@ -218,6 +219,26 @@ describe('outputSchemaFor', () => {
     expect(() =>
       output.parse({ ...o, fields: { ...o.fields, invented: o.fields.cash } }),
     ).toThrow();
+  });
+
+  // WF-2: a page the reader could never have returned is a schema failure the runner retries,
+  // never a row the page integer column refuses after the run has moved to Running.
+  it('refuses a page above the configured maximum, and above what a page integer column holds by default', () => {
+    const withPage = (page: number): ExtractionOutput => {
+      const o = clean();
+      o.fields.cash = { value: '1', unit: 'USD_M', page, quote: 'q', confidence: '1' };
+      return o;
+    };
+    const bounded = outputSchemaFor(schema, { maxPage: 200 });
+    expect(bounded.parse(withPage(200)).fields.cash?.page).toBe(200);
+    expect(() => bounded.parse(withPage(201))).toThrow(/200/);
+    expect(() => bounded.parse(withPage(3_000_000_000))).toThrow();
+    expect(output.parse(withPage(PAGE_STORAGE_MAX)).fields.cash?.page).toBe(PAGE_STORAGE_MAX);
+    expect(() => output.parse(withPage(PAGE_STORAGE_MAX + 1))).toThrow();
+    expect(() => output.parse(withPage(3_000_000_000))).toThrow();
+    expect(PAGE_STORAGE_MAX).toBe(2_147_483_647);
+    for (const maxPage of [0, -1, 1.5, Number.NaN, PAGE_STORAGE_MAX + 1])
+      expect(() => outputSchemaFor(schema, { maxPage })).toThrow(AiError);
   });
 });
 

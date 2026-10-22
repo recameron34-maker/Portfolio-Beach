@@ -14,6 +14,7 @@ export const REDACTION_KINDS = [
   'account',
   'routing',
   'ssn',
+  'tax_id',
   'phone',
 ] as const;
 export type RedactionKind = (typeof REDACTION_KINDS)[number];
@@ -30,23 +31,40 @@ export function redactionMarker(kind: RedactionKind): string {
 
 const EMAIL = /[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g;
 
-/** ISO 13616: country, two check digits, 11 to 30 more characters, written solid or in groups of four. */
-const IBAN = /\b[A-Z]{2}\d{2}(?:[A-Z0-9]{11,30}|(?: [A-Z0-9]{4}){2,7}(?: [A-Z0-9]{1,4})?)\b/g;
+/** ISO 13616: country, two check digits, 11 to 30 more characters, written solid or in groups of four, in either case. */
+const IBAN = /\b[A-Z]{2}\d{2}(?:[A-Z0-9]{11,30}|(?: [A-Z0-9]{4}){2,7}(?: [A-Z0-9]{1,4})?)\b/gi;
 
-/** A BIC named as such: "SWIFT" or "BIC", then up to ten separator characters, then the 8 or 11 character code. */
+/**
+ * A BIC named as such: "SWIFT" or "BIC", up to two label words ("code", "no.", "number", "id"),
+ * up to ten separator characters, then the 8 or 11 character code (a letter-only location code
+ * such as "FF" included, since the label says what follows).
+ */
 const SWIFT_NAMED =
-  /\b(swift|bic)\b([^A-Za-z0-9\n]{0,10})([A-Za-z]{6}[A-Za-z0-9]{2}(?:[A-Za-z0-9]{3})?)\b/gi;
+  /\b((?:swift|bic)\b(?:[^A-Za-z0-9\n]{0,10}(?:code|no|number|num|id)\b\.?){0,2})([^A-Za-z0-9\n]{0,10})([A-Za-z]{6}[A-Za-z0-9]{2}(?:[A-Za-z0-9]{3})?)\b/gi;
 /** A bare BIC whose location code carries a digit (six letters, then "2L", "33" and the like), which no heading word has. */
 const SWIFT_BARE = /\b[A-Z]{6}(?:[A-Z]\d|\d[A-Z0-9])(?:[A-Z0-9]{3})?\b/g;
 
-/** "account no", "account number", "account #" or "a/c", then the digits (spaces or hyphens inside allowed). */
-const ACCOUNT =
-  /\b(account\s*(?:no|number|num)\b\.?|account\s*#|a\/c)(\s*[:#]?\s*)(\d(?:[\d -]{4,30})?\d)\b/gi;
+/**
+ * An account number after a label that can mean nothing else ("account no", "acct", "a/c",
+ * "account #", "FFC", "for further credit to"), then at most eight characters that are neither
+ * letters nor digits, then 2 to 20 digits (spaces or hyphens between them allowed).
+ */
+const ACCOUNT_LABELLED =
+  /\b((?:account|acct)\.?\s*(?:no|number|num)\b\.?|(?:account|acct)\s*#|a\/c(?:\s*(?:no|number|num)\b\.?)?|acct\b\.?|ffc\b|for\s+(?:further\s+)?credit\s+to(?:\s+(?:the\s+)?account)?\b)([^\dA-Za-z\n]{0,8})((?:\d[ -]?){1,19}\d)\b/gi;
+/**
+ * The bare word "account" ("Account: 1234567890", "bank account 1234567890123"), then 6 to 20
+ * digits within the same gap: the word alone is ordinary report text, so a short figure after it
+ * is left alone, and a thousands separator or a decimal point ends the digits as everywhere here.
+ */
+const ACCOUNT_BARE = /\b(account)\b([^\dA-Za-z\n]{0,8})((?:\d[ -]?){5,19}\d)\b/gi;
 
 /** Nine bare digits that are not part of a separated or decimal figure; the routing number checksum (ABA) decides below. */
 const ROUTING = /(?<![\d,.])\b(\d{9})\b(?![.,]\d)/g;
 
 const SSN = /\b\d{3}[ -]\d{2}[ -]\d{4}\b/g;
+
+/** A US employer identification number (EIN): two digits, a hyphen, seven digits. */
+const TAX_ID = /\b\d{2}-\d{7}\b/g;
 
 /** North American forms with separators (a bare ten-digit figure is not touched), and "+" international forms. */
 const PHONE_NA = /(?:\+\d{1,3}[ .-]?)?(?:\(\d{3}\)[ .-]?|\b\d{3}[ .-])\d{3}[ .-]\d{4}\b/g;
@@ -64,9 +82,9 @@ export function isAbaRoutingNumber(digits: string): boolean {
 }
 
 /**
- * Replaces every email address, IBAN, SWIFT/BIC, account number, US routing number, US SSN and
- * phone number with `[redacted:<kind>]` and counts what it replaced. Kinds are applied in the
- * order of REDACTION_KINDS, so an email address is never half eaten by the phone pattern.
+ * Replaces every email address, IBAN, SWIFT/BIC, account number, US routing number, US SSN, US
+ * EIN and phone number with `[redacted:<kind>]` and counts what it replaced. Kinds are applied
+ * in the order of REDACTION_KINDS, so an email address is never half eaten by the phone pattern.
  */
 export function redact(text: string): RedactionResult {
   const counts = Object.fromEntries(REDACTION_KINDS.map((kind) => [kind, 0])) as Record<
@@ -82,11 +100,15 @@ export function redact(text: string): RedactionResult {
   out = out.replace(IBAN, () => hit('iban'));
   out = out.replace(SWIFT_NAMED, (_m, word: string, gap: string) => `${word}${gap}${hit('swift')}`);
   out = out.replace(SWIFT_BARE, () => hit('swift'));
-  out = out.replace(ACCOUNT, (_m, word: string, gap: string) => `${word}${gap}${hit('account')}`);
+  const keepLabel = (_m: string, word: string, gap: string): string =>
+    `${word}${gap}${hit('account')}`;
+  out = out.replace(ACCOUNT_LABELLED, keepLabel);
+  out = out.replace(ACCOUNT_BARE, keepLabel);
   out = out.replace(ROUTING, (match: string) =>
     isAbaRoutingNumber(match) ? hit('routing') : match,
   );
   out = out.replace(SSN, () => hit('ssn'));
+  out = out.replace(TAX_ID, () => hit('tax_id'));
   out = out.replace(PHONE_NA, () => hit('phone'));
   out = out.replace(PHONE_INTL, () => hit('phone'));
   return { text: out, counts };

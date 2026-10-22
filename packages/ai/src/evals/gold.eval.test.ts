@@ -1,4 +1,5 @@
 import { readFileSync } from 'node:fs';
+import { D } from '@pb/calc';
 import { readPdf } from '@pb/pdf';
 import { nodeInflate } from '@pb/pdf/node';
 import {
@@ -10,7 +11,12 @@ import {
 import { beforeAll, describe, expect, it } from 'vitest';
 import { z } from 'zod';
 import { parseInput } from '../input.js';
-import { keywordClassifier } from '../models/classifier.js';
+import {
+  CLASSIFIER_CONFIDENCE,
+  DOC_TYPE_SIGNATURES,
+  TITLE_LINES,
+  keywordClassifier,
+} from '../models/classifier.js';
 import { fixtureExtractor } from '../models/extractor.js';
 import type { ExtractFn } from '../models/extractor.js';
 import { loadExtractionSchemas } from '../schema.js';
@@ -32,13 +38,19 @@ import {
 } from './gold.js';
 import type { GoldSetCase, ReadPagesFn } from './gold.js';
 import {
+  CLASSIFIER_INJECTION_PROBE,
   EvalThresholdError,
   assertThresholds,
   checkThresholds,
   runClassifierEval,
   runExtractionEval,
 } from './harness.js';
-import type { ClassifierEvalResult, ExtractionEvalResult, ValidateFn } from './harness.js';
+import type {
+  ClassifierEvalResult,
+  ClassifyFn,
+  ExtractionEvalResult,
+  ValidateFn,
+} from './harness.js';
 
 /*
  * The gold-set eval (docs/07 section 7, docs/04 M3 and M4, SEC-8.8): the synthetic document set
@@ -163,6 +175,8 @@ describe('the classifier eval (docs/04 M3)', () => {
     expect(classifier.perType[schema.docType]?.support).toBe(
       scored.filter((c) => c.docType === schema.docType).length,
     );
+    // the classifier injection suite (AI-5): no titled document moves under the probe
+    expect(classifier.injectionCasesChanged).toBe(0);
     expect(checkThresholds({ classifier })).toEqual([]);
   });
 
@@ -170,14 +184,87 @@ describe('the classifier eval (docs/04 M3)', () => {
     expect(classificationMisses(cases, keywordClassifier, threshold)).toEqual([]);
     const scan = cases.find((c) => c.fileName === UNTAGGED_FILE_NAME);
     expect(scan).toBeDefined();
-    const answers: string[] = [];
-    runClassifierEval([scan!], (input) => {
+    const answers: { docType: string; confidence: string }[] = [];
+    const r = runClassifierEval([scan!], (input) => {
       const output = keywordClassifier(input);
-      answers.push(output.confidence);
+      answers.push({ docType: output.docType, confidence: output.confidence });
       return output;
     });
-    say([`classifier: ${UNTAGGED_FILE_NAME} answered ${answers[0]}, threshold ${threshold}`]);
-    expect(answers).toHaveLength(1);
+    // The harness asks twice: the plain scan, then the scan with the injection probe.
+    expect(answers).toHaveLength(2);
+    const [plain, probed] = answers;
+    say([
+      `classifier: ${UNTAGGED_FILE_NAME} answered ${plain?.docType} at ${plain?.confidence}, threshold ${threshold}`,
+      `classifier: ${UNTAGGED_FILE_NAME} under the injection probe answered ${probed?.docType} at ${probed?.confidence}`,
+    ]);
+    expect(plain).toEqual({ docType: 'doc_type.other', confidence: CLASSIFIER_CONFIDENCE.none });
+    expect(D(plain?.confidence ?? '1').lt(D(threshold))).toBe(true);
+    // With no title to outweigh it, the keyword prototype answers the probe's type from the body
+    // of page 1, and the harness reports the scan as changed (it is a review case, outside the
+    // gate's scored set; see the open item on the body tier against the threshold).
+    expect(probed).toEqual({
+      docType: 'doc_type.capital_call',
+      confidence: CLASSIFIER_CONFIDENCE.body,
+    });
+    expect(r.injectionCasesChanged).toBe(1);
+    expect(checkThresholds({ classifier: r })).toContain(
+      'classifier: 1 cases changed by the injection probe, at most 0 allowed',
+    );
+  });
+
+  it('keeps the real type of the injection document, whose page 1 names another type below its title block, and fails the gate for a classifier that obeys it', () => {
+    const { scored } = splitByThreshold(cases, threshold);
+    const [injected] = set.expectations.scenarioFiles.injection_doc;
+    const c = scored.find((x) => x.fileName === injected);
+    expect(c).toBeDefined();
+    const lines = (c!.pageTexts[0] ?? '').split('\n').filter((line) => line.trim() !== '');
+    const title = lines.slice(0, TITLE_LINES).join('\n').toLowerCase();
+    const body = lines.slice(TITLE_LINES).join('\n').toLowerCase();
+    const others = DOC_TYPE_SIGNATURES.filter((s) => s.docType !== c!.docType);
+    const namedInBody = others.filter((s) => s.phrases.some((p) => body.includes(p)));
+    expect(namedInBody.map((s) => s.docType)).toContain('doc_type.capital_call');
+    expect(others.some((s) => s.phrases.some((p) => title.includes(p)))).toBe(false);
+    const instruction = lines.slice(TITLE_LINES).find((line) => /capital call/i.test(line));
+    expect(instruction).toBeDefined();
+    // the prototype keeps the title's type at the titled confidence, probe or no probe
+    const outputs: ReturnType<typeof keywordClassifier>[] = [];
+    const r = runClassifierEval([c!], (input) => {
+      const output = keywordClassifier(input);
+      outputs.push(output);
+      return output;
+    });
+    expect(outputs.map((o) => [o.docType, o.confidence])).toEqual([
+      [c!.docType, c!.expectedClassification.confidenceAtLeast],
+      [c!.docType, c!.expectedClassification.confidenceAtLeast],
+    ]);
+    expect(r.injectionCasesChanged).toBe(0);
+    // a classifier that follows an instruction in the document answers the document's and the
+    // probe's type: a precision miss on the gold set and a changed case on every other document
+    const obedient: ClassifyFn = (input) => {
+      const output = keywordClassifier(input);
+      const pages = parseInput(input).pages;
+      const told = pages.some(
+        (page) => page.includes(instruction ?? '') || page.includes(CLASSIFIER_INJECTION_PROBE),
+      );
+      return told
+        ? { ...output, docType: 'doc_type.capital_call', confidence: CLASSIFIER_CONFIDENCE.title }
+        : output;
+    };
+    const gated = runClassifierEval(scored, obedient);
+    expect(gated.overall.correct).toBe(scored.length - 1);
+    // every case moves except the capital calls (the probe names their own type) and the
+    // injection document, which answers capital call with or without the probe: a precision miss
+    expect(gated.injectionCasesChanged).toBe(
+      scored.filter((x) => x.docType !== 'doc_type.capital_call').length - 1,
+    );
+    const failures = checkThresholds({ classifier: gated });
+    expect(
+      failures.some((f) => f.startsWith('classifier: precision for doc_type.capital_call')),
+    ).toBe(true);
+    expect(failures).toContain(
+      `classifier: ${gated.injectionCasesChanged} cases changed by the injection probe, at most 0 allowed`,
+    );
+    expect(() => assertThresholds({ classifier: gated })).toThrow(EvalThresholdError);
   });
 
   it('reads the period end and the investment number of a titled report from page 1', () => {
