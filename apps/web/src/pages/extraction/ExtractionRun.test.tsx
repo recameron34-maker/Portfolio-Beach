@@ -399,6 +399,47 @@ describe('extraction run review', () => {
     expect(screen.queryByText('AI draft')).not.toBeInTheDocument();
   });
 
+  it(
+    'names the edited period end, not the classified one, in the approval and its confirmation',
+    TIMEOUT,
+    async () => {
+      // The run was classified as Jun 30, 2025; the reviewer edited the period end to Mar 31, 2025,
+      // so the record the approval writes is the March quarter's (CLAUDE.md rule 10).
+      const withEditedPeriod = (detail: ExtractionRunDetail): ExtractionRunDetail => ({
+        ...detail,
+        values: detail.values.map((v) =>
+          v.field === 'period_end'
+            ? { ...v, decision: 'edited' as const, editedValue: '2025-03-31' }
+            : v,
+        ),
+      });
+      const ready = withEditedPeriod(readyDetailFixture());
+      const approved = withEditedPeriod(approvedDetailFixture());
+      mockApi(
+        routes(['deal_team'], {
+          [detailPath(RUN_ID.succeeded)]: () => ok(sentPosts().length > 0 ? approved : ready),
+          [commandsPath(RUN_ID.succeeded)]: ok(approved),
+        }),
+      );
+      renderWithQuery(<ExtractionRunPage />);
+      await screen.findByTestId('run-fields');
+      expect(screen.getByTestId('run-banner')).toHaveTextContent('Period Jun 30, 2025');
+      expect(within(rowOf('Period end')).getByText('Mar 31, 2025')).toBeInTheDocument();
+      await userEvent.click(screen.getByRole('button', { name: 'Approve and promote' }));
+      const dialog = await screen.findByRole('dialog');
+      expect(dialog).toHaveTextContent(
+        '12 accepted values and 2 edited values of Meridian Data Partners, Mar 31, 2025',
+      );
+      expect(dialog).not.toHaveTextContent('Jun 30, 2025');
+      await userEvent.click(within(dialog).getByRole('button', { name: 'Approve and promote' }));
+      await dialogClosed();
+      expect(
+        await screen.findByText('Approved: figures promoted for Mar 31, 2025 (audited)'),
+      ).toBeInTheDocument();
+      expect(sentPosts()).toEqual([[commandsPath(RUN_ID.succeeded), { command: 'approve' }]]);
+    },
+  );
+
   it('shows a review refusal as the problem sentence', async () => {
     mockApi(
       routes(['operations'], {

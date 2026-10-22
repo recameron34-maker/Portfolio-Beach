@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { ProblemDetails } from '@pb/contracts';
+import type { ExtractedValue, ExtractionRunDetail, ProblemDetails } from '@pb/contracts';
 import { ApiError } from '../../api/client.js';
 import {
   acceptBlocker,
@@ -23,6 +23,7 @@ import {
   firstPage,
   flagsText,
   pageLines,
+  promotedPeriod,
   REVIEW_ROLES,
   reviewOrder,
   runGates,
@@ -186,10 +187,40 @@ describe('status phrases', () => {
     const after = runFixture({ counts: { ...before.counts, decided: 12 } });
     expect(acceptCleanPhrase(before, after)).toBe('12 clean values accepted');
     expect(acceptCleanPhrase(after, after)).toBe('0 clean values accepted');
-    expect(approvedPhrase(detailFixture())).toBe('Approved: figures promoted for Jun 30, 2025');
+    expect(approvedPhrase(readyDetailFixture())).toBe(
+      'Approved: figures promoted for Jun 30, 2025',
+    );
     expect(
       approvedPhrase(detailFixture({ run: runFixture({ periodEnd: null }), values: [] })),
     ).toBe('Approved: figures promoted for -');
+  });
+
+  it('names the period the approval promotes, as the API chooses it, never the classified one alone', () => {
+    const withPeriodEnd = (patch: Partial<ExtractedValue>): ExtractionRunDetail =>
+      detailFixture({
+        values: readyDetailFixture().values.map((v) =>
+          v.field === 'period_end' ? { ...v, ...patch } : v,
+        ),
+      });
+    // The reviewer edited the period end on a run classified as Jun 30, 2025: the edit is promoted.
+    const edited = withPeriodEnd({ decision: 'edited', editedValue: '2025-03-31' });
+    expect(edited.run.periodEnd).toBe('2025-06-30');
+    expect(promotedPeriod(edited)).toBe('2025-03-31');
+    expect(approvedPhrase(edited)).toBe('Approved: figures promoted for Mar 31, 2025');
+    // Accepted as the model answered it: the model's date, which the classification may differ from.
+    const accepted = withPeriodEnd({ decision: 'accepted', value: '2025-03-31' });
+    expect(promotedPeriod(accepted)).toBe('2025-03-31');
+    // Undecided or rejected, nothing is promoted (the API refuses the approval): no date is claimed.
+    expect(promotedPeriod(withPeriodEnd({ decision: null }))).toBeNull();
+    expect(promotedPeriod(withPeriodEnd({ decision: 'rejected' }))).toBeNull();
+    expect(approvedPhrase(withPeriodEnd({ decision: null }))).toBe(
+      'Approved: figures promoted for -',
+    );
+    // Only a run that staged no period_end row at all falls back to its classified period.
+    const absent = detailFixture({
+      values: readyDetailFixture().values.filter((v) => v.field !== 'period_end'),
+    });
+    expect(promotedPeriod(absent)).toBe('2025-06-30');
   });
 });
 

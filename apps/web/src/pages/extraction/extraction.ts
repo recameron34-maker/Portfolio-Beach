@@ -338,9 +338,22 @@ export function acceptCleanPhrase(before: ExtractionRun, after: ExtractionRun): 
   return `${plural(n, 'clean value')} accepted`;
 }
 
+/**
+ * The quarter an approval promotes to, chosen as the API chooses it (review.service, finalOf):
+ * the period_end row's edited value when the reviewer edited it, the model's answer when it was
+ * accepted, and null while it is undecided or rejected (the API refuses the approval then). The
+ * run's classified period is the document's, not necessarily the figures', so it stands in only
+ * when the run staged no period_end row at all (CLAUDE.md rule 10: never the nearest period).
+ */
+export function promotedPeriod(detail: ExtractionRunDetail): string | null {
+  const row = detail.values.find((v) => v.field === 'period_end');
+  if (row === undefined) return detail.run.periodEnd;
+  if (row.decision === 'edited') return row.editedValue;
+  return row.decision === 'accepted' ? row.value : null;
+}
+
 export function approvedPhrase(detail: ExtractionRunDetail): string {
-  const period = detail.run.periodEnd ?? detail.values.find((v) => v.field === 'period_end')?.value;
-  return `Approved: figures promoted for ${period === undefined || period === null ? MISSING : formatDate(period)}`;
+  return `Approved: figures promoted for ${formatDate(promotedPeriod(detail))}`;
 }
 
 export function retriedPhrase(detail: ExtractionRunDetail): string {
