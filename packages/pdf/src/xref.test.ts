@@ -417,6 +417,26 @@ describe('PdfFile.open', () => {
     expect((await refusal(() => open(big, { maxObjects: 400 }))).code).toBe('too_large');
   });
 
+  it('indexes a damaged file in linear time: nested strings, streams with no endstream, one far endstream (PDF-4)', async () => {
+    const count = 20_000;
+    const streams = Array.from({ length: count }, (_, k) => `${k + 1} 0 obj<<>>stream\n`).join('');
+    const shapes = ['trailer('.repeat(count) + ')'.repeat(count), streams, `${streams}endstream`];
+    for (const shape of shapes) {
+      const started = performance.now();
+      // No catalog anywhere, so a refusal; reached without parsing the file again at every occurrence.
+      expect((await refusal(() => open(latin1Bytes(`%PDF-1.4\n${shape}\n`)))).code).toBe('corrupt');
+      expect(performance.now() - started).toBeLessThan(2000);
+    }
+  });
+
+  it('refuses a damaged file whose repair would parse the bytes over and over (PDF-4)', async () => {
+    // Every "trailer" opens a string that never closes, so each occurrence parses to the end.
+    const bytes = latin1Bytes(`%PDF-1.4\n${'trailer('.repeat(20_000)}\n`);
+    const started = performance.now();
+    expect((await refusal(() => open(bytes))).code).toBe('too_large');
+    expect(performance.now() - started).toBeLessThan(2000);
+  });
+
   it('refuses a damaged classic table that the scan cannot repair', async () => {
     const bytes = assemble(BASE, { trailer: TRAILER });
     const text = Array.from(bytes, (b) => String.fromCharCode(b)).join('');
@@ -461,9 +481,10 @@ describe('PdfFile.open', () => {
       { num: 6, body: streamBody('/Filter [7]', encodeUtf8('x')) },
       { num: 7, body: streamBody('/Filter /DCTDecode', encodeUtf8('x')) },
     ];
+    // Three reads of the 200-byte stream fit the total exactly; the cached bytes count each time.
     const file = await open(assemble(objects, { trailer: '/Root 1 0 R' }), {
       maxStreamBytes: 200,
-      maxTotalStreamBytes: 300,
+      maxTotalStreamBytes: 600,
     });
     const chained = await file.fetch(ref(3, 0));
     if (!isStream(chained)) throw new Error('expected a stream');

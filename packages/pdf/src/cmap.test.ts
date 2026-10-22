@@ -135,6 +135,78 @@ describe('parseCMap', () => {
     expect(() => map.addCid(1, 1)).toThrow(PdfError);
   });
 
+  it('keeps the first of overlapping ranges, singles winning over any range', () => {
+    const map = new CMap();
+    map.addRange(1, 0, 100, 'a');
+    map.addRange(1, 50, 60, 'X');
+    map.addRange(1, 90, 120, 'Y');
+    map.addSingle(1, 55, 'single');
+    // The wider earlier range covers 55 and 95; the later ones only reach past it.
+    expect(map.text({ code: 54, length: 1 })).toBe(String.fromCharCode(97 + 54));
+    expect(map.text({ code: 55, length: 1 })).toBe('single');
+    expect(map.text({ code: 95, length: 1 })).toBe(String.fromCharCode(97 + 95));
+    expect(map.text({ code: 100, length: 1 })).toBe(String.fromCharCode(97 + 100));
+    expect(map.text({ code: 101, length: 1 })).toBe(String.fromCharCode(89 + 11));
+    expect(map.text({ code: 120, length: 1 })).toBe(String.fromCharCode(89 + 30));
+    expect(map.text({ code: 121, length: 1 })).toBeNull();
+    expect(map.text({ code: 50, length: 2 })).toBeNull();
+    // A narrow range added first keeps its codes when a wider one arrives later.
+    const narrowFirst = new CMap();
+    narrowFirst.addRange(1, 50, 60, 'X');
+    narrowFirst.addRange(1, 0, 100, 'a');
+    expect(narrowFirst.text({ code: 49, length: 1 })).toBe(String.fromCharCode(97 + 49));
+    expect(narrowFirst.text({ code: 55, length: 1 })).toBe(String.fromCharCode(88 + 5));
+    expect(narrowFirst.text({ code: 61, length: 1 })).toBe(String.fromCharCode(97 + 61));
+    // A range added after a lookup is seen by the next one.
+    narrowFirst.addRange(1, 200, 200, 'z');
+    expect(narrowFirst.text({ code: 200, length: 1 })).toBe('z');
+    const cids = new CMap();
+    cids.addCidRange(10, 20, 100);
+    cids.addCidRange(15, 30, 500);
+    expect(cids.cid({ code: 17, length: 2 })).toBe(107);
+    expect(cids.cid({ code: 25, length: 2 })).toBe(510);
+    expect(cids.cid({ code: 31, length: 2 })).toBeNull();
+    const spaces = new CMap();
+    spaces.addCodespace(1, 0x20, 0x7e);
+    spaces.addCodespace(2, 0x8140, 0x9ffc);
+    spaces.addCodespace(2, 0x9000, 0xa000);
+    expect(spaces.split(new Uint8Array([0x20, 0x9f, 0xfd, 0x7e]))).toEqual([
+      { code: 0x20, length: 1 },
+      { code: 0x9ffd, length: 2 },
+      { code: 0x7e, length: 1 },
+    ]);
+  });
+
+  it('looks codes up in logarithmic time over tens of thousands of ranges (PDF-5)', () => {
+    const ranges = 50_000;
+    const codes = 200_000;
+    const map = new CMap();
+    for (let i = 0; i < ranges; i += 1) map.addRange(2, 0x100 + i, 0x100 + i, 'A');
+    let started = performance.now();
+    let misses = 0;
+    for (let n = 0; n < codes; n += 1) if (map.text({ code: 0, length: 2 }) === null) misses += 1;
+    expect(misses).toBe(codes);
+    expect(map.text({ code: 0x100 + ranges - 1, length: 2 })).toBe('A');
+    expect(performance.now() - started).toBeLessThan(1000);
+
+    const cids = new CMap();
+    for (let i = 0; i < ranges; i += 1) cids.addCidRange(0x100 + i, 0x100 + i, i);
+    started = performance.now();
+    misses = 0;
+    for (let n = 0; n < codes; n += 1) if (cids.cid({ code: 0, length: 2 }) === null) misses += 1;
+    expect(misses).toBe(codes);
+    expect(cids.cid({ code: 0x100 + ranges - 1, length: 2 })).toBe(ranges - 1);
+    expect(performance.now() - started).toBeLessThan(1000);
+
+    const spaces = new CMap();
+    for (let i = 0; i < ranges; i += 1) spaces.addCodespace(2, 0x100 + i, 0x100 + i);
+    const text = new Uint8Array(codes);
+    started = performance.now();
+    // Every two-byte code 0x0000 is outside every range, so each position tries every length.
+    expect(spaces.split(text)).toHaveLength(codes / 2);
+    expect(performance.now() - started).toBeLessThan(1000);
+  });
+
   it('advances the last code unit of a range destination and keeps overflow put', () => {
     const map = new CMap();
     map.addRange(1, 1, 3, 'ab');

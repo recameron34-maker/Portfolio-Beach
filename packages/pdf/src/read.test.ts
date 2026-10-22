@@ -218,6 +218,36 @@ describe('readPdf', () => {
     expect(text(document)).toBe('Recovered');
   });
 
+  it('counts a content stream listed more than once against the total each time (PDF-1)', async () => {
+    const operators = 'BT /F1 12 Tf 72 700 Td (Hi) Tj ET';
+    const objects = onePage(operators).map((o) =>
+      o.num === 3
+        ? {
+            ...o,
+            body: '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents [4 0 R 4 0 R 4 0 R] /Resources << /Font << /F1 << /Type /Font /Subtype /Type1 /BaseFont /Helvetica >> >> >> >>',
+          }
+        : o,
+    );
+    const bytes = assemble(objects, { trailer: '/Root 1 0 R' });
+    const total = operators.length * 3;
+    expect((await refusal(() => read(bytes, { maxTotalStreamBytes: total - 1 }))).code).toBe(
+      'too_large',
+    );
+    const document = await read(bytes, { maxTotalStreamBytes: total });
+    expect(document.pages[0]?.runs.map((r) => r.text)).toEqual(['Hi', 'Hi', 'Hi']);
+  });
+
+  it('reads a long run of stray delimiters in a content stream and in a file object (PDF-3)', async () => {
+    const content = await read(one(`${')'.repeat(100_000)} BT /F1 12 Tf 72 700 Td (Hi) Tj ET`));
+    expect(text(content)).toBe('Hi');
+    const junk = assemble(onePage('BT /F1 12 Tf 72 700 Td (Hi) Tj ET'), {
+      trailer: `/Root 1 0 R /Junk ${'> '.repeat(50_000)}5`,
+    });
+    const fileObject = await read(junk);
+    expect(fileObject.reconstructed).toBe(false);
+    expect(text(fileObject)).toBe('Hi');
+  });
+
   it('round-trips documents the writer produces, runs identical', async () => {
     const input = {
       title: 'Round trip',

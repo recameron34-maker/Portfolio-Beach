@@ -5,7 +5,7 @@
  * streams and CMaps; the parser takes a mode (file objects allow `n g R` references, content
  * streams return operators) and a nesting budget.
  */
-import { hexValue, isDigit, isRegular, isWhitespace, latin1 } from './bytes.js';
+import { bytesAt, hexValue, isDigit, isRegular, isWhitespace, latin1 } from './bytes.js';
 import { PdfError } from './errors.js';
 
 export interface PdfName {
@@ -153,39 +153,37 @@ export class Lexer {
   }
 
   next(): Token {
-    this.skipWhitespace();
     const { bytes } = this;
-    if (this.pos >= bytes.length) return { kind: 'eof' };
-    const b = bytes[this.pos] ?? 0;
-    if (isDigit(b) || b === 0x2b || b === 0x2d || b === 0x2e) return this.number();
-    if (b === 0x28) return this.literalString();
-    if (b === 0x2f) return this.name();
-    if (b === 0x3c) {
-      if (bytes[this.pos + 1] === 0x3c) {
-        this.pos += 2;
-        return { kind: 'delimiter', value: '<<' };
+    for (;;) {
+      this.skipWhitespace();
+      if (this.pos >= bytes.length) return { kind: 'eof' };
+      const b = bytes[this.pos] ?? 0;
+      if (b === 0x29 || (b === 0x3e && bytes[this.pos + 1] !== 0x3e)) {
+        // A stray ")" or a lone ">" is not PDF syntax; skip it as the common readers do. A loop,
+        // not a recursive call, so a long run of them cannot overflow the stack.
+        this.pos += 1;
+        continue;
       }
-      return this.hexString();
-    }
-    if (b === 0x3e) {
-      if (bytes[this.pos + 1] === 0x3e) {
+      if (isDigit(b) || b === 0x2b || b === 0x2d || b === 0x2e) return this.number();
+      if (b === 0x28) return this.literalString();
+      if (b === 0x2f) return this.name();
+      if (b === 0x3c) {
+        if (bytes[this.pos + 1] === 0x3c) {
+          this.pos += 2;
+          return { kind: 'delimiter', value: '<<' };
+        }
+        return this.hexString();
+      }
+      if (b === 0x3e) {
         this.pos += 2;
         return { kind: 'delimiter', value: '>>' };
       }
-      // A lone ">" is not PDF syntax; skip it as the common readers do.
-      this.pos += 1;
-      return this.next();
+      if (b === 0x5b || b === 0x5d || b === 0x7b || b === 0x7d) {
+        this.pos += 1;
+        return { kind: 'delimiter', value: String.fromCharCode(b) as '[' | ']' | '{' | '}' };
+      }
+      return this.keyword();
     }
-    if (b === 0x5b || b === 0x5d || b === 0x7b || b === 0x7d) {
-      this.pos += 1;
-      return { kind: 'delimiter', value: String.fromCharCode(b) as '[' | ']' | '{' | '}' };
-    }
-    if (b === 0x29) {
-      // A stray ")" is not PDF syntax; skip it.
-      this.pos += 1;
-      return this.next();
-    }
-    return this.keyword();
   }
 
   private number(): Token {
@@ -340,7 +338,20 @@ export interface ParseOptions {
    * returns null, the stream's end is found by searching for `endstream`.
    */
   resolveLength?: (ref: PdfRef) => number | null;
+  /**
+   * The first `endstream` at or after `from` in `bytes`, or -1. A file reader answers from an
+   * index built once per byte array, so a stream with a missing or wrong /Length never scans
+   * the rest of the file; absent, the parser scans forward itself.
+   */
+  endstreamAfter?: (bytes: Uint8Array, from: number) => number;
 }
+
+/**
+ * How much white space may sit between the bytes a stream's /Length counts and `endstream` for
+ * the length to be taken as right. More than this and the length is wrong: the end is searched
+ * for instead, so a hostile /Length cannot make every stream skip a long run of spaces.
+ */
+const STREAM_END_SLACK = 64;
 
 /** The object parser. One instance per byte array; `parse()` reads the object at the lexer position. */
 export class Parser {
@@ -503,16 +514,19 @@ export class Parser {
       length >= 0 &&
       start + length <= bytes.length
     ) {
-      const probe = new Lexer(bytes, start + length);
-      const token = probe.next();
-      if (token.kind === 'keyword' && token.value === 'endstream') {
+      let probe = start + length;
+      const limit = Math.min(bytes.length, probe + STREAM_END_SLACK);
+      while (probe < limit && isWhitespace(bytes[probe] ?? 0)) probe += 1;
+      if (bytesAt(bytes, probe, 'endstream') && !isRegular(bytes[probe + 9] ?? 0x20)) {
         end = start + length;
-        this.lexer.pos = probe.pos;
+        this.lexer.pos = probe + 9;
       }
     }
     if (end < 0) {
       // The /Length is missing or wrong: the stream ends where "endstream" is found.
-      const marker = findEndstream(bytes, start);
+      const marker = this.options.endstreamAfter
+        ? this.options.endstreamAfter(bytes, start)
+        : findEndstream(bytes, start);
       if (marker < 0) throw new PdfError('A stream has no endstream keyword', 'corrupt');
       end = marker;
       if (bytes[end - 1] === 0x0a) end -= 1;

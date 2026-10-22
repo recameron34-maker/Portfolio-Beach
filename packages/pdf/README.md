@@ -31,11 +31,11 @@ The limits (`READ_LIMITS`) stop a hostile file from running the parser forever o
 | `maxObjects`          | 100,000   | Cross-reference entries, the trailer's `/Size`, objects found by the fallback scan, objects fetched                          |
 | `maxPages`            | 500       | Leaves of the page tree                                                                                                     |
 | `maxStreamBytes`      | 16 MiB    | One stream once decoded; the inflater is capped there too, so an inflater that can stop early (zlib) refuses before filling memory |
-| `maxTotalStreamBytes` | 64 MiB    | Every stream one read decodes, summed                                                                                       |
+| `maxTotalStreamBytes` | 64 MiB    | Every stream read, summed, a stream read again (a content stream listed twice, a form drawn on every page) counting again, so the bytes the reader works through are bounded too |
 | `maxOperators`        | 2,000,000 | Content stream operators across every page and form of one document                                                        |
 | `maxDepth`            | 64        | Nesting of arrays and dictionaries, saved graphics states (`q`), the page tree, and forms inside forms                       |
 
-A CMap may hold at most 262,144 mappings.
+The ASCIIHex, ASCII85 and RunLength decoders refuse as they decode, the moment their output would pass `maxStreamBytes`, so a small stream that expands many times over never fills memory first. A CMap may hold at most 262,144 mappings, and its ranges are looked up by binary search, so a string's cost does not grow with the map. A stream's `endstream` is found through an index of the file built once, and a `/Length` is taken as right only when `endstream` follows within 64 bytes of white space. The fallback scan works to a budget of four times the file's bytes: a damaged file whose every `trailer` or `N G obj` occurrence parses far ahead (a string that never closes) is refused as `too_large` rather than parsed again at each occurrence.
 
 ## Inflater
 

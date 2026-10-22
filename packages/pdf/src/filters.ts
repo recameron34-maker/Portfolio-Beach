@@ -47,8 +47,65 @@ export function isImageFilter(filter: string): boolean {
   return IMAGE_FILTERS.has(filter);
 }
 
-export function asciiHexDecode(data: Uint8Array): Uint8Array {
-  const out: number[] = [];
+/**
+ * The output of a decoder, capped at `max` bytes: the decoders write into it as they go and it
+ * refuses (`too_large`) the moment the output would pass the cap, so a small stream that expands
+ * many times over (RunLength, ASCII85 "z" groups) never fills memory before the limit is seen.
+ * The buffer grows by doubling, never past the cap.
+ */
+class ByteSink {
+  private buffer: Uint8Array;
+  private length = 0;
+
+  constructor(
+    private readonly max: number,
+    initial: number,
+    private readonly filter: string,
+  ) {
+    this.buffer = new Uint8Array(Math.max(0, Math.floor(Math.min(max, initial))));
+  }
+
+  private reserve(count: number): void {
+    const needed = this.length + count;
+    if (needed > this.max) {
+      throw new PdfError(
+        `A ${this.filter} stream decodes to more than the ${this.max} bytes the reader accepts`,
+        'too_large',
+      );
+    }
+    if (needed > this.buffer.length) {
+      const grown = new Uint8Array(Math.min(this.max, Math.max(needed, this.buffer.length * 2)));
+      grown.set(this.buffer.subarray(0, this.length));
+      this.buffer = grown;
+    }
+  }
+
+  push(byte: number): void {
+    this.reserve(1);
+    this.buffer[this.length] = byte;
+    this.length += 1;
+  }
+
+  fill(byte: number, count: number): void {
+    this.reserve(count);
+    this.buffer.fill(byte, this.length, this.length + count);
+    this.length += count;
+  }
+
+  copy(source: Uint8Array, from: number, count: number): void {
+    this.reserve(count);
+    this.buffer.set(source.subarray(from, from + count), this.length);
+    this.length += count;
+  }
+
+  bytes(): Uint8Array {
+    return this.buffer.length === this.length ? this.buffer : this.buffer.slice(0, this.length);
+  }
+}
+
+/** Decodes ASCIIHexDecode data; refuses (`too_large`) output past `maxOutputBytes`. */
+export function asciiHexDecode(data: Uint8Array, maxOutputBytes: number): Uint8Array {
+  const out = new ByteSink(maxOutputBytes, (data.length + 1) >>> 1, 'ASCIIHexDecode');
   let pending = -1;
   for (const b of data) {
     if (b === 0x3e) break;
@@ -67,11 +124,12 @@ export function asciiHexDecode(data: Uint8Array): Uint8Array {
     }
   }
   if (pending >= 0) out.push(pending * 16);
-  return Uint8Array.from(out);
+  return out.bytes();
 }
 
-export function ascii85Decode(data: Uint8Array): Uint8Array {
-  const out: number[] = [];
+/** Decodes ASCII85Decode data; refuses (`too_large`) output past `maxOutputBytes`. */
+export function ascii85Decode(data: Uint8Array, maxOutputBytes: number): Uint8Array {
+  const out = new ByteSink(maxOutputBytes, data.length, 'ASCII85Decode');
   let start = 0;
   while (start < data.length && isWhitespace(data[start] ?? 0)) start += 1;
   if (data[start] === 0x3c && data[start + 1] === 0x7e) start += 2;
@@ -99,7 +157,7 @@ export function ascii85Decode(data: Uint8Array): Uint8Array {
     if (isWhitespace(b)) continue;
     if (b === 0x7e) break;
     if (b === 0x7a && group.length === 0) {
-      out.push(0, 0, 0, 0);
+      out.fill(0, 4);
       continue;
     }
     if (b < 0x21 || b > 0x75) {
@@ -118,11 +176,12 @@ export function ascii85Decode(data: Uint8Array): Uint8Array {
     );
   }
   if (group.length > 1) flush(group.length);
-  return Uint8Array.from(out);
+  return out.bytes();
 }
 
-export function runLengthDecode(data: Uint8Array): Uint8Array {
-  const out: number[] = [];
+/** Decodes RunLengthDecode data; refuses (`too_large`) output past `maxOutputBytes`. */
+export function runLengthDecode(data: Uint8Array, maxOutputBytes: number): Uint8Array {
+  const out = new ByteSink(maxOutputBytes, data.length, 'RunLengthDecode');
   let i = 0;
   while (i < data.length) {
     const length = data[i] ?? 0;
@@ -132,7 +191,7 @@ export function runLengthDecode(data: Uint8Array): Uint8Array {
       if (i + length + 1 > data.length) {
         throw new PdfError('A RunLengthDecode stream ends inside a literal run', 'corrupt');
       }
-      for (let k = 0; k <= length; k += 1) out.push(data[i + k] ?? 0);
+      out.copy(data, i, length + 1);
       i += length + 1;
     } else {
       if (i >= data.length) {
@@ -140,10 +199,10 @@ export function runLengthDecode(data: Uint8Array): Uint8Array {
       }
       const byte = data[i] ?? 0;
       i += 1;
-      for (let k = 0; k < 257 - length; k += 1) out.push(byte);
+      out.fill(byte, 257 - length);
     }
   }
-  return Uint8Array.from(out);
+  return out.bytes();
 }
 
 /**
@@ -256,7 +315,8 @@ export interface StreamLimits {
 /**
  * Applies one named filter. FlateDecode goes through the injected inflater with the stream limit
  * as its cap, and the result is checked against the limit in any case (an inflater without a cap
- * returns the whole output, which is then refused).
+ * returns the whole output, which is then refused). The ASCII and run-length decoders refuse as
+ * they decode, the moment their output would pass the limit.
  */
 export async function applyFilter(
   filter: string,
@@ -280,15 +340,15 @@ export async function applyFilter(
     }
     case 'ASCIIHexDecode':
     case 'AHx':
-      out = asciiHexDecode(data);
+      out = asciiHexDecode(data, limits.maxStreamBytes);
       break;
     case 'ASCII85Decode':
     case 'A85':
-      out = ascii85Decode(data);
+      out = ascii85Decode(data, limits.maxStreamBytes);
       break;
     case 'RunLengthDecode':
     case 'RL':
-      out = runLengthDecode(data);
+      out = runLengthDecode(data, limits.maxStreamBytes);
       break;
     case 'LZWDecode':
     case 'LZW':

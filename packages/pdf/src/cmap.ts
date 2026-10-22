@@ -48,6 +48,91 @@ export interface Code {
 /** The most mappings one CMap may hold; more is not a font, it is a hostile file. */
 const MAX_MAPPINGS = 65_536 * 4;
 
+/** A stretch of codes one range owns, in a flattened range list. */
+interface Piece<T> {
+  low: number;
+  high: number;
+  item: T;
+}
+
+/**
+ * Lays ranges out as disjoint pieces sorted by `low`, the range added first owning the codes
+ * where two overlap (the order a linear walk gave), so a lookup is one binary search however
+ * many ranges a map holds. The range ends are compressed to slots and each range paints the
+ * slots no earlier range took, found through a "next unpainted slot" pointer per slot.
+ */
+function flatten<T extends { low: number; high: number }>(ranges: readonly T[]): Piece<T>[] {
+  const points = new Set<number>();
+  for (const range of ranges) {
+    points.add(range.low);
+    points.add(range.high + 1);
+  }
+  const sorted = [...points].sort((a, b) => a - b);
+  const slot = new Map<number, number>();
+  sorted.forEach((point, index) => slot.set(point, index));
+  const next = sorted.map((_, index) => index);
+  const find = (start: number): number => {
+    let i = start;
+    let link = next[i] ?? i;
+    while (link !== i) {
+      const grand = next[link] ?? link;
+      next[i] = grand;
+      i = grand;
+      link = next[i] ?? i;
+    }
+    return i;
+  };
+  const owner: (T | undefined)[] = Array.from({ length: sorted.length });
+  for (const range of ranges) {
+    const end = slot.get(range.high + 1) ?? 0;
+    for (let j = find(slot.get(range.low) ?? 0); j < end; j = find(j + 1)) {
+      owner[j] = range;
+      next[j] = j + 1;
+    }
+  }
+  const out: Piece<T>[] = [];
+  for (let j = 0; j + 1 < sorted.length; j += 1) {
+    const item = owner[j];
+    if (!item) continue;
+    const low = sorted[j] ?? 0;
+    const high = (sorted[j + 1] ?? 0) - 1;
+    const last = out[out.length - 1];
+    if (last?.item === item && last.high + 1 === low) last.high = high;
+    else out.push({ low, high, item });
+  }
+  return out;
+}
+
+/** The ranges flattened per byte length. */
+function flattenByLength<T extends { bytes: number; low: number; high: number }>(
+  ranges: readonly T[],
+): Map<number, Piece<T>[]> {
+  const groups = new Map<number, T[]>();
+  for (const range of ranges) {
+    const group = groups.get(range.bytes);
+    if (group) group.push(range);
+    else groups.set(range.bytes, [range]);
+  }
+  const out = new Map<number, Piece<T>[]>();
+  for (const [bytes, group] of groups) out.set(bytes, flatten(group));
+  return out;
+}
+
+/** The range owning `code` among disjoint pieces sorted by `low`, or null. */
+function stab<T>(pieces: readonly Piece<T>[], code: number): T | null {
+  let lo = 0;
+  let hi = pieces.length - 1;
+  while (lo <= hi) {
+    const mid = (lo + hi) >>> 1;
+    const piece = pieces[mid];
+    if (!piece) break;
+    if (code < piece.low) hi = mid - 1;
+    else if (code > piece.high) lo = mid + 1;
+    else return piece.item;
+  }
+  return null;
+}
+
 export class CMap {
   readonly codespace: CodespaceRange[] = [];
   private readonly singles = new Map<string, string>();
@@ -60,6 +145,10 @@ export class CMap {
 
   /** The byte lengths the map uses, from its codespace ranges or, without them, its mappings. */
   private lengths: number[] = [];
+  /** The ranges flattened for lookup, built on the first lookup after a change. */
+  private codespacePieces: Map<number, Piece<CodespaceRange>[]> | null = null;
+  private textPieces: Map<number, Piece<TextRange>[]> | null = null;
+  private cidPieces: Piece<CidRange>[] | null = null;
 
   private count(): void {
     this.mappings += 1;
@@ -72,6 +161,7 @@ export class CMap {
     this.count();
     this.codespace.push({ bytes, low, high });
     this.lengths = [];
+    this.codespacePieces = null;
   }
 
   addSingle(bytes: number, code: number, text: string): void {
@@ -84,6 +174,7 @@ export class CMap {
     this.count();
     this.ranges.push({ bytes, low, high, text });
     this.lengths = [];
+    this.textPieces = null;
   }
 
   addCid(code: number, cid: number): void {
@@ -94,6 +185,7 @@ export class CMap {
   addCidRange(low: number, high: number, cid: number): void {
     this.count();
     this.cidRanges.push({ low, high, cid });
+    this.cidPieces = null;
   }
 
   /** Whether the map has any text mapping at all. */
@@ -105,12 +197,9 @@ export class CMap {
   text(code: Code): string | null {
     const single = this.singles.get(`${code.length}:${code.code}`);
     if (single !== undefined) return single;
-    for (const range of this.ranges) {
-      if (range.bytes === code.length && code.code >= range.low && code.code <= range.high) {
-        return offsetText(range.text, code.code - range.low);
-      }
-    }
-    return null;
+    this.textPieces ??= flattenByLength(this.ranges);
+    const range = stab(this.textPieces.get(code.length) ?? [], code.code);
+    return range ? offsetText(range.text, code.code - range.low) : null;
   }
 
   /** The CID of a code: identity for the Identity maps, else from the cid mappings, else null. */
@@ -118,11 +207,9 @@ export class CMap {
     if (this.identity) return code.code;
     const single = this.cidSingles.get(code.code);
     if (single !== undefined) return single;
-    for (const range of this.cidRanges) {
-      if (code.code >= range.low && code.code <= range.high)
-        return range.cid + (code.code - range.low);
-    }
-    return null;
+    this.cidPieces ??= flatten(this.cidRanges);
+    const range = stab(this.cidPieces, code.code);
+    return range ? range.cid + (code.code - range.low) : null;
   }
 
   private byteLengths(): number[] {
@@ -168,10 +255,8 @@ export class CMap {
   }
 
   private inCodespace(code: number, length: number): boolean {
-    for (const range of this.codespace) {
-      if (range.bytes === length && code >= range.low && code <= range.high) return true;
-    }
-    return false;
+    this.codespacePieces ??= flattenByLength(this.codespace);
+    return stab(this.codespacePieces.get(length) ?? [], code) !== null;
   }
 }
 
