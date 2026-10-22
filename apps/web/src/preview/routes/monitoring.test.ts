@@ -88,6 +88,32 @@ async function stage(f: typeof fetch): Promise<void> {
   ).toBe(201);
 }
 
+/**
+ * Reviews a run as the reviewer would: the clean values in one go, whatever the validator left
+ * undecided edited to the quarter (the scan's own period differs from the quarter it was filed
+ * under), then the approval; answers the approval time.
+ */
+async function reviewAndApprove(f: typeof fetch, runId: string): Promise<string | null> {
+  const commands = `/api/v1/extraction/runs/${runId}/commands`;
+  await send(f, 'ops.one', 'POST', commands, { command: 'acceptClean' });
+  const open = extractionRunDetail
+    .parse((await send(f, 'ops.one', 'GET', `/api/v1/extraction/runs/${runId}`)).json)
+    .values.filter((v) => v.decision === null);
+  for (const v of open) {
+    const edit = await send(f, 'ops.one', 'POST', commands, {
+      command: 'edit',
+      field: v.field,
+      value: v.kind === 'date' ? latestQuarter : (v.value ?? '1'),
+      ...(v.unit === null ? {} : { unit: v.unit }),
+      reason: 'filed under the quarter',
+    });
+    expect(edit.status, edit.text).toBe(200);
+  }
+  const approved = await send(f, 'ops.one', 'POST', commands, { command: 'approve' });
+  expect(approved.status, approved.text).toBe(200);
+  return extractionRunDetail.parse(approved.json).run.approvedAt;
+}
+
 beforeEach(() => {
   window.__pbPreviewMisses = [];
 });
@@ -177,21 +203,30 @@ describe('the simulated monitoring board (docs/04 M9) over the book and the sess
     const credit = ops.rows.find((r) => r.dealType === 'deal_type.private_credit');
     expect(credit?.documentStatus).toBe('received');
     expect(credit?.runId).toBeNull();
-    // Every reporting position of the quarter with a report has a Succeeded run.
+    // Every reporting position of the quarter with a report has a Succeeded run, waiting in
+    // review whatever the seed holds for the quarter: a newer run is judged before the approved
+    // record (FIN-5). A seeded quarter with no run of its own still reads approved from the record.
     const runs = extractionRunPage.parse(
       (await send(f, 'ops.one', 'GET', '/api/v1/extraction/runs?limit=200')).json,
     ).items;
+    expect(runs.length).toBeGreaterThan(0);
     for (const run of runs) {
       const row = ops.rows.find((r) => r.investmentId === run.investmentId);
       expect(row?.runId, run.fileName).toBe(run.id);
       expect(row?.runState).toBe('Succeeded');
       expect(row?.flagsCount).toBe(run.counts.flagged + run.counts.invalid);
-      const seeded = (book.quarters[run.investmentId ?? ''] ?? []).some(
-        (q) => q.periodEnd === latestQuarter,
-      );
-      expect(row?.approval).toBe(seeded ? 'approved' : 'pending');
+      expect(row?.approval, run.fileName).toBe('pending');
+      expect(row?.approvedAt).toBeNull();
     }
+    expect(ops.counts.inReview).toBe(runs.length);
     expect(ops.counts.inReview).toBe(ops.rows.filter((r) => r.approval === 'pending').length);
+    const seededOnly = ops.rows.filter(
+      (r) =>
+        r.runId === null &&
+        (book.quarters[r.investmentId] ?? []).some((q) => q.periodEnd === latestQuarter),
+    );
+    expect(seededOnly.every((r) => r.approval === 'approved')).toBe(true);
+    expect(ops.counts.approved).toBe(seededOnly.length);
     expect(ops.counts.received).toBe(received.length);
 
     // The as-of day moves the absent report to late, then missing.
@@ -212,8 +247,8 @@ describe('the simulated monitoring board (docs/04 M9) over the book and the sess
       received[0]?.ageDays,
     );
 
-    // Every report's quarter is approved in the seed, so a run reaches "pending" only on the
-    // position with no approved quarter: the scan is classified as its report and extracted.
+    // The position with no approved quarter and no report yet: the scan is classified as its
+    // report and extracted, and waits in review like the others.
     const none = ops.rows.find((r) => r.approval === 'none' && r.runId === null);
     expect(none).toBeDefined();
     const scan = documentPage.parse(
@@ -242,26 +277,7 @@ describe('the simulated monitoring board (docs/04 M9) over the book and the sess
     expect(pendingRow?.documentId).toBe(scan?.id);
     expect(withPending.counts.inReview).toBe(ops.counts.inReview + 1);
     const pending = pendingRow?.runId ?? '';
-    const commands = `/api/v1/extraction/runs/${pending}/commands`;
-    await send(f, 'ops.one', 'POST', commands, { command: 'acceptClean' });
-    // Whatever the validator left undecided (the scan's own period differs from the quarter it
-    // was filed under) is edited to the quarter, as the reviewer would.
-    const open = extractionRunDetail
-      .parse((await send(f, 'ops.one', 'GET', `/api/v1/extraction/runs/${pending}`)).json)
-      .values.filter((v) => v.decision === null);
-    for (const v of open) {
-      const edit = await send(f, 'ops.one', 'POST', commands, {
-        command: 'edit',
-        field: v.field,
-        value: v.kind === 'date' ? latestQuarter : (v.value ?? '1'),
-        ...(v.unit === null ? {} : { unit: v.unit }),
-        reason: 'filed under the quarter',
-      });
-      expect(edit.status, edit.text).toBe(200);
-    }
-    const approved = await send(f, 'ops.one', 'POST', commands, { command: 'approve' });
-    expect(approved.status, approved.text).toBe(200);
-    const approvedAt = extractionRunDetail.parse(approved.json).run.approvedAt;
+    const approvedAt = await reviewAndApprove(f, pending);
     const afterApproval = await board(f, 'ops.one');
     const approvedRow = afterApproval.rows.find((r) => r.investmentId === none?.investmentId);
     expect(approvedRow?.approval).toBe('approved');
@@ -288,6 +304,30 @@ describe('the simulated monitoring board (docs/04 M9) over the book and the sess
     const memberExport = await send(f, 'deal.three', 'GET', EXPORT);
     expect(memberExport.text.split('\n')).toHaveLength(afterApproval.rows.length + 3);
     expect(memberExport.text).toContain(walled?.companyName ?? '');
+
+    // A revised report: a newer Succeeded run on the approved quarter waits in review before the
+    // approved record is read (FIN-5), and reads approved again with its own time once approved.
+    const again = await send(f, 'ops.one', 'POST', '/api/v1/extraction/batches', {
+      documentIds: [scan?.id],
+    });
+    expect(again.status, again.text).toBe(201);
+    const revised = await board(f, 'ops.one');
+    const revisedRow = revised.rows.find((r) => r.investmentId === none?.investmentId);
+    expect(revisedRow?.runId).not.toBe(pending);
+    expect(revisedRow?.runState).toBe('Succeeded');
+    expect(revisedRow?.approval).toBe('pending');
+    expect(revisedRow?.approvedAt).toBeNull();
+    expect(revisedRow?.flagsCount).toBe(pendingRow?.flagsCount);
+    expect(revised.counts.inReview).toBe(afterApproval.counts.inReview + 1);
+    expect(revised.counts.approved).toBe(afterApproval.counts.approved - 1);
+    const revisedAt = await reviewAndApprove(f, revisedRow?.runId ?? '');
+    const revisedApproved = await board(f, 'ops.one');
+    const settled = revisedApproved.rows.find((r) => r.investmentId === none?.investmentId);
+    expect(settled?.runId).toBe(revisedRow?.runId);
+    expect(settled?.approval).toBe('approved');
+    expect(settled?.approvedAt).toBe(revisedAt);
+    expect(settled?.approvedAt).not.toBe(approvedAt);
+    expect(revisedApproved.counts).toEqual(afterApproval.counts);
     expect(window.__pbPreviewMisses).toEqual([]);
   });
 

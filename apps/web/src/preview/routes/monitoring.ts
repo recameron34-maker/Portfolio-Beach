@@ -37,9 +37,10 @@ import {
  * quarterly figures, else the capital account statement of its sponsor fund), judged on the as-of
  * day with the thresholds of config and never inventing a deadline; the latest simulated run of
  * the investment for the period with its undecided flags; and the approval the quarter reached:
- * approved when the run was approved or the book holds an approved quarter for the period
- * (approved without a time in the synthetic seed), pending when the run succeeded unapproved. The
- * export is the same rows as CSV. The realization outlook reads the row set this session, else the
+ * approved when the run was approved, pending when the run succeeded unapproved (a revised report
+ * waits in review even where the book holds an approved quarter for the period, FIN-5), approved
+ * when the book holds one (approved without a time in the synthetic seed). The export is the
+ * same rows as CSV. The realization outlook reads the row set this session, else the
  * credential's recorded answer (the seeded outlooks, the default, or the wall's 404); the edit is
  * the deal team's, guarded by config and recorded with before and after (SEC-11.1).
  */
@@ -104,9 +105,12 @@ interface BoardRun {
 }
 
 /**
- * approved when the quarter's record is approved or the run is; pending when a run succeeded and
- * nobody approved it yet; none otherwise. The run's approval time comes first because it is the
- * lineage the record carries; the record's own time answers for figures approved another way.
+ * approved when the latest run is approved; pending when the latest run succeeded and nobody
+ * approved it yet, whatever the record holds (a revised report waits in review even where an
+ * earlier approval stands, FIN-5); approved when the quarter's record was approved another way;
+ * none otherwise. The run's approval time comes first because it is the lineage the record
+ * carries; the record's own time answers for figures approved another way
+ * (apps/api/src/monitoring/board.ts approvalOf).
  */
 export function approvalOf(
   run: BoardRun | null,
@@ -114,8 +118,8 @@ export function approvalOf(
 ): { approval: MonitoringApproval; approvedAt: string | null } {
   if (run !== null && run.approvedAt !== null)
     return { approval: 'approved', approvedAt: run.approvedAt };
-  if (record !== null) return { approval: 'approved', approvedAt: record.approvedAt };
   if (run !== null && run.state === 'Succeeded') return { approval: 'pending', approvedAt: null };
+  if (record !== null) return { approval: 'approved', approvedAt: record.approvedAt };
   return { approval: 'none', approvedAt: null };
 }
 
