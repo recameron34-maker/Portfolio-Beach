@@ -136,7 +136,10 @@ describe('redact (SEC-8.7)', () => {
           'For credit to [redacted:account] (placeholder)',
         ],
         ['FFC: 5555666677', 'FFC: [redacted:account]'],
-        ['Account number 1234-5678-9012', 'Account number [redacted:account]'],
+        [
+          'Account number 1234-5678-9012 (placeholder)',
+          'Account number [redacted:account] (placeholder)',
+        ],
       ];
       for (const [text, expected] of forms) {
         const r = redact(text);
