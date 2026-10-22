@@ -489,6 +489,30 @@ check(
   (await page.getByTestId('run-page-drawing').getAttribute('data-page')) ===
     String(revenueValue?.page) && (await page.getByTestId('run-page-highlight').count()) > 0,
 );
+// The reviewer is held to the validator's rules: dollars typed with the $M unit convert to a
+// figure outside the configured revenue range and are refused naming it, as the API refuses them (FIN-1).
+const rangeRefusal = await api(
+  'ops.one',
+  'POST',
+  `/api/v1/extraction/runs/${reviewed.id}/commands`,
+  {
+    command: 'edit',
+    field: 'revenue_ltm',
+    value: '125400000',
+    unit: 'USD_M',
+    reason: 'probe: dollars typed with the millions unit',
+  },
+);
+check(
+  'extraction: a money edit outside the configured range is refused with 400 naming the range (FIN-1)',
+  rangeRefusal.status === 400 &&
+    rangeRefusal.simulated &&
+    rangeRefusal.json?.errors?.[0]?.path === 'value' &&
+    /outside the revenue range \d+ to \d+/.test(rangeRefusal.json?.errors?.[0]?.message ?? ''),
+  rangeRefusal.status === 400
+    ? (rangeRefusal.json?.errors?.[0]?.message ?? '')
+    : `got ${rangeRefusal.status}: ${rangeRefusal.json?.detail ?? ''}`,
+);
 await page.getByRole('button', { name: 'Accept clean values', exact: true }).click();
 await page.getByTestId('run-action-status').filter({ hasText: 'accepted' }).waitFor();
 check(
@@ -506,11 +530,20 @@ if (undecided.length === 0) {
     reviewed.fileName,
   );
 } else {
+  /** A figure the validator flagged as outside the configured range: an edit to the same figure would be refused (FIN-1), so a reviewer who checked it accepts it knowingly. */
+  const outOfRange = (v) => v.findings.some((f) => f.ruleId === 'EXT-UNIT-02');
   for (const [i, v] of undecided.entries()) {
-    if (i === 0 || v.required) {
+    if (outOfRange(v)) {
+      await page.getByRole('button', { name: `Accept, ${v.label}`, exact: true }).click();
+      await page
+        .getByTestId('run-action-status')
+        .filter({ hasText: `${v.label} accepted` })
+        .waitFor();
+    } else if (i === 0 || v.required) {
       await page.getByRole('button', { name: `Edit, ${v.label}`, exact: true }).click();
       const editDialog = page.getByRole('dialog');
-      await editDialog.getByLabel('Value').fill(v.value ?? (v.kind === 'date' ? quarterEnd : '1'));
+      // A date edit must be the quarter the run covers (FIN-2), which the batch over the quarter end gives every run.
+      await editDialog.getByLabel('Value').fill(v.kind === 'date' ? quarterEnd : (v.value ?? '1'));
       await editDialog.getByLabel('Reason').fill('Checked against the synthetic report');
       await editDialog.getByRole('button', { name: 'Edit', exact: true }).click();
       await page
@@ -529,7 +562,7 @@ if (undecided.length === 0) {
     }
   }
   check(
-    `extraction: ${undecided.length} flagged or invalid value(s) edited or rejected through the dialogs`,
+    `extraction: ${undecided.length} flagged or invalid value(s) accepted, edited or rejected through the page`,
     true,
   );
 }
@@ -548,9 +581,11 @@ check(
     approvedDetail?.run?.promotedRecordId !== null,
 );
 const finalRevenue = approvedDetail?.values?.find((v) => v.field === 'revenue_ltm');
-const revenueDollars = toDollars(
-  finalRevenue?.decision === 'edited' ? finalRevenue.editedValue : finalRevenue?.value,
-  finalRevenue?.unit,
+// An edited figure converts with the edit's own unit, the model's with the model's (WF-1).
+const revenueDollars = (
+  finalRevenue?.decision === 'edited'
+    ? toDollars(finalRevenue.editedValue, finalRevenue.editedUnit ?? finalRevenue.unit)
+    : toDollars(finalRevenue?.value, finalRevenue?.unit)
 ).toFixed();
 
 // The Performance tab of the position, as the deal team: the promoted figure and its source.

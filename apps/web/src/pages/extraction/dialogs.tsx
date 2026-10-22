@@ -15,13 +15,15 @@ import {
 } from '@fluentui/react-components';
 import { MONEY_UNITS } from '@pb/contracts';
 import type { ExtractedValue, ExtractionRunCommandBody } from '@pb/contracts';
-import { editBody, editProblems, finalValueText, unitLabel, valueHint } from './extraction.js';
+import { editBody, editProblems, unitLabel, valueHint, valueText } from './extraction.js';
 import type { EditForm } from './extraction.js';
 
 /**
  * Replaces a value with the reviewer's own, and for a money field its unit (docs/18 section 7).
- * The value is checked against the unit before anything is sent, with the contract's own rules;
- * a reason is required, since the edit changes a figure a client could see (CLAUDE.md rule 6).
+ * A row edited before opens on its edit (the edited value in the edit's own unit), a fresh one
+ * on the model's answer (WF-1). The value is checked against the unit before anything is sent,
+ * with the contract's own rules; a reason is required, since the edit changes a figure a client
+ * could see (CLAUDE.md rule 6).
  */
 export function EditValueDialog({
   value,
@@ -34,7 +36,7 @@ export function EditValueDialog({
 }): ReactNode {
   const [form, setForm] = useState<EditForm>({
     value: value.editedValue ?? value.value ?? '',
-    unit: value.kind === 'money' ? (value.unit ?? 'USD_M') : '',
+    unit: value.kind === 'money' ? (value.editedUnit ?? value.unit ?? 'USD_M') : '',
     reason: '',
   });
   const [touched, setTouched] = useState(false);
@@ -63,7 +65,7 @@ export function EditValueDialog({
             <DialogTitle>Edit {value.label}</DialogTitle>
             <DialogContent className="pb-dialog-content">
               <p className="pb-meta">
-                The model answered {finalValueText(value)}
+                The model answered {valueText(value.value, value.unit, value.kind)}
                 {value.page === null ? '' : ` on page ${value.page}`}. Your value replaces it when
                 the run is approved; the model&apos;s answer stays on record.
               </p>

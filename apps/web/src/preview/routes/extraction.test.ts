@@ -1,5 +1,8 @@
+import definitions from '../../../../../config/definitions.json';
+import styleJson from '../../../../../config/style.json';
 import { beforeEach, describe, expect, it } from 'vitest';
-import { latestQuarterEndOnOrBefore, toDollars } from '@pb/calc';
+import { boundsFrom } from '@pb/ai';
+import { addDays, latestQuarterEndOnOrBefore, toDollars } from '@pb/calc';
 import {
   documentPage,
   extractionBatch,
@@ -20,11 +23,24 @@ import {
   previewBook,
 } from '@pb/synthetic';
 import { parseBook } from '../book.js';
+import type { PreviewBook } from '../book.js';
+import type { PreviewFixtures } from '../fixtures.js';
 import { createPreviewFetch } from '../shim.js';
-import { createPreviewState, quarterKey } from '../state.js';
-import type { PreviewState } from '../state.js';
+import { createPreviewState, quarterKey, valuesOfRun } from '../state.js';
+import type { PreviewState, SimRun } from '../state.js';
 import { USERS, generatedWorld, problemOf, send, serveSamples } from '../test-fixtures.js';
-import { costOf, extractionSettings } from './extraction.js';
+import type { Answer } from '../test-fixtures.js';
+import {
+  DEFAULT_APPROVAL_REASON,
+  EXTRACTION_SWITCH,
+  KILL_SWITCH_CODE,
+  costOf,
+  dayTokensOf,
+  extractionSchemas,
+  extractionSettings,
+  schemaForDocType,
+  valueProblem,
+} from './extraction.js';
 
 /**
  * The simulated extraction engine over the real generator and the bundled PDFs: the fixture
@@ -67,10 +83,91 @@ const env = {
   now: (): string => new Date(Date.UTC(2025, 6, 1, 9, 0, 0) + ++ticks * 1000).toISOString(),
 };
 
-function setup(sampleFetch: typeof fetch = assets): { f: typeof fetch; state: PreviewState } {
-  const state = createPreviewState();
-  const f = createPreviewFetch(fixtures, sampleFetch, { env, state, book });
+/** A preview over the world's recordings and the bundled set, or over what a case puts in their place. */
+function setup(
+  options: {
+    samples?: typeof fetch;
+    book?: PreviewBook;
+    fixtures?: PreviewFixtures;
+    state?: PreviewState;
+  } = {},
+): { f: typeof fetch; state: PreviewState } {
+  const state = options.state ?? createPreviewState();
+  const f = createPreviewFetch(options.fixtures ?? fixtures, options.samples ?? assets, {
+    env,
+    state,
+    book: options.book ?? book,
+  });
   return { f, state };
+}
+
+/** The staged document of a bundled file, as the credential lists it. */
+async function documentOf(f: typeof fetch, who: string, fileName: string) {
+  const docs = documentPage.parse((await send(f, who, 'GET', '/api/v1/documents?limit=200')).json);
+  return docs.items.find((d) => d.fileName === fileName);
+}
+
+/** The first run of a batch over the one document named, as operations sees it. */
+async function runOver(f: typeof fetch, fileName: string): Promise<ExtractionRun> {
+  const doc = await documentOf(f, 'ops.one', fileName);
+  const answer = await send(f, 'ops.one', 'POST', BATCHES, { documentIds: [doc?.id] });
+  expect(answer.status, answer.text).toBe(201);
+  const batch = extractionBatch.parse(answer.json);
+  return (await runs(f, 'ops.one', `&batchId=${batch.id}`))[0]!;
+}
+
+const errorsOf = (answer: Answer) => problemDetails.parse(answer.json).errors;
+
+/** The next calendar quarter end after the latest one (quarters are 90 to 92 days long). */
+const nextQuarter = latestQuarterEndOnOrBefore(addDays(latestQuarter, 92));
+
+/**
+ * The switch as the simulation reads it per run: armed with a number of reads, it answers as set
+ * for those and off after, as an admin turning it off part way through a batch would make it.
+ */
+class SwitchOffAfter extends Map<string, boolean> {
+  remaining: number | null = null;
+  override get(key: string): boolean | undefined {
+    if (key === EXTRACTION_SWITCH && this.remaining !== null) {
+      if (this.remaining === 0) return false;
+      this.remaining -= 1;
+    }
+    return super.get(key);
+  }
+}
+
+/** A run as the session holds it, Running since the start of the test's day unless a case says otherwise. */
+function runFixture(n: number, overrides: Partial<SimRun> = {}): SimRun {
+  return {
+    id: `90000000-0000-4000-8000-${String(n).padStart(12, '0')}`,
+    documentId: `90000000-0000-4000-8000-ffffffffffff`,
+    investmentId: null,
+    periodEnd: latestQuarter,
+    schemaId: 'quarterly_financials',
+    promptId: 'quarterly_extraction',
+    promptVersion: '1',
+    modelId: null,
+    state: 'Running',
+    batchId: null,
+    tokensIn: null,
+    tokensOut: null,
+    costUsd: null,
+    startedAt: '2025-07-01T00:00:00.000Z',
+    finishedAt: null,
+    errorCode: null,
+    errorKind: null,
+    schemaRetries: 0,
+    transientRetries: 0,
+    requestedById: null,
+    requestedBy: null,
+    approvedById: null,
+    approvedBy: null,
+    approvedAt: null,
+    promotedRecordId: null,
+    createdAt: '2025-07-01T00:00:00.000Z',
+    rowVersion: 1,
+    ...overrides,
+  };
 }
 
 async function prepare(f: typeof fetch): Promise<void> {
@@ -355,12 +452,13 @@ describe('the simulated extraction engine (docs/04 M4) over the bundled set', ()
       reason: 'restated',
     });
     expect(narrative.status).toBe(400);
+    // 12,500 thousand dollars: inside the configured ebitda range (FIN-1), in the edit's own unit.
     const edited = extractionRunDetail.parse(
       (
         await command(f, 'ops.one', run.id, {
           command: 'edit',
           field: 'ebitda_ltm',
-          value: '12.50',
+          value: '12500',
           unit: 'USD_K',
           reason: 'restated by the sponsor',
         })
@@ -368,7 +466,7 @@ describe('the simulated extraction engine (docs/04 M4) over the bundled set', ()
     );
     const editedEbitda = edited.values.find((v) => v.field === 'ebitda_ltm');
     expect(editedEbitda?.decision).toBe('edited');
-    expect(editedEbitda?.editedValue).toBe('12.50');
+    expect(editedEbitda?.editedValue).toBe('12500');
     // The edit carries its own unit; the model's value and unit stay on the row (WF-1).
     expect(editedEbitda?.editedUnit).toBe('USD_K');
     expect(editedEbitda?.unit).toBe(ebitda.unit);
@@ -408,7 +506,7 @@ describe('the simulated extraction engine (docs/04 M4) over the bundled set', ()
     const promoted = state.promotedQuarters.get(quarterKey(run.investmentId ?? '', latestQuarter));
     expect(promoted?.id).toBe(after.run.promotedRecordId);
     expect(promoted?.figures.revenueLtm).toBe(toDollars(revenue.value ?? '0', 'USD_M').toFixed());
-    expect(promoted?.figures.ebitdaLtm).toBe(toDollars('12.50', 'USD_K').toFixed());
+    expect(promoted?.figures.ebitdaLtm).toBe(toDollars('12500', 'USD_K').toFixed());
     expect(promoted?.figures.ev).toBeUndefined();
     expect(promoted?.highlights).toEqual(before.highlights);
     expect(promoted?.commentary).toBe(before.commentary);
@@ -458,24 +556,17 @@ describe('the simulated extraction engine (docs/04 M4) over the bundled set', ()
     expect(window.__pbPreviewMisses).toEqual([]);
   });
 
-  it('refuses to accept an invalid value, to approve with a flagged one undecided, and to promote without an investment', async () => {
-    const { f } = setup();
+  it('refuses to accept an invalid period end, to edit it off the period the run covers, and to approve one slipped onto the row (FIN-2)', async () => {
+    const { f, state } = setup();
     await prepare(f);
     // The period_end_shift reports carry a period end that is not a quarter end: EXT-DATE-01, invalid.
     const shifted = book.documents.find(
       (d) => d.truth.docType === QUARTERLY_FINANCIALS && d.truth.periodEnd.endsWith('27'),
     );
     expect(shifted).toBeDefined();
-    const docs = documentPage.parse(
-      (await send(f, 'ops.one', 'GET', '/api/v1/documents?limit=200')).json,
-    ).items;
-    const doc = docs.find((d) => d.fileName === shifted?.fileName);
-    const batch = extractionBatch.parse(
-      (await send(f, 'ops.one', 'POST', BATCHES, { documentIds: [doc?.id] })).json,
-    );
-    expect(batch.runs.total).toBe(1);
-    const run = (await runs(f, 'ops.one', `&batchId=${batch.id}`))[0]!;
+    const run = await runOver(f, shifted?.fileName ?? '');
     expect(run.counts.invalid).toBe(1);
+    expect(run.periodEnd).toBe(shifted?.truth.periodEnd);
     const d = await detail(f, 'ops.one', run.id);
     const periodEnd = d.values.find((v) => v.field === 'period_end');
     expect(periodEnd?.validationState).toBe('invalid');
@@ -490,19 +581,418 @@ describe('the simulated extraction engine (docs/04 M4) over the bundled set', ()
     expect(problemOf(blockedInvalid).detail).toBe(
       'extraction: Period end is required and not accepted or edited',
     );
-    const fixed = await command(f, 'ops.one', run.id, {
+    // The run covers the document's own period: an edit to the quarter the report should have
+    // been filed under is a reclassification of the document, not a value edit (FIN-2), and a
+    // date that is no quarter end is refused before that.
+    const reclassified = await command(f, 'ops.one', run.id, {
       command: 'edit',
       field: 'period_end',
       value: latestQuarter,
       reason: 'the quarter the report is for',
     });
-    expect(fixed.status, fixed.text).toBe(200);
+    expect(reclassified.status).toBe(400);
+    expect(errorsOf(reclassified)).toEqual([
+      {
+        path: 'value',
+        message: `The run covers ${run.periodEnd}; a report for another quarter is reclassified, not edited`,
+      },
+    ]);
+    const midQuarter = await command(f, 'ops.one', run.id, {
+      command: 'edit',
+      field: 'period_end',
+      value: '2025-06-15',
+      reason: 'typed from the report',
+    });
+    expect(midQuarter.status).toBe(400);
+    expect(errorsOf(midQuarter)).toEqual([
+      { path: 'value', message: 'The date must be a quarter end' },
+    ]);
+    // Slipped onto the row past the edit rule (the API test stages it by SQL): the approval
+    // refuses the quarter the run does not cover, and nothing is promoted.
+    const row = valuesOfRun(state, run.id).find((v) => v.field === 'period_end');
+    expect(row).toBeDefined();
+    Object.assign(row ?? {}, {
+      decision: 'edited',
+      editedValue: latestQuarter,
+      editedUnit: 'DATE',
+    });
+    const slipped = await command(f, 'ops.one', run.id, { command: 'approve' });
+    expect(slipped.status).toBe(422);
+    expect(problemOf(slipped)).toEqual({
+      code: 'workflow-precondition',
+      detail: `extraction: the period end ${latestQuarter} is not the quarter the run covers (${run.periodEnd}); edit it`,
+    });
+    expect(state.promotedQuarters.size).toBe(0);
+    expect((await detail(f, 'ops.one', run.id)).run.approvedBy).toBeNull();
+    expect(window.__pbPreviewMisses).toEqual([]);
+  });
+
+  it('holds a reviewer to the rules the validator applies to the model: a money edit outside the range and a date off the quarter the run covers are refused (FIN-1, FIN-2)', async () => {
+    const { f } = setup();
+    await prepare(f);
+    await batchLatest(f);
+    const run = (await runs(f, 'ops.one'))[0]!;
+    const edit = (body: Record<string, unknown>) =>
+      command(f, 'ops.one', run.id, { command: 'edit', reason: 'typed from the report', ...body });
+    const bounds = boundsFrom(definitions);
+    // Dollars typed with the $M unit convert to a figure no company reports: refused naming the range.
+    const dollarsAsMillions = await edit({
+      field: 'revenue_ltm',
+      value: '125400000',
+      unit: 'USD_M',
+    });
+    expect(dollarsAsMillions.status).toBe(400);
+    expect(problemOf(dollarsAsMillions).code).toBe('validation');
+    expect(errorsOf(dollarsAsMillions)).toEqual([
+      {
+        path: 'value',
+        message: `The value converts to ${toDollars('125400000', 'USD_M').toFixed()} dollars, outside the revenue range ${bounds.revenue.minUsd} to ${bounds.revenue.maxUsd}; check the unit`,
+      },
+    ]);
+    const tooSmall = await edit({ field: 'ebitda_ltm', value: '0.001', unit: 'USD_K' });
+    expect(tooSmall.status).toBe(400);
+    expect(errorsOf(tooSmall)?.map((e) => e.path)).toEqual(['value']);
+    expect(errorsOf(tooSmall)?.[0]?.message).toContain(
+      `outside the ebitda range ${bounds.ebitda.minUsd} to ${bounds.ebitda.maxUsd}`,
+    );
+    const taken = await edit({ field: 'revenue_ltm', value: '125.40', unit: 'USD_M' });
+    expect(taken.status, taken.text).toBe(200);
+    const revenue = extractionRunDetail
+      .parse(taken.json)
+      .values.find((v) => v.field === 'revenue_ltm');
+    expect(revenue?.decision).toBe('edited');
+    expect(revenue?.editedValue).toBe('125.40');
+    expect(revenue?.editedUnit).toBe('USD_M');
+    // A date must be a quarter end, and the quarter the run was opened for.
+    const midQuarter = await edit({ field: 'period_end', value: '2025-06-15' });
+    expect(midQuarter.status).toBe(400);
+    expect(errorsOf(midQuarter)).toEqual([
+      { path: 'value', message: 'The date must be a quarter end' },
+    ]);
+    expect(nextQuarter).not.toBe(latestQuarter);
+    const otherQuarter = await edit({ field: 'period_end', value: nextQuarter });
+    expect(otherQuarter.status).toBe(400);
+    expect(errorsOf(otherQuarter)).toEqual([
+      {
+        path: 'value',
+        message: `The run covers ${latestQuarter}; a report for another quarter is reclassified, not edited`,
+      },
+    ]);
+    const own = await edit({ field: 'period_end', value: latestQuarter });
+    expect(own.status, own.text).toBe(200);
     expect(
-      extractionRunDetail.parse(fixed.json).values.find((v) => v.field === 'period_end')?.unit,
+      extractionRunDetail.parse(own.json).values.find((v) => v.field === 'period_end')?.editedUnit,
     ).toBe('DATE');
-    const promoted = await command(f, 'ops.one', run.id, { command: 'approve' });
-    expect(promoted.status, promoted.text).toBe(200);
-    expect(extractionRunDetail.parse(promoted.json).run.approvedBy).toBe(USERS.ops.displayName);
+    // The rule on its own: a run opened without a period takes any quarter end, and a field
+    // without bounds takes any money figure.
+    const schema = schemaForDocType(extractionSchemas(), QUARTERLY_FINANCIALS);
+    const periodField = schema?.fields.find((x) => x.key === 'period_end');
+    const evField = schema?.fields.find((x) => x.key === 'enterprise_value');
+    expect(periodField).toBeDefined();
+    expect(evField?.bounds).toBeNull();
+    expect(valueProblem({ periodEnd: null }, periodField!, nextQuarter, 'DATE')).toBeNull();
+    expect(valueProblem({ periodEnd: null }, periodField!, '2025-06-15', 'DATE')).toBe(
+      'The date must be a quarter end',
+    );
+    expect(valueProblem({ periodEnd: null }, evField!, '125400000', 'USD_M')).toBeNull();
+    expect(window.__pbPreviewMisses).toEqual([]);
+  });
+
+  it('refuses to accept a highlight or a commentary that breaks the house style, leaves them out of acceptClean, and promotes without them once rejected (AI-4)', async () => {
+    // A book whose report carries the first configured banned phrase in highlight 1 and an em
+    // dash in the commentary, both read from config so the style scan never sees them spelled.
+    const altered = parseBook(JSON.parse(JSON.stringify(previewBook(dataset, { documents: set }))));
+    const report = latestReports.find((d) => d.truth.investmentId !== walledId)!;
+    const truth = altered.documents.find((d) => d.fileName === report.fileName)?.truth;
+    expect(truth).toBeDefined();
+    const banned = styleJson.highlights.bannedPhrases[0] ?? '';
+    expect(banned).not.toBe('');
+    const emDash = String.fromCharCode(0x2014);
+    truth!.highlights[0] = `${truth!.highlights[0] ?? ''} with ${banned} ahead`;
+    truth!.commentary = `${truth!.commentary ?? 'Performance held.'} ${emDash} as noted.`;
+    const { f, state } = setup({ book: altered });
+    await prepare(f);
+    const run = await runOver(f, report.fileName);
+    // The narrative rows are judged beside the values, never counted among them.
+    expect(run.counts.flagged).toBe(0);
+    const narrative = valuesOfRun(state, run.id).filter(
+      (v) => v.field === 'highlights' || v.field === 'commentary',
+    );
+    expect(
+      narrative
+        .map((v) => `${v.field}:${v.validationState}:${v.findings.map((x) => x.ruleId).join('+')}`)
+        .sort(),
+    ).toEqual(['commentary:flagged:EXT-TEXT-01', 'highlights:flagged:EXT-STYLE-01']);
+    const highlights = await command(f, 'ops.one', run.id, {
+      command: 'accept',
+      field: 'highlights',
+    });
+    expect(highlights.status).toBe(409);
+    expect(problemOf(highlights)).toEqual({
+      code: 'review-blocked',
+      detail: `extraction: Highlights breaks the house style and cannot be accepted: Highlight 1 contains the banned phrase "${banned}"; reject it`,
+    });
+    const commentary = await command(f, 'ops.one', run.id, {
+      command: 'accept',
+      field: 'commentary',
+    });
+    expect(commentary.status).toBe(409);
+    expect(problemOf(commentary).detail).toBe(
+      'extraction: Commentary breaks the house style and cannot be accepted: The commentary contains an em dash; reject it',
+    );
+    const clean = extractionRunDetail.parse(
+      (await command(f, 'ops.one', run.id, { command: 'acceptClean' })).json,
+    );
+    expect(clean.values.every((v) => v.decision === 'accepted')).toBe(true);
+    expect(narrative.every((v) => v.decision === null)).toBe(true);
+    expect(state.audit.find((e) => e.action === 'extraction_run.acceptClean')?.details).toEqual({
+      fields: QUARTERLY_FIELDS.length,
+    });
+    for (const field of ['highlights', 'commentary']) {
+      const rejected = await command(f, 'ops.one', run.id, {
+        command: 'reject',
+        field,
+        reason: 'breaks the house style',
+      });
+      expect(rejected.status, rejected.text).toBe(200);
+    }
+    const approved = await command(f, 'ops.one', run.id, { command: 'approve' });
+    expect(approved.status, approved.text).toBe(200);
+    const promoted = state.promotedQuarters.get(quarterKey(run.investmentId ?? '', latestQuarter));
+    expect(promoted?.figures.revenueLtm).toBeDefined();
+    expect(promoted?.highlights).toBeUndefined();
+    expect(promoted?.commentary).toBeUndefined();
+    // The text never reaches the Performance tab.
+    const perf = (
+      await send(f, 'ops.one', 'GET', `/api/v1/investments/${run.investmentId}/performance`)
+    ).text;
+    expect(perf).not.toContain(banned);
+    expect(perf).not.toContain(emDash);
+    expect(window.__pbPreviewMisses).toEqual([]);
+  });
+
+  it('names an undecided record figure at approval, cites the first accepted figure, and records the fixed approval reason that never names the file (W3)', async () => {
+    const { f, state } = setup();
+    await prepare(f);
+    await batchLatest(f);
+    const [run, other] = await runs(f, 'ops.one');
+    expect(run).toBeDefined();
+    expect(other).toBeDefined();
+    await command(f, 'ops.one', run!.id, { command: 'acceptClean' });
+    // Cash back to undecided (the API test resets it by SQL): a record figure nobody decided is
+    // named, never silently left out of the record.
+    const cash = valuesOfRun(state, run!.id).find((v) => v.field === 'cash');
+    expect(cash?.validationState).toBe('clean');
+    Object.assign(cash ?? {}, {
+      decision: null,
+      decidedBy: null,
+      decidedAt: null,
+      reviewerId: null,
+    });
+    const undecided = await command(f, 'deal.one', run!.id, { command: 'approve' });
+    expect(undecided.status).toBe(409);
+    expect(problemOf(undecided)).toEqual({
+      code: 'review-blocked',
+      detail: 'extraction: Cash is a record figure and undecided; accept, edit or reject it',
+    });
+    expect(
+      (await command(f, 'deal.one', run!.id, { command: 'accept', field: 'cash' })).status,
+    ).toBe(200);
+    // Revenue edited: the citation moves to the next promoted figure read from the document.
+    const ebitda = (await detail(f, 'ops.one', run!.id)).values.find(
+      (v) => v.field === 'ebitda_ltm',
+    );
+    expect(ebitda?.page).not.toBeNull();
+    const edited = await command(f, 'ops.one', run!.id, {
+      command: 'edit',
+      field: 'revenue_ltm',
+      value: '125.40',
+      unit: 'USD_M',
+      reason: 'restated by the sponsor',
+    });
+    expect(edited.status, edited.text).toBe(200);
+    const approved = await command(f, 'deal.one', run!.id, { command: 'approve' });
+    expect(approved.status, approved.text).toBe(200);
+    const promoted = state.promotedQuarters.get(quarterKey(run!.investmentId ?? '', latestQuarter));
+    expect(promoted?.source).toEqual({
+      documentId: run!.documentId,
+      runId: run!.id,
+      page: ebitda?.page,
+      locator: 'field:ebitda_ltm',
+    });
+    expect(promoted?.approvalReason).toBe(DEFAULT_APPROVAL_REASON);
+    const events = state.audit.filter(
+      (e) => e.action === 'extraction_run.approve' || e.action === 'quarterly_performance.promote',
+    );
+    expect(events.map((e) => e.reason)).toEqual([DEFAULT_APPROVAL_REASON, DEFAULT_APPROVAL_REASON]);
+    const trail = JSON.stringify(state.audit);
+    expect(trail).not.toContain(run!.fileName);
+    expect(run!.companyName).not.toBeNull();
+    expect(trail).not.toContain(run!.companyName ?? '');
+    // Every record figure edited: nothing read from the document is cited.
+    await command(f, 'ops.one', other!.id, { command: 'acceptClean' });
+    const targets = schemaForDocType(extractionSchemas(), QUARTERLY_FINANCIALS)?.fields.filter(
+      (x) => x.target !== null,
+    );
+    expect(targets?.length).toBeGreaterThan(1);
+    for (const v of (await detail(f, 'ops.one', other!.id)).values) {
+      if (!targets?.some((t) => t.key === v.field)) continue;
+      const decided =
+        v.value === null
+          ? await command(f, 'ops.one', other!.id, {
+              command: 'reject',
+              field: v.field,
+              reason: 'not stated in the report',
+            })
+          : await command(f, 'ops.one', other!.id, {
+              command: 'edit',
+              field: v.field,
+              value: v.value,
+              unit: v.unit,
+              reason: 'checked against the report',
+            });
+      expect(decided.status, `${v.field}: ${decided.text}`).toBe(200);
+    }
+    const allEdited = await command(f, 'ops.one', other!.id, { command: 'approve' });
+    expect(allEdited.status, allEdited.text).toBe(200);
+    expect(
+      state.promotedQuarters.get(quarterKey(other!.investmentId ?? '', latestQuarter))?.source,
+    ).toEqual({ documentId: other!.documentId, runId: other!.id, page: null, locator: null });
+    expect(window.__pbPreviewMisses).toEqual([]);
+  });
+
+  it('refuses to revive a superseded quarter, as the promotion does (422)', async () => {
+    const report = latestReports.find(
+      (d) =>
+        d.truth.investmentId !== walledId &&
+        (book.quarters[d.truth.investmentId ?? ''] ?? []).some(
+          (q) => q.periodEnd === latestQuarter,
+        ),
+    );
+    expect(report).toBeDefined();
+    const investmentId = report?.truth.investmentId ?? '';
+    const { f, state } = setup({
+      fixtures: generatedWorld(book, walledId, [
+        { investmentId, periodEnd: latestQuarter, status: 'record_status.superseded' },
+      ]),
+    });
+    await prepare(f);
+    const perf = investmentPerformance.parse(
+      (await send(f, 'ops.one', 'GET', `/api/v1/investments/${investmentId}/performance`)).json,
+    );
+    expect(perf.quarters.find((q) => q.periodEnd === latestQuarter)?.status).toBe(
+      'record_status.superseded',
+    );
+    const run = await runOver(f, report?.fileName ?? '');
+    await command(f, 'ops.one', run.id, { command: 'acceptClean' });
+    const refused = await command(f, 'ops.one', run.id, { command: 'approve' });
+    expect(refused.status).toBe(422);
+    expect(problemOf(refused)).toEqual({
+      code: 'workflow-precondition',
+      detail: 'extraction: the quarter on record is superseded, which a promotion never revives',
+    });
+    expect(state.promotedQuarters.size).toBe(0);
+    expect((await detail(f, 'ops.one', run.id)).run.approvedBy).toBeNull();
+    expect(state.audit.some((e) => e.action === 'extraction_run.approve')).toBe(false);
+    expect(window.__pbPreviewMisses).toEqual([]);
+  });
+
+  it('stops the runs of a batch as soon as the switch is turned off, with no model call for the rest (AI-6)', async () => {
+    const flags = new SwitchOffAfter();
+    const state = createPreviewState();
+    state.flags = flags;
+    const { f } = setup({ state });
+    await prepare(f);
+    // The batch's own check and the first run's attempt read the switch on; from the second run
+    // on it reads off, as an admin turning it off part way would make it.
+    flags.remaining = 2;
+    const batch = await batchLatest(f);
+    expect(batch.state).toBe('failed');
+    expect(batch.errorCode).toBe('runs_failed');
+    const member = extractionBatchPage.parse((await send(f, 'deal.three', 'GET', BATCH_LIST)).json)
+      .items[0];
+    expect(member?.runs).toEqual({
+      total: latestReports.length,
+      queued: 0,
+      running: 0,
+      succeeded: 1,
+      failed: latestReports.length - 1,
+      needsRetry: 0,
+    });
+    expect(member?.tokensOut).toBe(64);
+    const stopped = await runs(f, 'deal.three', '&state=Failed');
+    expect(stopped).toHaveLength(latestReports.length - 1);
+    for (const run of stopped) {
+      expect(run.errorCode).toBe(KILL_SWITCH_CODE);
+      expect(run.errorKind).toBeNull();
+      expect(run.tokensIn).toBeNull();
+      expect(run.costUsd).toBeNull();
+      expect(run.modelId).toBeNull();
+      expect(run.counts.values).toBe(0);
+      expect(
+        [...state.exceptions.values()].filter((x) => x.entityId === run.id).map((x) => x.ruleId),
+      ).toEqual(['EXT-RUN-01']);
+    }
+    expect(state.audit.filter((e) => e.action === 'extraction_run.succeed')).toHaveLength(1);
+    expect(state.audit.filter((e) => e.action === 'extraction_run.fail')).toHaveLength(
+      latestReports.length - 1,
+    );
+    // A hand retry while the switch is off is refused before anything is queued.
+    const retried = await command(f, 'deal.three', stopped[0]?.id ?? '', { command: 'retry' });
+    expect(problemOf(retried).code).toBe('kill-switch');
+    expect(state.runs.size).toBe(latestReports.length);
+    expect(window.__pbPreviewMisses).toEqual([]);
+  });
+
+  it('reserves a run budget for every run still Running against the day budget, so runs driven together cannot overshoot it (budget note)', async () => {
+    const settings = extractionSettings();
+    const today = '2025-07-01';
+    // The rule: the other runs' recorded tokens plus a whole run budget per run still Running;
+    // yesterday's runs, a run not started and the run itself do not count.
+    const me = runFixture(5, { tokensIn: 9, tokensOut: 9 });
+    expect(
+      dayTokensOf(
+        [
+          runFixture(1, { state: 'Succeeded', tokensIn: 1000, tokensOut: 64 }),
+          runFixture(2),
+          runFixture(3, {
+            state: 'Succeeded',
+            tokensIn: 500,
+            tokensOut: 64,
+            startedAt: '2025-06-30T23:59:59.000Z',
+          }),
+          runFixture(4, { state: 'Queued', startedAt: null }),
+          me,
+        ],
+        me.id,
+        today,
+        settings,
+      ),
+    ).toBe(1064 + settings.runTokenBudget);
+    // Enough runs still Running to reserve the whole day budget: the next run fails before any
+    // model call, with nothing used and its data exception.
+    const state = createPreviewState();
+    const running = Math.ceil((settings.dayTokenBudget + 1) / settings.runTokenBudget);
+    for (let n = 1; n <= running; n += 1) {
+      const held = runFixture(n);
+      state.runs.set(held.id, held);
+    }
+    const { f } = setup({ state });
+    await prepare(f);
+    const report = latestReports.find((d) => d.truth.investmentId !== walledId)!;
+    const run = await runOver(f, report.fileName);
+    expect(run.state).toBe('Failed');
+    expect(run.errorCode).toBe('day_budget');
+    expect(run.errorKind).toBeNull();
+    expect(run.tokensIn).toBeNull();
+    expect(run.tokensOut).toBeNull();
+    expect(run.costUsd).toBeNull();
+    expect(run.counts.values).toBe(0);
+    expect(state.audit.some((e) => e.action === 'extraction_run.succeed')).toBe(false);
+    expect(
+      [...state.exceptions.values()].filter((x) => x.entityId === run.id).map((x) => x.actual),
+    ).toEqual(['the run failed (day_budget)']);
+    expect(window.__pbPreviewMisses).toEqual([]);
   });
 
   it('retries a schema failure once and then fails with a data exception; a hand retry queues a fresh run', async () => {
@@ -545,7 +1035,7 @@ describe('the simulated extraction engine (docs/04 M4) over the bundled set', ()
     });
     const files = new Map(set.documents.map((d) => [d.fileName, d.bytes]));
     files.set(target.fileName, other);
-    const { f, state } = setup(serveSamples(files));
+    const { f, state } = setup({ samples: serveSamples(files) });
     await prepare(f);
     const batch = await batchLatest(f);
     expect(batch.state).toBe('failed');

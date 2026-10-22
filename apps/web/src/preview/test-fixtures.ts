@@ -154,12 +154,19 @@ export const WALL_MEMBERS: readonly string[] = [
   USERS.all.externalId,
 ];
 
+/** A quarter the recorded performance serves with a status other than approved (the API serves every row with its stored status). */
+export interface RecordedQuarterStatus {
+  investmentId: string;
+  periodEnd: string;
+  status: string;
+}
+
 /** A quarter row as the API records a seeded quarter: the book's figures, no ratios, no narrative, no source. */
-function recordedQuarter(q: BookQuarter): QuarterRow {
+function recordedQuarter(q: BookQuarter, status = 'record_status.approved'): QuarterRow {
   return {
     periodEnd: q.periodEnd,
     isEntrySnapshot: q.isEntrySnapshot,
-    status: 'record_status.approved',
+    status,
     revenueLtm: q.revenueLtm,
     ebitdaLtm: q.ebitdaLtm,
     ev: q.ev,
@@ -176,9 +183,18 @@ function recordedQuarter(q: BookQuarter): QuarterRow {
   };
 }
 
-/** The performance of a book investment as the build would record it: the approved quarters, the entry snapshot apart. */
-export function performanceFixture(book: PreviewBook, inv: BookInvestment): InvestmentPerformance {
-  const rows = (book.quarters[inv.id] ?? []).map(recordedQuarter);
+/** The performance of a book investment as the build would record it: the approved quarters, the entry snapshot apart, any status given for a quarter. */
+export function performanceFixture(
+  book: PreviewBook,
+  inv: BookInvestment,
+  statuses: readonly RecordedQuarterStatus[] = [],
+): InvestmentPerformance {
+  const rows = (book.quarters[inv.id] ?? []).map((q) =>
+    recordedQuarter(
+      q,
+      statuses.find((s) => s.investmentId === inv.id && s.periodEnd === q.periodEnd)?.status,
+    ),
+  );
   return {
     investmentId: inv.id,
     asOf: book.asOf,
@@ -210,9 +226,14 @@ export function defaultOutlookFixture(inv: BookInvestment): RealizationOutlookDe
  * extraction and monitoring tests): every mock user's own sign-in and flag list, their view of
  * each of the book's investments with its performance and default outlook (the walled deal
  * answers 404 outside the wall, as the build records it), an empty valuations board for the
- * simulated Drafts to land on, and Data Health with no open exception for the overlay to count onto.
+ * simulated Drafts to land on, and Data Health with no open exception for the overlay to count
+ * onto. `quarterStatuses` records the named quarters with another status than approved.
  */
-export function generatedWorld(book: PreviewBook, walledId: string): PreviewFixtures {
+export function generatedWorld(
+  book: PreviewBook,
+  walledId: string,
+  quarterStatuses: readonly RecordedQuarterStatus[] = [],
+): PreviewFixtures {
   const users = Object.values(USERS);
   const b = new FixtureBuilder(users, book.asOf);
   b.add('', '/api/v1/auth/mock-users', {
@@ -262,7 +283,7 @@ export function generatedWorld(book: PreviewBook, walledId: string): PreviewFixt
             isActive: inv.isActive,
           }),
         );
-        b.add(c, `${path}/performance`, performanceFixture(book, inv));
+        b.add(c, `${path}/performance`, performanceFixture(book, inv, quarterStatuses));
         b.add(c, `/api/v1/monitoring/outlook/${inv.id}`, defaultOutlookFixture(inv));
       } else {
         b.notFound(c, path);

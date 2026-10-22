@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import { addDays, daysBetween, latestQuarterEndOnOrBefore } from '@pb/calc';
 import {
+  dataExceptionPage,
   documentDetail,
   documentIndexResult,
   documentPage,
@@ -62,14 +63,27 @@ const env = {
   now: (): string => new Date(Date.UTC(2025, 6, 1, 9, 0, 0) + ++ticks * 1000).toISOString(),
 };
 
-function setup(options: { book?: boolean } = {}): { f: typeof fetch; state: PreviewState } {
+function setup(options: { book?: boolean; samples?: typeof fetch } = {}): {
+  f: typeof fetch;
+  state: PreviewState;
+} {
   const state = createPreviewState();
-  const f = createPreviewFetch(fixtures, assets, {
+  const f = createPreviewFetch(fixtures, options.samples ?? assets, {
     env,
     state,
     ...(options.book === false ? {} : { book }),
   });
   return { f, state };
+}
+
+const CLASSIFIER = '/api/v1/flags/ai.classifier';
+const EXCEPTIONS = '/api/v1/data-exceptions?limit=200';
+
+/** The exceptions the credential may see, by the document they are about. */
+async function exceptionsAbout(f: typeof fetch, who: string, documentId: string) {
+  const answer = await send(f, who, 'GET', EXCEPTIONS);
+  expect(answer.status, answer.text).toBe(200);
+  return dataExceptionPage.parse(answer.json).items.filter((x) => x.entityId === documentId);
 }
 
 async function index(f: typeof fetch, who = 'ops.one') {
@@ -483,6 +497,150 @@ describe('the simulated document index (docs/04 M3) over the bundled set and the
     const rowAfter = await rowOf();
     expect(rowAfter?.status).toBe('received');
     expect(rowAfter?.receivedDocumentId).toBe(scan?.id);
+  });
+
+  it('with the classifier off, flags every item for review with the links its file name gives it, inside the wall (W1, WF-5)', async () => {
+    const { f, state } = setup();
+    const off = await send(f, 'admin.one', 'PATCH', CLASSIFIER, {
+      enabled: false,
+      reason: 'the switch off for the test',
+    });
+    expect(off.status, off.text).toBe(200);
+    const first = await index(f);
+    expect(first).toEqual({ indexed: expectations.total - 1, duplicates: 1, unchanged: 0 });
+    const all = await hub(f, 'deal.three');
+    expect(all).toHaveLength(expectations.total);
+    // Nothing stays in Received: every readable item queues for a person, linked from its name.
+    expect(all.some((d) => d.reviewStatus === 'Received')).toBe(false);
+    for (const doc of all) {
+      const truth = truthOf(doc.fileName);
+      expect(truth, doc.fileName).toBeDefined();
+      expect(doc.docType).toBeNull();
+      expect(doc.classificationConfidence).toBeNull();
+      expect(doc.classifierEvidence.keywords).toEqual([]);
+      expect(doc.classifiedAt).toBeNull();
+      if (doc.fileName === duplicateCopy) {
+        expect(doc.reviewStatus).toBe('Duplicate');
+        expect(doc.investmentId).toBe(truth?.investmentId);
+        continue;
+      }
+      expect(doc.reviewStatus, doc.fileName).toBe('NeedsReview');
+      expect(doc.periodEnd).toBeNull();
+      if (doc.fileName === UNTAGGED_FILE_NAME) {
+        // A generic file name names no position: unlinked, for a person to place.
+        expect(doc.investmentId).toBeNull();
+        expect(doc.sponsorFundId).toBeNull();
+        continue;
+      }
+      expect(doc.investmentId, doc.fileName).toBe(truth?.investmentId);
+      expect(doc.sponsorFundId, doc.fileName).toBe(truth?.sponsorFundId);
+      expect(doc.sponsorId, doc.fileName).toBe(truth?.sponsorId);
+    }
+    expect(
+      all
+        .filter((d) => d.investmentId === walledId)
+        .map((d) => d.fileName)
+        .sort(),
+    ).toEqual([...expectations.walledFiles].sort());
+    // The wall holds from the first write: the list, the search and the review queue.
+    const outside = await hub(f, 'ops.one');
+    expect(outside).toHaveLength(expectations.total - expectations.walledFiles.length);
+    expect((await send(f, 'ops.one', 'GET', HUB)).text).not.toContain(walled?.companyName ?? '');
+    const q = `&q=${encodeURIComponent(walled?.companyName ?? '')}`;
+    expect(await hub(f, 'deal.one', q)).toEqual([]);
+    expect((await hub(f, 'deal.three', q)).map((d) => d.fileName).sort()).toEqual(
+      [...expectations.walledFiles].sort(),
+    );
+    const queue = (who: string) =>
+      send(f, who, 'GET', QUEUE).then((a) => documentPage.parse(a.json).items);
+    expect(await queue('ops.one')).toHaveLength(
+      expectations.total - expectations.walledFiles.length - 1,
+    );
+    expect(await queue('deal.three')).toHaveLength(expectations.total - 1);
+    // Each item was flagged through the table, with the switch as the reason.
+    const flagged = state.audit.filter(
+      (e) => e.action === 'document.index' && e.to === 'NeedsReview',
+    );
+    expect(flagged).toHaveLength(expectations.total - 1);
+    expect(flagged.every((e) => e.reason === 'classifier off' && e.from === 'Received')).toBe(true);
+    // A person classifies from the queue: operations outside the wall, a member inside it.
+    const open = (await queue('ops.one')).find((d) => d.fileName !== UNTAGGED_FILE_NAME);
+    const classified = await send(f, 'ops.one', 'POST', commandsPath(open?.id ?? ''), {
+      command: 'classify',
+      docType: truthOf(open?.fileName ?? '')?.docType,
+      periodEnd: truthOf(open?.fileName ?? '')?.periodEnd,
+    });
+    expect(classified.status, classified.text).toBe(200);
+    expect(documentDetail.parse(classified.json).reviewStatus).toBe('Classified');
+    expect(documentDetail.parse(classified.json).investmentId).toBe(open?.investmentId);
+    const walledDoc = (await queue('deal.three')).find((d) => d.investmentId === walledId);
+    const body = {
+      command: 'classify',
+      docType: truthOf(walledDoc?.fileName ?? '')?.docType,
+      periodEnd: truthOf(walledDoc?.fileName ?? '')?.periodEnd,
+    };
+    expect((await send(f, 'ops.one', 'POST', commandsPath(walledDoc?.id ?? ''), body)).status).toBe(
+      404,
+    );
+    const member = await send(f, 'deal.three', 'POST', commandsPath(walledDoc?.id ?? ''), body);
+    expect(member.status, member.text).toBe(200);
+    // A scan with the switch on again changes nothing.
+    expect(
+      (await send(f, 'admin.one', 'PATCH', CLASSIFIER, { enabled: true, reason: 'on again' }))
+        .status,
+    ).toBe(200);
+    expect(await index(f)).toEqual({ indexed: 0, duplicates: 0, unchanged: expectations.total });
+    expect(window.__pbPreviewMisses).toEqual([]);
+  });
+
+  it('keeps a walled report the reader cannot read inside the wall: the links and the exception come from the file name (W1, W2)', async () => {
+    const walledReport = expectations.walledFiles[0] ?? '';
+    expect(walledReport).not.toBe('');
+    const files = new Map<string, string | Uint8Array>(
+      set.documents.map((d) => [d.fileName, d.bytes]),
+    );
+    files.set(walledReport, new TextEncoder().encode('not a PDF at all'));
+    const { f, state } = setup({ samples: serveSamples(files) });
+    await index(f);
+    const truth = truthOf(walledReport);
+    const inside = (await hub(f, 'deal.three')).find((d) => d.fileName === walledReport);
+    expect(inside?.reviewStatus).toBe('NeedsReview');
+    expect(inside?.investmentId).toBe(walledId);
+    expect(inside?.sponsorFundId).toBe(truth?.sponsorFundId);
+    expect(inside?.pageCount).toBeNull();
+    expect(inside?.classifierEvidence.candidates.map((c) => c.reason)).toContain(
+      'unreadable (not_pdf)',
+    );
+    const id = inside?.id ?? '';
+    for (const who of ['ops.one', 'viewer.one', 'deal.one']) {
+      expect(
+        (await hub(f, who)).some((d) => d.id === id),
+        who,
+      ).toBe(false);
+      expect(await hub(f, who, '&reviewStatus=NeedsReview')).not.toContainEqual(
+        expect.objectContaining({ id }),
+      );
+      expect((await send(f, who, 'GET', detailPath(id))).status, who).toBe(404);
+      expect((await send(f, who, 'GET', pagesPath(id))).status, who).toBe(404);
+    }
+    // The exception about the item follows the item's wall: the reviewers outside it (a viewer
+    // may not list exceptions at all) never see it, the members do (W2).
+    for (const who of ['ops.one', 'deal.one'])
+      expect(await exceptionsAbout(f, who, id)).toEqual([]);
+    expect((await send(f, 'deal.three', 'GET', detailPath(id))).status).toBe(200);
+    const pages = await send(f, 'deal.three', 'GET', pagesPath(id));
+    expect(pages.status).toBe(422);
+    expect(problemOf(pages).code).toBe('unreadable-document');
+    for (const who of ['deal.three', 'head.one']) {
+      const exception = await exceptionsAbout(f, who, id);
+      expect(
+        exception.map((x) => x.ruleId),
+        who,
+      ).toEqual(['DOC-READ-01']);
+      expect(exception[0]?.context.investmentId).toBe(walledId);
+    }
+    expect([...state.exceptions.values()].filter((x) => x.entityId === id)).toHaveLength(1);
+    expect(window.__pbPreviewMisses).toEqual([]);
   });
 
   it('answers that the preview carries no book when it could not be loaded, and resets everything', async () => {

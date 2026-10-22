@@ -8,7 +8,7 @@ import {
   parseDocumentFileName,
   redact,
 } from '@pb/ai';
-import type { ClassifierOutput } from '@pb/ai';
+import type { ClassifierOutput, DocumentFileName } from '@pb/ai';
 import { D, addDays, daysBetween } from '@pb/calc';
 import type { Decimal } from '@pb/calc';
 import {
@@ -64,13 +64,17 @@ import { hashRefusal } from './intake.js';
  * The document hub (docs/04 M3, docs/18 section 6, decision 0012) simulated in the browser, the
  * way apps/api/src/documents/ serves it: the bundled synthetic document set is the store's inbox,
  * and an index reads every item with @pb/pdf (the browser inflater), hashes it with the preview's
- * SHA-256, marks the same bytes under another name a Duplicate of the earliest original, redacts
- * every page, builds the model input with @pb/ai and runs the keyword classifier over it, links
- * the investment by number or exact company name and the sponsor fund by name or alias from the
- * book (the system actor's view, decision 0009), and moves the document through
+ * SHA-256, marks the same bytes under another name a Duplicate of the earliest original, writes
+ * the links its file name resolves (the investment by exact company name, the sponsor fund by
+ * exact name or alias, never fuzzy) on every path so the wall of the position named holds with
+ * or without a model (W1, SEC-5.3), redacts every page, builds the model input with @pb/ai and
+ * runs the keyword classifier over it, links the investment again by the number the model read
+ * from the book (the system actor's view, decision 0009), and moves the document through
  * documentClassificationMachine as the system actor: autoClassify at or above
- * definitions.classifierConfidenceThreshold, flagForReview below it. A reader sees the documents
- * attached to positions their own recordings let them open; the rest are absent (SEC-8.5, M3 AC).
+ * definitions.classifierConfidenceThreshold, flagForReview below it, when the call fails, when
+ * the item is unreadable or when the ai.classifier switch is off (WF-5: nothing stays in
+ * Received). A reader sees the documents attached to positions their own recordings let them
+ * open; the rest are absent (SEC-8.5, M3 AC).
  * The classify command runs the same table for the caller; the expected-document tracker is
  * generated from the book's investments and committed sponsor funds with the due days of config
  * and judged when read, never stored. Every change is recorded in the session's activity list.
@@ -247,6 +251,22 @@ export function linkDocument(hints: LinkHints, book: PreviewBook): DocumentLinks
     sponsorId: fund.fund?.sponsorId ?? null,
     candidates,
   };
+}
+
+/**
+ * The links the file name alone resolves, before any model runs: `<period> <Fund> - <Type> -
+ * <Company>.pdf` names the position exactly or not at all, so a report of a walled position is
+ * attached to it on every path, the classifier off, failed or the file unreadable (W1).
+ */
+export function linksFromName(fromName: DocumentFileName | null, book: PreviewBook): DocumentLinks {
+  return linkDocument(
+    {
+      investmentNumber: null,
+      companyName: fromName?.companyName ?? null,
+      sponsorFundName: fromName?.sponsorFundName ?? null,
+    },
+    book,
+  );
 }
 
 /* ---- Visibility and the contract shapes ---- */
@@ -443,13 +463,14 @@ function transition(
 
 /**
  * One model call over the redacted pages, then the links and the transition: autoClassify at
- * or above the threshold, flagForReview below it or when the input is refused. The input is the
- * shared frame of @pb/ai (metadata, then the pages as data); nothing of the text is kept beyond
- * the search excerpt.
+ * or above the threshold, flagForReview below it or when the input is refused (the document then
+ * keeps the links its file name resolved). The input is the shared frame of @pb/ai (metadata,
+ * then the pages as data); nothing of the text is kept beyond the search excerpt.
  */
 function classify(
   book: PreviewBook,
   doc: SimDocument,
+  fromName: DocumentFileName | null,
   pageTexts: readonly string[],
   threshold: Decimal,
   now: string,
@@ -480,7 +501,6 @@ function classify(
     doc.classifierEvidence = { keywords: [], candidates: [{ reason: failure ?? '' }] };
     return { command: 'flagForReview', reason: failure };
   }
-  const fromName = parseDocumentFileName(doc.fileName);
   const links = linkDocument(
     {
       investmentNumber: output.investmentNumber ?? null,
@@ -534,6 +554,10 @@ async function indexOne(
     );
   const contentHash = await sha256Hex(bytes);
   const now = ctx.env.now();
+  // The links the file name resolves are written with the document on every path below, so the
+  // wall of the position named holds whether or not a model ever reads the document (SEC-5.3).
+  const fromName = parseDocumentFileName(item.fileName);
+  const named = linksFromName(fromName, book);
   const base: SimDocument = {
     id: ctx.env.newId(),
     sourceItemId,
@@ -542,9 +566,9 @@ async function indexOne(
     title: stripExtension(item.fileName),
     docType: null,
     reviewStatus: machine.initial,
-    sponsorId: null,
-    sponsorFundId: null,
-    investmentId: null,
+    sponsorId: named.sponsorId,
+    sponsorFundId: named.sponsorFundId,
+    investmentId: named.investmentId,
     periodEnd: null,
     contentHash,
     sizeBytes: bytes.length,
@@ -600,10 +624,11 @@ async function indexOne(
     const doc: SimDocument = {
       ...base,
       reviewStatus: flagged.to,
-      classifierEvidence: { keywords: [], candidates: [{ reason }] },
+      classifierEvidence: { keywords: [], candidates: [{ reason }, ...named.candidates] },
       unreadableCode: error.code,
     };
     state.documents.set(doc.id, doc);
+    // The exception about the item follows the item's own wall (W2).
     openException(ctx, {
       source: 'documents',
       entity: 'doc.document',
@@ -615,7 +640,7 @@ async function indexOne(
       candidates: [],
       file: null,
       rowNo: null,
-      investmentId: null,
+      investmentId: named.investmentId,
     });
     return { kind: 'indexed', doc, command: 'flagForReview', reason };
   }
@@ -633,10 +658,19 @@ async function indexOne(
     pages,
   };
   state.documents.set(doc.id, doc);
-  if (!classifierOn) return { kind: 'indexed', doc, command: null, reason: 'classifier off' };
+  if (!classifierOn) {
+    // The kill switch is a graceful degradation (docs/17 section 5): the item queues for a
+    // person through the same transition a failed call takes, so nothing stays in Received.
+    const flagged = transition('flagForReview', {});
+    if (!flagged.ok) return flagged.response;
+    doc.reviewStatus = flagged.to;
+    doc.classifierEvidence = { keywords: [], candidates: [...named.candidates] };
+    return { kind: 'indexed', doc, command: 'flagForReview', reason: 'classifier off' };
+  }
   const classified = classify(
     book,
     doc,
+    fromName,
     pages.map((p) => p.text),
     threshold,
     now,
