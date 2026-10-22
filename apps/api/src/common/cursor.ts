@@ -1,4 +1,4 @@
-import { isCalendarDate } from '@pb/contracts';
+import { isCalendarDate } from '@pb/calc';
 import { ProblemError } from './problem.js';
 
 /*

@@ -3,6 +3,7 @@ import type { SQL } from 'drizzle-orm';
 import { alias } from 'drizzle-orm/pg-core';
 import type { AnyPgColumn } from 'drizzle-orm/pg-core';
 import type { ExtractionField, ExtractionSchemas } from '@pb/ai';
+import { isCalendarDate } from '@pb/calc';
 import {
   extractionBatchState,
   extractionDecision,
@@ -11,7 +12,6 @@ import {
   extractionRunState,
   extractionUnit,
   extractionValidationState,
-  isCalendarDate,
 } from '@pb/contracts';
 import type {
   ExtractedValue,

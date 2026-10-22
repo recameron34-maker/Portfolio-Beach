@@ -1,4 +1,5 @@
-import { API_PREFIX, isQuarterEnd, MONEY_UNITS, ROUTES, valueFitsUnit } from '@pb/contracts';
+import { isQuarterEnd } from '@pb/calc';
+import { API_PREFIX, MONEY_UNITS, ROUTES, valueFitsUnit } from '@pb/contracts';
 import type {
   ExtractedValue,
   ExtractionBatch,

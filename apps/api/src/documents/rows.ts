@@ -1,12 +1,8 @@
 import { desc, eq, inArray, sql } from 'drizzle-orm';
 import type { SQL } from 'drizzle-orm';
 import { alias } from 'drizzle-orm/pg-core';
-import {
-  classifierEvidence,
-  documentReviewStatus,
-  extractionRunState,
-  isCalendarDate,
-} from '@pb/contracts';
+import { isCalendarDate } from '@pb/calc';
+import { classifierEvidence, documentReviewStatus, extractionRunState } from '@pb/contracts';
 import type {
   DocumentDetail,
   DocumentDuplicate,

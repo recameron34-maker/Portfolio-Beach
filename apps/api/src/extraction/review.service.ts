@@ -3,13 +3,8 @@ import { and, eq } from 'drizzle-orm';
 import type { AdapterSet, Principal } from '@pb/adapters';
 import { UNITS_BY_KIND, boundsFrom } from '@pb/ai';
 import type { ExtractionField, ExtractionSchema, ExtractionSchemas } from '@pb/ai';
-import { CalcError, toDollars, unitSanityFlag } from '@pb/calc';
-import {
-  extractionRunCommandBody,
-  extractionUnit,
-  isQuarterEnd,
-  valueFitsUnit,
-} from '@pb/contracts';
+import { CalcError, isQuarterEnd, toDollars, unitSanityFlag } from '@pb/calc';
+import { extractionRunCommandBody, extractionUnit, valueFitsUnit } from '@pb/contracts';
 import type { ExtractionRunCommandBody, ExtractionRunDetail, ExtractionUnit } from '@pb/contracts';
 import { asSystemActor, schema } from '@pb/db';
 import type { Tx } from '@pb/db';

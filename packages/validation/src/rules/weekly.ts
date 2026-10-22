@@ -1,4 +1,4 @@
-import { D, daysBetween } from '@pb/calc';
+import { D, daysBetween, isCalendarDate } from '@pb/calc';
 import type { Decimal } from '@pb/calc';
 import { z } from 'zod';
 import { parseCsv } from '../csv.js';
@@ -7,7 +7,6 @@ import type { LinkResult } from '../linking.js';
 import { IntakeSettingsError } from '../settings.js';
 import { finding } from '../types.js';
 import type { Finding, Rule } from '../types.js';
-import { isCalendarDate } from '@pb/calc';
 import { digitsOf } from './accounting.js';
 
 /*

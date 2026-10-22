@@ -24,7 +24,6 @@ import {
   extractionRunCommandBody,
   extractionRunDetail,
   extractionRunListQuery,
-  isQuarterEnd,
   MONEY_UNITS,
   monitoringBoard,
   monitoringBoardQuery,
@@ -165,21 +164,17 @@ const operation = (method: string, path: string): Record<string, unknown> => {
 describe('quarter ends', () => {
   it('accepts the four quarter ends and refuses any other day, with one plain message', () => {
     for (const day of ['2024-03-31', '2024-06-30', '2024-09-30', '2024-12-31', '2000-12-31']) {
-      expect(isQuarterEnd(day), day).toBe(true);
       expect(quarterEndDate.safeParse(day).success, day).toBe(true);
     }
     for (const day of ['2024-06-29', '2024-02-29', '2024-07-01', '2024-12-30']) {
-      expect(isQuarterEnd(day), day).toBe(false);
       const result = quarterEndDate.safeParse(day);
       expect(result.success, day).toBe(false);
       expect(result.error?.issues.map((i) => i.message)).toEqual(['Not a quarter end']);
     }
-    // An impossible date is reported once, as a date, and the calendar never judges it a quarter end.
+    // An impossible date is reported once, as a date, never as a quarter end.
     const impossible = quarterEndDate.safeParse('2024-06-31');
     expect(impossible.success).toBe(false);
     expect(impossible.error?.issues.map((i) => i.message)).toEqual(['Not a real calendar date']);
-    expect(isQuarterEnd('2024-06-31')).toBe(false);
-    expect(isQuarterEnd('June 2024')).toBe(false);
   });
 });
 
