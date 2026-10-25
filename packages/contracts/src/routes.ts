@@ -17,6 +17,11 @@ export interface RouteDefinition {
   responseStatus?: number;
   /** The success body's media type; application/json unless a route serves a file such as a CSV export. */
   responseContentType?: 'application/json' | 'text/csv';
+  /**
+   * The route accepts an Idempotency-Key header and a repeat returns the original result (docs/17
+   * section 3): every command and create that changes a financial record.
+   */
+  idempotent?: boolean;
 }
 
 export const API_PREFIX = '/api/v1';

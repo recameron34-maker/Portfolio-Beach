@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { capitalNoticeCommandBody, valuationCommandBody, valuationCreateBody } from './controls.js';
 import type { RouteDefinition } from './routes.js';
 import { API_PREFIX } from './routes.js';
 import * as s from './schemas.js';
@@ -11,42 +12,18 @@ import * as s from './schemas.js';
  * cover only what the API serves.
  */
 
-export const valuationCommand = z.enum([
-  'prepare',
-  'sendBack',
-  'dealTeamApprove',
-  'lock',
-  'reopen',
-]);
-export type ValuationCommand = z.infer<typeof valuationCommand>;
-
-export const valuationCreateBody = z
-  .object({
-    investmentId: s.uuid,
-    periodEnd: s.isoDate,
-    method: z.string().min(1),
-    fairValue: s.decimalString,
-  })
-  .strict();
-
-export const valuationCommandBody = z
-  .object({ command: valuationCommand, reason: z.string().min(3).optional() })
-  .strict();
-
-export const capitalNoticeCommand = z.enum([
-  'extract',
-  'review',
-  'draftTicket',
-  'approveTicket',
-  'wireChanged',
-  'confirmFunding',
-  'reconcile',
-]);
-export type CapitalNoticeCommand = z.infer<typeof capitalNoticeCommand>;
-
-export const capitalNoticeCommandBody = z
-  .object({ command: capitalNoticeCommand, reason: z.string().min(3).optional() })
-  .strict();
+/**
+ * The valuation and capital notice bodies live in controls.ts since Phase 3 (decision 0013) and
+ * are re-exported here so nothing that imported them from this module breaks.
+ */
+export {
+  capitalNoticeCommand,
+  capitalNoticeCommandBody,
+  valuationCommand,
+  valuationCommandBody,
+  valuationCreateBody,
+} from './controls.js';
+export type { CapitalNoticeCommand, ValuationCommand } from './controls.js';
 
 export const previewResetResult = z.object({ reset: z.literal(true) });
 

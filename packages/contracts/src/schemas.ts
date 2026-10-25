@@ -1357,7 +1357,7 @@ export type DataExceptionCommandBody = z.infer<typeof dataExceptionCommandBody>;
 /* ---- Config files the intakes read (rule 9: config over code) ---- */
 
 /** A taxonomy code of one domain, such as sector.software: the domain, a dot, then the code. */
-const taxonomyCodeOf = (domain: string): z.ZodString =>
+export const taxonomyCodeOf = (domain: string): z.ZodString =>
   z.string().regex(new RegExp(`^${domain}\\.[a-z0-9_]+$`));
 
 /**

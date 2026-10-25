@@ -7,7 +7,12 @@ import {
   valueChange,
 } from '@pb/calc';
 import definitions from '../../../../../config/definitions.json';
-import { investmentDetail, valuationCommandBody, valuationCreateBody } from '@pb/contracts';
+import {
+  investmentDetail,
+  valuationCommandBody,
+  valuationCreateBody,
+  valuationLockText,
+} from '@pb/contracts';
 import type { InvestmentDetail, ValuationRow } from '@pb/contracts';
 import { attempt, valuationMachine } from '@pb/workflows';
 import { closedByLock, isInFlight } from '../../pages/valuations/board.js';
@@ -49,18 +54,12 @@ export function isPositiveDecimal(value: string): boolean {
   return POSITIVE_DECIMAL.test(value) && /[1-9]/.test(value);
 }
 
-/** JSON with sorted keys and no spaces, so the same inputs always hash the same. */
-export function canonicalJson(value: Readonly<Record<string, string | number>>): string {
-  return `{${Object.keys(value)
-    .sort()
-    .map((k) => `${JSON.stringify(k)}:${JSON.stringify(value[k])}`)
-    .join(',')}}`;
-}
-
-/** The lock hash covers the inputs and the value (docs/18 section 1). */
+/**
+ * The lock hash covers the inputs and the value (docs/18 section 1): SHA-256 over the text
+ * @pb/contracts fixes (valuationLockText), the same text the API hashes with node:crypto.
+ */
 export function lockHashOf(row: ValuationRow): Promise<string> {
-  const { investmentId, periodEnd, version, method, fairValue } = row;
-  return sha256Hex(canonicalJson({ investmentId, periodEnd, version, method, fairValue }));
+  return sha256Hex(valuationLockText(row));
 }
 
 type VersionEntry = InvestmentDetail['valuations'][number];
