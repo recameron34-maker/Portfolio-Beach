@@ -1,12 +1,33 @@
+import { writeFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { D, addDays, daysBetween } from '@pb/calc';
+import type { Principal } from '@pb/adapters';
+import { D, addDays, daysBetween, toDecimalString } from '@pb/calc';
 import {
-  capitalNoticeDetail,
+  capitalNoticeControlDetail,
   capitalNoticePage,
+  commitmentList,
+  documentPage,
+  investmentDetail,
   problemDetails,
+  tradeTicketPage,
+  tradeTicketRow,
   weeklyReport,
+  wireInstructionDetail,
+  wireInstructionPage,
 } from '@pb/contracts';
-import type { CapitalNoticeDetail, CapitalNoticePage, CapitalNoticeRow } from '@pb/contracts';
+import type {
+  CapitalNoticeControlDetail,
+  CapitalNoticePage,
+  CapitalNoticeRow,
+  TradeTicketRow,
+  WireInstructionRow,
+} from '@pb/contracts';
+import { SYSTEM_USER_ID } from '@pb/db';
+import { writePdf } from '@pb/pdf';
+import { capitalNoticeMachine, forbiddenPairs } from '@pb/workflows';
+import { CapitalService } from '../capital/capital.service.js';
+import { ProblemError } from '../common/problem.js';
 import { startHarness } from './harness.js';
 import type { Harness } from './harness.js';
 
@@ -34,8 +55,8 @@ describe('capital activity (M16)', () => {
     id: string,
     query = '',
     requestId = 'req-notice-detail',
-  ): Promise<CapitalNoticeDetail> =>
-    capitalNoticeDetail.parse(
+  ): Promise<CapitalNoticeControlDetail> =>
+    capitalNoticeControlDetail.parse(
       (
         await h
           .http()
@@ -230,9 +251,18 @@ describe('capital activity (M16)', () => {
         'Wire instructions changed on Jun 30, 2025; release is held until Jul 30, 2025 (SEC-12.3).',
         'No cash flow has been recorded for this notice.',
       ]);
-      // Never a bank detail: the payload has the contract's keys only.
-      expect(Object.keys(open).sort()).toEqual(Object.keys(capitalNoticeDetail.shape).sort());
-      expect(JSON.stringify(open)).not.toMatch(/iban|swift|routing|account number|bank/i);
+      // Never a bank detail: the payload has the contract's keys only, and the active instruction
+      // it carries is the masked form (the bank's name and the last four digits, nothing more).
+      expect(Object.keys(open).sort()).toEqual(
+        Object.keys(capitalNoticeControlDetail.shape).sort(),
+      );
+      expect(JSON.stringify(open)).not.toMatch(
+        /accountNumber|routingCode|iban|swift|account number/i,
+      );
+      for (const w of h.dataset.wireInstructions!) {
+        expect(JSON.stringify(open)).not.toContain(w.bankDetails.accountNumber);
+        expect(JSON.stringify(open)).not.toContain(w.bankDetails.routingCode);
+      }
       expect(JSON.stringify(open)).not.toContain(String.fromCharCode(0x2014));
 
       // On or after the hold end the hold is gone and the note with it.
@@ -438,6 +468,888 @@ describe('capital activity (M16)', () => {
       const byId = new Map(rows.map((n) => [n.id, n]));
       expect(report.capitalActivity.length).toBeGreaterThan(0);
       for (const n of report.capitalActivity) expect(n).toEqual(byId.get(n.id));
+    });
+  });
+
+  describe('controls: notice commands, trade tickets and alerts (docs/18 section 3, SEC-12, journey 4)', () => {
+    const PROBLEM = 'https://portfolio-beach.example/problems/';
+    const NO_SUCH_ID = '00000000-0000-4000-8000-00000000abcd';
+    const APPROVED = 'record_status.approved';
+    const user = (externalId: string) => h.dataset.users.find((u) => u.externalId === externalId)!;
+    const now = (): string => h.runtime.adapters.clock.now();
+    const noticeById = (id: string) => h.dataset.capitalNotices.find((n) => n.id === id)!;
+    const fundOfNotice = (n: { investmentId: string | null; commitmentId: string | null }) =>
+      n.investmentId !== null
+        ? h.dataset.investments.find((i) => i.id === n.investmentId)!.sponsorFundId
+        : h.dataset.commitments.find((c) => c.id === n.commitmentId)!.sponsorFundId;
+    const fundName = (fundId: string) => h.dataset.sponsorFunds.find((f) => f.id === fundId)!.name;
+    const get = (who: string, path: string, requestId = 'req-ctl-get') =>
+      h.http().get(path).set('authorization', h.as(who)).set('x-request-id', requestId);
+    const control = async (
+      who: string,
+      id: string,
+      query = '',
+      requestId = 'req-ctl-detail',
+    ): Promise<CapitalNoticeControlDetail> =>
+      capitalNoticeControlDetail.parse(
+        (await get(who, `/api/v1/capital-notices/${id}${query}`, requestId).expect(200)).body,
+      );
+    const command = (
+      who: string,
+      id: string,
+      body: object,
+      requestId = 'req-ctl-command',
+      ifMatch?: string,
+    ) => {
+      let req = h
+        .http()
+        .post(`/api/v1/capital-notices/${id}/commands`)
+        .set('authorization', h.as(who))
+        .set('x-request-id', requestId);
+      if (ifMatch !== undefined) req = req.set('if-match', ifMatch);
+      return req.send(body);
+    };
+    const ok = async (
+      who: string,
+      id: string,
+      body: object,
+      requestId?: string,
+    ): Promise<CapitalNoticeControlDetail> =>
+      capitalNoticeControlDetail.parse((await command(who, id, body, requestId).expect(200)).body);
+    const refused = async (
+      who: string,
+      id: string,
+      body: object,
+      status: number,
+      code: string,
+      requestId?: string,
+    ) => {
+      const res = await command(who, id, body, requestId).expect(status);
+      const problem = problemDetails.parse(res.body);
+      expect(problem.type, JSON.stringify(body)).toBe(`${PROBLEM}${code}`);
+      return problem;
+    };
+    const wireList = async (who: string, query: string): Promise<WireInstructionRow[]> =>
+      wireInstructionPage.parse(
+        (await get(who, `/api/v1/wire-instructions${query}`).expect(200)).body,
+      ).items;
+    const wirePropose = (who: string, body: object, requestId = 'req-ctl-propose') =>
+      h
+        .http()
+        .post('/api/v1/wire-instructions')
+        .set('authorization', h.as(who))
+        .set('x-request-id', requestId)
+        .send(body);
+    const wireCommand = (who: string, id: string, body: object) =>
+      h
+        .http()
+        .post(`/api/v1/wire-instructions/${id}/commands`)
+        .set('authorization', h.as(who))
+        .set('x-request-id', 'req-ctl-wire-command')
+        .send(body);
+    const tickets = async (who: string, query = '') =>
+      tradeTicketPage.parse((await get(who, `/api/v1/trade-tickets${query}`).expect(200)).body);
+    const ticketOf = (who: string, id: string, requestId = 'req-ctl-ticket') =>
+      get(who, `/api/v1/trade-tickets/${id}`, requestId);
+    const walkTickets = async (
+      who: string,
+      limit: number,
+      query = '',
+    ): Promise<TradeTicketRow[]> => {
+      const rows: TradeTicketRow[] = [];
+      let cursor: string | null = null;
+      let pages = 0;
+      do {
+        const after: string = cursor === null ? '' : `&cursor=${cursor}`;
+        const page = await tickets(who, `?limit=${limit}${query}${after}`);
+        rows.push(...page.items);
+        cursor = page.nextCursor;
+        pages += 1;
+      } while (cursor !== null && pages < 100);
+      return rows;
+    };
+    const sqlRows = <T extends object>(text: string, params: unknown[] = []): Promise<T[]> =>
+      h.runtime.db.query<T>(text, params);
+    const auditRows = (
+      action: string,
+      requestId: string,
+    ): Promise<{ entity_id: string; reason: string | null; details: Record<string, unknown> }[]> =>
+      sqlRows(
+        'select entity_id, reason, details from audit.event where action = $1 and request_id = $2 order by id',
+        [action, requestId],
+      );
+    const commitmentsRow = async (commitmentId: string) =>
+      commitmentList
+        .parse(
+          (await get('ops.one', `/api/v1/commitments?asOf=${h.dataset.asOf}`).expect(200)).body,
+        )
+        .items.find((r) => r.id === commitmentId)!;
+    const investedOf = async (investmentId: string): Promise<string | null> =>
+      investmentDetail.parse(
+        (
+          await get('ops.one', `/api/v1/investments/${investmentId}?asOf=${h.dataset.asOf}`).expect(
+            200,
+          )
+        ).body,
+      ).invested;
+    const insertNotice = async (fields: {
+      noticeType: string;
+      vehicleId: string;
+      investmentId: string | null;
+      commitmentId: string | null;
+      issueDate: string;
+      dueDate: string;
+      amount: string;
+      state: string;
+      sourceDocumentId?: string;
+    }): Promise<string> => {
+      const [row] = await sqlRows<{ id: string }>(
+        `insert into mon.capital_notice
+           (notice_type, vehicle_id, investment_id, commitment_id, issue_date, due_date, amount, state, source_document_id)
+         values ($1, $2, $3, $4, $5, $6, $7, $8::mon.capital_notice_state, $9)
+         returning id`,
+        [
+          fields.noticeType,
+          fields.vehicleId,
+          fields.investmentId,
+          fields.commitmentId,
+          fields.issueDate,
+          fields.dueDate,
+          fields.amount,
+          fields.state,
+          fields.sourceDocumentId ?? null,
+        ],
+      );
+      return row!.id;
+    };
+    const freshDetails = (accountNumber: string) => ({
+      bankName: 'Meridian Clearing',
+      accountName: 'Synthetic counterparty',
+      accountNumber,
+      routingCode: '021000021',
+    });
+    /** A Verified active instruction for the fund, proposing and verifying one when the seed has none. */
+    const verifiedFor = async (fundId: string): Promise<void> => {
+      const rows = await wireList('ops.one', `?sponsorFundId=${fundId}&limit=200`);
+      if (rows.some((r) => r.active)) return;
+      const created = wireInstructionDetail.parse(
+        (
+          await wirePropose('ops.one', {
+            sponsorFundId: fundId,
+            counterpartyName: fundName(fundId),
+            bankDetails: freshDetails('4455667788'),
+          }).expect(201)
+        ).body,
+      );
+      await wireCommand('ops.two', created.id, {
+        command: 'verify',
+        callbackNumberSource: 'prior_instruction',
+        callbackResult: 'confirmed',
+      }).expect(200);
+    };
+    const expectNoSecret = (payload: unknown): void => {
+      const text = JSON.stringify(payload);
+      for (const w of h.dataset.wireInstructions!) {
+        expect(text).not.toContain(w.bankDetails.accountNumber);
+        expect(text).not.toContain(w.bankDetails.routingCode);
+      }
+      expect(text).not.toMatch(/accountNumber|routingCode/);
+    };
+    const systemPrincipal: Principal = {
+      userId: SYSTEM_USER_ID,
+      externalId: 'system',
+      displayName: 'System',
+      roles: ['service'],
+      clientIds: [],
+    };
+    const verifyBody = {
+      command: 'verify',
+      callbackNumberSource: 'sponsor_website',
+      callbackResult: 'confirmed',
+    };
+
+    it('shows the ticket panel, the active instruction (masked) and the SEC-12.4 alerts on the notice detail', async () => {
+      const wc = tagged('wire_change');
+      const open = await control('ops.one', wc.id);
+      expect(open.state).toBe('Extracted');
+      expect(open.ticket).toMatchObject({
+        state: 'Drafted',
+        amount: wc.amount,
+        fundingDate: wc.dueDate,
+        approvedBy: null,
+        approvedAt: null,
+        wireInstruction: null,
+        release: { allowed: false, blockers: ['changed_within_hold', 'same_person'] },
+      });
+      expect(open.ticket!.preparedBy.id).toBe(user('ops.one').id);
+      expect((await control('head.one', wc.id)).ticket!.release).toEqual({
+        allowed: false,
+        blockers: ['changed_within_hold'],
+      });
+      expect(open.activeWireInstruction).toMatchObject({
+        version: 1,
+        state: 'Verified',
+        active: true,
+      });
+      expect(open.activeWireInstruction!.bankDetailsMasked).toMatch(/^.+ \*{4}\d{4}$/);
+      expect('bankDetails' in open.activeWireInstruction!).toBe(false);
+      expect(open.alerts).toEqual(['wire_changed', 'urgency_language']);
+      expect(open.wireChangeHold).toEqual({ until: addDays(h.dataset.asOf, 30), holdDays: 30 });
+      expectNoSecret(open);
+
+      // Every reader of the notice sees the same notice-level facts, masked.
+      const asViewer = await control('viewer.one', wc.id);
+      expect(asViewer.activeWireInstruction?.id).toBe(open.activeWireInstruction!.id);
+      expect(asViewer.alerts).toEqual(open.alerts);
+      expect(asViewer.wireChangeHold).toEqual(open.wireChangeHold);
+      expect(asViewer.ticket?.id).toBe(open.ticket!.id);
+
+      // The due date is judged in business days against the as-of date: due on Wednesday, read
+      // on Monday is two business days away (no alert), read on Tuesday is one (alert).
+      expect(wc.dueDate).toBe(addDays(h.dataset.asOf, 2));
+      const soon = await control('ops.one', wc.id, `?asOf=${addDays(h.dataset.asOf, 1)}`);
+      expect(soon.alerts).toEqual([
+        'wire_changed',
+        'urgency_language',
+        'due_within_two_business_days',
+      ]);
+
+      // A reconciled call of a verified counterparty has nothing to flag.
+      const funded = h.dataset.tradeTickets!.find((t) => t.state === 'Funded')!;
+      const settled = await control('ops.one', funded.capitalNoticeId);
+      expect(settled.alerts).toEqual([]);
+      expect(settled.ticket).toMatchObject({
+        state: 'Funded',
+        release: { allowed: false, blockers: [] },
+        wireInstruction: { id: funded.wireInstructionId },
+      });
+      expect(settled.ticket!.approvedBy!.id).toBe(user('head.one').id);
+
+      // A notice whose counterparty has no instruction at all carries the unverified alert.
+      const registered = new Set(h.dataset.wireInstructions!.map((w) => w.sponsorFundId));
+      const bare = seeded(false).find((n) => !registered.has(fundOfNotice(n)))!;
+      expect((await control('ops.one', bare.id)).alerts).toContain('unverified_instruction');
+
+      await withConfig(setNested('capitalActivity', 'dueSoonBusinessDays', undefined), async () =>
+        expectProblem(`/api/v1/capital-notices/${wc.id}`, 500, 'configuration'),
+      );
+    });
+
+    it('journey 4 over the API: review, draft, the hold, the callback by a second person, dual control, funding, reconciliation', async () => {
+      const wc = tagged('wire_change');
+      const fund = fundOfNotice(wc)!;
+      const seededTicket = h.dataset.tradeTickets!.find((t) => t.capitalNoticeId === wc.id)!;
+      const invested0 = await investedOf(wc.investmentId!);
+
+      // review is operations' step; the route guard refuses roles outside the command route.
+      await refused('head.one', wc.id, { command: 'review' }, 403, 'forbidden');
+      for (const who of ['viewer.one', 'deal.one', 'ir.one', 'audit.one'])
+        await command(who, wc.id, { command: 'review' }).expect(403);
+      await refused('ops.one', wc.id, { command: 'review', shout: true }, 400, 'validation');
+      await refused('ops.one', wc.id, { command: 'sign' }, 400, 'validation');
+      const reviewed = await ok('ops.one', wc.id, { command: 'review' }, 'req-j4-review');
+      expect(reviewed.state).toBe('Reviewed');
+      expect(reviewed.alerts).toEqual(['wire_changed', 'urgency_language']);
+      expect((await auditRows('capital_notice.review', 'req-j4-review'))[0]!.details).toMatchObject(
+        {
+          state: { before: 'Extracted', after: 'Reviewed' },
+        },
+      );
+
+      // The notice already carries a ticket: draftTicket re-drafts it, never a second one.
+      const drafted = await ok(
+        'ops.one',
+        wc.id,
+        { command: 'draftTicket', fundingDate: h.dataset.asOf },
+        'req-j4-draft',
+      );
+      expect(drafted.state).toBe('TicketDrafted');
+      expect(drafted.ticket).toMatchObject({
+        id: seededTicket.id,
+        state: 'Drafted',
+        fundingDate: h.dataset.asOf,
+        amount: wc.amount,
+        preparedAt: now(),
+      });
+      expect(drafted.ticket!.preparedBy.id).toBe(user('ops.one').id);
+      expect(
+        (
+          await sqlRows<{ n: number }>(
+            'select count(*)::int as n from mon.trade_ticket where capital_notice_id = $1',
+            [wc.id],
+          )
+        )[0]!.n,
+      ).toBe(1);
+
+      // Dual control and the hold (SEC-12.3): the drafter cannot approve; nobody can while a
+      // changed instruction waits for its callback.
+      const samePerson = await refused(
+        'ops.one',
+        wc.id,
+        { command: 'approveTicket' },
+        422,
+        'workflow-precondition',
+      );
+      expect(samePerson.detail).toContain('preparer cannot approve');
+      expect(samePerson.detail).toContain('SEC-12.3');
+      const held = await refused(
+        'head.one',
+        wc.id,
+        { command: 'approveTicket' },
+        422,
+        'workflow-precondition',
+      );
+      expect(held.detail).toContain('changed recently');
+      expect(held.detail).toContain('SEC-12.3');
+      expect((await control('head.one', wc.id)).state).toBe('TicketDrafted');
+
+      // The callback by a second person (SEC-12.2) verifies the changed instruction and lifts the hold.
+      const [v2] = await wireList('ops.one', `?sponsorFundId=${fund}&state=Proposed`);
+      expect(v2).toMatchObject({ version: 2, state: 'Proposed' });
+      const ownCallback = problemDetails.parse(
+        (await wireCommand('ops.one', v2!.id, verifyBody).expect(422)).body,
+      );
+      expect(ownCallback.detail).toContain('SEC-12.2');
+      await wireCommand('ops.two', v2!.id, verifyBody).expect(200);
+      const afterCallback = await control('head.one', wc.id);
+      expect(afterCallback.activeWireInstruction).toMatchObject({
+        id: v2!.id,
+        version: 2,
+        state: 'Verified',
+        active: true,
+      });
+      expect(afterCallback.wireChangeHold).toBeNull();
+      expect(afterCallback.notes).toEqual(['No cash flow has been recorded for this notice.']);
+      expect(afterCallback.ticket!.release).toEqual({ allowed: true, blockers: [] });
+      expect(afterCallback.alerts).toEqual(['wire_changed', 'urgency_language']);
+
+      await refused('ops.one', wc.id, { command: 'approveTicket' }, 422, 'workflow-precondition');
+      const approved = await ok('head.one', wc.id, { command: 'approveTicket' }, 'req-j4-approve');
+      expect(approved.state).toBe('TicketApproved');
+      expect(approved.ticket).toMatchObject({
+        state: 'Approved',
+        approvedAt: now(),
+        wireInstruction: { id: v2!.id, version: 2, state: 'Verified' },
+        release: { allowed: true, blockers: [] },
+      });
+      expect(approved.ticket!.approvedBy!.id).toBe(user('head.one').id);
+      expect(approved.ticket!.wireInstruction!.bankDetailsMasked).toBe(v2!.bankDetailsMasked);
+      const approveEvent = (await auditRows('capital_notice.approveTicket', 'req-j4-approve'))[0]!;
+      expect(approveEvent.details).toMatchObject({
+        state: { before: 'TicketDrafted', after: 'TicketApproved' },
+        ticket: {
+          before: { state: 'Drafted', approvedBy: null, wireInstructionId: null },
+          after: { state: 'Approved', approvedBy: user('head.one').id, wireInstructionId: v2!.id },
+        },
+      });
+      expectNoSecret(approveEvent);
+      const [ticketRow] = await sqlRows<{ updated_by: string; approved_by: string }>(
+        'select updated_by, approved_by from mon.trade_ticket where id = $1',
+        [seededTicket.id],
+      );
+      expect(ticketRow).toEqual({
+        updated_by: user('head.one').id,
+        approved_by: user('head.one').id,
+      });
+      expect(
+        tradeTicketRow.parse((await ticketOf('audit.one', seededTicket.id).expect(200)).body)
+          .release,
+      ).toEqual({ allowed: true, blockers: [] });
+
+      // A new version proposed while the ticket is approved returns it to draft and flags the notice.
+      const v3 = wireInstructionDetail.parse(
+        (
+          await wirePropose(
+            'ops.one',
+            {
+              sponsorFundId: fund,
+              counterpartyName: fundName(fund),
+              bankDetails: freshDetails('7788990011'),
+              sourceNote: 'A second letter, typed in',
+            },
+            'req-j4-propose',
+          ).expect(201)
+        ).body,
+      );
+      expect(v3.version).toBe(3);
+      const back = await control('head.one', wc.id);
+      expect(back.state).toBe('TicketDrafted');
+      expect(back.ticket).toMatchObject({
+        state: 'Drafted',
+        approvedBy: null,
+        approvedAt: null,
+        wireInstruction: null,
+        release: { allowed: false, blockers: ['changed_within_hold'] },
+      });
+      expect(back.wireChangeHold).toEqual({ until: addDays(h.dataset.asOf, 30), holdDays: 30 });
+      expect(back.alerts).toContain('wire_changed');
+      const changedEvents = await auditRows('capital_notice.wireChanged', 'req-j4-propose');
+      expect(changedEvents.length).toBe(1);
+      expect(changedEvents[0]!.entity_id).toBe(wc.id);
+      expect(changedEvents[0]!.reason).toBe('new wire instruction version proposed');
+      expect(changedEvents[0]!.details).toMatchObject({
+        state: { before: 'TicketApproved', after: 'TicketDrafted' },
+        ticket: {
+          before: { state: 'Approved' },
+          after: { state: 'Drafted', wireInstructionId: null },
+        },
+      });
+      await refused('head.one', wc.id, { command: 'approveTicket' }, 422, 'workflow-precondition');
+
+      // A change the callback refused is not a change: the active version stands, the hold lifts.
+      await wireCommand('ops.two', v3.id, {
+        command: 'reject',
+        callbackNumberSource: 'known_contact',
+        callbackResult: 'not_confirmed',
+        reason: 'the sponsor did not recognise the new account',
+      }).expect(200);
+      expect((await control('head.one', wc.id)).wireChangeHold).toBeNull();
+      expect((await ok('head.one', wc.id, { command: 'approveTicket' })).state).toBe(
+        'TicketApproved',
+      );
+
+      // A person records a wire change with a reason (the service path names its own).
+      const noReason = await refused(
+        'ops.one',
+        wc.id,
+        { command: 'wireChanged' },
+        422,
+        'workflow-precondition',
+      );
+      expect(noReason.detail).toContain('reason');
+      await refused(
+        'head.one',
+        wc.id,
+        { command: 'wireChanged', reason: 'approvers do not' },
+        403,
+        'forbidden',
+      );
+      const manual = await ok(
+        'ops.one',
+        wc.id,
+        { command: 'wireChanged', reason: 'The sponsor phoned about a new account' },
+        'req-j4-manual',
+      );
+      expect(manual.state).toBe('TicketDrafted');
+      expect(manual.ticket!.state).toBe('Drafted');
+      expect((await auditRows('capital_notice.wireChanged', 'req-j4-manual'))[0]!.reason).toBe(
+        'The sponsor phoned about a new account',
+      );
+      expect((await ok('head.one', wc.id, { command: 'approveTicket' })).state).toBe(
+        'TicketApproved',
+      );
+
+      // Funding is operations' confirmation against the Approved ticket.
+      await refused('head.one', wc.id, { command: 'confirmFunding' }, 403, 'forbidden');
+      const fundedNotice = await ok(
+        'ops.one',
+        wc.id,
+        { command: 'confirmFunding' },
+        'req-j4-funded',
+      );
+      expect(fundedNotice.state).toBe('Funded');
+      expect(fundedNotice.ticket).toMatchObject({
+        state: 'Funded',
+        release: { allowed: false, blockers: [] },
+      });
+      expect(fundedNotice.alerts).toEqual(['wire_changed', 'urgency_language']);
+      const [fundedRow] = await sqlRows<{ funded_by: string; funded_at: string | null }>(
+        'select funded_by, funded_at from mon.capital_notice where id = $1',
+        [wc.id],
+      );
+      expect(fundedRow!.funded_by).toBe(user('ops.one').id);
+      expect(fundedRow!.funded_at).not.toBeNull();
+      expect(
+        (await auditRows('capital_notice.confirmFunding', 'req-j4-funded'))[0]!.details,
+      ).toMatchObject({
+        state: { before: 'TicketApproved', after: 'Funded' },
+        ticket: { before: { state: 'Approved' }, after: { state: 'Funded' } },
+      });
+
+      // Reconciliation writes the one approved cash flow, sourced to the notice (rules 5 and 6).
+      await refused('head.one', wc.id, { command: 'reconcile' }, 403, 'forbidden');
+      const reconciled = await ok(
+        'ops.one',
+        wc.id,
+        { command: 'reconcile', reason: 'Wire confirmed by the bank' },
+        'req-j4-reconcile',
+      );
+      expect(reconciled.state).toBe('Reconciled');
+      expect(reconciled.cashFlows).toEqual([
+        {
+          date: h.dataset.asOf,
+          flowType: 'flow_type.contribution',
+          amount: '-2500000.00',
+          status: APPROVED,
+        },
+      ]);
+      expect(reconciled.settledAmount).toBe('2500000.00');
+      expect(reconciled.notes).toEqual([]);
+      expect(reconciled.alerts).toEqual(['wire_changed', 'urgency_language']);
+      const [flowRow] = await sqlRows<{
+        approved_by: string;
+        approval_reason: string;
+        investment_id: string;
+        commitment_id: string | null;
+        status: string;
+      }>(
+        'select approved_by, approval_reason, investment_id, commitment_id, status from mon.cash_flow where source_notice_id = $1',
+        [wc.id],
+      );
+      expect(flowRow).toEqual({
+        approved_by: user('ops.one').id,
+        approval_reason: 'Wire confirmed by the bank',
+        investment_id: wc.investmentId,
+        commitment_id: null,
+        status: APPROVED,
+      });
+      const reconcileEvent = (await auditRows('capital_notice.reconcile', 'req-j4-reconcile'))[0]!;
+      expect(reconcileEvent.reason).toBe('Wire confirmed by the bank');
+      expect(reconcileEvent.details).toMatchObject({
+        state: { before: 'Funded', after: 'Reconciled' },
+        cashFlow: {
+          flowType: 'flow_type.contribution',
+          amount: '-2500000',
+          flowDate: h.dataset.asOf,
+        },
+      });
+      // The position's invested capital grew by the call: the readers see approved flows only.
+      const invested1 = await investedOf(wc.investmentId!);
+      expect(
+        D(invested1!)
+          .minus(invested0 ?? '0')
+          .equals(D('2500000')),
+      ).toBe(true);
+      // Reconciled is terminal.
+      await refused('ops.one', wc.id, { command: 'reconcile' }, 409, 'workflow-transition');
+      await refused('ops.one', wc.id, { command: 'review' }, 409, 'workflow-transition');
+      expectNoSecret(reconciled);
+    });
+
+    it('reconciles a commitment call and reduces unfunded by exactly the amount; the equalization sequence stays reconciled and ties', async () => {
+      // Both notices of the sequence carry the tag; the credit is the equalization notice itself.
+      const eq2 = h.dataset.capitalNotices.find(
+        (n) => n.scenarioTag === 'equalization' && n.noticeType === 'notice_type.equalization',
+      )!;
+      const commitmentId = eq2.commitmentId!;
+      const before = await commitmentsRow(commitmentId);
+      expect(before.clientName).toBeNull();
+      expect(before.unfunded).toBe(
+        toDecimalString(D(before.amount).minus(before.called!).plus(before.recallable!)),
+      );
+      // The equalization credit is the recallable the synthetic sequence booked.
+      expect(D(before.recallable!).gte('1000000')).toBe(true);
+      const eqDetail = await control('ops.one', eq2.id);
+      expect(eqDetail.state).toBe('Reconciled');
+      expect(eqDetail.settledAmount).toBe('1000000.00');
+      expect(eqDetail.cashFlows.map((f) => f.flowType)).toEqual(['flow_type.recallable']);
+      expect(eqDetail.alerts).not.toContain('due_within_two_business_days');
+
+      const fund = fundOfNotice(eq2)!;
+      await verifiedFor(fund);
+      const id = await insertNotice({
+        noticeType: 'notice_type.capital_call',
+        vehicleId: eq2.vehicleId,
+        investmentId: null,
+        commitmentId,
+        issueDate: addDays(h.dataset.asOf, -3),
+        dueDate: h.dataset.asOf,
+        amount: '300000.00',
+        state: 'Reviewed',
+      });
+      const drafted = await ok('ops.one', id, { command: 'draftTicket' });
+      expect(drafted.ticket).toMatchObject({ amount: '300000.00', fundingDate: h.dataset.asOf });
+      expect((await ok('head.one', id, { command: 'approveTicket' })).state).toBe('TicketApproved');
+      expect((await ok('ops.one', id, { command: 'confirmFunding' })).state).toBe('Funded');
+      const done = await ok('ops.one', id, { command: 'reconcile' });
+      expect(done.state).toBe('Reconciled');
+      expect(done.cashFlows).toEqual([
+        {
+          date: h.dataset.asOf,
+          flowType: 'flow_type.contribution',
+          amount: '-300000.00',
+          status: APPROVED,
+        },
+      ]);
+      expect(done.settledAmount).toBe('300000.00');
+      // Reconciling twice can never count the call twice.
+      await refused('ops.one', id, { command: 'reconcile' }, 409, 'workflow-transition');
+
+      const after = await commitmentsRow(commitmentId);
+      expect(D(before.unfunded!).minus(after.unfunded!).equals(D('300000'))).toBe(true);
+      expect(D(after.called!).minus(before.called!).equals(D('300000'))).toBe(true);
+      expect(after.recallable).toBe(before.recallable);
+      expect(after.unfunded).toBe(
+        toDecimalString(D(after.amount).minus(after.called!).plus(after.recallable!)),
+      );
+    });
+
+    it('trade tickets: the list and the detail follow the notice wall and carry release blockers (SEC-12.3)', async () => {
+      for (const who of ['viewer.one', 'ir.one']) {
+        await get(who, '/api/v1/trade-tickets').expect(403);
+        await ticketOf(who, h.dataset.tradeTickets![0]!.id).expect(403);
+      }
+      await h.http().get('/api/v1/trade-tickets').expect(401);
+      const all = await walkTickets('ops.one', 200);
+      const seededTickets = h.dataset.tradeTickets!;
+      const walled = seededTickets.filter(
+        (t) => noticeById(t.capitalNoticeId).investmentId === walledId(),
+      );
+      const visible = seededTickets.filter((t) => !walled.includes(t));
+      expect(visible.length).toBeGreaterThan(1);
+      const ids = all.map((t) => t.id);
+      for (const t of visible) expect(ids).toContain(t.id);
+      for (const t of walled) {
+        expect(ids).not.toContain(t.id);
+        await ticketOf('ops.one', t.id).expect(404);
+        expect(tradeTicketRow.parse((await ticketOf('deal.three', t.id).expect(200)).body).id).toBe(
+          t.id,
+        );
+      }
+      for (let i = 1; i < all.length; i += 1) {
+        const a = all[i - 1]!;
+        const b = all[i]!;
+        expect(
+          a.fundingDate > b.fundingDate || (a.fundingDate === b.fundingDate && a.id < b.id),
+        ).toBe(true);
+      }
+      const single = (await tickets('ops.one', '?limit=200')).items.map((t) => t.id);
+      expect((await walkTickets('ops.one', 3)).map((t) => t.id)).toEqual(single);
+      const fundedOnly = await walkTickets('ops.one', 200, '&state=Funded');
+      expect(fundedOnly.length).toBe(all.filter((t) => t.state === 'Funded').length);
+      for (const t of all) {
+        if (t.state === 'Funded') {
+          expect(t.release).toEqual({ allowed: false, blockers: [] });
+          expect(t.approvedBy).not.toBeNull();
+          expect(t.approvedBy!.id).not.toBe(t.preparedBy.id);
+          expect(t.wireInstruction).not.toBeNull();
+        }
+      }
+      expectNoSecret(all);
+      expect(JSON.stringify(all)).not.toContain(String.fromCharCode(0x2014));
+
+      await get('ops.one', '/api/v1/trade-tickets?cursor=garbage').expect(400);
+      await get('ops.one', '/api/v1/trade-tickets?state=Paid').expect(400);
+      await ticketOf('ops.one', NO_SUCH_ID).expect(404);
+      await ticketOf('ops.one', 'not-a-uuid').expect(404);
+      const opened = visible[0]!;
+      await ticketOf('audit.one', opened.id, 'req-ctl-ticket-open').expect(200);
+      const reads = await auditRows('trade_ticket.read', 'req-ctl-ticket-open');
+      expect(reads.length).toBe(1);
+      expect(reads[0]!.entity_id).toBe(opened.id);
+    });
+
+    it('extract scans the notice document for urgency language (SEC-12.4); review keeps the flags; a person cannot extract', async () => {
+      const index = (requestId: string) =>
+        h
+          .http()
+          .post('/api/v1/documents/index')
+          .set('authorization', h.as('ops.one'))
+          .set('x-request-id', requestId)
+          .expect(200);
+      await index('req-ctl-index-1');
+      const listDocs = async () =>
+        documentPage.parse((await get('ops.one', '/api/v1/documents?limit=200').expect(200)).body)
+          .items;
+      const callFile = h.documents.documents.find(
+        (d) => d.truth.docType === 'doc_type.capital_call',
+      )!;
+      const calmDoc = (await listDocs()).find((d) => d.fileName === callFile.fileName)!;
+
+      // A notice whose text asks for same-day funds, written into the inbox and indexed.
+      writeFileSync(
+        join(h.runtime.config.PB_DOCUMENT_ROOT, 'inbox', 'urgent-call-notice.pdf'),
+        writePdf({
+          title: 'Capital Call Notice',
+          pages: [
+            {
+              items: [
+                {
+                  kind: 'text',
+                  x: 72,
+                  y: 700,
+                  size: 12,
+                  font: 'Helvetica',
+                  text: 'URGENT: please remit the amount due immediately.',
+                },
+              ],
+            },
+          ],
+        }),
+      );
+      await index('req-ctl-index-2');
+      const urgentDoc = (await listDocs()).find((d) => d.fileName === 'urgent-call-notice.pdf')!;
+
+      const wc = tagged('wire_change');
+      const received = (sourceDocumentId?: string) =>
+        insertNotice({
+          noticeType: 'notice_type.capital_call',
+          vehicleId: wc.vehicleId,
+          investmentId: wc.investmentId,
+          commitmentId: null,
+          issueDate: addDays(h.dataset.asOf, -1),
+          dueDate: addDays(h.dataset.asOf, 5),
+          amount: '150000.00',
+          state: 'Received',
+          ...(sourceDocumentId === undefined ? {} : { sourceDocumentId }),
+        });
+      const calm = await received(calmDoc.id);
+      const loud = await received(urgentDoc.id);
+      const blank = await received();
+
+      // The machine names the system actor for extract: a person is refused (403).
+      await refused('ops.one', loud, { command: 'extract' }, 403, 'forbidden');
+      expect((await control('ops.one', loud)).state).toBe('Received');
+
+      // The service actor cannot sign in (identity.middleware.ts), so the system path is the
+      // service method with the system principal, as a worker would call it.
+      const service = h.app.get(CapitalService);
+      const calmOut = await service.command(systemPrincipal, 'req-ctl-extract-calm', calm, {
+        command: 'extract',
+      });
+      expect(calmOut.state).toBe('Extracted');
+      expect(calmOut.alerts).not.toContain('urgency_language');
+      const loudOut = await service.command(systemPrincipal, 'req-ctl-extract-loud', loud, {
+        command: 'extract',
+      });
+      expect(loudOut.state).toBe('Extracted');
+      expect(loudOut.alerts).toContain('urgency_language');
+      expect(
+        (await auditRows('capital_notice.extract', 'req-ctl-extract-loud'))[0]!.details,
+      ).toMatchObject({
+        state: { before: 'Received', after: 'Extracted' },
+        urgencyFlag: { before: false, after: true },
+      });
+      const [flagRow] = await sqlRows<{ urgency_flag: boolean }>(
+        'select urgency_flag from mon.capital_notice where id = $1',
+        [loud],
+      );
+      expect(flagRow!.urgency_flag).toBe(true);
+      // Neither the text nor the flag reached the log or the event as content.
+      expect(
+        JSON.stringify(await auditRows('capital_notice.extract', 'req-ctl-extract-loud')),
+      ).not.toMatch(/remit|URGENT/);
+
+      // Without an indexed document the notice stays Received (docs/18 section 3).
+      let caught: unknown;
+      try {
+        await service.command(systemPrincipal, 'req-ctl-extract-blank', blank, {
+          command: 'extract',
+        });
+      } catch (error) {
+        caught = error;
+      }
+      expect(caught).toBeInstanceOf(ProblemError);
+      expect((caught as ProblemError).getStatus()).toBe(422);
+      expect((caught as ProblemError).message).toContain('indexed');
+      expect((await control('ops.one', blank)).state).toBe('Received');
+
+      // Review keeps the flags.
+      const reviewed = await ok('ops.one', loud, { command: 'review' });
+      expect(reviewed.state).toBe('Reviewed');
+      expect(reviewed.alerts).toContain('urgency_language');
+
+      // The phrases come from config, never from code.
+      const more = await received(urgentDoc.id);
+      await withConfig(setNested('capitalActivity', 'urgencyPhrases', undefined), async () => {
+        let problem: unknown;
+        try {
+          await service.command(systemPrincipal, 'req-ctl-extract-noconf', more, {
+            command: 'extract',
+          });
+        } catch (error) {
+          problem = error;
+        }
+        expect(problem).toBeInstanceOf(ProblemError);
+        expect((problem as ProblemError).getStatus()).toBe(500);
+        expect((problem as ProblemError).code).toBe('configuration');
+      });
+      expect((await control('ops.one', more)).state).toBe('Received');
+    });
+
+    it('rejects every forbidden state and command pair with 409, unseen notices with 404 and a stale If-Match with 412', async () => {
+      const wc = tagged('wire_change');
+      const scratch = await insertNotice({
+        noticeType: 'notice_type.capital_call',
+        vehicleId: wc.vehicleId,
+        investmentId: wc.investmentId,
+        commitmentId: null,
+        issueDate: addDays(h.dataset.asOf, -2),
+        dueDate: addDays(h.dataset.asOf, 3),
+        amount: '100000.00',
+        state: 'Received',
+      });
+      const bodies: Record<string, object> = {
+        extract: { command: 'extract' },
+        review: { command: 'review' },
+        draftTicket: { command: 'draftTicket' },
+        approveTicket: { command: 'approveTicket' },
+        wireChanged: { command: 'wireChanged', reason: 'a reason for the test' },
+        confirmFunding: { command: 'confirmFunding' },
+        reconcile: { command: 'reconcile' },
+      };
+      const pairs = forbiddenPairs(capitalNoticeMachine);
+      expect(pairs.length).toBeGreaterThan(30);
+      for (const { from, command: cmd } of pairs) {
+        await sqlRows(
+          'update mon.capital_notice set state = $1::mon.capital_notice_state where id = $2',
+          [from, scratch],
+        );
+        const res = await command('ops.one', scratch, bodies[cmd]!).expect(409);
+        expect(problemDetails.parse(res.body).type, `${from} ${cmd}`).toBe(
+          `${PROBLEM}workflow-transition`,
+        );
+        expect(problemDetails.parse(res.body).detail).toContain(
+          `${cmd} is not allowed from ${from}`,
+        );
+      }
+      // An allowed pair for the wrong role is the machine's 403.
+      await sqlRows(
+        'update mon.capital_notice set state = $1::mon.capital_notice_state where id = $2',
+        ['Extracted', scratch],
+      );
+      await refused('head.one', scratch, { command: 'review' }, 403, 'forbidden');
+      // Anything the caller cannot see is 404: the walled notice, an unknown id, a malformed id.
+      const walledNotice = h.dataset.capitalNotices.find((n) => n.investmentId === walledId())!;
+      await command('ops.one', walledNotice.id, { command: 'review' }).expect(404);
+      await command('ops.one', NO_SUCH_ID, { command: 'review' }).expect(404);
+      await command('ops.one', 'not-a-uuid', { command: 'review' }).expect(404);
+      // If-Match: stale is 412, malformed is 400, current writes.
+      const current = await control('ops.one', scratch);
+      const stale = problemDetails.parse(
+        (
+          await command(
+            'ops.one',
+            scratch,
+            { command: 'review' },
+            'req-ctl-stale',
+            `"${current.rowVersion + 5}"`,
+          ).expect(412)
+        ).body,
+      );
+      expect(stale.type).toBe(`${PROBLEM}stale`);
+      expect(stale.detail).toContain(`row version ${current.rowVersion}`);
+      await command(
+        'ops.one',
+        scratch,
+        { command: 'review' },
+        'req-ctl-bad-match',
+        'garbage',
+      ).expect(400);
+      expect((await control('ops.one', scratch)).state).toBe('Extracted');
+      const reviewed = capitalNoticeControlDetail.parse(
+        (
+          await command(
+            'ops.one',
+            scratch,
+            { command: 'review' },
+            'req-ctl-match',
+            `"${current.rowVersion}"`,
+          ).expect(200)
+        ).body,
+      );
+      expect(reviewed.state).toBe('Reviewed');
+      expect(reviewed.rowVersion).toBe(current.rowVersion + 1);
     });
   });
 });
