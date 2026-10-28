@@ -1,12 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import type {
-  CapitalNoticeDetail,
   CapitalNoticePage,
   InvestmentPerformance,
   QuarterRow,
   ValuationPage,
 } from '@pb/contracts';
 import { Recordings } from './fixtures.js';
+import { recordedNoticeDetail } from './routes/register.js';
 import {
   overlayCapitalNoticeDetail,
   overlayCapitalNoticePage,
@@ -24,6 +24,7 @@ import {
   FixtureBuilder,
   IDS,
   USERS,
+  buildWorld,
   investmentFixture,
   noticeFixture,
   valuationFixture,
@@ -45,6 +46,7 @@ const sim = (row: SimValuation['row'], extra: Partial<SimValuation> = {}): SimVa
   preparedByIds: [],
   dealTeamApprovedByIds: [],
   approvedByIds: [],
+  approvals: [],
   ...extra,
 });
 
@@ -141,7 +143,9 @@ describe('capital notice overlays', () => {
   const reviewed: SimNotice = {
     row: { ...extracted, state: 'Reviewed', rowVersion: 2 },
     changed: true,
-    ticketPreparedBy: null,
+    flags: null,
+    cashFlows: [],
+    fundedBy: null,
   };
   const notices: CapitalNoticePage = {
     items: [extracted, reconciled],
@@ -164,22 +168,35 @@ describe('capital notice overlays', () => {
     expect(overlayCapitalNoticePage(notices, [{ ...reviewed, changed: false }], {})).toBe(notices);
   });
 
-  it('updates the detail state and row version only', () => {
-    const detail: CapitalNoticeDetail = {
+  it('lays the session controls over a changed detail: the state, the hold from the register, the ticket, the alerts', () => {
+    const detail = recordedNoticeDetail.parse({
       ...extracted,
       cashFlows: [],
       wireChangeHold: null,
       notes: ['n'],
-      ticket: null,
-      activeWireInstruction: null,
-      alerts: [],
+    });
+    const state = createPreviewState();
+    const ctx = {
+      credential: USERS.viewer.externalId,
+      recordings: new Recordings(buildWorld().fixtures),
+      state,
     };
-    expect(overlayCapitalNoticeDetail(detail, reviewed)).toEqual({
-      ...detail,
+    expect(overlayCapitalNoticeDetail(detail, undefined, ctx)).toBe(detail);
+    state.notices = new Map([[extracted.id, { ...reviewed, changed: false }]]);
+    expect(overlayCapitalNoticeDetail(detail, state.notices.get(extracted.id), ctx)).toBe(detail);
+    state.notices.set(extracted.id, reviewed);
+    const out = overlayCapitalNoticeDetail(detail, reviewed, ctx);
+    // The notice is on the first fund, whose fourth version is Proposed inside the hold window.
+    expect(out).toMatchObject({
       state: 'Reviewed',
       rowVersion: 2,
+      wireChangeHold: { until: '2025-07-30', holdDays: 30 },
+      ticket: null,
+      activeWireInstruction: { id: IDS.wire.Verified, active: true },
+      alerts: ['due_within_two_business_days'],
     });
-    expect(overlayCapitalNoticeDetail(detail, undefined)).toBe(detail);
+    expect(out.notes[0]).toContain('release is held until Jul 30, 2025 (SEC-12.3)');
+    expect(out.notes[1]).toBe('No cash flow has been recorded for this notice.');
   });
 });
 

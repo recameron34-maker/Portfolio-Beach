@@ -1,8 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
+  capitalNoticeControlDetail,
   capitalNoticeDetail,
   capitalNoticePage,
-  capitalNoticeRow,
   featureFlagList,
   investmentDetail,
   problemDetails,
@@ -233,32 +233,43 @@ describe('capital notice commands follow docs/18 section 3 through the transitio
     }
   });
 
-  it('blocks ticket approval for everyone: the preview holds no trade ticket record, the first check the machine makes', async () => {
+  it('judges ticket approval on the simulated ticket and register: dual control (SEC-12.3) and the hold on a changed instruction', async () => {
     const { f, state } = setup();
     const id = IDS.notice.wireChange;
     const review = await send(f, USERS.ops.externalId, 'POST', command('capital-notices', id), {
       command: 'review',
     });
     expect(review.status).toBe(200);
-    expect(capitalNoticeRow.parse(review.json)).toMatchObject({ state: 'Reviewed', rowVersion: 2 });
+    expect(capitalNoticeControlDetail.parse(review.json)).toMatchObject({
+      state: 'Reviewed',
+      rowVersion: 2,
+      ticket: { id: IDS.ticket.drafted, state: 'Drafted' },
+    });
     const draft = await send(f, USERS.ops.externalId, 'POST', command('capital-notices', id), {
       command: 'draftTicket',
     });
-    expect(capitalNoticeRow.parse(draft.json).state).toBe('TicketDrafted');
+    // The notice already carries a ticket: it is re-drafted, never given a second one.
+    expect(capitalNoticeControlDetail.parse(draft.json)).toMatchObject({
+      state: 'TicketDrafted',
+      ticket: { id: IDS.ticket.drafted, state: 'Drafted', preparedBy: { id: USERS.ops.userId } },
+    });
 
     const byDrafter = await send(f, USERS.ops.externalId, 'POST', command('capital-notices', id), {
       command: 'approveTicket',
     });
-    // The drafter and anyone else get the same first refusal: the SEC-12.3 dual-control and
-    // SEC-12.2 verified-wire checks sit behind it in the machine and are proven there.
     expect(byDrafter.status).toBe(422);
-    expect(problemOf(byDrafter).detail).toBe('capital_notice: no trade ticket is drafted');
+    expect(problemOf(byDrafter).detail).toBe(
+      'capital_notice: the ticket preparer cannot approve it (SEC-12.3)',
+    );
+    // Anyone else is held by the Proposed version of the fund until a second person's callback.
     for (const other of [USERS.ops2, USERS.head]) {
       const answer = await send(f, other.externalId, 'POST', command('capital-notices', id), {
         command: 'approveTicket',
       });
       expect(answer.status).toBe(422);
-      expect(problemOf(answer).detail).toBe('capital_notice: no trade ticket is drafted');
+      expect(problemOf(answer).detail).toBe(
+        'capital_notice: the wire instruction changed recently and needs a second approval (SEC-12.3)',
+      );
     }
     const funding = await send(f, USERS.ops.externalId, 'POST', command('capital-notices', id), {
       command: 'confirmFunding',
@@ -345,7 +356,7 @@ describe('creating a Draft valuation', () => {
     ]);
     // A new version comes only from a reopen (docs/18 section 1): never a parallel chain.
     const again = await send(f, USERS.ops.externalId, 'POST', '/api/v1/valuations', createBody());
-    expect(again.status).toBe(409);
+    expect(again.status).toBe(422);
   });
 
   it('files a draft dated a few days early under its quarter, as the API does', async () => {
@@ -432,6 +443,7 @@ describe('creating a Draft valuation', () => {
         )
       ).status,
     ).toBe(201);
+    // A position no longer held is not found, as the API answers it: no hint that it exists.
     const realized = await send(
       f,
       USERS.ops.externalId,
@@ -439,11 +451,8 @@ describe('creating a Draft valuation', () => {
       '/api/v1/valuations',
       createBody({ investmentId: IDS.realized }),
     );
-    expect(realized.status).toBe(422);
-    expect(problemOf(realized)).toEqual({
-      code: 'workflow-precondition',
-      detail: 'valuation: the investment is not active',
-    });
+    expect(realized.status).toBe(404);
+    expect(problemOf(realized).detail).toBe('Investment not found');
     const locked = await send(
       f,
       USERS.ops.externalId,
@@ -451,8 +460,8 @@ describe('creating a Draft valuation', () => {
       '/api/v1/valuations',
       createBody({ investmentId: IDS.lockedPeriod }),
     );
-    expect(locked.status).toBe(409);
-    expect(problemOf(locked).code).toBe('conflict');
+    expect(locked.status).toBe(422);
+    expect(problemOf(locked).code).toBe('workflow-precondition');
   });
 
   it('keeps one version chain per quarter and never values a quarter before entry', async () => {
@@ -461,14 +470,14 @@ describe('creating a Draft valuation', () => {
       send(f, USERS.ops.externalId, 'POST', '/api/v1/valuations', createBody(overrides));
     // A period a few days after the quarter end reports for the quarter a Locked version closes.
     const late = await create({ investmentId: IDS.lockedPeriod, periodEnd: '2025-07-03' });
-    expect(late.status).toBe(409);
+    expect(late.status).toBe(422);
     expect(problemOf(late).detail).toBe(
       'valuation: a Locked version exists for this investment and quarter; reopen it to start a new version',
     );
     // Beside a Draft in progress for the quarter, a second chain dated a few days early is refused.
     expect((await create({})).status).toBe(201);
     const second = await create({ periodEnd: '2025-06-27' });
-    expect(second.status).toBe(409);
+    expect(second.status).toBe(422);
     expect(problemOf(second).detail).toBe(
       'valuation: a version for this investment and quarter is already in progress; continue that version',
     );
@@ -478,6 +487,10 @@ describe('creating a Draft valuation', () => {
       code: 'workflow-precondition',
       detail: 'valuation: the investment was not yet held at this period end',
     });
+    // Not a quarter end and not within the tolerance of one.
+    const offQuarter = await create({ periodEnd: '2025-05-15' });
+    expect(offQuarter.status).toBe(422);
+    expect(problemOf(offQuarter).detail).toMatch(/quarter end/);
   });
 
   it('rejects an invalid body with paths only, never echoing what was sent', async () => {
@@ -576,10 +589,18 @@ describe('the valuation journey across roles', () => {
       reason: 'sponsor restated the mark',
     });
     expect(reopened.status).toBe(200);
-    expect(valuationRow.parse(reopened.json)).toMatchObject({
-      state: 'Reopened',
-      reopenReason: 'sponsor restated the mark',
+    // The answer is the next version, a Draft with the same inputs, as the API answers it.
+    const draft = valuationRow.parse(reopened.json);
+    expect(draft).toMatchObject({
+      state: 'Draft',
+      version: 2,
+      fairValue: locked.fairValue,
+      method: locked.method,
+      preparedBy: null,
+      lockHash: null,
+      rowVersion: 1,
     });
+    expect(draft.id).not.toBe(created.id);
     const versions = valuationPage
       .parse(
         (
@@ -609,24 +630,28 @@ describe('the valuation journey across roles', () => {
     ]);
   });
 
-  it('refuses to prepare a draft whose fair value is not positive (validation has not passed)', async () => {
+  it('refuses a fair value that is not above zero and a method outside the taxonomy at the boundary (400), as the API does', async () => {
     const { f } = setup();
-    const row = valuationRow.parse(
-      (
-        await send(
-          f,
-          USERS.ops.externalId,
-          'POST',
-          '/api/v1/valuations',
-          createBody({ fairValue: '0.00' }),
-        )
-      ).json,
+    for (const fairValue of ['0', '0.00', '-5.00']) {
+      const answer = await send(
+        f,
+        USERS.ops.externalId,
+        'POST',
+        '/api/v1/valuations',
+        createBody({ fairValue }),
+      );
+      expect(answer.status).toBe(400);
+      expect(problemDetails.parse(answer.json).errors?.map((e) => e.path)).toEqual(['fairValue']);
+    }
+    const method = await send(
+      f,
+      USERS.ops.externalId,
+      'POST',
+      '/api/v1/valuations',
+      createBody({ method: 'sponsor_mark' }),
     );
-    const answer = await send(f, USERS.ops.externalId, 'POST', command('valuations', row.id), {
-      command: 'prepare',
-    });
-    expect(answer.status).toBe(422);
-    expect(problemOf(answer).detail).toBe('valuation: validation has not passed');
+    expect(method.status).toBe(400);
+    expect(problemDetails.parse(method.json).errors?.map((e) => e.path)).toEqual(['method']);
   });
 });
 

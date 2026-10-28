@@ -24,6 +24,12 @@ export const INVESTMENT_LIMITS = [100, 200];
 export const ACTIVE_FILTERS = [undefined, 'true', 'false'];
 /** Routes the API serves without a credential; recorded once with an empty credential. */
 export const PUBLIC_PATHS = ['/health/live', '/health/ready', '/api/v1/auth/mock-users'];
+/**
+ * The positions whose valuation versions are recorded in detail (GET /valuations/{id}): the first
+ * ones by investment number. Every version of the small profile is too many; the simulation
+ * builds the detail of any other version from its list row.
+ */
+export const VALUATION_DETAIL_INVESTMENTS = 10;
 
 /**
  * `${credential}|${METHOD} ${pathname}?${sorted query}`. Parameters are sorted by name in code
@@ -67,6 +73,7 @@ export function dealTypeCodes(taxonomy) {
 }
 
 const segment = (prefix, id, suffix = '') => `${prefix}/${encodeURIComponent(id)}${suffix}`;
+const byText = (a, b) => (a < b ? -1 : a > b ? 1 : 0);
 
 /**
  * Every request family for one dataset. `public` paths are recorded once without a credential;
@@ -74,6 +81,16 @@ const segment = (prefix, id, suffix = '') => `${prefix}/${encodeURIComponent(id)
  */
 export function buildPlan(dataset, { dealTypes }) {
   const investmentIds = dataset.investments.map((i) => i.id);
+  const detailedInvestments = new Set(
+    [...dataset.investments]
+      .sort((a, b) => byText(a.investmentNumber ?? '', b.investmentNumber ?? ''))
+      .slice(0, VALUATION_DETAIL_INVESTMENTS)
+      .map((i) => i.id),
+  );
+  const valuationIds = (dataset.valuations ?? [])
+    .filter((v) => detailedInvestments.has(v.investmentId))
+    .map((v) => v.id);
+  const idsOf = (rows) => (rows ?? []).map((r) => r.id);
   const investmentLists = [];
   for (const limit of INVESTMENT_LIMITS) {
     for (const dealType of [undefined, ...dealTypes]) {
@@ -188,6 +205,48 @@ export function buildPlan(dataset, { dealTypes }) {
       {
         name: 'capital notice detail',
         paths: dataset.capitalNotices.map((n) => segment('/api/v1/capital-notices', n.id)),
+      },
+      // The Phase 3 controls (decision 0013). The simulation seeds its register, tickets, change
+      // requests, pipeline and closings from these recordings and answers every read and write
+      // itself (src/preview/routes/), so each is recorded for every user: the API's own 403 for a
+      // role outside a route and 404 past a wall decide what each credential may see. The wire
+      // detail is recorded with its bank details stripped (scripts/build-preview.mjs); the book
+      // carries the synthetic details for the simulated reveal.
+      {
+        name: 'valuation detail',
+        paths: valuationIds.map((id) => segment('/api/v1/valuations', id)),
+      },
+      {
+        name: 'trade tickets',
+        paths: [
+          withQuery('/api/v1/trade-tickets', { limit: LIST_LIMIT }),
+          ...idsOf(dataset.tradeTickets).map((id) => segment('/api/v1/trade-tickets', id)),
+        ],
+      },
+      {
+        name: 'wire register',
+        paths: [
+          withQuery('/api/v1/wire-instructions', { limit: LIST_LIMIT }),
+          ...idsOf(dataset.wireInstructions).map((id) => segment('/api/v1/wire-instructions', id)),
+        ],
+      },
+      {
+        name: 'change requests',
+        paths: [
+          withQuery('/api/v1/change-requests', { limit: LIST_LIMIT }),
+          ...idsOf(dataset.changeRequests).map((id) => segment('/api/v1/change-requests', id)),
+        ],
+      },
+      {
+        name: 'pipeline',
+        paths: [
+          withQuery('/api/v1/opportunities', { limit: LIST_LIMIT }),
+          ...idsOf(dataset.opportunities).map((id) => segment('/api/v1/opportunities', id)),
+        ],
+      },
+      {
+        name: 'closings',
+        paths: idsOf(dataset.closings).map((id) => segment('/api/v1/closings', id)),
       },
     ],
   };

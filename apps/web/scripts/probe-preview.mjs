@@ -709,6 +709,18 @@ function visitsFor(externalId, paths) {
       if (sponsor !== undefined) visits.push(path.replace('$id', sponsor));
     } else if (path === '/capital-activity/$id') {
       visits.push(path.replace('$id', notice));
+    } else if (path === '/valuations/$id') {
+      // Phase 3 (decision 0013): a version of the credential's own board, else a dataset id.
+      const valuation = firstId(externalId, '/api/v1/valuations?limit=200') ?? d.valuations[0].id;
+      visits.push(path.replace('$id', valuation));
+    } else if (path === '/capital-activity/wires/$id') {
+      visits.push(path.replace('$id', d.wireInstructions[0].id));
+    } else if (path === '/pipeline/$id') {
+      const deal =
+        firstId(externalId, '/api/v1/opportunities?limit=200') ?? d.scenarios.sourced_deal[0];
+      visits.push(path.replace('$id', deal));
+    } else if (path === '/pipeline/$id/closing') {
+      visits.push(path.replace('$id', d.scenarios.closing_open[0]));
     } else if (path === '/data/intake/$id') {
       if (walkFileId !== undefined) visits.push(path.replace('$id', walkFileId));
     } else if (path === '/data/weekly/$id') {
@@ -934,51 +946,296 @@ if (staleDetail === undefined) {
 }
 
 const wire = d.capitalNotices.find((n) => n.scenarioTag === 'wire_change');
-if (recorded('ops.one', '/api/v1/capital-notices?limit=200').status !== 200) {
-  skip('capital notice journey (wire_change notice)', NOT_RECORDED);
+const wireFund = d.investments.find((i) => i.id === wire.investmentId)?.sponsorFundId;
+if (recorded('ops.one', `/api/v1/capital-notices/${wire.id}`).status !== 200) {
+  skip('capital notice journey 4 (wire_change notice)', NOT_RECORDED);
 } else {
-  const run = (credential, cmd) =>
-    api(credential, 'POST', `/api/v1/capital-notices/${wire.id}/commands`, { command: cmd });
+  // Journey 4 (docs/12) over the simulated controls (decision 0013): review, the drafted ticket
+  // and the alerts, dual control and the hold, the callback by a second person, approval,
+  // funding and reconciliation.
+  const run = (credential, body) =>
+    api(credential, 'POST', `/api/v1/capital-notices/${wire.id}/commands`, body);
   const viewerSees = recorded('viewer.one', `/api/v1/capital-notices/${wire.id}`).status === 200;
   expectStatus(
     `capital notice: viewer.one cannot review (${viewerSees ? '403' : '404, not visible'})`,
-    await run('viewer.one', 'review'),
+    await run('viewer.one', { command: 'review' }),
     viewerSees ? 403 : 404,
   );
-  const reviewed = await run('ops.one', 'review');
+  const reviewed = await run('ops.one', { command: 'review' });
   expectStatus(
-    'capital notice: ops.one reviews (200)',
+    'capital notice: ops.one reviews (200); the panel shows the Drafted ticket and the wire change alert',
     reviewed,
     200,
-    reviewed.json?.state === 'Reviewed',
+    reviewed.json?.state === 'Reviewed' &&
+      reviewed.json?.ticket?.state === 'Drafted' &&
+      reviewed.json?.alerts?.includes('wire_changed') === true,
   );
-  const drafted = await run('ops.one', 'draftTicket');
+  const drafted = await run('ops.one', { command: 'draftTicket' });
   expectStatus(
-    'capital notice: ops.one drafts the ticket (200)',
+    'capital notice: ops.one re-drafts the one ticket (200)',
     drafted,
     200,
-    drafted.json?.state === 'TicketDrafted',
+    drafted.json?.state === 'TicketDrafted' &&
+      drafted.json?.ticket?.id === reviewed.json?.ticket?.id,
   );
-  const own = await run('ops.one', 'approveTicket');
+  const own = await run('ops.one', { command: 'approveTicket' });
   expectStatus(
     'capital notice: the drafter cannot approve (422, SEC-12.3)',
     own,
     422,
     /SEC-12\.3/.test(own.json?.detail ?? ''),
   );
-  const other = await run('ops.two', 'approveTicket');
+  const held = await run('head.one', { command: 'approveTicket' });
   expectStatus(
-    'capital notice: an unverified wire blocks approval (422, SEC-12.2)',
-    other,
+    'capital notice: the changed instruction holds the approval (422, SEC-12.3)',
+    held,
     422,
-    /SEC-12\.2/.test(other.json?.detail ?? ''),
+    /changed recently/.test(held.json?.detail ?? ''),
   );
+  const proposed = (
+    await api(
+      'ops.one',
+      'GET',
+      `/api/v1/wire-instructions?limit=200&sponsorFundId=${wireFund}&state=Proposed`,
+    )
+  ).json?.items?.[0];
+  check('wire register: the fund of the notice has a Proposed version', proposed !== undefined);
+  const wireCommands = `/api/v1/wire-instructions/${proposed?.id}/commands`;
+  const verifyBody = {
+    command: 'verify',
+    callbackNumberSource: 'prior_instruction',
+    callbackResult: 'confirmed',
+  };
   expectStatus(
-    'capital notice: funding cannot be confirmed from TicketDrafted (409)',
-    await run('ops.one', 'confirmFunding'),
-    409,
+    'wire register: the proposer cannot verify (422, SEC-12.2)',
+    await api('ops.one', 'POST', wireCommands, verifyBody),
+    422,
+  );
+  const verified = await api('ops.two', 'POST', wireCommands, verifyBody);
+  expectStatus(
+    'wire register: ops.two records the callback; the changed version is Verified and active (200)',
+    verified,
+    200,
+    verified.json?.state === 'Verified' && verified.json?.active === true,
+  );
+  const afterCallback = (await api('head.one', 'GET', `/api/v1/capital-notices/${wire.id}`)).json;
+  check(
+    'capital notice: the hold lifts and the ticket may be released',
+    afterCallback?.wireChangeHold === null && afterCallback?.ticket?.release?.allowed === true,
+    JSON.stringify(afterCallback?.ticket?.release),
+  );
+  const approved = await run('head.one', { command: 'approveTicket' });
+  expectStatus(
+    'capital notice: head.one approves the ticket against the verified version (200)',
+    approved,
+    200,
+    approved.json?.state === 'TicketApproved' &&
+      approved.json?.ticket?.wireInstruction?.id === proposed?.id,
+  );
+  const funded = await run('ops.one', { command: 'confirmFunding' });
+  expectStatus(
+    'capital notice: ops.one confirms funding (200)',
+    funded,
+    200,
+    funded.json?.state === 'Funded' && funded.json?.ticket?.state === 'Funded',
+  );
+  const reconciled = await run('ops.one', {
+    command: 'reconcile',
+    reason: 'Wire confirmed by the bank',
+  });
+  expectStatus(
+    'capital notice: ops.one reconciles (200); one approved cash flow and no note',
+    reconciled,
+    200,
+    reconciled.json?.state === 'Reconciled' &&
+      reconciled.json?.cashFlows?.length === 1 &&
+      reconciled.json?.notes?.length === 0,
+  );
+  const revealed = (await api('ops.one', 'GET', `/api/v1/wire-instructions/${proposed?.id}`)).json;
+  const maskedForAuditor = (
+    await api('audit.one', 'GET', `/api/v1/wire-instructions/${proposed?.id}`)
+  ).json;
+  check(
+    'wire register: the reveal answers the synthetic details to operations from the book, null to the auditor',
+    revealed?.bankDetails?.accountNumber !== undefined && maskedForAuditor?.bankDetails === null,
+  );
+  check(
+    'wire register: the recordings carry no bank details for any credential',
+    d.users.every(
+      (u) =>
+        recorded(u.externalId, `/api/v1/wire-instructions/${proposed?.id}`).json?.bankDetails ===
+          null ||
+        recorded(u.externalId, `/api/v1/wire-instructions/${proposed?.id}`).status !== 200,
+    ),
+  );
+  const tickets = (await api('ops.one', 'GET', '/api/v1/trade-tickets?limit=200')).json;
+  check(
+    'trade tickets: the list carries the funded ticket with no release and every row masked',
+    tickets?.items?.some((t) => t.capitalNoticeId === wire.id && t.state === 'Funded') === true &&
+      !JSON.stringify(tickets).includes('accountNumber'),
   );
 }
+
+// ---- The valuation detail and the batch screen (M10), the change requests (M11) --------------
+
+const draftVersion = (
+  await api('ops.one', 'GET', `/api/v1/valuations?investmentId=${staleId}&limit=200`)
+).json?.items?.find((r) => r.state === 'Draft');
+if (draftVersion === undefined) {
+  skip('valuation detail and batch', 'skipped: the reopen above left no Draft version');
+} else {
+  const detail = (await api('viewer.one', 'GET', `/api/v1/valuations/${draftVersion.id}`)).json;
+  check(
+    'valuation detail: the new Draft version reads with an empty trail and no lock text',
+    detail?.approvals?.length === 0 && detail?.lockText === null,
+  );
+  const prepared = await api('ops.one', 'POST', `/api/v1/valuations/${draftVersion.id}/commands`, {
+    command: 'prepare',
+  });
+  expectStatus('valuation: ops.one prepares version 2 (200)', prepared, 200);
+  const batch = await api('deal.one', 'POST', '/api/v1/valuations/batch-commands', {
+    command: 'dealTeamApprove',
+    ids: [draftVersion.id, '00000000-0000-4000-8000-000000000000'],
+  });
+  expectStatus(
+    'valuation batch: one result per id, the approval and a 404, in the order sent',
+    batch,
+    200,
+    batch.json?.results?.[0]?.state === 'DealTeamApproved' &&
+      batch.json?.results?.[1]?.problem?.status === 404,
+  );
+  const trail = (await api('viewer.one', 'GET', `/api/v1/valuations/${draftVersion.id}`)).json;
+  check(
+    'valuation detail: the trail carries the prepare and the deal team approval',
+    trail?.approvals?.map((a) => a.step).join(',') === 'ops_prepared,deal_team',
+  );
+}
+
+const changeRequest = await api('deal.one', 'POST', '/api/v1/change-requests', {
+  investmentId: staleId,
+  changeType: 'change_type.add_on_acquisition',
+  effectiveDate: asOf,
+  summary: 'Add-on acquisition of a regional competitor closed',
+  details: { target: 'A regional competitor' },
+});
+expectStatus(
+  'change request: deal.one submits the one form (201, simulated)',
+  changeRequest,
+  201,
+  changeRequest.simulated && changeRequest.json?.state === 'Submitted',
+);
+const changeRequestId = changeRequest.json?.id;
+const routed = await api(
+  'deal.one',
+  'POST',
+  `/api/v1/change-requests/${changeRequestId}/commands`,
+  {
+    command: 'route',
+    ownerId: by('ops.one').id,
+  },
+);
+expectStatus(
+  'change request: routed to ops.one (200)',
+  routed,
+  200,
+  routed.json?.state === 'Routed' && routed.json?.owner?.id === by('ops.one').id,
+);
+expectStatus(
+  'change request: ops.one starts the work (200)',
+  await api('ops.one', 'POST', `/api/v1/change-requests/${changeRequestId}/commands`, {
+    command: 'start',
+  }),
+  200,
+);
+
+const checked = await api('ops.one', 'POST', '/api/v1/change-requests/quarter-end-check', {
+  periodEnd: quarterEnd,
+});
+expectStatus(
+  'change request: the quarter-end check lists the unapplied request and opens exceptions',
+  checked,
+  200,
+  checked.json?.unapplied?.some((r) => r.id === changeRequestId) === true &&
+    checked.json?.exceptionsOpened >= 1,
+);
+
+// ---- The pipeline (M5) and the closing (M8, M22) at the API level -----------------------------
+
+const sponsor = d.sponsors[0];
+const createdDeal = await api('deal.one', 'POST', '/api/v1/opportunities', {
+  name: 'Project Probe',
+  companyName: 'Probe Logistics Co',
+  sponsorId: sponsor.id,
+  dealType: 'deal_type.co_invest_equity',
+  receivedDate: asOf,
+  targetCommitment: '15000000.00',
+});
+expectStatus(
+  'pipeline: deal.one creates a deal at Sourced (201, simulated)',
+  createdDeal,
+  201,
+  createdDeal.simulated && createdDeal.json?.stage === 'Sourced',
+);
+const dealId = createdDeal.json?.id;
+const screening = await api('deal.one', 'POST', `/api/v1/opportunities/${dealId}/commands`, {
+  command: 'advance',
+});
+expectStatus(
+  'pipeline: advanced to Screening (200)',
+  screening,
+  200,
+  screening.json?.stage === 'Screening',
+);
+check(
+  'pipeline: the board lists the new deal for a viewer',
+  (await api('viewer.one', 'GET', '/api/v1/opportunities?limit=200')).json?.items?.some(
+    (o) => o.id === dealId,
+  ) === true,
+);
+const closingOpenId = d.scenarios.closing_open[0];
+const closingOpen = d.closings.find((c) => c.opportunityId === closingOpenId);
+const closingPath = `/api/v1/closings/${closingOpen.id}`;
+const blocked = await api('ops.one', 'POST', `${closingPath}/commands`, { command: 'confirm' });
+expectStatus(
+  'closing: confirmation is refused while the wire confirmation is open (422, M8)',
+  blocked,
+  422,
+  /required closing document/.test(blocked.json?.detail ?? ''),
+);
+const received = await api('ops.one', 'POST', `${closingPath}/items/wire_confirmation/commands`, {
+  command: 'receive',
+  documentId: walkDocumentId,
+});
+expectStatus(
+  'closing: ops.one receives the wire confirmation from the hub (200)',
+  received,
+  200,
+  received.json?.itemsRequiredOpen === 0,
+);
+const confirmedClosing = await api('ops.one', 'POST', `${closingPath}/commands`, {
+  command: 'confirm',
+});
+expectStatus(
+  'closing: ops.one confirms (200); the deal gates read ok',
+  confirmedClosing,
+  200,
+  confirmedClosing.json?.state === 'OpsConfirmed' &&
+    (await api('deal.one', 'GET', `/api/v1/opportunities/${closingOpenId}`)).json?.gates?.closing
+      ?.ok === true,
+);
+const closedDeal = await api('ops.one', 'POST', `/api/v1/opportunities/${closingOpenId}/commands`, {
+  command: 'advance',
+});
+expectStatus(
+  'pipeline: ops.one closes the deal; the position appears on the portfolio grid with its close date',
+  closedDeal,
+  200,
+  closedDeal.json?.stage === 'Closed' &&
+    (await api('viewer.one', 'GET', '/api/v1/investments?limit=100')).json?.items?.[0]?.id ===
+      closedDeal.json?.investmentId &&
+    (await api('viewer.one', 'GET', `/api/v1/investments/${closedDeal.json?.investmentId}`)).json
+      ?.closeDate === closingOpen.closeDate,
+);
 
 // ---- Intake journey in the UI: the defects sample through operations, the wall member and a viewer
 
@@ -1298,6 +1555,15 @@ check(
     (await api('ops.one', 'GET', '/api/v1/data-exceptions?limit=200')).json?.items?.length === 0 &&
     (await api('viewer.one', 'GET', '/api/v1/data-health')).json?.openExceptions ===
       healthRecorded?.openExceptions,
+);
+check(
+  'reset: the created deal, the change request and the new wire version are gone',
+  (await api('viewer.one', 'GET', '/api/v1/opportunities?limit=200')).json?.items?.every(
+    (o) => o.id !== dealId,
+  ) === true &&
+    (await api('ops.one', 'GET', `/api/v1/change-requests/${changeRequestId}`)).status === 404 &&
+    (await api('ops.one', 'GET', '/api/v1/wire-instructions?limit=200&state=Proposed')).json?.items
+      ?.length === 1,
 );
 check(
   'no recording misses in the whole session',

@@ -50,7 +50,20 @@ writeFileSync(join(scratch, 'dataset.json'), JSON.stringify(dataset));
 // as the system actor sees it (decision 0009), all straight from the generated dataset. The shim
 // loads the book next to the recordings.
 const documents = generateDocuments(dataset);
-const book = previewBook(dataset, { documents });
+// The Phase 3 controls (decision 0013): the book carries the synthetic bank details of every
+// wire instruction for the simulated reveal (the recordings carry none, see record() below) and
+// the two config files the simulated pipeline and closing read, so the simulation needs no API.
+const configDir = new URL('../../../config/', import.meta.url);
+const readConfig = (name) => JSON.parse(readFileSync(new URL(name, configDir), 'utf8'));
+const book = {
+  ...previewBook(dataset, { documents }),
+  wireInstructions: (dataset.wireInstructions ?? []).map((w) => ({
+    id: w.id,
+    bankDetails: w.bankDetails,
+  })),
+  diligenceTemplates: readConfig('diligence_templates.json'),
+  closingChecklist: readConfig('closing_checklist.json'),
+};
 const samplesDir = join(out, 'preview', 'samples');
 mkdirSync(samplesDir, { recursive: true });
 const sampleFiles = [];
@@ -129,6 +142,17 @@ const get = (credential, path) =>
     headers: credential ? { authorization: `Bearer ${credential}` } : {},
   });
 
+/**
+ * The wire instruction detail answers the bank details in clear to operations and approvers
+ * (synthetic ones, but the recordings are published): the stored recording carries null for
+ * every credential and the simulation answers a reveal from the book instead.
+ */
+const WIRE_DETAIL = /^\/api\/v1\/wire-instructions\/[^/?]+$/;
+function withoutSecrets(path, text) {
+  if (!WIRE_DETAIL.test(path)) return text;
+  return JSON.stringify({ ...JSON.parse(text), bankDetails: null });
+}
+
 // Content-addressed bodies: each distinct body is stored once under the first 16 hex digits of its
 // SHA-256; every key points at its hash.
 const bodies = {};
@@ -138,7 +162,9 @@ async function record(credential, path, family) {
   const res = await get(credential, path);
   const text = await res.text();
   // Problem bodies carry a fresh request id per run; pin it so the recordings are byte-stable.
-  const body = res.ok ? text : text.replace(/"request_id":"[^"]*"/, '"request_id":"preview"');
+  const body = res.ok
+    ? withoutSecrets(path, text)
+    : text.replace(/"request_id":"[^"]*"/, '"request_id":"preview"');
   const hash = createHash('sha256').update(body).digest('hex').slice(0, 16);
   if (bodies[hash] !== undefined && bodies[hash] !== body)
     throw new Error(`two recorded bodies share the hash ${hash}`);

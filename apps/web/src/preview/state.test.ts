@@ -3,12 +3,17 @@ import { Recordings } from './fixtures.js';
 import { getKey, isApiPath, isPublicPath } from './keys.js';
 import {
   createPreviewState,
+  ensureClosings,
   ensureNotices,
   ensureValuations,
   newUuid,
   personFor,
   resetPreviewState,
+  seedChangeRequests,
+  seedOpportunities,
+  seedTickets,
   seedValuations,
+  seedWires,
   userIdsFor,
 } from './state.js';
 import { IDS, USERS, buildWorld } from './test-fixtures.js';
@@ -59,6 +64,48 @@ describe('seeding from the recordings', () => {
     const prepared = seeded.get(IDS.valuation.OpsPrepared);
     expect(prepared?.preparedByIds).toEqual([USERS.all.userId]);
     expect(prepared?.changed).toBe(false);
+  });
+
+  it('seeds the register, the tickets, the change requests, the pipeline and the closings from every recorded view', () => {
+    const recordings = new Recordings(buildWorld().fixtures);
+    const wires = seedWires(recordings);
+    expect(wires.size).toBe(5);
+    expect(wires.get(IDS.wire.Verified)).toMatchObject({
+      origin: 'recorded',
+      changed: false,
+      bankDetails: null,
+    });
+    // The walled notice's ticket is seeded from the wall member's view; its release is judged when served.
+    const tickets = seedTickets(recordings);
+    expect([...tickets.keys()].sort()).toEqual(
+      [IDS.ticket.drafted, IDS.ticket.funded, IDS.ticket.walled].sort(),
+    );
+    expect(tickets.get(IDS.ticket.funded)?.wireInstructionId).toBe(IDS.wire.verifiedFund2);
+    expect(seedChangeRequests(recordings).size).toBe(4);
+    const opportunities = seedOpportunities(recordings);
+    expect(opportunities.size).toBe(6);
+    const closingOpen = opportunities.get(IDS.opportunity.closingOpen);
+    expect(closingOpen?.closingId).toBe(IDS.closing.open);
+    expect(closingOpen?.tasks).toHaveLength(6);
+    expect(closingOpen?.decisions).toHaveLength(1);
+    expect(opportunities.get(IDS.opportunity.walled)?.stageHistory.map((h) => h.toStage)).toEqual([
+      'Sourced',
+      'Screening',
+      'Prescreen',
+      'Diligence',
+    ]);
+    const state = createPreviewState();
+    const closings = ensureClosings(state, recordings);
+    expect([...closings.keys()].sort()).toEqual([IDS.closing.open, IDS.closing.confirmed].sort());
+    expect(closings.get(IDS.closing.open)?.items.map((i) => i.itemCode)).toHaveLength(7);
+    expect(state.opportunities).not.toBeNull();
+    resetPreviewState(state);
+    expect(state.wires).toBeNull();
+    expect(state.tickets).toBeNull();
+    expect(state.changeRequests).toBeNull();
+    expect(state.opportunities).toBeNull();
+    expect(state.closings).toBeNull();
+    expect(state.investments.size).toBe(0);
   });
 
   it('starts empty while the lists are recorded as 501, and reset forgets the seed', () => {

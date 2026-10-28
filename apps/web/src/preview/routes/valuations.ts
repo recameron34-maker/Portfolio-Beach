@@ -1,6 +1,7 @@
 import {
   addDays,
   alignedQuarterEnd,
+  isQuarterEnd,
   latestQuarterEndOnOrBefore,
   lockedNear,
   toDecimalString,
@@ -9,11 +10,21 @@ import {
 import definitions from '../../../../../config/definitions.json';
 import {
   investmentDetail,
+  problemDetails,
+  valuationBatchCommandBody,
   valuationCommandBody,
   valuationCreateBody,
+  valuationDetail,
   valuationLockText,
 } from '@pb/contracts';
-import type { InvestmentDetail, ValuationRow } from '@pb/contracts';
+import type {
+  InvestmentDetail,
+  ValuationApproval,
+  ValuationBatchResult,
+  ValuationCommandBody,
+  ValuationDetail,
+  ValuationRow,
+} from '@pb/contracts';
 import { attempt, valuationMachine } from '@pb/workflows';
 import { closedByLock, isInFlight } from '../../pages/valuations/board.js';
 import { sha256Hex, subtleCrypto } from '../hash.js';
@@ -21,18 +32,27 @@ import { overlayInvestmentDetail } from '../overlay.js';
 import { jsonResponse, problem, workflowProblem } from '../problems.js';
 import { ensureValuations, personFor } from '../state.js';
 import type { SimActor, SimValuation } from '../state.js';
-import { defineSimRoute, recordActivity, staleIfMatch } from './common.js';
+import { openChangeRequestsOf } from './changeRequests.js';
+import { canOpen, defineSimRoute, knownCode, recordActivity, staleIfMatch } from './common.js';
 import type { SimContext } from './common.js';
 
 /**
- * Valuations through docs/18 section 1. Create is the "(new) to Draft" row: operations only (the
- * contract's role guard), the investment must be one the credential can open and must be active,
- * and a period that already has a Locked version needs a reopen first. Every other change goes
- * through attempt() on valuationMachine; the handler only sets the fields a command owns.
+ * Valuations through docs/18 section 1 (docs/04 M10, decision 0013), the way
+ * apps/api/src/valuations/workflow.service.ts serves them. Create is the "(new) to Draft" row:
+ * operations only (the contract's role guard), the investment must be one the credential can
+ * open and must be active (404 otherwise, never a hint that it exists), the period a quarter end
+ * or within the tolerance of one, on or after the entry date, and one chain per investment and
+ * quarter (a Locked version is reopened first, a version in progress continued). Every other
+ * change goes through attempt() on valuationMachine; each command writes one approval row the
+ * detail shows and one activity entry; a reopen marks the Locked version Reopened and answers the
+ * next version as a Draft with the same inputs, as the API does. The batch screen runs the same
+ * command id by id and never stops at a refusal.
  */
 
 const NOT_FOUND = 'Valuation not found';
 const POSITIVE_DECIMAL = /^\d+(\.\d+)?$/;
+/** A core.taxonomy_term code of the valuation_method domain. */
+const METHOD_CODE = /^valuation_method\.[a-z0-9_]+$/;
 
 export function readDetail(
   ctx: SimContext,
@@ -165,9 +185,13 @@ export function createDraft(
     preparedByIds: input.preparedBy === undefined ? [] : [input.preparedBy.userId],
     dealTeamApprovedByIds: [],
     approvedByIds: [],
+    approvals: [],
   });
   return row;
 }
+
+const precondition = (instance: string, detail: string): Response =>
+  problem(422, 'workflow-precondition', detail, { instance, simulated: true });
 
 export const createValuationRoute = defineSimRoute({
   method: 'POST',
@@ -177,39 +201,47 @@ export const createValuationRoute = defineSimRoute({
   idempotent: true,
   handle: (req, ctx) => {
     const instance = req.url.pathname;
-    const detail = readDetail(ctx, req.credential, req.body.investmentId);
-    if (detail === undefined)
-      return problem(404, 'not-found', 'Investment not found', { instance, simulated: true });
-    if (!detail.isActive)
-      return problem(422, 'workflow-precondition', 'valuation: the investment is not active', {
+    const { periodEnd } = req.body;
+    const quarterEnd = alignedQuarterEnd(periodEnd, TOLERANCE_DAYS);
+    if (quarterEnd === periodEnd && !isQuarterEnd(periodEnd))
+      return precondition(
+        instance,
+        `valuation: the period end must be a quarter end or within ${TOLERANCE_DAYS} days of one`,
+      );
+    if (!isPositiveDecimal(req.body.fairValue))
+      return problem(400, 'validation', 'Invalid body', {
         instance,
         simulated: true,
+        errors: [{ path: 'fairValue', message: 'Must be above zero' }],
       });
+    if (!METHOD_CODE.test(req.body.method) || !knownCode(ctx, req.credential, req.body.method))
+      return problem(400, 'validation', 'Invalid body', {
+        instance,
+        simulated: true,
+        errors: [{ path: 'method', message: 'Not a valuation_method code' }],
+      });
+    const detail = readDetail(ctx, req.credential, req.body.investmentId);
+    // An investment the credential cannot open, or one no longer held, is not found: no hint that it exists.
+    if (detail?.isActive !== true)
+      return problem(404, 'not-found', 'Investment not found', { instance, simulated: true });
     const versions = versionsOf(ctx, req.credential, detail.id);
-    const { periodEnd } = req.body;
     if (periodEnd < detail.entryDate)
-      return problem(
-        422,
-        'workflow-precondition',
+      return precondition(
+        instance,
         'valuation: the investment was not yet held at this period end',
-        { instance, simulated: true },
       );
     // One version chain per quarter: a sponsor reporting a few days early or late is the same
     // quarter (alignedQuarterEnd), so its versions block a second chain at the quarter end.
     const sameQuarter = sameQuarterAs(versions, periodEnd);
     if (closedByLock(sameQuarter))
-      return problem(
-        409,
-        'conflict',
+      return precondition(
+        instance,
         'valuation: a Locked version exists for this investment and quarter; reopen it to start a new version',
-        { instance, simulated: true },
       );
     if (sameQuarter.some((v) => isInFlight(v.state)))
-      return problem(
-        409,
-        'conflict',
+      return precondition(
+        instance,
         'valuation: a version for this investment and quarter is already in progress; continue that version',
-        { instance, simulated: true },
       );
     const row = createDraft(ctx, req.credential, detail, req.body);
     recordActivity(ctx, req.actor, {
@@ -224,6 +256,158 @@ export const createValuationRoute = defineSimRoute({
   },
 });
 
+type Outcome = { ok: true; row: ValuationRow } | { ok: false; response: Response };
+
+/**
+ * One command on one version for one credential, in the API's order: 404 for a version the
+ * credential cannot open (no existence leak), 412 for a stale If-Match, the machine, then the
+ * write and its approval row. Everything that can refuse comes before the first change, so a
+ * refused command leaves no half-applied version behind. Shared by the command and batch routes.
+ */
+export async function runValuationCommand(
+  ctx: SimContext,
+  credential: string,
+  actor: SimActor,
+  id: string,
+  body: ValuationCommandBody,
+  headers: Headers,
+  instance: string,
+): Promise<Outcome> {
+  const refuse = (response: Response): Outcome => ({ ok: false, response });
+  const sims = ensureValuations(ctx.state, ctx.recordings);
+  const sim = sims.get(id);
+  if (sim === undefined || !canOpen(ctx, credential, sim.row.investmentId))
+    return refuse(problem(404, 'not-found', NOT_FOUND, { instance, simulated: true }));
+  const stale = staleIfMatch(headers, sim.row.rowVersion, instance);
+  if (stale !== null) return refuse(stale);
+
+  const { row } = sim;
+  const { command, reason } = body;
+  const result = attempt(valuationMachine, row.state, command, {
+    actorId: actor.userId,
+    actorRoles: actor.roles,
+    ...(reason !== undefined ? { reason } : {}),
+    record: {
+      inputsComplete: row.method.length > 0 && row.fairValue.length > 0,
+      validationPassed: isPositiveDecimal(row.fairValue),
+      preparedBy: personFor(sim.preparedByIds, actor),
+      lockHash: row.lockHash,
+    },
+  });
+  if (!result.ok) return refuse(workflowProblem(result, { instance, simulated: true }));
+
+  const next: ValuationRow = { ...row, state: result.to, rowVersion: row.rowVersion + 1 };
+  const updated: SimValuation = { ...sim, row: next, changed: true, approvals: [...sim.approvals] };
+  const draftId = command === 'reopen' ? ctx.env.newId() : null;
+  let step: ValuationApproval['step'];
+  let decision: ValuationApproval['decision'];
+  if (command === 'lock') {
+    // One Locked version per investment and quarter (valuationMachine's lock row).
+    const others = sameQuarterAs(versionsOf(ctx, credential, row.investmentId), row.periodEnd);
+    if (
+      others.some(
+        (v) =>
+          v.state === 'Locked' && !(v.periodEnd === row.periodEnd && v.version === row.version),
+      )
+    )
+      return refuse(
+        problem(
+          409,
+          'conflict',
+          'valuation: another version is Locked for this investment and quarter; reopen it before locking this one',
+          { instance, simulated: true },
+        ),
+      );
+  }
+  if (command === 'prepare') {
+    if (subtleCrypto() === undefined)
+      return refuse(
+        problem(
+          503,
+          'unavailable',
+          'This browser offers SHA-256 only on secure (https) pages, so the lock hash cannot be computed here.',
+          { instance, simulated: true },
+        ),
+      );
+    next.preparedBy = actor.displayName;
+    next.lockHash = await lockHashOf(row);
+    updated.preparedByIds = [actor.userId];
+    step = 'ops_prepared';
+    decision = 'approve';
+  } else if (command === 'sendBack') {
+    step = actor.roles.includes('deal_team') ? 'deal_team' : 'ops_prepared';
+    decision = 'reject';
+  } else if (command === 'dealTeamApprove') {
+    next.dealTeamApprovedBy = actor.displayName;
+    updated.dealTeamApprovedByIds = [actor.userId];
+    step = 'deal_team';
+    decision = 'approve';
+  } else if (command === 'lock') {
+    next.approvedBy = actor.displayName;
+    next.approvedAt = `${ctx.recordings.asOf}T12:00:00Z`;
+    updated.approvedByIds = [actor.userId];
+    step = 'final';
+    decision = 'approve';
+  } else {
+    next.reopenReason = reason ?? null;
+    step = 'reopen';
+    decision = 'reopen';
+  }
+  updated.approvals.push({
+    id: ctx.env.newId(),
+    step,
+    decision,
+    actorId: actor.userId,
+    actorName: actor.displayName,
+    at: ctx.env.now(),
+    reason: reason ?? null,
+  });
+  sims.set(next.id, updated);
+  recordActivity(ctx, actor, {
+    action: `valuation.${command}`,
+    entity: 'valuation',
+    entityId: next.id,
+    reason: reason ?? null,
+    from: row.state,
+    to: next.state,
+  });
+  if (draftId === null) return { ok: true, row: next };
+
+  // docs/18 section 1: reopening creates a new Draft version with the same inputs to edit, and
+  // the answer is that Draft, as the API answers it.
+  const detail = readDetail(ctx, credential, row.investmentId);
+  const draft: ValuationRow = {
+    ...next,
+    ...freshFields,
+    id: draftId,
+    version: nextVersion(
+      versionsOf(ctx, credential, row.investmentId),
+      sims.values(),
+      row.investmentId,
+      row.periodEnd,
+    ),
+  };
+  sims.set(draft.id, {
+    row: draft,
+    origin: 'created',
+    changed: true,
+    vehicleId: sim.vehicleId ?? detail?.vehicleId ?? null,
+    preparedByIds: [],
+    dealTeamApprovedByIds: [],
+    approvedByIds: [],
+    approvals: [],
+  });
+  recordActivity(ctx, actor, {
+    action: 'valuation.create',
+    entity: 'valuation',
+    entityId: draft.id,
+    reason: reason ?? null,
+    from: null,
+    to: draft.state,
+  });
+  return { ok: true, row: draft };
+}
+
 export const valuationCommandRoute = defineSimRoute({
   method: 'POST',
   path: '/api/v1/valuations/{id}/commands',
@@ -231,119 +415,94 @@ export const valuationCommandRoute = defineSimRoute({
   body: valuationCommandBody,
   idempotent: true,
   handle: async (req, ctx) => {
-    const instance = req.url.pathname;
-    const sims = ensureValuations(ctx.state, ctx.recordings);
-    const sim = sims.get(req.params.id ?? '');
-    // A record the credential cannot open is not found, never forbidden (no existence leak).
-    const visible =
-      sim !== undefined &&
-      ctx.recordings.status(
+    const outcome = await runValuationCommand(
+      ctx,
+      req.credential,
+      req.actor,
+      req.params.id ?? '',
+      req.body,
+      req.headers,
+      req.url.pathname,
+    );
+    if (!outcome.ok) return outcome.response;
+    return jsonResponse(200, outcome.row, { simulated: true, etag: outcome.row.rowVersion });
+  },
+});
+
+/**
+ * POST /api/v1/valuations/batch-commands (deal team, approver): the same command on each id in
+ * the order sent, each judged on its own, so one refusal never stops the rest; the answer
+ * carries the new state or the problem per id, and the batch itself records nothing.
+ */
+export const valuationBatchCommandRoute = defineSimRoute({
+  method: 'POST',
+  path: '/api/v1/valuations/batch-commands',
+  what: 'batch',
+  body: valuationBatchCommandBody,
+  idempotent: true,
+  handle: async (req, ctx) => {
+    const results: ValuationBatchResult['results'] = [];
+    for (const id of req.body.ids) {
+      const outcome = await runValuationCommand(
+        ctx,
         req.credential,
-        `/api/v1/investments/${encodeURIComponent(sim.row.investmentId)}`,
-      ) === 200;
-    if (sim === undefined || !visible)
-      return problem(404, 'not-found', NOT_FOUND, { instance, simulated: true });
-    const stale = staleIfMatch(req.headers, sim.row.rowVersion, instance);
-    if (stale !== null) return stale;
-
-    const { row } = sim;
-    const { command, reason } = req.body;
-    const result = attempt(valuationMachine, row.state, command, {
-      actorId: req.actor.userId,
-      actorRoles: req.actor.roles,
-      ...(reason !== undefined ? { reason } : {}),
-      record: {
-        inputsComplete: row.method.length > 0 && row.fairValue.length > 0,
-        validationPassed: isPositiveDecimal(row.fairValue),
-        preparedBy: personFor(sim.preparedByIds, req.actor),
-        lockHash: row.lockHash,
-      },
-    });
-    if (!result.ok) return workflowProblem(result, { instance, simulated: true });
-
-    const next: ValuationRow = { ...row, state: result.to, rowVersion: row.rowVersion + 1 };
-    const updated: SimValuation = { ...sim, row: next, changed: true };
-    // Everything that can refuse or fail comes before the first change to the state, so a
-    // refused or failed command leaves no half-applied version behind.
-    const draftId = command === 'reopen' ? ctx.env.newId() : null;
-    if (command === 'lock') {
-      // One Locked version per investment and quarter (valuationMachine's lock row).
-      const others = sameQuarterAs(
-        versionsOf(ctx, req.credential, row.investmentId),
-        row.periodEnd,
+        req.actor,
+        id,
+        {
+          command: req.body.command,
+          ...(req.body.reason !== undefined ? { reason: req.body.reason } : {}),
+        },
+        new Headers(),
+        `/api/v1/valuations/${encodeURIComponent(id)}/commands`,
       );
-      if (
-        others.some(
-          (v) =>
-            v.state === 'Locked' && !(v.periodEnd === row.periodEnd && v.version === row.version),
-        )
-      )
-        return problem(
-          409,
-          'conflict',
-          'valuation: another version is Locked for this investment and quarter; reopen it before locking this one',
-          { instance, simulated: true },
-        );
+      if (outcome.ok) {
+        results.push({ id, ok: true, state: outcome.row.state });
+        continue;
+      }
+      const refusal = problemDetails.parse(JSON.parse(await outcome.response.text()));
+      results.push({
+        id,
+        ok: false,
+        problem: {
+          status: refusal.status,
+          code: refusal.type.split('/').pop() ?? 'error',
+          detail: refusal.detail ?? refusal.title,
+        },
+      });
     }
-    if (command === 'prepare') {
-      if (subtleCrypto() === undefined)
-        return problem(
-          503,
-          'unavailable',
-          'This browser offers SHA-256 only on secure (https) pages, so the lock hash cannot be computed here.',
-          { instance, simulated: true },
-        );
-      next.preparedBy = req.actor.displayName;
-      next.lockHash = await lockHashOf(row);
-      updated.preparedByIds = [req.actor.userId];
-    } else if (command === 'dealTeamApprove') {
-      next.dealTeamApprovedBy = req.actor.displayName;
-      updated.dealTeamApprovedByIds = [req.actor.userId];
-    } else if (command === 'lock') {
-      next.approvedBy = req.actor.displayName;
-      next.approvedAt = `${ctx.recordings.asOf}T12:00:00Z`;
-      updated.approvedByIds = [req.actor.userId];
-    } else if (command === 'reopen') {
-      next.reopenReason = reason ?? null;
-    }
-    sims.set(next.id, updated);
-    recordActivity(ctx, req.actor, {
-      action: `valuation.${command}`,
-      entity: 'valuation',
-      entityId: next.id,
-      reason: reason ?? null,
-      from: row.state,
-      to: next.state,
-    });
+    const body: ValuationBatchResult = { results };
+    return jsonResponse(200, body, { simulated: true });
+  },
+});
 
-    if (draftId !== null) {
-      // docs/18 section 1: reopening creates a new Draft version with the same inputs to edit.
-      const detail = readDetail(ctx, req.credential, row.investmentId);
-      const versions = versionsOf(ctx, req.credential, row.investmentId);
-      const draft: ValuationRow = {
-        ...next,
-        ...freshFields,
-        id: draftId,
-        version: nextVersion(versions, sims.values(), row.investmentId, row.periodEnd),
-      };
-      sims.set(draft.id, {
-        row: draft,
-        origin: 'created',
-        changed: true,
-        vehicleId: sim.vehicleId ?? detail?.vehicleId ?? null,
-        preparedByIds: [],
-        dealTeamApprovedByIds: [],
-        approvedByIds: [],
-      });
-      recordActivity(ctx, req.actor, {
-        action: 'valuation.create',
-        entity: 'valuation',
-        entityId: draft.id,
-        reason: reason ?? null,
-        from: null,
-        to: draft.state,
-      });
-    }
-    return jsonResponse(200, next, { simulated: true, etag: next.rowVersion });
+/**
+ * GET /api/v1/valuations/{id}: the version as the session holds it, the recorded approval trail
+ * with this session's rows after it, the open change requests of its position (M11) and, once
+ * Locked, the exact text its hash covers. 404 for a version the credential cannot open.
+ */
+export const valuationDetailRoute = defineSimRoute({
+  method: 'GET',
+  path: '/api/v1/valuations/{id}',
+  what: 'valuation',
+  body: null,
+  handle: (req, ctx) => {
+    const instance = req.url.pathname;
+    const id = req.params.id ?? '';
+    const sim = ensureValuations(ctx.state, ctx.recordings).get(id);
+    const recorded = ctx.recordings.read(
+      req.credential,
+      `/api/v1/valuations/${encodeURIComponent(id)}`,
+      valuationDetail,
+    );
+    if (sim === undefined || !canOpen(ctx, req.credential, sim.row.investmentId))
+      return problem(404, 'not-found', NOT_FOUND, { instance, simulated: true });
+    const { row } = sim;
+    const detail: ValuationDetail = {
+      ...row,
+      approvals: [...(recorded?.approvals ?? []), ...sim.approvals],
+      openChangeRequests: openChangeRequestsOf(ctx, req.credential, row.investmentId),
+      lockText: row.state === 'Locked' ? valuationLockText(row) : null,
+    };
+    return jsonResponse(200, detail, { simulated: true, etag: row.rowVersion });
   },
 });

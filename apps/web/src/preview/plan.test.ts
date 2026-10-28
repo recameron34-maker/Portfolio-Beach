@@ -50,7 +50,14 @@ import {
 import { weeklyDropsQuery, weeklyFileQuery, weeklyFilesQuery } from '../pages/weekly/queries.js';
 import { getKey, isPublicPath, normalizeKey } from './keys.js';
 import { SIM_ROUTES } from './routes/index.js';
-import { NOTICES_PATH, VALUATIONS_PATH } from './state.js';
+import {
+  CHANGE_REQUESTS_PATH,
+  NOTICES_PATH,
+  OPPORTUNITIES_PATH,
+  TICKETS_PATH,
+  VALUATIONS_PATH,
+  WIRES_PATH,
+} from './state.js';
 
 /** The shape of scripts/preview-plan.mjs, checked by the tests below. */
 interface PlanFamily {
@@ -61,8 +68,17 @@ interface PlanFamily {
 interface PlanModule {
   ACTIVE_FILTERS: readonly (string | undefined)[];
   INVESTMENT_LIMITS: readonly number[];
+  VALUATION_DETAIL_INVESTMENTS: number;
   buildPlan: (
-    dataset: Record<'investments' | 'vehicles' | 'sponsors' | 'capitalNotices', { id: string }[]>,
+    dataset: Record<'vehicles' | 'sponsors' | 'capitalNotices', { id: string }[]> & {
+      investments: { id: string; investmentNumber: string }[];
+      valuations?: { id: string; investmentId: string }[];
+      wireInstructions?: { id: string }[];
+      tradeTickets?: { id: string }[];
+      changeRequests?: { id: string }[];
+      opportunities?: { id: string }[];
+      closings?: { id: string }[];
+    },
     options: { dealTypes: readonly string[] },
   ) => { public: string[]; families: PlanFamily[] };
   dealTypeCodes: (taxonomy: {
@@ -74,6 +90,7 @@ interface PlanModule {
 const {
   ACTIVE_FILTERS,
   INVESTMENT_LIMITS,
+  VALUATION_DETAIL_INVESTMENTS,
   buildPlan,
   dealTypeCodes,
   keyFor: planKeyFor,
@@ -84,14 +101,40 @@ const INV = '30000000-0000-4000-8000-000000000001';
 const VEH = '30000000-0000-4000-8000-000000000002';
 const SPO = '30000000-0000-4000-8000-000000000003';
 const NOT = '30000000-0000-4000-8000-000000000004';
+const VAL = '30000000-0000-4000-8000-000000000005';
+const WIRE = '30000000-0000-4000-8000-000000000006';
+const TICKET = '30000000-0000-4000-8000-000000000007';
+const REQUEST = '30000000-0000-4000-8000-000000000008';
+const OPP = '30000000-0000-4000-8000-000000000009';
+const CLOSING = '30000000-0000-4000-8000-000000000010';
+/** A position past the first ten by number: its versions are not recorded in detail. */
+const LATER = '30000000-0000-4000-8000-000000000011';
 const DEAL_TYPES = ['deal_type.co_invest_equity', 'deal_type.private_credit'];
 
+/** The positions of the planned dataset: the first, nine more inside the detailed ten, and one past them. */
+const INVESTMENTS = [
+  { id: INV, investmentNumber: 'INV-0001' },
+  ...Array.from({ length: VALUATION_DETAIL_INVESTMENTS - 1 }, (_, i) => ({
+    id: `30000000-0000-4000-8000-${String(100 + i).padStart(12, '0')}`,
+    investmentNumber: `INV-${String(i + 2).padStart(4, '0')}`,
+  })),
+  { id: LATER, investmentNumber: 'INV-0099' },
+];
 const plan = buildPlan(
   {
-    investments: [{ id: INV }],
+    investments: INVESTMENTS,
     vehicles: [{ id: VEH }],
     sponsors: [{ id: SPO }],
     capitalNotices: [{ id: NOT }],
+    valuations: [
+      { id: VAL, investmentId: INV },
+      { id: '30000000-0000-4000-8000-000000000012', investmentId: LATER },
+    ],
+    wireInstructions: [{ id: WIRE }],
+    tradeTickets: [{ id: TICKET }],
+    changeRequests: [{ id: REQUEST }],
+    opportunities: [{ id: OPP }],
+    closings: [{ id: CLOSING }],
   },
   { dealTypes: DEAL_TYPES },
 );
@@ -228,6 +271,9 @@ describe('the recording plan', () => {
       '/api/v1/data-exceptions?limit=200',
       `/api/v1/data-exceptions/${INV}`,
       '/api/v1/intake/ops-drop/drops',
+      // The one-pager is simulated too, so a position a simulated close created has one; every
+      // recorded position still answers from its recording through the same route.
+      `/api/v1/investments/${INV}`,
       '/api/v1/documents?limit=200',
       '/api/v1/documents?limit=200&q=report&reviewStatus=NeedsReview',
       `/api/v1/documents?limit=200&investmentId=${INV}`,
@@ -262,15 +308,29 @@ describe('the recording plan', () => {
   it('records every id for every family that takes one, and the audit trail first', () => {
     const paths = (name: string): string[] =>
       plan.families.find((f) => f.name === name)?.paths ?? [];
-    expect(paths('investment detail')).toEqual([`/api/v1/investments/${INV}`]);
-    expect(paths('investment performance')).toEqual([`/api/v1/investments/${INV}/performance`]);
+    const each = (make: (id: string) => string): string[] => INVESTMENTS.map((i) => make(i.id));
+    expect(paths('investment detail')).toEqual(each((id) => `/api/v1/investments/${id}`));
+    expect(paths('investment performance')).toEqual(
+      each((id) => `/api/v1/investments/${id}/performance`),
+    );
     expect(paths('vehicle detail')).toEqual([`/api/v1/vehicles/${VEH}`]);
     expect(paths('sponsor detail')).toEqual([`/api/v1/sponsors/${SPO}`]);
     expect(paths('capital notice detail')).toEqual([`/api/v1/capital-notices/${NOT}`]);
-    expect(paths('investment documents')).toEqual([
-      `/api/v1/documents?investmentId=${INV}&limit=200`,
+    expect(paths('investment documents')).toEqual(
+      each((id) => `/api/v1/documents?investmentId=${id}&limit=200`),
+    );
+    expect(paths('realization outlook')).toEqual(each((id) => `/api/v1/monitoring/outlook/${id}`));
+    // The Phase 3 controls (decision 0013): the versions of the first positions by number in
+    // detail, every ticket, instruction, request, deal and closing, and the lists they seed from.
+    expect(paths('valuation detail')).toEqual([`/api/v1/valuations/${VAL}`]);
+    expect(paths('trade tickets')).toEqual([TICKETS_PATH, `/api/v1/trade-tickets/${TICKET}`]);
+    expect(paths('wire register')).toEqual([WIRES_PATH, `/api/v1/wire-instructions/${WIRE}`]);
+    expect(paths('change requests')).toEqual([
+      CHANGE_REQUESTS_PATH,
+      `/api/v1/change-requests/${REQUEST}`,
     ]);
-    expect(paths('realization outlook')).toEqual([`/api/v1/monitoring/outlook/${INV}`]);
+    expect(paths('pipeline')).toEqual([OPPORTUNITIES_PATH, `/api/v1/opportunities/${OPP}`]);
+    expect(paths('closings')).toEqual([`/api/v1/closings/${CLOSING}`]);
     expect(plan.families.map((f) => f.name)).not.toContain('intake');
     expect(paths('investment lists')).toHaveLength(
       INVESTMENT_LIMITS.length * (DEAL_TYPES.length + 1) * ACTIVE_FILTERS.length,
@@ -282,8 +342,15 @@ describe('the recording plan', () => {
   });
 
   it('records the unfiltered lists the simulation seeds from', () => {
-    expect(planned.has(getKey('u', VALUATIONS_PATH))).toBe(true);
-    expect(planned.has(getKey('u', NOTICES_PATH))).toBe(true);
+    for (const path of [
+      VALUATIONS_PATH,
+      NOTICES_PATH,
+      WIRES_PATH,
+      TICKETS_PATH,
+      CHANGE_REQUESTS_PATH,
+      OPPORTUNITIES_PATH,
+    ])
+      expect(planned.has(getKey('u', path)), path).toBe(true);
   });
 
   it('takes the active deal-type codes from the taxonomy', () => {

@@ -2,6 +2,20 @@ import { principal } from '@pb/contracts';
 import { problem, validationProblem } from '../problems.js';
 import type { SimActor } from '../state.js';
 import { capitalNoticeCommandRoute } from './capitalNotices.js';
+import {
+  changeRequestCommandRoute,
+  changeRequestRoute,
+  changeRequestsRoute,
+  createChangeRequestRoute,
+  quarterEndCheckRoute,
+} from './changeRequests.js';
+import {
+  closingCommandRoute,
+  closingItemCommandRoute,
+  closingRoute,
+  createLegalTermRoute,
+  legalTermCommandRoute,
+} from './closings.js';
 import type { SimContext, SimRoute } from './common.js';
 import {
   documentCommandRoute,
@@ -32,14 +46,37 @@ import {
 import { lookthroughReconcileRoute, lookthroughRunRoute } from './lookthrough.js';
 import { boardExportRoute, boardRoute, outlookRoute, setOutlookRoute } from './monitoring.js';
 import { opsDropDropsRoute, opsDropImportRoute } from './opsDrop.js';
+import {
+  createDiligenceTaskRoute,
+  createOpportunityRoute,
+  diligenceTaskCommandRoute,
+  icDecisionRoute,
+  investmentDetailRoute,
+  opportunitiesRoute,
+  opportunityCommandRoute,
+  opportunityRoute,
+  putAllocationsRoute,
+} from './pipeline.js';
 import { resetRoute } from './reset.js';
-import { createValuationRoute, valuationCommandRoute } from './valuations.js';
+import { tradeTicketRoute, tradeTicketsRoute } from './tickets.js';
+import {
+  createValuationRoute,
+  valuationBatchCommandRoute,
+  valuationCommandRoute,
+  valuationDetailRoute,
+} from './valuations.js';
 import {
   weeklyCommandRoute,
   weeklyDropsRoute,
   weeklyFileRoute,
   weeklyImportRoute,
 } from './weekly.js';
+import {
+  proposeWireInstructionRoute,
+  wireInstructionCommandRoute,
+  wireInstructionRoute,
+  wireInstructionsRoute,
+} from './wires.js';
 
 export type { SimContext, SimRoute } from './common.js';
 
@@ -47,14 +84,45 @@ export type { SimContext, SimRoute } from './common.js';
  * Simulated routes, checked before the recordings: the writes, and the reads of records that
  * exist only once the simulation stages them (the intake files of every source, the reconcile
  * runs, the data exceptions, the documents, the expected documents, the extraction batches and
- * runs, the monitoring board). A literal path is listed before the parameterized path it would
- * also match (the review queue before the document). Anything else that is not a GET is a miss.
+ * runs, the monitoring board) or that it seeds from the recordings and changes in the session
+ * (the valuation detail, the wire register, the trade tickets, the change requests, the pipeline,
+ * the closings, the one-pager of a position a simulated close created). A literal path is listed
+ * before the parameterized path it would also match (the review queue before the document, the
+ * batch commands before a version's commands, the quarter-end check before a request's commands).
+ * Anything else that is not a GET is a miss.
  */
 export const SIM_ROUTES: readonly SimRoute[] = [
   flagRoute,
   createValuationRoute,
+  valuationBatchCommandRoute,
   valuationCommandRoute,
+  valuationDetailRoute,
   capitalNoticeCommandRoute,
+  tradeTicketsRoute,
+  tradeTicketRoute,
+  wireInstructionsRoute,
+  proposeWireInstructionRoute,
+  wireInstructionRoute,
+  wireInstructionCommandRoute,
+  changeRequestsRoute,
+  createChangeRequestRoute,
+  quarterEndCheckRoute,
+  changeRequestRoute,
+  changeRequestCommandRoute,
+  opportunitiesRoute,
+  createOpportunityRoute,
+  opportunityRoute,
+  opportunityCommandRoute,
+  createDiligenceTaskRoute,
+  diligenceTaskCommandRoute,
+  icDecisionRoute,
+  putAllocationsRoute,
+  closingRoute,
+  closingItemCommandRoute,
+  closingCommandRoute,
+  createLegalTermRoute,
+  legalTermCommandRoute,
+  investmentDetailRoute,
   intakeExportsRoute,
   intakeImportRoute,
   intakeFilesRoute,

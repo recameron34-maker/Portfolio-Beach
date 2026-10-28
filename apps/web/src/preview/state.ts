@@ -1,7 +1,32 @@
-import { capitalNoticePage, valuationPage } from '@pb/contracts';
+import {
+  capitalNoticePage,
+  changeRequestPage,
+  closingDetail,
+  opportunityDetail,
+  opportunityPage,
+  tradeTicketPage,
+  valuationPage,
+  wireInstructionPage,
+} from '@pb/contracts';
 import type {
+  AllocationRow,
+  BankDetails,
+  CapitalNoticeDetail,
   CapitalNoticeRow,
+  ChangeRequestRow,
   ClassifierEvidence,
+  ClosingItem,
+  ClosingState,
+  DiligenceTask,
+  IcDecision,
+  InvestmentDetail,
+  LegalTerm,
+  OpportunityRow,
+  Person,
+  StageHistoryEntry,
+  TradeTicketState,
+  ValuationApproval,
+  WireInstructionRow,
   DataExceptionState,
   DocumentReviewStatus,
   ExtractionBatchState,
@@ -23,6 +48,7 @@ import type {
   ValuationRow,
   WeeklyPriorSource,
 } from '@pb/contracts';
+import type { z } from 'zod';
 import { LIST_LIMIT } from '../app/queries.js';
 import type { PreviewUser, Recordings } from './fixtures.js';
 
@@ -53,13 +79,103 @@ export interface SimValuation {
   preparedByIds: readonly string[];
   dealTeamApprovedByIds: readonly string[];
   approvedByIds: readonly string[];
+  /** The approval rows this session's commands wrote (mon.valuation_approval); the recorded trail comes first on the detail. */
+  approvals: ValuationApproval[];
+}
+
+/** The SEC-12.4 flags of a notice (mon.capital_notice.urgency_flag, wire_change_flag). */
+export interface SimNoticeFlags {
+  urgencyFlag: boolean;
+  wireChangeFlag: boolean;
 }
 
 export interface SimNotice {
   row: CapitalNoticeRow;
   changed: boolean;
-  /** User id of whoever drafted the trade ticket (draftTicket). */
-  ticketPreparedBy: string | null;
+  /** The flags as read from the recorded detail on first use; null until a read or a command needs them. */
+  flags: SimNoticeFlags | null;
+  /** The approved cash flow a simulated reconcile wrote (mon.cash_flow), none until then. */
+  cashFlows: CapitalNoticeDetail['cashFlows'];
+  /** Who confirmed funding, once a simulated confirmFunding did. */
+  fundedBy: string | null;
+}
+
+/* ---- The Phase 3 controls (decision 0013): the register, the tickets, the change requests, the pipeline, the closings ---- */
+
+/** One version of the simulated wire register (mon.wire_instruction), masked as the API serves it. */
+export interface SimWireInstruction {
+  row: WireInstructionRow;
+  origin: 'recorded' | 'created';
+  changed: boolean;
+  /** The details typed in this session (a propose); null for a recorded version, whose reveal the book answers. */
+  bankDetails: BankDetails | null;
+}
+
+/** A trade ticket (mon.trade_ticket); the release check is computed per reader when served (SEC-12.3). */
+export interface SimTicket {
+  id: string;
+  capitalNoticeId: string;
+  amount: string;
+  currency: string;
+  fundingDate: string;
+  preparedBy: Person;
+  preparedAt: string;
+  approvedBy: Person | null;
+  approvedAt: string | null;
+  /** The register version the ticket was approved against; null until approved. */
+  wireInstructionId: string | null;
+  state: TradeTicketState;
+  rowVersion: number;
+  origin: 'recorded' | 'created';
+  changed: boolean;
+}
+
+export interface SimChangeRequest {
+  row: ChangeRequestRow;
+  origin: 'recorded' | 'created';
+  changed: boolean;
+}
+
+/** An opportunity (deal.opportunity) with the child rows its detail shows. */
+export interface SimOpportunity {
+  row: OpportunityRow;
+  source: string | null;
+  passNote: string | null;
+  stageHistory: StageHistoryEntry[];
+  tasks: DiligenceTask[];
+  /** Latest first: the first row is the one the IC gate reads. */
+  decisions: IcDecision[];
+  allocations: AllocationRow[];
+  closingId: string | null;
+  origin: 'recorded' | 'created';
+  changed: boolean;
+}
+
+/** A closing record (deal.closing) with its checklist and legal terms. */
+export interface SimClosing {
+  id: string;
+  opportunityId: string;
+  investmentId: string | null;
+  closeDate: string;
+  commitmentAmount: string;
+  currency: string;
+  state: ClosingState;
+  opsConfirmedBy: Person | null;
+  opsConfirmedAt: string | null;
+  items: ClosingItem[];
+  legalTerms: LegalTerm[];
+  /** The lines recorded with the closing, read when no opportunity sim carries them (a closing that predates the pipeline). */
+  allocations: AllocationRow[];
+  rowVersion: number;
+  origin: 'recorded' | 'created';
+  changed: boolean;
+}
+
+/** A position a simulated close created (core.investment), as its one-pager serves it; the lists derive their row from it. */
+export interface SimInvestment {
+  detail: InvestmentDetail;
+  opportunityId: string;
+  closingId: string;
 }
 
 /** The header every simulated intake file shares (stg.intake_file), whatever its source. */
@@ -179,7 +295,12 @@ export interface SimException {
   id: string;
   /** The intake or job that opened it, such as accounting_import, lookthrough_reconcile, documents or extraction. */
   source: string;
-  entity: 'stg.intake_row' | 'stg.valuation' | 'doc.document' | 'doc.extraction_run';
+  entity:
+    | 'stg.intake_row'
+    | 'stg.valuation'
+    | 'doc.document'
+    | 'doc.extraction_run'
+    | 'mon.deal_change_request';
   entityId: string;
   ruleId: string;
   expected: string | null;
@@ -222,7 +343,17 @@ export interface SimAuditEvent {
     | 'extraction_batch'
     | 'extraction_run'
     | 'extracted_value'
-    | 'realization_outlook';
+    | 'realization_outlook'
+    | 'wire_instruction'
+    | 'trade_ticket'
+    | 'change_request'
+    | 'opportunity'
+    | 'diligence_task'
+    | 'ic_decision'
+    | 'closing'
+    | 'closing_item'
+    | 'legal_term'
+    | 'investment';
   entityId: string;
   reason: string | null;
   from: string | null;
@@ -445,6 +576,18 @@ export interface PreviewState {
   promotedQuarters: Map<string, SimPromotedQuarter>;
   /** Realization outlooks set this session, by investment id. */
   outlooks: Map<string, SimOutlook>;
+  /** The wire register, seeded lazily from the recorded register on the first use; null until then. */
+  wires: Map<string, SimWireInstruction> | null;
+  /** Trade tickets, seeded lazily from the recorded ticket list; null until then. */
+  tickets: Map<string, SimTicket> | null;
+  /** Deal change requests, seeded lazily from the recorded queue; null until then. */
+  changeRequests: Map<string, SimChangeRequest> | null;
+  /** Opportunities, seeded lazily from the recorded board and details; null until then. */
+  opportunities: Map<string, SimOpportunity> | null;
+  /** Closings, seeded lazily from the recorded closing details the opportunities name; null until then. */
+  closings: Map<string, SimClosing> | null;
+  /** Positions a simulated close created this session, by investment id. */
+  investments: Map<string, SimInvestment>;
   audit: SimAuditEvent[];
   idempotency: Map<string, StoredResponse>;
 }
@@ -490,6 +633,12 @@ export function createPreviewState(): PreviewState {
     values: new Map(),
     promotedQuarters: new Map(),
     outlooks: new Map(),
+    wires: null,
+    tickets: null,
+    changeRequests: null,
+    opportunities: null,
+    closings: null,
+    investments: new Map(),
     audit: [],
     idempotency: new Map(),
   };
@@ -511,6 +660,12 @@ export function resetPreviewState(state: PreviewState): void {
   state.values.clear();
   state.promotedQuarters.clear();
   state.outlooks.clear();
+  state.wires = null;
+  state.tickets = null;
+  state.changeRequests = null;
+  state.opportunities = null;
+  state.closings = null;
+  state.investments.clear();
   state.audit.length = 0;
   state.idempotency.clear();
 }
@@ -543,6 +698,10 @@ export function exceptionsOfFile(state: PreviewState, fileId: string): SimExcept
 /** The unfiltered lists the seeds read; the same paths the pages request (src/app/queries.ts). */
 export const VALUATIONS_PATH = `/api/v1/valuations?limit=${LIST_LIMIT}`;
 export const NOTICES_PATH = `/api/v1/capital-notices?limit=${LIST_LIMIT}`;
+export const WIRES_PATH = `/api/v1/wire-instructions?limit=${LIST_LIMIT}`;
+export const TICKETS_PATH = `/api/v1/trade-tickets?limit=${LIST_LIMIT}`;
+export const CHANGE_REQUESTS_PATH = `/api/v1/change-requests?limit=${LIST_LIMIT}`;
+export const OPPORTUNITIES_PATH = `/api/v1/opportunities?limit=${LIST_LIMIT}`;
 
 /**
  * User ids behind a recorded display field. The API serves display names; a field that already
@@ -594,6 +753,7 @@ export function seedValuations(recordings: Recordings): Map<string, SimValuation
         preparedByIds: userIdsFor(recordings.users, row.preparedBy),
         dealTeamApprovedByIds: userIdsFor(recordings.users, row.dealTeamApprovedBy),
         approvedByIds: userIdsFor(recordings.users, row.approvedBy),
+        approvals: [],
       });
     }
   }
@@ -607,8 +767,145 @@ export function seedNotices(recordings: Recordings): Map<string, SimNotice> {
   );
   for (const list of lists) {
     for (const row of [...list.items, ...list.attention]) {
-      if (!seeded.has(row.id)) seeded.set(row.id, { row, changed: false, ticketPreparedBy: null });
+      if (!seeded.has(row.id))
+        seeded.set(row.id, { row, changed: false, flags: null, cashFlows: [], fundedBy: null });
     }
+  }
+  return seeded;
+}
+
+/** The first recorded 200 body for the path among every user, parsed; undefined when nobody recorded one. */
+export function readAny<T>(
+  recordings: Recordings,
+  path: string,
+  schema: z.ZodType<T>,
+): T | undefined {
+  for (const user of recordings.users) {
+    const found = recordings.read(user.externalId, path, schema);
+    if (found !== undefined) return found;
+  }
+  return undefined;
+}
+
+/** The register as recorded (the roles that read it see every version; the register has no wall). */
+export function seedWires(recordings: Recordings): Map<string, SimWireInstruction> {
+  const seeded = new Map<string, SimWireInstruction>();
+  for (const list of recordedLists(recordings, (c) =>
+    recordings.read(c, WIRES_PATH, wireInstructionPage),
+  )) {
+    for (const row of list.items) {
+      if (!seeded.has(row.id))
+        seeded.set(row.id, { row, origin: 'recorded', changed: false, bankDetails: null });
+    }
+  }
+  return seeded;
+}
+
+/** The tickets as recorded: every row any user can see (a ticket follows its notice's wall). */
+export function seedTickets(recordings: Recordings): Map<string, SimTicket> {
+  const seeded = new Map<string, SimTicket>();
+  for (const list of recordedLists(recordings, (c) =>
+    recordings.read(c, TICKETS_PATH, tradeTicketPage),
+  )) {
+    for (const row of list.items) {
+      if (seeded.has(row.id)) continue;
+      seeded.set(row.id, {
+        id: row.id,
+        capitalNoticeId: row.capitalNoticeId,
+        amount: row.amount,
+        currency: row.currency,
+        fundingDate: row.fundingDate,
+        preparedBy: row.preparedBy,
+        preparedAt: row.preparedAt,
+        approvedBy: row.approvedBy,
+        approvedAt: row.approvedAt,
+        wireInstructionId: row.wireInstruction?.id ?? null,
+        state: row.state,
+        rowVersion: row.rowVersion,
+        origin: 'recorded',
+        changed: false,
+      });
+    }
+  }
+  return seeded;
+}
+
+export function seedChangeRequests(recordings: Recordings): Map<string, SimChangeRequest> {
+  const seeded = new Map<string, SimChangeRequest>();
+  for (const list of recordedLists(recordings, (c) =>
+    recordings.read(c, CHANGE_REQUESTS_PATH, changeRequestPage),
+  )) {
+    for (const row of list.items) {
+      if (!seeded.has(row.id)) seeded.set(row.id, { row, origin: 'recorded', changed: false });
+    }
+  }
+  return seeded;
+}
+
+/**
+ * The board as recorded, each deal with the child rows of its recorded detail (the first user
+ * who recorded a 200 for it); a deal with no recorded detail carries its row alone.
+ */
+export function seedOpportunities(recordings: Recordings): Map<string, SimOpportunity> {
+  const seeded = new Map<string, SimOpportunity>();
+  for (const list of recordedLists(recordings, (c) =>
+    recordings.read(c, OPPORTUNITIES_PATH, opportunityPage),
+  )) {
+    for (const row of list.items) {
+      if (seeded.has(row.id)) continue;
+      const detail = readAny(
+        recordings,
+        `/api/v1/opportunities/${encodeURIComponent(row.id)}`,
+        opportunityDetail,
+      );
+      seeded.set(row.id, {
+        row,
+        source: detail?.source ?? null,
+        passNote: detail?.passNote ?? null,
+        stageHistory: detail?.stageHistory ?? [],
+        tasks: detail?.diligenceTasks ?? [],
+        decisions: detail?.icDecisions ?? [],
+        allocations: detail?.allocations ?? [],
+        closingId: detail?.closing?.id ?? null,
+        origin: 'recorded',
+        changed: false,
+      });
+    }
+  }
+  return seeded;
+}
+
+/** The closings the recorded opportunities name, from their recorded details. */
+export function seedClosings(
+  recordings: Recordings,
+  opportunities: ReadonlyMap<string, SimOpportunity>,
+): Map<string, SimClosing> {
+  const seeded = new Map<string, SimClosing>();
+  for (const opp of opportunities.values()) {
+    if (opp.closingId === null || seeded.has(opp.closingId)) continue;
+    const detail = readAny(
+      recordings,
+      `/api/v1/closings/${encodeURIComponent(opp.closingId)}`,
+      closingDetail,
+    );
+    if (detail === undefined) continue;
+    seeded.set(detail.id, {
+      id: detail.id,
+      opportunityId: detail.opportunityId,
+      investmentId: detail.investmentId,
+      closeDate: detail.closeDate,
+      commitmentAmount: detail.commitmentAmount,
+      currency: detail.currency,
+      state: detail.state,
+      opsConfirmedBy: detail.opsConfirmedBy,
+      opsConfirmedAt: detail.opsConfirmedAt,
+      items: detail.items,
+      legalTerms: detail.legalTerms,
+      allocations: detail.allocations,
+      rowVersion: detail.rowVersion,
+      origin: 'recorded',
+      changed: false,
+    });
   }
   return seeded;
 }
@@ -622,4 +919,36 @@ export function ensureValuations(
 
 export function ensureNotices(state: PreviewState, recordings: Recordings): Map<string, SimNotice> {
   return (state.notices ??= seedNotices(recordings));
+}
+
+export function ensureWires(
+  state: PreviewState,
+  recordings: Recordings,
+): Map<string, SimWireInstruction> {
+  return (state.wires ??= seedWires(recordings));
+}
+
+export function ensureTickets(state: PreviewState, recordings: Recordings): Map<string, SimTicket> {
+  return (state.tickets ??= seedTickets(recordings));
+}
+
+export function ensureChangeRequests(
+  state: PreviewState,
+  recordings: Recordings,
+): Map<string, SimChangeRequest> {
+  return (state.changeRequests ??= seedChangeRequests(recordings));
+}
+
+export function ensureOpportunities(
+  state: PreviewState,
+  recordings: Recordings,
+): Map<string, SimOpportunity> {
+  return (state.opportunities ??= seedOpportunities(recordings));
+}
+
+export function ensureClosings(
+  state: PreviewState,
+  recordings: Recordings,
+): Map<string, SimClosing> {
+  return (state.closings ??= seedClosings(recordings, ensureOpportunities(state, recordings)));
 }

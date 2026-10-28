@@ -1,3 +1,4 @@
+import { bankDetails, closingChecklist, diligenceTemplates } from '@pb/contracts';
 import { z } from 'zod';
 import { SAMPLE_SCENARIOS, sampleFileName } from '../pages/intake/intake.js';
 
@@ -213,6 +214,16 @@ export const previewBook = z.object({
   /** The synthetic document set the preview bundles, in the generator's order (the store's inbox). */
   documents: z.array(bookDocument),
   documentExpectations: bookDocumentExpectations,
+  /**
+   * Phase 3 (decision 0013): the bank details of every synthetic wire instruction, as the system
+   * actor's view holds them. The recordings carry null for every credential (the build strips
+   * them), so the simulated register answers a reveal for operations and approvers from here;
+   * every other reader gets null, as the API answers. Synthetic throughout, never a real account.
+   */
+  wireInstructions: z.array(z.object({ id: z.string().min(1), bankDetails })).default([]),
+  /** config/diligence_templates.json and config/closing_checklist.json as built, so the simulation needs no API. */
+  diligenceTemplates: diligenceTemplates.nullable().default(null),
+  closingChecklist: closingChecklist.nullable().default(null),
 });
 
 export type PreviewBook = z.infer<typeof previewBook>;
