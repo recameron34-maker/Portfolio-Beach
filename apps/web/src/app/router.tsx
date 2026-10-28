@@ -64,6 +64,10 @@ import { ValuationsPage } from '../pages/valuations/Valuations.js';
 // Phase 3: W1 valuations (M10) and change requests (M11)
 import { ChangeRequestsPage } from '../pages/valuations/ChangeRequests.js';
 import { ValuationDetailPage } from '../pages/valuations/ValuationDetail.js';
+// Phase 3: W2 capital activity (M16), the wire register, one instruction and the trade tickets.
+import { TradeTicketsPage } from '../pages/capital/TradeTickets.js';
+import { WireInstructionPage } from '../pages/capital/WireInstruction.js';
+import { WireRegisterPage } from '../pages/capital/WireRegister.js';
 import { getCredential } from './session.js';
 
 const rootRoute = createRootRoute({
@@ -136,6 +140,10 @@ const valuationDetailRoute = child('/valuations/$id', ValuationDetailPage);
 const capitalRoute = child('/capital-activity', CapitalActivityPage);
 const commitmentsRoute = child('/capital-activity/commitments', CommitmentsPage);
 const capitalNoticeRoute = child('/capital-activity/$id', CapitalNoticePage);
+// Phase 3: W2 capital activity (M16). Static segments outrank the notice's $id whatever the order.
+const capitalWiresRoute = child('/capital-activity/wires', WireRegisterPage);
+const capitalWireRoute = child('/capital-activity/wires/$id', WireInstructionPage);
+const capitalTicketsRoute = child('/capital-activity/tickets', TradeTicketsPage);
 const reportingRoute = child('/reporting', WeeklyReportPage);
 const clientsRoute = child('/reporting/clients', ClientsPage);
 const disclosuresRoute = child('/reporting/disclosures', DisclosuresPage);
@@ -237,6 +245,10 @@ const routeTree = rootRoute.addChildren([
     capitalRoute,
     commitmentsRoute,
     capitalNoticeRoute,
+    // Phase 3: W2 capital activity (M16).
+    capitalWiresRoute,
+    capitalWireRoute,
+    capitalTicketsRoute,
     reportingRoute,
     clientsRoute,
     disclosuresRoute,

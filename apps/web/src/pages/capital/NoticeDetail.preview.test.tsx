@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { cleanup, screen, within } from '@testing-library/react';
+import { cleanup, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import type { CapitalNoticeDetail, CapitalNoticeRow } from '@pb/contracts';
 import { mockApi, ok } from '../../test/api-mock.js';
@@ -29,6 +29,16 @@ function rowOf(id: string): CapitalNoticeRow {
 
 function detailOf(id: string, overrides: Partial<CapitalNoticeDetail> = {}): CapitalNoticeDetail {
   return noticeDetailFixture({ ...rowOf(id), wireChangeHold: null, notes: [], ...overrides });
+}
+
+/**
+ * Waits for the modal to unmount. The page's status region is then read by its test id: Fluent's
+ * focus manager lifts the aria-hidden it put on the page when focus returns to the trigger, which
+ * jsdom does not do after a submit, so the region may stay out of the accessibility tree here.
+ */
+async function dialogClosed(): Promise<HTMLElement> {
+  await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+  return screen.getByTestId('notice-action-status');
 }
 
 function open(
@@ -105,6 +115,83 @@ describe('capital notice detail (preview)', () => {
     expect(
       within(screen.getByRole('list', { name: 'Actions this session' })).getByText(message),
     ).toBeInTheDocument();
+  });
+
+  it(
+    'drafts the ticket from a dialog prefilled with the due date and the amount',
+    { timeout: 20_000 },
+    async () => {
+      open(NOTICE_ID.reviewed, ['operations'], detailOf(NOTICE_ID.reviewed, { ticket: null }), {
+        [commandsPath(NOTICE_ID.reviewed)]: ok({
+          ...rowOf(NOTICE_ID.reviewed),
+          state: 'TicketDrafted',
+        }),
+      });
+      await userEvent.click(await screen.findByRole('button', { name: 'Draft ticket' }));
+      const form = await screen.findByTestId('draft-ticket-form');
+      const date = within(form).getByRole('textbox', { name: 'Funding date' });
+      const amount = within(form).getByRole('textbox', { name: 'Amount (USD)' });
+      expect(date).toHaveValue('2025-06-27');
+      expect(amount).toHaveValue('3776500.00');
+      expect(within(form).getByText('Reads as $3.8M.')).toBeInTheDocument();
+      const submit = within(form).getByRole('button', { name: 'Draft ticket' });
+      // A funding date that is no calendar date keeps the draft on the page.
+      await userEvent.clear(date);
+      await userEvent.type(date, '2025-06-31');
+      expect(submit).toBeDisabled();
+      await userEvent.clear(date);
+      await userEvent.type(date, '2025-06-26');
+      await userEvent.clear(amount);
+      await userEvent.type(amount, '3776000.00');
+      expect(submit).toBeEnabled();
+      await userEvent.click(submit);
+      const status = await dialogClosed();
+      expect(
+        await within(status).findByText(
+          `Distribution for Kelpwood Fund I is now Ticket drafted ${SUFFIX}`,
+        ),
+      ).toHaveClass('pb-notice-good');
+      expect(sentPosts()).toEqual([
+        [
+          commandsPath(NOTICE_ID.reviewed),
+          { command: 'draftTicket', fundingDate: '2025-06-26', amount: '3776000.00' },
+        ],
+      ]);
+    },
+  );
+
+  it('asks why before a person records a wire change', { timeout: 20_000 }, async () => {
+    open(
+      NOTICE_ID.drafted,
+      ['operations'],
+      detailOf(NOTICE_ID.drafted, { state: 'TicketApproved' }),
+      {
+        [commandsPath(NOTICE_ID.drafted)]: ok({
+          ...rowOf(NOTICE_ID.drafted),
+          state: 'TicketDrafted',
+        }),
+      },
+    );
+    await userEvent.click(await screen.findByRole('button', { name: 'Wire changed' }));
+    const dialog = await screen.findByRole('dialog');
+    expect(dialog).toHaveTextContent('Capital call for Summit Services Co');
+    await userEvent.type(
+      within(dialog).getByRole('textbox', { name: /Reason/ }),
+      'Changed account in a letter received by post',
+    );
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Wire changed' }));
+    const status = await dialogClosed();
+    expect(
+      await within(status).findByText(
+        `Capital call for Summit Services Co is now Ticket drafted ${SUFFIX}`,
+      ),
+    ).toBeInTheDocument();
+    expect(sentPosts()).toEqual([
+      [
+        commandsPath(NOTICE_ID.drafted),
+        { command: 'wireChanged', reason: 'Changed account in a letter received by post' },
+      ],
+    ]);
   });
 
   it('shows a refusal through describeActionError', async () => {

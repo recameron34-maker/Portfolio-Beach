@@ -5,25 +5,20 @@ import { failing, mockApi, ok } from '../../test/api-mock.js';
 import {
   commitmentListFixture,
   NOTICE_ID,
-  noticeDetailFixture,
   noticePageFixture,
-  settledDetailFixture,
 } from '../../test/fixtures-capital.js';
-import { rolePrincipal, sentRequests } from '../../test/fixtures-valuations.js';
+import { sentRequests } from '../../test/fixtures-valuations.js';
 import { renderWithQuery } from '../../test/render.js';
-import { CapitalActivityPage, CapitalNoticePage, CommitmentsPage } from './CapitalActivity.js';
+import { CapitalActivityPage, CommitmentsPage } from './CapitalActivity.js';
 
-const params = vi.hoisted(() => ({ id: '' }));
+vi.mock('@tanstack/react-router', async () =>
+  (await import('../../test/router-mock.js')).routerMock(),
+);
 
-vi.mock('@tanstack/react-router', async () => ({
-  ...(await import('../../test/router-mock.js')).routerMock(),
-  useParams: () => ({ id: params.id }),
-}));
+/* The notice page has its own tests beside it (NoticeDetail.test.tsx, NoticeDetail.preview.test.tsx). */
 
 const NOTICES = '/api/v1/capital-notices?limit=200';
 const COMMITMENTS = '/api/v1/commitments';
-const ME = '/api/v1/auth/me';
-const detailPath = (id: string): string => `/api/v1/capital-notices/${id}`;
 
 async function pick(combobox: string, option: string): Promise<void> {
   await userEvent.click(screen.getByRole('combobox', { name: combobox }));
@@ -243,109 +238,5 @@ describe('commitments and unfunded', () => {
     mockApi({ [COMMITMENTS]: failing(403, '/api/v1/commitments') });
     renderWithQuery(<CommitmentsPage />);
     expect(await screen.findByText('Commitments: not visible to your role')).toBeInTheDocument();
-  });
-});
-
-describe('capital notice detail (read-only build)', () => {
-  afterEach(() => {
-    cleanup();
-    vi.restoreAllMocks();
-  });
-
-  it('shows the notice, its progress, the hold and the bank-details rule, with every action disabled', async () => {
-    params.id = NOTICE_ID.extracted;
-    mockApi({
-      [ME]: ok(rolePrincipal(['operations'])),
-      [detailPath(NOTICE_ID.extracted)]: ok(noticeDetailFixture()),
-    });
-    renderWithQuery(<CapitalNoticePage />);
-    const banner = await screen.findByTestId('notice-banner');
-    expect(within(banner).getByRole('heading', { level: 1 })).toHaveTextContent(
-      'Capital call: Silverline Staffing Holdings',
-    );
-    expect(banner).toHaveTextContent('Beach Co-Invest Fund I');
-    expect(banner).toHaveTextContent('Issued Jul 10, 2025');
-    expect(banner).toHaveTextContent('Due Jul 12, 2025');
-    expect(banner).toHaveTextContent('$2.5M USD');
-
-    const progress = screen.getByRole('list', { name: 'Notice progress' });
-    const steps = within(progress).getAllByRole('listitem');
-    expect(steps).toHaveLength(7);
-    expect(steps[0]).toHaveTextContent('ReceivedDone');
-    expect(steps[1]).toHaveAttribute('aria-current', 'step');
-    expect(steps[1]).toHaveTextContent('ExtractedCurrent');
-    expect(steps[2]).toHaveTextContent('ReviewedUpcoming');
-    expect(within(progress).getAllByText('Done')).toHaveLength(1);
-
-    expect(screen.getByTestId('wire-hold')).toHaveTextContent(
-      'Wire instructions changed within the hold window. Ticket approval is held until Jul 30, 2025 (30 days, SEC-12.3).',
-    );
-    expect(screen.getByTestId('bank-details-note')).toHaveTextContent(
-      'Bank details are never extracted from documents or shown here (SEC-12.1). The wire register with callback verification arrives with M16, so ticket approval stays blocked in this build (SEC-12.2).',
-    );
-    expect(
-      within(tile('notice-tiles', 'Days to due')).getByText('Due in 12 days'),
-    ).toBeInTheDocument();
-    expect(
-      within(tile('notice-tiles', 'Settled')).getByText('No approved cash flow yet'),
-    ).toBeInTheDocument();
-    expect(
-      within(screen.getByRole('table', { name: 'Split' })).getByText('Investment'),
-    ).toBeInTheDocument();
-    expect(
-      screen.getByText('They are created when the ticket is approved and funding is confirmed.'),
-    ).toBeInTheDocument();
-    expect(
-      screen.getByText(/changed bank details; the instructions on file are unchanged/),
-    ).toBeInTheDocument();
-
-    // Phase 3 (W1): every allowed command is live in every build (lib/workflow.ts).
-    const review = screen.getByRole('button', { name: 'Review' });
-    expect(review).toBeEnabled();
-    expect(review).not.toHaveAttribute('title');
-    expect(screen.queryByText('Simulated')).not.toBeInTheDocument();
-  });
-
-  it('shows a settled notice with its cash flows and no due alert', async () => {
-    params.id = NOTICE_ID.reconciled;
-    mockApi({
-      [ME]: ok(rolePrincipal(['operations'])),
-      [detailPath(NOTICE_ID.reconciled)]: ok(settledDetailFixture()),
-    });
-    renderWithQuery(<CapitalNoticePage />);
-    expect(await screen.findByText('Equalization: Kelpwood Fund I')).toBeInTheDocument();
-    expect(within(tile('notice-tiles', 'Days to due')).getByText('Settled')).toBeInTheDocument();
-    expect(tile('notice-tiles', 'Days to due')).not.toHaveAttribute('data-tone');
-    const flows = screen.getByRole('table', { name: 'Cash flows created' });
-    expect(within(flows).getByText('Recallable')).toBeInTheDocument();
-    expect(within(flows).getByText('Approved')).toHaveClass('pb-badge-good');
-    expect(
-      screen.getByText('Reconciled is the last step; nothing further to do.'),
-    ).toBeInTheDocument();
-    expect(screen.queryByTestId('wire-hold')).not.toBeInTheDocument();
-    expect(screen.getByText('No notes')).toBeInTheDocument();
-  });
-
-  it.each([404, 403] as const)('says not found or not visible on a %s', async (status) => {
-    params.id = NOTICE_ID.received;
-    mockApi({
-      [ME]: ok(rolePrincipal(['viewer'])),
-      [detailPath(NOTICE_ID.received)]: failing(status, detailPath(NOTICE_ID.received)),
-    });
-    renderWithQuery(<CapitalNoticePage />);
-    expect(await screen.findByTestId('error-state')).toHaveTextContent(
-      'Notice not found or not visible to you',
-    );
-  });
-
-  it('degrades while the endpoint answers 501', async () => {
-    params.id = NOTICE_ID.received;
-    mockApi({
-      [ME]: ok(rolePrincipal(['viewer'])),
-      [detailPath(NOTICE_ID.received)]: failing(501, detailPath(NOTICE_ID.received)),
-    });
-    renderWithQuery(<CapitalNoticePage />);
-    expect(await screen.findByText('This capital notice: not available yet')).toBeInTheDocument();
-    expect(screen.queryByTestId('error-state')).not.toBeInTheDocument();
   });
 });

@@ -668,6 +668,9 @@ export function buildWorld(
         wireChangeHold:
           notice.scenarioTag === 'wire_change' ? { until: '2025-07-30', holdDays: 30 } : null,
         notes: [],
+        ticket: null,
+        activeWireInstruction: null,
+        alerts: notice.scenarioTag === 'wire_change' ? ['wire_changed'] : [],
       };
       b.add(c, path, detail);
     }

@@ -36,6 +36,9 @@ export const DOCUMENTS_TABS = [
 export const CAPITAL_TABS = [
   { to: '/capital-activity', label: 'Notices', exact: true },
   { to: '/capital-activity/commitments', label: 'Commitments and unfunded' },
+  // Phase 3 W2: capital activity (M16), the wire register and the trade tickets.
+  { to: '/capital-activity/wires', label: 'Wire register' },
+  { to: '/capital-activity/tickets', label: 'Trade tickets' },
 ];
 export const REPORTING_TABS = [
   { to: '/reporting', label: 'Weekly report', exact: true },

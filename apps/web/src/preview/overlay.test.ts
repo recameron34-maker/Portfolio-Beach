@@ -170,6 +170,9 @@ describe('capital notice overlays', () => {
       cashFlows: [],
       wireChangeHold: null,
       notes: ['n'],
+      ticket: null,
+      activeWireInstruction: null,
+      alerts: [],
     };
     expect(overlayCapitalNoticeDetail(detail, reviewed)).toEqual({
       ...detail,
