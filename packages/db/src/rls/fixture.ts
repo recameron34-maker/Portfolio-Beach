@@ -1,6 +1,8 @@
 import { sql } from 'drizzle-orm';
 import type { DbHandle } from '../client.js';
 import { withUserContext } from '../context.js';
+import { DEV_FIELD_KEY, encryptBankDetails, FieldCipher, maskBankDetails } from '../fieldCrypto.js';
+import type { BankDetails } from '../fieldCrypto.js';
 import { SYSTEM_USER_ID } from '../roles.js';
 import type { AppRole } from '../roles.js';
 
@@ -10,8 +12,13 @@ import type { AppRole } from '../roles.js';
  * each investment and one with no link; one staged weekly value per investment and one unlinked; one
  * company alias; three data exceptions, one about each staged accounting row; one indexed quarterly
  * report per investment with its expected-document row, one extraction run and two extracted values
- * (migration 0011); one data exception about each document and each run (migration 0012). Loaded
- * as the owner, outside RLS.
+ * (migration 0011); one data exception about each document and each run (migration 0012); the
+ * Phase 3 controls (migration 0013): two opportunities, one of them walled, each with a stage
+ * history row, a diligence task, an IC decision, an allocation, a closing with one checklist item and
+ * one legal term, plus an allocation on the open investment; two wire instruction versions on the
+ * open investment (one Verified and active, one Proposed); three capital notices (two on the open
+ * investment, one walled) with a Funded ticket on the first and a Drafted one on the walled; one
+ * change request per investment. Loaded as the owner, outside RLS.
  */
 export const ids = {
   users: {
@@ -68,7 +75,45 @@ export const ids = {
   exceptionWalledDocument: 'a0000000-0000-4000-8000-00000000000c',
   exceptionOpenRun: 'a0000000-0000-4000-8000-00000000000d',
   exceptionWalledRun: 'a0000000-0000-4000-8000-00000000000e',
+  // The Phase 3 controls (migration 0013). The walled opportunity is walled through the same wall as
+  // the walled investment, so the wall member sees both.
+  opportunityOpen: 'b0000000-0000-4000-8000-000000000001',
+  opportunityWalled: 'b0000000-0000-4000-8000-000000000002',
+  stageHistoryOpen: 'b0000000-0000-4000-8000-000000000003',
+  stageHistoryWalled: 'b0000000-0000-4000-8000-000000000004',
+  diligenceTaskOpen: 'b0000000-0000-4000-8000-000000000005',
+  diligenceTaskWalled: 'b0000000-0000-4000-8000-000000000006',
+  icDecisionOpen: 'b0000000-0000-4000-8000-000000000007',
+  icDecisionWalled: 'b0000000-0000-4000-8000-000000000008',
+  allocationOpen: 'b0000000-0000-4000-8000-000000000009',
+  allocationWalled: 'b0000000-0000-4000-8000-00000000000a',
+  allocationInvestment: 'b0000000-0000-4000-8000-00000000000b',
+  closingOpen: 'b0000000-0000-4000-8000-00000000000c',
+  closingWalled: 'b0000000-0000-4000-8000-00000000000d',
+  closingItemOpen: 'b0000000-0000-4000-8000-00000000000e',
+  closingItemWalled: 'b0000000-0000-4000-8000-00000000000f',
+  legalTermOpen: 'b0000000-0000-4000-8000-000000000010',
+  legalTermWalled: 'b0000000-0000-4000-8000-000000000011',
+  wireInstructionVerified: 'b0000000-0000-4000-8000-000000000012',
+  wireInstructionProposed: 'b0000000-0000-4000-8000-000000000013',
+  capitalNoticeOpen: 'b0000000-0000-4000-8000-000000000014',
+  capitalNoticeWalled: 'b0000000-0000-4000-8000-000000000015',
+  tradeTicketOpen: 'b0000000-0000-4000-8000-000000000016',
+  tradeTicketWalled: 'b0000000-0000-4000-8000-000000000017',
+  changeRequestOpen: 'b0000000-0000-4000-8000-000000000018',
+  changeRequestWalled: 'b0000000-0000-4000-8000-000000000019',
+  /** A second notice on the open investment with no ticket yet, so a ticket can be drafted on it. */
+  capitalNoticeOpenDistribution: 'b0000000-0000-4000-8000-00000000001a',
 } as const;
+
+/** The synthetic bank details every fixture wire instruction carries, encrypted with the prototype key. */
+export const FIXTURE_BANK_DETAILS: BankDetails = {
+  bankName: 'Harbor Street Bank',
+  accountName: 'Harborlight Fund IV',
+  accountNumber: '4455667788',
+  routingCode: '021000021',
+};
+export const fixtureCipher = new FieldCipher(DEV_FIELD_KEY);
 
 export interface Actor {
   name: string;
@@ -198,5 +243,49 @@ export async function loadFixture(handle: DbHandle): Promise<void> {
       ('${ids.exceptionWalledDocument}', 'documents', 'doc.document', '${ids.documentWalled}', 'DOC-READ-01', 'exception_severity.high', 'open'),
       ('${ids.exceptionOpenRun}', 'extraction', 'doc.extraction_run', '${ids.extractionRunOpen}', 'EXT-RUN-01', 'exception_severity.high', 'open'),
       ('${ids.exceptionWalledRun}', 'extraction', 'doc.extraction_run', '${ids.extractionRunWalled}', 'EXT-RUN-01', 'exception_severity.high', 'open');
+  `);
+  // The Phase 3 controls (migration 0013). Base64 ciphertext carries no quotes, so it interpolates.
+  const enc = encryptBankDetails(fixtureCipher, FIXTURE_BANK_DETAILS);
+  const masked = maskBankDetails(FIXTURE_BANK_DETAILS);
+  await handle.exec(`
+    insert into deal.opportunity (id, name, company_name, portfolio_company_id, sponsor_id, sponsor_fund_id, deal_type, sector, geography, stage, owner_id, received_date, target_commitment) values
+      ('${ids.opportunityOpen}', 'Project Saltmarsh II', 'Saltmarsh Holdings', '${ids.company1}', '${ids.sponsor}', '${ids.sponsorFund}', 'deal_type.co_invest_equity', 'sector.software', 'geography.north_america', 'Closing', '${u.dealTeam}', '2024-03-01', 10000000),
+      ('${ids.opportunityWalled}', 'Project Tidewater II', 'Tidewater Diagnostics', '${ids.company2}', '${ids.sponsor}', '${ids.sponsorFund}', 'deal_type.co_invest_equity', 'sector.healthcare', 'geography.europe', 'Closing', '${u.wallMember}', '2024-04-01', 8000000);
+    insert into core.walled_record (wall_id, entity, entity_id) values ('${ids.wall}', 'opportunity', '${ids.opportunityWalled}');
+    insert into deal.opportunity_stage_history (id, opportunity_id, from_stage, to_stage, command, changed_by, changed_at) values
+      ('${ids.stageHistoryOpen}', '${ids.opportunityOpen}', 'Approved', 'Closing', 'advance', '${u.dealTeam}', '2024-09-20T10:00:00Z'),
+      ('${ids.stageHistoryWalled}', '${ids.opportunityWalled}', 'Approved', 'Closing', 'advance', '${u.wallMember}', '2024-09-21T10:00:00Z');
+    insert into deal.diligence_task (id, opportunity_id, workstream, title, owner_id, status, required_for_ic) values
+      ('${ids.diligenceTaskOpen}', '${ids.opportunityOpen}', 'diligence_workstream.financial', 'Quality of earnings review', '${u.dealTeam}', 'done', true),
+      ('${ids.diligenceTaskWalled}', '${ids.opportunityWalled}', 'diligence_workstream.financial', 'Quality of earnings review', '${u.wallMember}', 'open', true);
+    insert into deal.ic_decision (id, opportunity_id, decision_date, decision, amount, conditions, recorded_by) values
+      ('${ids.icDecisionOpen}', '${ids.opportunityOpen}', '2024-09-15', 'approved', 10000000, '["Close by year end"]', '${u.approver}'),
+      ('${ids.icDecisionWalled}', '${ids.opportunityWalled}', '2024-09-16', 'approved', 8000000, '[]', '${u.approver}');
+    insert into deal.allocation (id, opportunity_id, investment_id, vehicle_id, client_id, requested, received) values
+      ('${ids.allocationOpen}', '${ids.opportunityOpen}', null, '${ids.vehicle}', null, 10000000, null),
+      ('${ids.allocationWalled}', '${ids.opportunityWalled}', null, '${ids.vehicle}', null, 8000000, null),
+      ('${ids.allocationInvestment}', null, '${ids.investment1}', '${ids.vehicle}', null, 30000000, 30000000);
+    insert into deal.closing (id, opportunity_id, investment_id, close_date, commitment_amount, state) values
+      ('${ids.closingOpen}', '${ids.opportunityOpen}', null, '2024-10-31', 10000000, 'Open'),
+      ('${ids.closingWalled}', '${ids.opportunityWalled}', null, '2024-11-15', 8000000, 'Open');
+    insert into deal.closing_item (id, closing_id, item_code, label, required, status) values
+      ('${ids.closingItemOpen}', '${ids.closingOpen}', 'signed_documents', 'Signed subscription and transaction documents', true, 'open'),
+      ('${ids.closingItemWalled}', '${ids.closingWalled}', 'signed_documents', 'Signed subscription and transaction documents', true, 'open');
+    insert into deal.legal_term (id, closing_id, term_type, value, status) values
+      ('${ids.legalTermOpen}', '${ids.closingOpen}', 'legal_term_type.management_fee', '{"rate": "0.0100"}', 'draft'),
+      ('${ids.legalTermWalled}', '${ids.closingWalled}', 'legal_term_type.management_fee', '{"rate": "0.0125"}', 'draft');
+    insert into mon.wire_instruction (id, investment_id, counterparty_name, version, bank_details_enc, bank_details_masked, state, proposed_by, proposed_at, source_note, callback_by, callback_at, callback_number_source, callback_result, verified_at, active) values
+      ('${ids.wireInstructionVerified}', '${ids.investment1}', 'Harborlight Fund IV', 1, '${enc}', '${masked}', 'Verified', '${u.operations}', '2024-08-01T09:00:00Z', 'Subscription documents at close', '${u.operations2}', '2024-08-02T15:00:00Z', 'prior_instruction', 'confirmed', '2024-08-02T15:05:00Z', true),
+      ('${ids.wireInstructionProposed}', '${ids.investment1}', 'Harborlight Fund IV', 2, '${enc}', '${masked}', 'Proposed', '${u.operations}', '2024-09-02T09:00:00Z', 'Changed instructions received in the notice', null, null, null, null, null, false);
+    insert into mon.capital_notice (id, notice_type, vehicle_id, investment_id, issue_date, due_date, amount, state, wire_change_flag, urgency_flag, funded_at, funded_by) values
+      ('${ids.capitalNoticeOpen}', 'notice_type.capital_call', '${ids.vehicle}', '${ids.investment1}', '2024-09-01', '2024-09-15', 2000000, 'Funded', true, true, '2024-09-15T14:00:00Z', '${u.operations}'),
+      ('${ids.capitalNoticeOpenDistribution}', 'notice_type.distribution', '${ids.vehicle}', '${ids.investment1}', '2024-10-01', '2024-10-15', 500000, 'Reviewed', false, false, null, null),
+      ('${ids.capitalNoticeWalled}', 'notice_type.capital_call', '${ids.vehicle}', '${ids.investmentWalled}', '2024-09-05', '2024-09-20', 1000000, 'TicketDrafted', false, false, null, null);
+    insert into mon.trade_ticket (id, capital_notice_id, wire_instruction_id, amount, funding_date, prepared_by, prepared_at, approved_by, approved_at, state) values
+      ('${ids.tradeTicketOpen}', '${ids.capitalNoticeOpen}', '${ids.wireInstructionVerified}', 2000000, '2024-09-15', '${u.operations}', '2024-09-03T09:00:00Z', '${u.approver}', '2024-09-04T09:00:00Z', 'Funded'),
+      ('${ids.tradeTicketWalled}', '${ids.capitalNoticeWalled}', null, 1000000, '2024-09-20', '${u.operations}', '2024-09-06T09:00:00Z', null, null, 'Drafted');
+    insert into mon.deal_change_request (id, investment_id, change_type, effective_date, summary, owner_id, submitted_by, state) values
+      ('${ids.changeRequestOpen}', '${ids.investment1}', 'change_type.add_on_acquisition', '2024-08-15', 'Add-on acquisition of a regional competitor closed', null, '${u.dealTeam}', 'Submitted'),
+      ('${ids.changeRequestWalled}', '${ids.investmentWalled}', 'change_type.recapitalization', '2024-08-20', 'Dividend recapitalization completed', '${u.operations}', '${u.wallMember}', 'Routed');
   `);
 }

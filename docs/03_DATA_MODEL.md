@@ -54,14 +54,14 @@ doc.document 1-N doc.extraction_run 1-N stg.extracted_value
 ### deal
 | Table | Key fields |
 |---|---|
-| opportunity | company, sponsor_id, sponsor_fund_id, deal_type, stage, owner_id, ev, entry_multiple, leverage, check_requested, check_received, pass_reason_code, pass_note, fund_fit_flag |
-| opportunity_stage_history | opportunity_id, from_stage, to_stage, actor, at |
-| allocation | opportunity_id or investment_id, vehicle_id, client_id, requested, received |
-| diligence_template / diligence_task | template by deal type; task: opportunity_id, workstream, owner_id, due, status, evidence_document_id, required_for_ic |
-| ic_decision | opportunity_id, date, decision, amount, conditions (json), memo_document_id |
-| closing | investment_id, close_date, ops_confirmed_by, ops_confirmed_at, status |
-| closing_item | closing_id, item, required, document_id, status |
-| legal_term | investment_id, term_type, value (json), source_document_id, status |
+| opportunity | name, company_name, portfolio_company_id (null until known), sponsor_id, sponsor_fund_id, deal_type (taxonomy), sector, geography, stage (`docs/18` section 4; enum `deal.stage`), owner_id (the deal lead), received_date, target_commitment, currency, source, pass_reason_code (taxonomy `pass_reason.*`, required when Passed), pass_note, investment_id (unique, set on close, required when Closed), scenario_tag. The wall is on the opportunity (`core.walled_record` entity `opportunity`, migration 0013); the M5 skeleton (ev, multiples, leverage, fund fit) comes in Phase 5 |
+| opportunity_stage_history | opportunity_id, from_stage, to_stage, command (advance, pass, reopen), reason, changed_by, changed_at. Append-only: the pipeline's own record of every stage move, not an image table |
+| allocation | opportunity_id or investment_id (at least one; both while a deal converts), vehicle_id, client_id (null is the vehicle line), requested, received, currency; unique per anchor, vehicle and client; history. The tie-out compares the lines with the closing commitment (M22) |
+| diligence_task | opportunity_id, workstream (taxonomy `diligence_workstream.*`), title, owner_id, due_date, status (open, done, waived: waived needs waived_reason), required_for_ic, evidence_document_id, waived_reason. Tasks come from the template per deal type in `config/diligence_templates.json` (no template table) |
+| ic_decision | opportunity_id, decision_date, decision (approved, declined, deferred), amount, currency, conditions (json: sentences), memo_document_id, recorded_by; unique (opportunity_id, decision_date). Never edited: a later row supersedes |
+| closing | opportunity_id (unique; null only for a position that predates the pipeline), investment_id (unique, set on conversion), close_date (**the single source of every close date**: no other table has a column by that name), commitment_amount, currency, state (`docs/18` section 12; enum `deal.closing_state`: Open, OpsConfirmed), ops_confirmed_by, ops_confirmed_at, reopen_reason; history |
+| closing_item | closing_id, item_code, label, required, document_id, status (open, received: needs document_id, waived: needs waived_reason), waived_reason; unique (closing_id, item_code). The checklist from `config/closing_checklist.json` |
+| legal_term | closing_id, investment_id (copied at close), term_type (taxonomy `legal_term_type.*`), value (json), source_document_id, status (draft, confirmed: needs confirmed_by and confirmed_at), confirmed_by, confirmed_at; history |
 | consent_request | investment_id, vehicle_id, client_id, status, signed_document_id |
 | background_check | opportunity_id, subject_ref, provider, status, result_document_id (Restricted) |
 
@@ -73,10 +73,10 @@ doc.document 1-N doc.extraction_run 1-N stg.extracted_value
 | valuation_approval | valuation_id, approver_id, decision, comment, at |
 | valuation_staging | report_date, investment_number, reported_value, prior_value, variance_pct, flag, match_status, reviewer_id, decision |
 | cash_flow | investment_id or commitment_id, flow_date, flow_type (contribution, distribution, fee, expense, interest, principal, recallable), amount, source_notice_id, status | PIK capitalization is not a cash flow: it raises par in `credit_performance` and shows in unrealized value |
-| capital_notice | notice_type (taxonomy: capital_call, distribution, equalization, interest_payment, principal_repayment, fee_notice), vehicle_id, investment_id or commitment_id, issue_date, due_date, amount, split (json), ilpa_fields (json), preferred_funding_date, state |
-| trade_ticket | capital_notice_id, amount, funding_date, prepared_by, approved_by, state |
-| wire_instruction | counterparty, version, bank_details (encrypted at app layer), callback_by, callback_at, callback_number_source, active |
-| deal_change_request | investment_id, change_type, effective_date, details (json), owner_id, state, applied_period |
+| capital_notice | notice_type (taxonomy: capital_call, distribution, equalization, interest_payment, principal_repayment, fee_notice), vehicle_id, investment_id or commitment_id, issue_date, due_date, amount, split (json), ilpa_fields (json), preferred_funding_date, state, urgency_flag and wire_change_flag (SEC-12.4 alerts, migration 0013), funded_at, funded_by |
+| trade_ticket | capital_notice_id (unique: one ticket per notice), wire_instruction_id (the version it was approved against), amount, currency, funding_date, prepared_by, prepared_at, approved_by (never the preparer, SEC-12.3), approved_at, state (`docs/18` section 3; enum `mon.trade_ticket_state`: Drafted, Approved, Funded, Withdrawn: Approved and Funded need an approver and an instruction, Withdrawn a withdrawn_reason), withdrawn_reason; history. Visible to whoever sees the notice |
+| wire_instruction | sponsor_fund_id or investment_id (exactly one), counterparty_name, version (unique per counterparty), bank_details_enc (AES-256-GCM at the application layer, `packages/db/src/fieldCrypto.ts`, never plaintext), bank_details_masked ("<bank> ****<last 4>"), state (`docs/18` section 11; enum `mon.wire_instruction_state`: Proposed, Verified, Rejected, Superseded), proposed_by, proposed_at, source_note (plain words, never a document body), callback_by (never the proposer, SEC-12.2), callback_at, callback_number_source (prior_instruction, sponsor_website, known_contact, fund_administrator), callback_result (confirmed, not_confirmed), verified_at, rejection_reason, active (one per counterparty, Verified only); history. Read by operations, approvers, auditors, platform admins and the system actor only; not under the investment wall (an operations control, migration 0013) |
+| deal_change_request | investment_id, change_type (taxonomy `change_type.*`), effective_date, details (json: a small map of plain values), summary (one line), owner_id (required from Routed on), submitted_by, state (`docs/18` section 8; enum `mon.change_request_state`), applied_period (a quarter end, required when Applied), applied_by, applied_at, rejection_reason (required when Rejected). Carries the investment wall |
 | realization_outlook | investment_id, horizon_months, outlook (none, partial, full), set_by, set_at |
 | subline_facility / subline_activity | vehicle_id, lender, cap, rate, maturity; activity: date, type, amount, source |
 | pacing_plan | vehicle_id, year, target_commitments, gp_count_min, gp_count_max, exposure_targets (json) |

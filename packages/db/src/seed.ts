@@ -2,6 +2,13 @@ import { z } from 'zod';
 import type { PgliteDatabase } from 'drizzle-orm/pglite';
 import type { PgTable } from 'drizzle-orm/pg-core';
 import type { DbHandle, Schema } from './client.js';
+import {
+  bankDetails,
+  DEV_FIELD_KEY,
+  encryptBankDetails,
+  FieldCipher,
+  maskBankDetails,
+} from './fieldCrypto.js';
 import { APP_ROLES } from './roles.js';
 import * as schema from './schema/index.js';
 
@@ -13,7 +20,23 @@ const money = z.string().regex(/^-?\d+(\.\d+)?$/);
 const isoDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
 /** A UTC instant such as 2025-03-31T12:00:00Z; the generator derives it, the loader writes it. */
 const isoTimestamp = z.iso.datetime();
+/** An instant, or a business date the loader reads as UTC midnight (never a local time zone). */
+const instant = z.union([isoTimestamp, isoDate]);
 const uuid = z.string().uuid();
+const toDate = (value: string): Date => new Date(value);
+const toDateOrNull = (value: string | null): Date | null => (value === null ? null : toDate(value));
+
+const dealStage = z.enum([
+  'Sourced',
+  'Screening',
+  'Prescreen',
+  'Diligence',
+  'IC',
+  'Approved',
+  'Closing',
+  'Closed',
+  'Passed',
+]);
 
 export const syntheticDatasetSchema = z.object({
   version: z.literal(1),
@@ -264,6 +287,9 @@ export const syntheticDatasetSchema = z.object({
         'Reconciled',
       ]),
       scenarioTag: z.string().nullable(),
+      /** SEC-12.4 alert flags (migration 0013); optional, false when absent (datasets made before Phase 3). */
+      urgencyFlag: z.boolean().optional(),
+      wireChangeFlag: z.boolean().optional(),
     }),
   ),
   cashFlows: z.array(
@@ -289,9 +315,204 @@ export const syntheticDatasetSchema = z.object({
       setAt: isoTimestamp,
     }),
   ),
+  // The Phase 3 controls (migration 0013, decision 0013). Each array defaults to [] so a dataset
+  // made before Phase 3 still loads. Timestamps are instants (or dates read as UTC midnight).
+  opportunities: z
+    .array(
+      z.object({
+        id: uuid,
+        name: z.string().min(1),
+        companyName: z.string().min(1),
+        portfolioCompanyId: uuid.nullable(),
+        sponsorId: uuid,
+        sponsorFundId: uuid.nullable(),
+        dealType: z.string(),
+        sector: z.string().nullable(),
+        geography: z.string().nullable(),
+        stage: dealStage,
+        ownerId: uuid.nullable(),
+        receivedDate: isoDate,
+        targetCommitment: money.nullable(),
+        source: z.string().nullable(),
+        passReasonCode: z.string().nullable(),
+        passNote: z.string().nullable(),
+        investmentId: uuid.nullable(),
+        scenarioTag: z.string().nullable(),
+      }),
+    )
+    .default([]),
+  opportunityStageHistory: z
+    .array(
+      z.object({
+        id: uuid,
+        opportunityId: uuid,
+        fromStage: dealStage.nullable(),
+        toStage: dealStage,
+        command: z.string().min(1),
+        reason: z.string().nullable(),
+        changedBy: uuid,
+        changedAt: instant,
+      }),
+    )
+    .default([]),
+  diligenceTasks: z
+    .array(
+      z.object({
+        id: uuid,
+        opportunityId: uuid,
+        workstream: z.string(),
+        title: z.string().min(1),
+        ownerId: uuid.nullable(),
+        dueDate: isoDate.nullable(),
+        status: z.enum(['open', 'done', 'waived']),
+        requiredForIc: z.boolean(),
+        evidenceDocumentId: uuid.nullable(),
+        waivedReason: z.string().nullable(),
+      }),
+    )
+    .default([]),
+  icDecisions: z
+    .array(
+      z.object({
+        id: uuid,
+        opportunityId: uuid,
+        decisionDate: isoDate,
+        decision: z.enum(['approved', 'declined', 'deferred']),
+        amount: money.nullable(),
+        conditions: z.array(z.string()),
+        recordedBy: uuid,
+      }),
+    )
+    .default([]),
+  allocations: z
+    .array(
+      z.object({
+        id: uuid,
+        opportunityId: uuid.nullable(),
+        investmentId: uuid.nullable(),
+        vehicleId: uuid,
+        clientId: uuid.nullable(),
+        requested: money,
+        received: money.nullable(),
+      }),
+    )
+    .default([]),
+  closings: z
+    .array(
+      z.object({
+        id: uuid,
+        /** Null only for a position that predates the pipeline (seeded from the investment). */
+        opportunityId: uuid.nullable(),
+        investmentId: uuid.nullable(),
+        closeDate: isoDate,
+        commitmentAmount: money,
+        state: z.enum(['Open', 'OpsConfirmed']),
+        opsConfirmedBy: uuid.nullable(),
+        opsConfirmedAt: instant.nullable(),
+      }),
+    )
+    .default([]),
+  closingItems: z
+    .array(
+      z.object({
+        id: uuid,
+        closingId: uuid,
+        itemCode: z.string().min(1),
+        label: z.string().min(1),
+        required: z.boolean(),
+        documentId: uuid.nullable(),
+        status: z.enum(['open', 'received', 'waived']),
+        waivedReason: z.string().nullable(),
+      }),
+    )
+    .default([]),
+  legalTerms: z
+    .array(
+      z.object({
+        id: uuid,
+        closingId: uuid,
+        investmentId: uuid.nullable(),
+        termType: z.string(),
+        value: z.record(z.string(), z.union([z.string(), z.number(), z.boolean()])),
+        status: z.enum(['draft', 'confirmed']),
+        confirmedBy: uuid.nullable(),
+        confirmedAt: instant.nullable(),
+      }),
+    )
+    .default([]),
+  /** Bank details are plaintext in the synthetic dataset; the loader encrypts them (SEC-12.2). */
+  wireInstructions: z
+    .array(
+      z.object({
+        id: uuid,
+        sponsorFundId: uuid.nullable(),
+        investmentId: uuid.nullable(),
+        counterpartyName: z.string().min(1),
+        version: z.number().int().min(1),
+        bankDetails,
+        state: z.enum(['Proposed', 'Verified', 'Rejected', 'Superseded']),
+        proposedBy: uuid,
+        proposedAt: instant,
+        sourceNote: z.string().nullable(),
+        callbackBy: uuid.nullable(),
+        callbackAt: instant.nullable(),
+        callbackNumberSource: z
+          .enum(['prior_instruction', 'sponsor_website', 'known_contact', 'fund_administrator'])
+          .nullable(),
+        callbackResult: z.enum(['confirmed', 'not_confirmed']).nullable(),
+        verifiedAt: instant.nullable(),
+        rejectionReason: z.string().nullable(),
+        active: z.boolean(),
+      }),
+    )
+    .default([]),
+  tradeTickets: z
+    .array(
+      z.object({
+        id: uuid,
+        capitalNoticeId: uuid,
+        wireInstructionId: uuid.nullable(),
+        amount: money,
+        currency: z.string().length(3),
+        fundingDate: isoDate,
+        preparedBy: uuid,
+        preparedAt: instant,
+        approvedBy: uuid.nullable(),
+        approvedAt: instant.nullable(),
+        state: z.enum(['Drafted', 'Approved', 'Funded', 'Withdrawn']),
+      }),
+    )
+    .default([]),
+  changeRequests: z
+    .array(
+      z.object({
+        id: uuid,
+        investmentId: uuid,
+        changeType: z.string(),
+        effectiveDate: isoDate,
+        details: z.record(z.string(), z.string()),
+        summary: z.string().min(1),
+        ownerId: uuid.nullable(),
+        submittedBy: uuid,
+        state: z.enum(['Submitted', 'Routed', 'InProgress', 'Applied', 'Rejected']),
+        appliedPeriod: isoDate.nullable(),
+        appliedBy: uuid.nullable(),
+        appliedAt: instant.nullable(),
+        rejectionReason: z.string().nullable(),
+      }),
+    )
+    .default([]),
 });
 
 export type SyntheticDataset = z.infer<typeof syntheticDatasetSchema>;
+
+export interface SeedOptions {
+  /**
+   * The cipher for `mon.wire_instruction.bank_details_enc`. Defaults to the prototype key
+   * (DEV_FIELD_KEY): a local seed never has a vault, and the data is synthetic.
+   */
+  cipher?: FieldCipher;
+}
 
 function chunks<T>(items: readonly T[], size = 500): T[][] {
   const out: T[][] = [];
@@ -307,8 +528,10 @@ function chunks<T>(items: readonly T[], size = 500): T[][] {
 export async function loadSyntheticDataset(
   handle: DbHandle,
   raw: unknown,
+  options: SeedOptions = {},
 ): Promise<Record<string, number>> {
   const data = syntheticDatasetSchema.parse(raw);
+  const cipher = options.cipher ?? new FieldCipher(DEV_FIELD_KEY);
   // Both drivers expose the same query builder; only the execution backend differs, so the loader
   // uses one concrete type for the generic insert below instead of the driver union.
   const db = handle.db as unknown as PgliteDatabase<Schema>;
@@ -384,12 +607,81 @@ export async function loadSyntheticDataset(
       approvedAt: approvedAt === null ? null : new Date(approvedAt),
     })),
   );
-  await insert('capitalNotices', schema.capitalNotice, data.capitalNotices);
+  await insert(
+    'capitalNotices',
+    schema.capitalNotice,
+    data.capitalNotices.map((n) => ({
+      ...n,
+      urgencyFlag: n.urgencyFlag ?? false,
+      wireChangeFlag: n.wireChangeFlag ?? false,
+    })),
+  );
   await insert('cashFlows', schema.cashFlow, data.cashFlows);
   await insert(
     'realizationOutlooks',
     schema.realizationOutlook,
     data.realizationOutlooks.map(({ setAt, ...row }) => ({ ...row, setAt: new Date(setAt) })),
+  );
+  // The Phase 3 controls (migration 0013), parents before children.
+  await insert('opportunities', schema.opportunity, data.opportunities);
+  await insert(
+    'opportunityStageHistory',
+    schema.opportunityStageHistory,
+    data.opportunityStageHistory.map(({ changedAt, ...row }) => ({
+      ...row,
+      changedAt: toDate(changedAt),
+    })),
+  );
+  await insert('diligenceTasks', schema.diligenceTask, data.diligenceTasks);
+  await insert('icDecisions', schema.icDecision, data.icDecisions);
+  await insert('allocations', schema.allocation, data.allocations);
+  await insert(
+    'closings',
+    schema.closing,
+    data.closings.map(({ opsConfirmedAt, ...row }) => ({
+      ...row,
+      opsConfirmedAt: toDateOrNull(opsConfirmedAt),
+    })),
+  );
+  await insert('closingItems', schema.closingItem, data.closingItems);
+  await insert(
+    'legalTerms',
+    schema.legalTerm,
+    data.legalTerms.map(({ confirmedAt, ...row }) => ({
+      ...row,
+      confirmedAt: toDateOrNull(confirmedAt),
+    })),
+  );
+  await insert(
+    'wireInstructions',
+    schema.wireInstruction,
+    data.wireInstructions.map(
+      ({ bankDetails: details, proposedAt, callbackAt, verifiedAt, ...row }) => ({
+        ...row,
+        bankDetailsEnc: encryptBankDetails(cipher, details),
+        bankDetailsMasked: maskBankDetails(details),
+        proposedAt: toDate(proposedAt),
+        callbackAt: toDateOrNull(callbackAt),
+        verifiedAt: toDateOrNull(verifiedAt),
+      }),
+    ),
+  );
+  await insert(
+    'tradeTickets',
+    schema.tradeTicket,
+    data.tradeTickets.map(({ preparedAt, approvedAt, ...row }) => ({
+      ...row,
+      preparedAt: toDate(preparedAt),
+      approvedAt: toDateOrNull(approvedAt),
+    })),
+  );
+  await insert(
+    'changeRequests',
+    schema.dealChangeRequest,
+    data.changeRequests.map(({ appliedAt, ...row }) => ({
+      ...row,
+      appliedAt: toDateOrNull(appliedAt),
+    })),
   );
   return counts;
 }
