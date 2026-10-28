@@ -1,21 +1,39 @@
 import { describe, expect, it } from 'vitest';
 import { all, attempt, flag, forbiddenPairs, requireReason } from './machine.js';
-import type { Machine, TransitionContext, TransitionResult } from './machine.js';
-import type { DealStage } from './machines.js';
+import type { Check, Machine, TransitionContext, TransitionResult } from './machine.js';
+import type { ClosingState, DealStage } from './machines.js';
 import {
   MACHINES,
   capitalNoticeMachine,
+  closingMachine,
   dealStageMachine,
   documentClassificationMachine,
   exceptionMachine,
   extractionRunMachine,
   reportingPackageMachine,
   valuationMachine,
+  wireInstructionMachine,
 } from './machines.js';
 
 const OPS = '10000000-0000-4000-8000-000000000003';
+const OPS2 = '10000000-0000-4000-8000-000000000005';
 const DEAL = '10000000-0000-4000-8000-000000000002';
 const HEAD = '10000000-0000-4000-8000-000000000004';
+
+const EVERY_ROLE = [
+  'viewer',
+  'deal_team',
+  'operations',
+  'approver',
+  'investor_relations',
+  'platform_admin',
+  'auditor',
+  'service',
+];
+
+/** The checks an all() keeps, so a test can prove their order. */
+const checksOf = (precondition: Check | undefined): readonly Check[] =>
+  (precondition as { checks?: readonly Check[] } | undefined)?.checks ?? [];
 
 /** A context that satisfies every precondition in every machine, so allowed rows can be exercised generically. */
 const happyRecord = {
@@ -26,14 +44,21 @@ const happyRecord = {
   edited: true,
   documentIndexed: true,
   bankFieldsExtracted: false,
+  ticketExists: true,
   ticketPreparedBy: OPS,
   wireVerified: true,
   wireChangedWithinHold: false,
+  ticketApproved: true,
   passReasonCode: 'valuation',
   requiredTasksDone: true,
   icDecisionRecorded: true,
+  closingRecordReady: true,
   closingChecklistComplete: true,
   allocationTiedOut: true,
+  proposedBy: OPS,
+  callbackConfirmed: true,
+  newerVerifiedExists: true,
+  requiredItemsComplete: true,
   confidenceAboveThreshold: true,
   sameHashAsExisting: true,
   schemaRetries: 0,
@@ -219,6 +244,65 @@ describe('capital notice preconditions (docs/18 section 3, SEC-12)', () => {
       attempt(capitalNoticeMachine, 'TicketApproved', 'wireChanged', ctx(['service'])),
     ).toEqual({ ok: true, to: 'TicketDrafted' });
   });
+  it('approval is refused first when no trade ticket is drafted, whoever asks', () => {
+    const noTicket = { ...happyRecord, ticketExists: false, wireVerified: false };
+    for (const [role, actorId] of [
+      ['approver', OPS],
+      ['approver', HEAD],
+      ['operations', OPS2],
+    ] as const) {
+      expect(
+        attempt(
+          capitalNoticeMachine,
+          'TicketDrafted',
+          'approveTicket',
+          ctx([role], { actorId, record: noTicket }),
+        ),
+      ).toEqual({
+        ok: false,
+        code: 'precondition',
+        message: 'capital_notice: no trade ticket is drafted',
+      });
+    }
+    // A record that says nothing about a ticket has none.
+    const { ticketExists: _dropped, ...silent } = happyRecord;
+    expect(
+      attempt(
+        capitalNoticeMachine,
+        'TicketDrafted',
+        'approveTicket',
+        ctx(['approver'], { record: silent }),
+      ).ok,
+    ).toBe(false);
+    // The ticket check comes before the dual-control and wire checks, and every check stays listed.
+    const approve = capitalNoticeMachine.transitions.find((t) => t.command === 'approveTicket');
+    expect(
+      checksOf(approve?.precondition).map((c) =>
+        c(ctx(['approver'], { record: { ...happyRecord, ticketExists: false } })),
+      ),
+    ).toEqual(['no trade ticket is drafted', null, null, null]);
+  });
+  it('funding is confirmed only against an approved ticket', () => {
+    expect(
+      attempt(
+        capitalNoticeMachine,
+        'TicketApproved',
+        'confirmFunding',
+        ctx(['operations'], { record: { ...happyRecord, ticketApproved: false } }),
+      ),
+    ).toEqual({
+      ok: false,
+      code: 'precondition',
+      message: 'capital_notice: the ticket is not approved',
+    });
+    expect(
+      attempt(capitalNoticeMachine, 'TicketApproved', 'confirmFunding', ctx(['operations'])),
+    ).toEqual({ ok: true, to: 'Funded' });
+    for (const role of EVERY_ROLE.filter((r) => r !== 'operations'))
+      expect(
+        attempt(capitalNoticeMachine, 'TicketApproved', 'confirmFunding', ctx([role])),
+      ).toMatchObject({ ok: false, code: 'role' });
+  });
 });
 
 describe('deal stage preconditions (docs/18 section 4)', () => {
@@ -280,6 +364,31 @@ describe('deal stage preconditions (docs/18 section 4)', () => {
       ).ok,
     ).toBe(false);
     expect(attempt(dealStageMachine, 'Closing', 'advance', ctx(['deal_team'])).ok).toBe(false);
+  });
+  it('opening closing needs a closing record with a close date and a commitment', () => {
+    for (const role of ['deal_team', 'operations']) {
+      expect(
+        attempt(
+          dealStageMachine,
+          'Approved',
+          'advance',
+          ctx([role], { record: { ...happyRecord, closingRecordReady: false } }),
+        ),
+      ).toEqual({
+        ok: false,
+        code: 'precondition',
+        message: 'deal_stage: a close date and commitment are required to open closing',
+      });
+      expect(attempt(dealStageMachine, 'Approved', 'advance', ctx([role]))).toEqual({
+        ok: true,
+        to: 'Closing',
+      });
+    }
+    for (const role of EVERY_ROLE.filter((r) => r !== 'deal_team' && r !== 'operations'))
+      expect(attempt(dealStageMachine, 'Approved', 'advance', ctx([role]))).toMatchObject({
+        ok: false,
+        code: 'role',
+      });
   });
   it('walks Sourced to Closed in order', () => {
     const path: string[] = [];
@@ -432,6 +541,236 @@ describe('data exception (docs/18 section 9)', () => {
       code: 'forbidden',
     });
     expect(forbiddenPairs(exceptionMachine)).toHaveLength(7);
+  });
+});
+
+describe('wire instruction (docs/18 section 11, SEC-12.2)', () => {
+  it('is in the registry under its table name; Rejected and Superseded are terminal', () => {
+    expect(MACHINES.wireInstruction).toBe(wireInstructionMachine);
+    expect(wireInstructionMachine.name).toBe('wire_instruction');
+    expect(wireInstructionMachine.states).toEqual([
+      'Proposed',
+      'Verified',
+      'Rejected',
+      'Superseded',
+    ]);
+    expect(wireInstructionMachine.commands).toEqual(['verify', 'reject', 'supersede']);
+    expect(wireInstructionMachine.initial).toBe('Proposed');
+    expect(wireInstructionMachine.terminal).toEqual(['Rejected', 'Superseded']);
+  });
+
+  it('verifies only through a confirming callback made by someone other than the proposer', () => {
+    const verify = (roles: string[], extra: CtxOverrides = {}): TransitionResult<string> =>
+      attempt(wireInstructionMachine, 'Proposed', 'verify', ctx(roles, extra));
+    // The proposer is refused even when the callback confirmed the instruction.
+    for (const role of ['operations', 'approver'])
+      expect(verify([role], { actorId: OPS })).toEqual({
+        ok: false,
+        code: 'precondition',
+        message:
+          'wire_instruction: the callback must be made by a person other than the proposer (SEC-12.2)',
+      });
+    // A callback that did not confirm, or was never made, verifies nothing.
+    expect(verify(['approver'], { record: { ...happyRecord, callbackConfirmed: false } })).toEqual({
+      ok: false,
+      code: 'precondition',
+      message: 'wire_instruction: the callback did not confirm the instruction (SEC-12.2)',
+    });
+    const { callbackConfirmed: _dropped, ...noCallback } = happyRecord;
+    expect(verify(['operations'], { actorId: OPS2, record: noCallback }).ok).toBe(false);
+    // The second-person check comes first and both checks stay listed.
+    const row = wireInstructionMachine.transitions.find((t) => t.command === 'verify');
+    expect(
+      checksOf(row?.precondition).map((c) =>
+        c(
+          ctx(['operations'], {
+            actorId: OPS,
+            record: { ...happyRecord, callbackConfirmed: false },
+          }),
+        ),
+      ),
+    ).toEqual([
+      'the callback must be made by a person other than the proposer (SEC-12.2)',
+      'the callback did not confirm the instruction (SEC-12.2)',
+    ]);
+    // A second operations person or an approver verifies it.
+    expect(verify(['operations'], { actorId: OPS2 })).toEqual({ ok: true, to: 'Verified' });
+    expect(verify(['approver'], { actorId: HEAD })).toEqual({ ok: true, to: 'Verified' });
+  });
+
+  it('rejecting needs a reason, from operations or an approver', () => {
+    for (const role of ['operations', 'approver']) {
+      expect(attempt(wireInstructionMachine, 'Proposed', 'reject', ctx([role]))).toEqual({
+        ok: true,
+        to: 'Rejected',
+      });
+      for (const reason of [null, '', '   '])
+        expect(
+          attempt(wireInstructionMachine, 'Proposed', 'reject', ctx([role], { reason })),
+        ).toEqual({
+          ok: false,
+          code: 'precondition',
+          message: 'wire_instruction: a reason is required',
+        });
+    }
+    const row = wireInstructionMachine.transitions.find((t) => t.command === 'reject');
+    expect(row?.precondition).toBe(requireReason);
+  });
+
+  it('a Verified version is superseded only by a newer Verified one', () => {
+    for (const role of ['service', 'operations']) {
+      expect(attempt(wireInstructionMachine, 'Verified', 'supersede', ctx([role]))).toEqual({
+        ok: true,
+        to: 'Superseded',
+      });
+      expect(
+        attempt(
+          wireInstructionMachine,
+          'Verified',
+          'supersede',
+          ctx([role], { record: { ...happyRecord, newerVerifiedExists: false } }),
+        ),
+      ).toEqual({
+        ok: false,
+        code: 'precondition',
+        message: 'wire_instruction: only a newer Verified version supersedes this one',
+      });
+    }
+  });
+
+  it('refuses every role the row does not name, on every row', () => {
+    for (const t of wireInstructionMachine.transitions)
+      for (const role of EVERY_ROLE.filter((r) => !t.roles.includes(r)))
+        expect(
+          attempt(wireInstructionMachine, t.from, t.command, ctx([role], { actorId: OPS2 })),
+          `${role} ${t.command} from ${t.from}`,
+        ).toMatchObject({ ok: false, code: 'role' });
+  });
+
+  it('rejects the nine (state, command) pairs the table does not list, for an actor holding every role', () => {
+    const forbidden = forbiddenPairs(wireInstructionMachine);
+    expect(forbidden).toEqual([
+      { from: 'Proposed', command: 'supersede' },
+      { from: 'Verified', command: 'verify' },
+      { from: 'Verified', command: 'reject' },
+      { from: 'Rejected', command: 'verify' },
+      { from: 'Rejected', command: 'reject' },
+      { from: 'Rejected', command: 'supersede' },
+      { from: 'Superseded', command: 'verify' },
+      { from: 'Superseded', command: 'reject' },
+      { from: 'Superseded', command: 'supersede' },
+    ]);
+    for (const { from, command } of forbidden)
+      expect(
+        attempt(wireInstructionMachine, from, command, ctx(EVERY_ROLE, { actorId: OPS2 })),
+      ).toEqual({
+        ok: false,
+        code: 'forbidden',
+        message: `wire_instruction: ${command} is not allowed from ${from}`,
+      });
+  });
+});
+
+describe('closing (docs/18 section 12, M8)', () => {
+  it('is in the registry under its table name, with no terminal state', () => {
+    expect(MACHINES.closing).toBe(closingMachine);
+    expect(closingMachine.name).toBe('closing');
+    expect(closingMachine.states).toEqual(['Open', 'OpsConfirmed']);
+    expect(closingMachine.commands).toEqual(['confirm', 'changeCloseDate']);
+    expect(closingMachine.initial).toBe('Open');
+    expect(closingMachine.terminal).toEqual([]);
+  });
+
+  it('operations confirms once every required item is in and the allocations tie out', () => {
+    expect(attempt(closingMachine, 'Open', 'confirm', ctx(['operations']))).toEqual({
+      ok: true,
+      to: 'OpsConfirmed',
+    });
+    expect(
+      attempt(
+        closingMachine,
+        'Open',
+        'confirm',
+        ctx(['operations'], { record: { ...happyRecord, requiredItemsComplete: false } }),
+      ),
+    ).toEqual({
+      ok: false,
+      code: 'precondition',
+      message: 'closing: a required closing document is missing (M8)',
+    });
+    expect(
+      attempt(
+        closingMachine,
+        'Open',
+        'confirm',
+        ctx(['operations'], { record: { ...happyRecord, allocationTiedOut: false } }),
+      ),
+    ).toEqual({
+      ok: false,
+      code: 'precondition',
+      message: 'closing: allocations do not tie to the closing commitment (M22)',
+    });
+    // The missing document is the first refusal when both fail; both checks stay listed.
+    const row = closingMachine.transitions.find((t) => t.command === 'confirm');
+    expect(
+      checksOf(row?.precondition).map((c) =>
+        c(
+          ctx(['operations'], {
+            record: { ...happyRecord, requiredItemsComplete: false, allocationTiedOut: false },
+          }),
+        ),
+      ),
+    ).toEqual([
+      'a required closing document is missing (M8)',
+      'allocations do not tie to the closing commitment (M22)',
+    ]);
+    for (const role of EVERY_ROLE.filter((r) => r !== 'operations'))
+      expect(attempt(closingMachine, 'Open', 'confirm', ctx([role]))).toMatchObject({
+        ok: false,
+        code: 'role',
+      });
+  });
+
+  it('a close date change after confirmation needs a reason and reopens the closing for confirmation again', () => {
+    for (const reason of [null, '', '   '])
+      expect(
+        attempt(closingMachine, 'OpsConfirmed', 'changeCloseDate', ctx(['operations'], { reason })),
+      ).toEqual({ ok: false, code: 'precondition', message: 'closing: a reason is required' });
+    const row = closingMachine.transitions.find((t) => t.command === 'changeCloseDate');
+    expect(row?.precondition).toBe(requireReason);
+    for (const role of EVERY_ROLE.filter((r) => r !== 'operations'))
+      expect(attempt(closingMachine, 'OpsConfirmed', 'changeCloseDate', ctx([role]))).toMatchObject(
+        { ok: false, code: 'role' },
+      );
+    // Open > OpsConfirmed > Open > OpsConfirmed: nothing is terminal.
+    const path: ClosingState[] = [];
+    let state: ClosingState = 'Open';
+    for (const command of ['confirm', 'changeCloseDate', 'confirm'] as const) {
+      const r: TransitionResult<ClosingState> = attempt(
+        closingMachine,
+        state,
+        command,
+        ctx(['operations']),
+      );
+      if (!r.ok) throw new Error(r.message);
+      state = r.to;
+      path.push(state);
+    }
+    expect(path).toEqual(['OpsConfirmed', 'Open', 'OpsConfirmed']);
+  });
+
+  it('rejects the two (state, command) pairs the table does not list', () => {
+    const forbidden = forbiddenPairs(closingMachine);
+    expect(forbidden).toEqual([
+      { from: 'Open', command: 'changeCloseDate' },
+      { from: 'OpsConfirmed', command: 'confirm' },
+    ]);
+    for (const { from, command } of forbidden)
+      expect(attempt(closingMachine, from, command, ctx(EVERY_ROLE))).toEqual({
+        ok: false,
+        code: 'forbidden',
+        message: `closing: ${command} is not allowed from ${from}`,
+      });
   });
 });
 

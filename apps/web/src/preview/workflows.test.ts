@@ -233,7 +233,7 @@ describe('capital notice commands follow docs/18 section 3 through the transitio
     }
   });
 
-  it('blocks ticket approval: SEC-12.3 for the drafter, SEC-12.2 (unverified wire) for anyone else', async () => {
+  it('blocks ticket approval for everyone: the preview holds no trade ticket record, the first check the machine makes', async () => {
     const { f, state } = setup();
     const id = IDS.notice.wireChange;
     const review = await send(f, USERS.ops.externalId, 'POST', command('capital-notices', id), {
@@ -249,18 +249,16 @@ describe('capital notice commands follow docs/18 section 3 through the transitio
     const byDrafter = await send(f, USERS.ops.externalId, 'POST', command('capital-notices', id), {
       command: 'approveTicket',
     });
+    // The drafter and anyone else get the same first refusal: the SEC-12.3 dual-control and
+    // SEC-12.2 verified-wire checks sit behind it in the machine and are proven there.
     expect(byDrafter.status).toBe(422);
-    expect(problemOf(byDrafter).detail).toBe(
-      'capital_notice: the ticket preparer cannot approve it (SEC-12.3)',
-    );
+    expect(problemOf(byDrafter).detail).toBe('capital_notice: no trade ticket is drafted');
     for (const other of [USERS.ops2, USERS.head]) {
       const answer = await send(f, other.externalId, 'POST', command('capital-notices', id), {
         command: 'approveTicket',
       });
       expect(answer.status).toBe(422);
-      expect(problemOf(answer).detail).toBe(
-        'capital_notice: the wire instruction is not verified (SEC-12.2)',
-      );
+      expect(problemOf(answer).detail).toBe('capital_notice: no trade ticket is drafted');
     }
     const funding = await send(f, USERS.ops.externalId, 'POST', command('capital-notices', id), {
       command: 'confirmFunding',

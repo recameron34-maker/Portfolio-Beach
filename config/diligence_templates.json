@@ -1,0 +1,154 @@
+{
+  "_note": "The diligence tasks an opportunity starts with, by deal type (docs/04 M5, docs/18 section 4). Keys are deal_type taxonomy codes (migration 0002); workstreams are diligence_workstream taxonomy codes (migration 0013). A task with requiredForIc true must be done or waived before Diligence > IC, unless an Approver overrides with a reason. The default list serves a deal type without a template.",
+  "templates": {
+    "deal_type.co_invest_equity": [
+      {
+        "workstream": "diligence_workstream.commercial",
+        "title": "Market and competitive review",
+        "requiredForIc": true
+      },
+      {
+        "workstream": "diligence_workstream.financial",
+        "title": "Quality of earnings review",
+        "requiredForIc": true
+      },
+      {
+        "workstream": "diligence_workstream.legal",
+        "title": "Legal due diligence summary",
+        "requiredForIc": true
+      },
+      {
+        "workstream": "diligence_workstream.tax",
+        "title": "Tax structuring memo",
+        "requiredForIc": false
+      },
+      { "workstream": "diligence_workstream.esg", "title": "ESG screen", "requiredForIc": false },
+      {
+        "workstream": "diligence_workstream.sponsor",
+        "title": "Sponsor track record and references",
+        "requiredForIc": true
+      }
+    ],
+    "deal_type.cv_single_asset": [
+      {
+        "workstream": "diligence_workstream.commercial",
+        "title": "Asset business plan and value creation review",
+        "requiredForIc": true
+      },
+      {
+        "workstream": "diligence_workstream.financial",
+        "title": "Asset valuation and quality of earnings review",
+        "requiredForIc": true
+      },
+      {
+        "workstream": "diligence_workstream.legal",
+        "title": "Continuation vehicle terms and conflicts review",
+        "requiredForIc": true
+      },
+      {
+        "workstream": "diligence_workstream.sponsor",
+        "title": "Sponsor alignment and rollover commitment",
+        "requiredForIc": false
+      }
+    ],
+    "deal_type.cv_multi_asset": [
+      {
+        "workstream": "diligence_workstream.commercial",
+        "title": "Portfolio asset reviews",
+        "requiredForIc": true
+      },
+      {
+        "workstream": "diligence_workstream.financial",
+        "title": "Portfolio valuation and quality of earnings review",
+        "requiredForIc": true
+      },
+      {
+        "workstream": "diligence_workstream.legal",
+        "title": "Continuation vehicle terms and conflicts review",
+        "requiredForIc": true
+      },
+      {
+        "workstream": "diligence_workstream.sponsor",
+        "title": "Sponsor alignment and rollover commitment",
+        "requiredForIc": true
+      },
+      {
+        "workstream": "diligence_workstream.esg",
+        "title": "ESG screen across the portfolio",
+        "requiredForIc": false
+      }
+    ],
+    "deal_type.primary_fund": [
+      {
+        "workstream": "diligence_workstream.sponsor",
+        "title": "Sponsor track record and team review",
+        "requiredForIc": true
+      },
+      {
+        "workstream": "diligence_workstream.references",
+        "title": "Reference calls with existing limited partners",
+        "requiredForIc": true
+      },
+      {
+        "workstream": "diligence_workstream.legal",
+        "title": "Fund terms and side letter review",
+        "requiredForIc": true
+      },
+      {
+        "workstream": "diligence_workstream.operational",
+        "title": "Operational due diligence of the manager",
+        "requiredForIc": true
+      },
+      {
+        "workstream": "diligence_workstream.tax",
+        "title": "Tax structuring memo",
+        "requiredForIc": false
+      },
+      {
+        "workstream": "diligence_workstream.esg",
+        "title": "ESG policy review",
+        "requiredForIc": false
+      }
+    ],
+    "deal_type.private_credit": [
+      {
+        "workstream": "diligence_workstream.financial",
+        "title": "Borrower credit analysis and covenant review",
+        "requiredForIc": true
+      },
+      {
+        "workstream": "diligence_workstream.legal",
+        "title": "Credit documentation and security review",
+        "requiredForIc": true
+      },
+      {
+        "workstream": "diligence_workstream.sponsor",
+        "title": "Sponsor support and equity cushion review",
+        "requiredForIc": true
+      },
+      {
+        "workstream": "diligence_workstream.commercial",
+        "title": "Borrower market position review",
+        "requiredForIc": false
+      },
+      {
+        "workstream": "diligence_workstream.operational",
+        "title": "Servicing and reporting arrangements",
+        "requiredForIc": false
+      }
+    ]
+  },
+  "default": [
+    {
+      "workstream": "diligence_workstream.commercial",
+      "title": "Commercial review",
+      "requiredForIc": true
+    },
+    {
+      "workstream": "diligence_workstream.financial",
+      "title": "Financial review",
+      "requiredForIc": true
+    },
+    { "workstream": "diligence_workstream.legal", "title": "Legal review", "requiredForIc": true }
+  ]
+}

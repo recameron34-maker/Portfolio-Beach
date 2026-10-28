@@ -38,3 +38,22 @@ export function configIntegerList(value: unknown, key: string): number[] {
   if (!Array.isArray(value) || value.length === 0) throw configError(key);
   return value.map((item: unknown) => configInteger(item, key));
 }
+
+/** A non-empty list of phrases or labels, each with text in it, in config order. */
+export function configStringList(value: unknown, key: string): string[] {
+  if (!Array.isArray(value) || value.length === 0) throw configError(key);
+  return value.map((item: unknown) => configString(item, key));
+}
+
+/**
+ * A non-empty map of names to whole numbers of zero or more, such as days per pipeline stage. A
+ * bad entry is reported under "<key>.<name>" so the problem names the entry, never its value.
+ */
+export function configIntegerByName(value: unknown, key: string): Record<string, number> {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) throw configError(key);
+  const entries = Object.entries(value as Record<string, unknown>);
+  if (entries.length === 0) throw configError(key);
+  return Object.fromEntries(
+    entries.map(([name, item]) => [name, configInteger(item, `${key}.${name}`)]),
+  );
+}
