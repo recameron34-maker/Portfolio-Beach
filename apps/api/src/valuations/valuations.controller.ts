@@ -27,40 +27,13 @@ import type {
 } from '@pb/contracts';
 import { CurrentPrincipal, Roles } from '../auth/principal.js';
 import type { RequestWithPrincipal } from '../auth/principal.js';
-import { ProblemError } from '../common/problem.js';
+import { ifMatchVersions, withEtag } from '../common/row-version.js';
 import { ADAPTERS } from '../common/tokens.js';
 import { parseOrProblem, requireUuid } from '../common/validate.js';
 import { ValuationsService } from './valuations.service.js';
 import { ValuationWorkflowService } from './workflow.service.js';
 
 const NOT_FOUND = 'Valuation not found';
-
-/**
- * The row versions an If-Match header names (docs/17 section 3: ETag = row_version), as the
- * preview's staleIfMatch reads them: a quoted or bare integer, a weak tag, or a list of them.
- * Undefined without the header or with "*", so the command runs on whatever version is there;
- * anything else is a 400 at the boundary, and the service answers 412 when none matches.
- */
-function ifMatchVersions(header: string | undefined): number[] | undefined {
-  if (header === undefined) return undefined;
-  const tags = header
-    .split(',')
-    .map((t) => t.trim())
-    .filter((t) => t.length > 0);
-  if (tags.includes('*')) return undefined;
-  const versions = tags.map((t) => t.replace(/^W\//, '').replace(/^"(.*)"$/, '$1'));
-  if (versions.length === 0 || versions.some((v) => !/^\d{1,9}$/.test(v)))
-    throw new ProblemError(400, 'validation', 'Invalid If-Match', [
-      { path: 'If-Match', message: 'Expected the row version as an entity tag' },
-    ]);
-  return versions.map(Number);
-}
-
-/** The ETag of a version is its row version (docs/17 section 3), so a later If-Match can name it. */
-function withEtag<T extends { rowVersion: number }>(res: Response, row: T): T {
-  res.setHeader('ETag', `"${row.rowVersion}"`);
-  return row;
-}
 
 /**
  * The valuation board and workflow (docs/04 M10, docs/18 section 1). The role guards mirror the

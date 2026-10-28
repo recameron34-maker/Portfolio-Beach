@@ -20,10 +20,10 @@ import { attempt, dealChangeRequestMachine } from '@pb/workflows';
 import type { z } from 'zod';
 import { AT_ID_CURSOR, decodeAtIdCursor, encodeCursor } from '../common/cursor.js';
 import { ProblemError, workflowProblem } from '../common/problem.js';
+import { requireFreshRow } from '../common/row-version.js';
 import { ADAPTERS } from '../common/tokens.js';
 import { requireUuid } from '../common/validate.js';
 import { DbService } from '../db/db.service.js';
-import { requireFreshIfMatch } from './if-match.js';
 import {
   changeRequest as cr,
   loadChangeRequest,
@@ -223,7 +223,7 @@ export class ChangeRequestsService {
     requestId: string,
     id: string,
     body: ChangeRequestCommandBody,
-    ifMatch: string | undefined,
+    ifMatch: readonly number[] | undefined,
   ): Promise<ChangeRequestRow> {
     requireUuid(id, NOT_FOUND);
     return this.db.run(principal, requestId, async (tx, audit) => {
@@ -252,7 +252,7 @@ export class ChangeRequestsService {
           )[0],
       );
       if (locked === undefined) throw new ProblemError(404, 'not-found', NOT_FOUND);
-      requireFreshIfMatch(ifMatch, locked.rowVersion);
+      requireFreshRow(ifMatch, locked.rowVersion, 'change_request');
       const from = stateOf(locked);
       const result = attempt(dealChangeRequestMachine, from, body.command, {
         actorId: principal.userId,

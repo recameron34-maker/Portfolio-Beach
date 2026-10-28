@@ -24,7 +24,7 @@ import { loadClosingView, requiredItemsComplete } from '../closing/summary.js';
 import type { ClosingView } from '../closing/summary.js';
 import { decodeCursor, encodeCursor } from '../common/cursor.js';
 import { ProblemError, workflowProblem } from '../common/problem.js';
-import { requireIfMatch } from '../common/row-version.js';
+import { requireFreshRow } from '../common/row-version.js';
 import { ADAPTERS, CLOSING_CHECKLIST, DILIGENCE_TEMPLATES } from '../common/tokens.js';
 import { requireUuid } from '../common/validate.js';
 import { DbService } from '../db/db.service.js';
@@ -225,13 +225,13 @@ export class PipelineService {
     requestId: string,
     id: string,
     body: OpportunityCommandBody,
-    ifMatch: string | undefined,
+    ifMatch: readonly number[] | undefined,
   ): Promise<OpportunityDetail> {
     requireUuid(id, NOT_FOUND);
     if (body.command === 'advance') requireMoney(body.commitmentAmount, 'commitmentAmount');
     return this.db.run(principal, requestId, async (tx, audit) => {
       const locked = await lockOpportunity(tx, id);
-      requireIfMatch(ifMatch, locked.rowVersion);
+      requireFreshRow(ifMatch, locked.rowVersion, 'opportunity');
       const from = stageOf(locked.stage);
       const closing = await loadClosingView(tx, eq(closingTable.opportunityId, id), this.checklist);
       const gate = await diligenceGate(tx, id);

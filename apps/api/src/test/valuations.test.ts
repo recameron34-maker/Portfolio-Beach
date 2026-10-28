@@ -904,6 +904,9 @@ describe('valuation workflow (M10, docs/18 section 1)', () => {
         'if-match': '"999"',
       });
       expect(problemDetails.parse(first.body).status).toBe(412);
+      expect(problemDetails.parse(first.body).type).toBe(
+        'https://portfolio-beach.example/problems/stale-row-version',
+      );
       expect(await stateOf(draft.id)).toBe('Draft');
       await command('ops.one', draft.id, { command: 'prepare' }, 400, { 'if-match': 'abc' });
       const ok = await command('ops.one', draft.id, { command: 'prepare' }, 200, {

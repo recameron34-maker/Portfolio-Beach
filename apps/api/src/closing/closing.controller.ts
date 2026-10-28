@@ -9,6 +9,7 @@ import {
 import type { ClosingDetail } from '@pb/contracts';
 import { CurrentPrincipal, Roles } from '../auth/principal.js';
 import type { RequestWithPrincipal } from '../auth/principal.js';
+import { ifMatchVersions } from '../common/row-version.js';
 import { parseOrProblem } from '../common/validate.js';
 import { ClosingService } from './closing.service.js';
 
@@ -65,7 +66,13 @@ export class ClosingController {
     @Req() req: RequestWithPrincipal,
   ): Promise<ClosingDetail> {
     const parsed = parseOrProblem(closingCommandBody, body, 'command');
-    return this.service.command(principal, req.id ?? 'unknown', id, parsed, ifMatch);
+    return this.service.command(
+      principal,
+      req.id ?? 'unknown',
+      id,
+      parsed,
+      ifMatchVersions(ifMatch),
+    );
   }
 
   @Post('closings/:id/legal-terms')

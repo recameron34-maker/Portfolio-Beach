@@ -21,9 +21,9 @@ import {
 import type { ChangeRequestPage, ChangeRequestRow, QuarterEndCheckResult } from '@pb/contracts';
 import { CurrentPrincipal, Roles } from '../auth/principal.js';
 import type { RequestWithPrincipal } from '../auth/principal.js';
+import { ifMatchVersions, withEtag } from '../common/row-version.js';
 import { parseOrProblem } from '../common/validate.js';
 import { ChangeRequestsService } from './change-requests.service.js';
-import { etagOf } from './if-match.js';
 
 /**
  * Deal change requests (docs/04 M11, docs/18 section 8). The role lists mirror the contract's
@@ -58,7 +58,7 @@ export class ChangeRequestsController {
     @Res({ passthrough: true }) res: Response,
   ): Promise<ChangeRequestRow> {
     const parsed = parseOrProblem(changeRequestCreateBody, body, 'body');
-    return tagged(res, await this.service.create(principal, req.id ?? 'unknown', parsed));
+    return withEtag(res, await this.service.create(principal, req.id ?? 'unknown', parsed));
   }
 
   @Post('quarter-end-check')
@@ -81,7 +81,7 @@ export class ChangeRequestsController {
     @Req() req: RequestWithPrincipal,
     @Res({ passthrough: true }) res: Response,
   ): Promise<ChangeRequestRow> {
-    return tagged(res, await this.service.detail(principal, req.id ?? 'unknown', id));
+    return withEtag(res, await this.service.detail(principal, req.id ?? 'unknown', id));
   }
 
   @Post(':id/commands')
@@ -96,15 +96,15 @@ export class ChangeRequestsController {
     @Res({ passthrough: true }) res: Response,
   ): Promise<ChangeRequestRow> {
     const parsed = parseOrProblem(changeRequestCommandBody, body, 'command');
-    return tagged(
+    return withEtag(
       res,
-      await this.service.command(principal, req.id ?? 'unknown', id, parsed, ifMatch),
+      await this.service.command(
+        principal,
+        req.id ?? 'unknown',
+        id,
+        parsed,
+        ifMatchVersions(ifMatch),
+      ),
     );
   }
-}
-
-/** Sets the record's row version as the response ETag and hands the record back. */
-function tagged(res: Response, row: ChangeRequestRow): ChangeRequestRow {
-  res.setHeader('ETag', etagOf(row.rowVersion));
-  return row;
 }

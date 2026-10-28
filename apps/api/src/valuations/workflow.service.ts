@@ -22,6 +22,7 @@ import type { Tx } from '@pb/db';
 import { attempt, valuationMachine } from '@pb/workflows';
 import { valuationLockHash } from '../common/lock.js';
 import { ProblemError, workflowProblem } from '../common/problem.js';
+import { requireFreshRow } from '../common/row-version.js';
 import { ADAPTERS } from '../common/tokens.js';
 import { requireUuid } from '../common/validate.js';
 import { DbService } from '../db/db.service.js';
@@ -99,14 +100,6 @@ const conflict = (): ProblemError =>
     409,
     'conflict',
     'valuation: another command changed the version first; open it again',
-  );
-
-/** The problem when the caller's If-Match names a row version the record has moved past. */
-const stale = (): ProblemError =>
-  new ProblemError(
-    412,
-    'precondition',
-    'The record changed since it was read. Reload it and try again.',
   );
 
 @Injectable()
@@ -294,7 +287,7 @@ export class ValuationWorkflowService {
         await tx.select(LOCKED_COLUMNS).from(valuation).where(eq(valuation.id, id)).for('update')
       )[0];
       if (locked === undefined) throw new ProblemError(404, 'not-found', NOT_FOUND);
-      if (ifMatch !== undefined && !ifMatch.includes(locked.rowVersion)) throw stale();
+      requireFreshRow(ifMatch, locked.rowVersion, 'valuation');
       const from = this.stateOf(locked);
       const position = (
         await tx
