@@ -70,11 +70,24 @@ describe('taxonomy and walls', () => {
     expect((await get('operations')).walls).toEqual([]);
     expect((await get('auditor')).walls).toEqual([]);
 
-    // A member sees the wall and its record with the label; RLS shows a plain member their own membership row only.
-    // The synthetic wall also holds the pipeline's walled opportunities (docs/14 section 10), which
-    // the walls read labels from Phase 3 wave 2 on; the investment record is what is asserted here.
-    const investmentRecords = (list: WallList) =>
-      list.walls[0]!.records.filter((r) => r.entity === 'investment');
+    // The synthetic wall holds the investment and the pipeline's two walled opportunities (docs/14
+    // section 10): the walled Diligence deal and the Closed deal that became the walled position.
+    // Records come back by entity then id; an opportunity is labelled by its deal name and company.
+    const oppLabel = (id: string): string => {
+      const o = h.dataset.opportunities!.find((x) => x.id === id)!;
+      return `${o.name} (${o.companyName})`;
+    };
+    const expectedRecords = (visible: boolean) =>
+      [...seeded.records]
+        .sort((a, b) => a.entity.localeCompare(b.entity) || (a.entityId < b.entityId ? -1 : 1))
+        .map((r) => ({
+          entity: r.entity,
+          entityId: r.entityId,
+          label: !visible ? null : r.entity === 'investment' ? label : oppLabel(r.entityId),
+        }));
+    expect(seeded.records.filter((r) => r.entity === 'opportunity')).toHaveLength(2);
+
+    // A member sees the wall and its records with their labels; RLS shows a plain member their own membership row only.
     const member = await get('deal.three');
     expect(member.walls.length).toBe(1);
     expect(member.walls[0]!.id).toBe(seeded.id);
@@ -83,9 +96,7 @@ describe('taxonomy and walls', () => {
     expect(member.walls[0]!.members).toEqual([
       { userId: dealThree.id, displayName: dealThree.displayName },
     ]);
-    expect(investmentRecords(member)).toEqual([
-      { entity: 'investment', entityId: walledId, label },
-    ]);
+    expect(member.walls[0]!.records).toEqual(expectedRecords(true));
 
     // The approver is also a member: every membership row and the label.
     const approver = await get('head.one');
@@ -94,6 +105,7 @@ describe('taxonomy and walls', () => {
       [...seeded.memberUserIds].sort(),
     );
     expect(approver.walls[0]!.members.map((m) => m.userId)).toContain(headOne.id);
+    expect(approver.walls[0]!.records).toEqual(expectedRecords(true));
     expect(approver.walls[0]!.records[0]!.label).toBe(label);
 
     // The platform admin manages the wall but is not behind it: full roster, record label null.
@@ -104,8 +116,6 @@ describe('taxonomy and walls', () => {
     );
     const names = admin.walls[0]!.members.map((m) => m.displayName);
     expect(names).toEqual([...names].sort());
-    expect(investmentRecords(admin)).toEqual([
-      { entity: 'investment', entityId: walledId, label: null },
-    ]);
+    expect(admin.walls[0]!.records).toEqual(expectedRecords(false));
   });
 });

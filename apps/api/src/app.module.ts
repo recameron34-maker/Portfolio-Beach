@@ -8,11 +8,15 @@ import { AuditService } from './audit/audit.service.js';
 import { AuthController } from './auth/auth.controller.js';
 import { CapitalController } from './capital/capital.controller.js';
 import { CapitalService } from './capital/capital.service.js';
+import { ClosingController } from './closing/closing.controller.js';
+import { ClosingService } from './closing/closing.service.js';
 import { IdentityMiddleware } from './auth/identity.middleware.js';
 import { AuthGuard } from './auth/principal.js';
 import { ProblemFilter } from './common/problem.js';
 import {
   ACCOUNTING_LAYOUT,
+  CLOSING_CHECKLIST,
+  DILIGENCE_TEMPLATES,
   LOOKTHROUGH_MAPPING,
   OPS_DROP_TEMPLATES,
   ADAPTERS,
@@ -50,6 +54,8 @@ import { MonitoringController } from './monitoring/monitoring.controller.js';
 import { MonitoringService } from './monitoring/monitoring.service.js';
 import { PerformanceController } from './performance/performance.controller.js';
 import { PerformanceService } from './performance/performance.service.js';
+import { PipelineController } from './pipeline/pipeline.controller.js';
+import { PipelineService } from './pipeline/pipeline.service.js';
 import { PortfolioController } from './portfolio/portfolio.controller.js';
 import { PortfolioService } from './portfolio/portfolio.service.js';
 import { ReportsController } from './reports/reports.controller.js';
@@ -84,6 +90,8 @@ export const CONTROLLERS = [
   DocumentsController,
   ExtractionController,
   MonitoringController,
+  PipelineController,
+  ClosingController,
 ] as const;
 
 @Module({})
@@ -101,6 +109,8 @@ export class AppModule implements NestModule {
         { provide: ACCOUNTING_LAYOUT, useValue: runtime.accountingLayout },
         { provide: LOOKTHROUGH_MAPPING, useValue: runtime.lookthroughMapping },
         { provide: OPS_DROP_TEMPLATES, useValue: runtime.opsDropTemplates },
+        { provide: CLOSING_CHECKLIST, useValue: runtime.closingChecklist },
+        { provide: DILIGENCE_TEMPLATES, useValue: runtime.diligenceTemplates },
         { provide: EXTRACTION_SCHEMAS, useValue: runtime.extractionSchemas },
         { provide: HIGHLIGHT_STYLE, useValue: loadHighlightStyle(runtime.config.PB_CONFIG_DIR) },
         DbService,
@@ -125,6 +135,8 @@ export class AppModule implements NestModule {
         ExtractionService,
         ExtractionReviewService,
         MonitoringService,
+        PipelineService,
+        ClosingService,
         { provide: APP_GUARD, useClass: AuthGuard },
         { provide: APP_FILTER, useClass: ProblemFilter },
       ],

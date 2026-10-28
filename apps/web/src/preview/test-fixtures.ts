@@ -322,6 +322,7 @@ export function investmentFixture(
     geography: null,
     vintage: 2023,
     entryDate: '2023-01-15',
+    closeDate: '2023-01-15',
     exitDate: null,
     isActive: true,
     invested: '1000.00',

@@ -183,6 +183,14 @@ export class PortfolioService {
           latest: creditView(creditRows, terms.cashCoupon, asOf),
         };
       }
+      // The close date comes from the closing record alone (docs/04 M8): no other table carries one.
+      const closing = (
+        await tx
+          .select({ closeDate: schema.closing.closeDate })
+          .from(schema.closing)
+          .where(eq(schema.closing.investmentId, row.id))
+          .limit(1)
+      )[0];
       await audit({ action: 'investment.read', entity: 'core.investment', entityId: row.id });
       const latestPeriodEnd = credit?.latest?.periodEnd ?? operating?.periodEnd ?? null;
       return {
@@ -190,6 +198,7 @@ export class PortfolioService {
         ...summary,
         companyId: row.companyId,
         sponsorFundId: row.sponsorFundId,
+        closeDate: closing?.closeDate ?? null,
         companyDescription: description?.description ?? null,
         latestPeriodEnd,
         cashFlows: (flows.get(row.id) ?? []).map((f) => ({

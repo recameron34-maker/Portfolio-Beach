@@ -21,8 +21,18 @@ import {
   parseTruth,
 } from '@pb/ai';
 import type { ExtractionSchemas, Truth } from '@pb/ai';
-import { lookthroughMapping, opsDropTemplates } from '@pb/contracts';
-import type { LookthroughMapping, OpsDropTemplates } from '@pb/contracts';
+import {
+  closingChecklist,
+  diligenceTemplates,
+  lookthroughMapping,
+  opsDropTemplates,
+} from '@pb/contracts';
+import type {
+  ClosingChecklist,
+  DiligenceTemplates,
+  LookthroughMapping,
+  OpsDropTemplates,
+} from '@pb/contracts';
 import { APP_ROLES, createDb, dbConfigFromEnv, migrate } from '@pb/db';
 import type { DbHandle } from '@pb/db';
 import { z } from 'zod';
@@ -46,6 +56,10 @@ export interface Runtime {
   opsDropTemplates: OpsDropTemplates;
   /** config/extraction_schema.json as @pb/ai loads it, checked at startup: a bad schema file stops the process. */
   extractionSchemas: ExtractionSchemas;
+  /** config/closing_checklist.json, checked at startup: the items every closing starts with (docs/04 M8). */
+  closingChecklist: ClosingChecklist;
+  /** config/diligence_templates.json, checked at startup: the tasks per deal type on entering Diligence (docs/04 M7). */
+  diligenceTemplates: DiligenceTemplates;
   /** The recorded truths of <PB_DOCUMENT_ROOT>/truth/<contentHash>.json, the prototype extractor's fixtures (decision 0012). */
   truths: ReadonlyMap<string, Truth>;
 }
@@ -135,6 +149,16 @@ export function loadLookthroughMapping(configDir: string): LookthroughMapping {
 /** config/ops_drop_templates.json: workbook templates by signature (docs/04 M2 ops-drop-import). */
 export function loadOpsDropTemplates(configDir: string): OpsDropTemplates {
   return loadStrict(configDir, 'ops_drop_templates.json', opsDropTemplates);
+}
+
+/** config/closing_checklist.json: the required-document checklist of every closing (docs/04 M8, docs/18 section 12). */
+export function loadClosingChecklist(configDir: string): ClosingChecklist {
+  return loadStrict(configDir, 'closing_checklist.json', closingChecklist);
+}
+
+/** config/diligence_templates.json: the diligence tasks per deal type (docs/04 M7, docs/18 section 4). */
+export function loadDiligenceTemplates(configDir: string): DiligenceTemplates {
+  return loadStrict(configDir, 'diligence_templates.json', diligenceTemplates);
 }
 
 /** config/extraction_schema.json through @pb/ai's loader (docs/04 M4): a missing or unusable file stops the process. */
@@ -287,6 +311,8 @@ export async function buildRuntime(
     lookthroughMapping: loadLookthroughMapping(config.PB_CONFIG_DIR),
     opsDropTemplates: loadOpsDropTemplates(config.PB_CONFIG_DIR),
     extractionSchemas: loadExtractionSchemaConfig(config.PB_CONFIG_DIR),
+    closingChecklist: loadClosingChecklist(config.PB_CONFIG_DIR),
+    diligenceTemplates: loadDiligenceTemplates(config.PB_CONFIG_DIR),
     truths,
   };
 }

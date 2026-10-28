@@ -63,6 +63,7 @@ export function dealDetailFixture(overrides: Partial<InvestmentDetail> = {}): In
     ...investmentFixture(),
     companyId: DEAL_IDS.company,
     sponsorFundId: DEAL_IDS.fundIv,
+    closeDate: '2018-11-15',
     companyDescription: 'Synthetic portfolio company.',
     latestPeriodEnd: AS_OF,
     cashFlows: [

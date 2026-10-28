@@ -225,6 +225,21 @@ export class SponsorsService {
           .where(inArray(schema.sponsor.id, sponsorIds));
         for (const r of visible) labels.set(r.id, r.name);
       }
+      // A walled opportunity (docs/04 M5, migration 0013) is labelled by its deal name and company.
+      const opportunityIds = records
+        .filter((r) => r.entity === 'opportunity')
+        .map((r) => r.entityId);
+      if (opportunityIds.length > 0) {
+        const visible = await tx
+          .select({
+            id: schema.opportunity.id,
+            name: schema.opportunity.name,
+            companyName: schema.opportunity.companyName,
+          })
+          .from(schema.opportunity)
+          .where(inArray(schema.opportunity.id, opportunityIds));
+        for (const r of visible) labels.set(r.id, `${r.name} (${r.companyName})`);
+      }
 
       return {
         walls: walls.map((w) => ({

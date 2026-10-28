@@ -10,3 +10,7 @@ export const ACCOUNTING_LAYOUT = 'PB_ACCOUNTING_LAYOUT';
 export const LOOKTHROUGH_MAPPING = 'PB_LOOKTHROUGH_MAPPING';
 /** config/ops_drop_templates.json, parsed and checked at startup (OpsDropTemplates from @pb/contracts). */
 export const OPS_DROP_TEMPLATES = 'PB_OPS_DROP_TEMPLATES';
+/** config/closing_checklist.json, parsed and checked at startup (ClosingChecklist from @pb/contracts). */
+export const CLOSING_CHECKLIST = 'PB_CLOSING_CHECKLIST';
+/** config/diligence_templates.json, parsed and checked at startup (DiligenceTemplates from @pb/contracts). */
+export const DILIGENCE_TEMPLATES = 'PB_DILIGENCE_TEMPLATES';
