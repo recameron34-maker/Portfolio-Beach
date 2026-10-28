@@ -26,7 +26,7 @@ import { ADAPTERS } from '../common/tokens.js';
 import { requireUuid } from '../common/validate.js';
 import { DbService } from '../db/db.service.js';
 import type { AuditEntry } from '../db/db.service.js';
-import { openChangeRequestsFor } from './change-requests.js';
+import { openChangeRequestsFor } from '../change-requests/queries.js';
 import { ValuationsService } from './valuations.service.js';
 
 /*

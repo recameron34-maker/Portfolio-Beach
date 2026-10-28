@@ -1,3 +1,4 @@
+import { capitalNoticeControlDetail } from './controls.js';
 import { CONTROL_ROUTES } from './routes-controls.js';
 import type { RouteDefinition } from './route.js';
 import { API_PREFIX } from './route.js';
@@ -200,12 +201,12 @@ export const ROUTES: readonly RouteDefinition[] = [
     method: 'GET',
     path: `${API_PREFIX}/capital-notices/{id}`,
     summary:
-      'Capital notice detail with linked cash flows (404 when not visible; never bank details)',
+      'Capital notice detail with linked cash flows, the trade ticket, the masked active wire instruction and the alerts (404 when not visible; never bank details)',
     tags: ['capital'],
     roles: [],
     auth: true,
     query: s.asOfQuery,
-    response: s.capitalNoticeDetail,
+    response: capitalNoticeControlDetail,
   },
   {
     method: 'GET',
