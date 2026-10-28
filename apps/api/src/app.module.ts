@@ -8,6 +8,8 @@ import { AuditService } from './audit/audit.service.js';
 import { AuthController } from './auth/auth.controller.js';
 import { CapitalController } from './capital/capital.controller.js';
 import { CapitalService } from './capital/capital.service.js';
+import { ChangeRequestsController } from './change-requests/change-requests.controller.js';
+import { ChangeRequestsService } from './change-requests/change-requests.service.js';
 import { IdentityMiddleware } from './auth/identity.middleware.js';
 import { AuthGuard } from './auth/principal.js';
 import { ProblemFilter } from './common/problem.js';
@@ -73,6 +75,7 @@ export const CONTROLLERS = [
   SponsorsController,
   ValuationsController,
   CapitalController,
+  ChangeRequestsController,
   AnalyticsController,
   ReportsController,
   AuditController,
@@ -111,6 +114,7 @@ export class AppModule implements NestModule {
         SponsorsService,
         ValuationsService,
         CapitalService,
+        ChangeRequestsService,
         AnalyticsService,
         ReportsService,
         AuditService,
