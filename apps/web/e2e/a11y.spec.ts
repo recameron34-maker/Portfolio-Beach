@@ -163,6 +163,17 @@ const EARLIER_PAGES: Visit[] = [
   { path: '/data/health', ready: heading },
   { path: '/data/dictionary', ready: heading },
 ];
+// Phase 3: W1 valuations (M10) and change requests (M11)
+/** A Locked version outside the wall, so operations opens its screen with every card filled. */
+const valuation = idOf(
+  full.valuations.find((v) => v.investmentId !== walled && v.state === 'Locked'),
+  'Locked valuation outside the wall',
+).id;
+const W1_PAGES: Visit[] = [
+  { path: '/valuations/changes', ready: (p) => p.getByTestId('change-requests-card') },
+  { path: `/valuations/${valuation}`, ready: (p) => p.getByTestId('valuation-detail') },
+];
+
 const dealTabs = (id: string): Visit[] =>
   DEAL_TABS.map((t) => ({ path: `/portfolio/${id}${t.path}`, ready: banner }));
 
@@ -326,6 +337,13 @@ for (const width of [1280, 390]) {
       test.setTimeout(180_000);
       await signInAs(page, 'ops.one', d);
       await scanPages(page, await documentPages(page));
+    });
+
+    // Phase 3: W1 valuations and change requests
+    test(`operations: the change request queue and a valuation version @a11y`, async ({ page }) => {
+      test.setTimeout(120_000);
+      await signInAs(page, 'ops.one', d);
+      await scanPages(page, W1_PAGES);
     });
 
     test(`operations: every deal workspace tab @a11y`, async ({ page }) => {

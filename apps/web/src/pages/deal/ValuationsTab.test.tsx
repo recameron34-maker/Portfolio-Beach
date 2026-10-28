@@ -1,9 +1,36 @@
-import { afterEach, describe, expect, it, vi } from 'vitest';
-import { cleanup, screen, within } from '@testing-library/react';
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
+import { cleanup, fireEvent, screen, within } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { failing, mockApi, ok } from '../../test/api-mock.js';
-import { DEAL_PATHS, dealDetailFixture, valuationPageFixture } from '../../test/fixtures-deal.js';
+import {
+  DEAL_ID,
+  DEAL_PATHS,
+  dealDetailFixture,
+  valuationPageFixture,
+} from '../../test/fixtures-deal.js';
+import { principalFixture } from '../../test/fixtures.js';
+import {
+  changeRequestPageFixture,
+  changeRequestRowFixture,
+  changeRequestRows,
+  changeTypeTaxonomyFixture,
+  sentPosts,
+} from '../../test/fixtures-valuations.js';
 import { renderWithQuery } from '../../test/render.js';
+import { clearTaxonomyLabels, registerTaxonomyLabels } from '../../lib/format.js';
 import { ValuationsTab } from './ValuationsTab.js';
+
+/** The shell registers the taxonomy labels for labelOf; the tests register the change types the same way. */
+beforeAll(() =>
+  registerTaxonomyLabels(changeTypeTaxonomyFixture().domains.flatMap((d) => d.terms)),
+);
+afterAll(() => clearTaxonomyLabels());
+
+const REQUESTS = `/api/v1/change-requests?limit=200&investmentId=${DEAL_ID}`;
+const TAXONOMY = '/api/v1/taxonomy';
+const CREATE = '/api/v1/change-requests';
+/** Dropdown journeys drive Fluent popovers; give them room on a loaded test runner. */
+const TIMEOUT = { timeout: 15_000 };
 
 vi.mock('@tanstack/react-router', async () => {
   const { routerMock } = await import('../../test/router-mock.js');
@@ -100,6 +127,130 @@ describe('valuations tab', () => {
     ).toBeInTheDocument();
     expect(screen.queryByTestId('error-state')).not.toBeInTheDocument();
   });
+
+  it("lists the position's change requests with their state and links to the queue", async () => {
+    const rows = changeRequestRows().slice(0, 2);
+    mockApi({
+      [DEAL_PATHS.detail]: ok(dealDetailFixture()),
+      [DEAL_PATHS.valuations]: ok(valuationPageFixture()),
+      [REQUESTS]: ok(changeRequestPageFixture(rows)),
+    });
+    renderWithQuery(<ValuationsTab />);
+    const card = await screen.findByTestId('deal-change-requests');
+    const table = await within(card).findByRole('table', { name: 'Change requests' });
+    expect(card).toHaveTextContent('2 requests, newest first');
+    const body = within(table).getAllByRole('row').slice(1);
+    expect(body.map((r) => r.textContent)).toEqual([
+      'Add-on acquisitionMay 15, 2025Add-on acquisition of a regional competitor closed-Submitted-',
+      'RecapitalizationApr 30, 2025Dividend recapitalization with a new term loanAvery MbekiRouted-',
+    ]);
+    expect(within(body[0]!).getByText('Submitted')).toHaveClass('pb-badge-watch');
+    expect(
+      within(card).getByRole('link', { name: 'Open the change request queue' }),
+    ).toHaveAttribute('href', '/valuations/changes');
+    // No role: no form (the route admits the deal team and operations).
+    expect(screen.queryByTestId('change-request-form')).not.toBeInTheDocument();
+    expect(screen.queryByRole('status')).not.toBeInTheDocument();
+  });
+
+  it('says so when the position has no requests, and when the role may not read them', async () => {
+    mockApi({
+      [DEAL_PATHS.detail]: ok(dealDetailFixture()),
+      [DEAL_PATHS.valuations]: ok(valuationPageFixture()),
+      [REQUESTS]: ok(changeRequestPageFixture([])),
+    });
+    const first = renderWithQuery(<ValuationsTab />);
+    expect(await screen.findByText('No change requests')).toBeInTheDocument();
+    first.unmount();
+    vi.restoreAllMocks();
+    mockApi({
+      [DEAL_PATHS.detail]: ok(dealDetailFixture()),
+      [DEAL_PATHS.valuations]: ok(valuationPageFixture()),
+      [REQUESTS]: failing(403, '/api/v1/change-requests'),
+    });
+    renderWithQuery(<ValuationsTab />);
+    expect(await screen.findByTestId('deal-change-requests-unavailable')).toHaveTextContent(
+      'Change requests: not visible to your role',
+    );
+  });
+
+  it(
+    'offers the deal team the request form, refuses what the contract refuses and submits the rest',
+    TIMEOUT,
+    async () => {
+      mockApi({
+        [DEAL_PATHS.me]: ok(principalFixture()),
+        [DEAL_PATHS.detail]: ok(dealDetailFixture()),
+        [DEAL_PATHS.valuations]: ok(valuationPageFixture()),
+        [REQUESTS]: ok(changeRequestPageFixture([])),
+        [TAXONOMY]: ok(changeTypeTaxonomyFixture()),
+        [CREATE]: {
+          status: 201,
+          body: changeRequestRowFixture({
+            investmentId: DEAL_ID,
+            summary: 'Add-on acquisition of a regional competitor closed',
+          }),
+        },
+      });
+      renderWithQuery(<ValuationsTab />);
+      const form = await screen.findByTestId('change-request-form');
+      expect(screen.getByRole('status')).toBeEmptyDOMElement();
+      const submit = within(form).getByRole('button', { name: 'Submit request' });
+
+      // Empty: nothing is sent, the fields say what the contract needs.
+      await userEvent.click(submit);
+      expect(sentPosts()).toEqual([]);
+      expect(within(form).getByText('Choose a change type.')).toBeInTheDocument();
+      expect(within(form).getByText('Give the effective date.')).toBeInTheDocument();
+      expect(
+        within(form).getByText('Summarize the change in 3 to 200 characters of plain text.'),
+      ).toBeInTheDocument();
+      expect(within(form).getByLabelText(/Summary/)).toHaveAttribute('aria-invalid', 'true');
+
+      await userEvent.click(within(form).getByRole('combobox', { name: /Change type/ }));
+      const offered = await screen.findAllByRole('option');
+      expect(offered).toHaveLength(9);
+      expect(offered[0]).toHaveTextContent('Add-on acquisition');
+      await userEvent.click(screen.getByRole('option', { name: 'Add-on acquisition' }));
+      fireEvent.change(within(form).getByLabelText(/Effective date/), {
+        target: { value: '2025-05-15' },
+      });
+      await userEvent.click(within(form).getByLabelText(/Summary/));
+      await userEvent.paste('Add-on acquisition of a regional competitor closed');
+      await userEvent.click(within(form).getByLabelText('Field 1 name'));
+      await userEvent.paste('target');
+      await userEvent.click(within(form).getByLabelText('Field 1 value'));
+      await userEvent.paste('A regional competitor');
+      await userEvent.click(within(form).getByRole('button', { name: 'Add field' }));
+      expect(within(form).getByLabelText('Field 2 name')).toBeInTheDocument();
+      await userEvent.click(within(form).getByRole('button', { name: 'Remove field 2' }));
+      expect(within(form).queryByLabelText('Field 2 name')).not.toBeInTheDocument();
+      await userEvent.click(submit);
+      expect(
+        await within(screen.getByRole('status')).findByText(
+          'Change request submitted for Meridian Data Partners: Add-on acquisition of a regional competitor closed (audited)',
+        ),
+      ).toHaveClass('pb-notice-good');
+      expect(sentPosts()).toEqual([
+        [
+          CREATE,
+          {
+            investmentId: DEAL_ID,
+            changeType: 'change_type.add_on_acquisition',
+            effectiveDate: '2025-05-15',
+            summary: 'Add-on acquisition of a regional competitor closed',
+            details: { target: 'A regional competitor' },
+          },
+        ],
+      ]);
+      // The form clears for the next request and the session list keeps the result.
+      expect(within(form).getByLabelText(/Summary/)).toHaveValue('');
+      expect(
+        within(screen.getByRole('list', { name: 'Actions this session' })).getByText('Done'),
+      ).toBeInTheDocument();
+      expect(document.body.textContent).not.toContain(EM_DASH);
+    },
+  );
 
   it('falls back the same way when the role may not read the list', async () => {
     mockApi({

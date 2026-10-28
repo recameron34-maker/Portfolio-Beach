@@ -13,6 +13,13 @@ export const NAV_GROUPS: { label: string; to: string }[] = [
   { label: 'Admin', to: '/admin/flags' },
 ];
 
+// Phase 3: W1 valuations (M10) and change requests (M11)
+/** Valuations group tabs: the batch board and the deal change request queue. */
+export const VALUATION_TABS = [
+  { to: '/valuations', label: 'Board', exact: true },
+  { to: '/valuations/changes', label: 'Change requests' },
+];
+
 export const PORTFOLIO_TABS = [
   { to: '/portfolio', label: 'Positions', exact: true },
   { to: '/portfolio/vehicles', label: 'Vehicles' },

@@ -1,6 +1,7 @@
-import { decimalString } from '@pb/contracts';
+import { decimalString, valuationBatchCommand } from '@pb/contracts';
 import type {
   InvestmentSummary,
+  ValuationBatchCommand,
   ValuationRow,
   ValuationState,
   VehicleSummary,
@@ -207,4 +208,65 @@ export function vehicleNames(
 /** A fair value as the form takes it: digits with an optional decimal point (the decimalString contract, never negative). */
 export function isFairValue(text: string): boolean {
   return !text.startsWith('-') && decimalString.safeParse(text).success;
+}
+
+/* ---- The batch approval screen (docs/04 M10) ---- */
+
+/** One batch command the signed-in roles may run: the transition row it stands for. */
+export interface BatchPlan {
+  command: ValuationBatchCommand;
+  from: ValuationState;
+  to: ValuationState;
+  roles: readonly string[];
+}
+
+/**
+ * The batch commands the roles may issue, from the transition table: the deal team approves
+ * Ops prepared versions and an approver locks Deal team approved ones (never a send back or a
+ * reopen, which need a reason each). Empty for every other role, so the board shows no checkbox.
+ */
+export function batchPlans(roles: readonly string[]): BatchPlan[] {
+  const plans: BatchPlan[] = [];
+  for (const t of valuationMachine.transitions) {
+    const command = valuationBatchCommand.safeParse(t.command);
+    if (!command.success || !t.roles.some((r) => roles.includes(r))) continue;
+    plans.push({ command: command.data, from: t.from, to: t.to, roles: t.roles });
+  }
+  return plans;
+}
+
+/** The plan a row may join (its state is the plan's starting state), if any. */
+export function batchPlanFor(
+  row: Pick<ValuationRow, 'state'>,
+  plans: readonly BatchPlan[],
+): BatchPlan | undefined {
+  return plans.find((p) => p.from === row.state);
+}
+
+/** "Approve selected" or "Lock selected": the batch bar's button words. */
+export function batchLabel(command: ValuationBatchCommand): string {
+  return command === 'lock' ? 'Lock selected' : 'Approve selected';
+}
+
+/* ---- The version screen ---- */
+
+/** The steps of docs/18 section 1 in order; Reopened sits after Locked and has every step behind it. */
+export const VALUATION_STEPS: readonly ValuationState[] = [
+  'Draft',
+  'OpsPrepared',
+  'DealTeamApproved',
+  'Locked',
+];
+
+export type StepStatus = 'done' | 'current' | 'upcoming';
+
+/** Each step as done, current or upcoming for a version in the given state. */
+export function valuationSteps(
+  state: ValuationState,
+): { state: ValuationState; status: StepStatus }[] {
+  const at = state === 'Reopened' ? VALUATION_STEPS.length : VALUATION_STEPS.indexOf(state);
+  return VALUATION_STEPS.map((s, i) => ({
+    state: s,
+    status: i < at ? 'done' : i === at ? 'current' : 'upcoming',
+  }));
 }

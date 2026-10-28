@@ -57,3 +57,142 @@
     width: 100%;
   }
 }
+
+/* Row selection and the batch bar (docs/04 M10): the selected count and one button per batch
+   command the signed-in roles may run. */
+.pb-val-batch {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  margin: 0 0 12px;
+  padding: 8px 12px;
+  border: 1px solid var(--pb-border);
+  border-radius: var(--pb-radius);
+  background: var(--pb-surface-2);
+}
+.pb-val-batch > .pb-meta {
+  margin: 0;
+}
+.pb-val-table .pb-val-select {
+  width: 40px;
+  padding-right: 0;
+}
+
+/* The version screen: the four steps of docs/18 section 1 as an ordered list that wraps. */
+.pb-val-progress {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+  margin: 0 0 16px;
+  padding: 0;
+  list-style: none;
+}
+.pb-val-progress > li {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+  min-width: 0;
+  padding: 10px;
+  background: var(--pb-bg);
+  border: 1px solid var(--pb-border);
+  border-radius: var(--pb-radius);
+}
+.pb-val-progress > li[aria-current='step'] {
+  border-color: var(--pb-brand-primary);
+  box-shadow: inset 0 3px 0 var(--pb-brand-accent);
+}
+.pb-val-step {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  font-size: 13px;
+  line-height: 18px;
+  font-weight: 600;
+  color: var(--pb-text);
+}
+.pb-val-progress > li[data-status='upcoming'] .pb-val-step {
+  font-weight: 500;
+  color: var(--pb-muted-strong);
+}
+.pb-val-step-number {
+  flex: none;
+  display: inline-grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  border: 1px solid var(--pb-border);
+  background: var(--pb-surface-2);
+  color: var(--pb-muted-strong);
+  font-size: 11px;
+  line-height: 1;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.pb-val-progress > li[data-status='done'] .pb-val-step-number {
+  border-color: rgba(var(--pb-good-rgb), 0.18);
+  background: var(--pb-good-tint);
+  color: var(--pb-good-ink);
+}
+.pb-val-progress > li[aria-current='step'] .pb-val-step-number {
+  border-color: var(--pb-brand-primary);
+  background: var(--pb-brand-primary);
+  color: var(--pb-bg);
+}
+.pb-val-back {
+  margin: 0 0 6px;
+}
+.pb-val-actions {
+  margin: 0 0 12px;
+}
+
+/* The lock text: the exact bytes the hash covers, in a monospace block that wraps but never reflows. */
+.pb-val-lock,
+.pb-val-hash {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 12.5px;
+  line-height: 18px;
+  overflow-wrap: anywhere;
+}
+.pb-val-lock {
+  margin: 0 0 8px;
+  padding: 10px 12px;
+  border: 1px solid var(--pb-border);
+  border-radius: var(--pb-radius);
+  background: var(--pb-surface-2);
+  white-space: pre-wrap;
+}
+
+/* The change request form (docs/04 M11): one column of fields, the details as key and value rows. */
+.pb-val-form {
+  display: grid;
+  gap: 12px;
+  max-width: 640px;
+}
+.pb-val-form-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: end;
+}
+.pb-val-form-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+}
+.pb-val-form-actions > .pb-meta {
+  margin: 0;
+}
+
+@media (max-width: 760px) {
+  .pb-val-progress {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .pb-val-form-row {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

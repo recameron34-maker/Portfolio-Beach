@@ -61,6 +61,9 @@ import { ClientsPage, DisclosuresPage, WeeklyReportPage } from '../pages/reporti
 import { SignInPage } from '../pages/SignIn.js';
 import { SponsorDetailPage, SponsorsPage } from '../pages/sponsors/Sponsors.js';
 import { ValuationsPage } from '../pages/valuations/Valuations.js';
+// Phase 3: W1 valuations (M10) and change requests (M11)
+import { ChangeRequestsPage } from '../pages/valuations/ChangeRequests.js';
+import { ValuationDetailPage } from '../pages/valuations/ValuationDetail.js';
 import { getCredential } from './session.js';
 
 const rootRoute = createRootRoute({
@@ -127,6 +130,9 @@ const documentRoute = child('/documents/$id', DocumentDetailPage);
 const documentsExtractionRoute = child('/documents/extraction', ExtractionPage);
 const documentsExtractionRunRoute = child('/documents/extraction/$id', ExtractionRunPage);
 const valuationsRoute = child('/valuations', ValuationsPage);
+// Phase 3: W1 valuations (M10) and change requests (M11): the queue is listed before the version
+const valuationChangesRoute = child('/valuations/changes', ChangeRequestsPage);
+const valuationDetailRoute = child('/valuations/$id', ValuationDetailPage);
 const capitalRoute = child('/capital-activity', CapitalActivityPage);
 const commitmentsRoute = child('/capital-activity/commitments', CommitmentsPage);
 const capitalNoticeRoute = child('/capital-activity/$id', CapitalNoticePage);
@@ -225,6 +231,9 @@ const routeTree = rootRoute.addChildren([
     documentsExtractionRoute,
     documentsExtractionRunRoute,
     valuationsRoute,
+    // Phase 3: W1 valuations and change requests
+    valuationChangesRoute,
+    valuationDetailRoute,
     capitalRoute,
     commitmentsRoute,
     capitalNoticeRoute,

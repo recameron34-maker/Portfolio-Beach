@@ -8,7 +8,9 @@ import {
   activePositions,
   POSITION_ID,
   rolePrincipal,
+  sentPosts,
   sentRequests,
+  VAL_ID,
   valuationPageFixture,
   vehicleListFixture,
 } from '../../test/fixtures-valuations.js';
@@ -23,7 +25,9 @@ const ME = '/api/v1/auth/me';
 const BOARD = '/api/v1/valuations?limit=200';
 const ACTIVE = '/api/v1/investments?limit=200&active=true';
 const VEHICLES = '/api/v1/vehicles';
-const PHASE_3 = 'Workflow actions arrive with Phase 3';
+const BATCH = '/api/v1/valuations/batch-commands';
+/** Dialog and checkbox journeys drive Fluent controls; give them room on a loaded test runner. */
+const TIMEOUT = { timeout: 15_000 };
 
 function routes(overrides: MockRoutes = {}): MockRoutes {
   return {
@@ -43,7 +47,9 @@ async function pick(combobox: string, option: string): Promise<void> {
   await userEvent.click(await screen.findByRole('option', { name: option }));
 }
 
-describe('valuation board (read-only build)', () => {
+const button = (name: string): HTMLElement => screen.getByRole('button', { name });
+
+describe('valuation board', () => {
   afterEach(() => {
     cleanup();
     vi.restoreAllMocks();
@@ -93,29 +99,154 @@ describe('valuation board (read-only build)', () => {
     expect(screen.queryByRole('button', { name: 'Reset preview' })).not.toBeInTheDocument();
   });
 
-  it('disables every action outside the preview, with the Phase 3 reason', async () => {
+  it('offers operations its own commands live, names the roles the others need, and shows no batch bar', async () => {
     mockApi(routes());
     renderWithQuery(<ValuationsPage />);
     await screen.findByRole('table', { name: 'Valuations' });
     for (const name of [
       'Prepare, Cobalt Energy Group, Jun 30, 2025 v1',
-      'Deal team approve, Silverline Staffing Holdings, Jun 30, 2025 v1',
       'Send back, Silverline Staffing Holdings, Jun 30, 2025 v1',
-      'Lock, Summit Services Co, Jun 30, 2025 v1',
       'Reopen, Meridian Data Partners, Jun 30, 2025 v1',
     ]) {
-      const button = screen.getByRole('button', { name });
-      expect(button, name).toBeDisabled();
-      expect(button, name).toHaveAttribute('title', PHASE_3);
+      expect(button(name), name).toBeEnabled();
+      expect(button(name), name).not.toHaveAttribute('title');
     }
-    const create = await screen.findByRole('button', { name: 'New valuation' });
-    expect(create).toBeDisabled();
-    expect(create).toHaveAttribute('title', PHASE_3);
-    expect(
-      screen.getByText(/This build reads only, so every action is shown but disabled/),
-    ).toBeInTheDocument();
+    const approve = button('Deal team approve, Silverline Staffing Holdings, Jun 30, 2025 v1');
+    expect(approve).toBeDisabled();
+    expect(approve).toHaveAttribute('title', 'Needs deal team');
+    const lock = button('Lock, Summit Services Co, Jun 30, 2025 v1');
+    expect(lock).toBeDisabled();
+    expect(lock).toHaveAttribute('title', 'Needs approver');
+    expect(await screen.findByRole('button', { name: 'New valuation' })).toBeEnabled();
+    expect(screen.queryByText(/This build reads only/)).not.toBeInTheDocument();
     expect(screen.getByRole('status')).toBeEmptyDOMElement();
+    // The batch approvals belong to the deal team and approvers (docs/04 M10).
+    expect(screen.queryByTestId('valuation-batch-bar')).not.toBeInTheDocument();
+    expect(screen.queryByRole('checkbox')).not.toBeInTheDocument();
   });
+
+  it('links each version to its screen and shows the Valuations tabs', async () => {
+    mockApi(routes());
+    renderWithQuery(<ValuationsPage />);
+    const table = await screen.findByRole('table', { name: 'Valuations' });
+    const meridian = within(table)
+      .getByRole('link', { name: 'Meridian Data Partners' })
+      .closest('tr')!;
+    expect(within(meridian).getByRole('link', { name: 'Jun 30, 2025' })).toHaveAttribute(
+      'href',
+      `/valuations/${VAL_ID.locked}`,
+    );
+    const tabs = screen.getByRole('navigation', { name: 'Valuations' });
+    expect(within(tabs).getByRole('link', { name: 'Board' })).toHaveAttribute(
+      'href',
+      '/valuations',
+    );
+    expect(within(tabs).getByRole('link', { name: 'Change requests' })).toHaveAttribute(
+      'href',
+      '/valuations/changes',
+    );
+  });
+
+  it(
+    'gives the deal team a checkbox per Ops prepared version and approves the selection in one batch',
+    TIMEOUT,
+    async () => {
+      mockApi(
+        routes({
+          [ME]: ok(rolePrincipal(['deal_team'])),
+          [BATCH]: ok({ results: [{ id: VAL_ID.prepared, ok: true, state: 'DealTeamApproved' }] }),
+        }),
+      );
+      renderWithQuery(<ValuationsPage />);
+      await screen.findByRole('table', { name: 'Valuations' });
+      const bar = screen.getByTestId('valuation-batch-bar');
+      expect(bar).toHaveTextContent('0 versions selected');
+      const approve = within(bar).getByRole('button', { name: 'Approve selected' });
+      expect(approve).toBeDisabled();
+      expect(approve).toHaveAttribute('title', 'Select at least one Ops prepared version');
+      expect(within(bar).queryByRole('button', { name: /Lock selected/ })).not.toBeInTheDocument();
+      // Only the versions the deal team's command starts from carry a checkbox.
+      expect(screen.getByTestId(`valuation-batch-select-${VAL_ID.prepared}`)).toBeInTheDocument();
+      expect(
+        screen.queryByTestId(`valuation-batch-select-${VAL_ID.approved}`),
+      ).not.toBeInTheDocument();
+      expect(
+        screen.queryByTestId(`valuation-batch-select-${VAL_ID.draft}`),
+      ).not.toBeInTheDocument();
+
+      await userEvent.click(
+        screen.getByRole('checkbox', {
+          name: 'Select Silverline Staffing Holdings, Jun 30, 2025 v1',
+        }),
+      );
+      expect(bar).toHaveTextContent('1 version selected');
+      const run = within(bar).getByRole('button', { name: 'Approve selected (1)' });
+      expect(run).toBeEnabled();
+      await userEvent.click(run);
+      const status = screen.getByRole('status');
+      expect(
+        await within(status).findByText('Deal team approve on 1 version: 1 done, 0 refused.'),
+      ).toHaveClass('pb-notice-good');
+      expect(sentPosts()).toEqual([
+        [BATCH, { command: 'dealTeamApprove', ids: [VAL_ID.prepared] }],
+      ]);
+      const log = screen.getByRole('list', { name: 'Actions this session' });
+      expect(
+        within(log).getByText(
+          'Silverline Staffing Holdings, Jun 30, 2025 v1 is now Deal team approved (audited)',
+        ),
+      ).toBeInTheDocument();
+      expect(bar).toHaveTextContent('0 versions selected');
+    },
+  );
+
+  it(
+    'gives an approver a checkbox per Deal team approved version and reports each refusal of a batch lock',
+    TIMEOUT,
+    async () => {
+      mockApi(
+        routes({
+          [ME]: ok(rolePrincipal(['approver'])),
+          [BATCH]: ok({
+            results: [
+              {
+                id: VAL_ID.approved,
+                ok: false,
+                problem: {
+                  status: 422,
+                  code: 'workflow-precondition',
+                  detail: 'valuation: the preparer cannot approve their own valuation (SEC-5.6)',
+                },
+              },
+            ],
+          }),
+        }),
+      );
+      renderWithQuery(<ValuationsPage />);
+      await screen.findByRole('table', { name: 'Valuations' });
+      const bar = screen.getByTestId('valuation-batch-bar');
+      expect(
+        within(bar).queryByRole('button', { name: /Approve selected/ }),
+      ).not.toBeInTheDocument();
+      expect(
+        screen.queryByTestId(`valuation-batch-select-${VAL_ID.prepared}`),
+      ).not.toBeInTheDocument();
+      await userEvent.click(
+        screen.getByRole('checkbox', { name: 'Select Summit Services Co, Jun 30, 2025 v1' }),
+      );
+      await userEvent.click(within(bar).getByRole('button', { name: 'Lock selected (1)' }));
+      const status = screen.getByRole('status');
+      expect(await within(status).findByText('Lock on 1 version: 0 done, 1 refused.')).toHaveClass(
+        'pb-notice-bad',
+      );
+      expect(
+        within(screen.getByRole('list', { name: 'Actions this session' })).getByText(
+          'Lock for Summit Services Co, Jun 30, 2025 v1: Blocked by a rule. The preparer cannot approve their own valuation (SEC-5.6)',
+        ),
+      ).toBeInTheDocument();
+      expect(sentPosts()).toEqual([[BATCH, { command: 'lock', ids: [VAL_ID.approved] }]]);
+    },
+  );
 
   it('filters by state, vehicle and search in the browser', { timeout: 15_000 }, async () => {
     mockApi(routes());
@@ -160,7 +291,7 @@ describe('valuation board (read-only build)', () => {
     },
   );
 
-  it('lists the active positions with no mark, without a start button outside the preview', async () => {
+  it('lists the active positions with no mark and offers operations a start button', async () => {
     mockApi(routes());
     renderWithQuery(<ValuationsPage />);
     const card = await screen.findByTestId('missing-marks');
@@ -169,10 +300,20 @@ describe('valuation board (read-only build)', () => {
       'href',
       `/portfolio/${POSITION_ID.summitCare}`,
     );
-    expect(within(card).queryByRole('button', { name: /Start valuation/ })).not.toBeInTheDocument();
+    expect(
+      within(card).getByRole('button', { name: 'Start valuation, Summit Care Holdings' }),
+    ).toBeEnabled();
     expect(
       within(screen.getByTestId('action-log')).getByText('No actions yet'),
     ).toBeInTheDocument();
+  });
+
+  it('offers no start button to a role that cannot create a version', async () => {
+    mockApi(routes({ [ME]: ok(rolePrincipal(['deal_team'])) }));
+    renderWithQuery(<ValuationsPage />);
+    const card = await screen.findByTestId('missing-marks');
+    await within(card).findByRole('table', { name: 'Missing marks' });
+    expect(within(card).queryByRole('button', { name: /Start valuation/ })).not.toBeInTheDocument();
   });
 
   it('says when every active position has a mark', async () => {

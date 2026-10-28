@@ -2,8 +2,8 @@ import { Fragment } from 'react';
 import type { ReactNode } from 'react';
 import { Link } from '@tanstack/react-router';
 import { useQuery } from '@tanstack/react-query';
-import type { InvestmentDetail, ValuationPage } from '@pb/contracts';
-import { valuationsQuery } from '../../app/queries.js';
+import type { ChangeRequestPage, InvestmentDetail, ValuationPage } from '@pb/contracts';
+import { meQuery, valuationsQuery } from '../../app/queries.js';
 import { LineChart } from '../../components/charts/index.js';
 import { UnavailableState } from '../../components/UnavailableState.js';
 import {
@@ -15,6 +15,7 @@ import {
   SectionHeader,
   TableWrap,
 } from '../../components/ui.js';
+import { ActionLogCard, ActionStatus } from '../../components/WorkflowActions.js';
 import {
   formatDate,
   formatMoneyM,
@@ -24,8 +25,14 @@ import {
   labelOf,
   MISSING,
   moneyLabel,
+  plural,
 } from '../../lib/format.js';
-import { humanizeState, valuationTone } from '../../lib/states.js';
+import { changeRequestTone, humanizeState, valuationTone } from '../../lib/states.js';
+import { useActionLog } from '../../lib/workflow.js';
+import type { ActionLog } from '../../lib/workflow.js';
+import { changeRequestsQuery } from '../valuations/api.js';
+import { ChangeRequestForm } from '../valuations/ChangeRequestForm.js';
+import { canSubmitRequest } from '../valuations/changes.js';
 import {
   datePart,
   lockedSeries,
@@ -203,15 +210,122 @@ function RecordedVersionsCard({ detail }: { detail: InvestmentDetail }): ReactNo
   );
 }
 
+function RequestsTable({ page }: { page: ChangeRequestPage }): ReactNode {
+  return (
+    <TableWrap label="Change requests">
+      <table className="pb-table" aria-label="Change requests">
+        <thead>
+          <tr>
+            <th>Change</th>
+            <th>Effective</th>
+            <th>Summary</th>
+            <th>Owner</th>
+            <th>State</th>
+            <th>Applied in</th>
+          </tr>
+        </thead>
+        <tbody>
+          {page.items.map((r) => (
+            <tr key={r.id}>
+              <td>{labelOf(r.changeType)}</td>
+              <td className="pb-nowrap">{formatDate(r.effectiveDate)}</td>
+              <td>{r.summary}</td>
+              <td>{r.owner?.name ?? MISSING}</td>
+              <td>
+                <Badge tone={changeRequestTone(r.state)}>{humanizeState(r.state)}</Badge>
+              </td>
+              <td className="pb-nowrap">
+                {r.appliedPeriod === null ? MISSING : formatDate(r.appliedPeriod)}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </TableWrap>
+  );
+}
+
 /**
- * Valuations tab (docs/04 M10): every version of this position's valuation with its state, the
- * change against the prior Locked value and any reopen reason. Read only: the workflow actions
- * live on the valuation board.
+ * The position's change requests (docs/04 M11) with their state, and the one form to request a
+ * change for the roles the route admits. A request is routed, applied or rejected on the queue.
+ */
+function ChangeRequestsCard({
+  investmentId,
+  investmentName,
+  roles,
+  log,
+}: {
+  investmentId: string;
+  investmentName: string;
+  roles: readonly string[];
+  log: ActionLog;
+}): ReactNode {
+  const q = useQuery(changeRequestsQuery({ investmentId }));
+  const n = q.data?.items.length ?? 0;
+  return (
+    <Card testId="deal-change-requests">
+      <SectionHeader aside={n === 0 ? undefined : `${plural(n, 'request')}, newest first`}>
+        Change requests
+      </SectionHeader>
+      {q.isPending ? (
+        <PageSkeleton rows={2} />
+      ) : q.isError ? (
+        <UnavailableState
+          inline
+          error={q.error}
+          subject="Change requests"
+          testId="deal-change-requests-unavailable"
+        />
+      ) : q.data.items.length === 0 ? (
+        <EmptyState
+          title="No change requests"
+          detail="Requests for an add-on, a new security, a distribution treatment, a recapitalization or a partial exit on this position appear here."
+        />
+      ) : (
+        <RequestsTable page={q.data} />
+      )}
+      <p className="pb-meta pb-deal-note">
+        <Link to="/valuations/changes">Open the change request queue</Link>, where a request is
+        routed, applied or rejected.
+      </p>
+      {canSubmitRequest(roles) ? (
+        <div className="pb-deal-gap">
+          <SectionHeader>Request a change</SectionHeader>
+          <ActionStatus latest={log.latest} testId="deal-change-request-status" />
+          <ChangeRequestForm
+            investmentId={investmentId}
+            investmentName={investmentName}
+            log={log}
+          />
+        </div>
+      ) : null}
+    </Card>
+  );
+}
+
+/**
+ * Valuations tab (docs/04 M10, M11): every version of this position's valuation with its state,
+ * the change against the prior Locked value and any reopen reason (the workflow actions live on
+ * the valuation board), then the position's change requests and the form to request one.
  */
 export function ValuationsTab(): ReactNode {
   const id = useDealId();
   const detail = useDealDetail();
+  const me = useQuery(meQuery);
   const q = useQuery(valuationsQuery({ investmentId: id }));
+  const log = useActionLog();
+  const roles = me.data?.roles ?? [];
+  const requests = (
+    <>
+      <ChangeRequestsCard
+        investmentId={id}
+        investmentName={detail.data?.companyName ?? 'this position'}
+        roles={roles}
+        log={log}
+      />
+      {canSubmitRequest(roles) ? <ActionLogCard entries={log.entries} /> : null}
+    </>
+  );
   if (q.isPending) return <PageSkeleton rows={6} />;
   if (q.isLoadingError) {
     return (
@@ -229,8 +343,14 @@ export function ValuationsTab(): ReactNode {
           testId="deal-valuations-unavailable"
         />
         {detail.data !== undefined ? <RecordedVersionsCard detail={detail.data} /> : null}
+        {requests}
       </>
     );
   }
-  return <VersionsCard page={q.data} />;
+  return (
+    <>
+      <VersionsCard page={q.data} />
+      {requests}
+    </>
+  );
 }

@@ -21,6 +21,9 @@ import {
 import {
   aboveVarianceFlag,
   approvedOn,
+  batchLabel,
+  batchPlanFor,
+  batchPlans,
   filterRows,
   isFairValue,
   latestFirst,
@@ -30,6 +33,7 @@ import {
   openForNewVersion,
   periodCounts,
   startablePositions,
+  valuationSteps,
   VARIANCE_FLAG,
   VARIANCE_TITLE,
   vehicleNames,
@@ -236,5 +240,54 @@ describe('quarters', () => {
     expect(missingMarks(active, rows, '2025-06-30').map((p) => p.id)).not.toContain(
       POSITION_ID.meridian,
     );
+  });
+});
+
+describe('the batch approval screen and the version screen (docs/04 M10)', () => {
+  it('derives the batch commands a role may run from the transition table', () => {
+    expect(batchPlans(['deal_team'])).toEqual([
+      expect.objectContaining({
+        command: 'dealTeamApprove',
+        from: 'OpsPrepared',
+        to: 'DealTeamApproved',
+      }),
+    ]);
+    expect(batchPlans(['approver'])).toEqual([
+      expect.objectContaining({ command: 'lock', from: 'DealTeamApproved', to: 'Locked' }),
+    ]);
+    expect(batchPlans(['deal_team', 'approver']).map((p) => p.command)).toEqual([
+      'dealTeamApprove',
+      'lock',
+    ]);
+    // Operations prepares, sends back and reopens one at a time: never a batch.
+    expect(batchPlans(['operations'])).toEqual([]);
+    expect(batchPlans(['viewer'])).toEqual([]);
+  });
+
+  it('matches a row to the plan its state starts from and words the buttons', () => {
+    const plans = batchPlans(['deal_team', 'approver']);
+    expect(batchPlanFor({ state: 'OpsPrepared' }, plans)?.command).toBe('dealTeamApprove');
+    expect(batchPlanFor({ state: 'DealTeamApproved' }, plans)?.command).toBe('lock');
+    expect(batchPlanFor({ state: 'Draft' }, plans)).toBeUndefined();
+    expect(batchPlanFor({ state: 'Locked' }, plans)).toBeUndefined();
+    expect(batchLabel('dealTeamApprove')).toBe('Approve selected');
+    expect(batchLabel('lock')).toBe('Lock selected');
+  });
+
+  it('marks the four steps done, current or upcoming, with every step behind a Reopened version', () => {
+    expect(valuationSteps('DealTeamApproved').map((s) => s.status)).toEqual([
+      'done',
+      'done',
+      'current',
+      'upcoming',
+    ]);
+    expect(valuationSteps('Draft').map((s) => s.status)).toEqual([
+      'current',
+      'upcoming',
+      'upcoming',
+      'upcoming',
+    ]);
+    expect(valuationSteps('Locked')[3]).toEqual({ state: 'Locked', status: 'current' });
+    expect(valuationSteps('Reopened').every((s) => s.status === 'done')).toBe(true);
   });
 });

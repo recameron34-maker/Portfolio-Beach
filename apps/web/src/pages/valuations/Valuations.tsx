@@ -4,6 +4,7 @@ import { Link } from '@tanstack/react-router';
 import { keepPreviousData, useQuery } from '@tanstack/react-query';
 import {
   Button,
+  Checkbox,
   Dialog,
   DialogActions,
   DialogBody,
@@ -20,6 +21,7 @@ import { Add16Regular, Search16Regular } from '@fluentui/react-icons';
 import type {
   InvestmentPage,
   InvestmentSummary,
+  ValuationBatchCommand,
   ValuationCommand,
   ValuationPage,
   ValuationRow,
@@ -29,11 +31,13 @@ import { valuationMachine } from '@pb/workflows';
 import { previewMode } from '../../app/env.js';
 import {
   describeActionError,
+  describeRefusal,
   useCreateValuation,
   usePreviewReset,
   useValuationCommand,
 } from '../../app/mutations.js';
 import type { ValuationCreateBody } from '../../app/mutations.js';
+import { VALUATION_TABS } from '../../app/nav.js';
 import {
   investmentsQuery,
   LIST_LIMIT,
@@ -56,16 +60,21 @@ import {
   SimulatedBadge,
   StatTile,
   TableWrap,
+  TabNav,
   Toolbar,
 } from '../../components/ui.js';
 import { formatDate, formatMoneyM, formatPct, labelOf, MISSING, plural } from '../../lib/format.js';
 import { commandLabel, commandOptions, humanizeState, valuationTone } from '../../lib/states.js';
 import type { CommandOption } from '../../lib/states.js';
 import { retryUnlessUnavailable } from '../../lib/unavailable.js';
+import { useValuationBatchCommand } from './api.js';
 import {
   aboveVarianceFlag,
   ACTIVE_POSITIONS,
   approvedOn,
+  batchLabel,
+  batchPlanFor,
+  batchPlans,
   filterRows,
   isValuationState,
   lastMethodOf,
@@ -79,6 +88,7 @@ import {
   vehicleNames,
   versionLabel,
 } from './board.js';
+import type { BatchPlan } from './board.js';
 import { NewValuationDialog } from './NewValuation.js';
 import {
   ActionLogCard,
@@ -86,7 +96,7 @@ import {
   CommandButtons,
   ReasonDialog,
 } from '../../components/WorkflowActions.js';
-import { blockedTitle, resultSuffix, useActionLog } from '../../lib/workflow.js';
+import { resultSuffix, useActionLog } from '../../lib/workflow.js';
 import type { ActionLog } from '../../lib/workflow.js';
 import './valuations.css';
 import { balanceTiles } from '../../lib/tiles.js';
@@ -129,19 +139,31 @@ function ChangeCell({ changePct }: { changePct: string | null }): ReactNode {
 function VersionTable({
   rows,
   roles,
+  plans,
+  selected,
   busy,
+  onToggle,
   onIssue,
 }: {
   rows: readonly ValuationRow[];
   roles: readonly string[];
+  plans: readonly BatchPlan[];
+  selected: ReadonlySet<string>;
   busy: boolean;
+  onToggle: (id: string, checked: boolean) => void;
   onIssue: (row: ValuationRow, option: ValuationOption) => void;
 }): ReactNode {
+  const selectable = plans.length > 0;
   return (
     <TableWrap label="Valuations">
       <table className="pb-table pb-val-table" aria-label="Valuations">
         <thead>
           <tr>
+            {selectable ? (
+              <th className="pb-val-select">
+                <span className="pb-visually-hidden">Select</span>
+              </th>
+            ) : null}
             <th>Position</th>
             <th>Period</th>
             <th>State</th>
@@ -152,49 +174,124 @@ function VersionTable({
           </tr>
         </thead>
         <tbody>
-          {rows.map((row) => (
-            <tr key={row.id}>
-              <td className="pb-val-position">
-                <Link to="/portfolio/$id" params={{ id: row.investmentId }}>
-                  {row.companyName}
-                </Link>
-                <span className="pb-cell-sub">
-                  <span className="pb-key">{row.investmentNumber}</span>
-                  <span>{row.vehicleName}</span>
-                </span>
-              </td>
-              <td className="pb-val-period">
-                <span>{formatDate(row.periodEnd)}</span>
-                <span className="pb-cell-sub">
-                  <span>v{row.version}</span>
-                  <span>{labelOf(row.method)}</span>
-                </span>
-              </td>
-              <td className="pb-val-state">
-                <Badge tone={valuationTone(row.state)}>{humanizeState(row.state)}</Badge>
-                {row.approvedAt === null ? null : (
+          {rows.map((row) => {
+            const plan = batchPlanFor(row, plans);
+            return (
+              <tr key={row.id}>
+                {selectable ? (
+                  <td className="pb-val-select">
+                    {plan === undefined ? null : (
+                      <Checkbox
+                        aria-label={`Select ${versionLabel(row)}`}
+                        data-testid={`valuation-batch-select-${row.id}`}
+                        checked={selected.has(row.id)}
+                        disabled={busy}
+                        onChange={(_e, d) => onToggle(row.id, d.checked === true)}
+                      />
+                    )}
+                  </td>
+                ) : null}
+                <td className="pb-val-position">
+                  <Link to="/portfolio/$id" params={{ id: row.investmentId }}>
+                    {row.companyName}
+                  </Link>
                   <span className="pb-cell-sub">
-                    Approved <span>{approvedOn(row.approvedAt)}</span>
+                    <span className="pb-key">{row.investmentNumber}</span>
+                    <span>{row.vehicleName}</span>
                   </span>
-                )}
-              </td>
-              <NumCell>{formatMoneyM(row.priorFairValue)}</NumCell>
-              <NumCell>{formatMoneyM(row.fairValue)}</NumCell>
-              <ChangeCell changePct={row.changePct} />
-              <td>
-                <CommandButtons
-                  options={commandOptions(valuationMachine, row.state, roles)}
-                  busy={busy}
-                  appearance="outline"
-                  context={versionLabel(row)}
-                  onIssue={(option) => onIssue(row, option)}
-                />
-              </td>
-            </tr>
-          ))}
+                </td>
+                <td className="pb-val-period">
+                  <Link to="/valuations/$id" params={{ id: row.id }}>
+                    {formatDate(row.periodEnd)}
+                  </Link>
+                  <span className="pb-cell-sub">
+                    <span>v{row.version}</span>
+                    <span>{labelOf(row.method)}</span>
+                  </span>
+                </td>
+                <td className="pb-val-state">
+                  <Badge tone={valuationTone(row.state)}>{humanizeState(row.state)}</Badge>
+                  {row.approvedAt === null ? null : (
+                    <span className="pb-cell-sub">
+                      Approved <span>{approvedOn(row.approvedAt)}</span>
+                    </span>
+                  )}
+                </td>
+                <NumCell>{formatMoneyM(row.priorFairValue)}</NumCell>
+                <NumCell>{formatMoneyM(row.fairValue)}</NumCell>
+                <ChangeCell changePct={row.changePct} />
+                <td>
+                  <CommandButtons
+                    options={commandOptions(valuationMachine, row.state, roles)}
+                    busy={busy}
+                    appearance="outline"
+                    context={versionLabel(row)}
+                    onIssue={(option) => onIssue(row, option)}
+                  />
+                </td>
+              </tr>
+            );
+          })}
         </tbody>
       </table>
     </TableWrap>
+  );
+}
+
+/**
+ * The batch approval screen's bar (docs/04 M10): how many versions are selected and, per batch
+ * command the roles may run, the button that sends them together. A button needs at least one
+ * selected version in its starting state and says so while it has none.
+ */
+function BatchBar({
+  plans,
+  selected,
+  rows,
+  busy,
+  onRun,
+  onClear,
+}: {
+  plans: readonly BatchPlan[];
+  selected: ReadonlySet<string>;
+  rows: readonly ValuationRow[];
+  busy: boolean;
+  onRun: (plan: BatchPlan, ids: string[]) => void;
+  onClear: () => void;
+}): ReactNode {
+  return (
+    <div className="pb-val-batch" data-testid="valuation-batch-bar">
+      <span className="pb-meta">{plural(selected.size, 'version')} selected</span>
+      {plans.map((plan) => {
+        const ids = rows
+          .filter((r) => selected.has(r.id) && r.state === plan.from)
+          .map((r) => r.id);
+        const title =
+          ids.length === 0
+            ? `Select at least one ${humanizeState(plan.from)} version`
+            : `${commandLabel(plan.command)} ${plural(ids.length, 'version')} to ${humanizeState(plan.to)}`;
+        return (
+          <Button
+            key={plan.command}
+            size="small"
+            appearance="primary"
+            disabled={ids.length === 0 || busy}
+            title={title}
+            onClick={() => onRun(plan, ids)}
+          >
+            {batchLabel(plan.command)}
+            {ids.length === 0 ? '' : ` (${ids.length})`}
+          </Button>
+        );
+      })}
+      <Button
+        size="small"
+        appearance="subtle"
+        disabled={selected.size === 0 || busy}
+        onClick={onClear}
+      >
+        Clear selection
+      </Button>
+    </div>
   );
 }
 
@@ -369,13 +466,20 @@ interface Pending {
 interface BoardActions {
   issue: (row: ValuationRow, option: ValuationOption, reason?: string) => void;
   createDraft: (body: ValuationCreateBody, position: InvestmentSummary) => void;
+  runBatch: (
+    command: ValuationBatchCommand,
+    ids: string[],
+    rows: readonly ValuationRow[],
+    onDone: () => void,
+  ) => void;
   resetPreview: () => void;
   busy: boolean;
 }
 
-/** Commands, the new valuation form and the preview reset, each reporting into one action log. */
+/** Commands, the batch, the new valuation form and the preview reset, each reporting into one action log. */
 function useBoardActions(log: ActionLog): BoardActions {
   const command = useValuationCommand();
+  const batch = useValuationBatchCommand();
   const create = useCreateValuation();
   const reset = usePreviewReset();
   const issue = (row: ValuationRow, option: ValuationOption, reason?: string): void => {
@@ -413,6 +517,47 @@ function useBoardActions(log: ActionLog): BoardActions {
         ),
     });
   };
+  // One entry per version (its new state, or the rule that refused it), then the summary on top.
+  const runBatch: BoardActions['runBatch'] = (command, ids, rows, onDone) => {
+    const label = (id: string): string => {
+      const row = rows.find((r) => r.id === id);
+      return row === undefined ? id : versionLabel(row);
+    };
+    batch.mutate(
+      { command, ids },
+      {
+        onSuccess: ({ results }) => {
+          let done = 0;
+          for (const r of results) {
+            if (r.ok && r.state !== undefined) {
+              done += 1;
+              log.record(
+                'good',
+                `${label(r.id)} is now ${humanizeState(r.state)} ${resultSuffix()}`,
+              );
+            } else {
+              const why =
+                r.problem === undefined
+                  ? 'The action failed.'
+                  : describeRefusal(r.problem.status, r.problem.detail);
+              log.record('bad', `${commandLabel(command)} for ${label(r.id)}: ${why}`);
+            }
+          }
+          const refused = results.length - done;
+          log.record(
+            refused === 0 ? 'good' : 'bad',
+            `${commandLabel(command)} on ${plural(results.length, 'version')}: ${done} done, ${refused} refused.`,
+          );
+          onDone();
+        },
+        onError: (error) =>
+          log.record(
+            'bad',
+            `${commandLabel(command)} on ${plural(ids.length, 'version')}: ${describeActionError(error)}`,
+          ),
+      },
+    );
+  };
   const resetPreview = (): void => {
     reset.mutate(undefined, {
       onSuccess: () =>
@@ -426,8 +571,9 @@ function useBoardActions(log: ActionLog): BoardActions {
   return {
     issue,
     createDraft,
+    runBatch,
     resetPreview,
-    busy: command.isPending || create.isPending || reset.isPending,
+    busy: command.isPending || batch.isPending || create.isPending || reset.isPending,
   };
 }
 
@@ -446,6 +592,7 @@ function Board({ page, roles }: { page: ValuationPage; roles: readonly string[] 
   const [stateFilter, setStateFilter] = useState<ValuationState | ''>('');
   const [vehicle, setVehicle] = useState('');
   const [search, setSearch] = useState('');
+  const [selected, setSelected] = useState<ReadonlySet<string>>(new Set());
   const [reasonFor, setReasonFor] = useState<Pending | null>(null);
   const [newFor, setNewFor] = useState<{ investmentId: string | null } | null>(null);
   const [confirmReset, setConfirmReset] = useState(false);
@@ -453,6 +600,7 @@ function Board({ page, roles }: { page: ValuationPage; roles: readonly string[] 
   const actions = useBoardActions(log);
 
   const isOps = roles.includes('operations');
+  const plans = batchPlans(roles);
   const periods = latestFirst([...page.periods, ...page.items.map((r) => r.quarterEnd)]);
   const period =
     periodChoice !== null && periods.includes(periodChoice) ? periodChoice : periods[0];
@@ -463,14 +611,13 @@ function Board({ page, roles }: { page: ValuationPage; roles: readonly string[] 
     page.nextCursor === null || period === undefined
       ? startablePositions(activeItems, page.items, period ?? '')
       : activeItems;
-  const newBlocked = blockedTitle({ allowed: isOps, roles: ['operations'] });
   const newTitle =
-    newBlocked ??
-    (activeItems.length === 0
+    activeItems.length === 0
       ? 'No active positions loaded'
       : positions.length === 0
         ? `Every active position has a version for ${formatDate(period)}`
-        : undefined);
+        : undefined;
+  const clearSelection = (): void => setSelected(new Set());
 
   const header = (
     <PageHeader
@@ -514,6 +661,7 @@ function Board({ page, roles }: { page: ValuationPage; roles: readonly string[] 
     return (
       <>
         {header}
+        <TabNav label="Valuations" items={VALUATION_TABS} />
         <Gate />
         <Card>
           <EmptyState
@@ -535,10 +683,18 @@ function Board({ page, roles }: { page: ValuationPage; roles: readonly string[] 
     if (option.needsReason) setReasonFor({ row, option });
     else actions.issue(row, option);
   };
+  const toggle = (id: string, checked: boolean): void =>
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (checked) next.add(id);
+      else next.delete(id);
+      return next;
+    });
 
   return (
     <>
       {header}
+      <TabNav label="Valuations" items={VALUATION_TABS} />
       <Gate />
       <div ref={balanceTiles} className="pb-tiles" data-testid="valuation-tiles">
         <CountTile label="Locked" count={counts.locked} hint="Read by reports" partial={partial} />
@@ -576,7 +732,10 @@ function Board({ page, roles }: { page: ValuationPage; roles: readonly string[] 
               value={formatDate(period)}
               selectedOptions={[period]}
               onOptionSelect={(_e, d) => {
-                if (d.optionValue !== undefined) setPeriodChoice(d.optionValue);
+                if (d.optionValue !== undefined) {
+                  setPeriodChoice(d.optionValue);
+                  clearSelection();
+                }
               }}
             >
               {periods.map((p) => (
@@ -636,6 +795,16 @@ function Board({ page, roles }: { page: ValuationPage; roles: readonly string[] 
           </Field>
         </Toolbar>
         <ActionStatus latest={log.latest} testId="valuation-action-status" />
+        {plans.length > 0 && rows.length > 0 ? (
+          <BatchBar
+            plans={plans}
+            selected={selected}
+            rows={rows}
+            busy={actions.busy}
+            onRun={(plan, ids) => actions.runBatch(plan.command, ids, rows, clearSelection)}
+            onClear={clearSelection}
+          />
+        ) : null}
         {rows.length === 0 ? (
           <EmptyState
             title={
@@ -648,25 +817,27 @@ function Board({ page, roles }: { page: ValuationPage; roles: readonly string[] 
             }
           />
         ) : (
-          <VersionTable rows={rows} roles={roles} busy={actions.busy} onIssue={start} />
+          <VersionTable
+            rows={rows}
+            roles={roles}
+            plans={plans}
+            selected={selected}
+            busy={actions.busy}
+            onToggle={toggle}
+            onIssue={start}
+          />
         )}
         {page.nextCursor !== null ? (
           <p className="pb-meta" data-testid="valuations-truncated">
             Showing the first {LIST_LIMIT} valuation versions; more exist.
           </p>
         ) : null}
-        {previewMode ? null : (
-          <p className="pb-meta">
-            Workflow actions arrive with Phase 3. This build reads only, so every action is shown
-            but disabled.
-          </p>
-        )}
       </Card>
       <div className="pb-two-col">
         <MissingMarksCard
           status={marks}
           period={period}
-          canStart={previewMode && isOps}
+          canStart={isOps}
           onStart={(investmentId) => setNewFor({ investmentId })}
         />
         <ActionLogCard entries={log.entries} />
@@ -711,7 +882,8 @@ function Board({ page, roles }: { page: ValuationPage; roles: readonly string[] 
 
 /**
  * The valuation batch screen (docs/04 M10, docs/18 section 1): every version for a period with its
- * state, the change against the prior Locked mark and the commands the signed-in roles may issue.
+ * state, the change against the prior Locked mark, the commands the signed-in roles may issue and,
+ * for the deal team and approvers, the batch approval of the versions they select.
  */
 export function ValuationsPage(): ReactNode {
   const me = useQuery(meQuery);
@@ -721,6 +893,7 @@ export function ValuationsPage(): ReactNode {
     return (
       <>
         <PageHeader title="Valuations" meta="Reports read Locked valuations only." />
+        <TabNav label="Valuations" items={VALUATION_TABS} />
         <Gate />
         <UnavailableState
           card
