@@ -182,6 +182,20 @@ const W1_PAGES: Visit[] = [
   { path: '/valuations/changes', ready: (p) => p.getByTestId('change-requests-card') },
   { path: `/valuations/${valuation}`, ready: (p) => p.getByTestId('valuation-detail') },
 ];
+// Phase 3: W3 pipeline (M5), diligence and closing (M8, M22)
+/** The sourced deal (its template tasks all open) and the deal at Closing with its open checklist. */
+const sourcedDeal = idOf(d.scenarios.sourced_deal?.[0], 'deal tagged sourced_deal');
+const closingDeal = idOf(d.scenarios.closing_open?.[0], 'deal tagged closing_open');
+const W3_PAGES: Visit[] = [
+  // Operations may not create, so the form shows under the notice that says so.
+  { path: '/pipeline/new', ready: (p) => p.getByTestId('new-opportunity-form') },
+  { path: `/pipeline/${sourcedDeal}`, ready: (p) => p.getByTestId('opportunity-detail') },
+  { path: `/pipeline/${closingDeal}/closing`, ready: (p) => p.getByTestId('closing-panel') },
+  // The workspace tabs of a position that came through the pipeline (every seeded position has a
+  // Closed opportunity and a confirmed closing), waited on the tab's own content, not the banner.
+  { path: `/portfolio/${openDeal}/diligence`, ready: (p) => p.getByTestId('diligence-tasks') },
+  { path: `/portfolio/${openDeal}/closing`, ready: (p) => p.getByTestId('closing-panel') },
+];
 
 const dealTabs = (id: string): Visit[] =>
   DEAL_TABS.map((t) => ({ path: `/portfolio/${id}${t.path}`, ready: banner }));
@@ -353,6 +367,15 @@ for (const width of [1280, 390]) {
       test.setTimeout(120_000);
       await signInAs(page, 'ops.one', d);
       await scanPages(page, W1_PAGES);
+    });
+
+    // Phase 3: W3 pipeline, diligence and closing
+    test(`operations: a new opportunity, an opportunity, a closing and the diligence and closing tabs @a11y`, async ({
+      page,
+    }) => {
+      test.setTimeout(180_000);
+      await signInAs(page, 'ops.one', d);
+      await scanPages(page, W3_PAGES);
     });
 
     test(`operations: every deal workspace tab @a11y`, async ({ page }) => {
