@@ -6,11 +6,12 @@ import { ensureNotices } from '../state.js';
 import { defineSimRoute, recordActivity, staleIfMatch } from './common.js';
 
 /**
- * Capital notices through docs/18 section 3. The prototype has no wire register, so a wire is
- * never verified and ticket approval is always refused: with the SEC-12.3 message when the
- * ticket's drafter tries, the SEC-12.2 message for anyone else. There is deliberately no command
- * that verifies a wire. Bank fields are never extracted (SEC-12.1); the hold window comes from the
- * credential's recorded notice detail.
+ * Capital notices through docs/18 section 3. The preview simulates no trade ticket record and no
+ * wire register yet, so ticket approval is always refused with the machine's first check (no
+ * trade ticket is drafted; the SEC-12.3 dual-control and SEC-12.2 verified-wire checks stay behind
+ * it) and funding is never confirmed. There is deliberately no command that creates a ticket
+ * record or verifies a wire. Bank fields are never extracted (SEC-12.1); the hold window comes
+ * from the credential's recorded notice detail.
  */
 export const capitalNoticeCommandRoute = defineSimRoute({
   method: 'POST',
@@ -46,9 +47,12 @@ export const capitalNoticeCommandRoute = defineSimRoute({
       record: {
         documentIndexed: true,
         bankFieldsExtracted: false,
+        // No ticket record exists in the preview: approval and funding are refused on that first.
+        ticketExists: false,
         ticketPreparedBy: sim.ticketPreparedBy,
         wireVerified: false,
         wireChangedWithinHold: detail.wireChangeHold !== null,
+        ticketApproved: false,
       },
     });
     if (!result.ok) return workflowProblem(result, { instance, simulated: true });

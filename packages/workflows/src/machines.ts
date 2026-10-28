@@ -168,6 +168,7 @@ export const capitalNoticeMachine: Machine<CapitalNoticeState, CapitalNoticeComm
       command: 'approveTicket',
       roles: ['approver', 'operations'],
       precondition: all(
+        flag('ticketExists', true, 'no trade ticket is drafted'),
         notSameAs('ticketPreparedBy', 'the ticket preparer cannot approve it (SEC-12.3)'),
         flag('wireVerified', true, 'the wire instruction is not verified (SEC-12.2)'),
         flag(
@@ -184,7 +185,13 @@ export const capitalNoticeMachine: Machine<CapitalNoticeState, CapitalNoticeComm
       roles: ['service', 'operations'],
       note: 'Any wire change returns the ticket to draft and requires callback verification.',
     },
-    { from: 'TicketApproved', to: 'Funded', command: 'confirmFunding', roles: ['operations'] },
+    {
+      from: 'TicketApproved',
+      to: 'Funded',
+      command: 'confirmFunding',
+      roles: ['operations'],
+      precondition: flag('ticketApproved', true, 'the ticket is not approved'),
+    },
     {
       from: 'Funded',
       to: 'Reconciled',
@@ -258,7 +265,18 @@ export const dealStageMachine: Machine<DealStage, DealCommand> = {
       roles: ['approver'],
       precondition: flag('icDecisionRecorded', true, 'an IC decision record is required'),
     },
-    { from: 'Approved', to: 'Closing', command: 'advance', roles: ['deal_team', 'operations'] },
+    {
+      from: 'Approved',
+      to: 'Closing',
+      command: 'advance',
+      roles: ['deal_team', 'operations'],
+      precondition: flag(
+        'closingRecordReady',
+        true,
+        'a close date and commitment are required to open closing',
+      ),
+      note: 'Opens the closing record (section 12) with the close date and commitment given.',
+    },
     {
       from: 'Closing',
       to: 'Closed',
@@ -524,6 +542,97 @@ export const exceptionMachine: Machine<ExceptionState, ExceptionCommand> = {
   ],
 };
 
+// ---- 11. Wire instruction (docs/18 section 11, SEC-12.2) -------------------------------------
+export type WireInstructionState = 'Proposed' | 'Verified' | 'Rejected' | 'Superseded';
+export type WireInstructionCommand = 'verify' | 'reject' | 'supersede';
+
+/**
+ * mon.wire_instruction.state. A new or changed instruction is a new Proposed version for its
+ * counterparty. It becomes Verified only through a callback made by a person other than the
+ * proposer, to an independently sourced number, that confirmed it (SEC-12.2); a later Verified
+ * version supersedes it. Rejected and Superseded are terminal: a corrected instruction is proposed
+ * again as a new version.
+ */
+export const wireInstructionMachine: Machine<WireInstructionState, WireInstructionCommand> = {
+  name: 'wire_instruction',
+  states: ['Proposed', 'Verified', 'Rejected', 'Superseded'],
+  commands: ['verify', 'reject', 'supersede'],
+  initial: 'Proposed',
+  terminal: ['Rejected', 'Superseded'],
+  transitions: [
+    {
+      from: 'Proposed',
+      to: 'Verified',
+      command: 'verify',
+      roles: ['operations', 'approver'],
+      precondition: all(
+        notSameAs(
+          'proposedBy',
+          'the callback must be made by a person other than the proposer (SEC-12.2)',
+        ),
+        flag('callbackConfirmed', true, 'the callback did not confirm the instruction (SEC-12.2)'),
+      ),
+      note: 'The callback is logged with its date, number source and result; this version becomes the active instruction.',
+    },
+    {
+      from: 'Proposed',
+      to: 'Rejected',
+      command: 'reject',
+      roles: ['operations', 'approver'],
+      precondition: requireReason,
+    },
+    {
+      from: 'Verified',
+      to: 'Superseded',
+      command: 'supersede',
+      roles: ['service', 'operations'],
+      precondition: flag(
+        'newerVerifiedExists',
+        true,
+        'only a newer Verified version supersedes this one',
+      ),
+    },
+  ],
+};
+
+// ---- 12. Closing (docs/18 section 12, M8) ----------------------------------------------------
+export type ClosingState = 'Open' | 'OpsConfirmed';
+export type ClosingCommand = 'confirm' | 'changeCloseDate';
+
+/**
+ * deal.closing.state. Operations confirms a closing once every required checklist item is received
+ * or waived and the allocations tie to the closing commitment (M22). A close date change after
+ * confirmation returns the record to Open with a reason and needs confirmation again (docs/04 M8).
+ * No state is terminal.
+ */
+export const closingMachine: Machine<ClosingState, ClosingCommand> = {
+  name: 'closing',
+  states: ['Open', 'OpsConfirmed'],
+  commands: ['confirm', 'changeCloseDate'],
+  initial: 'Open',
+  terminal: [],
+  transitions: [
+    {
+      from: 'Open',
+      to: 'OpsConfirmed',
+      command: 'confirm',
+      roles: ['operations'],
+      precondition: all(
+        flag('requiredItemsComplete', true, 'a required closing document is missing (M8)'),
+        flag('allocationTiedOut', true, 'allocations do not tie to the closing commitment (M22)'),
+      ),
+    },
+    {
+      from: 'OpsConfirmed',
+      to: 'Open',
+      command: 'changeCloseDate',
+      roles: ['operations'],
+      precondition: requireReason,
+      note: 'The close date is the single source for every report; the change is audited and the closing needs confirmation again.',
+    },
+  ],
+};
+
 export const MACHINES = {
   valuation: valuationMachine,
   staging: stagingMachine,
@@ -534,4 +643,6 @@ export const MACHINES = {
   extractionRun: extractionRunMachine,
   dealChangeRequest: dealChangeRequestMachine,
   exception: exceptionMachine,
+  wireInstruction: wireInstructionMachine,
+  closing: closingMachine,
 } as const;

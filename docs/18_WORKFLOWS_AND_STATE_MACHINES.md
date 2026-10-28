@@ -22,13 +22,15 @@ new > validated | flagged; flagged > validated (after edit) | rejected; validate
 | Received | Extracted | Document indexed |
 | Extracted | Reviewed | Human checks amounts and dates; bank fields never extracted |
 | Reviewed | TicketDrafted | Trade ticket created |
-| TicketDrafted | TicketApproved | Approver differs from preparer; wire instruction verified and unchanged within the hold window |
-| TicketApproved | Funded | Operations confirms |
+| TicketDrafted | TicketApproved | A trade ticket exists; approver differs from preparer; wire instruction verified and unchanged within the hold window |
+| TicketApproved | Funded | The ticket is Approved; Operations confirms |
 | Funded | Reconciled | Cash Flow row promoted; unfunded recalculated |
 Any wire instruction change returns the ticket to TicketDrafted and requires callback verification.
+Preconditions added in Phase 3: a ticket can be approved only once a trade ticket record exists (`draftTicket` creates it; the instruction it is approved against follows section 11), and funding is confirmed only against an Approved ticket (SEC-12.3).
 
 ## 4. Deal stage (`deal.opportunity.stage`)
 Sourced > Screening > Prescreen > Diligence > IC > Approved > Closing > Closed. Any stage > Passed (reason code required). Diligence > IC requires required tasks done (or audited override). Closing > Closed requires the closing checklist complete and allocation tie-out (M22). Passed > Screening allowed (reopen) with reason.
+Precondition added in Phase 3: Approved > Closing requires the closing record ready, a close date and a commitment amount given with the command (docs/04 M8); the command opens the closing of section 12 and its checklist from `config/closing_checklist.json`.
 
 ## 5. Reporting package (`rpt.package.state`)
 Draft > Generated > QAFailed | QAPassed; QAFailed > Generated (after fix); QAPassed > InReview > Approved > Released. Released is immutable; corrections create a new package version with a reason.
@@ -54,3 +56,20 @@ resolved and wont_fix are terminal; a problem that comes back opens a new except
 ## 10. Implementation notes
 - Model each machine as a typed transition table in `packages/workflows` shared by API and tests.
 - Long-running flows (capital notice, extraction batches, report generation) run in the workflow engine with durable timers for reminders (T-3, T-1, due date).
+
+## 11. Wire instruction (`mon.wire_instruction.state`, SEC-12.2)
+| From | To | Who | Preconditions |
+|---|---|---|---|
+| (new) | Proposed | Operations, system actor | A new or changed instruction is a new version for its counterparty (a sponsor fund or an investment); bank details typed by a person from a verified source, never from a document or a model (SEC-12.1) |
+| Proposed | Verified | Operations, Approver (not the proposer) | Callback to an independently sourced number confirmed the instruction; the call is logged with date, number source and result |
+| Proposed | Rejected | Operations, Approver | Reason required |
+| Verified | Superseded | System actor, Operations | A newer Verified version exists for the counterparty |
+Rejected and Superseded are terminal; a corrected instruction is a new Proposed version. One active version per counterparty, always Verified. A new version proposed for a counterparty whose notice has an approved ticket fires `wireChanged` on that notice (section 3).
+
+## 12. Closing (`deal.closing.state`, M8)
+| From | To | Who | Preconditions |
+|---|---|---|---|
+| (new) | Open | Deal Team, Operations | Created when the opportunity advances Approved > Closing with a close date and a commitment (section 4); checklist items from `config/closing_checklist.json` |
+| Open | OpsConfirmed | Operations | Every required checklist item received or waived; allocations tie to the closing commitment (M22) |
+| OpsConfirmed | Open | Operations | Reason required; the close date change is audited and the closing needs confirmation again |
+No state is terminal. The close date on the closing record is the single source for every report (docs/04 M8). The opportunity's Closing > Closed step (section 4) reads its checklist and tie-out gates from this record.

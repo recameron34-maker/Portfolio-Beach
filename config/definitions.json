@@ -31,8 +31,30 @@
     "maturityWithinMonths": 12
   },
   "capitalActivity": {
+    "_note": "Capital activity (docs/04 M16, docs/18 section 3, SEC-12). alertDaysBeforeDue are the reminder days before a due date; wireChangeHoldDays is how long after a wire instruction change a ticket needs a second approval (SEC-12.3); urgencyPhrases are matched case-insensitively in the notice text to raise the urgency alert (SEC-12.4); dueSoonBusinessDays is the due-date alert window in business days (SEC-12.4).",
     "alertDaysBeforeDue": [3, 1, 0],
-    "wireChangeHoldDays": 30
+    "wireChangeHoldDays": 30,
+    "urgencyPhrases": [
+      "urgent",
+      "immediately",
+      "same day",
+      "within 24 hours",
+      "as soon as possible",
+      "time sensitive"
+    ],
+    "dueSoonBusinessDays": 2
+  },
+  "pipeline": {
+    "_note": "Deal pipeline (docs/04 M5, docs/18 section 4). stageAgingDays is how many days an opportunity may sit in a stage before it is flagged as aging; one entry per live stage (Closed and Passed never age).",
+    "stageAgingDays": {
+      "Sourced": 30,
+      "Screening": 30,
+      "Prescreen": 45,
+      "Diligence": 90,
+      "IC": 14,
+      "Approved": 30,
+      "Closing": 45
+    }
   },
   "aiBudgets": {
     "maxTokensPerDocument": 200000,
