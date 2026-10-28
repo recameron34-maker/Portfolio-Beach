@@ -2,6 +2,9 @@ import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
+import { ProductionGuardError } from '@pb/adapters';
+import { DEV_FIELD_KEY, FieldCipher } from '@pb/db';
+import { FIELD_KEY_OFFENDER, fieldCipherFor } from '../common/fieldCipher.js';
 import { loadMockUsers } from '../composition.js';
 
 /** A users file in a scratch folder, shaped as tools/synthetic writes it (with keys the loader ignores). */
@@ -78,5 +81,57 @@ describe('loadMockUsers: only application roles reach the identity adapter (SEC-
     }
     expect(message).toContain('users.0.roles.0');
     expect(message).not.toContain(marker);
+  });
+});
+
+describe('fieldCipherFor: the wire register key and the production guard (SEC-12.2, SEC-17.6)', () => {
+  const REAL_KEY = 'a'.repeat(32) + 'B'.repeat(32);
+
+  it('refuses to start in production without PB_FIELD_KEY_HEX, naming the prototype key', () => {
+    let caught: unknown;
+    try {
+      fieldCipherFor('production', {});
+    } catch (error) {
+      caught = error;
+    }
+    expect(caught).toBeInstanceOf(ProductionGuardError);
+    expect((caught as ProductionGuardError).offenders).toEqual([FIELD_KEY_OFFENDER]);
+    expect((caught as Error).message).toContain('refusing to start in production');
+    expect(() => fieldCipherFor('production', { PB_FIELD_KEY_HEX: '' })).toThrow(
+      ProductionGuardError,
+    );
+  });
+
+  it('uses the environment key when set, in every environment, and never echoes it', () => {
+    for (const env of ['production', 'development', 'test']) {
+      const cipher = fieldCipherFor(env, { PB_FIELD_KEY_HEX: REAL_KEY });
+      const text = cipher.encrypt('synthetic 123456');
+      expect(cipher.decrypt(text)).toBe('synthetic 123456');
+      // A different key cannot read it: the prototype key is not in play.
+      expect(() => new FieldCipher(DEV_FIELD_KEY).decrypt(text)).toThrow();
+    }
+  });
+
+  it('falls back to the documented prototype key outside production only', () => {
+    for (const env of ['development', 'test']) {
+      const cipher = fieldCipherFor(env, {});
+      expect(new FieldCipher(DEV_FIELD_KEY).decrypt(cipher.encrypt('round trip'))).toBe(
+        'round trip',
+      );
+    }
+  });
+
+  it('refuses a malformed key everywhere without naming its value', () => {
+    const marker = 'MARKER-NEVER-ECHOED-0003';
+    for (const env of ['production', 'development', 'test']) {
+      let message = '';
+      try {
+        fieldCipherFor(env, { PB_FIELD_KEY_HEX: marker });
+      } catch (error) {
+        message = error instanceof Error ? error.message : String(error);
+      }
+      expect(message).toContain('PB_FIELD_KEY_HEX');
+      expect(message).not.toContain(marker);
+    }
   });
 });

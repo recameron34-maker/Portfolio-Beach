@@ -24,9 +24,10 @@ import type { ExtractionSchemas, Truth } from '@pb/ai';
 import { lookthroughMapping, opsDropTemplates } from '@pb/contracts';
 import type { LookthroughMapping, OpsDropTemplates } from '@pb/contracts';
 import { APP_ROLES, createDb, dbConfigFromEnv, migrate } from '@pb/db';
-import type { DbHandle } from '@pb/db';
+import type { DbHandle, FieldCipher } from '@pb/db';
 import { z } from 'zod';
 import type { ApiConfig } from './config.js';
+import { fieldCipherFor } from './common/fieldCipher.js';
 import { createLogger } from './common/logging.js';
 import type { Logger } from './common/logging.js';
 import { zodIssues } from './common/problem.js';
@@ -48,6 +49,8 @@ export interface Runtime {
   extractionSchemas: ExtractionSchemas;
   /** The recorded truths of <PB_DOCUMENT_ROOT>/truth/<contentHash>.json, the prototype extractor's fixtures (decision 0012). */
   truths: ReadonlyMap<string, Truth>;
+  /** The cipher behind mon.wire_instruction.bank_details_enc (SEC-12.2): the environment's key, or the prototype key outside production. */
+  fieldCipher: FieldCipher;
 }
 
 export interface RuntimeOverrides {
@@ -56,6 +59,8 @@ export interface RuntimeOverrides {
   logger?: Logger;
   mockUsers?: readonly MockUser[];
   clock?: Clock;
+  /** The environment the field key is read from (PB_FIELD_KEY_HEX); process.env when omitted. */
+  env?: NodeJS.ProcessEnv;
 }
 
 /**
@@ -249,6 +254,9 @@ export async function buildRuntime(
     NODE_ENV: config.NODE_ENV,
     PB_MOCK_IDENTITY: config.PB_MOCK_IDENTITY,
   });
+  // The wire register's field key is part of the same guard: production without PB_FIELD_KEY_HEX
+  // would encrypt bank details with the public prototype key, so it refuses to start (SEC-12.2).
+  const fieldCipher = fieldCipherFor(config.NODE_ENV, overrides.env ?? process.env);
   const truths = loadTruths(config.PB_DOCUMENT_ROOT);
   registerPrototypeModels(adapters.ai, truths);
   logger.info({ truths: truths.size }, 'document truths loaded');
@@ -288,5 +296,6 @@ export async function buildRuntime(
     opsDropTemplates: loadOpsDropTemplates(config.PB_CONFIG_DIR),
     extractionSchemas: loadExtractionSchemaConfig(config.PB_CONFIG_DIR),
     truths,
+    fieldCipher,
   };
 }

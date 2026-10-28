@@ -8,8 +8,11 @@ import { AuditService } from './audit/audit.service.js';
 import { AuthController } from './auth/auth.controller.js';
 import { CapitalController } from './capital/capital.controller.js';
 import { CapitalService } from './capital/capital.service.js';
+import { WiresController } from './capital/wires.controller.js';
+import { WiresService } from './capital/wires.service.js';
 import { IdentityMiddleware } from './auth/identity.middleware.js';
 import { AuthGuard } from './auth/principal.js';
+import { FIELD_CIPHER } from './common/fieldCipher.js';
 import { ProblemFilter } from './common/problem.js';
 import {
   ACCOUNTING_LAYOUT,
@@ -73,6 +76,7 @@ export const CONTROLLERS = [
   SponsorsController,
   ValuationsController,
   CapitalController,
+  WiresController,
   AnalyticsController,
   ReportsController,
   AuditController,
@@ -103,6 +107,7 @@ export class AppModule implements NestModule {
         { provide: OPS_DROP_TEMPLATES, useValue: runtime.opsDropTemplates },
         { provide: EXTRACTION_SCHEMAS, useValue: runtime.extractionSchemas },
         { provide: HIGHLIGHT_STYLE, useValue: loadHighlightStyle(runtime.config.PB_CONFIG_DIR) },
+        { provide: FIELD_CIPHER, useValue: runtime.fieldCipher },
         DbService,
         FlagsService,
         PortfolioService,
@@ -111,6 +116,7 @@ export class AppModule implements NestModule {
         SponsorsService,
         ValuationsService,
         CapitalService,
+        WiresService,
         AnalyticsService,
         ReportsService,
         AuditService,
