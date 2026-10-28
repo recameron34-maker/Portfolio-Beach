@@ -126,6 +126,11 @@ const notice = idOf(
   full.capitalNotices.find((n) => n.scenarioTag === 'wire_change'),
   'wire change notice',
 ).id;
+/** Phase 3 W2: the Proposed version of the wire change notice's counterparty, with its callback form. */
+const wire = idOf(
+  full.wireInstructions.find((w) => w.state === 'Proposed'),
+  'proposed wire instruction',
+).id;
 
 const PORTFOLIO_PAGES: Visit[] = [
   { path: '/', ready: (p) => p.getByTestId('home-tiles') },
@@ -142,6 +147,10 @@ const WORKFLOW_PAGES: Visit[] = [
   { path: '/capital-activity', ready: heading },
   { path: '/capital-activity/commitments', ready: heading },
   { path: `/capital-activity/${notice}`, ready: heading },
+  // Phase 3 W2: capital activity (M16), the wire register, one instruction and the trade tickets.
+  { path: '/capital-activity/wires', ready: (p) => p.getByTestId('wire-register') },
+  { path: `/capital-activity/wires/${wire}`, ready: (p) => p.getByTestId('wire-instruction') },
+  { path: '/capital-activity/tickets', ready: (p) => p.getByTestId('trade-tickets') },
   { path: '/reporting', ready: heading },
   { path: '/reporting/clients', ready: heading },
   { path: '/assistants', ready: heading },

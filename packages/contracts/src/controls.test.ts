@@ -407,7 +407,9 @@ describe('capital notice bodies', () => {
       wireChangeHold: { until: '2025-10-25', holdDays: 5 },
       notes: [],
     };
-    expect(parses(capitalNoticeDetail, base)).toBe(true);
+    // The ticket, the active instruction and the alerts are part of the detail itself (M16).
+    expect(parses(capitalNoticeDetail, base)).not.toBe(true);
+    expect(capitalNoticeControlDetail).toBe(capitalNoticeDetail);
     const wire = {
       id: WIRE,
       counterparty: { kind: 'sponsor_fund', id: FUND, name: 'Harborlight Fund IV' },

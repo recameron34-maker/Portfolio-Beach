@@ -650,6 +650,112 @@ export const capitalNoticePage = z.object({
 });
 export type CapitalNoticePage = z.infer<typeof capitalNoticePage>;
 
+/* ---- Wire instruction register and trade tickets as the notice carries them (M16, SEC-12) ---- */
+
+/** A person named on a record: the app user's id and display name. */
+export const person = z.object({ id: uuid, name: z.string() });
+export type Person = z.infer<typeof person>;
+
+export const wireInstructionState = z.enum(['Proposed', 'Verified', 'Rejected', 'Superseded']);
+export type WireInstructionState = z.infer<typeof wireInstructionState>;
+
+/** Where the callback number came from: never the notice or the email that asked for the change. */
+export const callbackNumberSource = z.enum([
+  'prior_instruction',
+  'sponsor_website',
+  'known_contact',
+  'fund_administrator',
+]);
+export type CallbackNumberSource = z.infer<typeof callbackNumberSource>;
+
+export const callbackResult = z.enum(['confirmed', 'not_confirmed']);
+export type CallbackResult = z.infer<typeof callbackResult>;
+
+export const wireCounterparty = z.object({
+  kind: z.enum(['sponsor_fund', 'investment']),
+  id: uuid,
+  name: z.string(),
+});
+export type WireCounterparty = z.infer<typeof wireCounterparty>;
+
+/** The logged callback (SEC-12.2): by whom, when, from which number source, with what result. */
+export const wireCallback = z.object({
+  by: person,
+  at: z.string(),
+  numberSource: callbackNumberSource,
+  result: callbackResult,
+});
+export type WireCallback = z.infer<typeof wireCallback>;
+
+/** One version of a counterparty's wire instruction, masked: what every role sees (SEC-12.2). */
+export const wireInstructionRow = z.object({
+  id: uuid,
+  counterparty: wireCounterparty,
+  version: z.number().int().min(1),
+  state: wireInstructionState,
+  /** "<bank name> ****<last four digits>": what every role sees. */
+  bankDetailsMasked: z.string(),
+  proposedBy: person,
+  proposedAt: z.string(),
+  sourceNote: z.string().nullable(),
+  callback: wireCallback.nullable(),
+  verifiedAt: z.string().nullable(),
+  rejectionReason: z.string().nullable(),
+  active: z.boolean(),
+  rowVersion: z.number().int(),
+});
+export type WireInstructionRow = z.infer<typeof wireInstructionRow>;
+
+export const tradeTicketState = z.enum(['Drafted', 'Approved', 'Funded', 'Withdrawn']);
+export type TradeTicketState = z.infer<typeof tradeTicketState>;
+
+/** Why a ticket cannot be released (SEC-12.3), each one shown on the ticket. */
+export const releaseBlocker = z.enum([
+  'unverified_instruction',
+  'changed_within_hold',
+  'same_person',
+  'no_instruction',
+]);
+export type ReleaseBlocker = z.infer<typeof releaseBlocker>;
+
+export const tradeTicketRow = z.object({
+  id: uuid,
+  capitalNoticeId: uuid,
+  amount: decimalString,
+  currency: z.string(),
+  fundingDate: isoDate,
+  preparedBy: person,
+  preparedAt: z.string(),
+  approvedBy: person.nullable(),
+  approvedAt: z.string().nullable(),
+  /** The instruction version the ticket was approved against; null until approved. */
+  wireInstruction: z
+    .object({
+      id: uuid,
+      version: z.number().int().min(1),
+      state: wireInstructionState,
+      bankDetailsMasked: z.string(),
+    })
+    .nullable(),
+  state: tradeTicketState,
+  release: z.object({ allowed: z.boolean(), blockers: z.array(releaseBlocker) }),
+  rowVersion: z.number().int(),
+});
+export type TradeTicketRow = z.infer<typeof tradeTicketRow>;
+
+/** The SEC-12.4 alerts a notice carries. */
+export const capitalNoticeAlert = z.enum([
+  'wire_changed',
+  'urgency_language',
+  'due_within_two_business_days',
+  'unverified_instruction',
+]);
+export type CapitalNoticeAlert = z.infer<typeof capitalNoticeAlert>;
+
+/**
+ * One notice with its cash flows, the hold, plain notes, its trade ticket, the counterparty's
+ * active instruction (masked) and the SEC-12.4 alerts. Never carries bank details in clear.
+ */
 export const capitalNoticeDetail = capitalNoticeRow.extend({
   cashFlows: z.array(
     z.object({ date: isoDate, flowType: z.string(), amount: decimalString, status: z.string() }),
@@ -657,6 +763,12 @@ export const capitalNoticeDetail = capitalNoticeRow.extend({
   /** Set when the sponsor's wire instructions changed inside the hold window (SEC-12.3). */
   wireChangeHold: z.object({ until: isoDate, holdDays: z.number().int() }).nullable(),
   notes: z.array(z.string()),
+  /** The notice's trade ticket with its release check (SEC-12.3); null until one is drafted. */
+  ticket: tradeTicketRow.nullable(),
+  /** The counterparty's active Verified instruction, masked; null when none (SEC-12.2). */
+  activeWireInstruction: wireInstructionRow.nullable(),
+  /** The alerts in the contract's order; empty when nothing needs attention. */
+  alerts: z.array(capitalNoticeAlert),
 });
 export type CapitalNoticeDetail = z.infer<typeof capitalNoticeDetail>;
 

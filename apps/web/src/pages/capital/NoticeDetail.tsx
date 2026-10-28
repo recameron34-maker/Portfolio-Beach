@@ -2,11 +2,20 @@ import { useState } from 'react';
 import type { ReactNode } from 'react';
 import { Link, useParams } from '@tanstack/react-router';
 import { useQuery } from '@tanstack/react-query';
-import type { CapitalNoticeCommand, CapitalNoticeDetail, CapitalNoticeState } from '@pb/contracts';
+import type {
+  CapitalNoticeAlert,
+  CapitalNoticeCommand,
+  CapitalNoticeCommandBody,
+  CapitalNoticeDetail,
+  CapitalNoticeState,
+  TradeTicketRow,
+  WireInstructionRow,
+} from '@pb/contracts';
 import { capitalNoticeMachine } from '@pb/workflows';
 import { ApiError } from '../../api/client.js';
 import { previewMode } from '../../app/env.js';
 import { describeActionError, useCapitalNoticeCommand } from '../../app/mutations.js';
+import type { CommandBody } from '../../app/mutations.js';
 import { capitalNoticeQuery, meQuery } from '../../app/queries.js';
 import { UnavailableState } from '../../components/UnavailableState.js';
 import {
@@ -23,7 +32,7 @@ import {
   StatTile,
   TableWrap,
 } from '../../components/ui.js';
-import { formatDate, labelOf } from '../../lib/format.js';
+import { formatDate, formatDateTime, labelOf, MISSING } from '../../lib/format.js';
 import {
   commandLabel,
   commandOptions,
@@ -41,6 +50,7 @@ import {
 } from '../../components/WorkflowActions.js';
 import { resultSuffix, useActionLog } from '../../lib/workflow.js';
 import type { ActionLog } from '../../lib/workflow.js';
+import { DraftTicketDialog } from './DraftTicketDialog.js';
 import {
   ALERT_DAYS_BEFORE_DUE,
   cashFlowTone,
@@ -49,13 +59,16 @@ import {
   noticeSubject,
   progressSteps,
 } from './notices.js';
+import { ALERT_WORDS, BLOCKER_WORDS, nothingToRelease, RELEASE_ALLOWED } from './tickets.js';
+import { ticketTone, wireTone } from './tones.js';
+import { kindLabel, NUMBER_SOURCE_WORDS, RESULT_WORDS } from './wires.js';
 import './capital.css';
 import { balanceTiles } from '../../lib/tiles.js';
 
 type NoticeOption = CommandOption<CapitalNoticeState, CapitalNoticeCommand>;
 
 const BANK_DETAILS =
-  'Bank details are never extracted from documents or shown here (SEC-12.1). The wire register with callback verification arrives with M16, so ticket approval stays blocked in this build (SEC-12.2).';
+  'Bank details are never extracted from documents (SEC-12.1); tickets release only against a Verified instruction (SEC-12.2, SEC-12.3).';
 
 function BackLink(): ReactNode {
   return (
@@ -90,6 +103,26 @@ function ProgressStrip({ state }: { state: CapitalNoticeState }): ReactNode {
         </li>
       ))}
     </ol>
+  );
+}
+
+/** The SEC-12.4 alerts: one badge and one plain sentence each, or the word that none stands. */
+function AlertsStrip({ alerts }: { alerts: readonly CapitalNoticeAlert[] }): ReactNode {
+  return (
+    <div className="pb-cap-alerts" data-testid="notice-alerts">
+      {alerts.length === 0 ? (
+        <p className="pb-meta">No alerts on this notice.</p>
+      ) : (
+        <ul className="pb-cap-alert-list" aria-label="Notice alerts">
+          {alerts.map((alert) => (
+            <li key={alert}>
+              <Badge tone={ALERT_WORDS[alert].tone}>{ALERT_WORDS[alert].label}</Badge>
+              <span>{ALERT_WORDS[alert].sentence}</span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
   );
 }
 
@@ -153,6 +186,147 @@ function CashFlowsCard({ notice }: { notice: CapitalNoticeDetail }): ReactNode {
   );
 }
 
+/** Whether the ticket can be released now, or every reason it cannot, in words (SEC-12.3). */
+function ReleaseStatus({ ticket }: { ticket: TradeTicketRow }): ReactNode {
+  if (nothingToRelease(ticket.state)) {
+    return (
+      <p className="pb-meta pb-cap-release" data-testid="ticket-release">
+        Nothing to release: the ticket is {humanizeState(ticket.state)}.
+      </p>
+    );
+  }
+  if (ticket.release.allowed) {
+    return (
+      <p className="pb-notice pb-notice-good pb-cap-release" data-testid="ticket-release">
+        {RELEASE_ALLOWED}
+      </p>
+    );
+  }
+  return (
+    <div className="pb-notice pb-notice-bad pb-cap-release" data-testid="ticket-release">
+      <span>Release is blocked:</span>
+      <ul aria-label="Release blockers">
+        {ticket.release.blockers.map((b) => (
+          <li key={b}>{BLOCKER_WORDS[b]}</li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+function personAt(person: { name: string } | null, at: string | null): string {
+  if (person === null || at === null) return MISSING;
+  return `${person.name}, ${formatDateTime(at)}`;
+}
+
+/** The notice's trade ticket (docs/04 M16): the figures, the people and the release check. */
+function TicketCard({ notice }: { notice: CapitalNoticeDetail }): ReactNode {
+  const ticket = notice.ticket;
+  const instruction = ticket?.wireInstruction ?? null;
+  return (
+    <Card testId="ticket-panel">
+      <SectionHeader
+        aside={
+          ticket === null ? undefined : (
+            <Badge tone={ticketTone(ticket.state)}>{humanizeState(ticket.state)}</Badge>
+          )
+        }
+      >
+        Trade ticket
+      </SectionHeader>
+      {ticket === null ? (
+        <EmptyState
+          title="No trade ticket yet"
+          detail="Draft ticket creates one from the notice's amount and due date. The preparer and the approver must differ (SEC-12.3)."
+        />
+      ) : (
+        <>
+          <KeyValueTable
+            label="Trade ticket"
+            rows={[
+              { label: 'Amount', value: noticeAmount(ticket.amount, ticket.currency) },
+              { label: 'Funding date', value: formatDate(ticket.fundingDate) },
+              { label: 'Prepared by', value: personAt(ticket.preparedBy, ticket.preparedAt) },
+              { label: 'Approved by', value: personAt(ticket.approvedBy, ticket.approvedAt) },
+              {
+                label: 'Instruction version',
+                value:
+                  instruction === null ? (
+                    MISSING
+                  ) : (
+                    <span className="pb-cap-subject">
+                      <Link to="/capital-activity/wires/$id" params={{ id: instruction.id }}>
+                        Version {instruction.version}
+                      </Link>
+                      <Badge tone={wireTone(instruction.state)}>
+                        {humanizeState(instruction.state)}
+                      </Badge>
+                    </span>
+                  ),
+              },
+              {
+                label: 'Bank details',
+                value: instruction === null ? MISSING : instruction.bankDetailsMasked,
+              },
+            ]}
+          />
+          <ReleaseStatus ticket={ticket} />
+        </>
+      )}
+    </Card>
+  );
+}
+
+/** The counterparty's active Verified instruction, masked, with the way to the register (SEC-12.2). */
+function WireCard({ wire }: { wire: WireInstructionRow | null }): ReactNode {
+  return (
+    <Card testId="notice-wire">
+      <SectionHeader aside={<Link to="/capital-activity/wires">Wire register</Link>}>
+        Wire instruction
+      </SectionHeader>
+      {wire === null ? (
+        <EmptyState
+          title="No Verified instruction on file"
+          detail="The ticket can be approved only against a Verified instruction (SEC-12.2). Operations propose one in the wire register and a second person verifies it by callback."
+        />
+      ) : (
+        <KeyValueTable
+          label="Active wire instruction"
+          rows={[
+            {
+              label: 'Counterparty',
+              value: `${wire.counterparty.name} (${kindLabel(wire.counterparty.kind)})`,
+            },
+            {
+              label: 'Version',
+              value: (
+                <span className="pb-cap-subject">
+                  <Link to="/capital-activity/wires/$id" params={{ id: wire.id }}>
+                    Version {wire.version}
+                  </Link>
+                  <Badge tone={wireTone(wire.state)}>{humanizeState(wire.state)}</Badge>
+                </span>
+              ),
+            },
+            { label: 'Bank details', value: wire.bankDetailsMasked },
+            {
+              label: 'Verified on',
+              value: wire.verifiedAt === null ? MISSING : formatDateTime(wire.verifiedAt),
+            },
+            {
+              label: 'Callback',
+              value:
+                wire.callback === null
+                  ? MISSING
+                  : `${wire.callback.by.name} (${NUMBER_SOURCE_WORDS[wire.callback.numberSource]}, ${RESULT_WORDS[wire.callback.result].toLowerCase()})`,
+            },
+          ]}
+        />
+      )}
+    </Card>
+  );
+}
+
 function WorkflowCard({
   notice,
   roles,
@@ -164,15 +338,16 @@ function WorkflowCard({
 }): ReactNode {
   const command = useCapitalNoticeCommand();
   const [reasonFor, setReasonFor] = useState<NoticeOption | null>(null);
+  const [drafting, setDrafting] = useState(false);
   const options = commandOptions(capitalNoticeMachine, notice.state, roles);
   const subject = noticeSubject(notice);
-  const issue = (option: NoticeOption, reason?: string): void => {
+  const send = (option: NoticeOption, body: CapitalNoticeCommandBody): void => {
+    // The shared hook's body type leaves no room for an undefined reason (exactOptionalPropertyTypes).
+    const { reason, ...rest } = body;
+    const sent: CommandBody<CapitalNoticeCommand> =
+      reason === undefined ? rest : { ...rest, reason };
     command.mutate(
-      {
-        id: notice.id,
-        body:
-          reason === undefined ? { command: option.command } : { command: option.command, reason },
-      },
+      { id: notice.id, body: sent },
       {
         onSuccess: (updated) =>
           onLog.record(
@@ -184,6 +359,14 @@ function WorkflowCard({
       },
     );
   };
+  const issue = (option: NoticeOption, reason?: string): void =>
+    send(
+      option,
+      reason === undefined ? { command: option.command } : { command: option.command, reason },
+    );
+  // A person recording a wire change says why (the API refuses one without a reason).
+  const asksReason = (o: NoticeOption): boolean => o.needsReason || o.command === 'wireChanged';
+  const draftOption = options.find((o) => o.command === 'draftTicket');
   const notes = options.filter((o) => o.note !== undefined);
   return (
     <Card testId="notice-workflow">
@@ -200,7 +383,13 @@ function WorkflowCard({
             busy={command.isPending}
             appearance="secondary"
             notAllowedTitle={(o) => (o.command === 'extract' ? 'Service accounts only' : undefined)}
-            onIssue={(o) => (o.needsReason ? setReasonFor(o) : issue(o))}
+            onIssue={(o) =>
+              o.command === 'draftTicket'
+                ? setDrafting(true)
+                : asksReason(o)
+                  ? setReasonFor(o)
+                  : issue(o)
+            }
           />
         </div>
       )}
@@ -213,12 +402,6 @@ function WorkflowCard({
           ))}
         </ul>
       ) : null}
-      {previewMode || options.length === 0 ? null : (
-        <p className="pb-meta">
-          Workflow actions arrive with Phase 3. This build reads only, so every action is shown but
-          disabled.
-        </p>
-      )}
       <p className="pb-meta" data-testid="bank-details-note">
         {BANK_DETAILS}
       </p>
@@ -230,6 +413,16 @@ function WorkflowCard({
           onSubmit={(reason) => {
             issue(reasonFor, reason);
             setReasonFor(null);
+          }}
+        />
+      ) : null}
+      {drafting && draftOption !== undefined ? (
+        <DraftTicketDialog
+          notice={notice}
+          onCancel={() => setDrafting(false)}
+          onSubmit={(values) => {
+            send(draftOption, { command: 'draftTicket', ...values });
+            setDrafting(false);
           }}
         />
       ) : null}
@@ -273,6 +466,7 @@ function NoticeBody({
           {formatDate(hold.until)} ({hold.holdDays} days, SEC-12.3).
         </p>
       )}
+      <AlertsStrip alerts={notice.alerts} />
       <div ref={balanceTiles} className="pb-tiles" data-testid="notice-tiles">
         <StatTile label="Amount" value={noticeAmount(notice.amount, notice.currency)} />
         <StatTile
@@ -303,6 +497,10 @@ function NoticeBody({
         </Card>
       </div>
       <div className="pb-two-col">
+        <TicketCard notice={notice} />
+        <WireCard wire={notice.activeWireInstruction} />
+      </div>
+      <div className="pb-two-col">
         <Card testId="notice-split">
           <SectionHeader>Split</SectionHeader>
           {splits.length === 0 ? (
@@ -328,7 +526,11 @@ function NoticeBody({
   );
 }
 
-/** One capital notice through the funding workflow (docs/18 section 3), with its split and cash flows. */
+/**
+ * One capital notice through the funding workflow (docs/18 section 3), with its alerts, its
+ * trade ticket and release check (SEC-12.3), the counterparty's active instruction (SEC-12.2),
+ * its split and cash flows.
+ */
 export function CapitalNoticePage(): ReactNode {
   const { id } = useParams({ from: '/app/capital-activity/$id' });
   const me = useQuery(meQuery);

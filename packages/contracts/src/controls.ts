@@ -13,9 +13,51 @@ import * as s from './schemas.js';
 
 /* ---- Shared shapes ---- */
 
-/** A person named on a record: the app user's id and display name. */
-export const person = z.object({ id: s.uuid, name: z.string() });
-export type Person = z.infer<typeof person>;
+/**
+ * The person, wire instruction and trade ticket shapes live in schemas.ts, since the notice
+ * detail carries them (M16); they are re-exported here so the imports written against this file
+ * keep working.
+ */
+import {
+  callbackNumberSource,
+  callbackResult,
+  capitalNoticeAlert,
+  person,
+  releaseBlocker,
+  tradeTicketRow,
+  tradeTicketState,
+  wireCallback,
+  wireCounterparty,
+  wireInstructionRow,
+  wireInstructionState,
+} from './schemas.js';
+
+export {
+  callbackNumberSource,
+  callbackResult,
+  capitalNoticeAlert,
+  person,
+  releaseBlocker,
+  tradeTicketRow,
+  tradeTicketState,
+  wireCallback,
+  wireCounterparty,
+  wireInstructionRow,
+  wireInstructionState,
+};
+export type {
+  CallbackNumberSource,
+  CallbackResult,
+  CapitalNoticeAlert,
+  Person,
+  ReleaseBlocker,
+  TradeTicketRow,
+  TradeTicketState,
+  WireCallback,
+  WireCounterparty,
+  WireInstructionRow,
+  WireInstructionState,
+} from './schemas.js';
 
 /** A record another one points at by id, with its display name. */
 const namedRef = z.object({ id: s.uuid, name: z.string() });
@@ -210,21 +252,6 @@ export type ValuationDetail = z.infer<typeof valuationDetail>;
 
 /* ---- Wire instruction register (M16, SEC-12.2) ---- */
 
-export const wireInstructionState = z.enum(['Proposed', 'Verified', 'Rejected', 'Superseded']);
-export type WireInstructionState = z.infer<typeof wireInstructionState>;
-
-/** Where the callback number came from: never the notice or the email that asked for the change. */
-export const callbackNumberSource = z.enum([
-  'prior_instruction',
-  'sponsor_website',
-  'known_contact',
-  'fund_administrator',
-]);
-export type CallbackNumberSource = z.infer<typeof callbackNumberSource>;
-
-export const callbackResult = z.enum(['confirmed', 'not_confirmed']);
-export type CallbackResult = z.infer<typeof callbackResult>;
-
 const digits = (min: number, max: number): z.ZodString =>
   z.string().regex(new RegExp(`^\\d{${min},${max}}$`), `${min} to ${max} digits`);
 
@@ -243,40 +270,6 @@ export const bankDetails = z
   })
   .strict();
 export type BankDetails = z.infer<typeof bankDetails>;
-
-export const wireCounterparty = z.object({
-  kind: z.enum(['sponsor_fund', 'investment']),
-  id: s.uuid,
-  name: z.string(),
-});
-export type WireCounterparty = z.infer<typeof wireCounterparty>;
-
-/** The logged callback (SEC-12.2): by whom, when, from which number source, with what result. */
-export const wireCallback = z.object({
-  by: person,
-  at: timestamp,
-  numberSource: callbackNumberSource,
-  result: callbackResult,
-});
-export type WireCallback = z.infer<typeof wireCallback>;
-
-export const wireInstructionRow = z.object({
-  id: s.uuid,
-  counterparty: wireCounterparty,
-  version: z.number().int().min(1),
-  state: wireInstructionState,
-  /** "<bank name> ****<last four digits>": what every role sees. */
-  bankDetailsMasked: z.string(),
-  proposedBy: person,
-  proposedAt: timestamp,
-  sourceNote: z.string().nullable(),
-  callback: wireCallback.nullable(),
-  verifiedAt: timestamp.nullable(),
-  rejectionReason: z.string().nullable(),
-  active: z.boolean(),
-  rowVersion: z.number().int(),
-});
-export type WireInstructionRow = z.infer<typeof wireInstructionRow>;
 
 /** The row plus the bank details in clear: null for every role but operations and approver. */
 export const wireInstructionDetail = wireInstructionRow.extend({
@@ -338,43 +331,6 @@ export type WireInstructionPage = z.infer<typeof wireInstructionPage>;
 
 /* ---- Trade tickets (M16, SEC-12.3) ---- */
 
-export const tradeTicketState = z.enum(['Drafted', 'Approved', 'Funded', 'Withdrawn']);
-export type TradeTicketState = z.infer<typeof tradeTicketState>;
-
-/** Why a ticket cannot be released (SEC-12.3), each one shown on the ticket. */
-export const releaseBlocker = z.enum([
-  'unverified_instruction',
-  'changed_within_hold',
-  'same_person',
-  'no_instruction',
-]);
-export type ReleaseBlocker = z.infer<typeof releaseBlocker>;
-
-export const tradeTicketRow = z.object({
-  id: s.uuid,
-  capitalNoticeId: s.uuid,
-  amount: s.decimalString,
-  currency: z.string(),
-  fundingDate: s.isoDate,
-  preparedBy: person,
-  preparedAt: timestamp,
-  approvedBy: person.nullable(),
-  approvedAt: timestamp.nullable(),
-  /** The instruction version the ticket was approved against; null until approved. */
-  wireInstruction: z
-    .object({
-      id: s.uuid,
-      version: z.number().int().min(1),
-      state: wireInstructionState,
-      bankDetailsMasked: z.string(),
-    })
-    .nullable(),
-  state: tradeTicketState,
-  release: z.object({ allowed: z.boolean(), blockers: z.array(releaseBlocker) }),
-  rowVersion: z.number().int(),
-});
-export type TradeTicketRow = z.infer<typeof tradeTicketRow>;
-
 export const tradeTicketListQuery = s.pageQuery.extend({ state: tradeTicketState.optional() });
 
 export const tradeTicketPage = z.object({
@@ -422,26 +378,13 @@ export const capitalNoticeCommandBody = z.discriminatedUnion('command', [
 ]);
 export type CapitalNoticeCommandBody = z.infer<typeof capitalNoticeCommandBody>;
 
-/** The SEC-12.4 alerts a notice carries. */
-export const capitalNoticeAlert = z.enum([
-  'wire_changed',
-  'urgency_language',
-  'due_within_two_business_days',
-  'unverified_instruction',
-]);
-export type CapitalNoticeAlert = z.infer<typeof capitalNoticeAlert>;
-
 /**
- * The notice detail once the controls are served: the ticket, the counterparty's active
- * instruction (masked) and the alerts. Wave 2 folds these three fields into capitalNoticeDetail
- * when the API serves them on the read route too; until then the recorded detail stays as it is.
+ * The notice detail with the ticket, the counterparty's active instruction (masked) and the
+ * alerts is capitalNoticeDetail itself (schemas.ts), now that the API serves them on the read
+ * route too; this name stays as an alias of it for the routes and tests written against it.
  */
-export const capitalNoticeControlDetail = s.capitalNoticeDetail.extend({
-  ticket: tradeTicketRow.nullable(),
-  activeWireInstruction: wireInstructionRow.nullable(),
-  alerts: z.array(capitalNoticeAlert),
-});
-export type CapitalNoticeControlDetail = z.infer<typeof capitalNoticeControlDetail>;
+export const capitalNoticeControlDetail = s.capitalNoticeDetail;
+export type CapitalNoticeControlDetail = s.CapitalNoticeDetail;
 
 /* ---- Pipeline: opportunities (M5 skeleton, docs/18 section 4) ---- */
 

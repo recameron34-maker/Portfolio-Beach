@@ -71,6 +71,61 @@
 .pb-cap-back {
   margin: 0 0 6px;
 }
+
+/* The SEC-12.4 alerts under the progress strip: one badge and one sentence per alert. */
+.pb-cap-alerts {
+  margin: 0 0 16px;
+}
+.pb-cap-alert-list {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.pb-cap-alert-list > li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 10px;
+  font-size: 13px;
+  line-height: 18px;
+}
+
+/* The release check inside the ticket panel: allowed in one line, blockers as a list. */
+.pb-cap-release {
+  margin: 12px 0 0;
+}
+.pb-cap-release ul {
+  margin: 6px 0 0;
+  padding-left: 18px;
+}
+
+/* The wire register and an instruction (SEC-12.2): masked details read as a figure. */
+.pb-wire-masked {
+  margin: 0 0 10px;
+  font-variant-numeric: tabular-nums lining-nums;
+}
+/* The clear fields: a monospace face so the digits are checked one by one against the source. */
+.pb-wire-clear {
+  margin: 12px 0 0;
+}
+.pb-wire-clear td {
+  font-family: ui-monospace, 'Cascadia Mono', 'Segoe UI Mono', Menlo, Consolas, monospace;
+}
+/* The propose and callback forms: fields in a responsive grid, the buttons in a row under them. */
+.pb-wire-form {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 240px), 1fr));
+  gap: 12px 16px;
+  margin: 0 0 12px;
+}
+.pb-wire-form-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
 .pb-cap-hold {
   margin: 0 0 16px;
 }

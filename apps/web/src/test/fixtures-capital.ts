@@ -4,8 +4,15 @@ import type {
   CapitalNoticeRow,
   CommitmentList,
   FundCommitmentRow,
+  Person,
+  TradeTicketPage,
+  TradeTicketRow,
+  WireInstructionDetail,
+  WireInstructionPage,
+  WireInstructionRow,
 } from '@pb/contracts';
 import { AS_OF, ID, noticeFixture } from './fixtures.js';
+import { USER_ID } from './fixtures-valuations.js';
 
 /* Contract-shaped synthetic fixtures for the capital activity pages (docs/12 section 4: synthetic data only). */
 
@@ -17,6 +24,207 @@ export const NOTICE_ID = {
   funded: '00000000-0000-4000-8000-000000000405',
   reconciled: '00000000-0000-4000-8000-000000000406',
 } as const;
+
+/* ---- The wire register and the trade tickets (M16, SEC-12) ---- */
+
+export const WIRE_ID = {
+  /** Silverline's sponsor fund, version 1: Verified and active. */
+  verified: '00000000-0000-4000-8000-000000000701',
+  /** The same fund, version 2: Proposed by ops.one from the changed notice, waiting for its callback. */
+  proposed: '00000000-0000-4000-8000-000000000702',
+  /** Summit Services Co (investment level), version 1: Verified and active. */
+  summit: '00000000-0000-4000-8000-000000000703',
+  /** Summit, version 2: Rejected after a callback that did not confirm. */
+  rejected: '00000000-0000-4000-8000-000000000704',
+} as const;
+
+export const TICKET_ID = {
+  drafted: '00000000-0000-4000-8000-000000000801',
+  approved: '00000000-0000-4000-8000-000000000802',
+  funded: '00000000-0000-4000-8000-000000000803',
+} as const;
+
+export const SPONSOR_FUND_ID = {
+  silverline: '00000000-0000-4000-8000-000000000611',
+} as const;
+
+/** The people on the register and the tickets: ops.one proposes and prepares, ops.two calls back, head.one approves. */
+export const PERSON: Readonly<Record<'opsOne' | 'opsTwo' | 'approver', Person>> = {
+  opsOne: { id: USER_ID.ops, name: 'Priya Lindqvist' },
+  opsTwo: { id: '00000000-0000-4000-8000-000000000304', name: 'Tomas Achterberg' },
+  approver: { id: USER_ID.approver, name: 'Mina Halvorsen' },
+};
+
+export function wireRowFixture(overrides: Partial<WireInstructionRow> = {}): WireInstructionRow {
+  return {
+    id: WIRE_ID.verified,
+    counterparty: {
+      kind: 'sponsor_fund',
+      id: SPONSOR_FUND_ID.silverline,
+      name: 'Silverline Partners Fund II',
+    },
+    version: 1,
+    state: 'Verified',
+    bankDetailsMasked: 'Harbor Street Bank ****4821',
+    proposedBy: PERSON.opsOne,
+    proposedAt: '2024-03-04T10:00:00.000Z',
+    sourceNote: 'Typed from the signed subscription pack',
+    callback: {
+      by: PERSON.opsTwo,
+      at: '2024-03-05T15:30:00.000Z',
+      numberSource: 'prior_instruction',
+      result: 'confirmed',
+    },
+    verifiedAt: '2024-03-05T15:30:00.000Z',
+    rejectionReason: null,
+    active: true,
+    rowVersion: 2,
+    ...overrides,
+  };
+}
+
+/** Four versions over two counterparties: an active one and a Proposed change, an active one and a rejected change. */
+export function wireRows(): WireInstructionRow[] {
+  return [
+    wireRowFixture({
+      id: WIRE_ID.proposed,
+      version: 2,
+      state: 'Proposed',
+      bankDetailsMasked: 'Northline Trust ****9930',
+      proposedAt: '2025-07-10T09:00:00.000Z',
+      sourceNote: 'Changed instructions received in the notice',
+      callback: null,
+      verifiedAt: null,
+      active: false,
+      rowVersion: 1,
+    }),
+    wireRowFixture({
+      id: WIRE_ID.rejected,
+      counterparty: { kind: 'investment', id: ID.inv3, name: 'Summit Services Co' },
+      version: 2,
+      state: 'Rejected',
+      bankDetailsMasked: 'Meridian Clearing ****1177',
+      proposedAt: '2025-05-02T11:00:00.000Z',
+      sourceNote: null,
+      callback: {
+        by: PERSON.opsTwo,
+        at: '2025-05-03T11:00:00.000Z',
+        numberSource: 'known_contact',
+        result: 'not_confirmed',
+      },
+      verifiedAt: null,
+      rejectionReason: 'The contact did not recognise the account',
+      active: false,
+      rowVersion: 2,
+    }),
+    wireRowFixture(),
+    wireRowFixture({
+      id: WIRE_ID.summit,
+      counterparty: { kind: 'investment', id: ID.inv3, name: 'Summit Services Co' },
+      bankDetailsMasked: 'Meridian Clearing ****2204',
+      proposedAt: '2023-11-20T10:00:00.000Z',
+      callback: {
+        by: PERSON.approver,
+        at: '2023-11-21T10:00:00.000Z',
+        numberSource: 'fund_administrator',
+        result: 'confirmed',
+      },
+      verifiedAt: '2023-11-21T10:00:00.000Z',
+    }),
+  ];
+}
+
+export function wirePageFixture(
+  items: WireInstructionRow[] = wireRows(),
+  nextCursor: string | null = null,
+): WireInstructionPage {
+  return { items, nextCursor };
+}
+
+/** The clear bank details operations and approvers read (synthetic digits; null for every other role). */
+export const CLEAR_DETAILS = {
+  bankName: 'Northline Trust',
+  accountName: 'Silverline Partners Fund II',
+  accountNumber: '4455667799',
+  routingCode: '021000021',
+  reference: 'Capital account 44',
+} as const;
+
+export function wireDetailFixture(
+  row: WireInstructionRow = wireRows()[0] ?? wireRowFixture(),
+  clear = true,
+): WireInstructionDetail {
+  return { ...row, bankDetails: clear ? { ...CLEAR_DETAILS } : null };
+}
+
+export function ticketFixture(overrides: Partial<TradeTicketRow> = {}): TradeTicketRow {
+  return {
+    id: TICKET_ID.drafted,
+    capitalNoticeId: NOTICE_ID.extracted,
+    amount: '2500000.00',
+    currency: 'USD',
+    fundingDate: '2025-07-12',
+    preparedBy: PERSON.opsOne,
+    preparedAt: '2025-07-10T09:05:00.000Z',
+    approvedBy: null,
+    approvedAt: null,
+    wireInstruction: null,
+    state: 'Drafted',
+    release: { allowed: false, blockers: ['changed_within_hold', 'same_person'] },
+    rowVersion: 1,
+    ...overrides,
+  };
+}
+
+/** One ticket per state the API serves: drafted and held, approved against version 1, funded. */
+export function ticketRows(): TradeTicketRow[] {
+  return [
+    ticketFixture(),
+    ticketFixture({
+      id: TICKET_ID.approved,
+      capitalNoticeId: NOTICE_ID.drafted,
+      amount: '1200000.00',
+      fundingDate: '2025-07-02',
+      preparedAt: '2025-06-23T09:00:00.000Z',
+      approvedBy: PERSON.approver,
+      approvedAt: '2025-06-24T09:00:00.000Z',
+      wireInstruction: {
+        id: WIRE_ID.summit,
+        version: 1,
+        state: 'Verified',
+        bankDetailsMasked: 'Meridian Clearing ****2204',
+      },
+      state: 'Approved',
+      release: { allowed: true, blockers: [] },
+      rowVersion: 2,
+    }),
+    ticketFixture({
+      id: TICKET_ID.funded,
+      capitalNoticeId: NOTICE_ID.funded,
+      amount: '212500.00',
+      fundingDate: '2025-06-25',
+      preparedAt: '2025-06-16T09:00:00.000Z',
+      approvedBy: PERSON.approver,
+      approvedAt: '2025-06-17T09:00:00.000Z',
+      wireInstruction: {
+        id: WIRE_ID.summit,
+        version: 1,
+        state: 'Verified',
+        bankDetailsMasked: 'Meridian Clearing ****2204',
+      },
+      state: 'Funded',
+      release: { allowed: false, blockers: [] },
+      rowVersion: 3,
+    }),
+  ];
+}
+
+export function ticketPageFixture(
+  items: TradeTicketRow[] = ticketRows(),
+  nextCursor: string | null = null,
+): TradeTicketPage {
+  return { items, nextCursor };
+}
 
 const COMMITMENT_ID = {
   kelpwood: '00000000-0000-4000-8000-000000000501',
@@ -140,7 +348,11 @@ export function noticePageFixture(
   };
 }
 
-/** The wire-change capital call in Extracted, with its hold, one note and no cash flows yet. */
+/**
+ * The wire-change capital call in Extracted, with its hold, one note and no cash flows yet; its
+ * ticket is Drafted and held, version 1 of its sponsor fund is the active instruction, and it
+ * carries the three SEC-12.4 alerts the synthetic scenario sets.
+ */
 export function noticeDetailFixture(
   overrides: Partial<CapitalNoticeDetail> = {},
 ): CapitalNoticeDetail {
@@ -151,6 +363,9 @@ export function noticeDetailFixture(
     cashFlows: [],
     wireChangeHold: { until: '2025-07-30', holdDays: 30 },
     notes: ['The notice carries changed bank details; the instructions on file are unchanged.'],
+    ticket: ticketFixture(),
+    activeWireInstruction: wireRowFixture(),
+    alerts: ['wire_changed', 'urgency_language', 'due_within_two_business_days'],
     ...overrides,
   };
 }
@@ -171,6 +386,9 @@ export function settledDetailFixture(): CapitalNoticeDetail {
     ],
     wireChangeHold: null,
     notes: [],
+    ticket: ticketRows()[2] ?? null,
+    activeWireInstruction: wireRows()[3] ?? null,
+    alerts: [],
   };
 }
 
