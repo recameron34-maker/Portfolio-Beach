@@ -243,3 +243,23 @@ Phase 1 (M1, M2) as planned in Session 1, now with every read screen in place to
 - Watchlist alert dispatch (docs/11 E7) stays pending: the wave 2 brief left it out of the monitoring module.
 - Out of the prototype by design (decision 0012): OCR and scanned variants, semantic search, the Python document worker as the production parser, a real model on synthetic PDFs, CIM and primary fund extraction variants beyond the capital account statement.
 - Earlier items still open: Phase 1's role changes (migrations 0007 to 0010), rejection as operations' call, the stale-diff re-stage, the weekly Draft on the reviewer's behalf, carry-at-cost, client totals, the audit cursor, the branch size (about 260 commits; the PR will be very large and should be reviewed by package), the rulesets and SHA pinning.
+
+## Session 8 (2026-10-28): the Playwright suite passes in any order (journeys 4 and 6 ahead of look-through and monitoring)
+
+**Branch:** worktree of `claude/gifted-tesla-eg7s85` (one commit, not pushed). Synthetic data only.
+
+**What changed**
+
+- `apps/web/e2e/lookthrough.spec.ts`: the Differences tile read 4 where the spec expected the generator's 3 once journey 4 had run: journey 4 reconciles the `wire_change` capital call, an approved contribution of 2,500,000.00 dated the as-of date on INV-0011, so the record's invested cost (31,042,239.66) no longer ties to the seed figure the extract carries (28,542,239.66) and LT-TIE-02 rightly reports row 11. Journey 6 was not the mover: the position it converts carries no flow and no mark, so no figure (rule 10). The spec now reads the record's invested cost and NAV from the API on the run's date (as the wall member, who sees every position) and derives the exposure differences with the two config tolerances, asserting the generator's own two are among them; the label differences stay as the generator names them. The NAV badge count and the queue counts follow.
+- `apps/web/e2e/monitoring.spec.ts`: the board had 17 rows where the spec counted the seed's 16: the board filters by `heldOn(periodEnd)` (entered by the quarter end, not exited by it), and the position journey 6 closes on the as-of date, the quarter end, is held on it, so the API is right under docs/04 M9. The spec now reads the held positions from the portfolio list (same predicate) as operations and as the wall member, checks every seeded position outside the wall is served to operations and the walled one never, that the member is served exactly one more (the walled one), and matches the board's rows to those lists.
+- `apps/api/src/test/pipeline.test.ts`: the converted position is asserted to carry no figure (invested, distributions, NAV, MOIC, IRR, holding period all null; `no_valuation`).
+
+**Verified**
+
+- `pnpm exec playwright test e2e/journey6.spec.ts e2e/lookthrough.spec.ts e2e/monitoring.spec.ts`: 5 passed, twice; with `e2e/journey4.spec.ts` ahead of them: 6 passed.
+- `pnpm exec playwright test` (the whole suite, alphabetical, one worker): 56 passed (23.5 minutes).
+- `pnpm exec vitest run --project api src/test/lookthrough.test.ts src/test/monitoring.test.ts src/test/pipeline.test.ts`: 34 passed. `pnpm typecheck`, eslint and prettier on the three files, `bash scripts/check-style.sh` (866 files): pass.
+
+**Open items**
+
+- The look-through spec restates the two tie tolerances (LT-TIE-01, LT-TIE-02) to derive its expectation from the API's figures; if the rules change shape, the spec follows `packages/validation/src/rules/lookthrough.ts`.

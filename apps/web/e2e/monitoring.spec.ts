@@ -2,6 +2,8 @@ import { readFileSync } from 'node:fs';
 import { expect, test } from '@playwright/test';
 import type { APIRequestContext, Page } from '@playwright/test';
 import { addDays, latestQuarterEndOnOrBefore } from '@pb/calc';
+import { investmentPage } from '@pb/contracts';
+import type { InvestmentSummary } from '@pb/contracts';
 import { generateDataset, generateDocuments } from '@pb/synthetic';
 import type { DocumentSet } from '@pb/synthetic';
 import brand from '../../../config/brand.json' with { type: 'json' };
@@ -18,7 +20,8 @@ import { loadDataset, signInAs, switchTo, walledDeal } from './fixtures.js';
  * seed recorded no time); the CSV export holds the header plus one line per row the reader sees;
  * the walled position is absent for a non-member and present for a wall member (SEC-5.3).
  * Everything is built from the dataset the API is seeded with (small profile, seed 42), so the
- * expectations name the rows.
+ * expectations name the rows; the positions on the board are read from the API at run time,
+ * since the specs share one API process and a journey that runs earlier may have added one.
  */
 const d = loadDataset();
 const full = generateDataset({ profile: 'small', seed: 42 });
@@ -31,11 +34,10 @@ const walled = walledDeal(d);
 const late = set.expectations.lateFinancials;
 if (late === null) throw new Error('the document set names no late_financials investment');
 
-/** The positions held on the quarter end, as the API's loaders judge them: entered by then and not exited by then. */
-const held = full.investments.filter(
+/** The positions the seed holds on the quarter end, as the API's loaders judge them: entered by then and not exited by then. */
+const seededHeld = full.investments.filter(
   (i) => i.entryDate <= quarterEnd && (i.exitDate === null || i.exitDate > quarterEnd),
 );
-const heldOutsideWall = held.filter((i) => i.id !== walled.id);
 
 /** A date as the page shows it, for example "Aug 30, 2025" (written independently of src/lib/format.ts). */
 const shownDate = (isoDate: string): string =>
@@ -124,6 +126,27 @@ async function boardFor(
   return (await res.json()) as Board;
 }
 
+/**
+ * The positions held on the quarter end as the API serves them to a reader: the portfolio list
+ * under the board's own predicate (entered by the quarter end and not exited by it, the loaders'
+ * heldOn), read at run time rather than taken from the seed, because a journey that runs earlier
+ * may close a deal into a new position (journey 6 closes the sourced deal on the as-of date, the
+ * quarter end here). The board is one row per position held on the quarter end that the reader
+ * may see, so this list is what its row count must match.
+ */
+async function heldPositions(
+  request: APIRequestContext,
+  externalId: string,
+): Promise<InvestmentSummary[]> {
+  const res = await request.get(`/api/v1/investments?asOf=${quarterEnd}&active=true&limit=200`, {
+    headers: asUser(externalId),
+  });
+  expect(res.ok(), `investments answered ${res.status()}`).toBe(true);
+  const positions = investmentPage.parse(await res.json());
+  expect(positions.nextCursor, 'the small profile fits in one page').toBeNull();
+  return positions.items;
+}
+
 const boardTable = (page: Page) => page.getByRole('table', { name: 'Monitoring board' });
 const rowFor = (page: Page, investmentNumber: string) =>
   boardTable(page).getByRole('row').filter({ hasText: investmentNumber });
@@ -145,6 +168,17 @@ test('operations reads the board, sees the late report turn late then missing, t
   test.setTimeout(180_000);
   expect(late.periodEnd, 'the absent report is the latest quarter').toBe(quarterEnd);
   await prepare(page.request);
+
+  // The positions each reader is served: every seeded position outside the wall reaches
+  // operations and the walled one never does; the wall member is served exactly one more, the
+  // walled one (SEC-5.3).
+  const heldOutsideWall = await heldPositions(page.request, 'ops.one');
+  const held = await heldPositions(page.request, 'deal.three');
+  const outsideIds = new Set(heldOutsideWall.map((i) => i.id));
+  for (const i of seededHeld)
+    expect(outsideIds.has(i.id), i.investmentNumber).toBe(i.id !== walled.id);
+  expect(held.length).toBe(heldOutsideWall.length + 1);
+  expect(held.map((i) => i.id).sort()).toEqual([...outsideIds, walled.id].sort());
 
   await signInAs(page, 'ops.one', d);
   await page.goto('/portfolio/monitoring');

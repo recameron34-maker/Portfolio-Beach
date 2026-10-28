@@ -1,8 +1,13 @@
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { expect, test } from '@playwright/test';
+import type { Page } from '@playwright/test';
+import { D } from '@pb/calc';
+import { investmentPage } from '@pb/contracts';
+import type { InvestmentSummary } from '@pb/contracts';
 import { generateDataset, lookthroughExtract } from '@pb/synthetic';
-import { loadDataset, signInAs, switchTo, walledDeal } from './fixtures.js';
+import definitions from '../../../config/definitions.json' with { type: 'json' };
+import { apiCall, loadDataset, signInAs, switchTo, walledDeal } from './fixtures.js';
 
 /**
  * Look-through reconcile and the exceptions queue (docs/04 M2 lookthrough-reconcile, M1 Data
@@ -11,22 +16,102 @@ import { loadDataset, signInAs, switchTo, walledDeal } from './fixtures.js';
  * reason, note a ticket), and the walled position's rows are counted, never shown, until a wall
  * member opens the run (SEC-5.3). The extract is built from the same dataset the API is seeded
  * with (small profile, seed 42) and written into the e2e API's look-through folder before the run,
- * so its expectations name the rows and counts to look for.
+ * so its expectations name the rows to look for. The exposures the run compares them with are
+ * read from the API at run time: the specs share one API process, and a journey that runs earlier
+ * may have moved a position's record away from the seed the extract was built from.
  */
 const d = loadDataset();
 const full = generateDataset({ profile: 'small', seed: 42 });
 const defects = lookthroughExtract(full, { scenario: 'defects' });
+type ExtractRow = (typeof defects.rows)[number];
 
-/** The fields a difference is reported on; the generator's asOf difference is the stale finding, not a difference. */
-const DIFFERENCE_FIELDS = new Set(['sector', 'geography', 'exposureAtCost', 'exposureAtNav']);
-const differences = defects.expectations.differences.filter((x) =>
-  DIFFERENCE_FIELDS.has(x.field),
+/**
+ * The label differences the generator built into the extract: a mapped code that disagrees with
+ * the company on record. Nothing in the suite changes a company's codes, so these stand as named;
+ * the generator's asOf difference is the stale finding, not a difference.
+ */
+const LABEL_FIELDS = new Set(['sector', 'geography']);
+const labelDifferences = defects.expectations.differences.filter((x) =>
+  LABEL_FIELDS.has(x.field),
 ).length;
-const exceptionsOpened =
-  differences + defects.expectations.unmatched.length + defects.expectations.unmapped.length;
+
+type ExposureField = 'exposureAtCost' | 'exposureAtNav';
+interface ExposureDifference {
+  rowNo: number;
+  field: ExposureField;
+}
+const isExposureField = (field: string): field is ExposureField =>
+  field === 'exposureAtCost' || field === 'exposureAtNav';
+/** The exposure differences the generator built in: a NAV moved beyond the tolerance, a cost off by more than the dollar tolerance. */
+const builtInExposureDifferences: ExposureDifference[] = defects.expectations.differences.flatMap(
+  ({ rowNo, field }) => (isExposureField(field) ? [{ rowNo, field }] : []),
+);
+
+/** The two tolerances the reconcile reads from config (rules LT-TIE-01 and LT-TIE-02), never literals here. */
+const navTolerance = D(String(definitions.intake.lookthroughNavTolerancePct));
+const costTolerance = D(String(definitions.intake.lookthroughCostToleranceUsd));
 
 const walled = walledDeal(d);
 const walledNumber = d.investments.find((i) => i.id === walled.id)?.investmentNumber ?? '';
+
+/**
+ * The position an extract row links to, among the positions the API serves: by its number, else
+ * by the alias the generator put in place of the company name (the row links by the alias). A row
+ * the record has no position for (the unknown number, the near miss on a name) links to nothing.
+ */
+function positionOf(
+  row: ExtractRow,
+  positions: readonly InvestmentSummary[],
+): InvestmentSummary | undefined {
+  if (row.investmentNumber !== null)
+    return positions.find((p) => p.investmentNumber === row.investmentNumber);
+  const companyIds = new Set(
+    full.companyAliases.filter((a) => a.alias === row.companyName).map((a) => a.portfolioCompanyId),
+  );
+  const linked = full.investments.filter((i) => companyIds.has(i.portfolioCompanyId));
+  const [one] = linked;
+  return linked.length === 1 && one !== undefined
+    ? positions.find((p) => p.id === one.id)
+    : undefined;
+}
+
+/**
+ * The exposure differences the run must report, read against the record the API serves on the
+ * run's date rather than against the seed: the extract carries the seed's figures, and a journey
+ * that runs earlier may have moved a position's record (journey 4 settles the wire_change capital
+ * call as an approved contribution dated the as-of date, which raises that position's invested
+ * cost). The rule is the reconcile's own (LT-TIE-01, LT-TIE-02): a row linked to a position
+ * whose provider figure sits beyond the tolerance from the record's invested cost or latest
+ * Locked mark is a difference, the two the generator built in among them. The record is read as
+ * the wall member, who sees every position, so the walled rows count the way the run counts
+ * them: on the tiles, never in the rows the reconciler is shown (SEC-5.3).
+ */
+async function exposureDifferences(page: Page): Promise<ExposureDifference[]> {
+  const positions = await apiCall(
+    page,
+    'GET',
+    `/api/v1/investments?asOf=${defects.asOf}&limit=200`,
+    'deal.three',
+    investmentPage,
+  );
+  expect(positions.nextCursor, 'the small profile fits in one page').toBeNull();
+  const out: ExposureDifference[] = [];
+  for (const [index, row] of defects.rows.entries()) {
+    const position = positionOf(row, positions.items);
+    if (position === undefined) continue;
+    if (
+      position.invested !== null &&
+      D(row.exposureAtCost).minus(position.invested).abs().gt(costTolerance)
+    )
+      out.push({ rowNo: index + 1, field: 'exposureAtCost' });
+    if (
+      position.nav !== null &&
+      D(row.exposureAtNav).minus(position.nav).abs().gt(D(position.nav).abs().times(navTolerance))
+    )
+      out.push({ rowNo: index + 1, field: 'exposureAtNav' });
+  }
+  return out;
+}
 
 test.beforeAll(() => {
   // The e2e API reads the look-through folder under its scratch (scripts/e2e-api.mjs sets
@@ -43,6 +128,19 @@ test('operations reconciles the defects extract, reads its differences and works
 }) => {
   test.setTimeout(180_000);
   await signInAs(page, 'ops.one', d);
+  // What the run must report, against the record as it stands: the generator's own exposure
+  // differences are among them, whatever an earlier journey moved besides.
+  const exposure = await exposureDifferences(page);
+  expect(exposure).toEqual(expect.arrayContaining(builtInExposureDifferences));
+  const differences = labelDifferences + exposure.length;
+  const exceptionsOpened =
+    differences + defects.expectations.unmatched.length + defects.expectations.unmapped.length;
+  /** One NAV badge per NAV difference on a row the reconciler is shown (a walled row is counted, never shown). */
+  const navBadges = exposure.filter(
+    (x) => x.field === 'exposureAtNav' && !defects.expectations.walled.includes(x.rowNo),
+  ).length;
+  expect(navBadges, 'the generator moved one NAV beyond the tolerance').toBeGreaterThan(0);
+
   await page.goto('/data/lookthrough');
   await expect(page.getByRole('heading', { level: 1 })).toHaveText('Look-through');
   const card = page.getByTestId('lookthrough-run');
@@ -80,7 +178,7 @@ test('operations reconciles the defects extract, reads its differences and works
   await expect(rows.getByText('Other (unmapped)')).toHaveCount(
     defects.expectations.unmapped.length,
   );
-  await expect(rows.locator('.pb-badge', { hasText: 'NAV' })).toHaveCount(1);
+  await expect(rows.locator('.pb-badge', { hasText: 'NAV' })).toHaveCount(navBadges);
 
   // The run links to its exceptions on the queue.
   await page.getByTestId('lookthrough-exceptions-link').click();
@@ -92,8 +190,8 @@ test('operations reconciles the defects extract, reads its differences and works
   await expect(queue.getByRole('row')).toHaveCount(exceptionsOpened + 1);
   await expect(queue.getByRole('row').filter({ hasText: 'Open' })).toHaveCount(exceptionsOpened);
 
-  // Acknowledge the NAV difference, then resolve it with a reason.
-  await queue.getByRole('link', { name: 'LT-TIE-01' }).click();
+  // Acknowledge a NAV difference, then resolve it with a reason.
+  await queue.getByRole('link', { name: 'LT-TIE-01' }).first().click();
   await expect(page.getByTestId('exception-banner')).toContainText('LT-TIE-01');
   await page.getByRole('button', { name: 'Acknowledge' }).click();
   await expect(page.getByTestId('exception-action-status')).toContainText('Acknowledged, taken by');

@@ -642,6 +642,16 @@ describe('pipeline (M5 skeleton, docs/18 section 4): opportunities, their stage 
         closingId: closingAfter.id,
         isActive: true,
         exitDate: null,
+        // Nothing was contributed or marked yet, so no figure is on record for it (rule 10): a
+        // reconcile or a report that reads the position finds nothing to compare or invent.
+        invested: null,
+        distributions: null,
+        nav: null,
+        navDate: null,
+        grossMoic: null,
+        grossIrr: null,
+        irrFlag: 'no_valuation',
+        holdingPeriodYears: null,
       });
       const company = await h.runtime.db.query<{ name: string; sector: string | null }>(
         'select name, sector from core.portfolio_company where id = $1',
