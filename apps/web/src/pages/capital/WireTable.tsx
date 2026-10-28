@@ -4,7 +4,7 @@ import type { WireInstructionRow, WireInstructionState } from '@pb/contracts';
 import { Badge, TableWrap } from '../../components/ui.js';
 import { formatDate } from '../../lib/format.js';
 import { humanizeState } from '../../lib/states.js';
-import { wireTone } from './tones.js';
+import { wireTone } from '../../lib/states.js';
 import { callbackWords, dayOf, kindLabel } from './wires.js';
 
 export function WireStateBadge({ state }: { state: WireInstructionState }): ReactNode {

@@ -60,7 +60,7 @@ import {
   progressSteps,
 } from './notices.js';
 import { ALERT_WORDS, BLOCKER_WORDS, nothingToRelease, RELEASE_ALLOWED } from './tickets.js';
-import { ticketTone, wireTone } from './tones.js';
+import { ticketTone, wireTone } from '../../lib/states.js';
 import { kindLabel, NUMBER_SOURCE_WORDS, RESULT_WORDS } from './wires.js';
 import './capital.css';
 import { balanceTiles } from '../../lib/tiles.js';

@@ -854,7 +854,7 @@ describe('idempotency and optimistic concurrency (docs/17 section 3)', () => {
       { 'if-match': '"2"' },
     );
     expect(stale.status).toBe(412);
-    expect(problemOf(stale).code).toBe('precondition');
+    expect(problemOf(stale).code).toBe('stale-row-version');
     const fresh = await send(
       f,
       USERS.ops.externalId,

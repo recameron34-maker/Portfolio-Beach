@@ -75,7 +75,7 @@ import {
   tieOutTone,
 } from './pipeline.js';
 import type { TermField } from './pipeline.js';
-import { closingTone } from './tones.js';
+import { closingTone } from '../../lib/states.js';
 import './pipeline.css';
 
 const CLOSE_DATE_RULE =

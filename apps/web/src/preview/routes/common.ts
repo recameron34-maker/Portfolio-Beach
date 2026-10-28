@@ -150,7 +150,7 @@ export function staleIfMatch(
   if (versions.includes(String(rowVersion))) return null;
   return problem(
     412,
-    'precondition',
+    'stale-row-version',
     'The record changed since it was read. Reload it and try again.',
     {
       instance,

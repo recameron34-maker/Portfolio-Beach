@@ -27,7 +27,7 @@ describe('preview problems', () => {
       request_id: 'preview',
     });
     expect(
-      problem(412, 'precondition', 'stale', { simulated: true }).headers.get('x-pb-simulated'),
+      problem(412, 'stale-row-version', 'stale', { simulated: true }).headers.get('x-pb-simulated'),
     ).toBe('true');
   });
 

@@ -38,7 +38,7 @@ import {
   tieOutLabel,
 } from './pipeline.js';
 import { StageActions } from './StageActions.js';
-import { closingTone, stageTone } from './tones.js';
+import { closingTone, stageTone } from '../../lib/states.js';
 import './pipeline.css';
 
 function BackLink(): ReactNode {

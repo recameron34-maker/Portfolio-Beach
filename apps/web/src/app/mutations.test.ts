@@ -127,7 +127,9 @@ describe('describeActionError', () => {
     expect(describeActionError(problem(422, 'the preparer cannot approve (SEC-5.6)'))).toBe(
       'Blocked by a rule. The preparer cannot approve (SEC-5.6)',
     );
-    expect(describeActionError(problem(412, 'stale'))).toMatch(/changed this record first/);
+    expect(describeActionError(problem(412, 'stale-row-version'))).toMatch(
+      /changed this record first/,
+    );
     expect(describeActionError(problem(400, 'command: invalid'))).toMatch(/not valid/);
     expect(describeActionError(problem(401, 'expired'))).toMatch(/Sign in again/);
     expect(describeActionError(problem(501, 'not implemented'))).toBe(

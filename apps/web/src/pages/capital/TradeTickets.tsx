@@ -33,7 +33,7 @@ import {
   TICKET_STATES,
   ticketNoticeLabel,
 } from './tickets.js';
-import { ticketTone } from './tones.js';
+import { ticketTone } from '../../lib/states.js';
 import './capital.css';
 
 /** Whether the ticket may be released now, or each blocker as a badge with its sentence on hover (SEC-12.3). */

@@ -17,7 +17,7 @@ import {
   RELEASE_ALLOWED,
   ticketNoticeLabel,
 } from './tickets.js';
-import { ticketTone, wireTone } from './tones.js';
+import { ticketTone, wireTone } from '../../lib/states.js';
 import {
   callbackBody,
   callbackWords,

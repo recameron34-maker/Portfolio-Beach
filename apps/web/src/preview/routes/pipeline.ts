@@ -390,6 +390,8 @@ function convert(
     companyId: ctx.env.newId(),
     sponsorFundId: sim.row.sponsorFund?.id ?? null,
     closeDate: closing.closeDate,
+    opportunityId: sim.row.id,
+    closingId: closing.id,
     companyDescription: null,
     latestPeriodEnd: null,
     cashFlows: [],

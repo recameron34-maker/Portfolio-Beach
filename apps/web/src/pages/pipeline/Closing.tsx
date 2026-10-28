@@ -16,7 +16,7 @@ import { formatMoneyM, labelOf } from '../../lib/format.js';
 import { humanizeState } from '../../lib/states.js';
 import { opportunityQuery } from './api.js';
 import { ClosingPanel } from './ClosingPanel.js';
-import { stageTone } from './tones.js';
+import { stageTone } from '../../lib/states.js';
 import './pipeline.css';
 
 function BackLink({ id }: { id: string }): ReactNode {
