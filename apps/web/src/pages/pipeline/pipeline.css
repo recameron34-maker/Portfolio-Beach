@@ -1,0 +1,260 @@
+/* Pipeline, opportunity and closing pages (docs/04 M5, M8, M22). Tokens only; shared table, tile,
+   badge and toolbar styles live in styles.css, which loads first, so a page class wins over a
+   shared class of the same specificity. Filters keep .pb-toolbar in front to outrank Fluent's own
+   classes. */
+
+/* Filters sized to their content, so the toolbar holds one row on a laptop screen. */
+.pb-toolbar .pb-pipe-filter {
+  min-width: 0;
+  width: 220px;
+}
+
+/* The board: one column per stage, scrolling sideways inside its card on narrow screens. */
+.pb-pipe-board {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(196px, 1fr);
+  gap: 10px;
+  margin: 0 0 8px;
+  padding: 0 0 8px;
+  overflow-x: auto;
+  list-style: none;
+}
+.pb-pipe-column {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+  padding: 8px;
+  background: var(--pb-surface-2);
+  border: 1px solid var(--pb-hairline);
+  border-radius: var(--pb-radius);
+}
+.pb-pipe-column > h3 {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin: 0 0 2px;
+  padding: 0 2px;
+  font-size: 11px;
+  line-height: 16px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--pb-muted);
+}
+.pb-pipe-column > h3 > .pb-badge {
+  text-transform: none;
+  letter-spacing: 0;
+}
+.pb-pipe-cards {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.pb-pipe-card {
+  display: grid;
+  gap: 4px;
+  padding: 10px 12px;
+  background: var(--pb-bg);
+  border: 1px solid var(--pb-border);
+  border-radius: var(--pb-radius);
+  box-shadow: var(--pb-shadow-1);
+}
+.pb-pipe-card[data-tone='watch'] {
+  border-left: 3px solid var(--pb-watch);
+}
+.pb-pipe-card > a {
+  font-weight: 600;
+  line-height: 20px;
+}
+.pb-pipe-card > .pb-meta {
+  font-size: 12px;
+  line-height: 16px;
+}
+.pb-pipe-card-foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 4px 8px;
+  margin-top: 2px;
+  font-size: 12px;
+  line-height: 16px;
+  color: var(--pb-muted-strong);
+  font-variant-numeric: tabular-nums lining-nums;
+}
+.pb-pipe-empty {
+  padding: 10px 4px;
+  font-size: 12px;
+  line-height: 16px;
+  color: var(--pb-muted);
+}
+
+/* Opportunity page */
+.pb-pipe-back {
+  margin: 0 0 6px;
+}
+.pb-pipe-actions {
+  margin: 0 0 12px;
+}
+.pb-pipe-actions .pb-command-buttons {
+  gap: 6px;
+}
+
+/* The stage strip: the eight live stages of docs/18 section 4 as an ordered list that wraps. */
+.pb-pipe-stages {
+  display: grid;
+  grid-template-columns: repeat(8, minmax(0, 1fr));
+  gap: 6px;
+  margin: 0 0 16px;
+  padding: 0;
+  list-style: none;
+}
+.pb-pipe-stages > li {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+  padding: 8px 10px;
+  background: var(--pb-bg);
+  border: 1px solid var(--pb-border);
+  border-radius: var(--pb-radius);
+  font-size: 12px;
+  line-height: 16px;
+  font-weight: 600;
+  color: var(--pb-text);
+}
+.pb-pipe-stages > li[aria-current='step'] {
+  border-color: var(--pb-brand-primary);
+  box-shadow: inset 0 3px 0 var(--pb-brand-accent);
+}
+.pb-pipe-stages > li[data-status='upcoming'] {
+  font-weight: 500;
+  color: var(--pb-muted-strong);
+}
+
+/* Gates: a dot and a sentence per gate (docs/06: never colour alone, the badge carries the word). */
+.pb-pipe-gates {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.pb-pipe-gates > li {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  font-size: 13px;
+  line-height: 20px;
+}
+.pb-pipe-gates .pb-badge {
+  flex: none;
+  margin-top: 1px;
+}
+
+/* Forms inside cards: the controls in a row on a laptop, each on its own line on a phone. */
+.pb-pipe-form {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: 10px 14px;
+  margin: 12px 0 0;
+}
+.pb-pipe-form > .pb-field {
+  min-width: 0;
+}
+.pb-pipe-control {
+  min-width: 0;
+  width: 200px;
+}
+.pb-pipe-control.is-short {
+  width: 140px;
+}
+.pb-pipe-control.is-wide {
+  width: 300px;
+}
+.pb-pipe-form-note {
+  flex-basis: 100%;
+  margin: 0;
+}
+
+/* The new opportunity form: two columns of fields on a laptop, one on a phone. */
+.pb-pipe-new {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 280px), 1fr));
+  gap: 12px 16px;
+  margin: 0 0 14px;
+}
+.pb-pipe-new-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+}
+
+/* Allocations editor rows: the pickers and amounts aligned in columns; stacked on a phone. */
+.pb-pipe-allocations td {
+  vertical-align: middle;
+}
+.pb-pipe-allocations .pb-pipe-control {
+  width: 100%;
+  min-width: 140px;
+}
+.pb-pipe-allocations .pb-pipe-control.is-short {
+  min-width: 120px;
+}
+.pb-pipe-allocation-foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 14px;
+  margin: 12px 0 0;
+}
+
+/* Key and value rows in the legal term form. */
+.pb-pipe-kv-rows {
+  display: grid;
+  gap: 8px;
+  margin: 0 0 8px;
+}
+.pb-pipe-kv-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 8px;
+}
+
+/* The lock-style monospace fields (ids) wrap anywhere so a card never scrolls sideways. */
+.pb-pipe-id {
+  font-family: ui-monospace, 'Cascadia Mono', 'Segoe UI Mono', Menlo, monospace;
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 1240px) {
+  .pb-pipe-stages {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+}
+@media (max-width: 760px) {
+  .pb-toolbar .pb-pipe-filter,
+  .pb-pipe-form > .pb-field,
+  .pb-pipe-control,
+  .pb-pipe-control.is-short,
+  .pb-pipe-control.is-wide {
+    flex: 1 1 100%;
+    width: 100%;
+  }
+  .pb-pipe-kv-row {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+@media (max-width: 560px) {
+  .pb-pipe-stages {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}

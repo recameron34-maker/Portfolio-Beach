@@ -196,6 +196,14 @@ export const investmentDetail = investmentSummary.extend({
    * recorded before Phase 3 still read.
    */
   closeDate: isoDate.nullable().default(null),
+  /**
+   * The pipeline record the position came from (deal.opportunity.investment_id) and the closing
+   * record that carries its close date (deal.closing.investment_id); null for a position that
+   * predates the pipeline or whose records sit behind a wall. Both default to null on parse for
+   * the same reason closeDate does.
+   */
+  opportunityId: uuid.nullable().default(null),
+  closingId: uuid.nullable().default(null),
   companyDescription: z.string().nullable(),
   latestPeriodEnd: isoDate.nullable(),
   cashFlows: z.array(z.object({ date: isoDate, flowType: z.string(), amount: decimalString })),

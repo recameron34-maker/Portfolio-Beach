@@ -184,11 +184,20 @@ export class PortfolioService {
         };
       }
       // The close date comes from the closing record alone (docs/04 M8): no other table carries one.
+      // The closing's id and the pipeline record's id let the deal workspace open both (M5, M8);
+      // under the caller's row-level security a walled record reads as absent, so each is null.
       const closing = (
         await tx
-          .select({ closeDate: schema.closing.closeDate })
+          .select({ id: schema.closing.id, closeDate: schema.closing.closeDate })
           .from(schema.closing)
           .where(eq(schema.closing.investmentId, row.id))
+          .limit(1)
+      )[0];
+      const opportunity = (
+        await tx
+          .select({ id: schema.opportunity.id })
+          .from(schema.opportunity)
+          .where(eq(schema.opportunity.investmentId, row.id))
           .limit(1)
       )[0];
       await audit({ action: 'investment.read', entity: 'core.investment', entityId: row.id });
@@ -199,6 +208,8 @@ export class PortfolioService {
         companyId: row.companyId,
         sponsorFundId: row.sponsorFundId,
         closeDate: closing?.closeDate ?? null,
+        opportunityId: opportunity?.id ?? null,
+        closingId: closing?.id ?? null,
         companyDescription: description?.description ?? null,
         latestPeriodEnd,
         cashFlows: (flows.get(row.id) ?? []).map((f) => ({

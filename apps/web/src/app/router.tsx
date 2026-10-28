@@ -41,7 +41,7 @@ import { ActivityTab } from '../pages/deal/ActivityTab.js';
 import { CapitalTab } from '../pages/deal/CapitalTab.js';
 import { DealWorkspace } from '../pages/deal/DealWorkspace.js';
 import { DocumentsTab } from '../pages/deal/DocumentsTab.js';
-import { ClosingTab, DiligenceTab, TasksTab } from '../pages/deal/LaterTabs.js';
+import { TasksTab } from '../pages/deal/LaterTabs.js';
 import { PerformanceTab } from '../pages/deal/PerformanceTab.js';
 import { SponsorTab } from '../pages/deal/SponsorTab.js';
 import { ValuationsTab } from '../pages/deal/ValuationsTab.js';
@@ -54,6 +54,12 @@ import { ExtractionRunPage } from '../pages/extraction/ExtractionRun.js';
 import { HomePage } from '../pages/Home.js';
 import { InvestmentDetailPage } from '../pages/InvestmentDetail.js';
 import { PipelinePage } from '../pages/pipeline/Pipeline.js';
+// Phase 3: W3 pipeline (M5), diligence and closing (M8, M22)
+import { ClosingPage } from '../pages/pipeline/Closing.js';
+import { NewOpportunityPage } from '../pages/pipeline/NewOpportunity.js';
+import { OpportunityPage } from '../pages/pipeline/Opportunity.js';
+import { ClosingTab } from '../pages/deal/ClosingTab.js';
+import { DiligenceTab } from '../pages/deal/DiligenceTab.js';
 import { PortfolioPage } from '../pages/Portfolio.js';
 import { VehicleDetailPage, VehiclesPage } from '../pages/portfolio/Vehicles.js';
 import { WatchlistPage } from '../pages/portfolio/Watchlist.js';
@@ -125,6 +131,10 @@ const dealTasksRoute = dealTab('/tasks', TasksTab);
 const dealActivityRoute = dealTab('/activity', ActivityTab);
 
 const pipelineRoute = child('/pipeline', PipelinePage);
+// Phase 3: W3 pipeline (M5), diligence and closing (M8, M22). The literal path sits before $id.
+const pipelineNewRoute = child('/pipeline/new', NewOpportunityPage);
+const opportunityRoute = child('/pipeline/$id', OpportunityPage);
+const opportunityClosingRoute = child('/pipeline/$id/closing', ClosingPage);
 const sponsorsRoute = child('/sponsors', SponsorsPage);
 const sponsorRoute = child('/sponsors/$id', SponsorDetailPage);
 const documentsRoute = child('/documents', DocumentsPage);
@@ -230,6 +240,10 @@ const routeTree = rootRoute.addChildren([
       dealActivityRoute,
     ]),
     pipelineRoute,
+    // Phase 3: W3 pipeline (M5), diligence and closing (M8, M22)
+    pipelineNewRoute,
+    opportunityRoute,
+    opportunityClosingRoute,
     sponsorsRoute,
     sponsorRoute,
     documentsRoute,
