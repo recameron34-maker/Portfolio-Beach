@@ -14,8 +14,9 @@ import { z } from 'zod';
  * is loaded from Key Vault by the deployment; the prototype has no vault, so when the variable is
  * unset outside production the loader and the API fall back to DEV_FIELD_KEY, a fixed, documented
  * key that protects nothing and exists so synthetic datasets load without configuration. The
- * production guard in apps/api/src/composition.ts (SEC-17.6) refuses to start in production without
- * a real key; this module only reads and validates what it is given.
+ * production guard in apps/api/src/composition.ts (SEC-17.6) is what refuses to start in production
+ * without a real key (Phase 3 wave 2 extends it); this module only reads and validates what it is
+ * given.
  */
 
 const KEY_BYTES = 32;
@@ -75,9 +76,13 @@ export const DEV_FIELD_KEY: Uint8Array = new TextEncoder().encode(
 );
 
 /**
- * The bank details of a wire instruction, as the register stores them encrypted. Account and
- * routing identifiers are digits only (6 to 20) so a value that is not an identifier (a sentence
- * from a notice, a model's answer) is refused before anything is encrypted (SEC-12.1).
+ * The bank details of a wire instruction, as the register stores them encrypted. The account
+ * number and the routing code are digits only (6 to 20) so a value that is not one (a sentence from
+ * a notice, a model's answer) is refused before anything is encrypted (SEC-12.1).
+ *
+ * The request-body schema is `bankDetails` in packages/contracts/src/controls.ts (the API validates
+ * there). packages/db cannot depend on @pb/contracts, so this is the loader's own minimal copy of
+ * the same rules; keep the two in step.
  */
 export const bankDetails = z.object({
   bankName: z.string().min(1),

@@ -504,7 +504,30 @@ export const syntheticDatasetSchema = z.object({
     .default([]),
 });
 
-export type SyntheticDataset = z.infer<typeof syntheticDatasetSchema>;
+/** The dataset after parse: every array present (the Phase 3 arrays fill in as []). */
+export type ParsedSyntheticDataset = z.infer<typeof syntheticDatasetSchema>;
+
+/** The arrays migration 0013 added; a dataset made before Phase 3 has none of them. */
+type Phase3Array =
+  | 'opportunities'
+  | 'opportunityStageHistory'
+  | 'diligenceTasks'
+  | 'icDecisions'
+  | 'allocations'
+  | 'closings'
+  | 'closingItems'
+  | 'legalTerms'
+  | 'wireInstructions'
+  | 'tradeTickets'
+  | 'changeRequests';
+
+/**
+ * The dataset as a producer builds it (tools/synthetic) and a reader receives it: the Phase 3 arrays
+ * are optional on the way in, so a generator or a file made before Phase 3 still type-checks and
+ * still loads; the parse fills them with [] and the loader reads the parsed form.
+ */
+export type SyntheticDataset = Omit<ParsedSyntheticDataset, Phase3Array> &
+  Partial<Pick<ParsedSyntheticDataset, Phase3Array>>;
 
 export interface SeedOptions {
   /**

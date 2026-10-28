@@ -298,8 +298,9 @@ call pb.add_standard_columns_trigger('deal.ic_decision');
 ----------------------------------------------------------------------------------------------
 -- deal.allocation: how a deal is allocated across the firm's vehicles and, inside a vehicle, its
 -- clients (docs/04 M22). Anchored on the opportunity before close and on the investment after (both
--- while converting). One line per anchor, vehicle and client; a null client is the vehicle-level
--- line. The tie-out compares the lines with the closing commitment.
+-- while converting). One line per anchor, vehicle and client (two partial unique indexes, one per
+-- anchor, with nulls not distinct so the vehicle-level line, client null, is unique too). The
+-- tie-out compares the lines with the closing commitment.
 ----------------------------------------------------------------------------------------------
 create table deal.allocation (
   id uuid primary key default gen_random_uuid(),
@@ -313,10 +314,10 @@ create table deal.allocation (
   created_at timestamptz not null default now(), created_by uuid,
   updated_at timestamptz not null default now(), updated_by uuid,
   row_version integer not null default 1,
-  check (opportunity_id is not null or investment_id is not null),
-  unique nulls not distinct (opportunity_id, investment_id, vehicle_id, client_id)
+  check (opportunity_id is not null or investment_id is not null)
 );
-create index allocation_investment_idx on deal.allocation (investment_id);
+create unique index allocation_opportunity_key on deal.allocation (opportunity_id, vehicle_id, client_id) nulls not distinct where opportunity_id is not null;
+create unique index allocation_investment_key on deal.allocation (investment_id, vehicle_id, client_id) nulls not distinct where investment_id is not null;
 call pb.add_standard_columns_trigger('deal.allocation');
 
 ----------------------------------------------------------------------------------------------
@@ -377,7 +378,8 @@ call pb.add_standard_columns_trigger('deal.closing_item');
 ----------------------------------------------------------------------------------------------
 -- deal.legal_term: a term captured at close (docs/04 M22), typed by the legal_term_type taxonomy
 -- with its value as a small JSON document and the document it was read from. The investment is
--- copied at close so the terms follow the position after the closing is done.
+-- copied at close so the terms follow the position after the closing is done. Who confirmed a term
+-- and when is set by the confirm command (the API, wave 2), not enforced here.
 ----------------------------------------------------------------------------------------------
 create table deal.legal_term (
   id uuid primary key default gen_random_uuid(),
@@ -391,8 +393,7 @@ create table deal.legal_term (
   confirmed_at timestamptz,
   created_at timestamptz not null default now(), created_by uuid,
   updated_at timestamptz not null default now(), updated_by uuid,
-  row_version integer not null default 1,
-  check (status <> 'confirmed' or (confirmed_by is not null and confirmed_at is not null))
+  row_version integer not null default 1
 );
 create index legal_term_closing_idx on deal.legal_term (closing_id);
 create index legal_term_investment_idx on deal.legal_term (investment_id);

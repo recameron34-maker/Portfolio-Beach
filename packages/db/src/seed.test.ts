@@ -3,7 +3,7 @@ import { createTestDb } from './testing.js';
 import type { DbHandle } from './client.js';
 import { decryptBankDetails, DEV_FIELD_KEY, FieldCipher } from './fieldCrypto.js';
 import { loadSyntheticDataset, syntheticDatasetSchema } from './seed.js';
-import type { SyntheticDataset } from './seed.js';
+import type { ParsedSyntheticDataset, SyntheticDataset } from './seed.js';
 import { expectDbRejection } from './test-utils.js';
 
 const COMPANY = '20000000-0000-4000-8000-000000000003';
@@ -30,7 +30,7 @@ const BANK = {
 };
 
 /** Users, a sponsor with a fund, a company, a vehicle, an investment and a notice: what the controls hang off. */
-function controlsDataset(): SyntheticDataset {
+function controlsDataset(): ParsedSyntheticDataset {
   const base = dataset();
   return {
     ...base,

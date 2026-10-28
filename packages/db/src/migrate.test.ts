@@ -63,7 +63,7 @@ describe('migrations', () => {
     const tables = await handle.query<{ name: string; enabled: boolean; forced: boolean }>(`
       select n.nspname || '.' || c.relname as name, c.relrowsecurity as enabled, c.relforcerowsecurity as forced
       from pg_class c join pg_namespace n on n.oid = c.relnamespace
-      where c.relkind = 'r' and n.nspname in ('core','mon','doc','ops','stg','audit')
+      where c.relkind = 'r' and n.nspname in ('core','deal','mon','doc','ops','stg','audit')
         and c.relname <> 'schema_migration'
       order by 1`);
     expect(tables.length).toBeGreaterThan(30);
@@ -300,6 +300,148 @@ describe('migrations', () => {
         "insert into stg.extracted_value (run_id, field, value, unit, edited_value, edited_unit) values ('a1000000-0000-4000-8000-000000000002', 'ev', '1', 'USD_M', '1000', 'EUR')",
       ),
     ).rejects.toThrow(/check constraint/);
+  });
+
+  it('0013: the control enums, the taxonomies, the history tables and the capital notice flags (decision 0013)', async () => {
+    const enums = await handle.query<{ name: string; labels: string }>(`
+      select n.nspname || '.' || t.typname as name, string_agg(e.enumlabel, ',' order by e.enumsortorder) as labels
+      from pg_type t join pg_namespace n on n.oid = t.typnamespace join pg_enum e on e.enumtypid = t.oid
+      where n.nspname || '.' || t.typname in ('mon.wire_instruction_state', 'mon.trade_ticket_state', 'mon.change_request_state', 'deal.stage', 'deal.closing_state')
+      group by 1 order by 1`);
+    expect(enums).toEqual([
+      { name: 'deal.closing_state', labels: 'Open,OpsConfirmed' },
+      {
+        name: 'deal.stage',
+        labels: 'Sourced,Screening,Prescreen,Diligence,IC,Approved,Closing,Closed,Passed',
+      },
+      { name: 'mon.change_request_state', labels: 'Submitted,Routed,InProgress,Applied,Rejected' },
+      { name: 'mon.trade_ticket_state', labels: 'Drafted,Approved,Funded,Withdrawn' },
+      { name: 'mon.wire_instruction_state', labels: 'Proposed,Verified,Rejected,Superseded' },
+    ]);
+    const domains = await handle.query<{ domain: string; n: number }>(
+      "select domain, count(*)::int as n from core.taxonomy_term where domain in ('pass_reason', 'change_type', 'legal_term_type', 'diligence_workstream') group by domain order by domain",
+    );
+    expect(domains).toEqual([
+      { domain: 'change_type', n: 9 },
+      { domain: 'diligence_workstream', n: 8 },
+      { domain: 'legal_term_type', n: 10 },
+      { domain: 'pass_reason', n: 8 },
+    ]);
+    // Full row images where a number a client could see changes or money is released; the stage
+    // history is the pipeline's own record, not an image table, and the rest keep no image.
+    const history = await handle.query<{ name: string }>(
+      "select table_schema || '.' || table_name as name from information_schema.tables where table_schema in ('deal', 'mon') and table_name in ('wire_instruction_history', 'trade_ticket_history', 'deal_change_request_history', 'closing_history', 'allocation_history', 'legal_term_history', 'opportunity_history', 'opportunity_stage_history_history', 'closing_item_history') order by 1",
+    );
+    expect(history.map((h) => h.name)).toEqual([
+      'deal.allocation_history',
+      'deal.closing_history',
+      'deal.legal_term_history',
+      'mon.trade_ticket_history',
+      'mon.wire_instruction_history',
+    ]);
+    const stageHistoryImage = await handle.query<{ n: number }>(
+      "select count(*)::int as n from information_schema.columns where table_schema = 'deal' and table_name = 'opportunity_stage_history' and column_name = 'row_image'",
+    );
+    expect(stageHistoryImage[0]?.n).toBe(0);
+    const flags = await handle.query<{
+      column_name: string;
+      is_nullable: string;
+      column_default: string | null;
+    }>(
+      "select column_name, is_nullable, column_default from information_schema.columns where table_schema = 'mon' and table_name = 'capital_notice' and column_name in ('urgency_flag', 'wire_change_flag', 'funded_at', 'funded_by') order by column_name",
+    );
+    expect(flags).toEqual([
+      { column_name: 'funded_at', is_nullable: 'YES', column_default: null },
+      { column_name: 'funded_by', is_nullable: 'YES', column_default: null },
+      { column_name: 'urgency_flag', is_nullable: 'NO', column_default: 'false' },
+      { column_name: 'wire_change_flag', is_nullable: 'NO', column_default: 'false' },
+    ]);
+  });
+
+  it('0013: one active instruction and one line per allocation anchor (partial unique indexes), and the visibility functions', async () => {
+    const indexes = await handle.query<{ indexname: string; indexdef: string }>(
+      "select indexname, indexdef from pg_indexes where (schemaname = 'mon' and tablename = 'wire_instruction') or (schemaname = 'deal' and tablename = 'allocation') order by indexname",
+    );
+    const def = (name: string) => indexes.find((i) => i.indexname === name)?.indexdef ?? '';
+    for (const name of [
+      'wire_instruction_sponsor_fund_version_key',
+      'wire_instruction_investment_version_key',
+      'wire_instruction_sponsor_fund_active_idx',
+      'wire_instruction_investment_active_idx',
+    ]) {
+      expect(def(name), name).toContain('UNIQUE');
+      expect(def(name), name).toContain('IS NOT NULL');
+    }
+    expect(def('wire_instruction_sponsor_fund_active_idx')).toContain('active');
+    expect(def('wire_instruction_investment_active_idx')).toContain('active');
+    for (const name of ['allocation_opportunity_key', 'allocation_investment_key']) {
+      expect(def(name), name).toContain('UNIQUE');
+      expect(def(name), name).toContain('NULLS NOT DISTINCT');
+      expect(def(name), name).toContain('IS NOT NULL');
+    }
+    const functions = await handle.query<{ proname: string }>(
+      "select p.proname from pg_proc p join pg_namespace n on n.oid = p.pronamespace where n.nspname = 'pb' and p.proname in ('opportunity_visible', 'closing_visible') order by 1",
+    );
+    expect(functions.map((f) => f.proname)).toEqual(['closing_visible', 'opportunity_visible']);
+  });
+
+  it('0013: the policies per control table, append-only stage history and decisions, delete on allocations only', async () => {
+    const policies = await handle.query<{ table: string; policyname: string; cmd: string }>(
+      "select schemaname || '.' || tablename as \"table\", policyname, cmd from pg_policies where ((schemaname = 'deal' and (tablename not like '%\\_history' or tablename = 'opportunity_stage_history')) or (schemaname = 'mon' and tablename in ('wire_instruction', 'trade_ticket', 'deal_change_request'))) order by 1, 2",
+    );
+    expect(policies).toEqual([
+      { table: 'deal.allocation', policyname: 'read_visible', cmd: 'SELECT' },
+      { table: 'deal.allocation', policyname: 'write_delete', cmd: 'DELETE' },
+      { table: 'deal.allocation', policyname: 'write_insert', cmd: 'INSERT' },
+      { table: 'deal.allocation', policyname: 'write_update', cmd: 'UPDATE' },
+      { table: 'deal.closing', policyname: 'confirm_closing', cmd: 'UPDATE' },
+      { table: 'deal.closing', policyname: 'open_closing', cmd: 'INSERT' },
+      { table: 'deal.closing', policyname: 'read_visible', cmd: 'SELECT' },
+      { table: 'deal.closing_item', policyname: 'read_visible', cmd: 'SELECT' },
+      { table: 'deal.closing_item', policyname: 'write_delete', cmd: 'DELETE' },
+      { table: 'deal.closing_item', policyname: 'write_insert', cmd: 'INSERT' },
+      { table: 'deal.closing_item', policyname: 'write_update', cmd: 'UPDATE' },
+      { table: 'deal.diligence_task', policyname: 'read_visible', cmd: 'SELECT' },
+      { table: 'deal.diligence_task', policyname: 'write_delete', cmd: 'DELETE' },
+      { table: 'deal.diligence_task', policyname: 'write_insert', cmd: 'INSERT' },
+      { table: 'deal.diligence_task', policyname: 'write_update', cmd: 'UPDATE' },
+      { table: 'deal.ic_decision', policyname: 'read_visible', cmd: 'SELECT' },
+      { table: 'deal.ic_decision', policyname: 'record_decision', cmd: 'INSERT' },
+      { table: 'deal.legal_term', policyname: 'read_visible', cmd: 'SELECT' },
+      { table: 'deal.legal_term', policyname: 'write_delete', cmd: 'DELETE' },
+      { table: 'deal.legal_term', policyname: 'write_insert', cmd: 'INSERT' },
+      { table: 'deal.legal_term', policyname: 'write_update', cmd: 'UPDATE' },
+      { table: 'deal.opportunity', policyname: 'create_deal', cmd: 'INSERT' },
+      { table: 'deal.opportunity', policyname: 'move_deal', cmd: 'UPDATE' },
+      { table: 'deal.opportunity', policyname: 'read_visible', cmd: 'SELECT' },
+      { table: 'deal.opportunity_stage_history', policyname: 'read_visible', cmd: 'SELECT' },
+      { table: 'deal.opportunity_stage_history', policyname: 'record_stage', cmd: 'INSERT' },
+      { table: 'mon.deal_change_request', policyname: 'read_visible', cmd: 'SELECT' },
+      { table: 'mon.deal_change_request', policyname: 'submit', cmd: 'INSERT' },
+      { table: 'mon.deal_change_request', policyname: 'work', cmd: 'UPDATE' },
+      { table: 'mon.trade_ticket', policyname: 'approve', cmd: 'UPDATE' },
+      { table: 'mon.trade_ticket', policyname: 'draft', cmd: 'INSERT' },
+      { table: 'mon.trade_ticket', policyname: 'read_visible', cmd: 'SELECT' },
+      { table: 'mon.wire_instruction', policyname: 'propose', cmd: 'INSERT' },
+      { table: 'mon.wire_instruction', policyname: 'read_register', cmd: 'SELECT' },
+      { table: 'mon.wire_instruction', policyname: 'verify', cmd: 'UPDATE' },
+    ]);
+    // The register is read by the control roles only and is not under the investment wall.
+    const register = await handle.query<{ qual: string }>(
+      "select qual from pg_policies where schemaname = 'mon' and tablename = 'wire_instruction' and policyname = 'read_register'",
+    );
+    expect(register[0]?.qual).toContain('has_any_role');
+    expect(register[0]?.qual).not.toContain('investment_visible');
+    // DELETE is granted on allocations only (replaced as a set); the stage history and the IC
+    // decisions are append-only, so no UPDATE is granted on them.
+    const grants = await handle.query<{ table: string; privilege: string }>(`
+      select table_schema || '.' || table_name as "table", privilege_type as privilege
+      from information_schema.role_table_grants
+      where grantee = 'pb_app' and (
+        (privilege_type = 'DELETE' and (table_schema = 'deal' or table_schema || '.' || table_name in ('mon.wire_instruction', 'mon.trade_ticket', 'mon.deal_change_request')))
+        or (privilege_type = 'UPDATE' and table_schema || '.' || table_name in ('deal.opportunity_stage_history', 'deal.ic_decision'))
+      ) order by 1, 2`);
+    expect(grants).toEqual([{ table: 'deal.allocation', privilege: 'DELETE' }]);
   });
 
   it('never grant DELETE on financial tables or UPDATE/DELETE on the audit trail to the application role', async () => {

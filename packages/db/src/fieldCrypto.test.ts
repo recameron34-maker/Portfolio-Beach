@@ -115,7 +115,7 @@ describe('bank details', () => {
     expect(masked).not.toContain(details.accountName);
   });
 
-  it('accepts digit-only account and routing identifiers of 6 to 20 characters', () => {
+  it('accepts a digit-only account number and routing code of 6 to 20 characters', () => {
     expect(bankDetails.safeParse(details).success).toBe(true);
     expect(bankDetails.safeParse({ ...details, reference: undefined }).success).toBe(true);
     expect(bankDetails.safeParse({ ...details, accountNumber: '12345' }).success).toBe(false);
