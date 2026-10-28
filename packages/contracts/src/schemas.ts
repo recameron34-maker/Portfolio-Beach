@@ -187,6 +187,12 @@ export const operatingPeriod = z.object({
 export const investmentDetail = investmentSummary.extend({
   companyId: uuid,
   sponsorFundId: uuid.nullable(),
+  /**
+   * The close date from the closing record (deal.closing), the single source of every close date
+   * (docs/04 M8); null when no closing names the position. Defaults to null on parse so responses
+   * recorded before Phase 3 still read.
+   */
+  closeDate: isoDate.nullable().default(null),
   companyDescription: z.string().nullable(),
   latestPeriodEnd: isoDate.nullable(),
   cashFlows: z.array(z.object({ date: isoDate, flowType: z.string(), amount: decimalString })),
@@ -1437,6 +1443,64 @@ export const opsDropTemplates = z
       });
   });
 export type OpsDropTemplates = z.infer<typeof opsDropTemplates>;
+
+/* ---- Config files the pipeline and the closing read (docs/04 M5, M7, M8; rule 9) ---- */
+
+/** One item of config/closing_checklist.json: a stable code, the label the checklist shows and whether it blocks confirmation. */
+export const closingChecklistItem = z
+  .object({
+    code: z.string().regex(/^[a-z0-9_]+$/),
+    label: z.string().min(1),
+    required: z.boolean(),
+  })
+  .strict();
+export type ClosingChecklistItem = z.infer<typeof closingChecklistItem>;
+
+/**
+ * config/closing_checklist.json: the required-document checklist every closing starts with
+ * (docs/18 section 12). Operations cannot confirm a closing while a required item is open; an
+ * optional item is tracked but never blocks.
+ */
+export const closingChecklist = z
+  .object({ _note: z.string().optional(), items: z.array(closingChecklistItem).min(1) })
+  .strict()
+  .superRefine((file, ctx) => {
+    const codes = file.items.map((i) => i.code);
+    if (new Set(codes).size !== codes.length)
+      ctx.addIssue({ code: 'custom', path: ['items'], message: 'Item codes must be distinct' });
+  });
+export type ClosingChecklist = z.infer<typeof closingChecklist>;
+
+/** One task of a diligence template: its workstream code, its title and whether it gates IC. */
+export const diligenceTemplateTask = z
+  .object({
+    workstream: taxonomyCodeOf('diligence_workstream'),
+    title: z.string().min(1),
+    requiredForIc: z.boolean(),
+  })
+  .strict();
+export type DiligenceTemplateTask = z.infer<typeof diligenceTemplateTask>;
+
+/**
+ * config/diligence_templates.json: the tasks an opportunity starts with on entering Diligence, by
+ * deal type code, with the default list for a deal type without a template (docs/18 section 4).
+ */
+export const diligenceTemplates = z
+  .object({
+    _note: z.string().optional(),
+    templates: z.record(taxonomyCodeOf('deal_type'), z.array(diligenceTemplateTask).min(1)),
+    default: z.array(diligenceTemplateTask).min(1),
+  })
+  .strict();
+export type DiligenceTemplates = z.infer<typeof diligenceTemplates>;
+
+/** The template of a deal type: its own list, else the default. */
+export function diligenceTemplateFor(
+  templates: DiligenceTemplates,
+  dealType: string,
+): DiligenceTemplateTask[] {
+  return templates.templates[dealType] ?? templates.default;
+}
 
 /* ---- Documents (M3 document hub, docs/18 section 6, migration 0011, decision 0012) ---- */
 
