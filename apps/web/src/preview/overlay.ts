@@ -12,29 +12,34 @@ import {
 } from '@pb/calc';
 import type { Decimal } from '@pb/calc';
 import {
-  capitalNoticeDetail,
   capitalNoticePage,
   dataHealth,
   featureFlagList,
   investmentDetail,
+  investmentPage,
   investmentPerformance,
+  investmentSummary,
   valuationPage,
 } from '@pb/contracts';
 import type {
-  CapitalNoticeDetail,
+  CapitalNoticeControlDetail,
   CapitalNoticePage,
   DataHealth,
   InvestmentDetail,
+  InvestmentPage,
   InvestmentPerformance,
   QuarterRow,
   ValuationPage,
 } from '@pb/contracts';
 import type { z } from 'zod';
 import type { Recordings } from './fixtures.js';
+import { controlDetailOf, controlsTouched, recordedNoticeDetail } from './routes/register.js';
+import type { RecordedNoticeDetail } from './routes/register.js';
 import { QUARTERLY_FIGURE_KEYS } from './state.js';
 import type {
   PreviewState,
   SimException,
+  SimInvestment,
   SimNotice,
   SimPromotedQuarter,
   SimValuation,
@@ -151,12 +156,50 @@ export function overlayCapitalNoticePage(
   return changed ? { ...page, items, attention } : page;
 }
 
+/**
+ * The recorded notice detail with this session's controls laid over it (decision 0013): the
+ * state and row version, the cash flow a reconcile wrote, the hold and its note from the
+ * simulated register, the ticket judged for the reader and the SEC-12.4 alerts. The recorded
+ * body is returned as it is until the notice, the register or a ticket changed this session.
+ */
 export function overlayCapitalNoticeDetail(
-  detail: CapitalNoticeDetail,
+  detail: RecordedNoticeDetail,
   sim: SimNotice | undefined,
-): CapitalNoticeDetail {
-  if (sim?.changed !== true) return detail;
-  return { ...detail, state: sim.row.state, rowVersion: sim.row.rowVersion };
+  ctx: OverlayContext,
+): CapitalNoticeControlDetail | RecordedNoticeDetail {
+  if (sim === undefined || !controlsTouched(ctx, sim)) return detail;
+  return controlDetailOf(ctx, ctx.credential, detail, sim);
+}
+
+/* ---- The portfolio after a simulated close: the position the conversion created ---- */
+
+export interface InvestmentFilters {
+  dealType?: string;
+  active?: 'true' | 'false';
+}
+
+/**
+ * The portfolio grid with the positions a simulated close created this session laid on top:
+ * every created position the filters admit, first (it is the newest), its figures null since no
+ * flow or mark is on record for it (rule 10). The page is returned as it is when none applies.
+ */
+export function overlayInvestmentPage(
+  page: InvestmentPage,
+  sims: Iterable<SimInvestment>,
+  filters: InvestmentFilters,
+): InvestmentPage {
+  const present = new Set(page.items.map((i) => i.id));
+  const added: InvestmentPage['items'] = [];
+  for (const sim of sims) {
+    const { detail } = sim;
+    if (present.has(detail.id)) continue;
+    if (filters.dealType !== undefined && detail.dealType !== filters.dealType) continue;
+    if (filters.active === 'true' && !detail.isActive) continue;
+    if (filters.active === 'false' && detail.isActive) continue;
+    // The summary row is the detail's own columns; the grid schema strips the rest.
+    added.push(investmentSummary.parse(detail));
+  }
+  return added.length === 0 ? page : { ...page, items: [...added, ...page.items] };
 }
 
 export function overlayFlags(
@@ -315,6 +358,7 @@ export interface OverlayContext {
 const INVESTMENT = /^\/api\/v1\/investments\/([^/]+)$/;
 const PERFORMANCE = /^\/api\/v1\/investments\/([^/]+)\/performance$/;
 const NOTICE = /^\/api\/v1\/capital-notices\/([^/]+)$/;
+const ACTIVE_FILTERS = ['true', 'false'] as const;
 
 function param(url: URL, name: string): string | undefined {
   const value = url.searchParams.get(name);
@@ -357,6 +401,18 @@ export function overlayRecordedBody(url: URL, text: string, ctx: OverlayContext)
       overlayInvestmentPerformance(perf, state.promotedQuarters.values(), priorYearTolerance()),
     );
 
+  if (state.investments.size > 0 && path === '/api/v1/investments') {
+    const filters: InvestmentFilters = {};
+    const dealType = param(url, 'dealType');
+    if (dealType !== undefined) filters.dealType = dealType;
+    const active = param(url, 'active');
+    if (active !== undefined && (ACTIVE_FILTERS as readonly string[]).includes(active))
+      filters.active = active as (typeof ACTIVE_FILTERS)[number];
+    return write(parse(investmentPage), (page) =>
+      overlayInvestmentPage(page, state.investments.values(), filters),
+    );
+  }
+
   if (state.valuations !== null) {
     const sims = state.valuations;
     if (path === '/api/v1/valuations') {
@@ -390,7 +446,9 @@ export function overlayRecordedBody(url: URL, text: string, ctx: OverlayContext)
     const match = NOTICE.exec(path);
     if (match !== null) {
       const sim = notices.get(decodeURIComponent(match[1] ?? ''));
-      return write(parse(capitalNoticeDetail), (detail) => overlayCapitalNoticeDetail(detail, sim));
+      return write(parse(recordedNoticeDetail), (detail) =>
+        overlayCapitalNoticeDetail(detail, sim, ctx),
+      );
     }
   }
   return text;

@@ -1,5 +1,5 @@
-import { ROUTES, SIMULATED_ROUTES, featureFlagList } from '@pb/contracts';
-import type { IntakeFile, IntakeLink, IntakeSource, RouteDefinition } from '@pb/contracts';
+import { ROUTES, SIMULATED_ROUTES, featureFlagList, taxonomy } from '@pb/contracts';
+import type { IntakeFile, IntakeLink, IntakeSource, Person, RouteDefinition } from '@pb/contracts';
 import { countsOf, fileStatusOf } from '@pb/validation';
 import type { StagingState } from '@pb/workflows';
 import type { z } from 'zod';
@@ -220,11 +220,47 @@ export function bookOf(ctx: SimContext): PreviewBook | null {
   return ctx.book;
 }
 
-/** Whether the credential may open the investment: its own recorded detail answered 200, so a wall still hides what it hid. */
+/** Whether the credential may open the investment: its own recorded detail answered 200, so a wall still hides what it hid; a position a simulated close created is open to everyone. */
 export function canOpen(ctx: SimContext, credential: string, investmentId: string): boolean {
   return (
+    ctx.state.investments.has(investmentId) ||
     ctx.recordings.status(credential, `/api/v1/investments/${encodeURIComponent(investmentId)}`) ===
-    200
+      200
+  );
+}
+
+/** The name shown for a record the caller may not read; the id still travels (apps/api/src/pipeline/rows.ts). */
+export const NOT_VISIBLE = 'Not visible';
+
+/** The acting user as a person on a record. */
+export const personOf = (actor: SimActor): Person => ({
+  id: actor.userId,
+  name: actor.displayName,
+});
+
+/**
+ * Whether a taxonomy code is one the credential's recorded taxonomy lists as active. Without a
+ * recorded taxonomy (a test world) every well-formed code passes: the contract's pattern has
+ * already checked its shape, and the API's check against the table is what this stands in for.
+ */
+export function knownCode(ctx: SimContext, credential: string, code: string): boolean {
+  const recorded = ctx.recordings.read(credential, '/api/v1/taxonomy', taxonomy);
+  if (recorded === undefined) return true;
+  const domain = code.slice(0, code.indexOf('.'));
+  const terms = recorded.domains.find((d) => d.domain === domain)?.terms;
+  if (terms === undefined) return false;
+  return terms.some((t) => t.code === code && t.active);
+}
+
+/**
+ * Whether a document is in the simulated hub and visible to the credential (SEC-5.3): the
+ * evidence a diligence task or a closing item names must be one the caller can see, as the
+ * API's requireVisibleDocument checks the hub under the caller's own policy.
+ */
+export function documentVisible(ctx: SimContext, credential: string, documentId: string): boolean {
+  const doc = ctx.state.documents.get(documentId);
+  return (
+    doc !== undefined && (doc.investmentId === null || canOpen(ctx, credential, doc.investmentId))
   );
 }
 
