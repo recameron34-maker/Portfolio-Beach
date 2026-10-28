@@ -1,15 +1,14 @@
 import { z } from 'zod';
-import { capitalNoticeCommandBody, valuationCommandBody, valuationCreateBody } from './controls.js';
-import type { RouteDefinition } from './routes.js';
-import { API_PREFIX } from './routes.js';
-import * as s from './schemas.js';
+import type { RouteDefinition } from './route.js';
+import { API_PREFIX } from './route.js';
 
 /**
- * Write routes the static preview simulates in the browser through the @pb/workflows transition
- * tables. The API does not implement them yet (Phase 3: staging plus human approval, docs/18);
- * they are listed here so the preview, the future controllers and the docs share one contract.
- * They are deliberately not part of ROUTES: the contract parity test and the OpenAPI document
- * cover only what the API serves.
+ * Routes that exist only in the static preview. The valuation and capital notice commands the
+ * preview once simulated from here moved to CONTROL_ROUTES (routes-controls.ts) and are served by
+ * the API since Phase 3 wave 2 (decision 0013); the preview still simulates them in the browser
+ * through the @pb/workflows transition tables, reading their definitions from ROUTES. Only the
+ * preview reset stays here, deliberately outside ROUTES: the contract parity test and the OpenAPI
+ * document cover only what the API serves.
  */
 
 /**
@@ -50,39 +49,6 @@ export const WORKFLOW_REFUSALS = {
 export type WorkflowRefusalCode = keyof typeof WORKFLOW_REFUSALS;
 
 export const SIMULATED_ROUTES: readonly RouteDefinition[] = [
-  {
-    method: 'POST',
-    path: `${API_PREFIX}/valuations`,
-    summary: 'Create a Draft valuation version (simulated in the preview; Phase 3 in the API)',
-    tags: ['valuations'],
-    roles: ['operations'],
-    auth: true,
-    body: valuationCreateBody,
-    response: s.valuationRow,
-    responseStatus: 201,
-  },
-  {
-    method: 'POST',
-    path: `${API_PREFIX}/valuations/{id}/commands`,
-    summary:
-      'Move a valuation through docs/18 section 1 (simulated in the preview; Phase 3 in the API)',
-    tags: ['valuations'],
-    roles: [],
-    auth: true,
-    body: valuationCommandBody,
-    response: s.valuationRow,
-  },
-  {
-    method: 'POST',
-    path: `${API_PREFIX}/capital-notices/{id}/commands`,
-    summary:
-      'Move a capital notice through docs/18 section 3 (simulated in the preview; Phase 3 in the API)',
-    tags: ['capital'],
-    roles: [],
-    auth: true,
-    body: capitalNoticeCommandBody,
-    response: s.capitalNoticeRow,
-  },
   {
     method: 'POST',
     path: `${API_PREFIX}/preview/reset`,

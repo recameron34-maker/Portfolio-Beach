@@ -10,8 +10,10 @@ import {
   valueChange,
   lockedNear,
 } from '@pb/calc';
-import type { ValuationPage, valuationListQuery } from '@pb/contracts';
+import type { ValuationPage, ValuationRow as ContractValuationRow } from '@pb/contracts';
+import type { valuationListQuery } from '@pb/contracts';
 import { schema } from '@pb/db';
+import type { Tx } from '@pb/db';
 import type { z } from 'zod';
 import { decodeCursor, encodeCursor } from '../common/cursor.js';
 import { configInteger } from '../common/definitions.js';
@@ -38,12 +40,42 @@ const approver = alias(schema.appUser, 'approver');
 /** The cursor is "periodEnd|investmentNumber|version" of the last row, the page's sort key. */
 const CURSOR = /^(\d{4}-\d{2}-\d{2})\|(.+)\|(\d{1,9})$/s;
 
+/** A version as the board's select reads it, before the prior mark and the change are added. */
+interface LoadedVersion {
+  id: string;
+  investmentId: string;
+  investmentNumber: string;
+  companyName: string;
+  vehicleName: string;
+  dealType: string;
+  periodEnd: string;
+  version: number;
+  state: ContractValuationRow['state'];
+  method: string;
+  fairValue: string;
+  lockHash: string | null;
+  preparedBy: string | null;
+  dealTeamApprovedBy: string | null;
+  approvedBy: string | null;
+  approvedAt: Date | null;
+  reopenReason: string | null;
+  rowVersion: number;
+}
+
 @Injectable()
 export class ValuationsService {
   constructor(
     private readonly db: DbService,
     @Inject(DEFINITIONS) private readonly definitions: Definitions,
   ) {}
+
+  /** The quarter-end tolerance the board, the create and the lock share (docs/08 section 5). */
+  tolerance(): number {
+    return configInteger(
+      this.definitions.priorYearPeriodEndToleranceDays,
+      'priorYearPeriodEndToleranceDays',
+    );
+  }
 
   /**
    * The valuation board (M10): every visible version with a period end on or before the as-of
@@ -56,10 +88,7 @@ export class ValuationsService {
     requestId: string,
     opts: ValuationListOptions,
   ): Promise<ValuationPage> {
-    const tolerance = configInteger(
-      this.definitions.priorYearPeriodEndToleranceDays,
-      'priorYearPeriodEndToleranceDays',
-    );
+    const tolerance = this.tolerance();
     const number = schema.investment.investmentNumber;
     const conditions: (SQL | undefined)[] = [lte(valuation.periodEnd, opts.asOf)];
     if (opts.cursor !== undefined) {
@@ -100,65 +129,12 @@ export class ValuationsService {
       conditions.push(eq(schema.investment.vehicleId, opts.vehicleId));
 
     return this.db.run(principal, requestId, async (tx) => {
-      const rows = await tx
-        .select({
-          id: valuation.id,
-          investmentId: valuation.investmentId,
-          investmentNumber: number,
-          companyName: schema.portfolioCompany.name,
-          vehicleName: schema.vehicle.name,
-          dealType: schema.investment.dealType,
-          periodEnd: valuation.periodEnd,
-          version: valuation.version,
-          state: valuation.state,
-          method: valuation.method,
-          fairValue: valuation.fairValue,
-          lockHash: valuation.lockHash,
-          preparedBy: preparer.displayName,
-          dealTeamApprovedBy: dealTeamApprover.displayName,
-          approvedBy: approver.displayName,
-          approvedAt: valuation.approvedAt,
-          reopenReason: valuation.reopenReason,
-          rowVersion: valuation.rowVersion,
-        })
-        .from(valuation)
-        .innerJoin(schema.investment, eq(schema.investment.id, valuation.investmentId))
-        .innerJoin(
-          schema.portfolioCompany,
-          eq(schema.portfolioCompany.id, schema.investment.portfolioCompanyId),
-        )
-        .innerJoin(schema.vehicle, eq(schema.vehicle.id, schema.investment.vehicleId))
-        .leftJoin(preparer, eq(preparer.id, valuation.preparedBy))
-        .leftJoin(dealTeamApprover, eq(dealTeamApprover.id, valuation.dealTeamApprovedBy))
-        .leftJoin(approver, eq(approver.id, valuation.approvedBy))
+      const rows = await this.select(tx)
         .where(and(...conditions))
         .orderBy(desc(valuation.periodEnd), asc(number), desc(valuation.version))
         .limit(opts.limit + 1);
       const page = rows.slice(0, opts.limit);
-
-      // Prior marks for the positions on this page, in one query. Within a period end the highest
-      // version comes first, so lockedNear keeps the latest version when several qualify.
-      const lockedByInvestment = new Map<string, ValuationRow[]>();
-      const ids = [...new Set(page.map((r) => r.investmentId))];
-      if (ids.length > 0) {
-        const locked = await tx
-          .select({
-            investmentId: valuation.investmentId,
-            periodEnd: valuation.periodEnd,
-            version: valuation.version,
-            state: valuation.state,
-            fairValue: valuation.fairValue,
-            method: valuation.method,
-          })
-          .from(valuation)
-          .where(and(inArray(valuation.investmentId, ids), eq(valuation.state, 'Locked')))
-          .orderBy(asc(valuation.periodEnd), desc(valuation.version));
-        for (const { investmentId, ...mark } of locked) {
-          const marks = lockedByInvestment.get(investmentId);
-          if (marks === undefined) lockedByInvestment.set(investmentId, [mark]);
-          else marks.push(mark);
-        }
-      }
+      const items = await this.toRows(tx, page, tolerance);
 
       const periods = await tx
         .selectDistinct({ periodEnd: valuation.periodEnd })
@@ -168,42 +144,7 @@ export class ValuationsService {
 
       const last = page[page.length - 1];
       return {
-        items: page.map(({ approvedAt, ...r }) => {
-          // The quarter before the one this version reports for; a sponsor reporting a few days
-          // early or late counts for its quarter on both sides.
-          const quarterEnd = alignedQuarterEnd(r.periodEnd, tolerance);
-          const previousQuarterEnd = latestQuarterEndOnOrBefore(addDays(quarterEnd, -1));
-          const prior = lockedNear(
-            lockedByInvestment.get(r.investmentId) ?? [],
-            previousQuarterEnd,
-            tolerance,
-          );
-          const priorFairValue = prior?.fairValue ?? null;
-          return {
-            id: r.id,
-            investmentId: r.investmentId,
-            investmentNumber: r.investmentNumber,
-            companyName: r.companyName,
-            vehicleName: r.vehicleName,
-            dealType: r.dealType,
-            periodEnd: r.periodEnd,
-            quarterEnd,
-            version: r.version,
-            state: r.state,
-            method: r.method,
-            fairValue: r.fairValue,
-            priorFairValue,
-            // Null without a prior Locked mark or against a zero one (docs/08 section 2).
-            changePct: str(valueChange(r.fairValue, priorFairValue)),
-            lockHash: r.lockHash,
-            preparedBy: r.preparedBy,
-            dealTeamApprovedBy: r.dealTeamApprovedBy,
-            approvedBy: r.approvedBy,
-            approvedAt: approvedAt === null ? null : approvedAt.toISOString(),
-            reopenReason: r.reopenReason,
-            rowVersion: r.rowVersion,
-          };
-        }),
+        items,
         nextCursor:
           rows.length > opts.limit && last !== undefined
             ? encodeCursor([last.periodEnd, last.investmentNumber, last.version])
@@ -213,6 +154,123 @@ export class ValuationsService {
         periods: [...new Set(periods.map((p) => alignedQuarterEnd(p.periodEnd, tolerance)))].sort(
           (a, b) => (a < b ? 1 : a > b ? -1 : 0),
         ),
+      };
+    });
+  }
+
+  /**
+   * One version as a board row, under the transaction's own row-level security: null when it does
+   * not exist or the caller cannot see it. The workflow service answers every create and command
+   * with this, so a version reads the same on the board and after a command.
+   */
+  async rowById(tx: Tx, id: string): Promise<ContractValuationRow | null> {
+    const rows = await this.select(tx).where(eq(valuation.id, id));
+    const [row] = await this.toRows(tx, rows, this.tolerance());
+    return row ?? null;
+  }
+
+  /** The board's one select: the version, its position's names and the people on it. */
+  private select(tx: Tx) {
+    return tx
+      .select({
+        id: valuation.id,
+        investmentId: valuation.investmentId,
+        investmentNumber: schema.investment.investmentNumber,
+        companyName: schema.portfolioCompany.name,
+        vehicleName: schema.vehicle.name,
+        dealType: schema.investment.dealType,
+        periodEnd: valuation.periodEnd,
+        version: valuation.version,
+        state: valuation.state,
+        method: valuation.method,
+        fairValue: valuation.fairValue,
+        lockHash: valuation.lockHash,
+        preparedBy: preparer.displayName,
+        dealTeamApprovedBy: dealTeamApprover.displayName,
+        approvedBy: approver.displayName,
+        approvedAt: valuation.approvedAt,
+        reopenReason: valuation.reopenReason,
+        rowVersion: valuation.rowVersion,
+      })
+      .from(valuation)
+      .innerJoin(schema.investment, eq(schema.investment.id, valuation.investmentId))
+      .innerJoin(
+        schema.portfolioCompany,
+        eq(schema.portfolioCompany.id, schema.investment.portfolioCompanyId),
+      )
+      .innerJoin(schema.vehicle, eq(schema.vehicle.id, schema.investment.vehicleId))
+      .leftJoin(preparer, eq(preparer.id, valuation.preparedBy))
+      .leftJoin(dealTeamApprover, eq(dealTeamApprover.id, valuation.dealTeamApprovedBy))
+      .leftJoin(approver, eq(approver.id, valuation.approvedBy))
+      .$dynamic();
+  }
+
+  /**
+   * Board rows from loaded versions: the quarter each reports for, the Locked mark of the previous
+   * quarter end (one query for every position on the page) and the change against it.
+   */
+  private async toRows(
+    tx: Tx,
+    page: readonly LoadedVersion[],
+    tolerance: number,
+  ): Promise<ContractValuationRow[]> {
+    // Prior marks for the positions on this page, in one query. Within a period end the highest
+    // version comes first, so lockedNear keeps the latest version when several qualify.
+    const lockedByInvestment = new Map<string, ValuationRow[]>();
+    const ids = [...new Set(page.map((r) => r.investmentId))];
+    if (ids.length > 0) {
+      const locked = await tx
+        .select({
+          investmentId: valuation.investmentId,
+          periodEnd: valuation.periodEnd,
+          version: valuation.version,
+          state: valuation.state,
+          fairValue: valuation.fairValue,
+          method: valuation.method,
+        })
+        .from(valuation)
+        .where(and(inArray(valuation.investmentId, ids), eq(valuation.state, 'Locked')))
+        .orderBy(asc(valuation.periodEnd), desc(valuation.version));
+      for (const { investmentId, ...mark } of locked) {
+        const marks = lockedByInvestment.get(investmentId);
+        if (marks === undefined) lockedByInvestment.set(investmentId, [mark]);
+        else marks.push(mark);
+      }
+    }
+    return page.map(({ approvedAt, ...r }) => {
+      // The quarter before the one this version reports for; a sponsor reporting a few days
+      // early or late counts for its quarter on both sides.
+      const quarterEnd = alignedQuarterEnd(r.periodEnd, tolerance);
+      const previousQuarterEnd = latestQuarterEndOnOrBefore(addDays(quarterEnd, -1));
+      const prior = lockedNear(
+        lockedByInvestment.get(r.investmentId) ?? [],
+        previousQuarterEnd,
+        tolerance,
+      );
+      const priorFairValue = prior?.fairValue ?? null;
+      return {
+        id: r.id,
+        investmentId: r.investmentId,
+        investmentNumber: r.investmentNumber,
+        companyName: r.companyName,
+        vehicleName: r.vehicleName,
+        dealType: r.dealType,
+        periodEnd: r.periodEnd,
+        quarterEnd,
+        version: r.version,
+        state: r.state,
+        method: r.method,
+        fairValue: r.fairValue,
+        priorFairValue,
+        // Null without a prior Locked mark or against a zero one (docs/08 section 2).
+        changePct: str(valueChange(r.fairValue, priorFairValue)),
+        lockHash: r.lockHash,
+        preparedBy: r.preparedBy,
+        dealTeamApprovedBy: r.dealTeamApprovedBy,
+        approvedBy: r.approvedBy,
+        approvedAt: approvedAt === null ? null : approvedAt.toISOString(),
+        reopenReason: r.reopenReason,
+        rowVersion: r.rowVersion,
       };
     });
   }

@@ -77,20 +77,29 @@ describe('CONTROL_ROUTES', () => {
     }
   });
 
-  it('defines each method and path once, outside ROUTES until the API serves them (wave 2)', () => {
+  it('defines each method and path once and is served through ROUTES since wave 2', () => {
     const keys = CONTROL_ROUTES.map((r) => `${r.method} ${r.path}`);
     expect(new Set(keys).size).toBe(keys.length);
-    const served = new Set(ROUTES.map((r) => `${r.method} ${r.path}`));
-    expect(keys.filter((k) => served.has(k))).toEqual([]);
+    const served = ROUTES.map((r) => `${r.method} ${r.path}`);
+    // Every control route is in the served table exactly once, beside the routes that were there.
+    expect(new Set(served).size).toBe(served.length);
+    expect(keys.filter((k) => !served.includes(k))).toEqual([]);
+    expect(ROUTES.length).toBeGreaterThan(CONTROL_ROUTES.length);
+    for (const route of CONTROL_ROUTES) expect(ROUTES).toContain(route);
   });
 
-  it('carries the three simulated writes, never the preview reset', () => {
+  it('took the three simulated writes over, leaving SIMULATED_ROUTES the preview reset alone', () => {
     const keys = new Set(CONTROL_ROUTES.map((r) => `${r.method} ${r.path}`));
-    for (const route of SIMULATED_ROUTES) {
-      const key = `${route.method} ${route.path}`;
-      if (route.path.endsWith('/preview/reset')) expect(keys.has(key), key).toBe(false);
-      else expect(keys.has(key), key).toBe(true);
-    }
+    for (const path of [
+      `${API_PREFIX}/valuations`,
+      `${API_PREFIX}/valuations/{id}/commands`,
+      `${API_PREFIX}/capital-notices/{id}/commands`,
+    ])
+      expect(keys.has(`POST ${path}`), path).toBe(true);
+    expect(SIMULATED_ROUTES.map((r) => `${r.method} ${r.path}`)).toEqual([
+      `POST ${API_PREFIX}/preview/reset`,
+    ]);
+    expect(keys.has(`POST ${API_PREFIX}/preview/reset`)).toBe(false);
   });
 
   it('gives every write a body and marks every command and create idempotent', () => {
@@ -148,10 +157,13 @@ describe('CONTROL_ROUTES', () => {
     }
   });
 
-  it('joins the OpenAPI document without a collision once spread into ROUTES', () => {
-    const doc = buildOpenApi('0.1.0', [...ROUTES, ...CONTROL_ROUTES]);
+  it('joins the OpenAPI document without a collision, spread into ROUTES', () => {
+    // ROUTES already carries CONTROL_ROUTES (wave 2), so the document built from the default
+    // table has one operation per route and counts nothing twice.
+    const doc = buildOpenApi('0.1.0');
     const operations = Object.values(doc.paths).flatMap((p) => Object.keys(p));
-    expect(operations.length).toBe(ROUTES.length + CONTROL_ROUTES.length);
+    expect(operations.length).toBe(ROUTES.length);
+    expect(operations.length).toBeGreaterThan(CONTROL_ROUTES.length);
     const propose = doc.paths[`${API_PREFIX}/wire-instructions`]?.post as {
       'x-roles': string[];
       requestBody: unknown;
@@ -160,10 +172,8 @@ describe('CONTROL_ROUTES', () => {
     expect(propose['x-roles']).toEqual(['operations']);
     expect(propose.requestBody).toBeDefined();
     expect(Object.keys(propose.responses)).toContain('201');
-    // Today's document is untouched: CONTROL_ROUTES joins it in wave 2.
-    expect(Object.keys(buildOpenApi('0.1.0').paths)).not.toContain(
-      `${API_PREFIX}/wire-instructions`,
-    );
+    for (const route of CONTROL_ROUTES)
+      expect(doc.paths[route.path]?.[route.method.toLowerCase()], route.path).toBeDefined();
   });
 });
 
@@ -174,8 +184,13 @@ describe('re-exports', () => {
     expect(simulated.capitalNoticeCommandBody).toBe(controls.capitalNoticeCommandBody);
     expect(simulated.valuationCommand).toBe(controls.valuationCommand);
     expect(simulated.capitalNoticeCommand).toBe(controls.capitalNoticeCommand);
-    const bodies = new Map(SIMULATED_ROUTES.map((r) => [r.path, r.body]));
+    const bodies = new Map(
+      ROUTES.filter((r) => r.method === 'POST').map((r) => [r.path, r.body] as const),
+    );
     expect(bodies.get(`${API_PREFIX}/valuations`)).toBe(controls.valuationCreateBody);
+    expect(bodies.get(`${API_PREFIX}/valuations/{id}/commands`)).toBe(
+      controls.valuationCommandBody,
+    );
     expect(bodies.get(`${API_PREFIX}/capital-notices/{id}/commands`)).toBe(
       controls.capitalNoticeCommandBody,
     );

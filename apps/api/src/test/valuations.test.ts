@@ -1,7 +1,28 @@
+import { createHash } from 'node:crypto';
+import { eq } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { D, addDays, alignedQuarterEnd, daysBetween, latestQuarterEndOnOrBefore } from '@pb/calc';
-import { problemDetails, valuationPage } from '@pb/contracts';
-import type { ValuationPage, ValuationRow } from '@pb/contracts';
+import {
+  investmentDetail,
+  problemDetails,
+  valuationBatchResult,
+  valuationDetail,
+  valuationLockText,
+  valuationPage,
+  valuationRow,
+  weeklyReport,
+} from '@pb/contracts';
+import type {
+  ValuationBatchResult,
+  ValuationCommand,
+  ValuationDetail,
+  ValuationPage,
+  ValuationRow,
+  ValuationState,
+} from '@pb/contracts';
+import { SYSTEM_USER_ID, schema, withUserContext } from '@pb/db';
+import { forbiddenPairs, valuationMachine } from '@pb/workflows';
+import { valuationLockHash } from '../common/lock.js';
 import { startHarness } from './harness.js';
 import type { Harness } from './harness.js';
 
@@ -353,6 +374,649 @@ describe('valuation board (M10)', () => {
       expect(page.items.every((r) => r.periodEnd <= '2024-12-31')).toBe(true);
       expect(page.periods[0]).toBe('2024-12-31');
       expect(page.periods.every((p) => p <= '2024-12-31')).toBe(true);
+    });
+  });
+});
+
+/*
+ * The valuation workflow (docs/04 M10, docs/18 section 1, journey 3 of docs/12) over the API, on
+ * its own harness so the board counts above stay as seeded. The reporting gate test runs first,
+ * before any reopen moves a Locked mark; every later test takes its own untagged investment.
+ */
+describe('valuation workflow (M10, docs/18 section 1)', () => {
+  let h: Harness;
+  beforeAll(async () => {
+    h = await startHarness();
+  });
+  afterAll(async () => {
+    await h.close();
+  });
+
+  const PERIOD = '2025-06-30';
+  const METHOD = 'valuation_method.sponsor_mark';
+  const NIL = '00000000-0000-4000-8000-000000000000';
+  const userId = (externalId: string): string =>
+    h.dataset.users.find((u) => u.externalId === externalId)!.id;
+  const userName = (externalId: string): string =>
+    h.dataset.users.find((u) => u.externalId === externalId)!.displayName;
+  const idOf = (tag: string): string => h.dataset.scenarios[tag]![0]!;
+  const lockedAt = (investmentId: string, periodEnd = PERIOD): string =>
+    h.dataset.valuations.find(
+      (v) => v.investmentId === investmentId && v.periodEnd === periodEnd && v.state === 'Locked',
+    )!.id;
+  /** Active, visible investments outside every scenario, each with a Locked mark at the period. */
+  const plain = (periodEnd = PERIOD): string[] => {
+    const tagged = new Set(Object.values(h.dataset.scenarios).flat());
+    return h.dataset.investments
+      .filter(
+        (i) =>
+          i.isActive &&
+          !tagged.has(i.id) &&
+          h.dataset.valuations.some(
+            (v) => v.investmentId === i.id && v.periodEnd === periodEnd && v.state === 'Locked',
+          ),
+      )
+      .map((i) => i.id)
+      .sort();
+  };
+  /**
+   * Locked versions for the write tests to take one each, latest quarter first: the small
+   * profile has four untagged active positions, so the earlier quarters supply the rest (one
+   * Locked version per investment and period end, so each slot is its own chain).
+   */
+  const slots = (): { investmentId: string; versionId: string; periodEnd: string }[] =>
+    [PERIOD, '2025-03-31', '2024-12-31'].flatMap((periodEnd) =>
+      plain(periodEnd).map((investmentId) => ({
+        investmentId,
+        versionId: lockedAt(investmentId, periodEnd),
+        periodEnd,
+      })),
+    );
+  const slot = (n: number): { investmentId: string; versionId: string; periodEnd: string } => {
+    const found = slots()[n];
+    if (found === undefined) throw new Error(`no slot ${n}`);
+    return found;
+  };
+  /** The message of a rejected promise, with the cause drizzle wraps a database error in. */
+  const rejection = async (work: Promise<unknown>): Promise<string> => {
+    try {
+      await work;
+      return 'resolved';
+    } catch (error: unknown) {
+      const err = error as { message?: string; cause?: { message?: string } };
+      return `${err.message ?? ''} ${err.cause?.message ?? ''}`;
+    }
+  };
+
+  const create = async (
+    who: string,
+    body: Record<string, unknown>,
+    status = 201,
+  ): Promise<Record<string, unknown>> =>
+    (
+      await h
+        .http()
+        .post('/api/v1/valuations')
+        .set('authorization', h.as(who))
+        .send(body)
+        .expect(status)
+    ).body as Record<string, unknown>;
+  const command = async (
+    who: string,
+    id: string,
+    body: Record<string, unknown>,
+    status = 200,
+    headers: Record<string, string> = {},
+  ): Promise<{ body: Record<string, unknown>; etag: string | undefined }> => {
+    const res = await h
+      .http()
+      .post(`/api/v1/valuations/${id}/commands`)
+      .set('authorization', h.as(who))
+      .set(headers)
+      .send(body)
+      .expect(status);
+    return { body: res.body as Record<string, unknown>, etag: res.headers.etag };
+  };
+  const row = async (
+    who: string,
+    id: string,
+    body: Record<string, unknown>,
+    headers: Record<string, string> = {},
+  ): Promise<ValuationRow> => valuationRow.parse((await command(who, id, body, 200, headers)).body);
+  const detail = async (who: string, id: string, status = 200): Promise<ValuationDetail> => {
+    const res = await h
+      .http()
+      .get(`/api/v1/valuations/${id}`)
+      .set('authorization', h.as(who))
+      .expect(status);
+    return status === 200 ? valuationDetail.parse(res.body) : (res.body as ValuationDetail);
+  };
+  const stateOf = async (id: string): Promise<string> =>
+    (
+      await h.runtime.db.query<{ state: string }>('select state from mon.valuation where id = $1', [
+        id,
+      ])
+    )[0]!.state;
+  const versionIn = async (investmentId: string, state: string): Promise<string> =>
+    (
+      await h.runtime.db.query<{ id: string }>(
+        'select id from mon.valuation where investment_id = $1 and state = $2',
+        [investmentId, state],
+      )
+    )[0]!.id;
+  const events = (action: string, entityId: string) =>
+    h.runtime.db.query<{
+      details: Record<string, unknown>;
+      reason: string | null;
+      actor_id: string;
+    }>(
+      'select details, reason, actor_id from audit.event where action = $1 and entity_id = $2 order by id',
+      [action, entityId],
+    );
+  const tasksFor = (regardingId: string) =>
+    h.runtime.db.query<{ owner_id: string; title: string; state: string }>(
+      "select owner_id, title, state from ops.task where regarding_entity = 'mon.valuation' and regarding_id = $1 order by owner_id",
+      [regardingId],
+    );
+  /** Stages a segregation-of-duties case by hand: no synthetic user holds two roles. */
+  const setPreparedBy = (id: string, preparedBy: string): Promise<void> =>
+    withUserContext(
+      h.runtime.db.db,
+      { userId: userId('ops.one'), roles: ['operations'], clientIds: [] },
+      async (tx) => {
+        await tx.update(schema.valuation).set({ preparedBy }).where(eq(schema.valuation.id, id));
+      },
+    );
+  const weekly = async () =>
+    weeklyReport.parse(
+      (
+        await h
+          .http()
+          .get('/api/v1/reports/weekly')
+          .set('authorization', h.as('viewer'))
+          .expect(200)
+      ).body,
+    );
+  const onePager = async (investmentId: string) =>
+    investmentDetail.parse(
+      (
+        await h
+          .http()
+          .get(`/api/v1/investments/${investmentId}?asOf=${h.dataset.asOf}`)
+          .set('authorization', h.as('viewer'))
+          .expect(200)
+      ).body,
+    );
+
+  it('reproduces the pinned lock digest of the contracts over the same text', () => {
+    const inputs = {
+      investmentId: '30000000-0000-4000-8000-000000000001',
+      periodEnd: '2025-06-30',
+      version: 2,
+      method: 'Last round',
+      fairValue: '1250000.00',
+    };
+    expect(valuationLockHash(inputs)).toBe(
+      '828c4e9f8fcd8423b76d5e175ca857a1cca0302e9789faf1b56eb3c68700cc1f',
+    );
+    expect(valuationLockHash(inputs)).toBe(
+      createHash('sha256').update(valuationLockText(inputs)).digest('hex'),
+    );
+  });
+
+  it('reporting gate: a DealTeamApproved mark changes no report; locking it does', async () => {
+    const stale = idOf('stale_valuation');
+    const before = await onePager(stale);
+    expect(before.navDate).toBe('2025-03-31');
+    const prior = before.nav!;
+    const fairValue = D(prior).times('1.5').toFixed(2);
+    const created = valuationRow.parse(
+      await create('ops.one', {
+        investmentId: stale,
+        periodEnd: PERIOD,
+        method: METHOD,
+        fairValue,
+        inputs: { source: 'sponsor letter', note: 'Q2 mark' },
+      }),
+    );
+    expect(created.state).toBe('Draft');
+    expect(created.preparedBy).toBeNull();
+    expect(created.priorFairValue).toBe(prior);
+    expect(created.version).toBe(1);
+    const report = await weekly();
+    expect(report.staleValuations.map((x) => x.investmentId)).toContain(stale);
+
+    await row('ops.one', created.id, { command: 'prepare' });
+    const approved = await row('deal.one', created.id, { command: 'dealTeamApprove' });
+    expect(approved.state).toBe('DealTeamApproved');
+    expect(approved.dealTeamApprovedBy).toBe(userName('deal.one'));
+    // Nothing a client could see has moved: the weekly report and the one-pager read Locked only.
+    expect(await weekly()).toEqual(report);
+    const unchanged = await onePager(stale);
+    expect(unchanged.nav).toBe(prior);
+    expect(unchanged.navDate).toBe('2025-03-31');
+    expect(unchanged.valuations.map((v) => v.state)).toContain('DealTeamApproved');
+
+    const locked = await row('head.one', created.id, { command: 'lock' });
+    expect(locked.state).toBe('Locked');
+    expect(locked.approvedBy).toBe(userName('head.one'));
+    expect(locked.approvedAt).toBe(`${h.dataset.asOf}T12:00:00.000Z`);
+    expect(locked.lockHash).toBe(valuationLockHash(locked));
+    const after = await onePager(stale);
+    expect(after.nav).toBe(fairValue);
+    expect(after.navDate).toBe(PERIOD);
+    const relocked = await weekly();
+    expect(relocked).not.toEqual(report);
+    expect(relocked.staleValuations.map((x) => x.investmentId)).not.toContain(stale);
+    const seen = await detail('viewer', created.id);
+    expect(seen.lockText).toBe(valuationLockText(locked));
+    expect(seen.approvals.map((a) => [a.step, a.decision, a.actorName])).toEqual([
+      ['ops_prepared', 'approve', userName('ops.one')],
+      ['deal_team', 'approve', userName('deal.one')],
+      ['final', 'approve', userName('head.one')],
+    ]);
+    const lockEvent = (await events('valuation.lock', created.id))[0]!;
+    expect(lockEvent.details.state).toEqual({ before: 'DealTeamApproved', after: 'Locked' });
+    expect(lockEvent.details.lockHash).toEqual({ before: null, after: locked.lockHash });
+    expect((await events('valuation.create', created.id))[0]!.details.state).toEqual({
+      before: null,
+      after: 'Draft',
+    });
+  });
+
+  describe('create (the "(new) to Draft" row)', () => {
+    it('needs the operations role, a visible active investment, a quarter and a positive value', async () => {
+      const target = slot(0).investmentId;
+      const body = { investmentId: target, periodEnd: PERIOD, method: METHOD, fairValue: '10.00' };
+      for (const who of ['viewer', 'deal.one', 'head.one', 'audit.one'])
+        await create(who, body, 403);
+      // A period with a Locked version is reopened first, never doubled (422, not a hint).
+      const locked = problemDetails.parse(await create('ops.one', body, 422));
+      expect(locked.type).toMatch(/workflow-precondition$/);
+      expect(locked.detail).toMatch(/reopen/);
+      // Walled: 404 for operations outside the wall, so the position is not revealed.
+      await create('ops.one', { ...body, investmentId: idOf('walled_deal') }, 404);
+      await create('ops.one', { ...body, investmentId: NIL }, 404);
+      const exited = h.dataset.investments.find((i) => !i.isActive)!;
+      await create('ops.one', { ...body, investmentId: exited.id }, 404);
+      // Not a quarter end and not within the tolerance of one.
+      const offQuarter = problemDetails.parse(
+        await create('ops.one', { ...body, periodEnd: '2025-05-15' }, 422),
+      );
+      expect(offQuarter.detail).toMatch(/quarter end/);
+      const position = h.dataset.investments.find((i) => i.id === target)!;
+      const early = problemDetails.parse(
+        await create(
+          'ops.one',
+          { ...body, periodEnd: latestQuarterEndOnOrBefore(addDays(position.entryDate, -1)) },
+          422,
+        ),
+      );
+      expect(early.detail).toMatch(/not yet held/);
+      for (const fairValue of ['0', '0.00', '-5.00']) {
+        const bad = problemDetails.parse(await create('ops.one', { ...body, fairValue }, 400));
+        expect(bad.errors?.map((e) => e.path)).toEqual(['fairValue']);
+      }
+      for (const method of [
+        'sponsor_mark',
+        'valuation_method.made_up',
+        'deal_type.cv_single_asset',
+      ]) {
+        const bad = problemDetails.parse(await create('ops.one', { ...body, method }, 400));
+        expect(bad.errors?.map((e) => e.path)).toEqual(['method']);
+      }
+      await create('ops.one', { ...body, extra: 1 }, 400);
+    });
+  });
+
+  describe('journey 3: prepare, approve, lock, then an edit after lock', () => {
+    it('reopens a Locked version into a new Draft, alerts the prior approvers and locks the new one', async () => {
+      const { investmentId: target, versionId: v1 } = slot(0);
+      expect(slot(0).periodEnd).toBe(PERIOD);
+      const seeded = h.dataset.valuations.find((v) => v.id === v1)!;
+      // Reopen needs a reason (422 without one) and a role from the table (403 for the deal team).
+      const noReason = problemDetails.parse(
+        (await command('head.one', v1, { command: 'reopen' }, 422)).body,
+      );
+      expect(noReason.detail).toMatch(/reason/);
+      await command('deal.one', v1, { command: 'reopen', reason: 'Sponsor restated Q2' }, 403);
+      const draft = await row('head.one', v1, { command: 'reopen', reason: 'Sponsor restated Q2' });
+      expect(draft.id).not.toBe(v1);
+      expect(draft.state).toBe('Draft');
+      expect(draft.version).toBe(seeded.version + 1);
+      expect(draft.periodEnd).toBe(PERIOD);
+      expect([draft.method, draft.fairValue]).toEqual([seeded.method, seeded.fairValue]);
+      expect([
+        draft.preparedBy,
+        draft.dealTeamApprovedBy,
+        draft.approvedBy,
+        draft.lockHash,
+      ]).toEqual([null, null, null, null]);
+      expect(await stateOf(v1)).toBe('Reopened');
+      const reopened = await detail('viewer', v1);
+      expect(reopened.reopenReason).toBe('Sponsor restated Q2');
+      expect(reopened.lockHash).toBe(seeded.lockHash);
+      expect(reopened.lockText).toBeNull();
+      expect(reopened.approvals.map((a) => [a.step, a.decision, a.reason])).toEqual([
+        ['reopen', 'reopen', 'Sponsor restated Q2'],
+      ]);
+      // The approver reopening is not alerted about their own reopen; the deal team approver is.
+      const tasks = await tasksFor(draft.id);
+      expect(tasks.map((t) => t.owner_id)).toEqual([userId('deal.one')]);
+      expect(tasks[0]!.title).toBe(`Valuation reopened: ${draft.investmentNumber} ${PERIOD}`);
+      expect(tasks[0]!.state).toBe('open');
+      const reopenEvent = (await events('valuation.reopen', v1))[0]!;
+      expect(reopenEvent.reason).toBe('Sponsor restated Q2');
+      expect(reopenEvent.details.state).toEqual({ before: 'Locked', after: 'Reopened' });
+      expect(reopenEvent.details.newVersion).toEqual({ id: draft.id, version: draft.version });
+      expect((await events('valuation.create', draft.id)).length).toBe(1);
+
+      // The new version takes the full path, with a send back on the way.
+      await row('ops.one', draft.id, { command: 'prepare' });
+      const sentBack = await row('deal.one', draft.id, {
+        command: 'sendBack',
+        reason: 'Check the multiple against the latest comps',
+      });
+      expect(sentBack.state).toBe('Draft');
+      expect(sentBack.preparedBy).toBe(userName('ops.one'));
+      await row('ops.one', draft.id, { command: 'prepare' });
+      await row('deal.one', draft.id, { command: 'dealTeamApprove' });
+      const locked = await row('head.one', draft.id, { command: 'lock' });
+      expect(locked.state).toBe('Locked');
+      expect(locked.lockHash).toBe(
+        createHash('sha256').update(valuationLockText(locked)).digest('hex'),
+      );
+      expect(locked.lockHash).not.toBe(seeded.lockHash);
+      const trail = (await detail('audit.one', draft.id)).approvals;
+      expect(trail.map((a) => [a.step, a.decision])).toEqual([
+        ['ops_prepared', 'approve'],
+        ['deal_team', 'reject'],
+        ['ops_prepared', 'approve'],
+        ['deal_team', 'approve'],
+        ['final', 'approve'],
+      ]);
+      expect(trail[1]!.reason).toBe('Check the multiple against the latest comps');
+      // The board lists the new Locked version above the Reopened one.
+      const page = valuationPage.parse(
+        (
+          await h
+            .http()
+            .get(`/api/v1/valuations?investmentId=${target}&periodEnd=${PERIOD}`)
+            .set('authorization', h.as('viewer'))
+            .expect(200)
+        ).body,
+      );
+      expect(page.items.map((r) => [r.version, r.state])).toEqual([
+        [draft.version, 'Locked'],
+        [seeded.version, 'Reopened'],
+      ]);
+    });
+
+    it('alerts both prior approvers when operations reopens, and refuses a second chain', async () => {
+      const { investmentId: target, versionId: v1 } = slot(1);
+      expect(slot(1).periodEnd).toBe(PERIOD);
+      const draft = await row('ops.one', v1, { command: 'reopen', reason: 'Late sponsor letter' });
+      expect((await tasksFor(draft.id)).map((t) => t.owner_id).sort()).toEqual(
+        [userId('deal.one'), userId('head.one')].sort(),
+      );
+      // A version is in progress for the quarter now: no second chain from the board.
+      const inProgress = problemDetails.parse(
+        await create(
+          'ops.one',
+          { investmentId: target, periodEnd: PERIOD, method: METHOD, fairValue: '1.00' },
+          422,
+        ),
+      );
+      expect(inProgress.detail).toMatch(/in progress/);
+    });
+  });
+
+  describe('M10 acceptance: a Locked version never changes in place; segregation of duties', () => {
+    it('raises from the guard trigger on a direct update, whoever tries', async () => {
+      const v1 = slot(2).versionId;
+      const before = await h.runtime.db.query<{ fair_value: string }>(
+        'select fair_value from mon.valuation where id = $1',
+        [v1],
+      );
+      expect(
+        await rejection(
+          h.runtime.db.exec(`update mon.valuation set fair_value = 1 where id = '${v1}'`),
+        ),
+      ).toMatch(/is Locked and cannot be updated in place/);
+      expect(
+        await rejection(
+          withUserContext(
+            h.runtime.db.db,
+            { userId: userId('ops.one'), roles: ['operations'], clientIds: [] },
+            async (tx) => {
+              await tx
+                .update(schema.valuation)
+                .set({ fairValue: '1.00' })
+                .where(eq(schema.valuation.id, v1));
+            },
+          ),
+        ),
+      ).toMatch(/is Locked and cannot be updated in place/);
+      // The system actor holds no update policy on valuations at all: nothing changes, silently.
+      await withUserContext(
+        h.runtime.db.db,
+        { userId: SYSTEM_USER_ID, roles: ['service'] },
+        async (tx) => {
+          await tx
+            .update(schema.valuation)
+            .set({ fairValue: '1.00' })
+            .where(eq(schema.valuation.id, v1));
+        },
+      );
+      const after = await h.runtime.db.query<{ fair_value: string }>(
+        'select fair_value from mon.valuation where id = $1',
+        [v1],
+      );
+      expect(after).toEqual(before);
+      expect(await stateOf(v1)).toBe('Locked');
+    });
+
+    it('refuses the preparer as deal team approver (422) and as final approver (422)', async () => {
+      // Deal team approve: a version prepared by the deal team member who tries to approve it.
+      const draftA = await row('head.one', slot(3).versionId, {
+        command: 'reopen',
+        reason: 'Stage the preparer case',
+      });
+      await row('ops.one', draftA.id, { command: 'prepare' });
+      await setPreparedBy(draftA.id, userId('deal.one'));
+      const asPreparer = problemDetails.parse(
+        (await command('deal.one', draftA.id, { command: 'dealTeamApprove' }, 422)).body,
+      );
+      expect(asPreparer.type).toMatch(/workflow-precondition$/);
+      expect(asPreparer.detail).toMatch(/preparer/);
+      expect(await stateOf(draftA.id)).toBe('OpsPrepared');
+      // Lock: a version prepared by the approver who tries to lock it; and the deal team cannot
+      // lock at all (403); and a lock from Draft is not a transition (409).
+      const draftB = await row('head.one', slot(4).versionId, {
+        command: 'reopen',
+        reason: 'Stage the approver case',
+      });
+      const fromDraft = problemDetails.parse(
+        (await command('head.one', draftB.id, { command: 'lock' }, 409)).body,
+      );
+      expect(fromDraft.type).toMatch(/workflow-transition$/);
+      await row('ops.one', draftB.id, { command: 'prepare' });
+      await row('deal.one', draftB.id, { command: 'dealTeamApprove' });
+      await command('deal.one', draftB.id, { command: 'lock' }, 403);
+      await setPreparedBy(draftB.id, userId('head.one'));
+      const asApprover = problemDetails.parse(
+        (await command('head.one', draftB.id, { command: 'lock' }, 422)).body,
+      );
+      expect(asApprover.detail).toMatch(/preparer/);
+      expect(await stateOf(draftB.id)).toBe('DealTeamApproved');
+      expect((await events('valuation.lock', draftB.id)).length).toBe(0);
+    });
+
+    it('answers 409 for every forbidden pair of the machine, from a row in that state', async () => {
+      const byState: Record<ValuationState, string> = {
+        Draft: await versionIn(slot(1).investmentId, 'Draft'),
+        OpsPrepared: await versionIn(slot(3).investmentId, 'OpsPrepared'),
+        DealTeamApproved: await versionIn(slot(4).investmentId, 'DealTeamApproved'),
+        Locked: slot(2).versionId,
+        Reopened: slot(0).versionId,
+      };
+      const userFor: Record<string, string> = {
+        operations: 'ops.one',
+        deal_team: 'deal.one',
+        approver: 'head.one',
+      };
+      const pairs = forbiddenPairs(valuationMachine);
+      const commands: ValuationCommand[] = [
+        'prepare',
+        'sendBack',
+        'dealTeamApprove',
+        'lock',
+        'reopen',
+      ];
+      expect(pairs.length).toBe(
+        valuationMachine.states.length * commands.length - valuationMachine.transitions.length,
+      );
+      for (const { from, command: cmd } of pairs) {
+        const id = byState[from];
+        expect(await stateOf(id), `${from} row`).toBe(from);
+        const role = valuationMachine.transitions.find((t) => t.command === cmd)!.roles[0]!;
+        const res = await command(
+          userFor[role]!,
+          id,
+          { command: cmd, reason: 'Trying a pair the table does not list' },
+          409,
+        );
+        const problem = problemDetails.parse(res.body);
+        expect(problem.type, `${from} ${cmd}`).toMatch(/workflow-transition$/);
+        expect(problem.detail, `${from} ${cmd}`).toContain(`${cmd} is not allowed from ${from}`);
+        expect(await stateOf(id), `${from} ${cmd}`).toBe(from);
+      }
+    });
+  });
+
+  describe('row versions, batches and walls', () => {
+    it('answers 412 to a stale If-Match, 400 to a malformed one, and tags every answer', async () => {
+      const draft = await row('ops.one', slot(5).versionId, {
+        command: 'reopen',
+        reason: 'Row version check',
+      });
+      const first = await command('ops.one', draft.id, { command: 'prepare' }, 412, {
+        'if-match': '"999"',
+      });
+      expect(problemDetails.parse(first.body).status).toBe(412);
+      expect(await stateOf(draft.id)).toBe('Draft');
+      await command('ops.one', draft.id, { command: 'prepare' }, 400, { 'if-match': 'abc' });
+      const ok = await command('ops.one', draft.id, { command: 'prepare' }, 200, {
+        'if-match': `W/"${draft.rowVersion}"`,
+      });
+      const prepared = valuationRow.parse(ok.body);
+      expect(prepared.state).toBe('OpsPrepared');
+      expect(prepared.rowVersion).toBe(draft.rowVersion + 1);
+      expect(ok.etag).toBe(`"${prepared.rowVersion}"`);
+      // The old tag is stale now; a wildcard matches anything.
+      await command('deal.one', draft.id, { command: 'dealTeamApprove' }, 412, {
+        'if-match': `"${draft.rowVersion}"`,
+      });
+      await command('deal.one', draft.id, { command: 'dealTeamApprove' }, 200, {
+        'if-match': '*',
+      });
+    });
+
+    it('runs a batch id by id, never stopping at a refusal, with one audit event per success', async () => {
+      const opsPrepared = await row('ops.one', slot(6).versionId, {
+        command: 'reopen',
+        reason: 'Batch check',
+      });
+      await row('ops.one', opsPrepared.id, { command: 'prepare' });
+      const stillDraft = await row('ops.one', slot(7).versionId, {
+        command: 'reopen',
+        reason: 'Batch check',
+      });
+      const locked = slot(2).versionId;
+      const post = async (who: string, body: Record<string, unknown>, status = 200) =>
+        (
+          await h
+            .http()
+            .post('/api/v1/valuations/batch-commands')
+            .set('authorization', h.as(who))
+            .send(body)
+            .expect(status)
+        ).body as ValuationBatchResult;
+      await post('ops.one', { command: 'dealTeamApprove', ids: [opsPrepared.id] }, 403);
+      await post('deal.one', { command: 'prepare', ids: [opsPrepared.id] }, 400);
+      const batch = valuationBatchResult.parse(
+        await post('deal.one', {
+          command: 'dealTeamApprove',
+          ids: [opsPrepared.id, stillDraft.id, locked, NIL],
+        }),
+      );
+      expect(batch.results.map((r) => [r.id, r.ok, r.state ?? r.problem?.status])).toEqual([
+        [opsPrepared.id, true, 'DealTeamApproved'],
+        [stillDraft.id, false, 409],
+        [locked, false, 409],
+        [NIL, false, 404],
+      ]);
+      expect(batch.results[1]!.problem?.code).toBe('workflow-transition');
+      expect((await events('valuation.dealTeamApprove', opsPrepared.id)).length).toBe(1);
+      expect((await events('valuation.dealTeamApprove', stillDraft.id)).length).toBe(0);
+      expect(
+        (
+          await h.runtime.db.query<{ n: number }>(
+            "select count(*)::int as n from audit.event where action like 'valuation.batch%'",
+          )
+        )[0]!.n,
+      ).toBe(0);
+      // The deal team may call the batch route but cannot lock: a 403 per row, not for the batch.
+      const refused = valuationBatchResult.parse(
+        await post('deal.one', { command: 'lock', ids: [opsPrepared.id] }),
+      );
+      expect(refused.results[0]!.problem?.status).toBe(403);
+      const lockedBatch = valuationBatchResult.parse(
+        await post('head.one', { command: 'lock', ids: [opsPrepared.id] }),
+      );
+      expect(lockedBatch.results[0]).toEqual({ id: opsPrepared.id, ok: true, state: 'Locked' });
+      expect(await stateOf(opsPrepared.id)).toBe('Locked');
+    });
+
+    it('hides a walled version from everyone outside the wall, commands included', async () => {
+      const walled = lockedAt(idOf('walled_deal'));
+      await detail('viewer', walled, 404);
+      await detail('ops.one', walled, 404);
+      await detail('viewer', 'not-a-uuid', 404);
+      await command('ops.one', walled, { command: 'reopen', reason: 'Not mine to see' }, 404);
+      await command('head.one', 'not-a-uuid', { command: 'reopen', reason: 'Not a row' }, 404);
+      const member = await detail('deal.three', walled);
+      expect(member.investmentId).toBe(idOf('walled_deal'));
+      expect(member.state).toBe('Locked');
+      expect(await stateOf(walled)).toBe('Locked');
+      // The detail is for every reading role; the admin role is not on it.
+      await detail('admin.one', walled, 403);
+    });
+
+    it('lists the open change requests of the investment on the detail', async () => {
+      const requests = h.dataset.changeRequests ?? [];
+      const open = requests.filter((r) => r.state !== 'Applied' && r.state !== 'Rejected');
+      expect(open.length).toBeGreaterThan(0);
+      const target = open[0]!.investmentId;
+      const version = h.dataset.valuations.find((v) => v.investmentId === target)!;
+      const seen = await detail('deal.one', version.id);
+      const expected = open.filter((r) => r.investmentId === target).map((r) => r.id);
+      expect(seen.openChangeRequests.map((r) => r.id).sort()).toEqual([...expected].sort());
+      for (const r of seen.openChangeRequests) {
+        expect(['Submitted', 'Routed', 'InProgress']).toContain(r.state);
+        expect(r.submittedBy.name.length).toBeGreaterThan(0);
+        expect(r.investmentId).toBe(target);
+      }
+      const settled = requests.find((r) => r.state === 'Applied')!;
+      const other = h.dataset.valuations.find((v) => v.investmentId === settled.investmentId)!;
+      expect(
+        (await detail('deal.one', other.id)).openChangeRequests.map((r) => r.id),
+      ).not.toContain(settled.id);
+      const read = await h.runtime.db.query<{ n: number }>(
+        "select count(*)::int as n from audit.event where action = 'valuation.read' and entity_id = $1",
+        [version.id],
+      );
+      expect(read[0]!.n).toBe(1);
     });
   });
 });

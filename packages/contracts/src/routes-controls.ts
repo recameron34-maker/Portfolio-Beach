@@ -1,14 +1,14 @@
 import * as c from './controls.js';
-import type { RouteDefinition } from './routes.js';
-import { API_PREFIX } from './routes.js';
+import type { RouteDefinition } from './route.js';
+import { API_PREFIX } from './route.js';
 import * as s from './schemas.js';
 
 /**
  * The Phase 3 control routes (decision 0013): valuations, capital notices with the wire register
  * and trade tickets, change requests, opportunities and closings. Wave 1 defines them here so the
- * web, the preview simulation and the API share one contract; wave 2 spreads CONTROL_ROUTES into
- * ROUTES when the API serves them (and drops the three duplicates from SIMULATED_ROUTES). Until
- * then they are deliberately outside ROUTES, the contract parity test and the OpenAPI document.
+ * web, the preview simulation and the API share one contract; since wave 2 the API serves them,
+ * ROUTES spreads CONTROL_ROUTES in (routes.ts), the contract parity test requires every one of
+ * them and the OpenAPI document lists them. SIMULATED_ROUTES keeps only the preview reset.
  *
  * Every command route is idempotent (docs/17 section 3: an Idempotency-Key repeats the original
  * result). Refusals map through WORKFLOW_REFUSALS (403 role, 409 transition, 422 precondition),

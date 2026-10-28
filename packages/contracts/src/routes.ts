@@ -1,32 +1,16 @@
-import type { z } from 'zod';
+import { CONTROL_ROUTES } from './routes-controls.js';
+import type { RouteDefinition } from './route.js';
+import { API_PREFIX } from './route.js';
 import * as s from './schemas.js';
 
-export type HttpMethod = 'GET' | 'POST' | 'PATCH' | 'PUT' | 'DELETE';
+export type { HttpMethod, RouteDefinition } from './route.js';
+export { API_PREFIX } from './route.js';
 
-export interface RouteDefinition {
-  method: HttpMethod;
-  path: string;
-  summary: string;
-  tags: string[];
-  /** Roles that may call the route; empty means any authenticated user. */
-  roles: readonly string[];
-  auth: boolean;
-  query?: z.ZodTypeAny;
-  body?: z.ZodTypeAny;
-  response: z.ZodTypeAny;
-  responseStatus?: number;
-  /** The success body's media type; application/json unless a route serves a file such as a CSV export. */
-  responseContentType?: 'application/json' | 'text/csv';
-  /**
-   * The route accepts an Idempotency-Key header and a repeat returns the original result (docs/17
-   * section 3): every command and create that changes a financial record.
-   */
-  idempotent?: boolean;
-}
-
-export const API_PREFIX = '/api/v1';
-
-/** The single route table the API implements and the OpenAPI document is generated from. */
+/**
+ * The single route table the API implements and the OpenAPI document is generated from. The
+ * Phase 3 control routes (routes-controls.ts, decision 0013) are spread in at the end: the API
+ * serves them since wave 2, so the contract parity test and the OpenAPI document cover them.
+ */
 export const ROUTES: readonly RouteDefinition[] = [
   {
     method: 'GET',
@@ -621,4 +605,5 @@ export const ROUTES: readonly RouteDefinition[] = [
     body: s.realizationOutlookBody,
     response: s.realizationOutlookDetail,
   },
+  ...CONTROL_ROUTES,
 ];

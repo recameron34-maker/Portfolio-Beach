@@ -16,6 +16,22 @@ import { listImplementedRoutes } from '../routes.js';
 import { startHarness } from './harness.js';
 import type { Harness } from './harness.js';
 
+/**
+ * TEMPORARY (Phase 3 wave 2): the control routes the other wave 2 agents serve in parallel, left
+ * out of the parity check until their controllers land. The orchestrator removes this list at the
+ * merge, after which every route in ROUTES must be served.
+ */
+const PENDING_CONTROL_PATHS = [
+  '/api/v1/capital-notices/{id}/commands',
+  '/api/v1/trade-tickets',
+  '/api/v1/wire-instructions',
+  '/api/v1/change-requests',
+  '/api/v1/opportunities',
+  '/api/v1/closings',
+];
+const pendingControl = (path: string): boolean =>
+  PENDING_CONTROL_PATHS.some((p) => path === p || path.startsWith(`${p}/`));
+
 describe('Portfolio Beach API', () => {
   let h: Harness;
   beforeAll(async () => {
@@ -30,8 +46,13 @@ describe('Portfolio Beach API', () => {
       const implemented = listImplementedRoutes(CONTROLLERS)
         .map((r) => `${r.method} ${r.path}`)
         .sort();
-      const contracted = ROUTES.map((r) => `${r.method} ${r.path}`).sort();
+      const contracted = ROUTES.filter((r) => !pendingControl(r.path))
+        .map((r) => `${r.method} ${r.path}`)
+        .sort();
       expect(implemented).toEqual(contracted);
+      // The pending list names only routes the contract carries; it excludes nothing served.
+      expect(ROUTES.some((r) => pendingControl(r.path))).toBe(true);
+      expect(implemented.filter((key) => pendingControl(key.split(' ')[1] ?? ''))).toEqual([]);
     });
   });
 

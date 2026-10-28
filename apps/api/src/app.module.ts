@@ -58,6 +58,7 @@ import { SponsorsController } from './sponsors/sponsors.controller.js';
 import { SponsorsService } from './sponsors/sponsors.service.js';
 import { ValuationsController } from './valuations/valuations.controller.js';
 import { ValuationsService } from './valuations/valuations.service.js';
+import { ValuationWorkflowService } from './valuations/workflow.service.js';
 import { VehiclesController } from './vehicles/vehicles.controller.js';
 import { VehiclesService } from './vehicles/vehicles.service.js';
 
@@ -110,6 +111,7 @@ export class AppModule implements NestModule {
         VehiclesService,
         SponsorsService,
         ValuationsService,
+        ValuationWorkflowService,
         CapitalService,
         AnalyticsService,
         ReportsService,
