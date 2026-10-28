@@ -47,8 +47,66 @@ export {
 } from './aliases.js';
 export type { AliasGuard, AliasSource, AliasedDataset, CompanyAlias } from './aliases.js';
 export { csvCell, csvText } from './csv.js';
-export { INTAKE_DEFAULTS, intakeDecimal, intakeWholeNumber } from './settings.js';
-export type { IntakeDecimalKey, IntakeWholeNumberKey } from './settings.js';
+export {
+  INTAKE_DEFAULTS,
+  PIPELINE_DEFAULTS,
+  intakeDecimal,
+  intakeWholeNumber,
+  pipelineStageAgingDays,
+} from './settings.js';
+export type { IntakeDecimalKey, IntakeWholeNumberKey, PipelineStageKey } from './settings.js';
+export {
+  BANK_NAMES,
+  CONTROLS_DEFAULTS,
+  CONTROL_SCENARIOS,
+  PIPELINE_STAGES,
+  PIPELINE_STAGE_COUNTS,
+  WIRE_COUNTERPARTY_CAP,
+  closingChecklistFrom,
+  controlsConfig,
+  controlsOf,
+  digitString,
+  diligenceTemplateFor,
+  diligenceTemplatesFrom,
+  generateControls,
+  splitByOwnership,
+} from './controls.js';
+export type {
+  Allocation,
+  BankDetails,
+  CallbackNumberSource,
+  CallbackResult,
+  CapitalNoticeFlags,
+  ChangeRequest,
+  ChangeRequestState,
+  Closing,
+  ClosingChecklistItem,
+  ClosingItem,
+  ClosingItemStatus,
+  ClosingState,
+  ControlScenario,
+  ControlledCapitalNotice,
+  ControlsBase,
+  ControlsConfig,
+  ControlsDataset,
+  ControlsDeps,
+  DealStage,
+  DiligenceTask,
+  DiligenceTaskStatus,
+  DiligenceTemplateTask,
+  DiligenceTemplates,
+  IcDecision,
+  IcDecisionOutcome,
+  LegalTerm,
+  LegalTermStatus,
+  Opportunity,
+  OpportunityStageHistory,
+  PipelineStage,
+  TradeTicket,
+  TradeTicketState,
+  WireInstruction,
+  WireInstructionState,
+} from './controls.js';
 export { activePositions, latestLockedMark, takeRows, walledInvestment } from './marks.js';
 export {
   WEEKLY_HEADER,

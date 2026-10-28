@@ -234,8 +234,21 @@ export class NameFactory {
     };
   }
 
+  /** Names in use elsewhere (another factory's output), so this one never repeats them. */
+  reserve(names: readonly string[]): void {
+    for (const name of names) this.used.add(name.toLowerCase());
+  }
+
+  /** "Project Harborlight"; once the plain forms are taken a numeral follows ("Project Harborlight II"). */
   project(): string {
-    return this.unique(() => `Project ${this.rng.pick(COASTAL)}`);
+    let attempt = 0;
+    return this.unique(() => {
+      const word = this.rng.pick(COASTAL);
+      const cycle = Math.floor(attempt / 10);
+      attempt++;
+      if (cycle === 0) return `Project ${word}`;
+      return `Project ${word} ${FUND_ROMAN[cycle] ?? String(cycle + 1)}`;
+    });
   }
 }
 

@@ -52,3 +52,53 @@ export function intakeWholeNumber(
     throw new Error(`config/definitions.json: intake.${key} must be a whole number of days`);
   return value;
 }
+
+/**
+ * The pipeline stage aging (docs/04 M5, config pipeline.stageAgingDays): the days a deal may sit
+ * in a stage before the board flags it, which the synthetic stage history is spaced by.
+ */
+export const PIPELINE_DEFAULTS = {
+  stageAgingDays: {
+    Sourced: 30,
+    Screening: 30,
+    Prescreen: 45,
+    Diligence: 90,
+    IC: 14,
+    Approved: 30,
+    Closing: 45,
+  },
+} as const;
+export type PipelineStageKey = keyof typeof PIPELINE_DEFAULTS.stageAgingDays;
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+/**
+ * The whole days per stage under `pipeline.stageAgingDays`, or the defaults when the file does
+ * not carry the key; a key that is present must name every stage with a whole number above zero.
+ */
+export function pipelineStageAgingDays(
+  source: unknown = definitions,
+): Record<PipelineStageKey, number> {
+  const pipeline = isRecord(source) ? source.pipeline : undefined;
+  const aging = isRecord(pipeline) ? pipeline.stageAgingDays : undefined;
+  if (aging === undefined) return { ...PIPELINE_DEFAULTS.stageAgingDays };
+  const days = (stage: PipelineStageKey): number => {
+    const value = isRecord(aging) ? aging[stage] : undefined;
+    if (typeof value !== 'number' || !Number.isInteger(value) || value <= 0)
+      throw new Error(
+        `config/definitions.json: pipeline.stageAgingDays.${stage} must be a whole number of days above zero`,
+      );
+    return value;
+  };
+  return {
+    Sourced: days('Sourced'),
+    Screening: days('Screening'),
+    Prescreen: days('Prescreen'),
+    Diligence: days('Diligence'),
+    IC: days('IC'),
+    Approved: days('Approved'),
+    Closing: days('Closing'),
+  };
+}

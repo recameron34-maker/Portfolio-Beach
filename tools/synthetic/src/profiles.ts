@@ -52,6 +52,13 @@ export const DATA_SCENARIOS = [
   'credit_amortization',
   'credit_prepayment',
   'lp_second_closing',
+  // The Phase 3 controls (docs/14 section 10; CONTROL_SCENARIOS in controls.ts lists the same tags).
+  'sourced_deal',
+  'closing_open',
+  'passed_deal',
+  'walled_opportunity',
+  'ic_pending',
+  'change_request_open',
 ] as const;
 export type DataScenario = (typeof DATA_SCENARIOS)[number];
 
