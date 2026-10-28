@@ -1,7 +1,12 @@
 import type {
+  ChangeRequestState,
+  ClosingState,
+  DealStage,
   DocumentReviewStatus,
   ExpectedDocumentStatus,
   ExtractionRunState,
+  TradeTicketState,
+  WireInstructionState,
 } from '@pb/contracts';
 import type { Machine } from '@pb/workflows';
 import { requireReason } from '@pb/workflows';
@@ -136,6 +141,93 @@ export function runStateTone(state: ExtractionRunState): Tone {
 /** "Needs retry"; the other run states are single words. */
 export function runStateWord(state: ExtractionRunState): string {
   return humanizeState(state);
+}
+
+/* ---- Phase 3 controls (decision 0013): one tone map per machine, shared by every page that
+   shows the state (docs/06: a colour carries one meaning). A state the map does not know reads
+   neutral, as noticeTone does, so a page never throws on an unexpected value. ---- */
+
+/** A state's tone from its map; neutral for a value the map does not list. */
+function toneOf(map: Readonly<Record<string, Tone>>, state: string): Tone {
+  return map[state] ?? 'neutral';
+}
+
+/**
+ * docs/18 section 11 (SEC-12.2): a Proposed version waits for the second person's callback, a
+ * Verified one is the register's word, a Rejected one failed the callback, a Superseded one is
+ * history.
+ */
+const WIRE_TONES: Readonly<Record<WireInstructionState, Tone>> = {
+  Proposed: 'watch',
+  Verified: 'good',
+  Rejected: 'bad',
+  Superseded: 'neutral',
+};
+
+export function wireTone(state: string): Tone {
+  return toneOf(WIRE_TONES, state);
+}
+
+/**
+ * SEC-12.3: a Drafted ticket waits for its approver, an Approved one is released (brand, as the
+ * notice's TicketApproved), a Funded one is settled, a Withdrawn one is history.
+ */
+const TICKET_TONES: Readonly<Record<TradeTicketState, Tone>> = {
+  Drafted: 'watch',
+  Approved: 'brand',
+  Funded: 'good',
+  Withdrawn: 'neutral',
+};
+
+export function ticketTone(state: string): Tone {
+  return toneOf(TICKET_TONES, state);
+}
+
+/**
+ * docs/18 section 8: a Submitted request waits for the deal team to route it, Routed and
+ * InProgress are in operations' hands, Applied is done, Rejected is a refusal with its reason.
+ */
+const CHANGE_REQUEST_TONES: Readonly<Record<ChangeRequestState, Tone>> = {
+  Submitted: 'watch',
+  Routed: 'brand',
+  InProgress: 'brand',
+  Applied: 'good',
+  Rejected: 'bad',
+};
+
+export function changeRequestTone(state: string): Tone {
+  return toneOf(CHANGE_REQUEST_TONES, state);
+}
+
+/**
+ * docs/18 section 4: Sourced and Screening are intake, Prescreen and Diligence are the team's
+ * work (brand), IC waits on a decision, Approved and Closed are won, Closing is in progress,
+ * Passed is history.
+ */
+const STAGE_TONES: Readonly<Record<DealStage, Tone>> = {
+  Sourced: 'neutral',
+  Screening: 'neutral',
+  Prescreen: 'brand',
+  Diligence: 'brand',
+  IC: 'watch',
+  Approved: 'good',
+  Closing: 'brand',
+  Closed: 'good',
+  Passed: 'neutral',
+};
+
+export function stageTone(stage: string): Tone {
+  return toneOf(STAGE_TONES, stage);
+}
+
+/** docs/18 section 12 (M8): an Open closing waits for operations' confirmation. */
+const CLOSING_TONES: Readonly<Record<ClosingState, Tone>> = {
+  Open: 'watch',
+  OpsConfirmed: 'good',
+};
+
+export function closingTone(state: string): Tone {
+  return toneOf(CLOSING_TONES, state);
 }
 
 /** Urgency of a due date against the alert window (config capitalActivity.alertDaysBeforeDue). */

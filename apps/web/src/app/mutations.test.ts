@@ -3,6 +3,8 @@ import type { ValuationRow } from '@pb/contracts';
 import { ApiError } from '../api/client.js';
 import {
   describeActionError,
+  describeRefusal,
+  NOTICE_KEYS,
   plainRule,
   postIntakeCommand,
   postIntakeImport,
@@ -128,8 +130,13 @@ describe('describeActionError', () => {
     expect(describeActionError(problem(412, 'stale'))).toMatch(/changed this record first/);
     expect(describeActionError(problem(400, 'command: invalid'))).toMatch(/not valid/);
     expect(describeActionError(problem(401, 'expired'))).toMatch(/Sign in again/);
-    expect(describeActionError(problem(501, 'not implemented'))).toMatch(/Phase 3/);
-    expect(describeActionError(problem(404, 'Cannot POST'))).toMatch(/Phase 3/);
+    expect(describeActionError(problem(501, 'not implemented'))).toBe(
+      'This build does not serve that action yet.',
+    );
+    expect(describeActionError(problem(404, 'Valuation not found'))).toBe('Valuation not found');
+    expect(describeRefusal(422, 'valuation: the preparer cannot approve (SEC-5.6)')).toBe(
+      'Blocked by a rule. The preparer cannot approve (SEC-5.6)',
+    );
     expect(describeActionError(new Error('network down'))).toBe('network down');
     expect(describeActionError('odd')).toBe('The action failed.');
   });
@@ -178,6 +185,7 @@ describe('refreshing after a write', () => {
     const keys = spy.mock.calls.map(([filters]) => JSON.stringify(filters?.queryKey));
     for (const key of [
       'valuations',
+      'valuation',
       'investment',
       'vehicle',
       'sponsor',
@@ -185,5 +193,8 @@ describe('refreshing after a write', () => {
       'weekly-report',
     ])
       expect(keys).toContain(JSON.stringify([key]));
+    // A notice command drafts or approves a ticket against the register (SEC-12.3).
+    for (const key of ['trade-tickets', 'trade-ticket', 'wire-instructions', 'wire-instruction'])
+      expect(NOTICE_KEYS).toContainEqual([key]);
   });
 });

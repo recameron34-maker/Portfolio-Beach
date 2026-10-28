@@ -3,11 +3,11 @@ import { previewMode } from '../app/env.js';
 import { rolesLabel } from './states.js';
 
 /**
- * Workflow action rules shared by the valuation board and the capital notice pages (docs/18).
- * The API serves reads only in this build, so outside the preview every action is disabled;
- * the preview simulates the commands through the same transition tables.
+ * Workflow action rules shared by the valuation board, the change request queue, the capital
+ * notice pages, the wire register and the pipeline (docs/18). The API serves every command
+ * since Phase 3; the static preview simulates them through the same transition tables, so the
+ * rules are the same in every build and only the result wording differs.
  */
-export const PHASE_3_TITLE = 'Workflow actions arrive with Phase 3';
 
 /** The words every success message ends with: nothing is saved or audited in the preview. */
 export function resultSuffix(): string {
@@ -21,17 +21,17 @@ export interface ActionGate {
 }
 
 /**
- * Why an action button is disabled, or null when it is live: outside the preview every action
- * waits for Phase 3; in the preview a command the signed-in roles may not issue names the roles
- * it needs (or the page's own wording, such as "Service accounts only").
+ * Why an action button is disabled, or null when it is live: a command the signed-in roles may
+ * not issue names the roles it needs (or the page's own wording, such as "Service accounts
+ * only"). Preconditions are the API's to judge, so an allowed command is always offered and the
+ * refusal, if any, is shown in the page's status region.
  */
 export function blockedTitle(gate: ActionGate, notAllowed?: string): string | null {
-  if (!previewMode) return PHASE_3_TITLE;
   if (!gate.allowed) return notAllowed ?? `Needs ${rolesLabel(gate.roles)}`;
   return null;
 }
 
-/** The transition tables ask for a reason of at least three characters (packages/contracts simulated.ts). */
+/** The transition tables ask for a reason of at least three characters (packages/contracts controls.ts). */
 export const MIN_REASON_LENGTH = 3;
 
 export function isReason(text: string): boolean {

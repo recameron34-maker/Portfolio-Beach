@@ -1,7 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { PHASE_3_TITLE } from '../lib/workflow.js';
 import type { CommandOption } from '../lib/states.js';
 import { ActionLogCard, ActionStatus, CommandButtons, ReasonDialog } from './WorkflowActions.js';
 
@@ -26,7 +25,8 @@ describe('workflow action pieces', () => {
     env.previewMode = false;
   });
 
-  it('says None when the table lists no command, and waits for Phase 3 outside the preview', () => {
+  it('says None when the table lists no command, and offers an allowed one in every build', async () => {
+    const onIssue = vi.fn();
     const { rerender } = render(<CommandButtons options={[]} busy={false} onIssue={vi.fn()} />);
     expect(screen.getByText('None')).toBeInTheDocument();
     rerender(
@@ -34,17 +34,19 @@ describe('workflow action pieces', () => {
         options={[option()]}
         busy={false}
         context="Meridian Data Partners v1"
-        onIssue={vi.fn()}
+        onIssue={onIssue}
       />,
     );
     const button = screen.getByRole('button', {
       name: 'Deal team approve, Meridian Data Partners v1',
     });
-    expect(button).toBeDisabled();
-    expect(button).toHaveAttribute('title', PHASE_3_TITLE);
+    expect(button).toBeEnabled();
+    expect(button).not.toHaveAttribute('title');
+    await userEvent.click(button);
+    expect(onIssue).toHaveBeenCalledWith(expect.objectContaining({ command: 'dealTeamApprove' }));
   });
 
-  it('in the preview, issues an allowed command and names the roles a blocked one needs', async () => {
+  it('in the preview too, issues an allowed command and names the roles a blocked one needs', async () => {
     env.previewMode = true;
     const onIssue = vi.fn();
     render(

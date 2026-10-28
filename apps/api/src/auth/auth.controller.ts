@@ -23,13 +23,16 @@ export class AuthController {
   /** The role switcher's choices. Exists only while the mock identity adapter is wired in; never in production. */
   @Public()
   @Get('mock-users')
-  mockUsers(): { users: { externalId: string; displayName: string; roles: string[] }[] } {
+  mockUsers(): {
+    users: { id: string; externalId: string; displayName: string; roles: string[] }[];
+  } {
     if (this.config.NODE_ENV === 'production' || this.adapters.identity.info.kind !== 'mock') {
       throw new ProblemError(404, 'not-found', 'Not available');
     }
     const mock = this.adapters.identity as MockIdentityProvider;
     return {
       users: mock.listUsers().map((u) => ({
+        id: u.id,
         externalId: u.externalId,
         displayName: u.displayName,
         roles: [...u.roles],

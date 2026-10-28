@@ -299,9 +299,10 @@ describe('capital notice detail (read-only build)', () => {
       screen.getByText(/changed bank details; the instructions on file are unchanged/),
     ).toBeInTheDocument();
 
+    // Phase 3 (W1): every allowed command is live in every build (lib/workflow.ts).
     const review = screen.getByRole('button', { name: 'Review' });
-    expect(review).toBeDisabled();
-    expect(review).toHaveAttribute('title', 'Workflow actions arrive with Phase 3');
+    expect(review).toBeEnabled();
+    expect(review).not.toHaveAttribute('title');
     expect(screen.queryByText('Simulated')).not.toBeInTheDocument();
   });
 

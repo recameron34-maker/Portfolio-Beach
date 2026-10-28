@@ -78,10 +78,13 @@ export const principal = z.object({
 export type Principal = z.infer<typeof principal>;
 
 export const mockUser = z.object({
+  /** The app user's id (core.app_user), so a picker can name a person on a command (M11 route). */
+  id: uuid.optional(),
   externalId: z.string(),
   displayName: z.string(),
   roles: z.array(appRole),
 });
+export type MockUser = z.infer<typeof mockUser>;
 export const mockUserList = z.object({ users: z.array(mockUser) });
 
 export const healthLive = z.object({ status: z.literal('ok'), version: z.string() });

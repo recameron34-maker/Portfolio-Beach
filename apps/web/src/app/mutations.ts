@@ -39,13 +39,14 @@ import type {
 import type { z as zod } from 'zod';
 import { api, ApiError } from '../api/client.js';
 import { commandLabel, humanizeState } from '../lib/states.js';
-import { previewMode } from './env.js';
 
 /**
- * Workflow writes (docs/18). The API serves them in Phase 3; the static preview simulates them in
- * the browser through the same transition tables (packages/contracts/src/simulated.ts). Pages go
+ * Workflow writes (docs/18). The API serves them (packages/contracts/src/routes-controls.ts); the
+ * static preview simulates them in the browser through the same transition tables. Pages go
  * through these helpers, never through fetch, so both paths share one request shape and one
- * vocabulary for refusals.
+ * vocabulary for refusals. The Phase 3 domains keep their hooks beside their pages
+ * (pages/valuations/api.ts, pages/capital/api.ts, pages/pipeline/api.ts) and reuse post,
+ * invalidate and the key lists below.
  */
 export interface CommandBody<C extends string> {
   command: C;
@@ -59,7 +60,8 @@ export interface ValuationCreateBody {
   fairValue: string;
 }
 
-function post<T>(path: string, schema: z.ZodType<T>, body?: unknown): Promise<T> {
+/** POST a JSON body (or nothing) and parse the answer; the per-domain api files reuse it. */
+export function post<T>(path: string, schema: z.ZodType<T>, body?: unknown): Promise<T> {
   return api(path, schema, {
     method: 'POST',
     ...(body === undefined ? {} : { body: JSON.stringify(body) }),
@@ -127,7 +129,8 @@ export function postPreviewReset(): Promise<{ reset: true }> {
   return post('/api/v1/preview/reset', previewResetResult);
 }
 
-const NOT_IN_THIS_BUILD = 'Workflow actions arrive with Phase 3; this build reads only.';
+/** A 501 is the one answer that means the build, not the record or the role, is behind. */
+const NOT_SERVED = 'This build does not serve that action yet.';
 
 /**
  * The transition tables word their refusals for engineers ("valuation: lock from DealTeamApproved
@@ -144,15 +147,15 @@ export function plainRule(detail: string): string {
 }
 
 /**
- * One sentence the user can act on, from an RFC 9457 problem (docs/17 section 3). The status codes
- * follow the mapping the workflow controller and the preview simulation share: 403 role, 409
- * transition not in the table, 422 precondition, 412 stale row version. Values are never echoed.
+ * One sentence the user can act on, from a refusal's status and detail (docs/17 section 3). The
+ * status codes follow the mapping the workflow controllers and the preview simulation share: 403
+ * role, 409 transition not in the table, 422 precondition, 412 stale row version, 404 a record
+ * the caller cannot see (the detail says so without hinting at what exists). Values are never
+ * echoed. A batch answer carries one such status and detail per id (valuationBatchResult).
  */
-export function describeActionError(error: unknown): string {
-  if (!(error instanceof ApiError))
-    return error instanceof Error ? error.message : 'The action failed.';
-  const detail = plainRule(error.problem.detail ?? error.problem.title);
-  switch (error.status) {
+export function describeRefusal(status: number, rawDetail: string): string {
+  const detail = plainRule(rawDetail);
+  switch (status) {
     case 400:
       return `The request was not valid. ${detail}`;
     case 401:
@@ -160,7 +163,7 @@ export function describeActionError(error: unknown): string {
     case 403:
       return `Your role cannot do this. ${detail}`;
     case 404:
-      return previewMode ? detail : NOT_IN_THIS_BUILD;
+      return detail;
     case 409:
       return `Not allowed from the current state. ${detail}`;
     case 412:
@@ -168,10 +171,17 @@ export function describeActionError(error: unknown): string {
     case 422:
       return `Blocked by a rule. ${detail}`;
     case 501:
-      return NOT_IN_THIS_BUILD;
+      return NOT_SERVED;
     default:
       return detail;
   }
+}
+
+/** The sentence for a failed write: the problem's refusal, or the error's own words. */
+export function describeActionError(error: unknown): string {
+  if (!(error instanceof ApiError))
+    return error instanceof Error ? error.message : 'The action failed.';
+  return describeRefusal(error.status, error.problem.detail ?? error.problem.title);
 }
 
 export interface CommandVariables<C extends string> {
@@ -181,13 +191,17 @@ export interface CommandVariables<C extends string> {
 
 /**
  * The reads a write can change. A Locked valuation moves NAV wherever it is pooled (grid, one-pager,
- * performance, vehicle, sponsor, analytics, watchlist, weekly report); a funded notice moves called
- * and unfunded amounts and the report's capital activity. In the static preview these reads replay
- * their recordings (metrics are never recomputed), so refreshing them costs nothing; in Phase 3 it
- * keeps every page true after a write, including the reads held fresh for a minute.
+ * performance, vehicle, sponsor, analytics, watchlist, weekly report) and every command changes the
+ * version's own screen (its approval trail); a funded notice moves called and unfunded amounts,
+ * the report's capital activity, its trade ticket and the wire register the ticket was approved
+ * against. In the static preview these reads replay their recordings (metrics are never
+ * recomputed), so refreshing them costs nothing; against the API it keeps every page true after a
+ * write, including the reads held fresh for a minute. The per-domain api files (the api.ts
+ * beside each Phase 3 page folder) spread these lists into their own.
  */
-const VALUATION_KEYS: QueryKey[] = [
+export const VALUATION_KEYS: QueryKey[] = [
   ['valuations'],
+  ['valuation'],
   ['investment'],
   ['investments'],
   ['investment-performance'],
@@ -199,9 +213,13 @@ const VALUATION_KEYS: QueryKey[] = [
   ['weekly-report'],
   ['audit'],
 ];
-const NOTICE_KEYS: QueryKey[] = [
+export const NOTICE_KEYS: QueryKey[] = [
   ['capital-notices'],
   ['capital-notice'],
+  ['trade-tickets'],
+  ['trade-ticket'],
+  ['wire-instructions'],
+  ['wire-instruction'],
   ['investment'],
   ['commitments'],
   ['vehicle'],
@@ -230,7 +248,8 @@ const INTAKE_KEYS: QueryKey[] = [
   ['audit'],
 ];
 
-function invalidate(queryClient: QueryClient, keys: QueryKey[]): void {
+/** Refresh every read under these keys; the per-domain api files call it after their own writes. */
+export function invalidate(queryClient: QueryClient, keys: QueryKey[]): void {
   void Promise.all(keys.map((queryKey) => queryClient.invalidateQueries({ queryKey })));
 }
 

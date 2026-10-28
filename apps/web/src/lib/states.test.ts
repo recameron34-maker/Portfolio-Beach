@@ -1,7 +1,17 @@
 import { describe, expect, it } from 'vitest';
 import { documentReviewStatus, expectedDocumentStatus, extractionRunState } from '@pb/contracts';
-import { capitalNoticeMachine, stagingMachine, valuationMachine } from '@pb/workflows';
 import {
+  capitalNoticeMachine,
+  closingMachine,
+  dealChangeRequestMachine,
+  dealStageMachine,
+  stagingMachine,
+  valuationMachine,
+  wireInstructionMachine,
+} from '@pb/workflows';
+import {
+  changeRequestTone,
+  closingTone,
   commandLabel,
   commandOptions,
   dueLabel,
@@ -13,8 +23,11 @@ import {
   rolesLabel,
   runStateTone,
   runStateWord,
+  stageTone,
   stagingTone,
+  ticketTone,
   valuationTone,
+  wireTone,
 } from './states.js';
 
 describe('state words', () => {
@@ -67,6 +80,41 @@ describe('state words', () => {
     expect(runStateTone('Running')).toBe('neutral');
     expect(runStateWord('NeedsRetry')).toBe('Needs retry');
     expect(runStateWord('Succeeded')).toBe('Succeeded');
+  });
+
+  it('tones the Phase 3 controls once for every page (docs/18 sections 4, 8, 11 and 12, SEC-12)', () => {
+    for (const s of wireInstructionMachine.states) expect(typeof wireTone(s)).toBe('string');
+    expect(wireTone('Proposed')).toBe('watch');
+    expect(wireTone('Verified')).toBe('good');
+    expect(wireTone('Rejected')).toBe('bad');
+    expect(wireTone('Superseded')).toBe('neutral');
+    expect(ticketTone('Drafted')).toBe('watch');
+    expect(ticketTone('Approved')).toBe('brand');
+    expect(ticketTone('Funded')).toBe('good');
+    expect(ticketTone('Withdrawn')).toBe('neutral');
+    for (const s of dealChangeRequestMachine.states)
+      expect(typeof changeRequestTone(s)).toBe('string');
+    expect(changeRequestTone('Submitted')).toBe('watch');
+    expect(changeRequestTone('Routed')).toBe('brand');
+    expect(changeRequestTone('InProgress')).toBe('brand');
+    expect(changeRequestTone('Applied')).toBe('good');
+    expect(changeRequestTone('Rejected')).toBe('bad');
+    for (const s of dealStageMachine.states) expect(typeof stageTone(s)).toBe('string');
+    expect(stageTone('Sourced')).toBe('neutral');
+    expect(stageTone('Diligence')).toBe('brand');
+    expect(stageTone('IC')).toBe('watch');
+    expect(stageTone('Approved')).toBe('good');
+    expect(stageTone('Closing')).toBe('brand');
+    expect(stageTone('Closed')).toBe('good');
+    expect(stageTone('Passed')).toBe('neutral');
+    for (const s of closingMachine.states) expect(typeof closingTone(s)).toBe('string');
+    expect(closingTone('Open')).toBe('watch');
+    expect(closingTone('OpsConfirmed')).toBe('good');
+    // A value no map lists reads neutral rather than throwing.
+    expect(wireTone('Unknown')).toBe('neutral');
+    expect(stageTone('Unknown')).toBe('neutral');
+    expect(humanizeState('InProgress')).toBe('In progress');
+    expect(humanizeState('OpsConfirmed')).toBe('Ops confirmed');
   });
 
   it('grades due dates against the configured alert window', () => {
