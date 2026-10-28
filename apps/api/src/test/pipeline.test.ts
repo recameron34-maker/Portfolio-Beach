@@ -617,6 +617,11 @@ describe('pipeline (M5 skeleton, docs/18 section 4): opportunities, their stage 
       expect(createdIds.investmentNumber).toBe(`INV-${String(highestSeeded + 1).padStart(4, '0')}`);
       expect(await audits('investment.create', 'req-j6-closed')).toHaveLength(1);
 
+      const closingAfter = (await get('viewer.one', closingPath).expect(200)).body as {
+        id: string;
+        investmentId: string | null;
+        state: string;
+      };
       const position = investmentDetail.parse(
         (await get('viewer.one', `/api/v1/investments/${closed.investmentId}`).expect(200)).body,
       );
@@ -633,6 +638,8 @@ describe('pipeline (M5 skeleton, docs/18 section 4): opportunities, their stage 
         geography: body.geography,
         entryDate: closeDate,
         closeDate,
+        opportunityId: id,
+        closingId: closingAfter.id,
         isActive: true,
         exitDate: null,
       });
@@ -641,10 +648,6 @@ describe('pipeline (M5 skeleton, docs/18 section 4): opportunities, their stage 
         [position.companyId],
       );
       expect(company).toEqual([{ name: body.companyName, sector: body.sector }]);
-      const closingAfter = (await get('viewer.one', closingPath).expect(200)).body as {
-        investmentId: string | null;
-        state: string;
-      };
       expect(closingAfter.investmentId).toBe(closed.investmentId);
       expect(
         await h.runtime.db.query<{ n: number }>(

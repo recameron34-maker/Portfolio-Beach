@@ -160,6 +160,10 @@ describe('closing (M8, M22, docs/18 section 12): the record, its checklist, the 
       );
       expect(before.closeDate).toBe(closing.closeDate);
       expect(before.entryDate).toBe(closing.closeDate);
+      // The workspace opens the closing by its id; a position that predates the pipeline has no
+      // opportunity record, so that id is null.
+      expect(before.closingId).toBe(closing.id);
+      expect(before.opportunityId).toBe(closing.opportunityId);
       // Move the closing's date (as the database owner, outside the API): the detail follows the
       // closing; nothing else carries a close date.
       const moved = addDays(closing.closeDate, 3);

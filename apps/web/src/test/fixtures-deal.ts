@@ -39,6 +39,7 @@ export const DEAL_IDS = {
   valuation2: '00000000-0000-4000-8000-000000000102',
   valuation3: '00000000-0000-4000-8000-000000000103',
   valuation4: '00000000-0000-4000-8000-000000000104',
+  closing: '00000000-0000-4000-8000-0000000000e2',
 } as const;
 
 /** The paths the deal tabs read, exactly as the query options build them. */
@@ -64,6 +65,8 @@ export function dealDetailFixture(overrides: Partial<InvestmentDetail> = {}): In
     companyId: DEAL_IDS.company,
     sponsorFundId: DEAL_IDS.fundIv,
     closeDate: '2018-11-15',
+    opportunityId: null,
+    closingId: DEAL_IDS.closing,
     companyDescription: 'Synthetic portfolio company.',
     latestPeriodEnd: AS_OF,
     cashFlows: [

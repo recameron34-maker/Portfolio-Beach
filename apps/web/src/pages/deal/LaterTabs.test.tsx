@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { ReactNode } from 'react';
 import { cleanup, render, screen } from '@testing-library/react';
-import { ClosingTab, DiligenceTab, TasksTab } from './LaterTabs.js';
+import { TasksTab } from './LaterTabs.js';
 
 vi.mock('@tanstack/react-router', async () =>
   (await import('../../test/router-mock.js')).routerMock(),
@@ -13,8 +13,6 @@ describe('tabs that arrive in later phases', () => {
   afterEach(() => cleanup());
 
   it.each<[string, () => ReactNode, string, string, RegExp]>([
-    ['Diligence', DiligenceTab, 'Phase 5', 'M7 diligence and IC', /IC memo sections.*AI draft/],
-    ['Closing', ClosingTab, 'Phase 3', 'M8 closing', /closing checklist.*Wire instructions/],
     ['Tasks', TasksTab, 'Phase 6', 'M15 tasks and approvals', /task tool.*Approvals waiting/],
   ])(
     '%s says which phase and module bring it, and what they bring',
