@@ -931,11 +931,12 @@ if (staleDetail === undefined) {
     command: 'reopen',
     reason: 'sponsor restated the mark',
   });
+  // The answer is the new Draft version the reopen created (docs/18 section 1, as the API answers).
   expectStatus(
-    'valuation: head.one reopens with a reason (200)',
+    'valuation: head.one reopens with a reason (200); the answer is the new Draft version',
     reopened,
     200,
-    reopened.json?.state === 'Reopened',
+    reopened.json?.state === 'Draft' && reopened.json?.version === 2,
   );
   const afterReopen = await versionsAt('ops.one');
   check(
