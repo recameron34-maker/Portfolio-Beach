@@ -6,9 +6,9 @@ import { tradeTicketState } from '@pb/contracts';
 import type { ReleaseBlocker, TradeTicketRow, TradeTicketState } from '@pb/contracts';
 import { schema } from '@pb/db';
 import type { Tx } from '@pb/db';
+import { systemStep } from '../common/system-step.js';
 import { keyOf, loadRegisters, pendingChange } from './register.js';
 import type { CounterpartyKeys, RegisterView } from './register.js';
-import { systemStep } from './systemStep.js';
 
 /*
  * Trade tickets (docs/04 M16, SEC-12.3): one per capital notice, prepared by one person and

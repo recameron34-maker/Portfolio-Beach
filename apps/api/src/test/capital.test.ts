@@ -1327,7 +1327,7 @@ describe('capital activity (M16)', () => {
           ).expect(412)
         ).body,
       );
-      expect(stale.type).toBe(`${PROBLEM}stale`);
+      expect(stale.type).toBe(`${PROBLEM}stale-row-version`);
       expect(stale.detail).toContain(`row version ${current.rowVersion}`);
       await command(
         'ops.one',

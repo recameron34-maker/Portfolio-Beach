@@ -22,12 +22,13 @@ import type { z } from 'zod';
 import { AT_ID_CURSOR, decodeAtIdCursor, encodeCursor } from '../common/cursor.js';
 import { FIELD_CIPHER } from '../common/fieldCipher.js';
 import { ProblemError, workflowProblem } from '../common/problem.js';
+import { requireFreshRow } from '../common/row-version.js';
+import { systemStep } from '../common/system-step.js';
 import { ADAPTERS } from '../common/tokens.js';
 import { requireUuid } from '../common/validate.js';
 import { DbService } from '../db/db.service.js';
 import type { AuditEntry } from '../db/db.service.js';
 import { CapitalService } from './capital.service.js';
-import { requireFreshRow } from './ifMatch.js';
 import {
   REGISTER_ORDER,
   exactKeyWhere,
@@ -36,7 +37,6 @@ import {
   toInstructionRow,
 } from './register.js';
 import type { CounterpartyKeys } from './register.js';
-import { systemStep } from './systemStep.js';
 
 /*
  * The wire instruction register (docs/04 M16, docs/18 section 11, SEC-12.1 to SEC-12.4,
@@ -222,7 +222,7 @@ export class WiresService {
     requestId: string,
     id: string,
     body: WireInstructionCommandBody,
-    ifMatch?: number,
+    ifMatch?: readonly number[],
   ): Promise<WireInstructionDetail> {
     requireUuid(id, NOT_FOUND);
     const now = new Date(this.adapters.clock.now());

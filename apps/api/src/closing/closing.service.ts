@@ -14,7 +14,7 @@ import { schema } from '@pb/db';
 import type { Tx } from '@pb/db';
 import { attempt, closingMachine } from '@pb/workflows';
 import { ProblemError, workflowProblem } from '../common/problem.js';
-import { requireIfMatch } from '../common/row-version.js';
+import { requireFreshRow } from '../common/row-version.js';
 import { ADAPTERS, CLOSING_CHECKLIST } from '../common/tokens.js';
 import { requireUuid } from '../common/validate.js';
 import { DbService } from '../db/db.service.js';
@@ -174,12 +174,12 @@ export class ClosingService {
     requestId: string,
     id: string,
     body: ClosingCommandBody,
-    ifMatch: string | undefined,
+    ifMatch: readonly number[] | undefined,
   ): Promise<ClosingDetail> {
     requireUuid(id, CLOSING_NOT_FOUND);
     return this.db.run(principal, requestId, async (tx, audit) => {
       const locked = await this.read(tx, id, true);
-      requireIfMatch(ifMatch, locked.rowVersion);
+      requireFreshRow(ifMatch, locked.rowVersion, 'closing');
       const from = closingStateOf(locked.state);
       const items = await loadClosingItems(tx, id, this.checklist);
       const allocations = await loadAllocationRows(

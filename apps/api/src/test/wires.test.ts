@@ -524,7 +524,7 @@ describe('wire instruction register (M16, docs/18 section 11, SEC-12.1 to SEC-12
     };
     const stale = await problemOf(
       command('ops.two', v5.id, verify, 'req-wire-stale', '"7"').expect(412),
-      'stale',
+      'stale-row-version',
     );
     expect(stale.detail).toContain('row version 1');
     await problemOf(

@@ -8,8 +8,8 @@ import {
 import type { WireInstructionDetail, WireInstructionPage } from '@pb/contracts';
 import { CurrentPrincipal, Roles } from '../auth/principal.js';
 import type { RequestWithPrincipal } from '../auth/principal.js';
+import { ifMatchVersions } from '../common/row-version.js';
 import { parseOrProblem } from '../common/validate.js';
-import { rowVersionFromIfMatch } from './ifMatch.js';
 import { WiresService } from './wires.service.js';
 
 /**
@@ -70,7 +70,7 @@ export class WiresController {
       req.id ?? 'unknown',
       id,
       parsed,
-      rowVersionFromIfMatch(req.header('if-match')),
+      ifMatchVersions(req.header('if-match')),
     );
   }
 }

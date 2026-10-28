@@ -1,8 +1,8 @@
 /*
  * Postgres errors as the driver reports them behind the query error drizzle raises: the SQLSTATE
  * code and the constraint name travel on the cause chain. A service that lets the database enforce
- * a reference it cannot check itself (a client the caller may not read, SEC-5.2) reads them here
- * to answer a plain problem instead of a 500.
+ * a reference it cannot check itself (a client the caller may not read, SEC-5.2), or a unique key
+ * two commands race for, reads them here to answer a plain problem instead of a 500.
  */
 
 /** The SQLSTATE code of the database error behind `error`, if there is one. */
@@ -28,3 +28,5 @@ export function pgConstraint(error: unknown): string | undefined {
 }
 
 export const isForeignKeyViolation = (error: unknown): boolean => pgErrorCode(error) === '23503';
+
+export const isUniqueViolation = (error: unknown): boolean => pgErrorCode(error) === '23505';

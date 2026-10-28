@@ -570,7 +570,7 @@ describe('deal change requests (M11, docs/18 section 8): the one form, the owner
         }).expect(412)
       ).body,
     );
-    expect(stale.type).toBe(`${PROBLEM}stale-if-match`);
+    expect(stale.type).toBe(`${PROBLEM}stale-row-version`);
     expect((await detail('deal.one', made.id)).rowVersion).toBe(1);
     expect(
       await count(

@@ -23,6 +23,8 @@ import { decodeCursor, encodeCursor } from '../common/cursor.js';
 import { fmtDate } from '../common/dates.js';
 import { configInteger, configIntegerList, configStringList } from '../common/definitions.js';
 import { ProblemError, workflowProblem } from '../common/problem.js';
+import { requireFreshRow } from '../common/row-version.js';
+import { systemStep } from '../common/system-step.js';
 import { ADAPTERS, DEFINITIONS } from '../common/tokens.js';
 import { requireUuid } from '../common/validate.js';
 import { DbService } from '../db/db.service.js';
@@ -31,7 +33,6 @@ import { readStoredDocument, storedDocumentProblem } from '../documents/read.js'
 import { documentSettingsOf } from '../documents/settings.js';
 import { str } from '../portfolio/metrics.js';
 import { noticeAlerts, urgencyLanguageIn } from './alerts.js';
-import { requireFreshRow } from './ifMatch.js';
 import { DUE_ORDER, REGISTER_ORDER, buildNoticeRows } from './notices.js';
 import {
   EMPTY_REGISTER,
@@ -42,7 +43,6 @@ import {
   pendingChange,
 } from './register.js';
 import type { RegisterView } from './register.js';
-import { systemStep } from './systemStep.js';
 import { TICKET_ORDER, buildTicketRows } from './tickets.js';
 
 /*
@@ -261,7 +261,7 @@ export class CapitalService {
     requestId: string,
     id: string,
     body: CapitalNoticeCommandBody,
-    ifMatch?: number,
+    ifMatch?: readonly number[],
   ): Promise<CapitalNoticeControlDetail> {
     requireUuid(id, NOT_FOUND);
     return this.db.run(principal, requestId, async (tx, audit) => {
@@ -283,7 +283,7 @@ export class CapitalService {
     principal: Principal,
     id: string,
     body: CapitalNoticeCommandBody,
-    ifMatch?: number,
+    ifMatch?: readonly number[],
   ): Promise<{ from: CapitalNoticeState; to: CapitalNoticeState }> {
     const today = this.adapters.clock.today();
     const now = new Date(this.adapters.clock.now());
@@ -556,7 +556,7 @@ export class CapitalService {
       commitmentId: control.commitmentId,
     });
     // The masked active instruction and the hold are facts of the notice its readers see; the
-    // register rows themselves stay behind the register's policy (systemStep.ts).
+    // register rows themselves stay behind the register's policy (common/system-step.ts).
     const register: RegisterView =
       (await systemStep(tx, principal, () => loadRegisters(tx, [keys]))).get(keyOf(keys)) ??
       EMPTY_REGISTER;

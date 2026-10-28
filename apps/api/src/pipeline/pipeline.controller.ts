@@ -23,6 +23,7 @@ import {
 import type { OpportunityDetail, OpportunityPage } from '@pb/contracts';
 import { CurrentPrincipal, Roles } from '../auth/principal.js';
 import type { RequestWithPrincipal } from '../auth/principal.js';
+import { ifMatchVersions } from '../common/row-version.js';
 import { parseOrProblem } from '../common/validate.js';
 import { PipelineService } from './pipeline.service.js';
 
@@ -88,7 +89,13 @@ export class PipelineController {
     @Req() req: RequestWithPrincipal,
   ): Promise<OpportunityDetail> {
     const parsed = parseOrProblem(opportunityCommandBody, body, 'command');
-    return this.service.command(principal, req.id ?? 'unknown', id, parsed, ifMatch);
+    return this.service.command(
+      principal,
+      req.id ?? 'unknown',
+      id,
+      parsed,
+      ifMatchVersions(ifMatch),
+    );
   }
 
   @Post('opportunities/:id/diligence-tasks')

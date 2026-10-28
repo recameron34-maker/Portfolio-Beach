@@ -13,10 +13,10 @@ import type {
 } from '@pb/contracts';
 import { CurrentPrincipal, Roles } from '../auth/principal.js';
 import type { RequestWithPrincipal } from '../auth/principal.js';
+import { ifMatchVersions } from '../common/row-version.js';
 import { ADAPTERS } from '../common/tokens.js';
 import { asOfOrToday, parseOrProblem, requireUuid } from '../common/validate.js';
 import { CapitalService } from './capital.service.js';
-import { rowVersionFromIfMatch } from './ifMatch.js';
 
 /**
  * Capital activity (docs/04 M16, docs/18 section 3, SEC-12). The notice reads are open to every
@@ -75,7 +75,7 @@ export class CapitalController {
       req.id ?? 'unknown',
       id,
       parsed,
-      rowVersionFromIfMatch(req.header('if-match')),
+      ifMatchVersions(req.header('if-match')),
     );
   }
 

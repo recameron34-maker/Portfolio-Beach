@@ -15,6 +15,7 @@ import type {
 } from '@pb/contracts';
 import { asSystemActor, SYSTEM_USER_ID, schema } from '@pb/db';
 import type { Tx } from '@pb/db';
+import { isUniqueViolation } from '../../common/pg-errors.js';
 import {
   IntakeSettingsError,
   WEEKLY_RULES,
@@ -157,16 +158,6 @@ const versionConflict = (): ProblemError =>
     'conflict',
     'valuation: another approval wrote this position and period first; approve the file again',
   );
-
-/** Postgres unique_violation, as the driver reports it behind the query error drizzle raises. */
-function isUniqueViolation(error: unknown): boolean {
-  let cause: unknown = error;
-  while (cause instanceof Error) {
-    if ((cause as { code?: unknown }).code === '23505') return true;
-    cause = cause.cause;
-  }
-  return false;
-}
 
 const precondition = (detail: string): ProblemError =>
   new ProblemError(422, 'workflow-precondition', detail);
