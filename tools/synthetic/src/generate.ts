@@ -2,6 +2,8 @@ import { D, addDays, addMonths, compareIso, containingQuarterEnd, nextQuarterEnd
 import type { SyntheticDataset } from '@pb/db';
 import { companyAliasesFor } from './aliases.js';
 import type { CompanyAlias } from './aliases.js';
+import { controlsConfig, generateControls } from './controls.js';
+import type { ControlledCapitalNotice, ControlsConfig, ControlsDataset } from './controls.js';
 import { NameFactory, canonical } from './names.js';
 import { Rng } from './prng.js';
 import { PROFILES } from './profiles.js';
@@ -12,15 +14,20 @@ export interface GenerateOptions {
   seed?: number;
   /** The reporting date the dataset is built up to (quarter end). */
   asOf?: string;
+  /** The controls' lists (checklist, templates, aging); the config files or their defaults otherwise. */
+  controls?: Partial<ControlsConfig>;
 }
 
 /**
- * The generator's output: the seed loader's contract plus the company aliases (core.company_alias),
- * which a seed schema from before the alias table strips on parse and a later one inserts.
+ * The generator's output: the seed loader's contract plus the company aliases (core.company_alias)
+ * and the Phase 3 controls (controls.ts), each of which a seed schema from before its table strips
+ * on parse and a later one inserts; the capital notices carry the two SEC-12.4 alert flags.
  */
-export interface GeneratedDataset extends SyntheticDataset {
-  companyAliases: CompanyAlias[];
-}
+export type GeneratedDataset = Omit<SyntheticDataset, 'capitalNotices' | keyof ControlsDataset> &
+  ControlsDataset & {
+    companyAliases: CompanyAlias[];
+    capitalNotices: ControlledCapitalNotice[];
+  };
 
 type Users = SyntheticDataset['users'];
 type Investment = SyntheticDataset['investments'][number];
@@ -385,7 +392,7 @@ export function generateDataset(options: GenerateOptions = {}): GeneratedDataset
   const creditTerms: SyntheticDataset['creditTerms'] = [];
   const creditPerformance: SyntheticDataset['creditPerformance'] = [];
   const valuations: SyntheticDataset['valuations'] = [];
-  const capitalNotices: SyntheticDataset['capitalNotices'] = [];
+  const capitalNotices: ControlledCapitalNotice[] = [];
   const cashFlows: SyntheticDataset['cashFlows'] = [];
   const realizationOutlooks: SyntheticDataset['realizationOutlooks'] = [];
   // Outlooks were set at the last quarterly review before the as-of date, at noon UTC: a timestamp
@@ -403,12 +410,18 @@ export function generateDataset(options: GenerateOptions = {}): GeneratedDataset
   };
 
   const addNotice = (
-    n: Omit<SyntheticDataset['capitalNotices'][number], 'id' | 'split'> & {
+    n: Omit<ControlledCapitalNotice, 'id' | 'split' | 'urgencyFlag' | 'wireChangeFlag'> & {
       split?: Record<string, string>;
     },
   ): string => {
     const id = rng.uuid();
-    capitalNotices.push({ id, split: n.split ?? {}, ...n });
+    capitalNotices.push({
+      id,
+      split: n.split ?? {},
+      urgencyFlag: false,
+      wireChangeFlag: false,
+      ...n,
+    });
     return id;
   };
   const addFlow = (f: Omit<SyntheticDataset['cashFlows'][number], 'id' | 'status'>): void => {
@@ -1192,6 +1205,45 @@ export function generateDataset(options: GenerateOptions = {}): GeneratedDataset
     new Set(anchor === undefined ? [] : [anchor.portfolioCompanyId]),
   );
 
+  // ---- The Phase 3 controls (docs/14 section 10) --------------------------------------------
+  // Their own stream and name factory (every existing name reserved), so adding them moved no
+  // other value; the flags on the wire_change notice and the walled opportunity are set in place.
+  const controlsRng = new Rng(seed ^ 0x6a09e667);
+  const controlNames = new NameFactory(controlsRng);
+  controlNames.reserve([
+    ...sponsors.map((s) => s.name),
+    ...sponsorFunds.map((f) => f.name),
+    ...portfolioCompanies.map((c) => c.name),
+    ...clients.map((c) => c.name),
+    ...users.map((u) => u.displayName),
+    ...walls.map((w) => w.name),
+  ]);
+  const controls = generateControls(
+    {
+      asOf,
+      users,
+      sponsors,
+      sponsorFunds,
+      portfolioCompanies,
+      vehicles,
+      lpCommitments,
+      commitments,
+      investments,
+      cashFlows,
+      capitalNotices,
+      walls,
+      scenarios: scenarioLog,
+    },
+    {
+      rng: controlsRng,
+      names: controlNames,
+      config: controlsConfig(options.controls),
+      sectors: SECTORS,
+      geographies: GEOS.map((g) => g.value),
+      tag,
+    },
+  );
+
   const dataset: GeneratedDataset = {
     version: 1,
     profile: profile.name,
@@ -1218,6 +1270,7 @@ export function generateDataset(options: GenerateOptions = {}): GeneratedDataset
     capitalNotices,
     cashFlows,
     realizationOutlooks,
+    ...controls,
     scenarios: scenarioLog,
   };
   void D;
