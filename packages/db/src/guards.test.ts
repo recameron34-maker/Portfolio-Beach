@@ -117,6 +117,210 @@ describe('database guards', () => {
     });
   });
 
+  describe('wire instructions and trade tickets (SEC-12.2, SEC-12.3, migration 0013)', () => {
+    const wire = (columns: string, values: string) =>
+      handle.exec(
+        `insert into mon.wire_instruction (investment_id, counterparty_name, version, bank_details_enc, bank_details_masked, proposed_by, ${columns})
+         values ('${ids.investment1}', 'Harborlight Fund IV', 9, 'enc', 'Harbor Street Bank ****7788', '${ids.users.operations}', ${values})`,
+      );
+
+    it('rejects a callback made by the proposer', async () => {
+      await expectDbRejection(
+        wire(
+          'callback_by, callback_at, callback_number_source, callback_result',
+          `'${ids.users.operations}', now(), 'prior_instruction', 'confirmed'`,
+        ),
+        /check constraint/,
+      );
+    });
+    it('rejects Verified without a confirmed callback by a named person', async () => {
+      await expectDbRejection(wire('state', `'Verified'`), /check constraint/);
+      await expectDbRejection(
+        wire(
+          'state, callback_by, callback_at, callback_number_source, callback_result, verified_at',
+          `'Verified', '${ids.users.operations2}', now(), 'known_contact', 'not_confirmed', now()`,
+        ),
+        /check constraint/,
+      );
+    });
+    it('rejects an active version that is not Verified, and a second active version per counterparty', async () => {
+      await expectDbRejection(wire('active', 'true'), /check constraint/);
+      await expectDbRejection(
+        wire(
+          'state, callback_by, callback_at, callback_number_source, callback_result, verified_at, active',
+          `'Verified', '${ids.users.operations2}', now(), 'prior_instruction', 'confirmed', now(), true`,
+        ),
+        /wire_instruction_investment_active_idx/,
+      );
+    });
+    it('rejects a counterparty that is both a sponsor fund and an investment, or neither', async () => {
+      await expectDbRejection(wire('sponsor_fund_id', `'${ids.sponsorFund}'`), /check constraint/);
+      await expectDbRejection(
+        handle.exec(
+          `insert into mon.wire_instruction (counterparty_name, version, bank_details_enc, bank_details_masked, proposed_by) values ('Nobody', 1, 'enc', 'x ****0000', '${ids.users.operations}')`,
+        ),
+        /check constraint/,
+      );
+    });
+    it('rejects a Rejected version without a reason', async () => {
+      await expectDbRejection(wire('state', `'Rejected'`), /check constraint/);
+    });
+    it('rejects a ticket approved by its preparer, and Approved without an approver and an instruction', async () => {
+      const ticket = (columns: string, values: string) =>
+        handle.exec(
+          `insert into mon.trade_ticket (capital_notice_id, amount, funding_date, prepared_by, ${columns})
+           values ('${ids.capitalNoticeOpenDistribution}', 500000, '2024-10-15', '${ids.users.operations}', ${values})`,
+        );
+      await expectDbRejection(
+        ticket('approved_by, approved_at', `'${ids.users.operations}', now()`),
+        /check constraint/,
+      );
+      await expectDbRejection(ticket('state', `'Approved'`), /check constraint/);
+      await expectDbRejection(
+        ticket('state, approved_by, approved_at', `'Approved', '${ids.users.approver}', now()`),
+        /check constraint/,
+      );
+      await expectDbRejection(ticket('state', `'Withdrawn'`), /check constraint/);
+      await expectDbRejection(
+        handle.exec(
+          `insert into mon.trade_ticket (capital_notice_id, amount, funding_date, prepared_by) values ('${ids.capitalNoticeOpenDistribution}', 0, '2024-10-15', '${ids.users.operations}')`,
+        ),
+        /check constraint/,
+      );
+    });
+    it('allows one ticket per notice', async () => {
+      await expectDbRejection(
+        handle.exec(
+          `insert into mon.trade_ticket (capital_notice_id, amount, funding_date, prepared_by) values ('${ids.capitalNoticeOpen}', 1, '2024-09-15', '${ids.users.operations}')`,
+        ),
+        /unique|duplicate key/,
+      );
+    });
+    it('keeps a full history image of the register and the tickets', async () => {
+      await asOps((tx) =>
+        tx.execute(
+          sql`update mon.wire_instruction set source_note = 'Confirmed again at the AGM' where id = ${ids.wireInstructionProposed}`,
+        ),
+      );
+      const history = await handle.query<{ op: string; row_image: { source_note: string } }>(
+        `select op, row_image from mon.wire_instruction_history where row_id = '${ids.wireInstructionProposed}' order by history_id`,
+      );
+      expect(history.map((h) => h.op)).toEqual(['INSERT', 'UPDATE']);
+      expect(history[1]?.row_image.source_note).toBe('Confirmed again at the AGM');
+      const tickets = await handle.query<{ n: number }>(
+        `select count(*)::int as n from mon.trade_ticket_history where row_id = '${ids.tradeTicketOpen}'`,
+      );
+      expect(tickets[0]?.n).toBe(1);
+    });
+  });
+
+  describe('change requests, the pipeline and closings (migration 0013)', () => {
+    it('rejects a change request Applied without a period and an applier, Rejected without a reason, Routed without an owner', async () => {
+      const request = (columns: string, values: string) =>
+        handle.exec(
+          `insert into mon.deal_change_request (investment_id, change_type, effective_date, summary, submitted_by, ${columns})
+           values ('${ids.investment1}', 'change_type.partial_exit', '2024-09-30', 'Partial exit of the minority stake', '${ids.users.dealTeam}', ${values})`,
+        );
+      await expectDbRejection(
+        request('state, owner_id', `'Applied', '${ids.users.operations}'`),
+        /check constraint/,
+      );
+      await expectDbRejection(
+        request(
+          'state, owner_id, applied_period',
+          `'Applied', '${ids.users.operations}', '2024-09-30'`,
+        ),
+        /check constraint/,
+      );
+      await expectDbRejection(request('state', `'Rejected'`), /check constraint/);
+      await expectDbRejection(request('state', `'Routed'`), /check constraint/);
+      await expectDbRejection(
+        handle.exec(
+          `insert into mon.deal_change_request (investment_id, change_type, effective_date, summary, submitted_by) values ('${ids.investment1}', 'sector.software', '2024-09-30', 'Wrong domain', '${ids.users.dealTeam}')`,
+        ),
+        /check constraint/,
+      );
+    });
+    it('rejects a Passed opportunity without a reason code and a Closed one without an investment', async () => {
+      const opportunity = (columns: string, values: string) =>
+        handle.exec(
+          `insert into deal.opportunity (name, company_name, sponsor_id, deal_type, received_date, ${columns})
+           values ('Project Reef', 'Reef Analytics', '${ids.sponsor}', 'deal_type.co_invest_equity', '2024-10-01', ${values})`,
+        );
+      await expectDbRejection(opportunity('stage', `'Passed'`), /check constraint/);
+      await expectDbRejection(opportunity('stage', `'Closed'`), /check constraint/);
+      await expectDbRejection(
+        opportunity('pass_reason_code', `'change_type.other'`),
+        /check constraint/,
+      );
+    });
+    it('rejects a closing that is OpsConfirmed without a confirmer, or anchored on nothing', async () => {
+      await expectDbRejection(
+        handle.exec(
+          `insert into deal.closing (investment_id, close_date, commitment_amount, state) values ('${ids.investment1}', '2022-03-15', 30000000, 'OpsConfirmed')`,
+        ),
+        /check constraint/,
+      );
+      await expectDbRejection(
+        handle.exec(
+          `insert into deal.closing (close_date, commitment_amount) values ('2022-03-15', 30000000)`,
+        ),
+        /check constraint/,
+      );
+      await expectDbRejection(
+        handle.exec(
+          `insert into deal.closing (investment_id, close_date, commitment_amount) values ('${ids.investment1}', '2022-03-15', 0)`,
+        ),
+        /check constraint/,
+      );
+    });
+    it('rejects a received checklist item without a document and a waived one without a reason', async () => {
+      await expectDbRejection(
+        asOps((tx) =>
+          tx.execute(
+            sql`update deal.closing_item set status = 'received' where id = ${ids.closingItemOpen}`,
+          ),
+        ),
+        /check constraint/,
+      );
+      await expectDbRejection(
+        asOps((tx) =>
+          tx.execute(
+            sql`update deal.closing_item set status = 'waived' where id = ${ids.closingItemOpen}`,
+          ),
+        ),
+        /check constraint/,
+      );
+      // The deal team owns diligence tasks (operations is filtered out by the policy, not refused).
+      await expectDbRejection(
+        withUserContext(
+          handle.db,
+          { userId: ids.users.dealTeam, roles: ['deal_team'] },
+          async (tx) => {
+            await tx.execute(
+              sql`update deal.diligence_task set status = 'waived' where id = ${ids.diligenceTaskOpen}`,
+            );
+          },
+        ),
+        /check constraint/,
+      );
+    });
+    it('keeps the close date in one place: no other table has a column named close_date', async () => {
+      const rows = await handle.query<{ table_schema: string; table_name: string }>(
+        `select table_schema, table_name from information_schema.columns where column_name = 'close_date' and table_schema not in ('pg_catalog', 'information_schema')`,
+      );
+      expect(rows).toEqual([{ table_schema: 'deal', table_name: 'closing' }]);
+    });
+    it('keeps one allocation line per anchor, vehicle and client', async () => {
+      await expectDbRejection(
+        handle.exec(
+          `insert into deal.allocation (opportunity_id, vehicle_id, requested) values ('${ids.opportunityOpen}', '${ids.vehicle}', 1)`,
+        ),
+        /unique|duplicate key/,
+      );
+    });
+  });
+
   describe('audit trail (SEC-11.1)', () => {
     it('rejects UPDATE and DELETE even for the owner', async () => {
       await expectDbRejection(handle.exec(`update audit.event set action = 'x'`), /immutable/);

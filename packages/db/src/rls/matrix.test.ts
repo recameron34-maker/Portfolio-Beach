@@ -92,9 +92,9 @@ describe('RLS access matrix', () => {
             },
             async (tx) => {
               const result = await tx.execute(sql.raw(wc.sql));
-              // An UPDATE that RLS filters down to zero rows is a denial, not a success.
+              // An UPDATE or DELETE that RLS filters down to zero rows is a denial, not a success.
               const affected = 'affectedRows' in result ? result.affectedRows : result.rowCount;
-              if (wc.sql.startsWith('update') && (affected ?? 0) === 0)
+              if (/^(update|delete)\b/.test(wc.sql) && (affected ?? 0) === 0)
                 throw new Error('row-level security hid every row (0 rows affected)');
               // Roll back so each cell starts from the same fixture.
               throw new Rollback();
