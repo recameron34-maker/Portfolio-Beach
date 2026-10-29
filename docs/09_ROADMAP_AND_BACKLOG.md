@@ -32,10 +32,11 @@ Synthetic data and mock adapters throughout. Every phase ends with: all CI gates
 **Status (session 7):** journey 2 passes over the real API (`apps/web/e2e/journey2.spec.ts`: index, generate, batch, review flagged values, approve and promote, the one-pager shows the figure with its source link); `pnpm test:evals` builds the gold set from the synthetic documents and asserts the docs/04 thresholds (classifier precision 1.0 per type, numeric accuracy 1.0, no unit errors, no missing citations, no hallucinations, the injection probe changes nothing). OCR, semantic search and a real model stay out of the prototype (decision 0012).
 
 ## Phase 3: Controls (M10, M11, M8, M16, M22)
-- [ ] Valuation state machine, lock hash, batch approval, reporting gate
-- [ ] Deal change requests; closing checklist; legal terms and allocation tie-out
-- [ ] Capital notices, funding workflow, trade tickets, wire register with callback and dual control
+- [x] Valuation state machine, lock hash, batch approval, reporting gate (the commands served for real with the SHA-256 lock text, a reopen into a new Draft with tasks for the prior approvers, the batch bar, the version screen; the reporting-gate test; decision 0013)
+- [x] Deal change requests; closing checklist; legal terms and allocation tie-out (the one form, routing to operations, the quarter-end check opening exceptions; the closing record as the single close date with the config checklist, operations confirmation and the audited date change; legal terms captured and confirmed; the exact tie-out that blocks confirmation; the pipeline skeleton from Sourced to Closed with the diligence and IC gates and the conversion into a position)
+- [x] Capital notices, funding workflow, trade tickets, wire register with callback and dual control (notice commands for real, the ticket drafted and approved by different people against a Verified instruction, the versioned register with the second-person callback, encrypted bank details masked for everyone but operations and approvers, the hold window, the alerts, funding and the reconcile writing the approved cash flow)
 **Exit:** critical journeys 3, 4 and 6 pass; every forbidden transition in `docs/18` has a passing rejection test.
+**Status (session 8):** journeys 3, 4 and 6 pass over the real API (`apps/web/e2e/journey{3,4,6}.spec.ts`, the whole suite of 56 Playwright tests green in any order), every machine in docs/18 (eleven, two new) has its forbidden pairs rejected in `packages/workflows` and through the API for the valuation, notice, wire, deal stage, change request and closing machines. Teams approval cards, the monthly new-deal confirmation, AI-assisted legal term extraction, field encryption through Key Vault and consent requests stay out of the prototype (decision 0013).
 
 ## Phase 4: Reporting (M12, M14, M19, M13)
 - [ ] Report QA engine first; then template engine with layout locks and external change log

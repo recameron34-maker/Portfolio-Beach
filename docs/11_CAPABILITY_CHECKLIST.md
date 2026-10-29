@@ -8,10 +8,10 @@ Status: N = not started, P = partial, B = built. Phase 0 built the foundations (
 | # | Capability | Module | Status |
 |---|---|---|---|
 | A1 | Log an opportunity from email or a CIM (AI draft record) | M5, M4 | N |
-| A2 | Stage board (Sourced to Closed or Passed), owners, key dates | M5 | N |
+| A2 | Stage board (Sourced to Closed or Passed), owners, key dates | M5 | P (the Pipeline board by stage with owners, received dates and aging against `pipeline.stageAgingDays`, the opportunity page with stage actions through `dealStageMachine`, stage history and the conversion into a position on close; the pass log search, the fund-fit flag and the AI summary arrive with Phase 5; decision 0013) |
 | A3 | Fund-fit check: co-invest only alongside GPs we back | M5 | N |
-| A4 | Required pass reason + note, searchable history | M5 | N |
-| A5 | Allocation requested vs. received, split by vehicle and client | M5 | N |
+| A4 | Required pass reason + note, searchable history | M5 | P (a pass needs a `pass_reason.*` code and takes a note, both on the record and in the stage history; the searchable pass history is Phase 5) |
+| A5 | Allocation requested vs. received, split by vehicle and client | M5 | Y (the allocations editor on the opportunity page, lines by vehicle and client, requested and received, the exact tie-out against the closing commitment) |
 | A6 | Prescreen deck build guide (one pass, deal team from record) | M7 | N |
 | A7 | Deal analysis support: entry multiple, leverage, growth-to-margin bridge, key risks and "reasons to pass" checklist | M5, M9 | N |
 | A8 | Duplicate / near-miss name guard on new records | M1 | P (match guards stored and seeded; enforcement on record creation arrives with M1 linking services) |
@@ -19,24 +19,24 @@ Status: N = not started, P = partial, B = built. Phase 0 built the foundations (
 ## B. Diligence, IC and closing
 | # | Capability | Module | Status |
 |---|---|---|---|
-| B1 | Diligence templates by deal type, tasks, gates | M7 | N |
+| B1 | Diligence templates by deal type, tasks, gates | M7 | P (`config/diligence_templates.json` names the tasks per deal type, created on first entering Diligence; complete, waive with a reason, reopen; the IC gate needs every required task done or an approver's override with a reason; the DDQ library and the generators are Phase 5) |
 | B2 | DDQ library + AI drafting in house style, with sources | M7 | N |
 | B3 | Legal document tracker (LPA, side letter, sub docs, consents) with open questions | M7, M8 | N |
 | B4 | IC deck / memo section drafting from the record | M7 | N |
-| B5 | IC decision + conditions converted to tasks | M7 | N |
-| B6 | Closing checklist with required docs; single closing date | M8 | N |
+| B5 | IC decision + conditions converted to tasks | M7 | P (the IC decision record with conditions, accepted at IC by an approver; the Approved gate needs an approved decision; conditions as tasks pending) |
+| B6 | Closing checklist with required docs; single closing date | M8 | Y (`config/closing_checklist.json` items on every closing, received against a hub document or waived with a reason, confirmation refused while a required item is open; `deal.closing.close_date` is the only close date column (information_schema test) and the one-pager and reports read it from there) |
 | B7 | **New:** closing pack (subscription agreement, LPA, wire instructions, contact sheet, W-9) filed and sent to Ops | M8 | N |
-| B8 | **New:** trade ticket and deal metrics sheet generated and signed off | M16 | N |
+| B8 | **New:** trade ticket and deal metrics sheet generated and signed off | M16 | P (the trade ticket drafted by operations and approved by a different person against the active Verified instruction, with its release blockers in words; the deal metrics sheet is reporting work) |
 | B9 | **New:** affiliated client / interested party consent workflow blocks closing | M19 | N |
 | B10 | Monthly new-deal confirmation to deal teams | M8 | N |
 
 ## C. Capital activity (New)
 | # | Capability | Module | Status |
 |---|---|---|---|
-| C1 | Capture capital call and distribution notices (ILPA template aware) | M16 | N |
-| C2 | Due date tracker with alerts; preferred funding date | M16 | P (capital notice list with an attention panel and days to due from config; alert dispatch pending) |
-| C3 | Wire instruction register + change-triggered callback verification (two people) | M16 | N |
-| C4 | Cash Flow rows from approved notices (feeds IRR, unfunded, weekly report) | M16 | P (seeded flows carry their source notice; the notice detail shows the lineage and the settled amount; creating flows through staging and approval is Phase 3) |
+| C1 | Capture capital call and distribution notices (ILPA template aware) | M16 | P (notices through the docs/18 machine from Extracted to Reconciled, bank fields never extracted; the ILPA-aware intake of a new notice from a document is extraction work) |
+| C2 | Due date tracker with alerts; preferred funding date | M16 | P (the attention panel and days to due from config; the notice carries the due-within-two-business-days, changed-instruction, urgency-language and unverified-instruction alerts; alert dispatch and look-alike domains pending) |
+| C3 | Wire instruction register + change-triggered callback verification (two people) | M16 | Y (versioned register per counterparty, bank details encrypted at rest and masked for every role but operations and approvers with each clear read audited, a new version verified only by a second person's confirming callback to an independently sourced number, the previous active version superseded, a change returning the ticket to draft and flagging the notice) |
+| C4 | Cash Flow rows from approved notices (feeds IRR, unfunded, weekly report) | M16 | Y (the reconcile of a funded notice writes the approved cash flow with its source notice, lineage and approver; unfunded, IRR and the weekly report read it) |
 | C5 | Equalization, recallable, interest and expense true-up handling; unfunded reconciliation | M16 | P (unfunded with recallable distributions from packages/calc on the commitments board, including the equalization sequence; true-up handling pending) |
 | C6 | Follow-on, preemptive rights and other LP elections with deadlines | M11, M16 | N |
 | C7 | Deal economics received (e.g., shared monitoring fees, fee offsets) | M11 | N |
@@ -65,8 +65,8 @@ Status: N = not started, P = partial, B = built. Phase 0 built the foundations (
 | E6 | Entry vs. current multiple analysis, leverage, growth | M9 | P (quarterly series with ratios, prior-year YoY and since-entry comparison in the performance endpoint and tab) |
 | E7 | Watchlist rules and alerts | M9 | P (rules from config thresholds evaluated in the API and shown on the watchlist and home; alert dispatch pending) |
 | E8 | Realization outlook (next 18 months) changed only by explicit edit | M9 | Y (the outlook card on the Performance tab; the deal team edits it with a reason, audited with before and after, behind the `realizationFlagEditableOnlyManually` config guard) |
-| E9 | Valuation staging, approvals, lock / reopen, batch approve | M10 | P (state machine and database rules in place; valuation board read view; approvals and locks are simulated in the static preview only, decision 0006) |
-| E10 | Deal change requests routed to Ops | M11 | N |
+| E9 | Valuation staging, approvals, lock / reopen, batch approve | M10 | Y (the commands served for real through `valuationMachine` with the SHA-256 lock text, the preparer never the approver, a reopen into a new Draft version with a task for each prior approver, the batch bar, the version screen with its approvals; decision 0013) |
+| E10 | Deal change requests routed to Ops | M11 | Y (the one form on the deal workspace, routed to an operations owner, worked to Applied in a quarter end or Rejected with a reason, open requests shown on the valuation screen, the quarter-end check opening an exception per unapplied request) |
 | E11 | **New:** NAV roll-forward when sponsor marks are late, with automatic footnote | M9, M19 | P (the weekly report footnotes a position carried at an earlier Locked mark, wording from config; the roll-forward itself is pending) |
 | E12 | Sublines: balance, usage, paydowns, documented support for paydown sources | M12 | N |
 | E13 | Private credit monitoring: terms, par / cost / fair value, PIK, coverage, leverage, LTV, DSCR, covenant and payment status, maturity ladder | M9 | P (tables, calculations, scenarios, API, one-pager, credit book view and watchlist flags; DSCR inputs and the ladder view pending) |
@@ -125,7 +125,7 @@ Fund-accounting general ledger, investor onboarding / KYC, fixing the look-throu
 | I6 | Value creation attribution; exit analytics | M20 | N |
 | I7 | Excel add-in with live approved data | M21 | N |
 | I8 | Read API and daily feed to the enterprise data warehouse | M21 | N |
-| I9 | Legal terms and allocation tracker (replaces the legal tracker updates) | M22 | N |
+| I9 | Legal terms and allocation tracker (replaces the legal tracker updates) | M22 | P (legal terms captured in draft on the closing with a type from the taxonomy and a source document, confirmed once; allocations tie out against the closing commitment; AI-assisted extraction of terms is out of the prototype) |
 | I10 | Background check workflow | M23 | N |
 | I11 | Cooling-contact alerts and AI relationship summaries | M6 | N |
 | I12 | Client / LP request routing with templated drafts | M14 | N |
