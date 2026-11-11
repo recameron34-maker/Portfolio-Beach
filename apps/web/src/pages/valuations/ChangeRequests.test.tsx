@@ -370,7 +370,7 @@ describe('change request queue', () => {
     await userEvent.click(button('Run quarter-end check'));
     const result = await screen.findByTestId('quarter-end-result');
     expect(within(result).getByTestId('quarter-end-hidden')).toHaveTextContent(
-      '1 more request not applied is on a position you cannot see.',
+      '1 more request not applied is on a position you cannot see. It is not listed here; it has a data exception that people who can see the position work.',
     );
     // Not "every request is applied": one is not, and the caller is told as much.
     expect(within(result).queryByText('Every request is applied')).not.toBeInTheDocument();

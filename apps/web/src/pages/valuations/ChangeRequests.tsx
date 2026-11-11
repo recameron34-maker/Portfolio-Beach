@@ -343,11 +343,11 @@ function QueueTable({
   );
 }
 
-/** "2 more requests not applied are on positions you cannot see." for the count the check hides. */
-function hiddenSentence(hidden: number): string {
+/** What the page says of the requests the check counted and the caller cannot see: how many, and that each has its exception. */
+function hiddenNote(hidden: number): string {
   return hidden === 1
-    ? '1 more request not applied is on a position you cannot see.'
-    : `${hidden} more requests not applied are on positions you cannot see.`;
+    ? '1 more request not applied is on a position you cannot see. It is not listed here; it has a data exception that people who can see the position work.'
+    : `${hidden} more requests not applied are on positions you cannot see. They are not listed here; each has a data exception that people who can see the position work.`;
 }
 
 /**
@@ -445,8 +445,7 @@ function QuarterEndCard({
           </p>
           {result.hidden === 0 ? null : (
             <p className="pb-notice" data-testid="quarter-end-hidden">
-              {hiddenSentence(result.hidden)} They are not listed here; each has a data exception
-              that people who can see the position work.
+              {hiddenNote(result.hidden)}
             </p>
           )}
           {result.unapplied.length === 0 ? (

@@ -2,6 +2,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createElement } from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { renderHook, waitFor } from '@testing-library/react';
+import { ApiError } from '../../api/client.js';
+import { describeActionError } from '../../app/mutations.js';
 import { clearCredential, setCredential } from '../../app/session.js';
 import {
   changeRequestRowFixture,
@@ -10,13 +12,18 @@ import {
   quarterEndCheckFixture,
   USER_ID,
   VAL_ID,
+  valuationRowFixture,
 } from '../../test/fixtures-valuations.js';
 import {
   changeRequestQuery,
   changeRequestsQuery,
+  describeValuationError,
+  isVersionTaken,
   useChangeRequestCommand,
   useCreateChangeRequest,
+  useEditValuation,
   useQuarterEndCheck,
+  useRefreshIfVersionTaken,
   useValuationBatchCommand,
   valuationDetailQuery,
 } from './api.js';
@@ -83,6 +90,52 @@ describe('valuation and change request writes', () => {
     expect(init.body).toBe(JSON.stringify({ command: 'dealTeamApprove', ids: [VAL_ID.prepared] }));
     for (const key of ['valuations', 'valuation', 'investment', 'weekly-report', 'audit'])
       expect(keys()).toContain(JSON.stringify([key]));
+  });
+
+  it('patches a Draft with the row version it was read at as If-Match, and refreshes every valuation read (VAL-1)', async () => {
+    const fetchSpy = vi
+      .spyOn(globalThis, 'fetch')
+      .mockResolvedValue(
+        json(200, valuationRowFixture({ id: VAL_ID.draft, state: 'Draft', rowVersion: 5 })),
+      );
+    const { result, keys } = harness(() => useEditValuation());
+    const body = { fairValue: '28000000.50', inputs: { multiple: 12 } };
+    result.current.mutate({ id: VAL_ID.draft, body, rowVersion: 4 });
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    const [url, init] = fetchSpy.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe(`/api/v1/valuations/${VAL_ID.draft}`);
+    expect(init.method).toBe('PATCH');
+    expect(init.body).toBe(JSON.stringify(body));
+    expect(new Headers(init.headers).get('if-match')).toBe('"4"');
+    expect(result.current.data?.rowVersion).toBe(5);
+    for (const key of ['valuations', 'valuation', 'investment', 'audit'])
+      expect(keys()).toContain(JSON.stringify([key]));
+  });
+
+  it('tells the lost race for a version number from every other refusal, and refreshes the list only then', () => {
+    const refusal = (status: number, detail: string): ApiError =>
+      new ApiError({
+        type: 'https://portfolio-beach.example/problems/workflow-transition',
+        title: 'Conflict',
+        status,
+        detail,
+        request_id: 'test',
+      });
+    const taken = refusal(409, 'valuation: another version was created first; open the list again');
+    const notAllowed = refusal(409, 'valuation: lock is not allowed from Draft');
+    expect(isVersionTaken(taken)).toBe(true);
+    expect(isVersionTaken(notAllowed)).toBe(false);
+    expect(isVersionTaken(new Error('offline'))).toBe(false);
+    expect(describeValuationError(taken)).toBe(
+      'Another version was created for this position and period first, so nothing was saved. The list is refreshed: continue with the version it shows.',
+    );
+    // Every other refusal keeps the words the rest of the app uses.
+    expect(describeValuationError(notAllowed)).toBe(describeActionError(notAllowed));
+    const { result, keys } = harness(() => useRefreshIfVersionTaken());
+    result.current(notAllowed);
+    expect(keys()).toEqual([]);
+    result.current(taken);
+    expect(keys()).toContain(JSON.stringify(['valuations']));
   });
 
   it('submits the form, parks the answer under its id and refreshes the queue and the version screen', async () => {
