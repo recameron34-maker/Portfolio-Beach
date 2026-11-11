@@ -22,7 +22,6 @@ export async function createApp(runtime: Runtime): Promise<INestApplication> {
     logger: false,
     bodyParser: false,
   });
-  app.useBodyParser('json', { limit: JSON_BODY_LIMIT });
   app.use(
     helmet({
       contentSecurityPolicy: { directives: { defaultSrc: ["'self'"], frameAncestors: ["'none'"] } },
@@ -47,6 +46,9 @@ export async function createApp(runtime: Runtime): Promise<INestApplication> {
     });
     next();
   });
+  // The body is read after the request has its id, its security headers and its log line, so a
+  // body the parser refuses is answered and logged like every other request.
+  app.useBodyParser('json', { limit: JSON_BODY_LIMIT });
   app.enableShutdownHooks();
   await app.init();
   return app;

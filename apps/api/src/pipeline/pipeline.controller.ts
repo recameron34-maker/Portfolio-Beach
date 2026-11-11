@@ -9,7 +9,9 @@ import {
   Put,
   Query,
   Req,
+  Res,
 } from '@nestjs/common';
+import type { Response } from 'express';
 import type { Principal } from '@pb/adapters';
 import {
   allocationsPutBody,
@@ -23,7 +25,7 @@ import {
 import type { OpportunityDetail, OpportunityPage } from '@pb/contracts';
 import { CurrentPrincipal, Roles } from '../auth/principal.js';
 import type { RequestWithPrincipal } from '../auth/principal.js';
-import { ifMatchVersions } from '../common/row-version.js';
+import { ifMatchVersions, withEtag } from '../common/row-version.js';
 import { parseOrProblem } from '../common/validate.js';
 import { PipelineService } from './pipeline.service.js';
 
@@ -58,96 +60,115 @@ export class PipelineController {
 
   @Get('opportunities/:id')
   @Roles(...READ_ROLES)
-  detail(
+  async detail(
     @Param('id') id: string,
     @CurrentPrincipal() principal: Principal,
     @Req() req: RequestWithPrincipal,
+    @Res({ passthrough: true }) res: Response,
   ): Promise<OpportunityDetail> {
-    return this.service.detail(principal, req.id ?? 'unknown', id);
+    return withEtag(res, await this.service.detail(principal, req.id ?? 'unknown', id));
   }
 
   @Post('opportunities')
   @Roles('deal_team')
   @HttpCode(201)
-  create(
+  async create(
     @Body() body: unknown,
     @CurrentPrincipal() principal: Principal,
     @Req() req: RequestWithPrincipal,
+    @Res({ passthrough: true }) res: Response,
   ): Promise<OpportunityDetail> {
     const parsed = parseOrProblem(opportunityCreateBody, body, 'body');
-    return this.service.create(principal, req.id ?? 'unknown', parsed);
+    return withEtag(res, await this.service.create(principal, req.id ?? 'unknown', parsed));
   }
 
   @Post('opportunities/:id/commands')
   @Roles('deal_team', 'operations', 'approver')
   @HttpCode(200)
-  command(
+  async command(
     @Param('id') id: string,
     @Body() body: unknown,
     @Headers('if-match') ifMatch: string | undefined,
     @CurrentPrincipal() principal: Principal,
     @Req() req: RequestWithPrincipal,
+    @Res({ passthrough: true }) res: Response,
   ): Promise<OpportunityDetail> {
     const parsed = parseOrProblem(opportunityCommandBody, body, 'command');
-    return this.service.command(
-      principal,
-      req.id ?? 'unknown',
-      id,
-      parsed,
-      ifMatchVersions(ifMatch),
+    return withEtag(
+      res,
+      await this.service.command(
+        principal,
+        req.id ?? 'unknown',
+        id,
+        parsed,
+        ifMatchVersions(ifMatch),
+      ),
     );
   }
 
   @Post('opportunities/:id/diligence-tasks')
   @Roles('deal_team')
   @HttpCode(201)
-  createTask(
+  async createTask(
     @Param('id') id: string,
     @Body() body: unknown,
     @CurrentPrincipal() principal: Principal,
     @Req() req: RequestWithPrincipal,
+    @Res({ passthrough: true }) res: Response,
   ): Promise<OpportunityDetail> {
     const parsed = parseOrProblem(diligenceTaskCreateBody, body, 'body');
-    return this.service.createTask(principal, req.id ?? 'unknown', id, parsed);
+    return withEtag(res, await this.service.createTask(principal, req.id ?? 'unknown', id, parsed));
   }
 
   @Post('opportunities/:id/diligence-tasks/:taskId/commands')
   @Roles('deal_team', 'approver')
   @HttpCode(200)
-  taskCommand(
+  async taskCommand(
     @Param('id') id: string,
     @Param('taskId') taskId: string,
     @Body() body: unknown,
     @CurrentPrincipal() principal: Principal,
     @Req() req: RequestWithPrincipal,
+    @Res({ passthrough: true }) res: Response,
   ): Promise<OpportunityDetail> {
     const parsed = parseOrProblem(diligenceTaskCommandBody, body, 'command');
-    return this.service.taskCommand(principal, req.id ?? 'unknown', id, taskId, parsed);
+    return withEtag(
+      res,
+      await this.service.taskCommand(principal, req.id ?? 'unknown', id, taskId, parsed),
+    );
   }
 
   @Post('opportunities/:id/ic-decisions')
   @Roles('approver')
   @HttpCode(201)
-  icDecision(
+  async icDecision(
     @Param('id') id: string,
     @Body() body: unknown,
     @CurrentPrincipal() principal: Principal,
     @Req() req: RequestWithPrincipal,
+    @Res({ passthrough: true }) res: Response,
   ): Promise<OpportunityDetail> {
     const parsed = parseOrProblem(icDecisionBody, body, 'body');
-    return this.service.recordIcDecision(principal, req.id ?? 'unknown', id, parsed);
+    return withEtag(
+      res,
+      await this.service.recordIcDecision(principal, req.id ?? 'unknown', id, parsed),
+    );
   }
 
   @Put('opportunities/:id/allocations')
   @Roles('deal_team', 'operations')
   @HttpCode(200)
-  putAllocations(
+  async putAllocations(
     @Param('id') id: string,
     @Body() body: unknown,
     @CurrentPrincipal() principal: Principal,
     @Req() req: RequestWithPrincipal,
+    @Res({ passthrough: true }) res: Response,
   ): Promise<OpportunityDetail> {
     const parsed = parseOrProblem(allocationsPutBody, body, 'body');
-    return this.service.putAllocations(principal, req.id ?? 'unknown', id, parsed);
+    return withEtag(
+      res,
+      await this.service.putAllocations(principal, req.id ?? 'unknown', id, parsed),
+    );
   }
 }

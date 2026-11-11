@@ -1,4 +1,5 @@
-import { Body, Controller, Get, HttpCode, Param, Post, Query, Req } from '@nestjs/common';
+import { Body, Controller, Get, HttpCode, Param, Post, Query, Req, Res } from '@nestjs/common';
+import type { Response } from 'express';
 import type { Principal } from '@pb/adapters';
 import {
   wireInstructionCommandBody,
@@ -8,7 +9,7 @@ import {
 import type { WireInstructionDetail, WireInstructionPage } from '@pb/contracts';
 import { CurrentPrincipal, Roles } from '../auth/principal.js';
 import type { RequestWithPrincipal } from '../auth/principal.js';
-import { ifMatchVersions } from '../common/row-version.js';
+import { ifMatchVersions, withEtag } from '../common/row-version.js';
 import { parseOrProblem } from '../common/validate.js';
 import { WiresService } from './wires.service.js';
 
@@ -35,42 +36,48 @@ export class WiresController {
 
   @Get('wire-instructions/:id')
   @Roles('operations', 'approver', 'auditor', 'platform_admin')
-  detail(
+  async detail(
     @Param('id') id: string,
     @CurrentPrincipal() principal: Principal,
     @Req() req: RequestWithPrincipal,
+    @Res({ passthrough: true }) res: Response,
   ): Promise<WireInstructionDetail> {
-    return this.service.detail(principal, req.id ?? 'unknown', id);
+    return withEtag(res, await this.service.detail(principal, req.id ?? 'unknown', id));
   }
 
   @Post('wire-instructions')
   @Roles('operations')
   @HttpCode(201)
-  propose(
+  async propose(
     @Body() body: unknown,
     @CurrentPrincipal() principal: Principal,
     @Req() req: RequestWithPrincipal,
+    @Res({ passthrough: true }) res: Response,
   ): Promise<WireInstructionDetail> {
     const parsed = parseOrProblem(wireInstructionProposeBody, body, 'body');
-    return this.service.propose(principal, req.id ?? 'unknown', parsed);
+    return withEtag(res, await this.service.propose(principal, req.id ?? 'unknown', parsed));
   }
 
   @Post('wire-instructions/:id/commands')
   @Roles('operations', 'approver')
   @HttpCode(200)
-  command(
+  async command(
     @Param('id') id: string,
     @Body() body: unknown,
     @CurrentPrincipal() principal: Principal,
     @Req() req: RequestWithPrincipal,
+    @Res({ passthrough: true }) res: Response,
   ): Promise<WireInstructionDetail> {
     const parsed = parseOrProblem(wireInstructionCommandBody, body, 'command');
-    return this.service.command(
-      principal,
-      req.id ?? 'unknown',
-      id,
-      parsed,
-      ifMatchVersions(req.header('if-match')),
+    return withEtag(
+      res,
+      await this.service.command(
+        principal,
+        req.id ?? 'unknown',
+        id,
+        parsed,
+        ifMatchVersions(req.header('if-match')),
+      ),
     );
   }
 }

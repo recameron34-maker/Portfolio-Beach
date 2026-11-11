@@ -1,4 +1,16 @@
-import { Body, Controller, Get, HttpCode, Inject, Param, Post, Query, Req } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  HttpCode,
+  Inject,
+  Param,
+  Post,
+  Query,
+  Req,
+  Res,
+} from '@nestjs/common';
+import type { Response } from 'express';
 import type { AdapterSet, Principal } from '@pb/adapters';
 import {
   capitalNoticeCommandBody,
@@ -13,7 +25,7 @@ import type {
 } from '@pb/contracts';
 import { CurrentPrincipal, Roles } from '../auth/principal.js';
 import type { RequestWithPrincipal } from '../auth/principal.js';
-import { ifMatchVersions } from '../common/row-version.js';
+import { ifMatchVersions, withEtag } from '../common/row-version.js';
 import { ADAPTERS } from '../common/tokens.js';
 import { asOfOrToday, parseOrProblem, requireUuid } from '../common/validate.js';
 import { CapitalService } from './capital.service.js';
@@ -45,37 +57,45 @@ export class CapitalController {
   }
 
   @Get('capital-notices/:id')
-  detail(
+  async detail(
     @Param('id') id: string,
     @Query() query: unknown,
     @CurrentPrincipal() principal: Principal,
     @Req() req: RequestWithPrincipal,
+    @Res({ passthrough: true }) res: Response,
   ): Promise<CapitalNoticeControlDetail> {
     requireUuid(id, 'Capital notice not found');
-    return this.service.detail(
-      principal,
-      req.id ?? 'unknown',
-      id,
-      asOfOrToday(query, this.adapters.clock),
+    return withEtag(
+      res,
+      await this.service.detail(
+        principal,
+        req.id ?? 'unknown',
+        id,
+        asOfOrToday(query, this.adapters.clock),
+      ),
     );
   }
 
   @Post('capital-notices/:id/commands')
   @Roles('operations', 'approver', 'service')
   @HttpCode(200)
-  command(
+  async command(
     @Param('id') id: string,
     @Body() body: unknown,
     @CurrentPrincipal() principal: Principal,
     @Req() req: RequestWithPrincipal,
+    @Res({ passthrough: true }) res: Response,
   ): Promise<CapitalNoticeControlDetail> {
     const parsed = parseOrProblem(capitalNoticeCommandBody, body, 'command');
-    return this.service.command(
-      principal,
-      req.id ?? 'unknown',
-      id,
-      parsed,
-      ifMatchVersions(req.header('if-match')),
+    return withEtag(
+      res,
+      await this.service.command(
+        principal,
+        req.id ?? 'unknown',
+        id,
+        parsed,
+        ifMatchVersions(req.header('if-match')),
+      ),
     );
   }
 
@@ -92,11 +112,12 @@ export class CapitalController {
 
   @Get('trade-tickets/:id')
   @Roles('operations', 'approver', 'auditor', 'deal_team')
-  ticket(
+  async ticket(
     @Param('id') id: string,
     @CurrentPrincipal() principal: Principal,
     @Req() req: RequestWithPrincipal,
+    @Res({ passthrough: true }) res: Response,
   ): Promise<TradeTicketRow> {
-    return this.service.ticketDetail(principal, req.id ?? 'unknown', id);
+    return withEtag(res, await this.service.ticketDetail(principal, req.id ?? 'unknown', id));
   }
 }

@@ -163,6 +163,34 @@ describe('Portfolio Beach API', () => {
       expect(problem.errors?.map((e) => e.path).sort()).toEqual(['(root)', 'limit']);
       expect(JSON.stringify(problem)).not.toContain('500');
     });
+    it('answers a body that is not JSON with a fixed message, never the text that was sent (SEC-11.4)', async () => {
+      const res = await h
+        .http()
+        .post('/api/v1/valuations')
+        .set('authorization', h.as('operations'))
+        .set('content-type', 'application/json')
+        .send('VALUE-9931 and more')
+        .expect(400);
+      const body = problemDetails.parse(res.body);
+      expect(body.type).toBe('https://portfolio-beach.example/problems/validation');
+      expect(body.detail).toBe('Invalid body');
+      expect(body.errors).toEqual([{ path: '(root)', message: 'The body is not valid JSON' }]);
+      expect(JSON.stringify(res.body)).not.toContain('VALUE-9931');
+      expect(JSON.stringify(res.body)).not.toContain('Unexpected token');
+      // The request has its id like every other answer, although it is refused before sign-in.
+      expect(body.request_id).toMatch(/^[0-9a-f-]{8,}$/);
+      expect(res.headers['x-request-id']).toBe(body.request_id);
+      // A body over the size limit is named as that, with nothing of its content either.
+      const big = await h
+        .http()
+        .post('/api/v1/valuations')
+        .set('authorization', h.as('operations'))
+        .set('content-type', 'application/json')
+        .send(JSON.stringify({ note: 'x'.repeat(9_000_000) }));
+      expect(big.status).toBe(413);
+      expect(problemDetails.parse(big.body).detail).toBe('The request body is too large');
+    });
+
     it('answers an impossible calendar date with a 400 validation problem, never a 500', async () => {
       const sponsorId = h.dataset.sponsors[0]!.id;
       const vehicleId = h.dataset.vehicles[0]!.id;

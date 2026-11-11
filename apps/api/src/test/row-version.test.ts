@@ -2,7 +2,7 @@ import { readdirSync, readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import type { Response } from 'express';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { IF_MATCH_CASES, ROUTES, problemDetails } from '@pb/contracts';
+import { IF_MATCH_CASES, ROUTES, problemDetails, rowVersionEtag } from '@pb/contracts';
 import type { RouteDefinition } from '@pb/contracts';
 import type { AppRole } from '@pb/db';
 import { ProblemError } from '../common/problem.js';
@@ -134,6 +134,54 @@ describe('the routes the contract marks ifMatch', () => {
       // The same request with a readable header reaches the record, which does not exist.
       const absent = await call(route, '"1"');
       expect(absent.status, what).toBe(404);
+    }
+  });
+
+  /** Where each guarded record kind is read, and the table a seeded one comes from. */
+  const READS: Readonly<Record<string, { path: string; table: string }>> = {
+    valuation: { path: '/api/v1/valuations/{id}', table: 'mon.valuation' },
+    capital_notice: { path: '/api/v1/capital-notices/{id}', table: 'mon.capital_notice' },
+    wire_instruction: { path: '/api/v1/wire-instructions/{id}', table: 'mon.wire_instruction' },
+    change_request: { path: '/api/v1/change-requests/{id}', table: 'mon.deal_change_request' },
+    opportunity: { path: '/api/v1/opportunities/{id}', table: 'deal.opportunity' },
+    closing: { path: '/api/v1/closings/{id}', table: 'deal.closing' },
+  };
+
+  it('tag the record they guard: its read answers the row version as the ETag a command may carry back', async () => {
+    expect(Object.keys(READS).sort()).toEqual([...new Set(guarded.map((r) => r.ifMatch))].sort());
+    for (const [kind, read] of Object.entries(READS)) {
+      const ids = await h.runtime.db.query<{ id: string }>(
+        `select id from ${read.table} order by id limit 20`,
+      );
+      let tagged = false;
+      for (const { id } of ids) {
+        const res = await h
+          .http()
+          .get(read.path.replace('{id}', id))
+          .set('authorization', h.as('operations'));
+        if (res.status !== 200) continue; // behind a wall operations is not on
+        const body = res.body as { rowVersion: number };
+        expect(res.headers.etag, kind).toBe(rowVersionEtag(body.rowVersion));
+        tagged = true;
+        break;
+      }
+      expect(tagged, kind).toBe(true);
+    }
+  });
+
+  it('tag every answer of the controllers that read the header, so the tag never lags the record', () => {
+    // A handler that answers one of the guarded records hands it to withEtag: as many calls as
+    // there are handlers answering a record with a row version in that controller.
+    const src = fileURLToPath(new URL('..', import.meta.url));
+    for (const file of readdirSync(src, { recursive: true, encoding: 'utf8' }).filter((f) =>
+      f.endsWith('.controller.ts'),
+    )) {
+      const text = readFileSync(`${src}/${file}`, 'utf8');
+      if (!text.includes('ifMatchVersions(')) continue;
+      const answers = text.match(
+        /\): Promise<(ValuationRow|ValuationDetail|CapitalNoticeControlDetail|TradeTicketRow|WireInstructionDetail|ChangeRequestRow|ChangeRequestDetail|OpportunityDetail|ClosingDetail)> \{/g,
+      );
+      expect(text.split('withEtag(').length - 1, file).toBe(answers?.length ?? 0);
     }
   });
 
