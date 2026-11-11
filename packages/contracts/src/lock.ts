@@ -43,17 +43,18 @@ export interface ValuationLockInputs {
   fairValue: string;
   /**
    * The method inputs as stored (mon.valuation.inputs): any JSON value, a record of names to
-   * numbers or text when the API wrote it. Absent or null means none, an empty record in the
-   * text. A board row (ValuationRow) does not carry them, so a caller holding only the row
-   * passes the version's inputs beside it; without them the text is that of a version with none.
+   * numbers or text when the API wrote it. Null means none, an empty record in the text.
+   * Required: a board row (ValuationRow) does not carry them, so a caller holding only the row
+   * passes the version's inputs beside it (the detail carries them, valuationDetail.inputs) and
+   * a version with none says so with an empty record, never by leaving the field out.
    */
-  inputs?: unknown;
+  inputs: unknown;
 }
 
 /**
- * The exact text the lock hash is computed over. Only these six fields take part: a row with
- * more fields (a ValuationRow with its inputs beside it) can be passed as it is, and the rest is
- * ignored.
+ * The exact text the lock hash is computed over. Only these six fields take part: a record with
+ * more fields (a ValuationDetail, or a ValuationRow with its inputs beside it) can be passed as
+ * it is, and the rest is ignored.
  */
 export function valuationLockText(version: ValuationLockInputs): string {
   const { investmentId, periodEnd, method, fairValue } = version;

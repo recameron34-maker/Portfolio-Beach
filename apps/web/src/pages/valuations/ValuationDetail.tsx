@@ -2,17 +2,20 @@ import { useState } from 'react';
 import type { ReactNode } from 'react';
 import { Link, useParams } from '@tanstack/react-router';
 import { useQuery } from '@tanstack/react-query';
+import { Button } from '@fluentui/react-components';
+import { canonicalJson } from '@pb/contracts';
 import type {
   ValuationApproval,
   ValuationCommand,
   ValuationDetail,
+  ValuationEditBody,
   ValuationRow,
   ValuationState,
 } from '@pb/contracts';
 import { valuationMachine } from '@pb/workflows';
 import { ApiError } from '../../api/client.js';
 import { previewMode } from '../../app/env.js';
-import { describeActionError, useValuationCommand } from '../../app/mutations.js';
+import { useValuationCommand } from '../../app/mutations.js';
 import { meQuery } from '../../app/queries.js';
 import { UnavailableState } from '../../components/UnavailableState.js';
 import {
@@ -51,16 +54,27 @@ import {
 } from '../../lib/states.js';
 import type { CommandOption } from '../../lib/states.js';
 import { balanceTiles } from '../../lib/tiles.js';
-import { resultSuffix, useActionLog } from '../../lib/workflow.js';
+import { blockedTitle, resultSuffix, useActionLog } from '../../lib/workflow.js';
 import type { ActionLog } from '../../lib/workflow.js';
-import { valuationDetailQuery } from './api.js';
+import {
+  describeValuationError,
+  useEditValuation,
+  useRefreshIfVersionTaken,
+  valuationDetailQuery,
+} from './api.js';
 import {
   aboveVarianceFlag,
   approvedOn,
+  canEditDraft,
+  changedParts,
+  EDIT_ROLES,
+  lockedBy,
+  signOffsOf,
   valuationSteps,
   VARIANCE_TITLE,
   versionLabel,
 } from './board.js';
+import { EditValuationDialog } from './EditValuation.js';
 import './valuations.css';
 
 type ValuationOption = CommandOption<ValuationState, ValuationCommand>;
@@ -123,7 +137,9 @@ function ProgressStrip({ state }: { state: ValuationState }): ReactNode {
 
 function Tiles({ detail }: { detail: ValuationDetail }): ReactNode {
   const variance = aboveVarianceFlag(detail.changePct);
-  const final = detail.approvals.find((a) => a.step === 'final' && a.decision === 'approve');
+  // The final approval of the trail, or the approver named on the version when it holds no
+  // decision rows (a version loaded with its sign-offs is Locked all the same).
+  const locker = lockedBy(detail);
   return (
     <div ref={balanceTiles} className="pb-tiles" data-testid="valuation-detail-tiles">
       <StatTile
@@ -149,7 +165,7 @@ function Tiles({ detail }: { detail: ValuationDetail }): ReactNode {
       <StatTile
         label="Locked"
         value={approvedOn(detail.approvedAt)}
-        hint={final === undefined ? 'Not locked' : `By ${final.actorName}`}
+        hint={locker === null ? 'Not locked' : `By ${locker}`}
       />
     </div>
   );
@@ -165,10 +181,40 @@ function WorkflowCard({
   log: ActionLog;
 }): ReactNode {
   const command = useValuationCommand();
+  const edit = useEditValuation();
+  const refreshIfVersionTaken = useRefreshIfVersionTaken();
   const [reasonFor, setReasonFor] = useState<ValuationOption | null>(null);
   const [reopenedTo, setReopenedTo] = useState<ValuationRow | null>(null);
+  // The version as it read when the form was opened: the edit carries that row version, so a
+  // change someone else made meanwhile is refused (412), never overwritten by a form that did
+  // not show it.
+  const [editing, setEditing] = useState<ValuationDetail | null>(null);
+  const [editError, setEditError] = useState<string | null>(null);
   const options = commandOptions(valuationMachine, detail.state, roles);
   const subject = versionLabel(detail);
+  // Only a Draft is edited (docs/18 section 1), by the roles the route table names.
+  const editBlocked = blockedTitle({ allowed: canEditDraft(roles), roles: EDIT_ROLES });
+  const saveEdit = (opened: ValuationDetail, body: ValuationEditBody): void => {
+    edit.mutate(
+      { id: opened.id, body, rowVersion: opened.rowVersion },
+      {
+        onSuccess: (updated) => {
+          setEditing(null);
+          setEditError(null);
+          log.record(
+            'good',
+            `${versionLabel(updated)} corrected: ${changedParts(body)} ${resultSuffix()}`,
+          );
+        },
+        // The dialog stays open with the reason, so what was typed is not lost.
+        onError: (error) => {
+          const why = describeValuationError(error);
+          setEditError(why);
+          log.record('bad', `Edit draft for ${subject}: ${why}`);
+        },
+      },
+    );
+  };
   const issue = (option: ValuationOption, reason?: string): void => {
     command.mutate(
       {
@@ -192,11 +238,13 @@ function WorkflowCard({
             );
           }
         },
-        onError: (error) =>
+        onError: (error) => {
+          refreshIfVersionTaken(error);
           log.record(
             'bad',
-            `${commandLabel(option.command)} for ${subject}: ${describeActionError(error)}`,
-          ),
+            `${commandLabel(option.command)} for ${subject}: ${describeValuationError(error)}`,
+          );
+        },
       },
     );
   };
@@ -223,12 +271,32 @@ function WorkflowCard({
         <div className="pb-val-actions">
           <CommandButtons
             options={options}
-            busy={command.isPending}
+            busy={command.isPending || edit.isPending}
             appearance="secondary"
             onIssue={(o) => (o.needsReason ? setReasonFor(o) : issue(o))}
           />
+          {detail.state === 'Draft' ? (
+            <Button
+              size="small"
+              appearance="secondary"
+              disabled={editBlocked !== null || command.isPending || edit.isPending}
+              {...(editBlocked === null ? {} : { title: editBlocked })}
+              onClick={() => {
+                setEditError(null);
+                setEditing(detail);
+              }}
+            >
+              Edit draft
+            </Button>
+          ) : null}
         </div>
       )}
+      {detail.state === 'Draft' ? (
+        <p className="pb-meta">
+          Edit draft: operations corrects the method, the fair value and the method inputs before
+          preparing the version. Only a Draft can be edited.
+        </p>
+      ) : null}
       {notes.length > 0 ? (
         <ul className="pb-list">
           {notes.map((o) => (
@@ -252,6 +320,74 @@ function WorkflowCard({
           }}
         />
       ) : null}
+      {editing === null ? null : (
+        <EditValuationDialog
+          detail={editing}
+          busy={edit.isPending}
+          error={editError}
+          onCancel={() => setEditing(null)}
+          onSubmit={(body) => saveEdit(editing, body)}
+        />
+      )}
+    </Card>
+  );
+}
+
+/** A stored input as the screen shows it: text and numbers as they are, anything else as its JSON. */
+function inputText(value: unknown): string {
+  if (typeof value === 'string') return value === '' ? MISSING : value;
+  if (typeof value === 'number') return String(value);
+  try {
+    return canonicalJson(value);
+  } catch {
+    return MISSING;
+  }
+}
+
+/**
+ * The method inputs of the version (mon.valuation.inputs): what the value rests on. They are
+ * shown in every state, since the lock covers them: whoever approves reads what will be locked,
+ * and operations edits them while the version is a Draft.
+ */
+function InputsCard({ detail }: { detail: ValuationDetail }): ReactNode {
+  const rows = Object.entries(detail.inputs).sort(([a], [b]) => a.localeCompare(b));
+  return (
+    <Card testId="valuation-inputs">
+      <SectionHeader aside={rows.length === 0 ? undefined : plural(rows.length, 'input')}>
+        Method inputs
+      </SectionHeader>
+      {rows.length === 0 ? (
+        <EmptyState
+          title="No method inputs"
+          detail={
+            detail.state === 'Draft'
+              ? 'Operations can add what the value rests on with Edit draft. The lock covers the inputs with the method and the fair value.'
+              : 'This version holds the method and the fair value only. The lock covers them, with no inputs.'
+          }
+        />
+      ) : (
+        <>
+          <TableWrap label="Method inputs">
+            <table className="pb-table" aria-label="Method inputs">
+              <thead>
+                <tr>
+                  <th>Input</th>
+                  <th>Value</th>
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map(([name, value]) => (
+                  <tr key={name}>
+                    <td>{name}</td>
+                    <td>{inputText(value)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </TableWrap>
+          <p className="pb-meta">The lock covers these with the method and the fair value.</p>
+        </>
+      )}
     </Card>
   );
 }
@@ -261,7 +397,17 @@ function LockCard({ detail }: { detail: ValuationDetail }): ReactNode {
   return (
     <Card testId="valuation-lock">
       <SectionHeader>Lock</SectionHeader>
-      {detail.lockText === null ? (
+      {detail.lockText === null && detail.state === 'Reopened' && detail.lockHash !== null ? (
+        <>
+          <EmptyState
+            title="Reopened after its lock"
+            detail="This version was Locked and then reopened, so reports no longer read it. The work continues on the next version, which gets a lock of its own."
+          />
+          <p className="pb-meta">
+            The hash it was locked with: <code className="pb-val-hash">{detail.lockHash}</code>
+          </p>
+        </>
+      ) : detail.lockText === null ? (
         <EmptyState
           title="Not locked"
           detail="The lock text and its hash appear once an approver locks the version. Reports read Locked versions only."
@@ -269,8 +415,9 @@ function LockCard({ detail }: { detail: ValuationDetail }): ReactNode {
       ) : (
         <>
           <p className="pb-meta">
-            The hash is SHA-256 over this text: the version identity, the method and the fair value.
-            A Locked version never changes in place; a correction reopens it into a new version.
+            The hash is SHA-256 over this text: the version identity, the method, the method inputs
+            and the fair value. A Locked version never changes in place; a correction reopens it
+            into a new version.
           </p>
           <pre className="pb-val-lock" data-testid="valuation-lock-text">
             {detail.lockText}
@@ -284,15 +431,61 @@ function LockCard({ detail }: { detail: ValuationDetail }): ReactNode {
   );
 }
 
-function ApprovalsCard({ approvals }: { approvals: readonly ValuationApproval[] }): ReactNode {
+/**
+ * The approval trail (mon.valuation_approval). A version that holds no decision rows but names
+ * its preparer and approvers (one loaded with its sign-offs, such as the seeded history) shows
+ * those names with the lock time, so a Locked version never reads as undecided; the time of a
+ * step the version does not carry is the missing placeholder, never a guess (rule 10).
+ */
+function ApprovalsCard({ detail }: { detail: ValuationDetail }): ReactNode {
+  const { approvals } = detail;
+  const signOffs = signOffsOf(detail);
   return (
     <Card testId="valuation-approvals">
       <SectionHeader
-        aside={approvals.length === 0 ? undefined : plural(approvals.length, 'decision')}
+        aside={
+          approvals.length > 0
+            ? plural(approvals.length, 'decision')
+            : signOffs.length > 0
+              ? plural(signOffs.length, 'sign-off')
+              : undefined
+        }
       >
         Approvals
       </SectionHeader>
-      {approvals.length === 0 ? (
+      {approvals.length === 0 && signOffs.length > 0 ? (
+        <>
+          <TableWrap label="Approvals">
+            <table className="pb-table" aria-label="Approvals">
+              <thead>
+                <tr>
+                  <th>Step</th>
+                  <th>Decision</th>
+                  <th>By</th>
+                  <th>When</th>
+                  <th>Reason</th>
+                </tr>
+              </thead>
+              <tbody>
+                {signOffs.map((s) => (
+                  <tr key={s.step}>
+                    <td>{STEP_WORDS[s.step]}</td>
+                    <td>
+                      <Badge tone={DECISION_TONES.approve}>{DECISION_WORDS.approve}</Badge>
+                    </td>
+                    <td>{s.by}</td>
+                    <td className="pb-nowrap">{s.at === null ? MISSING : formatDateTime(s.at)}</td>
+                    <td>{MISSING}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </TableWrap>
+          <p className="pb-meta">
+            These names are on the version itself; it holds no step by step decisions.
+          </p>
+        </>
+      ) : approvals.length === 0 ? (
         <EmptyState
           title="No decisions yet"
           detail="Each prepare, approval, send back, lock and reopen is recorded here with who decided and why."
@@ -409,21 +602,25 @@ function DetailBody({
       <Tiles detail={detail} />
       <div className="pb-two-col">
         <WorkflowCard detail={detail} roles={roles} log={log} />
-        <LockCard detail={detail} />
+        <InputsCard detail={detail} />
       </div>
       <div className="pb-two-col">
-        <ApprovalsCard approvals={detail.approvals} />
-        <OpenChangesCard detail={detail} />
+        <LockCard detail={detail} />
+        <ApprovalsCard detail={detail} />
       </div>
-      <ActionLogCard entries={log.entries} />
+      <div className="pb-two-col">
+        <OpenChangesCard detail={detail} />
+        <ActionLogCard entries={log.entries} />
+      </div>
     </div>
   );
 }
 
 /**
  * One valuation version (docs/04 M10, docs/18 section 1): its place in the workflow, the figures
- * against the prior Locked mark, the commands the signed-in roles may issue, the lock text with
- * its hash, the approval trail and the open change requests of its investment.
+ * against the prior Locked mark, the commands the signed-in roles may issue and the edit of a
+ * Draft, the method inputs, the lock text with its hash, the approval trail and the open change
+ * requests of its investment.
  */
 export function ValuationDetailPage(): ReactNode {
   const { id } = useParams({ from: '/app/valuations/$id' });

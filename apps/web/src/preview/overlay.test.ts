@@ -16,7 +16,9 @@ import {
   overlayInvestmentPerformance,
   overlayRecordedBody,
   overlayValuationPage,
+  withPriorMark,
 } from './overlay.js';
+import type { VersionsOf } from './overlay.js';
 import { createPreviewState } from './state.js';
 import type { SimException, SimNotice, SimPromotedQuarter, SimValuation } from './state.js';
 import {
@@ -47,8 +49,15 @@ const sim = (row: SimValuation['row'], extra: Partial<SimValuation> = {}): SimVa
   dealTeamApprovedByIds: [],
   approvedByIds: [],
   approvals: [],
+  inputs: null,
   ...extra,
 });
+
+/** The versions of a position as they stand with the given sims: its recorded one-pager list with them laid over. */
+const standing =
+  (sims: readonly SimValuation[]): VersionsOf =>
+  (investmentId) =>
+    overlayInvestmentDetail(investmentId === IDS.walled ? walled : open, sims).valuations;
 
 const page = (items: ValuationPage['items']): ValuationPage => ({
   items,
@@ -71,22 +80,24 @@ const notWalled = (id: string): boolean => id !== IDS.walled;
 describe('valuation list overlay', () => {
   it('returns the recorded page itself when nothing was simulated', () => {
     const p = page([recordedRow]);
-    expect(overlayValuationPage(p, [], {}, everyone)).toBe(p);
-    expect(overlayValuationPage(p, [sim(recordedRow, { changed: false })], {}, everyone)).toBe(p);
+    expect(overlayValuationPage(p, [], {}, everyone, standing([]))).toBe(p);
+    const untouched = [sim(recordedRow, { changed: false })];
+    expect(overlayValuationPage(p, untouched, {}, everyone, standing(untouched))).toBe(p);
   });
 
   it('replaces changed rows by id and keeps the recorded order', () => {
     const reopened = { ...recordedRow, state: 'Reopened' as const, rowVersion: 2 };
-    const out = overlayValuationPage(page([recordedRow]), [sim(reopened)], {}, everyone);
+    const sims = [sim(reopened)];
+    const out = overlayValuationPage(page([recordedRow]), sims, {}, everyone, standing(sims));
     expect(out.items).toEqual([reopened]);
   });
 
   it('adds created rows only where the credential can open the investment, and syncs the periods', () => {
     const sims = [sim(created, { origin: 'created' }), sim(createdWalled, { origin: 'created' })];
-    const out = overlayValuationPage(page([recordedRow]), sims, {}, notWalled);
+    const out = overlayValuationPage(page([recordedRow]), sims, {}, notWalled, standing(sims));
     expect(out.items.map((r) => r.id)).toEqual([created.id, recordedRow.id]);
     expect(out.periods).toEqual(['2025-06-30', '2025-03-31']);
-    const member = overlayValuationPage(page([recordedRow]), sims, {}, everyone);
+    const member = overlayValuationPage(page([recordedRow]), sims, {}, everyone, standing(sims));
     expect(member.items).toHaveLength(3);
   });
 
@@ -97,18 +108,121 @@ describe('valuation list overlay', () => {
       sims,
       { investmentId: IDS.walled },
       everyone,
+      standing(sims),
     );
     expect(byInvestment.items.map((r) => r.id)).toEqual([createdWalled.id]);
-    const byState = overlayValuationPage(page([recordedRow]), sims, { state: 'Locked' }, everyone);
+    const byState = overlayValuationPage(
+      page([recordedRow]),
+      sims,
+      { state: 'Locked' },
+      everyone,
+      standing(sims),
+    );
     expect(byState.items).toEqual([recordedRow]);
-    const reopened = { ...recordedRow, state: 'Reopened' as const };
+    const reopened = [sim({ ...recordedRow, state: 'Reopened' as const })];
     expect(
-      overlayValuationPage(page([recordedRow]), [sim(reopened)], { state: 'Locked' }, everyone)
-        .items,
+      overlayValuationPage(
+        page([recordedRow]),
+        reopened,
+        { state: 'Locked' },
+        everyone,
+        standing(reopened),
+      ).items,
     ).toEqual([]);
     // A vehicle filter adds a row only when its vehicle is known and matches.
-    const byVehicle = overlayValuationPage(page([]), sims, { vehicleId: IDS.vehicle }, everyone);
+    const byVehicle = overlayValuationPage(
+      page([]),
+      sims,
+      { vehicleId: IDS.vehicle },
+      everyone,
+      standing(sims),
+    );
     expect(byVehicle.items.map((r) => r.id)).toEqual([created.id]);
+  });
+
+  it('reads the prior Locked mark of every row of a touched position from the versions as they now stand (VAL-5)', () => {
+    // The recorded board: the Q1 Locked mark of the open position and its Q2 version against
+    // it, and a row of another position with its own recorded mark.
+    const june = valuationFixture('50000000-0000-4000-8000-000000000003', open, {
+      periodEnd: '2025-06-30',
+      state: 'DealTeamApproved',
+      fairValue: '1200.00',
+      priorFairValue: '1000.00',
+      changePct: '0.2',
+    });
+    const other = valuationFixture('50000000-0000-4000-8000-000000000004', walled, {
+      periodEnd: '2025-06-30',
+      fairValue: '700.00',
+      priorFairValue: '500.00',
+      changePct: '0.4',
+    });
+    const board = page([june, other, recordedRow]);
+    const juneOf = (out: ValuationPage): ValuationPage['items'][number] | undefined =>
+      out.items.find((r) => r.id === june.id);
+    // Q1 is reopened this session: no Locked version stands for it, so the Q2 row has no prior
+    // mark and no change, although nothing touched the Q2 row itself.
+    const reopened = sim({ ...recordedRow, state: 'Reopened' as const, rowVersion: 2 });
+    const draft = { ...recordedRow, id: '50000000-0000-4000-8000-000000000005', version: 2 };
+    const open1 = [reopened, sim({ ...draft, state: 'Draft' as const }, { origin: 'created' })];
+    const afterReopen = overlayValuationPage(board, open1, {}, everyone, standing(open1));
+    expect(juneOf(afterReopen)).toEqual({ ...june, priorFairValue: null, changePct: null });
+    // The corrected version of Q1 locks: the Q2 row reads the new mark and the change against it.
+    const open2 = [
+      reopened,
+      sim({ ...draft, state: 'Locked' as const, fairValue: '960.00' }, { origin: 'created' }),
+    ];
+    const afterLock = overlayValuationPage(board, open2, {}, everyone, standing(open2));
+    expect(juneOf(afterLock)).toEqual({ ...june, priorFairValue: '960.00', changePct: '0.25' });
+    // A position nothing changed on keeps the figures as recorded, the same row object.
+    for (const out of [afterReopen, afterLock])
+      expect(out.items.find((r) => r.id === other.id)).toBe(other);
+  });
+
+  it('takes the latest Locked version that reports for the quarter before, and no ratio against a zero or missing mark', () => {
+    const row = valuationFixture('50000000-0000-4000-8000-000000000006', open, {
+      periodEnd: '2025-06-27',
+      quarterEnd: '2025-06-30',
+      state: 'Draft',
+      fairValue: '1320.00',
+    });
+    const version = (
+      periodEnd: string,
+      n: number,
+      state: string,
+      fairValue: string,
+    ): {
+      periodEnd: string;
+      version: number;
+      state: string;
+      fairValue: string;
+      method: string;
+    } => ({
+      periodEnd,
+      version: n,
+      state,
+      fairValue,
+      method: 'm',
+    });
+    // A sponsor that closed a few days early counts for its quarter; a Reopened version does not.
+    expect(
+      withPriorMark(
+        row,
+        [
+          version('2025-03-28', 1, 'Reopened', '900.00'),
+          version('2025-03-28', 2, 'Locked', '1100.00'),
+        ],
+        7,
+      ),
+    ).toMatchObject({ priorFairValue: '1100.00', changePct: '0.2' });
+    // The quarter before only: an older Locked mark is not carried forward (rule 10).
+    expect(withPriorMark(row, [version('2024-12-31', 1, 'Locked', '800.00')], 7)).toBe(row);
+    expect(withPriorMark(row, [version('2025-03-31', 1, 'Locked', '0.00')], 7)).toMatchObject({
+      priorFairValue: '0.00',
+      changePct: null,
+    });
+    const marked = { ...row, priorFairValue: '1100.00', changePct: '0.2' };
+    expect(withPriorMark(marked, [], 7)).toEqual(row);
+    expect(withPriorMark(marked, [version('2025-03-28', 2, 'Locked', '1100.00')], 7)).toBe(marked);
   });
 });
 

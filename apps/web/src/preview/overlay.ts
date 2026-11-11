@@ -1,13 +1,17 @@
 import definitions from '../../../../config/definitions.json';
 import {
+  addDays,
   ebitdaMargin,
   evToEbitda,
   growthSinceEntry,
   latestPeriod,
+  latestQuarterEndOnOrBefore,
+  lockedNear,
   multipleDelta,
   netDebtToEbitda,
   sameQuarterPriorYear,
   toDecimalString,
+  valueChange,
   yoyGrowth,
 } from '@pb/calc';
 import type { Decimal } from '@pb/calc';
@@ -30,6 +34,7 @@ import type {
   InvestmentPerformance,
   QuarterRow,
   ValuationPage,
+  ValuationRow,
 } from '@pb/contracts';
 import type { z } from 'zod';
 import type { Recordings } from './fixtures.js';
@@ -50,7 +55,9 @@ import type {
  * and the one-pager show what the simulated workflow did. Each overlay is a pure function that
  * returns its input unchanged when nothing applies. Records are added to a list only when the
  * credential's own recorded investment detail answered 200, so a wall still hides what it hid.
- * Figures stay as recorded: nothing here recomputes NAV, MOIC or IRR.
+ * Figures stay as recorded: nothing here recomputes NAV, MOIC or IRR. The one figure read again
+ * is a valuation row's prior Locked mark with the change against it, which the API reads when
+ * it answers and which a reopen or a lock of this session changes.
  */
 
 type FeatureFlagList = z.infer<typeof featureFlagList>;
@@ -60,6 +67,46 @@ export interface ValuationFilters {
   periodEnd?: string;
   state?: string;
   vehicleId?: string;
+}
+
+/** A version as the one-pager lists it: what the prior mark of a row is read from. */
+export type VersionEntry = InvestmentDetail['valuations'][number];
+
+/** The versions of one position as they stand in this session (versionsNow). */
+export type VersionsOf = (investmentId: string) => readonly VersionEntry[];
+
+/** `definitions.priorYearPeriodEndToleranceDays`, the tolerance every quarter match reads. */
+function priorYearTolerance(): number {
+  const value: unknown = (definitions as Record<string, unknown>).priorYearPeriodEndToleranceDays;
+  return typeof value === 'number' && Number.isInteger(value) ? value : 7;
+}
+
+/**
+ * A board row with its prior Locked mark and the change against it read from the versions of
+ * its position as they now stand, the way the API reads them each time it answers
+ * (apps/api/src/valuations/valuations.service.ts toRows): the Locked version that reports for
+ * the quarter before the row's. A version that was reopened is no longer Locked, so the quarter
+ * after it has no prior mark, and no change, until its new version locks; the value of a
+ * version that no longer stands is never shown in its place (rule 10). The row itself is
+ * returned when nothing differs.
+ */
+export function withPriorMark(
+  row: ValuationRow,
+  versions: readonly VersionEntry[],
+  toleranceDays: number,
+): ValuationRow {
+  // The highest version first, so the latest wins on one period end (lockedNear).
+  const prior = lockedNear(
+    [...versions].sort((a, b) => b.version - a.version),
+    latestQuarterEndOnOrBefore(addDays(row.quarterEnd, -1)),
+    toleranceDays,
+  );
+  const priorFairValue = prior?.fairValue ?? null;
+  // Null without a prior Locked mark or against a zero one (docs/08 section 2).
+  const changePct = toDecimalString(valueChange(row.fairValue, priorFairValue));
+  return priorFairValue === row.priorFairValue && changePct === row.changePct
+    ? row
+    : { ...row, priorFairValue, changePct };
 }
 
 /** Every filter the record satisfies; a vehicle filter needs the record's vehicle to be known. */
@@ -77,10 +124,26 @@ export function overlayValuationPage(
   sims: Iterable<SimValuation>,
   filters: ValuationFilters,
   canSee: (investmentId: string) => boolean,
+  versionsOf: VersionsOf,
 ): ValuationPage {
   const touched = new Map<string, SimValuation>();
   for (const sim of sims) if (sim.changed) touched.set(sim.row.id, sim);
   if (touched.size === 0) return page;
+  // Every row of a position whose versions changed this session, the recorded ones included,
+  // reads its prior mark from the versions as they now stand: a reopen takes the mark away from
+  // the next quarter's rows and a lock gives them the new one. Other positions stay as recorded.
+  const moved = new Set([...touched.values()].map((sim) => sim.row.investmentId));
+  const tolerance = priorYearTolerance();
+  const standing = new Map<string, readonly VersionEntry[]>();
+  const marked = (row: ValuationRow): ValuationRow => {
+    if (!moved.has(row.investmentId)) return row;
+    let versions = standing.get(row.investmentId);
+    if (versions === undefined) {
+      versions = versionsOf(row.investmentId);
+      standing.set(row.investmentId, versions);
+    }
+    return withPriorMark(row, versions, tolerance);
+  };
   let changed = false;
   const present = new Set<string>();
   const items: ValuationPage['items'] = [];
@@ -88,18 +151,21 @@ export function overlayValuationPage(
     present.add(item.id);
     const sim = touched.get(item.id);
     if (sim === undefined) {
-      items.push(item);
+      const row = marked(item);
+      if (row !== item) changed = true;
+      items.push(row);
       continue;
     }
     changed = true;
-    // Only the state can move a listed record out of the filter; the rest never changes.
-    if (filters.state === undefined || sim.row.state === filters.state) items.push(sim.row);
+    // Only the state can move a listed record out of the filter: no list filters on the method
+    // or the value an edit changes.
+    if (filters.state === undefined || sim.row.state === filters.state) items.push(marked(sim.row));
   }
   const added: ValuationPage['items'] = [];
   for (const sim of touched.values()) {
     if (present.has(sim.row.id) || !matchesAll(sim, filters) || !canSee(sim.row.investmentId))
       continue;
-    added.push(sim.row);
+    added.push(marked(sim.row));
   }
   if (!changed && added.length === 0) return page;
   const periods = [...new Set([...page.periods, ...added.map((r) => r.quarterEnd)])].sort((a, b) =>
@@ -342,17 +408,40 @@ export function overlayInvestmentPerformance(
   return { ...perf, quarters: quartersKept, sinceEntry };
 }
 
-/** `definitions.priorYearPeriodEndToleranceDays`, the tolerance the prior-year match reads. */
-function priorYearTolerance(): number {
-  const value: unknown = (definitions as Record<string, unknown>).priorYearPeriodEndToleranceDays;
-  return typeof value === 'number' && Number.isInteger(value) ? value : 7;
-}
-
 /** Context the overlays read: the credential's own recordings decide what it may see. */
 export interface OverlayContext {
   credential: string;
   recordings: Recordings;
   state: PreviewState;
+}
+
+/**
+ * The versions of a position as the credential sees them now: its recorded one-pager list (or
+ * the one-pager of a position a simulated close created) with this session's versions laid over
+ * it. Without either, the session's own versions of the position.
+ */
+export function versionsNow(
+  ctx: OverlayContext,
+  sims: ReadonlyMap<string, SimValuation>,
+  investmentId: string,
+): VersionEntry[] {
+  const detail =
+    ctx.state.investments.get(investmentId)?.detail ??
+    ctx.recordings.read(
+      ctx.credential,
+      `/api/v1/investments/${encodeURIComponent(investmentId)}`,
+      investmentDetail,
+    );
+  if (detail !== undefined) return overlayInvestmentDetail(detail, sims.values()).valuations;
+  return [...sims.values()]
+    .filter((sim) => sim.row.investmentId === investmentId)
+    .map(({ row: { periodEnd, version, state, fairValue, method } }) => ({
+      periodEnd,
+      version,
+      state,
+      fairValue,
+      method,
+    }));
 }
 
 const INVESTMENT = /^\/api\/v1\/investments\/([^/]+)$/;
@@ -422,7 +511,9 @@ export function overlayRecordedBody(url: URL, text: string, ctx: OverlayContext)
         if (value !== undefined) filters[name] = value;
       }
       return write(parse(valuationPage), (page) =>
-        overlayValuationPage(page, sims.values(), filters, canSee),
+        overlayValuationPage(page, sims.values(), filters, canSee, (investmentId) =>
+          versionsNow(ctx, sims, investmentId),
+        ),
       );
     }
     if (INVESTMENT.test(path))

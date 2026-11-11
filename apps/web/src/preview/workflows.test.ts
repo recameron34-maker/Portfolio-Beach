@@ -548,8 +548,8 @@ describe('the valuation journey across roles', () => {
       preparedBy: USERS.ops.displayName,
       rowVersion: 2,
     });
-    expect(preparedRow.lockHash).toBe(await lockHashOf(created));
-    expect(preparedRow.lockHash).toMatch(/^[0-9a-f]{64}$/);
+    // The hash is taken at the lock, over what the version holds then; none before, as the API.
+    expect(preparedRow.lockHash).toBeNull();
 
     expect((await run(USERS.ops.externalId, { command: 'dealTeamApprove' })).status).toBe(403);
     expect((await run(USERS.head.externalId, { command: 'lock' })).status).toBe(409);
@@ -565,6 +565,8 @@ describe('the valuation journey across roles', () => {
       dealTeamApprovedBy: USERS.deal.displayName,
       rowVersion: 4,
     });
+    expect(locked.lockHash).toBe(await lockHashOf({ ...locked, inputs: {} }));
+    expect(locked.lockHash).toMatch(/^[0-9a-f]{64}$/);
 
     // A viewer now reads the Locked row in the list and the one-pager; recorded figures stay as recorded.
     const list = valuationPage.parse(

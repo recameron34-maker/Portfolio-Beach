@@ -451,22 +451,56 @@ export function changeRequestPageFixture(
   return { items, nextCursor };
 }
 
-/** The quarter-end check at the as-of quarter: the three open requests, two of them newly listed. */
-export function quarterEndCheckFixture(): QuarterEndCheckResult {
+/**
+ * The quarter-end check at the as-of quarter: the three open requests the caller may see, two of
+ * them newly listed, and `hidden` more on positions the caller cannot see (each with a data
+ * exception of its own, so the run opened that many more).
+ */
+export function quarterEndCheckFixture(hidden = 0): QuarterEndCheckResult {
   const rows = changeRequestRows();
   return {
     periodEnd: AS_OF,
     unapplied: rows.filter((r) => r.state !== 'Applied' && r.state !== 'Rejected'),
-    hidden: 0,
-    exceptionsOpened: 2,
+    hidden,
+    exceptionsOpened: 2 + hidden,
   };
 }
 
-/** The Locked Meridian version with its three approvals, one open request and the lock text. */
+/** The valuation_method domain as the taxonomy serves it, for the edit form's method picker. */
+export function valuationMethodTaxonomyFixture(): Taxonomy {
+  const terms: [string, string][] = [
+    ['sponsor_mark', 'Sponsor mark'],
+    ['market_multiple', 'Market multiple'],
+    ['dcf', 'Discounted cash flow'],
+    ['par_plus_accrued', 'Par plus accrued'],
+    ['retired_method', 'Retired method'],
+  ];
+  return {
+    domains: [
+      {
+        domain: 'valuation_method',
+        terms: terms.map(([code, label], i) => ({
+          code: `valuation_method.${code}`,
+          label,
+          parentCode: null,
+          active: code !== 'retired_method',
+          sortOrder: i + 1,
+        })),
+      },
+    ],
+  };
+}
+
+/**
+ * The Locked Meridian version with its method inputs (none unless given), its three approvals,
+ * one open request and the lock text over what it holds.
+ */
 export function valuationDetailFixture(overrides: Partial<ValuationDetail> = {}): ValuationDetail {
   const row = valuationRowFixture(overrides);
+  const inputs = overrides.inputs ?? {};
   return {
     ...row,
+    inputs,
     approvals: [
       {
         id: '00000000-0000-4000-8000-000000000601',
@@ -497,7 +531,7 @@ export function valuationDetailFixture(overrides: Partial<ValuationDetail> = {})
       },
     ],
     openChangeRequests: [changeRequestRowFixture()],
-    lockText: valuationLockText(row),
+    lockText: valuationLockText({ ...row, inputs }),
     ...overrides,
   };
 }

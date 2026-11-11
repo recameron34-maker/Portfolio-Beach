@@ -67,7 +67,11 @@ import { formatDate, formatMoneyM, formatPct, labelOf, MISSING, plural } from '.
 import { commandLabel, commandOptions, humanizeState, valuationTone } from '../../lib/states.js';
 import type { CommandOption } from '../../lib/states.js';
 import { retryUnlessUnavailable } from '../../lib/unavailable.js';
-import { useValuationBatchCommand } from './api.js';
+import {
+  describeValuationError,
+  useRefreshIfVersionTaken,
+  useValuationBatchCommand,
+} from './api.js';
 import {
   aboveVarianceFlag,
   ACTIVE_POSITIONS,
@@ -482,6 +486,9 @@ function useBoardActions(log: ActionLog): BoardActions {
   const batch = useValuationBatchCommand();
   const create = useCreateValuation();
   const reset = usePreviewReset();
+  // A create or a reopen that lost the race for a version number: the other version exists, so
+  // the board is read again and the message says to continue with it.
+  const refreshIfVersionTaken = useRefreshIfVersionTaken();
   const issue = (row: ValuationRow, option: ValuationOption, reason?: string): void => {
     command.mutate(
       {
@@ -495,11 +502,13 @@ function useBoardActions(log: ActionLog): BoardActions {
             'good',
             `${versionLabel(updated)} is now ${humanizeState(updated.state)} ${resultSuffix()}`,
           ),
-        onError: (error) =>
+        onError: (error) => {
+          refreshIfVersionTaken(error);
           log.record(
             'bad',
-            `${commandLabel(option.command)} for ${versionLabel(row)}: ${describeActionError(error)}`,
-          ),
+            `${commandLabel(option.command)} for ${versionLabel(row)}: ${describeValuationError(error)}`,
+          );
+        },
       },
     );
   };
@@ -510,11 +519,13 @@ function useBoardActions(log: ActionLog): BoardActions {
           'good',
           `Draft valuation created for ${created.companyName}, ${formatDate(created.periodEnd)} ${resultSuffix()}`,
         ),
-      onError: (error) =>
+      onError: (error) => {
+        refreshIfVersionTaken(error);
         log.record(
           'bad',
-          `New valuation for ${position.companyName}, ${formatDate(body.periodEnd)}: ${describeActionError(error)}`,
-        ),
+          `New valuation for ${position.companyName}, ${formatDate(body.periodEnd)}: ${describeValuationError(error)}`,
+        );
+      },
     });
   };
   // One entry per version (its new state, or the rule that refused it), then the summary on top.

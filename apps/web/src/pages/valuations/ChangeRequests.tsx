@@ -24,11 +24,12 @@ import type {
   MockUser,
   QuarterEndCheckResult,
 } from '@pb/contracts';
+import { containingQuarterEnd } from '@pb/calc';
 import { dealChangeRequestMachine } from '@pb/workflows';
 import { previewMode } from '../../app/env.js';
 import { describeActionError } from '../../app/mutations.js';
 import { VALUATION_TABS } from '../../app/nav.js';
-import { LIST_LIMIT, meQuery, mockUsersQuery } from '../../app/queries.js';
+import { dataHealthQuery, LIST_LIMIT, meQuery, mockUsersQuery } from '../../app/queries.js';
 import { UnavailableState } from '../../components/UnavailableState.js';
 import {
   Badge,
@@ -94,7 +95,7 @@ const FORBIDDEN = {
 /** How many recent quarter ends the check offers. */
 const QUARTER_ENDS_OFFERED = 12;
 
-/** Today as an ISO date, the day the quarter-end pickers count back from. */
+/** The day of this machine as an ISO date: the fallback when the record's day cannot be read. */
 function todayIso(): string {
   return new Date().toISOString().slice(0, 10);
 }
@@ -104,6 +105,7 @@ function PeriodDialog({
   subject,
   hint,
   periods,
+  noPeriods,
   submitLabel,
   onCancel,
   onSubmit,
@@ -112,6 +114,8 @@ function PeriodDialog({
   subject: string;
   hint: string;
   periods: readonly string[];
+  /** What to say when no quarter end can be offered: the dialog then only explains. */
+  noPeriods: string;
   submitLabel: string;
   onCancel: () => void;
   onSubmit: (periodEnd: string) => void;
@@ -135,10 +139,17 @@ function PeriodDialog({
             <DialogTitle>{title}</DialogTitle>
             <DialogContent className="pb-dialog-content">
               <p className="pb-meta">{subject}</p>
-              <FluentField label="Quarter end" required hint={hint}>
+              <FluentField
+                label="Quarter end"
+                required
+                {...(periods.length === 0
+                  ? { validationState: 'error' as const, validationMessage: noPeriods }
+                  : { hint })}
+              >
                 <Dropdown
                   value={period === '' ? '' : formatDate(period)}
                   selectedOptions={period === '' ? [] : [period]}
+                  disabled={periods.length === 0}
                   onOptionSelect={(_e, d) => setPeriod(d.optionValue ?? '')}
                 >
                   {periods.map((p) => (
@@ -164,14 +175,24 @@ function PeriodDialog({
   );
 }
 
+/**
+ * Names the owner a request is routed to. A refusal stays in the dialog (the API refuses an
+ * owner who is outside the wall of the position and could not open the request), so another
+ * owner can be named without starting over.
+ */
 function RouteDialog({
   subject,
   owners,
+  busy,
+  error,
   onCancel,
   onSubmit,
 }: {
   subject: string;
   owners: readonly NamedOption[];
+  busy: boolean;
+  /** Why the last attempt was refused, in the page's words; null before one is made. */
+  error: string | null;
   onCancel: () => void;
   onSubmit: (ownerId: string) => void;
 }): ReactNode {
@@ -188,7 +209,7 @@ function RouteDialog({
         <form
           onSubmit={(e) => {
             e.preventDefault();
-            if (owner !== undefined) onSubmit(owner.id);
+            if (owner !== undefined && !busy) onSubmit(owner.id);
           }}
         >
           <DialogBody>
@@ -198,7 +219,7 @@ function RouteDialog({
               <FluentField
                 label="Owner"
                 required
-                hint="An operations user who will apply the change in a quarter or reject it."
+                hint="An operations user who will apply the change in a quarter or reject it. The owner must be able to open the position."
                 {...(owners.length === 0
                   ? {
                       validationState: 'error' as const,
@@ -220,12 +241,17 @@ function RouteDialog({
                   ))}
                 </Dropdown>
               </FluentField>
+              {error === null ? null : (
+                <p className="pb-notice pb-notice-bad" role="alert">
+                  {error}
+                </p>
+              )}
             </DialogContent>
             <DialogActions>
               <Button appearance="secondary" onClick={onCancel}>
                 Cancel
               </Button>
-              <Button appearance="primary" type="submit" disabled={owner === undefined}>
+              <Button appearance="primary" type="submit" disabled={owner === undefined || busy}>
                 Route
               </Button>
             </DialogActions>
@@ -317,15 +343,33 @@ function QueueTable({
   );
 }
 
+/** "2 more requests not applied are on positions you cannot see." for the count the check hides. */
+function hiddenSentence(hidden: number): string {
+  return hidden === 1
+    ? '1 more request not applied is on a position you cannot see.'
+    : `${hidden} more requests not applied are on positions you cannot see.`;
+}
+
 /**
  * The quarter-end check (M11): every request not Applied by the quarter end, each opening a data
  * exception so it appears on the exceptions list. Operations runs it; the answer stays on the
- * page until the next run.
+ * page until the next run. The check covers every request on the book: the ones on positions the
+ * caller cannot see are counted, never listed, and the page says how many there are.
  */
-function QuarterEndCard({ roles, log }: { roles: readonly string[]; log: ActionLog }): ReactNode {
+function QuarterEndCard({
+  roles,
+  today,
+  log,
+}: {
+  roles: readonly string[];
+  today: string;
+  log: ActionLog;
+}): ReactNode {
   const check = useQuarterEndCheck();
-  const periods = recentQuarterEnds(todayIso(), QUARTER_ENDS_OFFERED);
-  const [period, setPeriod] = useState(periods[0] ?? '');
+  const periods = recentQuarterEnds(today, QUARTER_ENDS_OFFERED);
+  // Null until a quarter is picked: the latest one offered, which follows the record's day.
+  const [picked, setPicked] = useState<string | null>(null);
+  const period = picked ?? periods[0] ?? '';
   const [result, setResult] = useState<QuarterEndCheckResult | null>(null);
   const blocked = blockedTitle({
     allowed: canRunQuarterEndCheck(roles),
@@ -337,9 +381,10 @@ function QuarterEndCard({ roles, log }: { roles: readonly string[]; log: ActionL
       {
         onSuccess: (answer) => {
           setResult(answer);
+          const hidden = answer.hidden > 0 ? `, ${answer.hidden} more not visible to you` : '';
           log.record(
             'good',
-            `Quarter-end check for ${formatDate(answer.periodEnd)}: ${plural(answer.unapplied.length, 'request')} not applied, ${plural(answer.exceptionsOpened, 'data exception')} opened ${resultSuffix()}`,
+            `Quarter-end check for ${formatDate(answer.periodEnd)}: ${plural(answer.unapplied.length, 'request')} not applied${hidden}, ${plural(answer.exceptionsOpened, 'data exception')} opened ${resultSuffix()}`,
           );
         },
         onError: (error) =>
@@ -379,7 +424,7 @@ function QuarterEndCard({ roles, log }: { roles: readonly string[]; log: ActionL
             className="pb-val-filter"
             value={period === '' ? '' : formatDate(period)}
             selectedOptions={period === '' ? [] : [period]}
-            onOptionSelect={(_e, d) => setPeriod(d.optionValue ?? '')}
+            onOptionSelect={(_e, d) => setPicked(d.optionValue ?? null)}
           >
             {periods.map((p) => (
               <Option key={p} value={p} text={formatDate(p)}>
@@ -398,11 +443,24 @@ function QuarterEndCard({ roles, log }: { roles: readonly string[]; log: ActionL
               Open the exceptions queue
             </Link>
           </p>
+          {result.hidden === 0 ? null : (
+            <p className="pb-notice" data-testid="quarter-end-hidden">
+              {hiddenSentence(result.hidden)} They are not listed here; each has a data exception
+              that people who can see the position work.
+            </p>
+          )}
           {result.unapplied.length === 0 ? (
-            <EmptyState
-              title="Every request is applied"
-              detail={`No change request with an effective date on or before ${formatDate(result.periodEnd)} is still open.`}
-            />
+            result.hidden === 0 ? (
+              <EmptyState
+                title="Every request is applied"
+                detail={`No change request with an effective date on or before ${formatDate(result.periodEnd)} is still open.`}
+              />
+            ) : (
+              <EmptyState
+                title="No unapplied request on the positions you can see"
+                detail={`Every change request you can see with an effective date on or before ${formatDate(result.periodEnd)} is applied or rejected.`}
+              />
+            )
           ) : (
             <TableWrap label="Unapplied change requests">
               <table className="pb-table" aria-label="Unapplied change requests">
@@ -450,14 +508,18 @@ function Queue({
   page,
   roles,
   users,
+  today,
 }: {
   page: ChangeRequestPage;
   roles: readonly string[];
   users: readonly MockUser[] | undefined;
+  /** The API's day where the page could read it, else the day of this machine. */
+  today: string;
 }): ReactNode {
   const [stateFilter, setStateFilter] = useState<ChangeRequestState | ''>('');
   const [investmentId, setInvestmentId] = useState('');
   const [pending, setPending] = useState<Pending | null>(null);
+  const [routeError, setRouteError] = useState<string | null>(null);
   const log = useActionLog();
   const command = useChangeRequestCommand();
   const counts = requestCounts(page.items);
@@ -466,26 +528,35 @@ function Queue({
   const positions = investmentOptions(page.items);
   const position = positions.find((p) => p.id === investmentId);
   const owners = ownerCandidates(users, page.items);
-  const issue = (row: ChangeRequestRow, body: ChangeRequestCommandBody): void => {
+  // `settled` hears how the command ended: null when it went through, the refusal in words
+  // otherwise (the route dialog stays open on one, so another owner can be named).
+  const issue = (
+    row: ChangeRequestRow,
+    body: ChangeRequestCommandBody,
+    settled?: (refusal: string | null) => void,
+  ): void => {
     command.mutate(
       { id: row.id, body },
       {
-        onSuccess: (updated) =>
+        onSuccess: (updated) => {
           log.record(
             'good',
             `${requestLabel(updated)} is now ${humanizeState(updated.state)} ${resultSuffix()}`,
-          ),
-        onError: (error) =>
-          log.record(
-            'bad',
-            `${commandLabel(body.command)} for ${requestLabel(row)}: ${describeActionError(error)}`,
-          ),
+          );
+          settled?.(null);
+        },
+        onError: (error) => {
+          const why = describeActionError(error);
+          log.record('bad', `${commandLabel(body.command)} for ${requestLabel(row)}: ${why}`);
+          settled?.(why);
+        },
       },
     );
   };
   const start = (row: ChangeRequestRow, option: RequestOption): void => {
     switch (option.command) {
       case 'route':
+        setRouteError(null);
         setPending({ kind: 'route', row });
         break;
       case 'apply':
@@ -602,26 +673,31 @@ function Queue({
         ) : null}
       </Card>
       <div className="pb-two-col">
-        <QuarterEndCard roles={roles} log={log} />
+        <QuarterEndCard roles={roles} today={today} log={log} />
         <ActionLogCard entries={log.entries} />
       </div>
       {pending?.kind === 'route' ? (
         <RouteDialog
           subject={requestLabel(pending.row)}
           owners={owners}
+          busy={command.isPending}
+          error={routeError}
           onCancel={() => setPending(null)}
-          onSubmit={(ownerId) => {
-            issue(pending.row, { command: 'route', ownerId });
-            setPending(null);
-          }}
+          onSubmit={(ownerId) =>
+            issue(pending.row, { command: 'route', ownerId }, (refusal) => {
+              setRouteError(refusal);
+              if (refusal === null) setPending(null);
+            })
+          }
         />
       ) : null}
       {pending?.kind === 'apply' ? (
         <PeriodDialog
           title="Apply"
           subject={requestLabel(pending.row)}
-          hint={`The quarter the change is applied in: a quarter end on or after the effective date, ${formatDate(pending.row.effectiveDate)}.`}
-          periods={applicablePeriods(pending.row.effectiveDate, todayIso())}
+          hint={`The quarter the change is applied in: a quarter end on or after the effective date, ${formatDate(pending.row.effectiveDate)}, and no later than the current quarter.`}
+          periods={applicablePeriods(pending.row.effectiveDate, today)}
+          noPeriods={`This change takes effect on ${formatDate(pending.row.effectiveDate)}, after the current quarter end, ${formatDate(containingQuarterEnd(today))}, so it cannot be applied yet.`}
           submitLabel="Apply"
           onCancel={() => setPending(null)}
           onSubmit={(appliedPeriod) => {
@@ -655,7 +731,11 @@ export function ChangeRequestsPage(): ReactNode {
   const list = useQuery({ ...changeRequestsQuery({}), placeholderData: keepPreviousData });
   // The owner picker names the operations users of the mock list, which exists only with the mock identity.
   const users = useQuery({ ...mockUsersQuery, enabled: me.data?.mockIdentity === true });
-  if (list.isPending) return <PageSkeleton tiles={4} rows={6} />;
+  // The API judges "the current quarter" by its own clock (a change is never applied in a quarter
+  // that has not started), so the quarter ends offered follow the record's day, which data
+  // health carries. One try: without it the day of this machine stands in.
+  const health = useQuery({ ...dataHealthQuery, retry: false });
+  if (list.isPending || health.isPending) return <PageSkeleton tiles={4} rows={6} />;
   if (list.isError) {
     return (
       <>
@@ -672,5 +752,12 @@ export function ChangeRequestsPage(): ReactNode {
       </>
     );
   }
-  return <Queue page={list.data} roles={me.data?.roles ?? []} users={users.data?.users} />;
+  return (
+    <Queue
+      page={list.data}
+      roles={me.data?.roles ?? []}
+      users={users.data?.users}
+      today={health.data?.asOf ?? todayIso()}
+    />
+  );
 }

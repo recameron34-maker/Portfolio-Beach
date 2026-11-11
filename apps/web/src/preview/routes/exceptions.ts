@@ -2,6 +2,7 @@ import { dataExceptionCommandBody, dataExceptionListQuery } from '@pb/contracts'
 import type { DataException, DataExceptionPage } from '@pb/contracts';
 import { attempt, exceptionMachine } from '@pb/workflows';
 import { jsonResponse, problem, workflowProblem } from '../problems.js';
+import { ensureChangeRequests } from '../state.js';
 import type { SimException } from '../state.js';
 import { canOpen, defineSimRoute, pageNewestFirst, recordActivity } from './common.js';
 import type { SimContext } from './common.js';
@@ -9,10 +10,12 @@ import type { SimContext } from './common.js';
 /**
  * The data exceptions queue (docs/04 M1 Data Health, docs/18 section 9, decision 0010) simulated
  * in the browser, the way apps/api/src/exceptions/exceptions.service.ts serves it over the
- * exceptions the simulated intakes opened this session. Visibility follows the staged row (the
- * select policy of migration 0010): an exception about a row linked to a position the credential
- * cannot open is left out of the list and not found on its own, and a visible one names its
- * position. A command moves the exception through exceptionMachine (acknowledge, resolve,
+ * exceptions the simulated intakes and the quarter-end check opened this session. Visibility
+ * follows the record an exception is about (the select policy of migrations 0010 and 0014): one
+ * about a staged row linked to a position the credential cannot open, or about a change request
+ * the credential cannot see, is left out of the list and not found on its own or for a command;
+ * a visible one about a staged row names its position. A command moves the exception through
+ * exceptionMachine (acknowledge, resolve,
  * wont_fix, with the reason the table requires) or sets the external ticket without a state
  * change; a transition the table lacks from the state is the 409 WORKFLOW_REFUSALS maps. The
  * figures an exception carries are never written here.
@@ -23,8 +26,18 @@ const NOT_FOUND = 'Data exception not found';
 const notFound = (instance: string): Response =>
   problem(404, 'not-found', NOT_FOUND, { instance, simulated: true });
 
-/** Whether the credential may see the exception: the row it is about links to no position, or to one they may open. */
+/**
+ * Whether the credential may see the exception. One about a change request (the quarter-end
+ * check's CR-QE-01) is read under the request's own visibility, its position's wall: an
+ * exception about a request the credential cannot see is not theirs to list, open or work,
+ * whoever ran the check that opened it (CR-1, CR-2). Any other is visible when the row it is
+ * about links to no position, or to one they may open.
+ */
 function visibleTo(ctx: SimContext, credential: string, x: SimException): boolean {
+  if (x.entity === 'mon.deal_change_request') {
+    const request = ensureChangeRequests(ctx.state, ctx.recordings).get(x.entityId);
+    return request !== undefined && canOpen(ctx, credential, request.row.investmentId);
+  }
   return x.context.investmentId === null || canOpen(ctx, credential, x.context.investmentId);
 }
 

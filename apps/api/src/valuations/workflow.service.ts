@@ -9,6 +9,7 @@ import {
   valuationApprovalStep,
   valuationLockText,
   valuationState,
+  valuationStoredInputs,
 } from '@pb/contracts';
 import type {
   ValuationBatchCommandBody,
@@ -19,6 +20,7 @@ import type {
   ValuationEditBody,
   ValuationRow,
   ValuationState,
+  ValuationStoredInputs,
 } from '@pb/contracts';
 import { asSystemActor, schema } from '@pb/db';
 import type { Tx } from '@pb/db';
@@ -308,12 +310,14 @@ export class ValuationWorkflowService {
   }
 
   /**
-   * One version with its approval trail (joined names), the open change requests of its
-   * investment (M11) and, once Locked, the exact text its hash covers: the identity, the method,
-   * the stored inputs and the value. The requests are listed for the roles the change request
-   * routes serve and are an empty list for everyone else, so this screen shows nobody what
-   * those routes refuse them. 404 for a version the caller cannot see; a successful open is
-   * audited (SEC-11.1).
+   * One version with its stored method inputs, its approval trail (joined names), the open
+   * change requests of its investment (M11) and, once Locked, the exact text its hash covers: the
+   * identity, the method, the stored inputs and the value. The inputs are returned in every
+   * state, an empty record when the version has none, so the edit of a Draft starts from them (a
+   * PATCH replaces them whole) and whoever approves sees what the lock will cover before it is
+   * taken. The requests are listed for the roles the change request routes serve and are an empty
+   * list for everyone else, so this screen shows nobody what those routes refuse them. 404 for a
+   * version the caller cannot see; a successful open is audited (SEC-11.1).
    */
   async detail(principal: Principal, requestId: string, id: string): Promise<ValuationDetail> {
     requireUuid(id, NOT_FOUND);
@@ -339,14 +343,14 @@ export class ValuationWorkflowService {
       )
         ? await openChangeRequestsFor(tx, row.investmentId)
         : [];
-      // The board row carries no inputs; the lock text needs the ones the hash was taken over.
-      const lockText =
-        row.state === 'Locked'
-          ? valuationLockText({ ...row, inputs: await this.inputsOf(tx, id) })
-          : null;
+      // The board row carries no inputs: they are read beside it, for the screen and for the
+      // lock text, which is taken over the ones the hash covers.
+      const inputs = await this.inputsOf(tx, id);
+      const lockText = row.state === 'Locked' ? valuationLockText({ ...row, inputs }) : null;
       await audit({ action: 'valuation.read', entity: ENTITY, entityId: id });
       return {
         ...row,
+        inputs,
         approvals: trail.map((a) => ({
           id: a.id,
           step: valuationApprovalStep.parse(a.step),
@@ -670,13 +674,25 @@ export class ValuationWorkflowService {
       ]);
   }
 
-  /** The stored method inputs of a version the caller can see (the lock text covers them). */
-  private async inputsOf(tx: Tx, id: string): Promise<unknown> {
+  /**
+   * The stored method inputs of a version the caller can see (the screen shows them and the lock
+   * text covers them): the record the column holds, empty when the version has none. The column
+   * is jsonb and the API writes records only (the create and edit bodies, a reopen's copy);
+   * anything else is a version the screen cannot show, which is said rather than passed on.
+   */
+  private async inputsOf(tx: Tx, id: string): Promise<ValuationStoredInputs> {
     const [row] = await tx
       .select({ inputs: valuation.inputs })
       .from(valuation)
       .where(eq(valuation.id, id));
-    return row?.inputs ?? {};
+    const parsed = valuationStoredInputs.safeParse(row?.inputs ?? {});
+    if (!parsed.success)
+      throw new ProblemError(
+        500,
+        'internal',
+        'valuation: the stored inputs are not a record of names to values',
+      );
+    return parsed.data;
   }
 
   /**

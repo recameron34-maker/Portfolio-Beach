@@ -46,6 +46,7 @@ import type {
   RealizationOutlookCode,
   StagingState,
   ValuationRow,
+  ValuationStoredInputs,
   WeeklyPriorSource,
 } from '@pb/contracts';
 import type { z } from 'zod';
@@ -81,6 +82,11 @@ export interface SimValuation {
   approvedByIds: readonly string[];
   /** The approval rows this session's commands wrote (mon.valuation_approval); the recorded trail comes first on the detail. */
   approvals: ValuationApproval[];
+  /**
+   * The method inputs (mon.valuation.inputs) a create, an edit or a reopen of this session gave
+   * the version; null for a version as recorded, whose inputs are its recorded detail's.
+   */
+  inputs: ValuationStoredInputs | null;
 }
 
 /** The SEC-12.4 flags of a notice (mon.capital_notice.urgency_flag, wire_change_flag). */
@@ -754,6 +760,7 @@ export function seedValuations(recordings: Recordings): Map<string, SimValuation
         dealTeamApprovedByIds: userIdsFor(recordings.users, row.dealTeamApprovedBy),
         approvedByIds: userIdsFor(recordings.users, row.approvedBy),
         approvals: [],
+        inputs: null,
       });
     }
   }

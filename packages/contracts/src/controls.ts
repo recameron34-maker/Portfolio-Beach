@@ -280,8 +280,22 @@ export const quarterEndCheckResult = z.object({
 });
 export type QuarterEndCheckResult = z.infer<typeof quarterEndCheckResult>;
 
-/** The valuation screen: the version, its approval trail, the open change requests (M11) and the lock text. */
+/**
+ * The method inputs as a version holds them (mon.valuation.inputs): a record always, empty when
+ * the version has none. What the API writes is valuationInputs (names to text or numbers); a
+ * version loaded another way may hold a nested value, which the lock text covers all the same,
+ * so the read side takes any JSON under a name.
+ */
+export const valuationStoredInputs = z.record(z.string(), z.unknown());
+export type ValuationStoredInputs = z.infer<typeof valuationStoredInputs>;
+
+/** The valuation screen: the version, its method inputs, its approval trail, the open change requests (M11) and the lock text. */
 export const valuationDetail = s.valuationRow.extend({
+  /**
+   * The stored method inputs, `{}` when none: what an edit of the Draft starts from (a PATCH
+   * replaces them whole) and what the lock will cover, shown before the version is Locked.
+   */
+  inputs: valuationStoredInputs,
   approvals: z.array(valuationApproval),
   openChangeRequests: z.array(changeRequestRow),
   /**

@@ -12,26 +12,38 @@ import {
   PRIOR_PERIOD,
   refusalFixture,
   rolePrincipal,
+  valuationDetailFixture,
   valuationPageFixture,
   POSITION_ID,
   valuationRowFixture,
   valuationRows,
   vehicleListFixture,
 } from '../../test/fixtures-valuations.js';
+
+const ABOVE_ZERO = 'Must be above zero';
 import {
   aboveVarianceFlag,
   approvedOn,
   batchLabel,
   batchPlanFor,
   batchPlans,
+  canEditDraft,
+  EDIT_ROLES,
+  fairValueProblem,
   filterRows,
+  inputEntries,
+  inputEntriesProblem,
+  inputsFromEntries,
   isFairValue,
   latestFirst,
   lastMethodOf,
+  lockedBy,
   methodCodes,
   missingMarks,
   openForNewVersion,
   periodCounts,
+  sameInputs,
+  signOffsOf,
   startablePositions,
   valuationSteps,
   VARIANCE_FLAG,
@@ -186,12 +198,113 @@ describe('valuation board helpers', () => {
     expect(vehicleNames(vehicleListFixture().items, [])).toHaveLength(4);
   });
 
-  it('takes a fair value as digits with an optional decimal point only', () => {
+  it('takes an amount as digits with an optional decimal point only (the pipeline forms read it)', () => {
     expect(isFairValue('12500000')).toBe(true);
     expect(isFairValue('12500000.50')).toBe(true);
     expect(isFairValue('0')).toBe(true);
     for (const bad of ['', '-5', '12,500,000', '1e6', '12.', '.5', '$12M', ' 12'])
       expect(isFairValue(bad), bad).toBe(false);
+  });
+
+  it('takes a fair value the way the contract does, and says why not in the contract words (VAL-3)', () => {
+    const SHAPE = 'An amount above zero: at most 18 digits before the decimal point and two after';
+    for (const good of ['12500000', '12500000.5', '12500000.50', '0.01', '9'.repeat(18)])
+      expect(fairValueProblem(good), good).toBeNull();
+    for (const bad of ['', '-5', '12,500,000', '1e6', '12.', '.5', '$12M', ' 12'])
+      expect(fairValueProblem(bad), bad).toBe(SHAPE);
+    // A third decimal would be rounded and a nineteenth digit would not fit the column.
+    expect(fairValueProblem('12500000.005')).toBe(SHAPE);
+    expect(fairValueProblem(`1${'9'.repeat(18)}`)).toBe(SHAPE);
+    for (const zero of ['0', '0.0', '0.00']) expect(fairValueProblem(zero), zero).toBe(ABOVE_ZERO);
+  });
+
+  it('turns the stored inputs into form rows and back, keeping each value as it was stored unless it is retyped', () => {
+    const stored = { multiple: 11.5, basis: 'LTM EBITDA', year: '2025' };
+    const rows = inputEntries(stored);
+    expect(rows).toEqual([
+      { name: 'basis', value: 'LTM EBITDA' },
+      { name: 'multiple', value: '11.5' },
+      { name: 'year', value: '2025' },
+    ]);
+    // Unchanged rows keep their stored type: the text "2025" stays text, the number stays a number.
+    expect(inputsFromEntries(rows ?? [], stored)).toEqual(stored);
+    // A retyped value is a number when it is written exactly as that number reads, text otherwise.
+    expect(
+      inputsFromEntries(
+        [
+          { name: ' multiple ', value: ' 12 ' },
+          { name: 'discount', value: '0.125' },
+          { name: 'padded', value: '11.50' },
+          { name: 'big', value: '12345678901234567890' },
+          { name: 'note', value: 'see the sponsor letter' },
+          { name: '', value: '' },
+        ],
+        stored,
+      ),
+    ).toEqual({
+      multiple: 12,
+      discount: 0.125,
+      padded: '11.50',
+      big: '12345678901234567890',
+      note: 'see the sponsor letter',
+    });
+    expect(inputEntries({})).toEqual([]);
+    // A value the form cannot carry (anything but text or a number) makes the inputs read only.
+    expect(inputEntries({ comps: { set: 'peers', count: 6 } })).toBeNull();
+    expect(inputEntries({ range: [9.5, 12] })).toBeNull();
+    expect(sameInputs({ b: 2, a: 'x' }, { a: 'x', b: 2 })).toBe(true);
+    expect(sameInputs({ a: '2' }, { a: 2 })).toBe(false);
+    expect(sameInputs({}, { a: 1 })).toBe(false);
+  });
+
+  it('refuses in the form what the contract refuses of the inputs: a value without a name, a name twice, a name too long', () => {
+    expect(inputEntriesProblem([{ name: 'basis', value: 'LTM' }])).toBeNull();
+    expect(inputEntriesProblem([{ name: '', value: '' }])).toBeNull();
+    expect(inputEntriesProblem([{ name: '  ', value: '11.5' }])).toBe(
+      'Give each input a name, or clear its value.',
+    );
+    expect(
+      inputEntriesProblem([
+        { name: 'basis', value: 'LTM' },
+        { name: ' basis', value: 'NTM' },
+      ]),
+    ).toBe('Use each input name once: basis is there twice.');
+    expect(inputEntriesProblem([{ name: 'x'.repeat(101), value: '1' }])).toBe(
+      'An input name can be up to 100 characters.',
+    );
+  });
+
+  it('names who signed a version that holds no decision rows, from the version itself', () => {
+    const seeded = {
+      approvals: [],
+      preparedBy: 'Avery Mbeki',
+      dealTeamApprovedBy: 'Blake Okafor',
+      approvedBy: 'Morgan Lindqvist',
+      approvedAt: '2025-08-09T15:00:00Z',
+    };
+    expect(signOffsOf(seeded)).toEqual([
+      { step: 'ops_prepared', by: 'Avery Mbeki', at: null },
+      { step: 'deal_team', by: 'Blake Okafor', at: null },
+      { step: 'final', by: 'Morgan Lindqvist', at: '2025-08-09T15:00:00Z' },
+    ]);
+    expect(lockedBy(seeded)).toBe('Morgan Lindqvist');
+    // A version in progress names who has signed so far; nobody named is nobody shown.
+    expect(
+      signOffsOf({ ...seeded, dealTeamApprovedBy: null, approvedBy: null, approvedAt: null }),
+    ).toEqual([{ step: 'ops_prepared', by: 'Avery Mbeki', at: null }]);
+    expect(lockedBy({ ...seeded, approvedBy: null, approvedAt: null })).toBeNull();
+    // The decision rows say more (who, when, why): where they exist, they are what is shown.
+    const trail = valuationDetailFixture().approvals;
+    expect(signOffsOf({ ...seeded, approvals: trail })).toEqual([]);
+    expect(lockedBy({ ...seeded, approvals: trail, approvedBy: 'Someone Else' })).toBe(
+      'Morgan Lindqvist',
+    );
+  });
+
+  it('reads who may edit a Draft from the route table', () => {
+    expect(EDIT_ROLES).toEqual(['operations']);
+    expect(canEditDraft(['operations'])).toBe(true);
+    expect(canEditDraft(['deal_team', 'approver', 'viewer'])).toBe(false);
   });
 
   it('orders periods latest first whatever order they arrive in', () => {
