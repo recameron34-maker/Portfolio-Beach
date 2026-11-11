@@ -19,7 +19,9 @@ import type { AppRole } from '../roles.js';
  * open investment (one Verified and active, one Proposed); three capital notices (two on the open
  * investment, one walled) with a Funded ticket on the first and a Drafted one on the walled; one
  * change request per investment; the review fixes (migration 0014): one quarter-end data exception
- * about each change request. Loaded as the owner, outside RLS.
+ * about each change request; the client lines (migration 0017): a line for each of two clients on
+ * the open opportunity beside its vehicle-level line, and a third client named on no line. Loaded
+ * as the owner, outside RLS.
  */
 export const ids = {
   users: {
@@ -42,6 +44,8 @@ export const ids = {
   investmentWalled: '30000000-0000-4000-8000-000000000002',
   clientA: '40000000-0000-4000-8000-000000000001',
   clientB: '40000000-0000-4000-8000-000000000002',
+  /** A client with no commitment and no allocation line (migration 0017). */
+  clientC: '40000000-0000-4000-8000-000000000003',
   commitmentPooled: '50000000-0000-4000-8000-000000000001',
   commitmentSmaB: '50000000-0000-4000-8000-000000000002',
   wall: '60000000-0000-4000-8000-000000000001',
@@ -112,6 +116,10 @@ export const ids = {
   // so the walled one must stay inside the wall.
   exceptionOpenChangeRequest: 'b0000000-0000-4000-8000-00000000001b',
   exceptionWalledChangeRequest: 'b0000000-0000-4000-8000-00000000001c',
+  // The client lines (migration 0017): one for each fixture client on the open opportunity, beside
+  // its vehicle-level line, so who reads a line depends on the client it names.
+  allocationOpenClientA: 'b0000000-0000-4000-8000-00000000001d',
+  allocationOpenClientB: 'b0000000-0000-4000-8000-00000000001e',
 } as const;
 
 /** The synthetic bank details every fixture wire instruction carries, encrypted with the prototype key. */
@@ -186,7 +194,7 @@ export async function loadFixture(handle: DbHandle): Promise<void> {
     insert into core.investment (id, investment_number, vehicle_id, portfolio_company_id, sponsor_fund_id, sponsor_id, deal_type, entry_date) values
       ('${ids.investment1}', 'INV-0001', '${ids.vehicle}', '${ids.company1}', '${ids.sponsorFund}', '${ids.sponsor}', 'deal_type.co_invest_equity', '2022-03-15'),
       ('${ids.investmentWalled}', 'INV-0002', '${ids.vehicle}', '${ids.company2}', '${ids.sponsorFund}', '${ids.sponsor}', 'deal_type.co_invest_equity', '2023-06-30');
-    insert into core.client (id, name) values ('${ids.clientA}', 'Client Alpha'), ('${ids.clientB}', 'Client Beta');
+    insert into core.client (id, name) values ('${ids.clientA}', 'Client Alpha'), ('${ids.clientB}', 'Client Beta'), ('${ids.clientC}', 'Client Delta');
     insert into core.lp_commitment (id, client_id, vehicle_id, amount, commitment_date, closing_number, ownership_pct) values
       (gen_random_uuid(), '${ids.clientA}', '${ids.vehicle}', 60000000, '2021-06-30', 1, 0.6),
       (gen_random_uuid(), '${ids.clientB}', '${ids.vehicle}', 40000000, '2021-06-30', 1, 0.4);
@@ -281,7 +289,9 @@ export async function loadFixture(handle: DbHandle): Promise<void> {
     insert into deal.allocation (id, opportunity_id, investment_id, vehicle_id, client_id, requested, received) values
       ('${ids.allocationOpen}', '${ids.opportunityOpen}', null, '${ids.vehicle}', null, 10000000, null),
       ('${ids.allocationWalled}', '${ids.opportunityWalled}', null, '${ids.vehicle}', null, 8000000, null),
-      ('${ids.allocationInvestment}', null, '${ids.investment1}', '${ids.vehicle}', null, 30000000, 30000000);
+      ('${ids.allocationInvestment}', null, '${ids.investment1}', '${ids.vehicle}', null, 30000000, 30000000),
+      ('${ids.allocationOpenClientA}', '${ids.opportunityOpen}', null, '${ids.vehicle}', '${ids.clientA}', 6000000, 6000000),
+      ('${ids.allocationOpenClientB}', '${ids.opportunityOpen}', null, '${ids.vehicle}', '${ids.clientB}', 4000000, null);
     insert into deal.closing (id, opportunity_id, investment_id, close_date, commitment_amount, state) values
       ('${ids.closingOpen}', '${ids.opportunityOpen}', null, '2024-10-31', 10000000, 'Open'),
       ('${ids.closingWalled}', '${ids.opportunityWalled}', null, '2024-11-15', 8000000, 'Open');

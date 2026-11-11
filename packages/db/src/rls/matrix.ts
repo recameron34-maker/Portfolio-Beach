@@ -61,9 +61,15 @@ export const READ_MATRIX: Record<string, Row> = {
   'core.investment': row(1, 1, 1, 1, 1, 1, 1, 2, 2),
   'core.sponsor': row(1, 1, 1, 1, 1, 1, 1, 1, 1),
   'core.vehicle': row(1, 1, 1, 1, 1, 1, 1, 1, 1),
-  'core.client': row(0, 0, 2, 2, 1, 0, 2, 0, 0),
-  'core.lp_commitment': row(0, 0, 2, 2, 1, 0, 2, 0, 0),
-  'core.commitment': row(1, 1, 2, 2, 1, 1, 2, 1, 1),
+  // Client data (SEC-5.2, SEC-5.4): operations, the investment team (the deal team and approvers)
+  // and the auditor read every client (pb.sees_all_clients, migration 0017: the owner's decision
+  // of 2026-11-11 added the deal team, so the wall member, who is deal team, reads them too);
+  // investor relations (A) reads its one client; a viewer, a platform admin and the system actor
+  // read none. Three clients, one of them with no commitment and no allocation line.
+  'core.client': row(0, 3, 3, 3, 1, 0, 3, 3, 0),
+  'core.lp_commitment': row(0, 2, 2, 2, 1, 0, 2, 2, 0),
+  // The pooled commitment is everyone's; the separate account of Client Beta follows the client.
+  'core.commitment': row(1, 2, 2, 2, 1, 1, 2, 2, 1),
   // Two walls: the fixture wall with its one member, and a second wall nobody in the fixture
   // belongs to (migration 0016).
   'core.wall': row(0, 0, 0, 2, 0, 2, 0, 1, 0),
@@ -115,8 +121,13 @@ export const READ_MATRIX: Record<string, Row> = {
   'deal.opportunity_stage_history': row(1, 1, 1, 1, 1, 1, 1, 2, 2),
   'deal.diligence_task': row(1, 1, 1, 1, 1, 1, 1, 2, 2),
   'deal.ic_decision': row(1, 1, 1, 1, 1, 1, 1, 2, 2),
-  // Two allocations on the opportunities and one on the open investment.
-  'deal.allocation': row(2, 2, 2, 2, 2, 2, 2, 3, 3),
+  // Five lines: a vehicle-level line on each opportunity and on the open investment, and a line
+  // for Client Alpha and for Client Beta on the open opportunity. A vehicle-level line follows its
+  // deal; a client line is read by whoever reads that client (migration 0017): every role that
+  // reads all clients, investor relations (A) for its client, and the system actor, whose totals
+  // read keeps the tie-out the same for every reader. A viewer and a platform admin read the two
+  // vehicle-level lines of the visible deals only.
+  'deal.allocation': row(2, 4, 4, 4, 3, 2, 4, 5, 5),
   'deal.closing': row(1, 1, 1, 1, 1, 1, 1, 2, 2),
   'deal.closing_item': row(1, 1, 1, 1, 1, 1, 1, 2, 2),
   'deal.legal_term': row(1, 1, 1, 1, 1, 1, 1, 2, 2),
@@ -446,8 +457,21 @@ export const WRITE_MATRIX: WriteCase[] = [
     allowed: [],
   },
   {
+    // The third client: the fixture already holds a line for each of the other two (migration 0017).
     name: 'add a client allocation on the open opportunity',
-    sql: "insert into deal.allocation (opportunity_id, vehicle_id, client_id, requested) values ('b0000000-0000-4000-8000-000000000001', '20000000-0000-4000-8000-000000000005', '40000000-0000-4000-8000-000000000001', 6000000)",
+    sql: "insert into deal.allocation (opportunity_id, vehicle_id, client_id, requested) values ('b0000000-0000-4000-8000-000000000001', '20000000-0000-4000-8000-000000000005', '40000000-0000-4000-8000-000000000003', 6000000)",
+    allowed: ['deal_team', 'operations', 'wall_member(deal_team)', 'service'],
+  },
+  {
+    name: 'set the received amount of the Client Beta line on the open opportunity',
+    sql: "update deal.allocation set received = 4000000 where id = 'b0000000-0000-4000-8000-00000000001e'",
+    // The writers read every client line, so none is left out of a write (migration 0017).
+    allowed: ['deal_team', 'operations', 'wall_member(deal_team)', 'service'],
+  },
+  {
+    name: 'delete the Client Alpha line on the open opportunity',
+    sql: "delete from deal.allocation where id = 'b0000000-0000-4000-8000-00000000001d'",
+    // Investor relations (A) reads this line and still may not write it.
     allowed: ['deal_team', 'operations', 'wall_member(deal_team)', 'service'],
   },
   {
