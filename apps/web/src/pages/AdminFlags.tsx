@@ -2,9 +2,8 @@ import { useState } from 'react';
 import type { ReactNode } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Button, Input, Label, Switch } from '@fluentui/react-components';
-import { ApiError } from '../api/client.js';
 import { previewMode } from '../app/env.js';
-import { patchFlag } from '../app/mutations.js';
+import { describeActionError, patchFlag } from '../app/mutations.js';
 import { ADMIN_TABS } from '../app/nav.js';
 import { flagsQuery, meQuery } from '../app/queries.js';
 import {
@@ -36,12 +35,7 @@ export function AdminFlagsPage(): ReactNode {
       );
       void queryClient.invalidateQueries({ queryKey: ['flags'] });
     },
-    onError: (e) =>
-      setMessage(
-        e instanceof ApiError
-          ? `${e.problem.title}: ${e.problem.detail ?? ''}`
-          : 'The change failed.',
-      ),
+    onError: (e) => setMessage(describeActionError(e)),
   });
   if (flags.isPending) return <PageSkeleton rows={6} />;
   if (flags.isError) return <ErrorState title="Flags unavailable" detail={flags.error.message} />;

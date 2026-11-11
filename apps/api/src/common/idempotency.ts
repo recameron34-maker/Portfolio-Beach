@@ -6,7 +6,19 @@ import type { Response } from 'express';
 import { catchError, from, mergeMap, of, throwError } from 'rxjs';
 import type { Observable } from 'rxjs';
 import type { Principal } from '@pb/adapters';
-import { canonicalJson, ROUTES } from '@pb/contracts';
+import {
+  IDEMPOTENCY_KEY_HEADER,
+  IDEMPOTENCY_KEY_IN_PROGRESS,
+  IDEMPOTENCY_KEY_ISSUE,
+  IDEMPOTENCY_KEY_REUSE,
+  IDEMPOTENCY_MAX_PATH,
+  IDEMPOTENCY_REPLAYED_HEADER,
+  INVALID_IDEMPOTENCY_KEY_DETAIL,
+  ROUTES,
+  canonicalRequestBody,
+  isIdempotencyKey,
+  storableAnswer,
+} from '@pb/contracts';
 import { schema } from '@pb/db';
 import type { FieldCipher } from '@pb/db';
 import type { RequestWithPrincipal } from '../auth/principal.js';
@@ -23,7 +35,9 @@ import { LOGGER } from './tokens.js';
  * answered and runs nothing. This is the one copy for the API (CLAUDE.md rule 7): the interceptor
  * applies to every route the contract marks `idempotent: true` (packages/contracts
  * routes-controls.ts) and to no other, so the route table decides, not the controllers. The static
- * preview simulates the same rule in apps/web/src/preview/routes/index.ts.
+ * preview simulates the same rule in apps/web/src/preview/routes/index.ts, and what the two share
+ * (the key's shape, the texts of the refusals, the canonical form of a body, what an answer may
+ * keep) is the contracts' (packages/contracts/src/idempotency.ts): this file is the store.
  *
  * In the order the API answers: identity (401) and the role guard (403) run first; then the key
  * (400 when it is not 1 to 200 visible ASCII characters; no header, no change in behaviour); then
@@ -57,16 +71,7 @@ import { LOGGER } from './tokens.js';
  *   repeat, with the caller's roles as they are now.
  */
 
-/** The header a client names its request with. */
-export const IDEMPOTENCY_KEY_HEADER = 'idempotency-key';
-/** Set to "true" on an answer that an earlier request stored. */
-export const IDEMPOTENCY_REPLAYED_HEADER = 'Idempotency-Replayed';
-
-/** 1 to 200 visible ASCII characters: no space, no control character, nothing outside ASCII. */
-const KEY = /^[\x21-\x7e]{1,200}$/;
-
-/** The longest path the store keys a request by (the check on ops.idempotency_key.path). */
-const MAX_PATH = 500;
+export { IDEMPOTENCY_KEY_HEADER, IDEMPOTENCY_REPLAYED_HEADER, storableAnswer };
 
 /** "METHOD /path/{param}" of every route the contract marks idempotent. */
 const IDEMPOTENT_ROUTES: ReadonlySet<string> = new Set(
@@ -83,16 +88,12 @@ export function isIdempotentRoute(method: string, routePath: string): boolean {
 /** The key a request carries; undefined without the header; 400 (the key never echoed) when malformed. */
 export function idempotencyKeyOf(header: string | string[] | undefined): string | undefined {
   if (header === undefined) return undefined;
-  if (typeof header !== 'string' || !KEY.test(header))
-    throw new ProblemError(400, 'validation', 'Invalid Idempotency-Key', [
-      { path: 'Idempotency-Key', message: 'Expected 1 to 200 visible ASCII characters' },
+  if (typeof header !== 'string' || !isIdempotencyKey(header))
+    throw new ProblemError(400, 'validation', INVALID_IDEMPOTENCY_KEY_DETAIL, [
+      { ...IDEMPOTENCY_KEY_ISSUE },
     ]);
   return header;
 }
-
-/** A body as the JSON it travels as: an absent body is null, and an entry with no value is no entry. */
-const jsonValueOf = (body: unknown): unknown =>
-  body === undefined ? null : (JSON.parse(JSON.stringify(body)) as unknown);
 
 /**
  * The fingerprint of a request body: SHA-256, lowercase hex, over its canonical JSON (the one
@@ -100,24 +101,7 @@ const jsonValueOf = (body: unknown): unknown =>
  * in whatever order its keys were sent. It is sealed before it is stored.
  */
 export function requestFingerprint(body: unknown): string {
-  return createHash('sha256')
-    .update(canonicalJson(jsonValueOf(body)), 'utf8')
-    .digest('hex');
-}
-
-/**
- * Properties of an answer that never reach the store: bank details in clear, which the contract
- * carries as `bankDetails` (wireInstructionDetail), and its two numbers by their own names should
- * an answer ever carry them outside that object.
- */
-const NEVER_STORED: ReadonlySet<string> = new Set(['bankDetails', 'accountNumber', 'routingCode']);
-
-/** The answer as it is stored and replayed: its JSON, with every NEVER_STORED property null. */
-export function storableAnswer(body: unknown): unknown {
-  const text = JSON.stringify(body ?? null, (key: string, value: unknown) =>
-    NEVER_STORED.has(key) ? null : value,
-  );
-  return JSON.parse(text) as unknown;
+  return createHash('sha256').update(canonicalRequestBody(body), 'utf8').digest('hex');
 }
 
 const keys = schema.idempotencyKey;
@@ -146,9 +130,9 @@ const ownRow = (scope: KeyScope) =>
 
 const inProgress = (): ProblemError =>
   new ProblemError(
-    409,
-    'idempotency-key-in-progress',
-    'A request with this Idempotency-Key is still running. Wait for its answer, or read the record again and send the request with a new key',
+    IDEMPOTENCY_KEY_IN_PROGRESS.status,
+    IDEMPOTENCY_KEY_IN_PROGRESS.code,
+    IDEMPOTENCY_KEY_IN_PROGRESS.detail,
   );
 
 @Injectable()
@@ -173,8 +157,10 @@ export class IdempotencyInterceptor implements NestInterceptor {
     if (key === undefined || principal === undefined) return next.handle();
 
     // Every path parameter of these routes is a UUID or a short code: a path this long names no
-    // record, and it is answered as one that does not exist before the store is asked to key it.
-    if (req.path.length > MAX_PATH) throw new ProblemError(404, 'not-found', 'Not found');
+    // record, and it is answered as one that does not exist before the store is asked to key it
+    // (the limit is the check on ops.idempotency_key.path).
+    if (req.path.length > IDEMPOTENCY_MAX_PATH)
+      throw new ProblemError(404, 'not-found', 'Not found');
 
     const res = http.getResponse<Response>();
     const requestId = req.id ?? 'unknown';
@@ -234,9 +220,9 @@ export class IdempotencyInterceptor implements NestInterceptor {
       if (row === undefined) throw inProgress();
       if (!this.sameRequest(row.requestHash, fingerprint))
         throw new ProblemError(
-          422,
-          'idempotency-key-reuse',
-          'This Idempotency-Key was already used with a different request body',
+          IDEMPOTENCY_KEY_REUSE.status,
+          IDEMPOTENCY_KEY_REUSE.code,
+          IDEMPOTENCY_KEY_REUSE.detail,
         );
       if (row.status === null) throw inProgress();
       return { status: row.status, body: row.body, etag: row.etag };

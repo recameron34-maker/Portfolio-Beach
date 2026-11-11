@@ -12,7 +12,10 @@ import * as s from './schemas.js';
  *
  * Every command route is idempotent (docs/17 section 3: an Idempotency-Key repeats the original
  * result). Refusals map through WORKFLOW_REFUSALS (403 role, 409 transition, 422 precondition),
- * 412 is a stale If-Match row version and anything the caller cannot see is 404.
+ * 412 is a stale If-Match row version and anything the caller cannot see is 404. The routes that
+ * read If-Match say so with `ifMatch`, the kind of record the header guards: the API test
+ * row-version.test.ts holds the flag to the controllers, the preview parses the header on these
+ * routes and no other, and the OpenAPI document describes it there.
  */
 
 const READ_ROLES = [
@@ -53,6 +56,7 @@ export const CONTROL_ROUTES: readonly RouteDefinition[] = [
     body: c.valuationCommandBody,
     response: s.valuationRow,
     idempotent: true,
+    ifMatch: 'valuation',
   },
   {
     method: 'PATCH',
@@ -65,6 +69,7 @@ export const CONTROL_ROUTES: readonly RouteDefinition[] = [
     body: c.valuationEditBody,
     response: s.valuationRow,
     idempotent: true,
+    ifMatch: 'valuation',
   },
   {
     method: 'POST',
@@ -101,6 +106,7 @@ export const CONTROL_ROUTES: readonly RouteDefinition[] = [
     body: c.capitalNoticeCommandBody,
     response: c.capitalNoticeControlDetail,
     idempotent: true,
+    ifMatch: 'capital_notice',
   },
 
   // ---- Trade tickets (M16, SEC-12.3) ----
@@ -169,6 +175,7 @@ export const CONTROL_ROUTES: readonly RouteDefinition[] = [
     body: c.wireInstructionCommandBody,
     response: c.wireInstructionDetail,
     idempotent: true,
+    ifMatch: 'wire_instruction',
   },
 
   // ---- Deal change requests (M11, docs/18 section 8) ----
@@ -214,6 +221,7 @@ export const CONTROL_ROUTES: readonly RouteDefinition[] = [
     body: c.changeRequestCommandBody,
     response: c.changeRequestRow,
     idempotent: true,
+    ifMatch: 'change_request',
   },
   {
     method: 'POST',
@@ -272,6 +280,7 @@ export const CONTROL_ROUTES: readonly RouteDefinition[] = [
     body: c.opportunityCommandBody,
     response: c.opportunityDetail,
     idempotent: true,
+    ifMatch: 'opportunity',
   },
   {
     method: 'POST',
@@ -354,6 +363,7 @@ export const CONTROL_ROUTES: readonly RouteDefinition[] = [
     body: c.closingCommandBody,
     response: c.closingDetail,
     idempotent: true,
+    ifMatch: 'closing',
   },
   {
     method: 'POST',

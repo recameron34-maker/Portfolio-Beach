@@ -1,5 +1,18 @@
-import { principal } from '@pb/contracts';
-import { problem, validationProblem } from '../problems.js';
+import {
+  IDEMPOTENCY_KEY_HEADER,
+  IDEMPOTENCY_KEY_ISSUE,
+  IDEMPOTENCY_KEY_REUSE,
+  IDEMPOTENCY_MAX_PATH,
+  IDEMPOTENCY_REPLAYED_HEADER,
+  IF_MATCH_HEADER,
+  INVALID_IDEMPOTENCY_KEY_DETAIL,
+  canonicalRequestBody,
+  isIdempotencyKey,
+  parseIfMatch,
+  principal,
+  storableAnswer,
+} from '@pb/contracts';
+import { jsonResponse, problem, validationProblem } from '../problems.js';
 import type { SimActor } from '../state.js';
 import { capitalNoticeCommandRoute } from './capitalNotices.js';
 import {
@@ -16,6 +29,7 @@ import {
   createLegalTermRoute,
   legalTermCommandRoute,
 } from './closings.js';
+import { invalidIfMatch } from './common.js';
 import type { SimContext, SimRoute } from './common.js';
 import {
   documentCommandRoute,
@@ -190,11 +204,31 @@ export interface SimCall {
   bodyText: () => Promise<string>;
 }
 
+/** A request body as text, read as JSON once: for the fingerprint of an Idempotency-Key and for validation. */
+function jsonOf(text: string): { ok: true; value: unknown } | { ok: false } {
+  if (text === '') return { ok: true, value: undefined };
+  try {
+    return { ok: true, value: JSON.parse(text) as unknown };
+  } catch {
+    return { ok: false };
+  }
+}
+
 /**
  * Runs one simulated route in the API's order: identity (401), the contract's role guard (403),
- * Idempotency-Key replay, query and body validation (400 with paths only), then the handler (404,
- * 412, the table's 409, 403 and 422). Successful answers to a request with an Idempotency-Key are
- * kept and replayed for the same key and body; the same key with another body is refused.
+ * the Idempotency-Key (400 when malformed, then the replay or the 422), query and body validation
+ * (400 with paths only), the If-Match header of a route the contract marks (400 when malformed),
+ * then the handler (404, 412, the table's 409, 403 and 422).
+ *
+ * The Idempotency-Key follows the API's store (apps/api/src/common/idempotency.ts), with the
+ * rules both share in @pb/contracts: the contract's route table decides which routes take the
+ * header; a key is 1 to 200 visible ASCII characters and belongs to the credential, the method
+ * and the path; a 2xx answer is kept as the API keeps it (its JSON without bank details in clear,
+ * and its ETag) and replayed for the same body, compared as canonical JSON, with
+ * `Idempotency-Replayed: true`; the same key with another body is 422; a refused request keeps
+ * nothing. One thing the API answers cannot arise here: 409 `idempotency-key-in-progress`, for a
+ * repeat that arrives while the first request is still running. The preview answers one request
+ * at a time, so a repeat always finds the first one finished.
  */
 export async function runSimRoute(
   route: SimRoute,
@@ -203,59 +237,73 @@ export async function runSimRoute(
   ctx: SimContext,
 ): Promise<Response> {
   const instance = call.url.pathname;
+  const refusal = { instance, simulated: true } as const;
   const actor = actorFor(ctx, call.credential);
-  if (actor === undefined)
-    return problem(401, 'unauthenticated', 'Sign in to continue', { instance, simulated: true });
+  if (actor === undefined) return problem(401, 'unauthenticated', 'Sign in to continue', refusal);
   const roles = route.definition.roles;
   if (roles.length > 0 && !roles.some((r) => actor.roles.includes(r)))
-    return problem(403, 'forbidden', 'This operation needs a role you do not hold', {
-      instance,
+    return problem(403, 'forbidden', 'This operation needs a role you do not hold', refusal);
+
+  const key = route.idempotent ? call.headers.get(IDEMPOTENCY_KEY_HEADER) : null;
+  if (key !== null) {
+    if (!isIdempotencyKey(key))
+      return problem(400, 'validation', INVALID_IDEMPOTENCY_KEY_DETAIL, {
+        ...refusal,
+        errors: [{ ...IDEMPOTENCY_KEY_ISSUE }],
+      });
+    if (instance.length > IDEMPOTENCY_MAX_PATH)
+      return problem(404, 'not-found', 'Not found', refusal);
+  }
+
+  const json = jsonOf(await call.bodyText());
+  // A body that is not JSON has no fingerprint: it is refused below, and nothing is kept for it.
+  const keyed =
+    key === null || !json.ok
+      ? null
+      : {
+          scope: `${call.credential}|${route.method} ${instance}|${key}`,
+          request: canonicalRequestBody(json.value),
+        };
+  const stored = keyed === null ? undefined : ctx.state.idempotency.get(keyed.scope);
+  if (keyed !== null && stored !== undefined) {
+    if (stored.requestBody !== keyed.request)
+      return problem(
+        IDEMPOTENCY_KEY_REUSE.status,
+        IDEMPOTENCY_KEY_REUSE.code,
+        IDEMPOTENCY_KEY_REUSE.detail,
+        refusal,
+      );
+    const replay = jsonResponse(stored.status, JSON.parse(stored.body) as unknown, {
       simulated: true,
     });
-
-  const text = await call.bodyText();
-  const idempotencyKey = route.idempotent ? call.headers.get('idempotency-key') : null;
-  const scope =
-    idempotencyKey === null || idempotencyKey === ''
-      ? null
-      : `${call.credential}|${route.method} ${instance}|${idempotencyKey}`;
-  const stored = scope === null ? undefined : ctx.state.idempotency.get(scope);
-  if (stored !== undefined) {
-    if (stored.requestBody !== text)
-      return problem(
-        422,
-        'idempotency-key-reuse',
-        'This Idempotency-Key was already used with a different request body',
-        { instance, simulated: true },
-      );
-    return new Response(stored.body, { status: stored.status, headers: stored.headers });
+    for (const [name, value] of stored.headers) replay.headers.set(name, value);
+    replay.headers.set(IDEMPOTENCY_REPLAYED_HEADER, 'true');
+    return replay;
   }
 
   let query: unknown;
   if (route.querySchema !== null) {
     const parsed = route.querySchema.safeParse(Object.fromEntries(call.url.searchParams.entries()));
-    if (!parsed.success)
-      return validationProblem(parsed.error, 'query', { instance, simulated: true });
+    if (!parsed.success) return validationProblem(parsed.error, 'query', refusal);
     query = parsed.data;
   }
 
   let body: unknown;
   if (route.bodySchema !== null) {
-    let json: unknown;
-    try {
-      json = JSON.parse(text);
-    } catch {
+    if (!json.ok)
       return problem(400, 'validation', `Invalid ${route.what}`, {
-        instance,
-        simulated: true,
+        ...refusal,
         errors: [{ path: '(root)', message: 'The body is not valid JSON' }],
       });
-    }
-    const parsed = route.bodySchema.safeParse(json);
-    if (!parsed.success)
-      return validationProblem(parsed.error, route.what, { instance, simulated: true });
+    const parsed = route.bodySchema.safeParse(json.value);
+    if (!parsed.success) return validationProblem(parsed.error, route.what, refusal);
     body = parsed.data;
   }
+
+  // A controller reads If-Match once the body is valid and before its service looks for the
+  // record, so a malformed header is 400 even for a record that does not exist.
+  if (route.definition.ifMatch !== undefined && !parseIfMatch(call.headers.get(IF_MATCH_HEADER)).ok)
+    return invalidIfMatch(instance);
 
   const response = await route.handle(
     {
@@ -269,12 +317,14 @@ export async function runSimRoute(
     },
     ctx,
   );
-  if (scope !== null && response.ok) {
-    ctx.state.idempotency.set(scope, {
+  if (keyed !== null && response.ok) {
+    // What the API stores: the status, the answer without bank details in clear, and the ETag.
+    const etag = response.headers.get('etag');
+    ctx.state.idempotency.set(keyed.scope, {
       status: response.status,
-      headers: [...response.headers.entries()],
-      body: await response.clone().text(),
-      requestBody: text,
+      headers: etag === null ? [] : [['etag', etag]],
+      body: JSON.stringify(storableAnswer(await response.clone().json())),
+      requestBody: keyed.request,
     });
   }
   return response;

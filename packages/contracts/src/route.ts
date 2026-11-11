@@ -28,6 +28,47 @@ export interface RouteDefinition {
    * section 3): every command and create that changes a financial record.
    */
   idempotent?: boolean;
+  /**
+   * The route reads an If-Match header (docs/17 section 3, row-version.ts): entity tags naming
+   * the row version the caller read; a stale one is 412, a malformed one 400, and without the
+   * header the command runs on the record as it stands. The value is the kind of record the
+   * header guards, as the 412 names it ("valuation").
+   */
+  ifMatch?: string;
 }
 
 export const API_PREFIX = '/api/v1';
+
+/**
+ * A matcher for a route's path template ("/api/v1/valuations/{id}/commands"): the path
+ * parameters of a concrete path, decoded, or null when the path is not one of the template's. A
+ * parameter never spans a slash, and one that cannot be decoded matches nothing.
+ */
+export function routePathMatcher(
+  template: string,
+): (pathname: string) => Record<string, string> | null {
+  const names: string[] = [];
+  const source = template
+    .split(/(\{[a-zA-Z]+\})/)
+    .map((part) => {
+      const name = /^\{([a-zA-Z]+)\}$/.exec(part)?.[1];
+      if (name === undefined) return part.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      names.push(name);
+      return '([^/]+)';
+    })
+    .join('');
+  const pattern = new RegExp(`^${source}$`);
+  return (pathname) => {
+    const m = pattern.exec(pathname);
+    if (m === null) return null;
+    const params: Record<string, string> = {};
+    for (const [i, name] of names.entries()) {
+      try {
+        params[name] = decodeURIComponent(m[i + 1] ?? '');
+      } catch {
+        return null;
+      }
+    }
+    return params;
+  };
+}
