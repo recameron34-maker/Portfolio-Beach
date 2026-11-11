@@ -454,6 +454,17 @@ describe('capital notice bodies', () => {
     expect(
       parses(tradeTicketRow, { ...ticket, release: { allowed: false, blockers: ['late'] } }),
     ).not.toBe(true);
+    // A verified change inside the hold window blocks its proposer and its verifier (SEC-12.3).
+    expect(
+      parses(tradeTicketRow, {
+        ...ticket,
+        release: { allowed: false, blockers: ['same_person', 'verifier_within_hold'] },
+      }),
+    ).toBe(true);
+    // A reader outside the register's roles gets the detail without the register's row.
+    expect(parses(capitalNoticeControlDetail, { ...detail, activeWireInstruction: null })).toBe(
+      true,
+    );
   });
 });
 
@@ -542,6 +553,46 @@ describe('wire instruction bodies', () => {
     ).not.toBe(true);
     expect(parses(wireInstructionCommandBody, { command: 'reject' })).not.toBe(true);
     expect(parses(wireInstructionCommandBody, { command: 'supersede' })).not.toBe(true);
+  });
+
+  it('logs a failed callback with its number source or not at all (SEC-12.2)', () => {
+    // A result without the source of the number it was reached on is not a logged callback.
+    expect(
+      parses(wireInstructionCommandBody, {
+        command: 'reject',
+        callbackResult: 'not_confirmed',
+        reason: 'the number did not answer',
+      }),
+    ).toEqual(['callbackNumberSource: The number source is required with a callback result']);
+    // Nor is a number source with no result: nothing would be recorded of it.
+    expect(
+      parses(wireInstructionCommandBody, {
+        command: 'reject',
+        callbackNumberSource: 'known_contact',
+        reason: 'the number did not answer',
+      }),
+    ).toEqual(['callbackResult: The callback result is required with a number source']);
+    // The pair, or neither (the proposer withdrawing a version typed in error).
+    const parsed = wireInstructionCommandBody.parse({
+      command: 'reject',
+      callbackNumberSource: 'fund_administrator',
+      callbackResult: 'not_confirmed',
+      reason: 'the administrator did not recognise the account',
+    });
+    expect(parsed).toEqual({
+      command: 'reject',
+      callbackNumberSource: 'fund_administrator',
+      callbackResult: 'not_confirmed',
+      reason: 'the administrator did not recognise the account',
+    });
+    expect(
+      parses(wireInstructionCommandBody, { command: 'reject', reason: 'typed in error' }),
+    ).toBe(true);
+    // The body still joins the OpenAPI document as a discriminated union of two objects.
+    const route = CONTROL_ROUTES.find(
+      (r) => r.method === 'POST' && r.path.endsWith('/wire-instructions/{id}/commands'),
+    );
+    expect(route?.body).toBe(wireInstructionCommandBody);
   });
 
   it('reads the detail with bank details in clear or null, never a bare string', () => {

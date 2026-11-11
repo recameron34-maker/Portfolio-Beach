@@ -300,7 +300,9 @@ export type WireInstructionProposeBody = z.infer<typeof wireInstructionProposeBo
 
 /**
  * verify records a confirming callback by a person other than the proposer (the machine refuses
- * the proposer); reject needs a reason and may record the callback that failed to confirm.
+ * the proposer); reject needs a reason and may record the callback that failed to confirm. A
+ * callback is logged whole or not at all (SEC-12.2: date, number source and result): the result
+ * and the number source travel together.
  */
 export const wireInstructionCommandBody = z.discriminatedUnion('command', [
   z
@@ -317,7 +319,21 @@ export const wireInstructionCommandBody = z.discriminatedUnion('command', [
       callbackResult: z.literal('not_confirmed').optional(),
       reason,
     })
-    .strict(),
+    .strict()
+    .refine(
+      (body) => body.callbackResult === undefined || body.callbackNumberSource !== undefined,
+      {
+        message: 'The number source is required with a callback result',
+        path: ['callbackNumberSource'],
+      },
+    )
+    .refine(
+      (body) => body.callbackNumberSource === undefined || body.callbackResult !== undefined,
+      {
+        message: 'The callback result is required with a number source',
+        path: ['callbackResult'],
+      },
+    ),
 ]);
 export type WireInstructionCommandBody = z.infer<typeof wireInstructionCommandBody>;
 

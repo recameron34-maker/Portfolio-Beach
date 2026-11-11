@@ -697,9 +697,10 @@ describe('capital activity (M16)', () => {
       expect(open.wireChangeHold).toEqual({ until: addDays(h.dataset.asOf, 30), holdDays: 30 });
       expectNoSecret(open);
 
-      // Every reader of the notice sees the same notice-level facts, masked.
+      // Every reader of the notice sees the same notice-level facts; the register's own row goes
+      // to the register's readers only (capital-fixes.test.ts covers the roles one by one).
       const asViewer = await control('viewer.one', wc.id);
-      expect(asViewer.activeWireInstruction?.id).toBe(open.activeWireInstruction!.id);
+      expect(asViewer.activeWireInstruction).toBeNull();
       expect(asViewer.alerts).toEqual(open.alerts);
       expect(asViewer.wireChangeHold).toEqual(open.wireChangeHold);
       expect(asViewer.ticket?.id).toBe(open.ticket!.id);

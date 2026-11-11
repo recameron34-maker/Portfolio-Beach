@@ -1,5 +1,5 @@
 import { Inject, Injectable } from '@nestjs/common';
-import { and, eq, lt, ne, or, sql } from 'drizzle-orm';
+import { and, eq, gt, lt, ne, or, sql } from 'drizzle-orm';
 import type { SQL } from 'drizzle-orm';
 import type { AdapterSet, Principal } from '@pb/adapters';
 import type {
@@ -48,6 +48,7 @@ import type { CounterpartyKeys } from './register.js';
  * counterparty in Proposed; it becomes Verified through a callback made by a person other than
  * the proposer (the machine refuses the proposer, the database check enforces it) and then is
  * the one active version, the previous one Superseded through the machine as the system actor.
+ * A Proposed version older than the Verified one is never verified over it: it is rejected.
  * A new version proposed while a notice of the counterparty has an approved ticket returns that
  * ticket to draft through wireChanged in the same transaction, and every open notice of the
  * counterparty is flagged (SEC-12.4). Every state change is audited with before and after.
@@ -245,6 +246,23 @@ export class WiresService {
       )[0];
       if (locked === undefined) throw new ProblemError(404, 'not-found', NOT_FOUND);
       requireFreshRow(ifMatch, locked.rowVersion, 'wire_instruction');
+      // Verifying an older version over a newer Verified one would make the older bank details
+      // the active instruction again: the machine refuses it and says to reject it instead.
+      const olderThanVerified =
+        body.command === 'verify' &&
+        (
+          await tx
+            .select({ id: wire.id })
+            .from(wire)
+            .where(
+              and(
+                exactKeyWhere(locked),
+                eq(wire.state, 'Verified'),
+                gt(wire.version, locked.version),
+              ),
+            )
+            .limit(1)
+        ).length > 0;
       const result = attempt(wireInstructionMachine, locked.state, body.command, {
         actorId: principal.userId,
         actorRoles: principal.roles,
@@ -252,6 +270,7 @@ export class WiresService {
         record: {
           proposedBy: locked.proposedBy,
           callbackConfirmed: body.command === 'verify' && body.callbackResult === 'confirmed',
+          olderThanVerified,
         },
       });
       if (!result.ok) throw workflowProblem(result);
@@ -285,8 +304,20 @@ export class WiresService {
           },
         });
       } else {
-        const loggedCallback = body.callbackResult !== undefined;
-        if (loggedCallback && principal.userId === locked.proposedBy)
+        // A failed callback is logged whole (SEC-12.2: date, number source and result) or not at
+        // all. The contract refuses a result without its number source; a caller that reaches
+        // the service another way is refused here, so the register row always shows the call.
+        if (body.callbackResult !== undefined && body.callbackNumberSource === undefined)
+          throw new ProblemError(
+            422,
+            'workflow-precondition',
+            'wire_instruction: a logged callback names the source of the number called (SEC-12.2)',
+          );
+        const callback =
+          body.callbackResult !== undefined && body.callbackNumberSource !== undefined
+            ? { numberSource: body.callbackNumberSource, result: body.callbackResult }
+            : null;
+        if (callback !== null && principal.userId === locked.proposedBy)
           throw new ProblemError(
             422,
             'workflow-precondition',
@@ -295,12 +326,12 @@ export class WiresService {
         await this.write(tx, locked, {
           state: 'Rejected',
           rejectionReason: body.reason,
-          ...(loggedCallback
+          ...(callback !== null
             ? {
                 callbackBy: principal.userId,
                 callbackAt: now,
-                callbackNumberSource: body.callbackNumberSource ?? null,
-                callbackResult: body.callbackResult,
+                callbackNumberSource: callback.numberSource,
+                callbackResult: callback.result,
               }
             : {}),
         });
@@ -312,14 +343,15 @@ export class WiresService {
           details: {
             version: locked.version,
             state: { before: locked.state, after: 'Rejected' },
-            callback: loggedCallback
-              ? {
-                  by: principal.userId,
-                  at: now.toISOString(),
-                  numberSource: body.callbackNumberSource ?? null,
-                  result: body.callbackResult,
-                }
-              : null,
+            callback:
+              callback !== null
+                ? {
+                    by: principal.userId,
+                    at: now.toISOString(),
+                    numberSource: callback.numberSource,
+                    result: callback.result,
+                  }
+                : null,
           },
         });
       }
@@ -393,7 +425,10 @@ export class WiresService {
   /**
    * The previous active version of the same counterparty key moves to Superseded through the
    * machine as the system actor (docs/18 section 11: a newer Verified version exists), before the
-   * new one becomes active, so the one-active-per-counterparty index never sees two.
+   * new one becomes active, so the one-active-per-counterparty index never sees two. Whether the
+   * version being verified is the newer one is computed from the two version numbers, never
+   * assumed: an active version that is the newer of the two is not superseded (422), which also
+   * settles a verify that raced the one that made it active.
    */
   private async supersedePrevious(
     tx: Tx,
@@ -420,7 +455,7 @@ export class WiresService {
       const result = attempt(wireInstructionMachine, old.state, 'supersede', {
         actorId: SYSTEM_USER_ID,
         actorRoles: ['service'],
-        record: { newerVerifiedExists: true },
+        record: { newerVerifiedExists: verified.version > old.version },
       });
       if (!result.ok) throw workflowProblem(result);
       await this.write(tx, old, { state: 'Superseded', active: false });
@@ -445,7 +480,10 @@ export class WiresService {
    * SEC-12.4 after a new version: every notice of the counterparty not yet Reconciled carries the
    * wire change flag, and a notice whose ticket was approved against the previous version goes
    * back to TicketDrafted through capitalNoticeMachine (wireChanged, the service path's reason).
-   * Runs as the system actor inside the proposer's transaction so a walled notice is flagged too.
+   * Runs as the system actor inside the proposer's transaction so a walled notice is flagged too:
+   * the whole sweep is one system step, and the steps the notice command takes inside it leave it
+   * in force (systemStep is re-entrant). A flag that reaches no row is a conflict, never an audit
+   * event for a change that was not made.
    */
   private async sweepNotices(
     tx: Tx,
@@ -470,7 +508,17 @@ export class WiresService {
           continue;
         }
         if (n.wireChangeFlag) continue;
-        await tx.update(notice).set({ wireChangeFlag: true }).where(eq(notice.id, n.id));
+        const flagged = await tx
+          .update(notice)
+          .set({ wireChangeFlag: true })
+          .where(eq(notice.id, n.id))
+          .returning();
+        if (flagged.length === 0)
+          throw new ProblemError(
+            409,
+            'conflict',
+            'capital_notice: the wire change flag could not be set on a notice of this counterparty; propose the version again',
+          );
         await audit({
           action: 'capital_notice.wire_change_flag',
           entity: 'mon.capital_notice',

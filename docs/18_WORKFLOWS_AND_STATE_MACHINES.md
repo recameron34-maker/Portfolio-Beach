@@ -22,11 +22,14 @@ new > validated | flagged; flagged > validated (after edit) | rejected; validate
 | Received | Extracted | Document indexed |
 | Extracted | Reviewed | Human checks amounts and dates; bank fields never extracted |
 | Reviewed | TicketDrafted | Trade ticket created |
-| TicketDrafted | TicketApproved | A trade ticket exists; approver differs from preparer; wire instruction verified and unchanged within the hold window |
+| TicketDrafted | TicketApproved | A trade ticket exists; approver differs from preparer; wire instruction verified and unchanged within the hold window; inside the hold window after a verified change, the approver is a third person (below) |
 | TicketApproved | Funded | The ticket is Approved; Operations confirms |
-| Funded | Reconciled | Cash Flow row promoted; unfunded recalculated |
+| Funded | Reconciled | Cash Flow row promoted for the ticket's amount; unfunded recalculated |
 Any wire instruction change returns the ticket to TicketDrafted and requires callback verification.
 Preconditions added in Phase 3: a ticket can be approved only once a trade ticket record exists (`draftTicket` creates it; the instruction it is approved against follows section 11), and funding is confirmed only against an Approved ticket (SEC-12.3).
+The hold window (`capitalActivity.wireChangeHoldDays`, counted from the day a version is proposed) works in two steps (SEC-12.3 "recently changed without a second approval"). While a new or changed version waits for its callback, nobody can approve the ticket (`wireChangedWithinHold`). Once a second person's callback has verified it, it is the active instruction, and for the rest of the window the approver must be a person other than its proposer (`wireProposedByWithinHold`) and other than the person whose callback verified it (`wireVerifiedByWithinHold`): three people touch a recently changed instruction. Both keys are null when the active instruction was proposed before the window, and the rule of the table alone stands. The ticket shows the same check as the release blocker `verifier_within_hold`.
+The reconciliation books what was approved and funded: the cash flow carries the ticket's amount (`draftTicket` may name an amount other than the notice's), signed by the notice type; when the two amounts differ the audit event names both and the notice detail says "Funded amount differs from the notice amount."
+A new instruction version sweeps every open notice of its counterparty as one system step, walled notices included (SEC-5.3: the proposer need not see them): each is flagged, a TicketApproved one goes back to TicketDrafted through `wireChanged`, and each change writes its own audit event.
 
 ## 4. Deal stage (`deal.opportunity.stage`)
 Sourced > Screening > Prescreen > Diligence > IC > Approved > Closing > Closed. Any stage > Passed (reason code required). Diligence > IC requires required tasks done (or audited override). Closing > Closed requires the closing checklist complete and allocation tie-out (M22). Passed > Screening allowed (reopen) with reason.
@@ -61,10 +64,10 @@ resolved and wont_fix are terminal; a problem that comes back opens a new except
 | From | To | Who | Preconditions |
 |---|---|---|---|
 | (new) | Proposed | Operations, system actor | A new or changed instruction is a new version for its counterparty (a sponsor fund or an investment); bank details typed by a person from a verified source, never from a document or a model (SEC-12.1) |
-| Proposed | Verified | Operations, Approver (not the proposer) | Callback to an independently sourced number confirmed the instruction; the call is logged with date, number source and result |
-| Proposed | Rejected | Operations, Approver | Reason required |
-| Verified | Superseded | System actor, Operations | A newer Verified version exists for the counterparty |
-Rejected and Superseded are terminal; a corrected instruction is a new Proposed version. One active version per counterparty, always Verified. A new version proposed for a counterparty whose notice has an approved ticket fires `wireChanged` on that notice (section 3).
+| Proposed | Verified | Operations, Approver (not the proposer) | Callback to an independently sourced number confirmed the instruction; the call is logged with date, number source and result; no newer version of the counterparty is already Verified (`olderThanVerified`: an older Proposed version is rejected instead) |
+| Proposed | Rejected | Operations, Approver | Reason required; a failed callback is logged whole (number source and result together, by a person other than the proposer) or not at all |
+| Verified | Superseded | System actor, Operations | A newer Verified version exists for the counterparty (computed from the two version numbers when the newer one is verified) |
+Rejected and Superseded are terminal; a corrected instruction is a new Proposed version. One active version per counterparty, always Verified. A new version proposed for a counterparty whose notice has an approved ticket fires `wireChanged` on that notice (section 3). The register's rows, masked or not, are read by Operations, Approvers, Auditors and Platform Admins only; a notice or a ticket shown to any other role carries the alerts, the hold and the release check without the instruction itself.
 
 ## 12. Closing (`deal.closing.state`, M8)
 | From | To | Who | Preconditions |

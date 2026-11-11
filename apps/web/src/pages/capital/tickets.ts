@@ -30,6 +30,8 @@ export const BLOCKER_WORDS: Readonly<Record<ReleaseBlocker, string>> = {
   changed_within_hold:
     "The wire instructions changed within the hold window and wait for a second person's callback (SEC-12.3).",
   same_person: 'You prepared this ticket; a different person must approve it (SEC-12.3).',
+  verifier_within_hold:
+    'You proposed or verified the wire instructions inside the hold window; a third person must approve this ticket (SEC-12.3).',
 };
 
 /** "Changed within hold": the blocker as a short label for a table cell. */

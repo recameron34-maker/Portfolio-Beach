@@ -280,7 +280,68 @@ describe('capital notice preconditions (docs/18 section 3, SEC-12)', () => {
       checksOf(approve?.precondition).map((c) =>
         c(ctx(['approver'], { record: { ...happyRecord, ticketExists: false } })),
       ),
-    ).toEqual(['no trade ticket is drafted', null, null, null]);
+    ).toEqual(['no trade ticket is drafted', null, null, null, null, null]);
+  });
+  it('inside the hold window after a verified change the release needs a third person (SEC-12.3)', () => {
+    const approve = (actorId: string, record: Record<string, unknown>): TransitionResult<string> =>
+      attempt(
+        capitalNoticeMachine,
+        'TicketDrafted',
+        'approveTicket',
+        ctx(['approver', 'operations'], { actorId, record: { ...happyRecord, ...record } }),
+      );
+    // The person whose callback verified the change is the second person, never the third.
+    expect(
+      approve(OPS2, { wireProposedByWithinHold: DEAL, wireVerifiedByWithinHold: OPS2 }),
+    ).toEqual({
+      ok: false,
+      code: 'precondition',
+      message:
+        'capital_notice: the wire instruction changed recently: the person who verified the change cannot approve the release, a third person must (SEC-12.3)',
+    });
+    // Nor is the person who proposed the change.
+    expect(
+      approve(OPS2, { wireProposedByWithinHold: OPS2, wireVerifiedByWithinHold: DEAL }),
+    ).toEqual({
+      ok: false,
+      code: 'precondition',
+      message:
+        'capital_notice: the wire instruction changed recently: the person who proposed the change cannot approve the release, a third person must (SEC-12.3)',
+    });
+    expect(
+      approve(HEAD, { wireProposedByWithinHold: DEAL, wireVerifiedByWithinHold: OPS2 }),
+    ).toEqual({
+      ok: true,
+      to: 'TicketApproved',
+    });
+    // No change inside the window (null), or a record that names none: the dual control rule stands.
+    expect(
+      approve(OPS2, { wireProposedByWithinHold: null, wireVerifiedByWithinHold: null }),
+    ).toEqual({ ok: true, to: 'TicketApproved' });
+    expect(approve(OPS2, {})).toEqual({ ok: true, to: 'TicketApproved' });
+    // The preparer, the verified instruction and a pending change are judged first.
+    const row = capitalNoticeMachine.transitions.find((t) => t.command === 'approveTicket');
+    expect(
+      checksOf(row?.precondition).map((c) =>
+        c(
+          ctx(['operations'], {
+            actorId: OPS2,
+            record: {
+              ...happyRecord,
+              wireProposedByWithinHold: OPS2,
+              wireVerifiedByWithinHold: OPS2,
+            },
+          }),
+        ),
+      ),
+    ).toEqual([
+      null,
+      null,
+      null,
+      null,
+      'the wire instruction changed recently: the person who proposed the change cannot approve the release, a third person must (SEC-12.3)',
+      'the wire instruction changed recently: the person who verified the change cannot approve the release, a third person must (SEC-12.3)',
+    ]);
   });
   it('funding is confirmed only against an approved ticket', () => {
     expect(
@@ -592,10 +653,37 @@ describe('wire instruction (docs/18 section 11, SEC-12.2)', () => {
     ).toEqual([
       'the callback must be made by a person other than the proposer (SEC-12.2)',
       'the callback did not confirm the instruction (SEC-12.2)',
+      null,
     ]);
     // A second operations person or an approver verifies it.
     expect(verify(['operations'], { actorId: OPS2 })).toEqual({ ok: true, to: 'Verified' });
     expect(verify(['approver'], { actorId: HEAD })).toEqual({ ok: true, to: 'Verified' });
+  });
+
+  it('never verifies an older Proposed version over a newer Verified one: it is rejected instead', () => {
+    const verify = (olderThanVerified: boolean): TransitionResult<string> =>
+      attempt(
+        wireInstructionMachine,
+        'Proposed',
+        'verify',
+        ctx(['operations'], { actorId: OPS2, record: { ...happyRecord, olderThanVerified } }),
+      );
+    expect(verify(true)).toEqual({
+      ok: false,
+      code: 'precondition',
+      message:
+        'wire_instruction: a newer version of this counterparty is already Verified; reject this older version instead (SEC-12.2)',
+    });
+    expect(verify(false)).toEqual({ ok: true, to: 'Verified' });
+    // Rejecting it stays open.
+    expect(
+      attempt(
+        wireInstructionMachine,
+        'Proposed',
+        'reject',
+        ctx(['operations'], { actorId: OPS2, record: { ...happyRecord, olderThanVerified: true } }),
+      ),
+    ).toEqual({ ok: true, to: 'Rejected' });
   });
 
   it('rejecting needs a reason, from operations or an approver', () => {
