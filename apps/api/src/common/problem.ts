@@ -11,6 +11,7 @@ import { ZodError } from 'zod';
 import { WORKFLOW_REFUSALS } from '@pb/contracts';
 import type { ProblemDetails } from '@pb/contracts';
 import type { TransitionResult } from '@pb/workflows';
+import { errorForLog } from './logging.js';
 import type { Logger } from './logging.js';
 import { LOGGER } from './tokens.js';
 
@@ -126,16 +127,9 @@ export class ProblemFilter implements ExceptionFilter {
         'An unexpected error occurred. Quote the request id to support.',
         req.path,
       );
-      this.logger.error(
-        {
-          request_id: requestId,
-          err:
-            exception instanceof Error
-              ? { name: exception.name, message: exception.message }
-              : String(exception),
-        },
-        'unhandled error',
-      );
+      // errorForLog keeps a database error to its code and constraint: the message of a failed
+      // query carries its parameters, which no log line may hold (SEC-11.4).
+      this.logger.error({ request_id: requestId, err: errorForLog(exception) }, 'unhandled error');
     }
     res.status(problem.status).type('application/problem+json').send(problem);
   }

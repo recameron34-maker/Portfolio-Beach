@@ -1,5 +1,7 @@
+import { createHash } from 'node:crypto';
 import { describe, expect, it } from 'vitest';
 import { sql } from 'drizzle-orm';
+import { valuationLockText } from '@pb/contracts';
 import { loadSyntheticDataset, withUserContext } from '@pb/db';
 import { createTestDb } from '@pb/db/testing';
 import { D, addMonths, daysBetween, isQuarterEnd, xirr } from '@pb/calc';
@@ -129,6 +131,54 @@ describe('synthetic generator', () => {
     } finally {
       await handle.close();
     }
+  });
+
+  it('gives every Locked and Reopened valuation the SHA-256 of its lock text, no placeholder (VAL-6)', () => {
+    const hashed = small.valuations.filter((v) => v.state === 'Locked' || v.state === 'Reopened');
+    expect(hashed.length).toBe(small.valuations.length);
+    expect(hashed.some((v) => v.state === 'Reopened')).toBe(true);
+    // Recomputed here with node:crypto over the text @pb/contracts fixes, with no inputs seeded.
+    const recompute = (v: (typeof hashed)[number]): string =>
+      createHash('sha256')
+        .update(
+          valuationLockText({
+            investmentId: v.investmentId,
+            periodEnd: v.periodEnd,
+            version: v.version,
+            method: v.method,
+            fairValue: v.fairValue,
+            inputs: {},
+          }),
+        )
+        .digest('hex');
+    for (const v of hashed) {
+      expect(v.lockHash, `${v.investmentId} ${v.periodEnd} v${v.version}`).toMatch(
+        /^[0-9a-f]{64}$/,
+      );
+      expect(v.lockHash, `${v.investmentId} ${v.periodEnd} v${v.version}`).toBe(recompute(v));
+    }
+    // The text is spelled out for one sample, so the field set is pinned on this side too.
+    const sample = hashed[0]!;
+    expect(sample.lockHash).toBe(
+      createHash('sha256')
+        .update(
+          `{"fairValue":"${sample.fairValue}","inputs":{},"investmentId":"${sample.investmentId}","method":"${sample.method}","periodEnd":"${sample.periodEnd}","version":${sample.version}}`,
+        )
+        .digest('hex'),
+    );
+    // The period-end shift moves the period after the mark is made: the hash follows the final row.
+    const shifted = hashed.find((v) => v.periodEnd === '2025-06-27');
+    expect(shifted).toBeDefined();
+    expect(shifted!.lockHash).toBe(recompute(shifted!));
+    expect(new Set(hashed.map((v) => v.lockHash)).size).toBe(hashed.length);
+    // The generator's own check refuses a placeholder where a lock hash belongs.
+    const placeholder = {
+      ...small,
+      valuations: small.valuations.map((v, i) => (i === 0 ? { ...v, lockHash: 'h-00000000' } : v)),
+    };
+    expect(verifyDataset(placeholder).problems).toEqual([
+      'Locked or Reopened valuation without a SHA-256 lock hash',
+    ]);
   });
 
   it('generates the default profile within the documented volumes', () => {

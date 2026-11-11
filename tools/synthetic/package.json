@@ -30,6 +30,7 @@
   "dependencies": {
     "@pb/adapters": "workspace:*",
     "@pb/calc": "workspace:*",
+    "@pb/contracts": "workspace:*",
     "@pb/db": "workspace:*",
     "@pb/pdf": "workspace:*",
     "@pb/validation": "workspace:*",

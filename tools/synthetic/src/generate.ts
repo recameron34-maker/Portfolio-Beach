@@ -1,4 +1,6 @@
+import { createHash } from 'node:crypto';
 import { D, addDays, addMonths, compareIso, containingQuarterEnd, nextQuarterEnd } from '@pb/calc';
+import { valuationLockText } from '@pb/contracts';
 import type { SyntheticDataset } from '@pb/db';
 import { companyAliasesFor } from './aliases.js';
 import type { CompanyAlias } from './aliases.js';
@@ -444,7 +446,9 @@ export function generateDataset(options: GenerateOptions = {}): GeneratedDataset
       method,
       fairValue,
       state: 'Locked',
-      lockHash: `h-${id.slice(0, 8)}`,
+      // Set once every scenario has shaped the row (a period end may still move): see the pass
+      // over the Locked and Reopened versions before the dataset is assembled.
+      lockHash: null,
       preparedBy: userBy('ops.one'),
       dealTeamApprovedBy: userBy('deal.one'),
       approvedBy: userBy('head.one'),
@@ -1243,6 +1247,27 @@ export function generateDataset(options: GenerateOptions = {}): GeneratedDataset
       tag,
     },
   );
+
+  // Lock hashes (docs/18 section 1, SEC-9.3): the SHA-256 the API computes when it locks, over
+  // the text @pb/contracts fixes (the identity, the method, the inputs and the value), taken
+  // from each row as it finally stands. No version is seeded with inputs, so the text carries
+  // an empty record there. A Reopened version keeps the hash it was locked with.
+  for (const v of valuations) {
+    if (v.state !== 'Locked' && v.state !== 'Reopened') continue;
+    v.lockHash = createHash('sha256')
+      .update(
+        valuationLockText({
+          investmentId: v.investmentId,
+          periodEnd: v.periodEnd,
+          version: v.version,
+          method: v.method,
+          fairValue: v.fairValue,
+          inputs: {},
+        }),
+        'utf8',
+      )
+      .digest('hex');
+  }
 
   const dataset: GeneratedDataset = {
     version: 1,

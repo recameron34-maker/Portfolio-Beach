@@ -55,6 +55,18 @@ export const CONTROL_ROUTES: readonly RouteDefinition[] = [
     idempotent: true,
   },
   {
+    method: 'PATCH',
+    path: `${API_PREFIX}/valuations/{id}`,
+    summary:
+      'Correct a Draft version before it is prepared: the method, the fair value or the method inputs; any other state is 409 (reopen a Locked version first)',
+    tags: ['valuations'],
+    roles: ['operations'],
+    auth: true,
+    body: c.valuationEditBody,
+    response: s.valuationRow,
+    idempotent: true,
+  },
+  {
     method: 'POST',
     path: `${API_PREFIX}/valuations/batch-commands`,
     summary:
