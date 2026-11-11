@@ -8,6 +8,8 @@ import { ID } from '../../test/fixtures.js';
 import {
   clientListFixture,
   closingOpportunityFixture,
+  closingSummaryFixture,
+  confirmedOpportunityFixture,
   OPP_ID,
   opportunityDetailFixture,
   PIPE_ID,
@@ -118,9 +120,10 @@ describe('opportunity page', () => {
     const lines = within(gates).getAllByRole('listitem');
     expect(lines.map((l) => l.textContent)).toEqual([
       'Waiting1 diligence task required for IC is still open; the advance to IC waits for them (an approver may override with a reason).',
-      'WaitingNo IC decision is recorded; the advance from IC waits for one.',
+      'WaitingNo approved IC decision is recorded since the deal last entered IC; the advance from IC waits for one.',
       'WaitingNo closing record yet: it opens when the deal advances from Approved with a close date and a commitment.',
       'WaitingThe allocation tie-out starts once the closing record exists.',
+      'WaitingOperations confirm the closing once the closing record exists.',
     ]);
 
     // The open required task disables the advance and names the rule; pass stays live.
@@ -255,9 +258,14 @@ describe('opportunity page', () => {
         },
       ],
       gates: {
-        diligence: { requiredOpen: 0, ok: true },
+        diligence: { requiredOpen: 0, ok: true, carriedOver: 0 },
         icDecision: { ok: true },
-        closing: { checklistComplete: false, allocationTiedOut: false, ok: false },
+        closing: {
+          checklistComplete: false,
+          allocationTiedOut: false,
+          confirmed: false,
+          ok: false,
+        },
       },
     });
     const state = stateful(approved);
@@ -269,6 +277,8 @@ describe('opportunity page', () => {
     await userEvent.click(button('Advance, Project Dune'));
     const dialog = await screen.findByRole('dialog');
     expect(dialog).toHaveTextContent('Open closing');
+    // A first closing: nothing to say about a record the deal already has.
+    expect(within(dialog).queryByTestId('closing-reentry-note')).toBeNull();
     // The commitment starts from the approved IC amount.
     expect(within(dialog).getByLabelText(/Commitment/)).toHaveValue('20000000.00');
     expect(within(dialog).getByRole('button', { name: 'Open closing' })).toBeDisabled();
@@ -396,9 +406,14 @@ describe('opportunity page', () => {
       id: OPP_ID.ic,
       stage: 'IC',
       gates: {
-        diligence: { requiredOpen: 0, ok: true },
+        diligence: { requiredOpen: 0, ok: true, carriedOver: 0 },
         icDecision: { ok: false },
-        closing: { checklistComplete: false, allocationTiedOut: false, ok: false },
+        closing: {
+          checklistComplete: false,
+          allocationTiedOut: false,
+          confirmed: false,
+          ok: false,
+        },
       },
     });
     const state = stateful(atIc);
@@ -460,12 +475,22 @@ describe('opportunity page', () => {
     expect(button('Advance, Project Dune')).toBeEnabled();
   }, 30_000);
 
-  it('edits the allocations, shows the running total against the commitment and saves the whole list', async () => {
+  it('edits the allocations, shows the received total against the commitment and saves the whole list', async () => {
     const saved = closingOpportunityFixture({
       rowVersion: 8,
       allocations: closingOpportunityFixture().allocations.map((a) =>
-        a.id === PIPE_ID.allocationB ? { ...a, requested: '7500000.00' } : a,
+        a.id === PIPE_ID.allocationB
+          ? { ...a, requested: '7500000.00', received: '7500000.00' }
+          : a,
       ),
+      closing: closingSummaryFixture({
+        allocationTieOut: {
+          commitment: '20000000.00',
+          allocated: '19500000.00',
+          difference: '-500000.00',
+          tiedOut: false,
+        },
+      }),
     });
     const state = stateful(closingOpportunityFixture());
     open(['deal_team'], closingOpportunityFixture(), {
@@ -475,8 +500,9 @@ describe('opportunity page', () => {
     await screen.findByTestId('opportunity-detail');
     const editor = screen.getByTestId('allocations-editor');
     expect(editor).toHaveTextContent('2 lines');
-    expect(editor).toHaveTextContent('Allocated $20.0M against a commitment of $20.0M.');
+    expect(editor).toHaveTextContent('Received $20.0M against a commitment of $20.0M.');
     expect(within(editor).getByText('Tied out')).toHaveClass('pb-badge-good');
+    expect(within(editor).queryByTestId('allocations-missing-received')).toBeNull();
     const second = within(editor).getByTestId('allocation-row-1');
     // The vehicle and client names arrive with their own reads.
     await waitFor(() =>
@@ -491,18 +517,28 @@ describe('opportunity page', () => {
     await userEvent.clear(requested);
     expect(within(editor).getByRole('button', { name: 'Save allocations' })).toHaveAttribute(
       'title',
-      'Every line needs a vehicle and a requested amount (received is optional)',
+      'Every line needs a vehicle and a requested amount',
     );
-    expect(editor).toHaveTextContent('Allocated -');
+    expect(editor).toHaveTextContent('Received -');
     await userEvent.type(requested, '7500000.00');
-    expect(editor).toHaveTextContent('Allocated $19.5M against a commitment of $20.0M.');
+    // What was asked for does not move the tie-out: only what was received counts (M22).
+    expect(editor).toHaveTextContent('Received $20.0M against a commitment of $20.0M.');
+    const received = within(second).getByRole('textbox', { name: 'Received, line 2' });
+    await userEvent.clear(received);
+    expect(editor).toHaveTextContent('Received $12.0M against a commitment of $20.0M.');
+    expect(within(editor).getByTestId('allocations-missing-received')).toHaveTextContent(
+      '1 line has no received amount yet. The tie-out counts received amounts only: a requested amount never stands in for one (M22).',
+    );
+    await userEvent.type(received, '7500000.00');
+    expect(editor).toHaveTextContent('Received $19.5M against a commitment of $20.0M.');
+    expect(within(editor).queryByTestId('allocations-missing-received')).toBeNull();
     await userEvent.click(within(editor).getByRole('button', { name: 'Add line' }));
     expect(within(editor).getByTestId('allocation-row-2')).toBeInTheDocument();
     await userEvent.click(within(editor).getByRole('button', { name: 'Remove line 3' }));
     expect(within(editor).queryByTestId('allocation-row-2')).toBeNull();
     await userEvent.click(within(editor).getByRole('button', { name: 'Save allocations' }));
     expect(await screen.findByTestId('opportunity-action-status')).toHaveTextContent(
-      'Allocations saved for Project Cove: 2 lines, tied out',
+      'Allocations saved for Project Cove: 2 lines, short by $0.5M',
     );
     expect(sentRequests().filter(([, method]) => method === 'PUT')).toEqual([
       [
@@ -511,7 +547,12 @@ describe('opportunity page', () => {
         {
           allocations: [
             { vehicleId: ID.vehicle1, requested: '12000000.00', received: '12000000.00' },
-            { vehicleId: ID.vehicle2, clientId: VS_ID.clientAlpha, requested: '7500000.00' },
+            {
+              vehicleId: ID.vehicle2,
+              clientId: VS_ID.clientAlpha,
+              requested: '7500000.00',
+              received: '7500000.00',
+            },
           ],
         },
       ],
@@ -535,17 +576,150 @@ describe('opportunity page', () => {
     );
     const gates = screen.getByTestId('opportunity-gates');
     expect(gates).toHaveTextContent('A required closing item is still open (M8).');
-    expect(gates).toHaveTextContent('Allocations tie to the closing commitment.');
+    expect(gates).toHaveTextContent('The received amounts tie to the closing commitment.');
+    expect(gates).toHaveTextContent(
+      'Operations have not confirmed the closing; the advance to Closed waits for the confirmation (M8).',
+    );
     expect(screen.getByTestId('opportunity-tiles')).toHaveTextContent('Tied out');
   });
 
-  it('shows the operations advance from Closing blocked by the checklist until the closing is confirmed', async () => {
+  it('offers the advance from Closing to operations only once the closing is confirmed, and names the missing confirmation until then', async () => {
     open(['operations'], closingOpportunityFixture());
     await screen.findByTestId('opportunity-detail');
     const advance = button('Advance, Project Cove');
     expect(advance).toBeDisabled();
-    expect(advance).toHaveAttribute('title', 'The closing checklist is incomplete');
+    expect(advance).toHaveAttribute(
+      'title',
+      'The closing checklist is incomplete; the closing is not confirmed by operations (M8)',
+    );
+    cleanup();
+    vi.restoreAllMocks();
+
+    // The checklist is in and the lines tie: the confirmation alone still holds the advance.
+    open(
+      ['operations'],
+      closingOpportunityFixture({
+        closing: closingSummaryFixture({ itemsOpen: 2, itemsRequiredOpen: 0 }),
+        gates: {
+          diligence: { requiredOpen: 0, ok: true, carriedOver: 0 },
+          icDecision: { ok: true },
+          closing: {
+            checklistComplete: true,
+            allocationTiedOut: true,
+            confirmed: false,
+            ok: false,
+          },
+        },
+      }),
+    );
+    await screen.findByTestId('opportunity-detail');
+    expect(button('Advance, Project Cove')).toBeDisabled();
+    expect(button('Advance, Project Cove')).toHaveAttribute(
+      'title',
+      'The closing is not confirmed by operations (M8)',
+    );
+    const waiting = within(screen.getByTestId('opportunity-gates')).getAllByRole('listitem');
+    expect(waiting.map((l) => l.textContent)).toEqual([
+      'ClearEvery diligence task required for IC is done or waived.',
+      'ClearAn IC decision is recorded.',
+      'ClearEvery required closing item is received or waived.',
+      'ClearThe received amounts tie to the closing commitment.',
+      'WaitingOperations have not confirmed the closing; the advance to Closed waits for the confirmation (M8).',
+    ]);
+    cleanup();
+    vi.restoreAllMocks();
+
+    // Confirmed: every gate reads clear and the advance is offered.
+    const state = stateful(confirmedOpportunityFixture());
+    open(['operations'], confirmedOpportunityFixture(), {
+      [PIPE_PATHS.opportunity(OPP_ID.closing)]: state.get,
+      [PIPE_PATHS.commands(OPP_ID.closing)]: () =>
+        state.set(
+          confirmedOpportunityFixture({ stage: 'Closed', investmentId: PIPE_ID.investment }),
+        ),
+    });
+    await screen.findByTestId('opportunity-detail');
+    const clear = within(screen.getByTestId('opportunity-gates')).getAllByRole('listitem');
+    expect(clear.map((l) => l.textContent?.startsWith('Clear'))).toEqual([
+      true,
+      true,
+      true,
+      true,
+      true,
+    ]);
+    expect(clear[4]).toHaveTextContent('Operations confirmed the closing.');
+    const live = button('Advance, Project Cove');
+    expect(live).toBeEnabled();
+    expect(live).not.toHaveAttribute('title');
+    await userEvent.click(live);
+    expect(await screen.findByTestId('opportunity-action-status')).toHaveTextContent(
+      'Project Cove is now Closed and converted into a position',
+    );
+    expect(sentPosts()).toEqual([[PIPE_PATHS.commands(OPP_ID.closing), { command: 'advance' }]]);
+  }, 30_000);
+
+  it('holds the allocation lines as confirmed once operations confirmed the closing, and for good once the deal is closed', async () => {
+    open(['deal_team'], confirmedOpportunityFixture());
+    await screen.findByTestId('opportunity-detail');
+    const editor = screen.getByTestId('allocations-editor');
+    expect(within(editor).getByRole('table', { name: 'Allocations' })).toBeInTheDocument();
+    expect(within(editor).queryByRole('button', { name: 'Save allocations' })).toBeNull();
+    expect(within(editor).queryByRole('button', { name: 'Add line' })).toBeNull();
+    expect(within(editor).queryByRole('textbox')).toBeNull();
+    expect(within(editor).getByTestId('allocations-lock')).toHaveTextContent(
+      'The closing is confirmed; change the close date or ask operations to reopen it.',
+    );
+    expect(editor).toHaveTextContent('Received $20.0M against a commitment of $20.0M.');
+    cleanup();
+    vi.restoreAllMocks();
+
+    open(
+      ['operations'],
+      confirmedOpportunityFixture({ stage: 'Closed', investmentId: PIPE_ID.investment }),
+    );
+    await screen.findByTestId('opportunity-detail');
+    const closed = screen.getByTestId('allocations-editor');
+    expect(within(closed).queryByRole('button', { name: 'Save allocations' })).toBeNull();
+    expect(within(closed).getByTestId('allocations-lock')).toHaveTextContent(
+      'Allocations are fixed once the deal is closed (M22); raise a change request instead.',
+    );
+    expect(document.body.textContent).not.toContain(String.fromCharCode(0x2014));
   });
+
+  it('says how many tasks were done before a reopen, and that the closing a reopened deal already has is rewritten', async () => {
+    const reopened = opportunityDetailFixture({
+      id: OPP_ID.approved,
+      stage: 'Approved',
+      closing: closingSummaryFixture({
+        state: 'OpsConfirmed',
+        opsConfirmedBy: { id: ID.user, name: 'Rowan Castellanos' },
+        opsConfirmedAt: '2025-08-16T10:00:00Z',
+        itemsOpen: 2,
+        itemsRequiredOpen: 0,
+      }),
+      gates: {
+        diligence: { requiredOpen: 1, ok: false, carriedOver: 2 },
+        icDecision: { ok: true },
+        closing: { checklistComplete: true, allocationTiedOut: false, confirmed: true, ok: false },
+      },
+    });
+    open(['deal_team'], reopened);
+    await screen.findByTestId('opportunity-detail');
+    const lines = within(screen.getByTestId('opportunity-gates')).getAllByRole('listitem');
+    expect(lines[0]).toHaveTextContent(
+      '1 diligence task required for IC is still open; the advance to IC waits for them (an approver may override with a reason). 2 were done or waived before the deal was reopened.',
+    );
+    expect(screen.getByTestId('diligence-tasks')).toHaveTextContent(
+      '4 tasks, 1 required task open; 2 were done or waived before the deal was reopened',
+    );
+    // Approved again with the closing it had: the dialog says what the advance does to it.
+    await userEvent.click(button('Advance, Project Dune'));
+    const dialog = await screen.findByRole('dialog');
+    expect(within(dialog).getByTestId('closing-reentry-note')).toHaveTextContent(
+      'This deal already has a closing record. It takes the new close date and commitment, its checklist items stay as they are, and the confirmation given before does not carry over: operations confirm again.',
+    );
+    expect(document.body.textContent).not.toContain(String.fromCharCode(0x2014));
+  }, 30_000);
 
   it('tells the reader when the opportunity is not visible, and when the read failed', async () => {
     params.id = OPP_ID.diligence;

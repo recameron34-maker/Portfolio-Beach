@@ -12,10 +12,12 @@ import { apiCall, indexDocuments, loadDataset, signInAs, switchTo } from './fixt
  * refused while a required task is open and goes through once every required task is done; an
  * approver records the IC decision and advances to Approved; the deal team opens the closing
  * with a close date and a commitment; operations cannot confirm while a required item is open
- * or the allocations do not tie, receives the items, saves allocations that tie exactly,
- * confirms and closes; the new position shows in the grid and its workspace carries the close
- * date, the tasks and the decision. Every refusal is proven twice: on the page (the disabled
- * action names the rule) and at the API (422 workflow-precondition).
+ * or the allocations do not tie, receives the items, saves allocations whose received amounts
+ * tie exactly, and cannot close the deal before confirming; once confirmed, the checklist and the
+ * lines stay as confirmed until operations reopen the closing with a reason and confirm again;
+ * then the deal closes. The new position shows in the grid and its workspace carries the close
+ * date (which no longer moves), the tasks and the decision. Every refusal is proven twice: on the
+ * page (the disabled action names the rule) and at the API (422 workflow-precondition).
  */
 const d = loadDataset();
 const full = generateDataset({ profile: 'small', seed: 42 });
@@ -45,6 +47,10 @@ const ops = idOf(
 const closeDate = d.asOf;
 const commitment = deal.targetCommitment ?? '11000000.00';
 const REASON = 'Journey 6: covered by the sponsor materials shared in diligence';
+const REOPEN_REASON = 'Journey 6: the optional closing memo arrived after confirmation';
+const CONFIRMED_RULE =
+  'The closing is confirmed; change the close date or ask operations to reopen it';
+const POSITION_RULE = 'The position exists; record the change through a deal change request';
 
 /** A date as the pages show it, for example "Jun 30, 2025". */
 const shownDate = (isoDate: string): string =>
@@ -311,10 +317,29 @@ test('a deal moves from Sourced to Closed through the diligence gate and the clo
   );
   await expect(page.getByTestId('opportunity-tiles')).toContainText('Tied out');
   await expect(page.getByTestId('opportunity-gates')).toContainText(
-    'Allocations tie to the closing commitment.',
+    'The received amounts tie to the closing commitment.',
   );
 
-  // Operations confirms the closing, then closes the deal: it becomes a position.
+  // The checklist is in and the lines tie, and the deal still cannot close: the advance names
+  // the missing confirmation on the page and the API refuses it (M8).
+  await expect(page.getByTestId('opportunity-gates')).toContainText(
+    'Operations have not confirmed the closing',
+  );
+  await expect(advanceButton(page)).toHaveAttribute(
+    'title',
+    'The closing is not confirmed by operations (M8)',
+  );
+  await expect(advanceButton(page)).toBeDisabled();
+  const unconfirmed = await refusal(
+    page,
+    `/api/v1/opportunities/${sourcedId}/commands`,
+    'ops.one',
+    { command: 'advance' },
+  );
+  expect(unconfirmed.status).toBe(422);
+  expect(unconfirmed.detail).toBe('the closing is not confirmed by operations (M8)');
+
+  // Operations confirms the closing.
   await page.goto(`/pipeline/${sourcedId}/closing`);
   await expect(page.getByTestId('closing-tie-out')).toContainText('Tied out');
   await expect(confirm).toBeEnabled();
@@ -323,9 +348,66 @@ test('a deal moves from Sourced to Closed through the diligence gate and the clo
     `Closing confirmed for ${shownDate(closeDate)}; the record is Ops confirmed`,
   );
   await expect(page.getByTestId('closing-record')).toContainText(ops.displayName);
+
+  // What operations confirmed stays as confirmed: the item actions and the allocation lines name
+  // the rule, and the API refuses both.
+  const openItem = idOf(optionalItems[1], 'second optional closing item');
+  const receiveOpenItem = page.getByRole('button', {
+    name: `Receive, ${openItem.label}`,
+    exact: true,
+  });
+  await expect(receiveOpenItem).toBeDisabled();
+  await expect(receiveOpenItem).toHaveAttribute('title', CONFIRMED_RULE);
+  await expect(page.getByTestId('closing-items-lock')).toContainText(CONFIRMED_RULE);
+  const frozenItem = await refusal(
+    page,
+    `/api/v1/closings/${closingId}/items/${openItem.itemCode}/commands`,
+    'ops.one',
+    { command: 'receive', documentId },
+  );
+  expect(frozenItem.status).toBe(422);
+  expect(frozenItem.detail).toMatch(/the closing is confirmed/);
+  await page.goto(`/pipeline/${sourcedId}`);
+  await expect(page.getByTestId('allocations-lock')).toContainText(CONFIRMED_RULE);
+  await expect(
+    page.getByTestId('allocations-editor').getByRole('button', { name: 'Save allocations' }),
+  ).toHaveCount(0);
+  await expect(page.getByTestId('opportunity-gates')).toContainText(
+    'Operations confirmed the closing.',
+  );
+
+  // Operations reopen the closing with a reason, receive the item that arrived late and confirm
+  // again: the record is back to Open in between and the gate waits for the new confirmation.
+  await page.goto(`/pipeline/${sourcedId}/closing`);
+  await page.getByTestId('closing-reopen').click();
+  const reopenDialog = page.getByRole('dialog');
+  await expect(reopenDialog).toContainText('Reopen closing');
+  await reopenDialog.getByLabel('Reason').fill(REOPEN_REASON);
+  await reopenDialog.getByRole('button', { name: 'Reopen closing', exact: true }).click();
+  await expect(closingStatus(page)).toContainText('Closing reopened; the record is Open');
+  await expect(page.getByTestId('closing-reopen')).toHaveCount(0);
+  expect((await detail(page, 'ops.one')).gates.closing).toMatchObject({
+    confirmed: false,
+    ok: false,
+  });
+  await receiveOpenItem.click();
+  const lateDialog = page.getByRole('dialog');
+  await lateDialog.getByLabel('Document id').fill(documentId);
+  await lateDialog.getByRole('button', { name: 'Receive', exact: true }).click();
+  await expect(closingStatus(page)).toContainText(`${openItem.label} is now Received`);
+  await expect(confirm).toBeEnabled();
+  await confirm.click();
+  await expect(closingStatus(page)).toContainText(
+    `Closing confirmed for ${shownDate(closeDate)}; the record is Ops confirmed`,
+  );
+
+  // Confirmed, every gate reads clear: operations closes the deal and it becomes a position.
   await page.goto(`/pipeline/${sourcedId}`);
   await expect(page.getByTestId('opportunity-gates')).toContainText(
     'Every required closing item is received or waived.',
+  );
+  await expect(page.getByTestId('opportunity-gates')).toContainText(
+    'Operations confirmed the closing.',
   );
   await advance(page, 'Closed and converted into a position');
   const closed = await detail(page, 'ops.one');
@@ -346,6 +428,20 @@ test('a deal moves from Sourced to Closed through the diligence gate and the clo
   await expect(page.getByTestId('detail-banner')).toContainText(deal.companyName);
   await expect(page.getByTestId('closing-close-date')).toContainText(shownDate(closeDate));
   await expect(page.getByTestId('closing-record')).toContainText('Ops confirmed');
+  // The close date is now the position's entry date: neither the date change nor the reopen is
+  // offered, and the API refuses both (the change goes through a deal change request).
+  const changeDate = page.getByRole('button', { name: 'Change close date', exact: true });
+  await expect(changeDate).toBeDisabled();
+  await expect(changeDate).toHaveAttribute('title', POSITION_RULE);
+  await expect(page.getByTestId('closing-reopen')).toBeDisabled();
+  await expect(page.getByTestId('closing-reopen')).toHaveAttribute('title', POSITION_RULE);
+  const moved = await refusal(page, `/api/v1/closings/${closingId}/commands`, 'ops.one', {
+    command: 'changeCloseDate',
+    closeDate: '2025-07-15',
+    reason: 'Journey 6: the signing date was recorded early',
+  });
+  expect(moved.status).toBe(422);
+  expect(moved.detail).toBe('the position exists; record the change through a deal change request');
   await page.goto(`/portfolio/${investmentId}/diligence`);
   await expect(
     page

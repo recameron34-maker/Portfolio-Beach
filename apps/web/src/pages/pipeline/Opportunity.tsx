@@ -30,6 +30,7 @@ import { DiligenceTasksCard } from './DiligenceTasks.js';
 import { IcDecisionsCard } from './IcDecisions.js';
 import {
   agingHint,
+  allocationsLock,
   daysInStageLabel,
   gateLines,
   isAging,
@@ -263,7 +264,9 @@ function Body({
           label="Allocation tie-out"
           value={detail.closing === null ? MISSING : tieOutLabel(detail.closing.allocationTieOut)}
           hint={
-            detail.closing === null ? 'No closing record yet' : 'Against the closing commitment'
+            detail.closing === null
+              ? 'No closing record yet'
+              : 'Received amounts against the closing commitment'
           }
           tone={
             detail.closing === null
@@ -281,6 +284,7 @@ function Body({
       <DiligenceTasksCard
         opportunityId={detail.id}
         tasks={detail.diligenceTasks}
+        carriedOver={detail.gates.diligence.carriedOver}
         roles={roles}
         log={log}
       />
@@ -300,6 +304,7 @@ function Body({
           rowVersion={detail.rowVersion}
           roles={roles}
           log={log}
+          lock={allocationsLock(detail.stage, detail.closing)}
         />
       </div>
       <div className="pb-two-col">
@@ -325,8 +330,9 @@ function Body({
 
 /**
  * One opportunity (docs/04 M5): the stage strip and commands of docs/18 section 4, the gates the
- * commands check, the diligence tasks, IC decisions, allocations, stage history and the closing
- * summary with the way to the closing page.
+ * commands check (the operations confirmation of the closing among them), the diligence tasks,
+ * IC decisions, allocations (read only while the closing is confirmed), stage history and the
+ * closing summary with the way to the closing page.
  */
 export function OpportunityPage(): ReactNode {
   const { id } = useParams({ from: '/app/pipeline/$id' });

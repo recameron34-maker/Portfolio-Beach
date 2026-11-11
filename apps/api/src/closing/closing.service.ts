@@ -12,18 +12,13 @@ import type {
 } from '@pb/contracts';
 import { schema } from '@pb/db';
 import type { Tx } from '@pb/db';
-import { attempt, closingMachine } from '@pb/workflows';
+import { POSITION_EXISTS_REFUSAL, attempt, closingMachine, confirmRefusal } from '@pb/workflows';
 import { ProblemError, workflowProblem } from '../common/problem.js';
 import { requireFreshRow } from '../common/row-version.js';
 import { ADAPTERS, CLOSING_CHECKLIST } from '../common/tokens.js';
 import { requireUuid } from '../common/validate.js';
 import { DbService } from '../db/db.service.js';
-import {
-  allocationsOf,
-  loadAllocationRows,
-  missingReceivedRefusal,
-  tieOut,
-} from '../pipeline/allocations.js';
+import { allocationsOf, loadAllocationRows, tieOut } from '../pipeline/allocations.js';
 import { requireTaxonomyCodes, requireVisibleDocument } from '../pipeline/refs.js';
 import { closingConfirmed, lockOpportunity } from '../pipeline/rows.js';
 import {
@@ -61,7 +56,7 @@ const term = schema.legalTerm;
 const ITEM_NOT_FOUND = 'Closing item not found';
 const TERM_NOT_FOUND = 'Legal term not found';
 const ITEM_CODE = /^[a-z0-9_]{1,64}$/;
-const POSITION_EXISTS = 'the position exists; record the change through a deal change request';
+const POSITION_EXISTS = POSITION_EXISTS_REFUSAL;
 
 /** The status moves an item command makes; a command from any other status is a 409. */
 const ITEM_MOVES: Record<
@@ -237,15 +232,14 @@ export class ClosingService {
       if (!result.ok) {
         // The confirmation's tie-out refusal names what is missing when it is a received amount
         // (M22); the checklist refusal comes first, as the machine orders them.
-        const missing = missingReceivedRefusal(allocations);
-        if (
-          body.command === 'confirm' &&
-          result.code === 'precondition' &&
-          itemsComplete &&
-          !tie.tiedOut &&
-          missing !== null
-        )
-          throw new ProblemError(422, 'workflow-precondition', `closing: ${missing}`);
+        const missing = confirmRefusal({
+          command: body.command,
+          code: result.code,
+          itemsComplete,
+          tiedOut: tie.tiedOut,
+          rows: allocations,
+        });
+        if (missing !== null) throw new ProblemError(422, 'workflow-precondition', missing);
         throw workflowProblem(result);
       }
 

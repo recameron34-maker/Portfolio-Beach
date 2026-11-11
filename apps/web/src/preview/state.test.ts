@@ -6,10 +6,13 @@ import {
   ensureClosings,
   ensureNotices,
   ensureValuations,
+  eventKey,
   newUuid,
+  nextEventKey,
   personFor,
   resetPreviewState,
   seedChangeRequests,
+  seedEventOrder,
   seedOpportunities,
   seedTickets,
   seedValuations,
@@ -83,11 +86,30 @@ describe('seeding from the recordings', () => {
     expect(tickets.get(IDS.ticket.funded)?.wireInstructionId).toBe(IDS.wire.verifiedFund2);
     expect(seedChangeRequests(recordings).size).toBe(4);
     const opportunities = seedOpportunities(recordings);
-    expect(opportunities.size).toBe(6);
+    expect(opportunities.size).toBe(7);
     const closingOpen = opportunities.get(IDS.opportunity.closingOpen);
     expect(closingOpen?.closingId).toBe(IDS.closing.open);
     expect(closingOpen?.tasks).toHaveLength(6);
     expect(closingOpen?.decisions).toHaveLength(1);
+    // The order of events the gates read: the recorded history in order, the tasks and the
+    // decision after it (the recorded gates are open and nothing is carried over).
+    expect(closingOpen?.order.history).toEqual([1, 2, 3, 4, 5, 6, 7].map(eventKey));
+    expect(closingOpen?.order.count).toBe(8);
+    expect(new Set(closingOpen?.order.tasks.values())).toEqual(new Set([eventKey(8)]));
+    expect([...(closingOpen?.order.decisions.values() ?? [])]).toEqual([eventKey(8)]);
+    // The reopened deal: the recorded gate carries four tasks over and does not read the first
+    // round's approval, so those tasks and that decision predate the history.
+    const reopened = opportunities.get(IDS.opportunity.reopened);
+    expect(reopened?.order.history).toHaveLength(11);
+    expect(
+      reopened?.tasks
+        .filter((t) => reopened.order.tasks.get(t.id) === eventKey(0))
+        .map((t) => t.requiredForIc),
+    ).toEqual([true, true, true, true]);
+    expect(
+      reopened?.tasks.filter((t) => reopened.order.tasks.get(t.id) === eventKey(12)).length,
+    ).toBe((reopened?.tasks.length ?? 0) - 4);
+    expect([...(reopened?.order.decisions.values() ?? [])]).toEqual([eventKey(0)]);
     expect(opportunities.get(IDS.opportunity.walled)?.stageHistory.map((h) => h.toStage)).toEqual([
       'Sourced',
       'Screening',
@@ -106,6 +128,38 @@ describe('seeding from the recordings', () => {
     expect(state.opportunities).toBeNull();
     expect(state.closings).toBeNull();
     expect(state.investments.size).toBe(0);
+  });
+
+  it('keeps the order of a deal in keys that sort as the events happened, and seeds it from the recorded gates', () => {
+    expect(eventKey(0) < eventKey(9)).toBe(true);
+    expect(eventKey(9) < eventKey(10)).toBe(true);
+    expect(eventKey(99) < eventKey(100)).toBe(true);
+    // A deal with no recorded detail has no child rows to order.
+    const empty = seedEventOrder(undefined);
+    expect(empty).toEqual({ count: 1, history: [], tasks: new Map(), decisions: new Map() });
+    expect(nextEventKey(empty)).toBe(eventKey(2));
+    expect(empty.count).toBe(2);
+
+    const [reopened] = buildWorld().opportunities.filter((o) => o.id === IDS.opportunity.reopened);
+    if (reopened === undefined) throw new Error('the world has no reopened deal');
+    // The recorded gate is closed with a deferred decision latest: it is of the current round.
+    const deferred = seedEventOrder({
+      ...reopened,
+      icDecisions: [{ ...reopened.icDecisions[0]!, decision: 'deferred' }],
+    });
+    expect([...deferred.decisions.values()]).toEqual([eventKey(12)]);
+    // Fewer carried over than done: the first in list order are the ones carried over.
+    const two = seedEventOrder({
+      ...reopened,
+      gates: { ...reopened.gates, diligence: { requiredOpen: 0, ok: true, carriedOver: 2 } },
+    });
+    const required = reopened.diligenceTasks.filter((t) => t.requiredForIc);
+    expect(required.map((t) => two.tasks.get(t.id))).toEqual([
+      eventKey(0),
+      eventKey(0),
+      eventKey(12),
+      eventKey(12),
+    ]);
   });
 
   it('starts empty while the lists are recorded as 501, and reset forgets the seed', () => {

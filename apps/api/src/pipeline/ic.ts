@@ -1,10 +1,11 @@
-import { and, desc, eq, sql } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 import type { IcDecisionBody } from '@pb/contracts';
 import { schema } from '@pb/db';
 import type { Tx } from '@pb/db';
+import { icDecisionApproved } from '@pb/workflows';
 import { ProblemError } from '../common/problem.js';
 import type { AuditEntry } from '../db/db.service.js';
-import { requireMoney } from './rows.js';
+import { instantOf, loadStageMoves, requireMoney } from './rows.js';
 
 /*
  * The IC decision record (docs/04 M7, docs/18 section 4, migration 0013): an approver records the
@@ -17,34 +18,30 @@ import { requireMoney } from './rows.js';
  * recorded since the deal last entered IC counts, and from a reopen until the next IC none does.
  * "Since" compares the instant the decision row was written with the instant of the stage history
  * row, both the database's clock, rather than the decision date an approver types: that date may
- * rightly be the day the committee met, a day or two before the record moved.
+ * rightly be the day the committee met, a day or two before the record moved. The rule (where a
+ * round starts, which decision of it the gate reads) is the shared one in @pb/workflows
+ * (controls-closing.ts), which the web preview follows too.
  */
 
 const decision = schema.icDecision;
 const ENTITY = 'deal.ic_decision';
 
 /**
- * The instant the current IC round began: the latest move into IC, or a later reopen from Passed
- * (no decision can follow that one until the deal is at IC again, since a decision is recorded
- * only at IC). Null when the deal never reached IC.
+ * The gate as the machine reads it: the latest decision of the current IC round is an approval.
+ * This loads the decisions and the stage history with their instants to the microsecond, as the
+ * database holds them; the shared rule picks the round and the decision.
  */
-const roundStart = (opportunityId: string) =>
-  sql`(select max(h.changed_at) from deal.opportunity_stage_history h where h.opportunity_id = ${opportunityId} and (h.to_stage = 'IC' or h.from_stage = 'Passed'))`;
-
-/** The gate as the machine reads it: the latest decision of the current IC round is an approval. */
 export async function latestDecisionApproved(tx: Tx, opportunityId: string): Promise<boolean> {
-  const latest = await tx
-    .select({ decision: decision.decision })
+  const decisions = await tx
+    .select({
+      id: decision.id,
+      decisionDate: decision.decisionDate,
+      decision: decision.decision,
+      recordedAt: instantOf(decision.createdAt),
+    })
     .from(decision)
-    .where(
-      and(
-        eq(decision.opportunityId, opportunityId),
-        sql`${decision.createdAt} >= ${roundStart(opportunityId)}`,
-      ),
-    )
-    .orderBy(desc(decision.decisionDate), desc(decision.createdAt), desc(decision.id))
-    .limit(1);
-  return latest[0]?.decision === 'approved';
+    .where(eq(decision.opportunityId, opportunityId));
+  return icDecisionApproved(decisions, await loadStageMoves(tx, opportunityId));
 }
 
 export async function recordDecision(

@@ -35,7 +35,7 @@ import type { z } from 'zod';
 import type { Recordings } from './fixtures.js';
 import { controlDetailOf, controlsTouched, recordedNoticeDetail } from './routes/register.js';
 import type { RecordedNoticeDetail } from './routes/register.js';
-import { QUARTERLY_FIGURE_KEYS } from './state.js';
+import { QUARTERLY_FIGURE_KEYS, createdInvestmentVisible } from './state.js';
 import type {
   PreviewState,
   SimException,
@@ -408,9 +408,11 @@ export function overlayRecordedBody(url: URL, text: string, ctx: OverlayContext)
     const active = param(url, 'active');
     if (active !== undefined && (ACTIVE_FILTERS as readonly string[]).includes(active))
       filters.active = active as (typeof ACTIVE_FILTERS)[number];
-    return write(parse(investmentPage), (page) =>
-      overlayInvestmentPage(page, state.investments.values(), filters),
+    // A position a simulated close created sits behind the walls of its deal (SEC-5.3).
+    const visible = [...state.investments.values()].filter((sim) =>
+      createdInvestmentVisible(state, ctx.recordings, ctx.credential, sim),
     );
+    return write(parse(investmentPage), (page) => overlayInvestmentPage(page, visible, filters));
   }
 
   if (state.valuations !== null) {

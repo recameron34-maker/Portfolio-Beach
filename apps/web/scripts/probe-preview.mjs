@@ -1408,20 +1408,144 @@ expectStatus(
   200,
   received.json?.itemsRequiredOpen === 0,
 );
-const confirmedClosing = await api('ops.one', 'POST', `${closingPath}/commands`, {
+const closingOpenPath = `/api/v1/opportunities/${closingOpenId}`;
+const gatesOfClosingOpen = async () =>
+  (await api('deal.one', 'GET', closingOpenPath)).json?.gates?.closing;
+const advanceClosingOpen = () =>
+  api('ops.one', 'POST', `${closingOpenPath}/commands`, { command: 'advance' });
+
+// The tie-out sums received amounts only (M22): a line with none keeps the closing from confirming.
+const recordedLines = (received.json?.allocations ?? []).map((a) => ({
+  vehicleId: a.vehicle.id,
+  ...(a.client === null ? {} : { clientId: a.client.id }),
+  requested: a.requested,
+  ...(a.received === null ? {} : { received: a.received }),
+}));
+const putLines = (lines) =>
+  api('deal.one', 'PUT', `${closingOpenPath}/allocations`, { allocations: lines });
+const withoutReceived = await putLines(
+  recordedLines.map((line, i) =>
+    i === 0
+      ? {
+          vehicleId: line.vehicleId,
+          ...(line.clientId === undefined ? {} : { clientId: line.clientId }),
+          requested: line.requested,
+        }
+      : line,
+  ),
+);
+const receivedElsewhere = recordedLines
+  .slice(1)
+  .reduce((sum, line) => sum + Number(line.received ?? 0), 0);
+expectStatus(
+  'closing: a line with no received amount does not tie, whatever was requested (200, M22)',
+  withoutReceived,
+  200,
+  recordedLines.length > 0 &&
+    withoutReceived.json?.closing?.allocationTieOut?.tiedOut === false &&
+    Math.abs(
+      Number(withoutReceived.json?.closing?.allocationTieOut?.allocated) - receivedElsewhere,
+    ) < 0.005,
+);
+const missingReceived = await api('ops.one', 'POST', `${closingPath}/commands`, {
   command: 'confirm',
 });
 expectStatus(
-  'closing: ops.one confirms (200); the deal gates read ok',
+  'closing: the confirmation says how many received amounts are missing (422, M22)',
+  missingReceived,
+  422,
+  missingReceived.json?.detail === 'closing: received amounts are missing on 1 line (M22)',
+);
+expectStatus(
+  'closing: the recorded lines, received in full, tie out again (200)',
+  await putLines(recordedLines),
+  200,
+  (await gatesOfClosingOpen())?.allocationTiedOut === true,
+);
+
+// The gate reads clear only once operations confirmed (M8).
+const beforeConfirmation = await gatesOfClosingOpen();
+check(
+  'closing: with the checklist in and the lines tying, the gate still waits for the confirmation',
+  beforeConfirmation?.checklistComplete === true &&
+    beforeConfirmation?.allocationTiedOut === true &&
+    beforeConfirmation?.confirmed === false &&
+    beforeConfirmation?.ok === false,
+);
+const unconfirmedAdvance = await advanceClosingOpen();
+expectStatus(
+  'pipeline: Closing to Closed is refused while the closing is not confirmed (422, M8)',
+  unconfirmedAdvance,
+  422,
+  unconfirmedAdvance.json?.detail === 'the closing is not confirmed by operations (M8)',
+);
+const confirmedClosing = await api('ops.one', 'POST', `${closingPath}/commands`, {
+  command: 'confirm',
+});
+const afterConfirmation = await gatesOfClosingOpen();
+expectStatus(
+  'closing: ops.one confirms (200); the deal gates read confirmed and ok',
   confirmedClosing,
   200,
   confirmedClosing.json?.state === 'OpsConfirmed' &&
-    (await api('deal.one', 'GET', `/api/v1/opportunities/${closingOpenId}`)).json?.gates?.closing
-      ?.ok === true,
+    afterConfirmation?.confirmed === true &&
+    afterConfirmation?.ok === true,
 );
-const closedDeal = await api('ops.one', 'POST', `/api/v1/opportunities/${closingOpenId}/commands`, {
-  command: 'advance',
+
+// What operations confirmed stays as confirmed until they reopen it with a reason.
+const CONFIRMED_REFUSAL =
+  'the closing is confirmed; change the close date or ask operations to reopen it';
+const frozenLines = await putLines(recordedLines);
+expectStatus(
+  'closing: the allocation lines of a confirmed closing are refused (422)',
+  frozenLines,
+  422,
+  frozenLines.json?.detail === CONFIRMED_REFUSAL,
+);
+const frozenItem = await api('ops.one', 'POST', `${closingPath}/items/wire_confirmation/commands`, {
+  command: 'reopen',
 });
+expectStatus(
+  'closing: the checklist items of a confirmed closing are refused (422)',
+  frozenItem,
+  422,
+  frozenItem.json?.detail === CONFIRMED_REFUSAL,
+);
+const REOPEN_REASON = 'Probe: a line moves to the second vehicle';
+expectStatus(
+  'closing: the reopen is for operations (403 for the deal team)',
+  await api('deal.one', 'POST', `${closingPath}/commands`, {
+    command: 'reopen',
+    reason: REOPEN_REASON,
+  }),
+  403,
+);
+const reopenedClosing = await api('ops.one', 'POST', `${closingPath}/commands`, {
+  command: 'reopen',
+  reason: REOPEN_REASON,
+});
+expectStatus(
+  'closing: ops.one reopens with a reason (200): Open, the confirmation cleared, the gate waiting again',
+  reopenedClosing,
+  200,
+  reopenedClosing.json?.state === 'Open' &&
+    reopenedClosing.json?.opsConfirmedBy === null &&
+    (await gatesOfClosingOpen())?.confirmed === false,
+);
+expectStatus(
+  'closing: an Open closing is not reopened (409)',
+  await api('ops.one', 'POST', `${closingPath}/commands`, {
+    command: 'reopen',
+    reason: REOPEN_REASON,
+  }),
+  409,
+);
+expectStatus(
+  'closing: ops.one confirms again (200)',
+  await api('ops.one', 'POST', `${closingPath}/commands`, { command: 'confirm' }),
+  200,
+);
+const closedDeal = await advanceClosingOpen();
 expectStatus(
   'pipeline: ops.one closes the deal; the position appears on the portfolio grid with its close date',
   closedDeal,
@@ -1432,6 +1556,21 @@ expectStatus(
     (await api('viewer.one', 'GET', `/api/v1/investments/${closedDeal.json?.investmentId}`)).json
       ?.closeDate === closingOpen.closeDate,
 );
+
+// Once the position exists, the close date is its entry date: the closing no longer moves.
+const POSITION_REFUSAL = 'the position exists; record the change through a deal change request';
+for (const body of [
+  { command: 'changeCloseDate', closeDate: asOf, reason: 'Probe: the signing date moved' },
+  { command: 'reopen', reason: 'Probe: the signing date moved' },
+]) {
+  const refused = await api('ops.one', 'POST', `${closingPath}/commands`, body);
+  expectStatus(
+    `closing: ${body.command} is refused once the position exists (422)`,
+    refused,
+    422,
+    refused.json?.detail === POSITION_REFUSAL,
+  );
+}
 
 // ---- Intake journey in the UI: the defects sample through operations, the wall member and a viewer
 

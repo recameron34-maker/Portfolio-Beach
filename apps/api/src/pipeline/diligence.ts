@@ -1,4 +1,4 @@
-import { and, eq, sql } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 import { diligenceTemplateFor } from '@pb/contracts';
 import type {
   DiligenceTaskCommandBody,
@@ -7,10 +7,13 @@ import type {
 } from '@pb/contracts';
 import { schema } from '@pb/db';
 import type { Tx } from '@pb/db';
+import { diligenceGate as gateOf } from '@pb/workflows';
+import type { DiligenceGate } from '@pb/workflows';
 import { ProblemError } from '../common/problem.js';
 import { requireUuid } from '../common/validate.js';
 import type { AuditEntry } from '../db/db.service.js';
 import { requireAppUser, requireTaxonomyCodes, requireVisibleDocument } from './refs.js';
+import { instantOf, loadStageMoves } from './rows.js';
 
 /*
  * The diligence gate (docs/04 M7, docs/18 section 4, migration 0013). Tasks come from the template
@@ -34,35 +37,26 @@ const MOVES: Record<DiligenceTaskCommandBody['command'], { from: readonly string
     reopen: { from: ['done', 'waived'], to: 'open' },
   };
 
-/** The diligence gate as the detail shows it; the machine reads `ok`. */
-export interface DiligenceGate {
-  /** Tasks required for IC that are still open. */
-  requiredOpen: number;
-  ok: boolean;
-  /** Tasks required for IC that were done or waived before the deal was last reopened from Passed. */
-  carriedOver: number;
-}
+export type { DiligenceGate } from '@pb/workflows';
 
 /**
  * The gate as the machine reads it: how many tasks required for IC are still open. A task done or
  * waived before a pass stays done when the deal is reopened (the work was done); the gate counts
  * those as carried over, from the task's last change against the latest reopen in the stage
- * history, so the people taking the deal to IC again can see what predates the reopen.
+ * history, so the people taking the deal to IC again can see what predates the reopen. The rule is
+ * the shared one in @pb/workflows (controls-closing.ts); this loads the rows it reads, the
+ * instants to the microsecond as the database holds them.
  */
 export async function diligenceGate(tx: Tx, opportunityId: string): Promise<DiligenceGate> {
-  const rows = await tx
+  const tasks = await tx
     .select({
       status: task.status,
-      beforeReopen: sql<boolean>`coalesce(${task.updatedAt} < (select max(h.changed_at) from deal.opportunity_stage_history h where h.opportunity_id = ${opportunityId} and h.from_stage = 'Passed'), false)`,
+      requiredForIc: task.requiredForIc,
+      changedAt: instantOf(task.updatedAt),
     })
     .from(task)
     .where(and(eq(task.opportunityId, opportunityId), eq(task.requiredForIc, true)));
-  const requiredOpen = rows.filter((r) => r.status === 'open').length;
-  return {
-    requiredOpen,
-    ok: requiredOpen === 0,
-    carriedOver: rows.filter((r) => r.status !== 'open' && r.beforeReopen).length,
-  };
+  return gateOf(tasks, await loadStageMoves(tx, opportunityId));
 }
 
 /**

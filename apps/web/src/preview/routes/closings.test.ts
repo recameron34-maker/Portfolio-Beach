@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import { closingDetail, opportunityDetail } from '@pb/contracts';
-import type { ClosingDetail } from '@pb/contracts';
+import type { ClosingDetail, OpportunityDetail } from '@pb/contracts';
 import { closingMachine, forbiddenPairs } from '@pb/workflows';
 import { createPreviewFetch } from '../shim.js';
 import { createPreviewState } from '../state.js';
@@ -234,9 +234,15 @@ describe('the checklist and the confirmation (journey 6, the operations half)', 
     const short = detailOf(await send(f, USERS.ops.externalId, 'GET', path(id)));
     expect(short.allocationTieOut).toMatchObject({ tiedOut: false, allocated: '1000000.00' });
     expect(problemOf(await confirm()).detail).toMatch(/allocations do not tie/);
-    expect(
-      opportunityDetail.parse((await put('2000000.00')).json).closing?.allocationTieOut.tiedOut,
-    ).toBe(true);
+    const tied = opportunityDetail.parse((await put('2000000.00')).json);
+    expect(tied.closing?.allocationTieOut.tiedOut).toBe(true);
+    // The checklist is in and the lines tie, and the gate still waits for the confirmation.
+    expect(tied.gates.closing).toEqual({
+      checklistComplete: true,
+      allocationTiedOut: true,
+      confirmed: false,
+      ok: false,
+    });
 
     // The confirmation.
     const confirmed = detailOf(await confirm());
@@ -258,7 +264,7 @@ describe('the checklist and the confirmation (journey 6, the operations half)', 
           )
         ).json,
       ).gates.closing,
-    ).toEqual({ checklistComplete: true, allocationTiedOut: true, ok: true });
+    ).toEqual({ checklistComplete: true, allocationTiedOut: true, confirmed: true, ok: true });
 
     // A close date change after confirmation needs a reason and returns the record to Open.
     expect(
@@ -320,23 +326,303 @@ describe('the checklist and the confirmation (journey 6, the operations half)', 
     expect(window.__pbPreviewMisses).toEqual([]);
   });
 
-  it('answers 409 for the forbidden pair of the closing machine; Open plus changeCloseDate is the documented date update', async () => {
+  it('answers 409 for the forbidden pairs of the closing machine; Open plus changeCloseDate is the documented date update', async () => {
     const { f } = setup();
     expect(forbiddenPairs(closingMachine)).toEqual([
       { from: 'Open', command: 'changeCloseDate' },
+      { from: 'Open', command: 'reopen' },
       { from: 'OpsConfirmed', command: 'confirm' },
     ]);
-    const refused = await send(
+    const confirmedAgain = await send(
       f,
       USERS.ops.externalId,
       'POST',
       `${path(IDS.closing.confirmed)}/commands`,
       { command: 'confirm' },
     );
-    expect(refused.status).toBe(409);
+    expect(confirmedAgain.status).toBe(409);
+    expect(problemOf(confirmedAgain)).toEqual({
+      code: 'workflow-transition',
+      detail: 'closing: confirm is not allowed from OpsConfirmed',
+    });
     expect(
       detailOf(await send(f, USERS.ops.externalId, 'GET', path(IDS.closing.confirmed))).state,
     ).toBe('OpsConfirmed');
+    // An Open closing is not reopened.
+    const reopenedOpen = await send(f, USERS.ops.externalId, 'POST', commands, {
+      command: 'reopen',
+      reason: 'nothing to reopen',
+    });
+    expect(reopenedOpen.status).toBe(409);
+    expect(problemOf(reopenedOpen)).toEqual({
+      code: 'workflow-transition',
+      detail: 'closing: reopen is not allowed from Open',
+    });
+    expect(detailOf(await send(f, USERS.ops.externalId, 'GET', path(id)))).toMatchObject({
+      state: 'Open',
+      rowVersion: 1,
+    });
+  });
+
+  it('ties out on received amounts alone: a line with no received amount keeps the closing from confirming, and the refusal says how many are missing (M22)', async () => {
+    const { f } = setup();
+    const confirm = (): Promise<Answer> =>
+      send(f, USERS.ops.externalId, 'POST', commands, { command: 'confirm' });
+    const put = async (allocations: object[]): Promise<OpportunityDetail> => {
+      const answer = await send(
+        f,
+        USERS.deal.externalId,
+        'PUT',
+        `/api/v1/opportunities/${IDS.opportunity.closingOpen}/allocations`,
+        { allocations },
+      );
+      expect(answer.status, answer.text).toBe(200);
+      return opportunityDetail.parse(answer.json);
+    };
+
+    // Requested in full and nothing received: the requested amount never stands in.
+    const requestedOnly = await put([{ vehicleId: IDS.vehicle, requested: '2000000.00' }]);
+    expect(requestedOnly.closing?.allocationTieOut).toEqual({
+      commitment: '2000000.00',
+      allocated: '0.00',
+      difference: '-2000000.00',
+      tiedOut: false,
+    });
+    expect(requestedOnly.gates.closing).toMatchObject({ allocationTiedOut: false, ok: false });
+    // While a required item is open the checklist refusal comes first, as the machine orders them.
+    expect(problemOf(await confirm())).toEqual({
+      code: 'workflow-precondition',
+      detail: 'closing: a required closing document is missing (M8)',
+    });
+    expect(
+      (
+        await send(f, USERS.ops.externalId, 'POST', item('wire_confirmation'), {
+          command: 'receive',
+          documentId: IDS.document,
+        })
+      ).status,
+    ).toBe(200);
+    const one = await confirm();
+    expect(one.status).toBe(422);
+    expect(problemOf(one)).toEqual({
+      code: 'workflow-precondition',
+      detail: 'closing: received amounts are missing on 1 line (M22)',
+    });
+
+    // Received amounts that reach the commitment do not tie while other lines have none.
+    const reached = await put([
+      { vehicleId: IDS.vehicle, requested: '1000000.00', received: '2000000.00' },
+      { vehicleId: IDS.vehicle2, requested: '600000.00' },
+      { vehicleId: IDS.vehicle, clientId: IDS.client, requested: '400000.00' },
+    ]);
+    expect(reached.closing?.allocationTieOut).toEqual({
+      commitment: '2000000.00',
+      allocated: '2000000.00',
+      difference: '0.00',
+      tiedOut: false,
+    });
+    expect(problemOf(await confirm()).detail).toBe(
+      'closing: received amounts are missing on 2 lines (M22)',
+    );
+    const advance = await send(
+      f,
+      USERS.ops.externalId,
+      'POST',
+      `/api/v1/opportunities/${IDS.opportunity.closingOpen}/commands`,
+      { command: 'advance' },
+    );
+    expect(advance.status).toBe(422);
+    expect(problemOf(advance).detail).toBe(
+      'deal_stage: allocations do not tie to the closing commitment (M22)',
+    );
+
+    // Every line received and short of the commitment: the plain tie-out refusal.
+    await put([
+      { vehicleId: IDS.vehicle, requested: '1500000.00', received: '1500000.00' },
+      { vehicleId: IDS.vehicle2, requested: '500000.00', received: '400000.00' },
+    ]);
+    expect(problemOf(await confirm()).detail).toBe(
+      'closing: allocations do not tie to the closing commitment (M22)',
+    );
+
+    // Every line received and the total equal to the commitment: the closing confirms.
+    const tied = await put([
+      { vehicleId: IDS.vehicle, requested: '1500000.00', received: '1500000.00' },
+      { vehicleId: IDS.vehicle2, requested: '500000.00', received: '500000.00' },
+    ]);
+    expect(tied.closing?.allocationTieOut).toEqual({
+      commitment: '2000000.00',
+      allocated: '2000000.00',
+      difference: '0.00',
+      tiedOut: true,
+    });
+    expect(detailOf(await confirm()).state).toBe('OpsConfirmed');
+  });
+
+  it('keeps a confirmed closing as confirmed: its lines and items are refused until operations reopen it with a reason, and it then needs confirmation again', async () => {
+    const { f, state } = setup();
+    const opportunityPath = `/api/v1/opportunities/${IDS.opportunity.closingOpen}`;
+    const putAllocations = (who: string, received: string): Promise<Answer> =>
+      send(f, who, 'PUT', `${opportunityPath}/allocations`, {
+        allocations: [{ vehicleId: IDS.vehicle, requested: received, received }],
+      });
+    const reopen = (who: string, body: object, extra: Record<string, string> = {}) =>
+      send(f, who, 'POST', commands, body, extra);
+    expect(
+      (
+        await send(f, USERS.ops.externalId, 'POST', item('wire_confirmation'), {
+          command: 'receive',
+          documentId: IDS.document,
+        })
+      ).status,
+    ).toBe(200);
+    const confirmed = detailOf(
+      await send(f, USERS.ops.externalId, 'POST', commands, { command: 'confirm' }),
+    );
+    expect(confirmed).toMatchObject({ state: 'OpsConfirmed', rowVersion: 2 });
+
+    // The lines and the items are what operations confirmed: they stay as they are.
+    const CONFIRMED = {
+      code: 'workflow-precondition',
+      detail: 'the closing is confirmed; change the close date or ask operations to reopen it',
+    };
+    for (const who of [USERS.deal, USERS.ops]) {
+      const refused = await putAllocations(who.externalId, '1.00');
+      expect(refused.status).toBe(422);
+      expect(problemOf(refused)).toEqual(CONFIRMED);
+    }
+    for (const [who, code, body] of [
+      [USERS.ops, 'wire_confirmation', { command: 'reopen' }],
+      [USERS.deal, 'side_letter', { command: 'waive', reason: 'no side letter on this deal' }],
+      [USERS.ops, 'side_letter', { command: 'receive', documentId: IDS.document }],
+      // The move itself would be a 409 on an Open closing: the confirmation is checked first.
+      [USERS.ops, 'side_letter', { command: 'reopen' }],
+    ] as const) {
+      const refused = await send(f, who.externalId, 'POST', item(code), body);
+      expect(refused.status, `${code} ${body.command}`).toBe(422);
+      expect(problemOf(refused)).toEqual(CONFIRMED);
+    }
+    // An item the checklist does not have is still not found, confirmed or not.
+    expect(
+      (await send(f, USERS.ops.externalId, 'POST', item('no_such_item'), { command: 'reopen' }))
+        .status,
+    ).toBe(404);
+    const unchanged = detailOf(await send(f, USERS.ops.externalId, 'GET', path(id)));
+    expect(unchanged.items).toEqual(confirmed.items);
+    expect(unchanged.allocations).toEqual(confirmed.allocations);
+    expect(unchanged.state).toBe('OpsConfirmed');
+
+    // reopen: operations only, with a reason; a stale If-Match is refused first.
+    expect(
+      (await reopen(USERS.deal.externalId, { command: 'reopen', reason: 'a line moved' })).status,
+    ).toBe(403);
+    expect((await reopen(USERS.ops.externalId, { command: 'reopen' })).status).toBe(400);
+    const blank = await reopen(USERS.ops.externalId, { command: 'reopen', reason: '    ' });
+    expect(blank.status).toBe(422);
+    expect(problemOf(blank)).toEqual({
+      code: 'workflow-precondition',
+      detail: 'closing: a reason is required',
+    });
+    const REASON = 'the second vehicle takes part of the allocation';
+    expect(
+      (
+        await reopen(
+          USERS.ops.externalId,
+          { command: 'reopen', reason: REASON },
+          { 'if-match': '"7"' },
+        )
+      ).status,
+    ).toBe(412);
+    const reopened = detailOf(
+      await reopen(
+        USERS.ops.externalId,
+        { command: 'reopen', reason: REASON },
+        { 'if-match': '"2"' },
+      ),
+    );
+    expect(reopened).toMatchObject({
+      state: 'Open',
+      closeDate: confirmed.closeDate,
+      commitmentAmount: confirmed.commitmentAmount,
+      opsConfirmedBy: null,
+      opsConfirmedAt: null,
+      rowVersion: 3,
+    });
+    expect(state.audit.find((e) => e.action === 'closing.reopen')).toMatchObject({
+      reason: REASON,
+      from: 'OpsConfirmed',
+      to: 'Open',
+      actorId: USERS.ops.userId,
+    });
+    expect(
+      opportunityDetail.parse((await send(f, USERS.viewer.externalId, 'GET', opportunityPath)).json)
+        .gates.closing,
+    ).toEqual({ checklistComplete: true, allocationTiedOut: true, confirmed: false, ok: false });
+    expect(
+      (await reopen(USERS.ops.externalId, { command: 'reopen', reason: 'again' })).status,
+    ).toBe(409);
+
+    // Open again, the lines and the items change, and the deal waits for a new confirmation.
+    expect(
+      (
+        await send(f, USERS.deal.externalId, 'POST', item('side_letter'), {
+          command: 'waive',
+          reason: 'no side letter on this deal',
+        })
+      ).status,
+    ).toBe(200);
+    expect((await putAllocations(USERS.deal.externalId, '2000000.00')).status).toBe(200);
+    const notConfirmed = await send(
+      f,
+      USERS.ops.externalId,
+      'POST',
+      `${opportunityPath}/commands`,
+      {
+        command: 'advance',
+      },
+    );
+    expect(notConfirmed.status).toBe(422);
+    expect(problemOf(notConfirmed)).toEqual({
+      code: 'workflow-precondition',
+      detail: 'the closing is not confirmed by operations (M8)',
+    });
+    expect(
+      detailOf(await send(f, USERS.ops.externalId, 'POST', commands, { command: 'confirm' })).state,
+    ).toBe('OpsConfirmed');
+    expect(window.__pbPreviewMisses).toEqual([]);
+  });
+
+  it('once the position exists, refuses a close date change and a reopen: the change goes through a deal change request', async () => {
+    const { f } = setup();
+    const converted = `${path(IDS.closing.confirmed)}/commands`;
+    const before = detailOf(
+      await send(f, USERS.ops.externalId, 'GET', path(IDS.closing.confirmed)),
+    );
+    expect(before.investmentId).toBe(IDS.open);
+    for (const body of [
+      {
+        command: 'changeCloseDate',
+        closeDate: '2023-01-20',
+        reason: 'the signing date was recorded a week early',
+      },
+      { command: 'reopen', reason: 'the signing date was recorded a week early' },
+    ]) {
+      const refused = await send(f, USERS.ops.externalId, 'POST', converted, body);
+      expect(refused.status, body.command).toBe(422);
+      expect(problemOf(refused)).toEqual({
+        code: 'workflow-precondition',
+        detail: 'the position exists; record the change through a deal change request',
+      });
+      // A stale If-Match is still answered first, and the role guard before both.
+      expect(
+        (await send(f, USERS.ops.externalId, 'POST', converted, body, { 'if-match': '"99"' }))
+          .status,
+      ).toBe(412);
+      expect((await send(f, USERS.deal.externalId, 'POST', converted, body)).status).toBe(403);
+    }
+    expect(
+      detailOf(await send(f, USERS.ops.externalId, 'GET', path(IDS.closing.confirmed))),
+    ).toEqual(before);
   });
 });
 

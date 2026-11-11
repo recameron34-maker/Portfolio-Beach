@@ -111,15 +111,22 @@ function PassDialog({
   );
 }
 
-/** Approved to Closing opens the closing record, so the close date and the commitment travel with the command. */
+/**
+ * Approved to Closing opens the closing record, so the close date and the commitment travel with
+ * the command. A deal that was passed and reopened already has one: it is rewritten with the new
+ * date and commitment, and a confirmation given for the old ones does not carry over.
+ */
 function ClosingDialog({
   subject,
   initialCommitment,
+  hasClosing,
   onCancel,
   onSubmit,
 }: {
   subject: string;
   initialCommitment: string;
+  /** The deal already has a closing record (it reached Closing before). */
+  hasClosing: boolean;
   onCancel: () => void;
   onSubmit: (closeDate: string, commitmentAmount: string) => void;
 }): ReactNode {
@@ -148,10 +155,18 @@ function ClosingDialog({
             <DialogTitle>Open closing</DialogTitle>
             <DialogContent className="pb-dialog-content">
               <p className="pb-meta">{subject}</p>
-              <p className="pb-meta">
-                The close date is the single source for every report (docs/04 M8); the checklist
-                from config/closing_checklist.json opens with it.
-              </p>
+              {hasClosing ? (
+                <p className="pb-meta" data-testid="closing-reentry-note">
+                  This deal already has a closing record. It takes the new close date and
+                  commitment, its checklist items stay as they are, and the confirmation given
+                  before does not carry over: operations confirm again.
+                </p>
+              ) : (
+                <p className="pb-meta">
+                  The close date is the single source for every report (docs/04 M8); the checklist
+                  from config/closing_checklist.json opens with it.
+                </p>
+              )}
               <FluentField
                 label="Close date"
                 required
@@ -340,6 +355,7 @@ export function StageActions({
         <ClosingDialog
           subject={subject}
           initialCommitment={suggestedCommitment(detail)}
+          hasClosing={detail.closing !== null}
           onCancel={close}
           onSubmit={(closeDate, commitmentAmount) => {
             issue(pending.option, { command: 'advance', closeDate, commitmentAmount });
