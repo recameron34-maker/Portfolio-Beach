@@ -10,6 +10,7 @@
   "references": [
     { "path": "../../packages/adapters" },
     { "path": "../../packages/calc" },
+    { "path": "../../packages/contracts" },
     { "path": "../../packages/db" },
     { "path": "../../packages/pdf" },
     { "path": "../../packages/validation" },

@@ -6,6 +6,7 @@ import {
   HttpCode,
   Inject,
   Param,
+  Patch,
   Post,
   Query,
   Req,
@@ -17,6 +18,7 @@ import {
   valuationBatchCommandBody,
   valuationCommandBody,
   valuationCreateBody,
+  valuationEditBody,
   valuationListQuery,
 } from '@pb/contracts';
 import type {
@@ -96,6 +98,34 @@ export class ValuationsController {
   ): Promise<ValuationDetail> {
     requireUuid(id, NOT_FOUND);
     return withEtag(res, await this.workflow.detail(principal, req.id ?? 'unknown', id));
+  }
+
+  /**
+   * The correction of a Draft (docs/18 section 1): operations edits the method, the value or the
+   * inputs before preparing the version; any other state is 409. An If-Match is honoured (412).
+   */
+  @Patch('valuations/:id')
+  @Roles('operations')
+  async edit(
+    @Param('id') id: string,
+    @Body() body: unknown,
+    @Headers('if-match') ifMatch: string | undefined,
+    @CurrentPrincipal() principal: Principal,
+    @Req() req: RequestWithPrincipal,
+    @Res({ passthrough: true }) res: Response,
+  ): Promise<ValuationRow> {
+    requireUuid(id, NOT_FOUND);
+    const parsed = parseOrProblem(valuationEditBody, body, 'body');
+    return withEtag(
+      res,
+      await this.workflow.edit(
+        principal,
+        req.id ?? 'unknown',
+        id,
+        parsed,
+        ifMatchVersions(ifMatch),
+      ),
+    );
   }
 
   @Post('valuations/:id/commands')

@@ -99,6 +99,11 @@ export function verifyDataset(
       v.state !== 'Locked' || (v.lockHash !== null && v.approvedBy !== null),
       'Locked valuation without hash or approver',
     );
+    // The hash a lock leaves is a SHA-256 in lowercase hex (docs/18 section 1), never a placeholder.
+    must(
+      (v.state !== 'Locked' && v.state !== 'Reopened') || /^[0-9a-f]{64}$/.test(v.lockHash ?? ''),
+      'Locked or Reopened valuation without a SHA-256 lock hash',
+    );
     must(
       v.preparedBy === null || v.approvedBy === null || v.preparedBy !== v.approvedBy,
       'valuation preparer equals approver',

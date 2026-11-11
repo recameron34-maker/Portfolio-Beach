@@ -1,6 +1,8 @@
 import { createHash } from 'node:crypto';
+import { Writable } from 'node:stream';
+import type { ArgumentsHost } from '@nestjs/common';
 import { eq } from 'drizzle-orm';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { D, addDays, alignedQuarterEnd, daysBetween, latestQuarterEndOnOrBefore } from '@pb/calc';
 import {
   investmentDetail,
@@ -21,8 +23,13 @@ import type {
   ValuationState,
 } from '@pb/contracts';
 import { SYSTEM_USER_ID, schema, withUserContext } from '@pb/db';
+import type { Tx } from '@pb/db';
 import { forbiddenPairs, valuationMachine } from '@pb/workflows';
 import { valuationLockHash } from '../common/lock.js';
+import { createLogger } from '../common/logging.js';
+import { isUniqueViolation } from '../common/pg-errors.js';
+import { ProblemFilter } from '../common/problem.js';
+import { ValuationWorkflowService } from '../valuations/workflow.service.js';
 import { startHarness } from './harness.js';
 import type { Harness } from './harness.js';
 
@@ -226,14 +233,44 @@ describe('valuation board (M10)', () => {
         expect(r.preparedBy).toBe(userName('ops.one'));
         expect(r.dealTeamApprovedBy).toBe(userName('deal.one'));
         expect(r.approvedBy).toBe(userName('head.one'));
-        expect(r.lockHash).toMatch(/^h-[0-9a-f]{8}$/);
+        // The seeded hash is the real one (VAL-6): SHA-256 over the lock text, no inputs seeded.
+        expect(r.lockHash).toMatch(/^[0-9a-f]{64}$/);
+        expect(r.lockHash, `${r.investmentNumber} ${r.periodEnd}`).toBe(
+          valuationLockHash({ ...r, inputs: {} }),
+        );
         const seededRow = h.dataset.valuations.find((v) => v.id === r.id)!;
+        expect(r.lockHash).toBe(seededRow.lockHash);
         expect(r.approvedAt).not.toBeNull();
         expect(Date.parse(r.approvedAt!)).toBe(Date.parse(seededRow.approvedAt!));
         expect(r.approvedAt).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/);
         expect(r.method.startsWith('valuation_method.')).toBe(true);
         expect(r.dealType.startsWith('deal_type.')).toBe(true);
       }
+    });
+
+    it('seeds every Locked and Reopened version with the hash of its own lock text (VAL-6)', async () => {
+      const { rows } = await walk('deal.three', 200);
+      const hashed = rows.filter((r) => r.state === 'Locked' || r.state === 'Reopened');
+      expect(hashed.length).toBe(rows.length);
+      expect(hashed.some((r) => r.state === 'Reopened')).toBe(true);
+      for (const r of hashed)
+        expect(r.lockHash, `${r.investmentNumber} ${r.periodEnd} v${r.version}`).toBe(
+          createHash('sha256')
+            .update(valuationLockText({ ...r, inputs: {} }))
+            .digest('hex'),
+        );
+      // No two versions share a hash: the text carries the identity of each.
+      expect(new Set(hashed.map((r) => r.lockHash)).size).toBe(hashed.length);
+      // The version screen shows the text that hashes to it, so a reader can verify the lock.
+      const sample = hashed.find((r) => r.state === 'Locked')!;
+      const res = await h
+        .http()
+        .get(`/api/v1/valuations/${sample.id}`)
+        .set('authorization', h.as('viewer'))
+        .expect(200);
+      const shown = valuationDetail.parse(res.body);
+      expect(shown.lockText).not.toBeNull();
+      expect(createHash('sha256').update(shown.lockText!).digest('hex')).toBe(shown.lockHash);
     });
 
     it('computes the prior mark and the change for every row from the previous quarter end', async () => {
@@ -483,6 +520,58 @@ describe('valuation workflow (M10, docs/18 section 1)', () => {
     body: Record<string, unknown>,
     headers: Record<string, string> = {},
   ): Promise<ValuationRow> => valuationRow.parse((await command(who, id, body, 200, headers)).body);
+  /** PATCH /valuations/{id}: the edit of a Draft (VAL-1). */
+  const edit = async (
+    who: string,
+    id: string,
+    body: Record<string, unknown>,
+    status = 200,
+    headers: Record<string, string> = {},
+  ): Promise<{ body: Record<string, unknown>; etag: string | undefined }> => {
+    const res = await h
+      .http()
+      .patch(`/api/v1/valuations/${id}`)
+      .set('authorization', h.as(who))
+      .set(headers)
+      .send(body)
+      .expect(status);
+    return { body: res.body as Record<string, unknown>, etag: res.headers.etag };
+  };
+  /**
+   * Quarters nobody has marked yet, to create in: the quarter ends before a plain position's
+   * first seeded mark and on or after its entry date, four per position, latest first.
+   */
+  const freeChains = (): { investmentId: string; periodEnd: string }[] =>
+    plain().flatMap((investmentId) => {
+      const first = h.dataset.valuations
+        .filter((v) => v.investmentId === investmentId)
+        .map((v) => v.periodEnd)
+        .sort()[0]!;
+      const entry = h.dataset.investments.find((i) => i.id === investmentId)!.entryDate;
+      const quarters: string[] = [];
+      let quarter = latestQuarterEndOnOrBefore(addDays(first, -1));
+      while (quarters.length < 4 && quarter >= entry) {
+        quarters.push(quarter);
+        quarter = latestQuarterEndOnOrBefore(addDays(quarter, -1));
+      }
+      return quarters.map((periodEnd) => ({ investmentId, periodEnd }));
+    });
+  const freeChain = (n: number): { investmentId: string; periodEnd: string } => {
+    const found = freeChains()[n];
+    if (found === undefined) throw new Error(`no free chain ${n}`);
+    return found;
+  };
+  const versionsAt = (investmentId: string, periodEnd: string) =>
+    h.runtime.db.query<{ id: string; version: number; state: string; fair_value: string }>(
+      'select id, version, state, fair_value from mon.valuation where investment_id = $1 and period_end = $2 order by version',
+      [investmentId, periodEnd],
+    );
+  const asOps = <T>(work: (tx: Tx) => Promise<T>): Promise<T> =>
+    withUserContext(
+      h.runtime.db.db,
+      { userId: userId('ops.one'), roles: ['operations'], clientIds: [] },
+      work,
+    );
   const detail = async (who: string, id: string, status = 200): Promise<ValuationDetail> => {
     const res = await h
       .http()
@@ -548,20 +637,30 @@ describe('valuation workflow (M10, docs/18 section 1)', () => {
       ).body,
     );
 
-  it('reproduces the pinned lock digest of the contracts over the same text', () => {
-    const inputs = {
+  it('reproduces the pinned lock digests of the contracts over the same text', () => {
+    const version = {
       investmentId: '30000000-0000-4000-8000-000000000001',
       periodEnd: '2025-06-30',
       version: 2,
       method: 'Last round',
       fairValue: '1250000.00',
     };
-    expect(valuationLockHash(inputs)).toBe(
-      '828c4e9f8fcd8423b76d5e175ca857a1cca0302e9789faf1b56eb3c68700cc1f',
+    // No inputs is an empty object in the text; with inputs the text carries them, keys sorted
+    // at every depth (VAL-2). Both digests are pinned in packages/contracts/src/controls.test.ts.
+    expect(valuationLockHash(version)).toBe(
+      '6fd3860e1478d9d2c4d9a474158c6be92302c71d68d882ab32db28e93191a28d',
     );
-    expect(valuationLockHash(inputs)).toBe(
-      createHash('sha256').update(valuationLockText(inputs)).digest('hex'),
+    const withInputs = {
+      ...version,
+      inputs: { multiple: 11.5, basis: 'LTM EBITDA', comps: { set: 'peers', count: 6 } },
+    };
+    expect(valuationLockHash(withInputs)).toBe(
+      'baaad81ac39ae0b9e8985df94333a747188726d460e2bacb886238d1b2479599',
     );
+    for (const each of [version, withInputs])
+      expect(valuationLockHash(each)).toBe(
+        createHash('sha256').update(valuationLockText(each)).digest('hex'),
+      );
   });
 
   it('reporting gate: a DealTeamApproved mark changes no report; locking it does', async () => {
@@ -570,13 +669,14 @@ describe('valuation workflow (M10, docs/18 section 1)', () => {
     expect(before.navDate).toBe('2025-03-31');
     const prior = before.nav!;
     const fairValue = D(prior).times('1.5').toFixed(2);
+    const inputs = { source: 'sponsor letter', note: 'Q2 mark' };
     const created = valuationRow.parse(
       await create('ops.one', {
         investmentId: stale,
         periodEnd: PERIOD,
         method: METHOD,
         fairValue,
-        inputs: { source: 'sponsor letter', note: 'Q2 mark' },
+        inputs,
       }),
     );
     expect(created.state).toBe('Draft');
@@ -601,7 +701,9 @@ describe('valuation workflow (M10, docs/18 section 1)', () => {
     expect(locked.state).toBe('Locked');
     expect(locked.approvedBy).toBe(userName('head.one'));
     expect(locked.approvedAt).toBe(`${h.dataset.asOf}T12:00:00.000Z`);
-    expect(locked.lockHash).toBe(valuationLockHash(locked));
+    // The hash covers the inputs with the identity, the method and the value (VAL-2).
+    expect(locked.lockHash).toBe(valuationLockHash({ ...locked, inputs }));
+    expect(locked.lockHash).not.toBe(valuationLockHash(locked));
     const after = await onePager(stale);
     expect(after.nav).toBe(fairValue);
     expect(after.navDate).toBe(PERIOD);
@@ -609,7 +711,9 @@ describe('valuation workflow (M10, docs/18 section 1)', () => {
     expect(relocked).not.toEqual(report);
     expect(relocked.staleValuations.map((x) => x.investmentId)).not.toContain(stale);
     const seen = await detail('viewer', created.id);
-    expect(seen.lockText).toBe(valuationLockText(locked));
+    expect(seen.lockText).toBe(valuationLockText({ ...locked, inputs }));
+    expect(seen.lockText).toContain('"inputs":{"note":"Q2 mark","source":"sponsor letter"}');
+    expect(createHash('sha256').update(seen.lockText!).digest('hex')).toBe(locked.lockHash);
     expect(seen.approvals.map((a) => [a.step, a.decision, a.actorName])).toEqual([
       ['ops_prepared', 'approve', userName('ops.one')],
       ['deal_team', 'approve', userName('deal.one')],
@@ -711,6 +815,39 @@ describe('valuation workflow (M10, docs/18 section 1)', () => {
       expect(reopenEvent.details.newVersion).toEqual({ id: draft.id, version: draft.version });
       expect((await events('valuation.create', draft.id)).length).toBe(1);
 
+      // The correction itself (VAL-1): the Draft copied the locked figure, so operations edits
+      // it before preparing; the deal team may not, and nothing a report reads has moved yet.
+      const corrected = D(seeded.fairValue).times('0.9').toFixed(2);
+      const inputs = { basis: 'Restated sponsor letter', multiple: 11.5 };
+      await edit('deal.one', draft.id, { fairValue: corrected }, 403);
+      const edited = await edit('ops.one', draft.id, { fairValue: corrected, inputs }, 200, {
+        'if-match': `"${draft.rowVersion}"`,
+      });
+      const editedRow = valuationRow.parse(edited.body);
+      expect([editedRow.id, editedRow.state, editedRow.version]).toEqual([
+        draft.id,
+        'Draft',
+        draft.version,
+      ]);
+      expect([editedRow.fairValue, editedRow.method]).toEqual([corrected, seeded.method]);
+      expect(editedRow.rowVersion).toBe(draft.rowVersion + 1);
+      expect(edited.etag).toBe(`"${editedRow.rowVersion}"`);
+      const editEvents = await events('valuation.edit', draft.id);
+      expect(editEvents.length).toBe(1);
+      expect(editEvents[0]!.actor_id).toBe(userId('ops.one'));
+      expect(editEvents[0]!.details.state).toEqual({ before: 'Draft', after: 'Draft' });
+      expect(editEvents[0]!.details.fairValue).toEqual({
+        before: seeded.fairValue,
+        after: corrected,
+      });
+      expect(editEvents[0]!.details.method).toEqual({
+        before: seeded.method,
+        after: seeded.method,
+      });
+      expect(editEvents[0]!.details.inputs).toEqual({ before: {}, after: inputs });
+      expect((await detail('viewer', v1)).fairValue).toBe(seeded.fairValue);
+      expect((await onePager(target)).nav).not.toBe(corrected);
+
       // The new version takes the full path, with a send back on the way.
       await row('ops.one', draft.id, { command: 'prepare' });
       const sentBack = await row('deal.one', draft.id, {
@@ -723,11 +860,21 @@ describe('valuation workflow (M10, docs/18 section 1)', () => {
       await row('deal.one', draft.id, { command: 'dealTeamApprove' });
       const locked = await row('head.one', draft.id, { command: 'lock' });
       expect(locked.state).toBe('Locked');
+      // The corrected value and its inputs are what is locked, and what the hash covers.
+      expect(locked.fairValue).toBe(corrected);
       expect(locked.lockHash).toBe(
-        createHash('sha256').update(valuationLockText(locked)).digest('hex'),
+        createHash('sha256')
+          .update(valuationLockText({ ...locked, inputs }))
+          .digest('hex'),
       );
       expect(locked.lockHash).not.toBe(seeded.lockHash);
-      const trail = (await detail('audit.one', draft.id)).approvals;
+      const lockedDetail = await detail('audit.one', draft.id);
+      expect(lockedDetail.lockText).toBe(valuationLockText({ ...locked, inputs }));
+      // Reports read the corrected mark now; the Reopened version keeps the figure it locked.
+      const report = await onePager(target);
+      expect([report.nav, report.navDate]).toEqual([corrected, PERIOD]);
+      expect((await detail('viewer', v1)).fairValue).toBe(seeded.fairValue);
+      const trail = lockedDetail.approvals;
       expect(trail.map((a) => [a.step, a.decision])).toEqual([
         ['ops_prepared', 'approve'],
         ['deal_team', 'reject'],
@@ -1020,6 +1167,385 @@ describe('valuation workflow (M10, docs/18 section 1)', () => {
         [version.id],
       );
       expect(read[0]!.n).toBe(1);
+    });
+
+    it('shows the open change requests to the change request readers only (CR-5)', async () => {
+      const open = (h.dataset.changeRequests ?? []).filter(
+        (r) => r.state !== 'Applied' && r.state !== 'Rejected',
+      );
+      const target = open[0]!.investmentId;
+      // The latest version of the position, so the read count of the test above stays its own.
+      const version = h.dataset.valuations.filter((v) => v.investmentId === target).at(-1)!;
+      const expected = open
+        .filter((r) => r.investmentId === target)
+        .map((r) => r.id)
+        .sort();
+      expect(expected.length).toBeGreaterThan(0);
+      // The roles the change request routes serve read them here too.
+      for (const who of ['deal.one', 'ops.one', 'head.one', 'audit.one'])
+        expect(
+          (await detail(who, version.id)).openChangeRequests.map((r) => r.id).sort(),
+          who,
+        ).toEqual(expected);
+      // A viewer and investor relations are refused on those routes, so the valuation screen
+      // lists none for them; the version itself still reads.
+      for (const who of ['viewer', 'ir.one']) {
+        await h.http().get('/api/v1/change-requests').set('authorization', h.as(who)).expect(403);
+        const seen = await detail(who, version.id);
+        expect(seen.openChangeRequests, who).toEqual([]);
+        expect([seen.id, seen.investmentId, seen.state]).toEqual([
+          version.id,
+          target,
+          version.state,
+        ]);
+      }
+    });
+  });
+
+  describe('edit a Draft before it is prepared (VAL-1)', () => {
+    /** The Draft the first test opens and edits; the second walks it through every other state. */
+    let editedDraftId = '';
+
+    it('is for operations on a Draft they can see, with a checked body and an optional If-Match', async () => {
+      const draft = await row('ops.one', slot(8).versionId, {
+        command: 'reopen',
+        reason: 'Edit checks',
+      });
+      editedDraftId = draft.id;
+      for (const who of ['viewer', 'deal.one', 'head.one', 'audit.one', 'ir.one', 'admin.one'])
+        await edit(who, draft.id, { fairValue: '5.00' }, 403);
+      await edit('ops.one', 'not-a-uuid', { fairValue: '5.00' }, 404);
+      await edit('ops.one', NIL, { fairValue: '5.00' }, 404);
+      // A walled version is not found for operations outside the wall, whatever its state.
+      const walled = lockedAt(idOf('walled_deal'));
+      await edit('ops.one', walled, { fairValue: '5.00' }, 404);
+      const cases: [Record<string, unknown>, string][] = [
+        [{}, '(root)'],
+        [{ fairValue: '0' }, 'fairValue'],
+        [{ fairValue: '5.005' }, 'fairValue'],
+        [{ fairValue: 5 }, 'fairValue'],
+        [{ method: '' }, 'method'],
+        [{ method: 'sponsor_mark' }, 'method'],
+        [{ method: 'valuation_method.made_up' }, 'method'],
+        [{ method: 'deal_type.cv_single_asset' }, 'method'],
+        [{ fairValue: '5.00', state: 'Locked' }, '(root)'],
+        [{ periodEnd: '2025-03-31' }, '(root)'],
+      ];
+      for (const [body, path] of cases) {
+        const bad = problemDetails.parse((await edit('ops.one', draft.id, body, 400)).body);
+        expect(bad.type, JSON.stringify(body)).toMatch(/\/validation$/);
+        expect(
+          bad.errors?.map((e) => e.path),
+          JSON.stringify(body),
+        ).toContain(path);
+      }
+      await edit('ops.one', draft.id, { inputs: { flag: true } }, 400);
+      // A stale row version is 412 and a malformed header 400, before anything is written.
+      const stale = problemDetails.parse(
+        (await edit('ops.one', draft.id, { fairValue: '5.00' }, 412, { 'if-match': '"999"' })).body,
+      );
+      expect(stale.type).toMatch(/stale-row-version$/);
+      await edit('ops.one', draft.id, { fairValue: '5.00' }, 400, { 'if-match': 'abc' });
+      expect((await events('valuation.edit', draft.id)).length).toBe(0);
+      const untouched = await detail('ops.one', draft.id);
+      expect([untouched.fairValue, untouched.method, untouched.rowVersion]).toEqual([
+        draft.fairValue,
+        draft.method,
+        draft.rowVersion,
+      ]);
+
+      // The method alone: the value stays. Then the value and the inputs: the audit records the
+      // value as stored (two decimals) and the inputs replace the ones before, whole.
+      const byMethod = valuationRow.parse(
+        (await edit('ops.one', draft.id, { method: 'valuation_method.cost' })).body,
+      );
+      expect([byMethod.method, byMethod.fairValue, byMethod.state]).toEqual([
+        'valuation_method.cost',
+        draft.fairValue,
+        'Draft',
+      ]);
+      const byValue = valuationRow.parse(
+        (await edit('ops.two', draft.id, { fairValue: '1300.5', inputs: { b: 2, aa: 'x' } })).body,
+      );
+      expect([byValue.method, byValue.fairValue]).toEqual(['valuation_method.cost', '1300.50']);
+      expect(byValue.rowVersion).toBe(draft.rowVersion + 2);
+      const cleared = valuationRow.parse((await edit('ops.one', draft.id, { inputs: {} })).body);
+      expect(cleared.fairValue).toBe('1300.50');
+      const written = await events('valuation.edit', draft.id);
+      expect(written.map((e) => e.actor_id)).toEqual([
+        userId('ops.one'),
+        userId('ops.two'),
+        userId('ops.one'),
+      ]);
+      expect(written.map((e) => e.details.method)).toEqual([
+        { before: draft.method, after: 'valuation_method.cost' },
+        { before: 'valuation_method.cost', after: 'valuation_method.cost' },
+        { before: 'valuation_method.cost', after: 'valuation_method.cost' },
+      ]);
+      expect(written.map((e) => e.details.fairValue)).toEqual([
+        { before: draft.fairValue, after: draft.fairValue },
+        { before: draft.fairValue, after: '1300.50' },
+        { before: '1300.50', after: '1300.50' },
+      ]);
+      expect(written.map((e) => e.details.inputs)).toEqual([
+        { before: {}, after: {} },
+        { before: {}, after: { aa: 'x', b: 2 } },
+        { before: { aa: 'x', b: 2 }, after: {} },
+      ]);
+      for (const e of written) {
+        expect(e.details.state).toEqual({ before: 'Draft', after: 'Draft' });
+        expect(e.details.version).toBe(draft.version);
+        expect(e.details.investmentId).toBe(draft.investmentId);
+      }
+      // An edit is not an approval: the trail of the version stays empty.
+      expect((await detail('ops.one', draft.id)).approvals).toEqual([]);
+    });
+
+    it('refuses every state but Draft with 409 and changes nothing', async () => {
+      const reopened = slot(8).versionId;
+      const id = editedDraftId;
+      const before = (await versionsAt(slot(8).investmentId, slot(8).periodEnd)).find(
+        (v) => v.id === id,
+      )!;
+      const refused = async (state: ValuationState, target = id): Promise<void> => {
+        expect(await stateOf(target), state).toBe(state);
+        const problem = problemDetails.parse(
+          (await edit('ops.one', target, { fairValue: '7.00', inputs: { late: 1 } }, 409)).body,
+        );
+        expect(problem.type, state).toMatch(/workflow-transition$/);
+        expect(problem.detail, state).toContain(`edit is not allowed from ${state}`);
+        expect(await stateOf(target), state).toBe(state);
+      };
+      await row('ops.one', id, { command: 'prepare' });
+      await refused('OpsPrepared');
+      // Sent back, it is a Draft again and can be corrected before it is prepared once more.
+      await row('deal.one', id, { command: 'sendBack', reason: 'Correct the mark first' });
+      const corrected = valuationRow.parse(
+        (await edit('ops.one', id, { fairValue: '1310.25' })).body,
+      );
+      expect(corrected.fairValue).toBe('1310.25');
+      await row('ops.one', id, { command: 'prepare' });
+      await row('deal.one', id, { command: 'dealTeamApprove' });
+      await refused('DealTeamApproved');
+      const locked = await row('head.one', id, { command: 'lock' });
+      await refused('Locked');
+      await refused('Reopened', reopened);
+      expect(locked.fairValue).toBe('1310.25');
+      const after = (await versionsAt(slot(8).investmentId, slot(8).periodEnd)).find(
+        (v) => v.id === id,
+      )!;
+      expect([before.fair_value, after.fair_value]).toEqual(['1300.50', '1310.25']);
+      // Four edits went through in all (three in the test above, one here); no refusal is one.
+      expect((await events('valuation.edit', id)).length).toBe(4);
+      expect((await events('valuation.edit', reopened)).length).toBe(0);
+    });
+
+    it('locks stored inputs of any depth as sorted text, whatever order the database keeps (VAL-2)', async () => {
+      const draft = await row('ops.one', slot(9).versionId, {
+        command: 'reopen',
+        reason: 'Nested inputs',
+      });
+      // Inputs another writer stored: nested, and with keys the database orders by length first.
+      const stored = { comps: { set: 'peers', count: 6, range: [9.5, 12] }, b: 2, aa: 'x' };
+      await asOps(async (tx) => {
+        await tx
+          .update(schema.valuation)
+          .set({ inputs: stored })
+          .where(eq(schema.valuation.id, draft.id));
+      });
+      await row('ops.one', draft.id, { command: 'prepare' });
+      await row('deal.one', draft.id, { command: 'dealTeamApprove' });
+      const locked = await row('head.one', draft.id, { command: 'lock' });
+      const seen = await detail('viewer', draft.id);
+      expect(seen.lockText).toBe(valuationLockText({ ...locked, inputs: stored }));
+      expect(seen.lockText).toContain(
+        '"inputs":{"aa":"x","b":2,"comps":{"count":6,"range":[9.5,12],"set":"peers"}}',
+      );
+      expect(locked.lockHash).toBe(createHash('sha256').update(seen.lockText!).digest('hex'));
+      expect(locked.lockHash).not.toBe(valuationLockHash(locked));
+    });
+  });
+
+  describe('create: the value as stored and the version number race (VAL-3, D7-4)', () => {
+    it('refuses a fair value the database could not store as given, naming the field (VAL-3)', async () => {
+      const chain = freeChain(0);
+      const body = { ...chain, method: METHOD };
+      for (const fairValue of [
+        '10.005',
+        '0.001',
+        '1234567890123456789.00',
+        '12345678901234567890',
+        '1e3',
+      ]) {
+        const res = await create('ops.one', { ...body, fairValue }, 400);
+        const bad = problemDetails.parse(res);
+        expect(bad.type, fairValue).toMatch(/\/validation$/);
+        expect(
+          bad.errors?.map((e) => e.path),
+          fairValue,
+        ).toEqual(['fairValue']);
+        // The problem names the field, never the value sent (docs/17 section 3).
+        expect(JSON.stringify(res), fairValue).not.toContain(fairValue);
+      }
+      expect(await versionsAt(chain.investmentId, chain.periodEnd)).toEqual([]);
+    });
+
+    it('stores the value as sent and audits the stored value, up to the largest the column holds (VAL-3)', async () => {
+      const short = freeChain(1);
+      const created = valuationRow.parse(
+        await create('ops.one', { ...short, method: METHOD, fairValue: '10.5' }),
+      );
+      expect(created.fairValue).toBe('10.50');
+      expect((await events('valuation.create', created.id))[0]!.details.fairValue).toBe('10.50');
+      const largest = freeChain(2);
+      const fairValue = `${'9'.repeat(18)}.99`;
+      const big = valuationRow.parse(
+        await create('ops.one', { ...largest, method: METHOD, fairValue }),
+      );
+      expect(big.fairValue).toBe(fairValue);
+      expect((await events('valuation.create', big.id))[0]!.details.fairValue).toBe(fairValue);
+    });
+
+    it('answers 409 when another version takes the number first, and logs nothing of the insert (D7-4)', async () => {
+      const chain = freeChain(3);
+      const fairValue = '424242.42';
+      const service = h.app.get(ValuationWorkflowService);
+      const logged = vi.spyOn(h.runtime.logger, 'error');
+      // The race: another create commits between this one's reads and its insert. Here its row
+      // is written inside the same transaction once the version number has been read, so the
+      // insert that follows meets it on the unique key (investment, period end, version).
+      const raced = vi
+        .spyOn(
+          service as unknown as {
+            nextVersion: (tx: Tx, investmentId: string, periodEnd: string) => Promise<number>;
+          },
+          'nextVersion',
+        )
+        .mockImplementationOnce(async (tx, investmentId, periodEnd) => {
+          await tx.insert(schema.valuation).values({
+            investmentId,
+            periodEnd,
+            version: 1,
+            method: METHOD,
+            fairValue: '1.00',
+            currency: 'USD',
+            state: 'Draft',
+            preparedBy: null,
+          });
+          return 1;
+        });
+      try {
+        const res = await create('ops.one', { ...chain, method: METHOD, fairValue }, 409);
+        const problem = problemDetails.parse(res);
+        expect(problem.type).toMatch(/workflow-transition$/);
+        expect(problem.detail).toBe(
+          'valuation: another version was created first; open the list again',
+        );
+        expect(JSON.stringify(res)).not.toContain('424242');
+        expect(raced).toHaveBeenCalledTimes(1);
+        // A refusal the caller can act on is not an error: nothing is logged, so nothing of the
+        // failed insert (its parameters carry the fair value) can reach a log line.
+        expect(logged).not.toHaveBeenCalled();
+      } finally {
+        raced.mockRestore();
+        logged.mockRestore();
+      }
+      // The transaction rolled back whole; the same create goes through once the way is clear.
+      expect(await versionsAt(chain.investmentId, chain.periodEnd)).toEqual([]);
+      const created = valuationRow.parse(
+        await create('ops.one', { ...chain, method: METHOD, fairValue }),
+      );
+      expect([created.version, created.fairValue]).toEqual([1, fairValue]);
+    });
+
+    it('logs an unexpected database error by its code and constraint, never its parameters (D7-4, SEC-11.4)', async () => {
+      // The real violation, provoked below the API: a second version 1 for a seeded mark.
+      const seeded = h.dataset.valuations.find((v) => v.id === slot(2).versionId)!;
+      const fairValue = '424242.42';
+      let failure: unknown;
+      try {
+        await asOps(async (tx) => {
+          await tx.insert(schema.valuation).values({
+            investmentId: seeded.investmentId,
+            periodEnd: seeded.periodEnd,
+            version: seeded.version,
+            method: seeded.method,
+            fairValue,
+            currency: 'USD',
+            state: 'Draft',
+            preparedBy: null,
+          });
+        });
+      } catch (error: unknown) {
+        failure = error;
+      }
+      expect(isUniqueViolation(failure)).toBe(true);
+      // What the driver's error says, and so what must never be passed to a log line as it is.
+      expect(failure).toBeInstanceOf(Error);
+      expect((failure as Error).message).toContain(fairValue);
+
+      const lines: string[] = [];
+      const sink = new Writable({
+        write(chunk, _enc, cb) {
+          lines.push(String(chunk));
+          cb();
+        },
+      });
+      const logger = createLogger('info', sink);
+      const sent: { status?: number; body?: unknown } = {};
+      const res = {
+        status(code: number) {
+          sent.status = code;
+          return res;
+        },
+        type() {
+          return res;
+        },
+        send(body: unknown) {
+          sent.body = body;
+          return res;
+        },
+      };
+      const host = {
+        switchToHttp: () => ({
+          getResponse: () => res,
+          getRequest: () => ({ id: 'req-d7-4-00001', path: '/api/v1/valuations' }),
+        }),
+      } as unknown as ArgumentsHost;
+      const filter = new ProblemFilter(logger);
+      filter.catch(failure, host);
+      // The same error handed to the logger directly is redacted the same way.
+      logger.error({ request_id: 'req-d7-4-00002', err: failure }, 'direct');
+      // An error that is not the database's keeps its message: a code alone (a file system
+      // error carries one too) does not make it a database error.
+      filter.catch(Object.assign(new Error('the folder is read-only'), { code: 'EPERM' }), host);
+      logger.flush?.();
+      await new Promise((r) => setTimeout(r, 20));
+      const text = lines.join('');
+      expect(sent.status).toBe(500);
+      expect(JSON.stringify(sent.body)).not.toContain('424242');
+      expect(text).toContain('req-d7-4-00001');
+      expect(text).toContain('req-d7-4-00002');
+      // Neither line carries the fair value, the other parameters or the statement.
+      expect(text).not.toContain('424242');
+      expect(text).not.toContain('params');
+      expect(text).not.toContain(seeded.investmentId);
+      expect(text).not.toContain('insert into');
+      // What an operator needs is there: the SQLSTATE code and the constraint that refused.
+      const logged = lines
+        .join('')
+        .split('\n')
+        .filter((line) => line.length > 0)
+        .map((line) => JSON.parse(line) as { request_id: string; err: Record<string, unknown> });
+      expect(logged.length).toBe(3);
+      for (const line of logged.slice(0, 2))
+        expect(line.err).toMatchObject({
+          message: 'database error',
+          code: '23505',
+          constraint: 'valuation_investment_id_period_end_version_key',
+          table: 'valuation',
+        });
+      expect(logged[2]!.err).toMatchObject({ message: 'the folder is read-only' });
     });
   });
 });

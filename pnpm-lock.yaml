@@ -303,6 +303,9 @@ importers:
       '@pb/calc':
         specifier: workspace:*
         version: link:../../packages/calc
+      '@pb/contracts':
+        specifier: workspace:*
+        version: link:../../packages/contracts
       '@pb/db':
         specifier: workspace:*
         version: link:../../packages/db

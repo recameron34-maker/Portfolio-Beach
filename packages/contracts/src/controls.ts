@@ -71,6 +71,22 @@ export const positiveDecimal = s.decimalString.refine(
   'Must be above zero',
 );
 
+/** Money as numeric(20,2) stores it: at most 18 digits before the decimal point and two after. */
+const MONEY_PATTERN = /^\d{1,18}(\.\d{1,2})?$/;
+
+/**
+ * Money above zero that the database stores exactly as sent (mon.valuation.fair_value is
+ * numeric(20,2)): a third decimal would be rounded and a nineteenth digit would overflow, so
+ * both are refused at the boundary and what is audited is what was sent and what is stored.
+ */
+export const positiveMoney = z
+  .string()
+  .regex(
+    MONEY_PATTERN,
+    'An amount above zero: at most 18 digits before the decimal point and two after',
+  )
+  .refine((value) => !MONEY_PATTERN.test(value) || /[1-9]/.test(value), 'Must be above zero');
+
 /** A decimal string of zero or more (an allocation requested or received). */
 export const nonNegativeDecimal = s.decimalString.refine(
   (value) => !value.startsWith('-'),
@@ -102,11 +118,30 @@ export const valuationCreateBody = z
     investmentId: s.uuid,
     periodEnd: s.isoDate,
     method: z.string().min(1),
-    fairValue: s.decimalString,
+    fairValue: positiveMoney,
     inputs: valuationInputs.optional(),
   })
   .strict();
 export type ValuationCreateBody = z.infer<typeof valuationCreateBody>;
+
+/**
+ * The correction of a Draft (docs/18 section 1): any of the method, the fair value and the
+ * method inputs, at least one. A version is corrected while it is a Draft, before it is
+ * prepared; a Locked one is reopened into a new Draft first (SEC-9.3), which this then edits.
+ * Inputs replace the stored ones whole; an empty record clears them.
+ */
+export const valuationEditBody = z
+  .object({
+    method: z.string().min(1).optional(),
+    fairValue: positiveMoney.optional(),
+    inputs: valuationInputs.optional(),
+  })
+  .strict()
+  .refine(
+    (body) => Object.keys(body).length > 0,
+    'Give at least one of method, fairValue and inputs',
+  );
+export type ValuationEditBody = z.infer<typeof valuationEditBody>;
 
 export const valuationCommandBody = z
   .object({ command: valuationCommand, reason: reason.optional() })
@@ -249,7 +284,10 @@ export type QuarterEndCheckResult = z.infer<typeof quarterEndCheckResult>;
 export const valuationDetail = s.valuationRow.extend({
   approvals: z.array(valuationApproval),
   openChangeRequests: z.array(changeRequestRow),
-  /** The exact text the lock hash covers (lock.ts valuationLockText); null until prepared. */
+  /**
+   * The exact text the lock hash covers (lock.ts valuationLockText: the identity, the method,
+   * the method inputs and the value); null unless the version is Locked.
+   */
   lockText: z.string().nullable(),
 });
 export type ValuationDetail = z.infer<typeof valuationDetail>;

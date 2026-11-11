@@ -20,6 +20,7 @@ import {
   opportunityCommandBody,
   opportunityCreateBody,
   opportunityDetail,
+  positiveMoney,
   quarterEndCheckBody,
   quarterEndCheckResult,
   tradeTicketRow,
@@ -28,6 +29,7 @@ import {
   valuationCommandBody,
   valuationCreateBody,
   valuationDetail,
+  valuationEditBody,
   wireInstructionCommandBody,
   wireInstructionDetail,
   wireInstructionProposeBody,
@@ -203,7 +205,68 @@ describe('lock text', () => {
     expect(canonicalJson({})).toBe('{}');
   });
 
-  it('covers only the five lock fields, whatever else the row carries', () => {
+  it('sorts the keys at every depth and keeps the order of a list (VAL-2)', () => {
+    expect(
+      canonicalJson({
+        z: [{ b: 1, a: 2 }, 'x', null, true],
+        a: { d: { y: 'deep', x: 0.5 }, c: 'c' },
+      }),
+    ).toBe('{"a":{"c":"c","d":{"x":0.5,"y":"deep"}},"z":[{"a":2,"b":1},"x",null,true]}');
+    // The same content in another key order is the same text, so the same hash.
+    expect(canonicalJson({ a: { c: 'c', d: { x: 0.5, y: 'deep' } }, z: [] })).toBe(
+      canonicalJson({ z: [], a: { d: { y: 'deep', x: 0.5 }, c: 'c' } }),
+    );
+    // Nothing JSON cannot carry takes part in a hash: it is refused, never written as text.
+    expect(() => canonicalJson({ a: undefined })).toThrow(TypeError);
+    expect(() => canonicalJson({ a: Number.NaN })).toThrow(TypeError);
+    expect(() => canonicalJson({ a: () => 1 })).toThrow(TypeError);
+  });
+
+  it('covers the method inputs with the identity, the method and the value (docs/18 section 1, VAL-2)', () => {
+    const base = {
+      investmentId: INV,
+      periodEnd: '2025-06-30',
+      version: 2,
+      method: 'Last round',
+      fairValue: '1250000.00',
+    };
+    const text = valuationLockText({
+      ...base,
+      inputs: { multiple: 11.5, basis: 'LTM EBITDA', comps: { set: 'peers', count: 6 } },
+    });
+    expect(text).toBe(
+      `{"fairValue":"1250000.00","inputs":{"basis":"LTM EBITDA","comps":{"count":6,"set":"peers"},"multiple":11.5},"investmentId":"${INV}","method":"Last round","periodEnd":"2025-06-30","version":2}`,
+    );
+    // The key order of the inputs never changes the text; a changed input always does.
+    expect(
+      valuationLockText({
+        ...base,
+        inputs: { comps: { count: 6, set: 'peers' }, basis: 'LTM EBITDA', multiple: 11.5 },
+      }),
+    ).toBe(text);
+    expect(
+      valuationLockText({
+        ...base,
+        inputs: { multiple: 12, basis: 'LTM EBITDA', comps: { set: 'peers', count: 6 } },
+      }),
+    ).not.toBe(text);
+    expect(
+      valuationLockText({
+        ...base,
+        inputs: { multiple: 11.5, basis: 'LTM EBITDA', comps: { set: 'peers', count: 7 } },
+      }),
+    ).not.toBe(text);
+    // No inputs is an empty object, whether the field is absent or null.
+    expect(valuationLockText(base)).toBe(valuationLockText({ ...base, inputs: {} }));
+    expect(valuationLockText({ ...base, inputs: null })).toBe(valuationLockText(base));
+    expect(valuationLockText(base)).not.toBe(text);
+    // Pinned with inputs too: the API and the preview must both produce this digest.
+    expect(createHash('sha256').update(text).digest('hex')).toBe(
+      'baaad81ac39ae0b9e8985df94333a747188726d460e2bacb886238d1b2479599',
+    );
+  });
+
+  it('covers only the lock fields, whatever else the row carries', () => {
     const text = valuationLockText({
       investmentId: INV,
       periodEnd: '2025-06-30',
@@ -212,7 +275,7 @@ describe('lock text', () => {
       fairValue: '1250000.00',
     });
     expect(text).toBe(
-      `{"fairValue":"1250000.00","investmentId":"${INV}","method":"Last round","periodEnd":"2025-06-30","version":2}`,
+      `{"fairValue":"1250000.00","inputs":{},"investmentId":"${INV}","method":"Last round","periodEnd":"2025-06-30","version":2}`,
     );
     const row = valuationRow.parse({
       id: ID,
@@ -241,7 +304,7 @@ describe('lock text', () => {
     // The digest the API (node:crypto) and the preview (SubtleCrypto) must both produce: pinned,
     // so a change to the text or the field set is a deliberate one.
     expect(createHash('sha256').update(text).digest('hex')).toBe(
-      '828c4e9f8fcd8423b76d5e175ca857a1cca0302e9789faf1b56eb3c68700cc1f',
+      '6fd3860e1478d9d2c4d9a474158c6be92302c71d68d882ab32db28e93191a28d',
     );
     // A changed value changes the text, so the hash no longer verifies.
     expect(valuationLockText({ ...row, fairValue: '1250000.01' })).not.toBe(text);
@@ -263,6 +326,65 @@ describe('valuation bodies', () => {
     expect(parses(valuationCreateBody, { ...body, fairValue: 1200.5 })).not.toBe(true);
     expect(parses(valuationCreateBody, { ...body, inputs: { flag: true } })).not.toBe(true);
     expect(parses(valuationCreateBody, { ...body, extra: 1 })).not.toBe(true);
+  });
+
+  it('takes a fair value as the database stores it: above zero, 18 digits and two decimals at most (VAL-3)', () => {
+    const body = { investmentId: INV, periodEnd: '2025-06-30', method: 'DCF' };
+    const eighteen = '9'.repeat(18);
+    for (const fairValue of ['1', '10', '10.5', '10.50', '0.01', eighteen, `${eighteen}.99`]) {
+      expect(parses(positiveMoney, fairValue), fairValue).toBe(true);
+      expect(parses(valuationCreateBody, { ...body, fairValue }), fairValue).toBe(true);
+    }
+    for (const fairValue of [
+      '10.005',
+      '10.000',
+      '0.001',
+      `1${eighteen}`,
+      `1${eighteen}.00`,
+      '0',
+      '0.00',
+      '-5.00',
+      '1e3',
+      '1,000.00',
+      ' 10.00',
+      '10.',
+      '.5',
+      '',
+    ]) {
+      expect(parses(positiveMoney, fairValue), fairValue).not.toBe(true);
+      // One issue, on the field: the problem names the path and never the value.
+      expect(parses(valuationCreateBody, { ...body, fairValue }), fairValue).toEqual([
+        expect.stringMatching(/^fairValue: /),
+      ]);
+    }
+  });
+
+  it('edits a Draft with at least one of the method, the value and the inputs (VAL-1)', () => {
+    expect(parses(valuationEditBody, { fairValue: '1300.25' })).toBe(true);
+    expect(parses(valuationEditBody, { method: 'valuation_method.dcf' })).toBe(true);
+    expect(parses(valuationEditBody, { inputs: { discountRate: 0.11 } })).toBe(true);
+    expect(parses(valuationEditBody, { inputs: {} })).toBe(true);
+    expect(
+      parses(valuationEditBody, {
+        method: 'valuation_method.dcf',
+        fairValue: '1300.25',
+        inputs: { discountRate: 0.11, basis: 'LTM' },
+      }),
+    ).toBe(true);
+    expect(parses(valuationEditBody, {})).not.toBe(true);
+    expect(parses(valuationEditBody, { fairValue: '10.005' })).not.toBe(true);
+    expect(parses(valuationEditBody, { fairValue: '0' })).not.toBe(true);
+    expect(parses(valuationEditBody, { method: '' })).not.toBe(true);
+    expect(parses(valuationEditBody, { inputs: { flag: true } })).not.toBe(true);
+    expect(parses(valuationEditBody, { fairValue: '10.00', state: 'Locked' })).not.toBe(true);
+    expect(parses(valuationEditBody, { periodEnd: '2025-06-30' })).not.toBe(true);
+    const route = CONTROL_ROUTES.find(
+      (r) => r.method === 'PATCH' && r.path === `${API_PREFIX}/valuations/{id}`,
+    );
+    expect(route?.roles).toEqual(['operations']);
+    expect(route?.body).toBe(valuationEditBody);
+    expect(route?.response).toBe(valuationRow);
+    expect(route?.idempotent).toBe(true);
   });
 
   it('takes a command with an optional reason of at least three characters', () => {
