@@ -154,7 +154,7 @@ describe('clients page and client look-through', () => {
     const empty = await screen.findByTestId('clients-empty');
     expect(empty).toHaveTextContent('No entitled clients');
     expect(empty).toHaveTextContent(
-      'Client data is visible to operations, approvers, auditors and the investor relations users entitled to each client (SEC-5.4)',
+      'Client data is visible to operations, the investment team (the deal team and approvers) and auditors, and to the investor relations users entitled to each client (SEC-5.2, SEC-5.4)',
     );
   });
 

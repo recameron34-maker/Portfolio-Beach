@@ -5,14 +5,16 @@ import { generateDataset } from '@pb/synthetic';
 import { loadDataset, signInAs } from './fixtures.js';
 
 /**
- * Vehicles and sponsors (M17, M6): operations reads a vehicle's client commitments, a viewer gets
- * the entitlement empty state instead (SEC-5.4), and a sponsor opens from the directory.
+ * Vehicles and sponsors (M17, M6): operations reads a vehicle's client commitments, and so does
+ * the deal team (the investment team is entitled to every client by the owner's decision of
+ * 2026-11-11); a viewer gets the entitlement empty state instead (SEC-5.2, SEC-5.4), and a
+ * sponsor opens from the directory.
  */
 const d = loadDataset();
 const full = generateDataset({ profile: 'small', seed: 42 });
 const CV_FUND = 'Beach CV Opportunities I';
 const CLIENT_DATA_VISIBILITY =
-  'Client commitments are visible to operations, approvers, auditors and entitled investor relations users (SEC-5.4)';
+  'Client commitments are visible to operations, the investment team (the deal team and approvers) and auditors, and to entitled investor relations users (SEC-5.2, SEC-5.4)';
 
 /** The sponsor with the most active positions, so its 360 page has every section filled. */
 function busiestSponsor(): { id: string; name: string } {
@@ -54,6 +56,18 @@ test('operations opens a vehicle from the list and reads its client commitments'
   await expect(clients).toContainText('Client Alpha Pension');
   await expect(clients).toContainText('Client Beta Endowment');
   await expect(clients).toContainText('60.0%');
+  await expect(page.getByTestId('client-commitments-hidden')).toHaveCount(0);
+});
+
+test('the deal team reads the client commitments of a vehicle, as operations does', async ({
+  page,
+}) => {
+  await signInAs(page, 'deal.one', d);
+  await openVehicleFromList(page, CV_FUND);
+  const clients = page.getByRole('table', { name: 'Client commitments' });
+  await expect(clients).toBeVisible();
+  await expect(clients).toContainText('Client Alpha Pension');
+  await expect(clients).toContainText('Client Beta Endowment');
   await expect(page.getByTestId('client-commitments-hidden')).toHaveCount(0);
 });
 

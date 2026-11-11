@@ -12,10 +12,14 @@ import type {
 } from '@pb/contracts';
 import { schema } from '@pb/db';
 import type { Tx } from '@pb/db';
-import { checklistCounts, closingGate, tieOut } from '@pb/workflows';
-import type { ClosingGate } from '@pb/workflows';
+import { checklistCounts, closingGate, hiddenLineCount, tieOutFromTotals } from '@pb/workflows';
+import type { AllocationTotals, ClosingGate } from '@pb/workflows';
 import { ProblemError } from '../common/problem.js';
-import { allocationsOf, loadAllocationRows } from '../pipeline/allocations.js';
+import {
+  allocationsOf,
+  loadAllocationRows,
+  loadAllocationTotals,
+} from '../pipeline/allocations.js';
 import { person } from '../pipeline/rows.js';
 
 /*
@@ -24,7 +28,11 @@ import { person } from '../pipeline/rows.js';
  * config/closing_checklist.json lists it, the allocation lines and their tie-out, and the legal
  * terms (M22). The pipeline's opportunity detail and the closing detail share these readers so
  * the gates both show are computed from the same rows the machine sees. Every read runs under
- * the caller's row-level security: the closing follows its opportunity's wall. The gate rules
+ * the caller's row-level security: the closing follows its opportunity's wall, and a client
+ * allocation line the client rule (migration 0017), so the lines are the ones the caller is shown.
+ * The tie-out is not computed from those: it is built from the totals of every line, read as the
+ * system actor once the caller was shown the closing, so the tie-out and the gate read the same
+ * for every reader, and the summary says how many lines the caller is not shown. The gate rules
  * themselves (the checklist, the tie-out, what the closing gate needs) are the shared ones in
  * @pb/workflows (controls-closing.ts), which the web preview follows too.
  */
@@ -55,11 +63,14 @@ export interface LoadedClosing {
   rowVersion: number;
 }
 
-/** The closing with its items, lines, terms and the summary the opportunity shows. */
+/** The closing with its items, the lines the caller is shown, the totals of every line, its terms and the summary the opportunity shows. */
 export interface ClosingView {
   closing: LoadedClosing;
   items: ClosingItem[];
+  /** The lines the caller is shown (row-level security). */
   allocations: AllocationRow[];
+  /** The totals of every line of the deal, shown to the caller or not. */
+  totals: AllocationTotals;
   legalTerms: LegalTerm[];
   summary: ClosingSummary;
 }
@@ -156,10 +167,15 @@ export async function loadLegalTerms(tx: Tx, closingId: string): Promise<LegalTe
   }));
 }
 
+/**
+ * The summary from the closing, its items, the totals of every allocation line and the number of
+ * lines the caller is shown: the tie-out is the deal's, and `hiddenLines` what this caller misses.
+ */
 export function closingSummaryOf(
   row: LoadedClosing,
   items: readonly ClosingItem[],
-  allocations: readonly AllocationRow[],
+  totals: AllocationTotals,
+  linesShown: number,
 ): ClosingSummary {
   return {
     id: row.id,
@@ -170,7 +186,10 @@ export function closingSummaryOf(
     opsConfirmedBy: person(row.opsConfirmedById, row.opsConfirmedByName),
     opsConfirmedAt: row.opsConfirmedAt === null ? null : row.opsConfirmedAt.toISOString(),
     ...checklistCounts(items),
-    allocationTieOut: tieOut(row.commitmentAmount, allocations),
+    allocationTieOut: {
+      ...tieOutFromTotals(row.commitmentAmount, totals),
+      hiddenLines: hiddenLineCount(totals, linesShown),
+    },
   };
 }
 
@@ -196,16 +215,17 @@ export async function loadClosingView(
   if (row === null) return null;
   // One statement at a time on the transaction's connection, as every service does.
   const items = await loadClosingItems(tx, row.id, checklist);
-  const allocations = await loadAllocationRows(
-    tx,
-    allocationsOf(row.opportunityId, row.investmentId),
-  );
+  const lines = allocationsOf(row.opportunityId, row.investmentId);
+  const allocations = await loadAllocationRows(tx, lines);
+  // The caller was shown the closing above; the totals of its lines are the same for everyone.
+  const totals = await loadAllocationTotals(tx, lines);
   const legalTerms = await loadLegalTerms(tx, row.id);
   return {
     closing: row,
     items,
     allocations,
+    totals,
     legalTerms,
-    summary: closingSummaryOf(row, items, allocations),
+    summary: closingSummaryOf(row, items, totals, allocations.length),
   };
 }

@@ -13,7 +13,9 @@ import { apiCall, indexDocuments, loadDataset, signInAs, switchTo } from './fixt
  * approver records the IC decision and advances to Approved; the deal team opens the closing
  * with a close date and a commitment; operations cannot confirm while a required item is open
  * or the allocations do not tie, receives the items, saves allocations whose received amounts
- * tie exactly, and cannot close the deal before confirming; once confirmed, the checklist and the
+ * tie exactly (a vehicle line and a client line: a viewer then reads the same commitment and
+ * tie-out and is told one client line is not shown, review finding D1-06), and cannot close the
+ * deal before confirming; once confirmed, the checklist and the
  * lines stay as confirmed until operations reopen the closing with a reason and confirm again;
  * then the deal closes. The new position shows in the grid and its workspace carries the close
  * date (which no longer moves), the tasks and the decision. Every refusal is proven twice: on the
@@ -40,6 +42,8 @@ const ops = idOf(
   d.users.find((u) => u.externalId === 'ops.one'),
   'operations user',
 );
+/** The client whose share the second allocation line is. */
+const client = idOf(full.clients[0], 'client');
 /**
  * The close date is the as-of date (the API's clock): the position's entry date follows it, and the
  * portfolio grid lists what was entered by the as-of date. The commitment is the IC amount.
@@ -297,8 +301,9 @@ test('a deal moves from Sourced to Closed through the diligence gate and the clo
   expect(shortAllocations.status).toBe(422);
   expect(shortAllocations.detail).toMatch(/allocations do not tie/);
 
-  // The allocations editor on the opportunity page: two vehicle lines whose received amounts tie
-  // to the commitment exactly (a requested amount never stands in for a received one; M22).
+  // The allocations editor on the opportunity page: a vehicle line and a client line whose
+  // received amounts tie to the commitment exactly (a requested amount never stands in for a
+  // received one; M22). The client picker lists every client for operations.
   await page.goto(`/pipeline/${sourcedId}`);
   const editor = page.getByTestId('allocations-editor');
   await editor.getByRole('button', { name: 'Add line', exact: true }).click();
@@ -309,6 +314,7 @@ test('a deal moves from Sourced to Closed through the diligence gate and the clo
   await editor.getByRole('button', { name: 'Add line', exact: true }).click();
   const line2 = page.getByTestId('allocation-row-1');
   await choose(page, line2.getByRole('combobox', { name: 'Vehicle, line 2' }), vehicleB.name);
+  await choose(page, line2.getByRole('combobox', { name: 'Client, line 2' }), client.name);
   await line2.getByLabel('Requested, line 2').fill('1000000.00');
   await line2.getByLabel('Received, line 2').fill('1000000.00');
   await editor.getByRole('button', { name: 'Save allocations', exact: true }).click();
@@ -338,6 +344,34 @@ test('a deal moves from Sourced to Closed through the diligence gate and the clo
   );
   expect(unconfirmed.status).toBe(422);
   expect(unconfirmed.detail).toBe('the closing is not confirmed by operations (M8)');
+
+  // A viewer reads the same commitment and tie-out, is shown the vehicle line and is told that
+  // one client line is not shown: a client's amount follows the client's entitlement (D1-06).
+  await switchTo(page, 'viewer.one', d);
+  await page.goto(`/pipeline/${sourcedId}`);
+  const viewerCard = page.getByTestId('allocations-editor');
+  await expect(viewerCard.getByTestId('allocations-lead')).toContainText('Tied out');
+  await expect(viewerCard.getByTestId('allocations-hidden-lines')).toContainText(
+    '1 client line is not shown.',
+  );
+  await expect(viewerCard).toContainText(vehicleA.name);
+  await expect(viewerCard).not.toContainText(client.name);
+  await expect(page.getByTestId('opportunity-tiles')).toContainText('Tied out');
+  const asViewer = await detail(page, 'viewer.one');
+  const asOperations = await detail(page, 'ops.one');
+  expect(asViewer.allocations.map((a) => a.client)).toEqual([null]);
+  expect(asOperations.allocations).toHaveLength(2);
+  expect(asViewer.allocationTotals).toEqual({ ...asOperations.allocationTotals, hiddenLines: 1 });
+  expect(asViewer.closing?.allocationTieOut).toEqual({
+    ...asOperations.closing?.allocationTieOut,
+    hiddenLines: 1,
+  });
+  await page.goto(`/pipeline/${sourcedId}/closing`);
+  await expect(page.getByTestId('closing-tie-out')).toContainText('Tied out');
+  await expect(
+    page.getByTestId('closing-tie-out').getByTestId('allocations-hidden-lines'),
+  ).toContainText('1 client line is not shown.');
+  await switchTo(page, 'ops.one', d);
 
   // Operations confirms the closing.
   await page.goto(`/pipeline/${sourcedId}/closing`);

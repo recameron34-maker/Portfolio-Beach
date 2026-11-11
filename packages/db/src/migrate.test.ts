@@ -500,6 +500,66 @@ describe('migrations', () => {
     expect(byName.get('carry_write')?.check).toContain("'investment'");
   });
 
+  it('0017: the investment team reads every client, and a client allocation line is read by whoever reads its client', async () => {
+    // The roles that read every client without an entitlement: operations, the deal team and
+    // approvers (the investment team) and the auditor. A platform admin is still not one (SEC-5.4).
+    const fn = await handle.query<{ src: string; secdef: boolean }>(
+      `select p.prosrc as src, p.prosecdef as secdef from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+       where n.nspname = 'pb' and p.proname = 'sees_all_clients'`,
+    );
+    expect(fn).toHaveLength(1);
+    expect(fn[0]?.secdef).toBe(false);
+    for (const role of ['operations', 'deal_team', 'approver', 'auditor'])
+      expect(fn[0]?.src, role).toContain(`'${role}'`);
+    for (const role of ['viewer', 'investor_relations', 'platform_admin', 'service'])
+      expect(fn[0]?.src, role).not.toContain(`'${role}'`);
+    // The three client policies of migration 0006 still call the one function.
+    const clientPolicies = await handle.query<{ table: string; qual: string }>(
+      `select tablename as "table", qual from pg_policies
+       where schemaname = 'core' and tablename in ('client', 'lp_commitment', 'commitment') and cmd = 'SELECT'
+       order by tablename`,
+    );
+    expect(clientPolicies.map((p) => p.table)).toEqual(['client', 'commitment', 'lp_commitment']);
+    for (const p of clientPolicies) {
+      expect(p.qual, p.table).toContain('sees_all_clients()');
+      expect(p.qual, p.table).toContain('entitled_client(');
+    }
+    // deal.allocation, read_visible: the deal's own visibility as migration 0013 has it, and for a
+    // client line the client rule on top; the system actor reads every line for the totals.
+    const read = await handle.query<{ qual: string; cmd: string }>(
+      "select qual, cmd from pg_policies where schemaname = 'deal' and tablename = 'allocation' and policyname = 'read_visible'",
+    );
+    expect(read).toHaveLength(1);
+    expect(read[0]?.cmd).toBe('SELECT');
+    for (const part of [
+      'opportunity_visible(opportunity_id)',
+      'investment_visible(investment_id)',
+      'client_id IS NULL',
+      "has_role('service'",
+      'sees_all_clients()',
+      'entitled_client(client_id)',
+    ])
+      expect(read[0]?.qual, part).toContain(part);
+    // The write policies are the ones migration 0013 made: the deal team, operations and the
+    // system actor, who all read every line.
+    const writes = await handle.query<{ policyname: string; roles: string }>(
+      `select policyname, coalesce(qual, with_check) as roles from pg_policies
+       where schemaname = 'deal' and tablename = 'allocation' and cmd <> 'SELECT' order by policyname`,
+    );
+    expect(writes.map((w) => w.policyname)).toEqual([
+      'write_delete',
+      'write_insert',
+      'write_update',
+    ]);
+    for (const w of writes)
+      expect(w.roles, w.policyname).toContain('{deal_team,operations,service}');
+    // Row-level security stays forced on the table and no definer function reads it.
+    const forced = await handle.query<{ forced: boolean }>(
+      "select c.relforcerowsecurity as forced from pg_class c join pg_namespace n on n.oid = c.relnamespace where n.nspname = 'deal' and c.relname = 'allocation'",
+    );
+    expect(forced).toEqual([{ forced: true }]);
+  });
+
   it('never grant DELETE on financial tables or UPDATE/DELETE on the audit trail to the application role', async () => {
     const grants = await handle.query<{ table: string; privilege: string }>(`
       select table_schema || '.' || table_name as "table", privilege_type as privilege

@@ -50,6 +50,7 @@ import type {
   ValuationStoredInputs,
   WeeklyPriorSource,
 } from '@pb/contracts';
+import type { AllocationTotals } from '@pb/workflows';
 import type { z } from 'zod';
 import { LIST_LIMIT } from '../app/queries.js';
 import type { PreviewUser, Recordings } from './fixtures.js';
@@ -66,6 +67,11 @@ export interface SimActor {
   externalId: string;
   displayName: string;
   roles: readonly string[];
+  /**
+   * The clients the user is entitled to, from the recorded sign-in (GET /api/v1/auth/me). Absent
+   * when it is not known: such a reader is entitled to no client (fail closed).
+   */
+  clientIds?: readonly string[];
 }
 
 export interface SimValuation {
@@ -216,7 +222,19 @@ export interface SimOpportunity {
   tasks: DiligenceTask[];
   /** Latest first by decision date; the IC gate reads the latest of the current round (order). */
   decisions: IcDecision[];
+  /**
+   * The allocation lines the simulation holds: every line of the deal once its list was replaced
+   * in the session, and before that the lines of the recording that shows the most (a recording
+   * is one reader's view, and a client line follows the client's entitlement). Each answer shows
+   * a reader the lines that reader may read (routes/closings.ts, linesShownTo).
+   */
   allocations: AllocationRow[];
+  /**
+   * The totals of every line as the API recorded them (the same for every reader), while the
+   * lines are as recorded; null once the list was replaced in the session or for a deal created
+   * in it, when the totals are those of the lines held.
+   */
+  recordedTotals: AllocationTotals | null;
   closingId: string | null;
   /** When each stage move, task change and decision happened, relative to one another. */
   order: SimEventOrder;
@@ -861,6 +879,26 @@ export function readAny<T>(
   return undefined;
 }
 
+/**
+ * The recorded 200 body for the path that shows the most allocation lines: the one with the
+ * fewest lines not shown (`hidden`), the first user's on a tie. A recording is one reader's view
+ * and a client line follows the client's entitlement, so the first recording may hold none of a
+ * deal's client lines while another holds them all. Undefined when nobody recorded a 200.
+ */
+export function readFullest<T>(
+  recordings: Recordings,
+  path: string,
+  schema: z.ZodType<T>,
+  hidden: (body: T) => number,
+): T | undefined {
+  let best: T | undefined;
+  for (const user of recordings.users) {
+    const found = recordings.read(user.externalId, path, schema);
+    if (found !== undefined && (best === undefined || hidden(found) < hidden(best))) best = found;
+  }
+  return best;
+}
+
 /** The register as recorded (the roles that read it see every version; the register has no wall). */
 export function seedWires(recordings: Recordings): Map<string, SimWireInstruction> {
   const seeded = new Map<string, SimWireInstruction>();
@@ -925,8 +963,10 @@ export function seedChangeRequests(recordings: Recordings): Map<string, SimChang
 }
 
 /**
- * The board as recorded, each deal with the child rows of its recorded detail (the first user
- * who recorded a 200 for it); a deal with no recorded detail carries its row alone.
+ * The board as recorded, each deal with the child rows of its recorded detail (the recording that
+ * shows the most allocation lines, the first user's when they show the same); a deal with no
+ * recorded detail carries its row alone. The totals of the lines are the recorded ones: the API
+ * answers them over every line, whoever reads.
  */
 export function seedOpportunities(recordings: Recordings): Map<string, SimOpportunity> {
   const seeded = new Map<string, SimOpportunity>();
@@ -935,10 +975,11 @@ export function seedOpportunities(recordings: Recordings): Map<string, SimOpport
   )) {
     for (const row of list.items) {
       if (seeded.has(row.id)) continue;
-      const detail = readAny(
+      const detail = readFullest(
         recordings,
         `/api/v1/opportunities/${encodeURIComponent(row.id)}`,
         opportunityDetail,
+        (d) => d.allocationTotals.hiddenLines,
       );
       seeded.set(row.id, {
         row,
@@ -948,6 +989,15 @@ export function seedOpportunities(recordings: Recordings): Map<string, SimOpport
         tasks: detail?.diligenceTasks ?? [],
         decisions: detail?.icDecisions ?? [],
         allocations: detail?.allocations ?? [],
+        recordedTotals:
+          detail === undefined
+            ? null
+            : {
+                lines: detail.allocationTotals.lines,
+                requested: detail.allocationTotals.requested,
+                received: detail.allocationTotals.received,
+                missingReceived: detail.allocationTotals.missingReceived,
+              },
         closingId: detail?.closing?.id ?? null,
         order: seedEventOrder(detail),
         origin: 'recorded',
@@ -966,10 +1016,11 @@ export function seedClosings(
   const seeded = new Map<string, SimClosing>();
   for (const opp of opportunities.values()) {
     if (opp.closingId === null || seeded.has(opp.closingId)) continue;
-    const detail = readAny(
+    const detail = readFullest(
       recordings,
       `/api/v1/closings/${encodeURIComponent(opp.closingId)}`,
       closingDetail,
+      (d) => d.allocationTieOut.hiddenLines,
     );
     if (detail === undefined) continue;
     seeded.set(detail.id, {

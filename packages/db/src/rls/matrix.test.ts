@@ -3,7 +3,7 @@ import { sql } from 'drizzle-orm';
 import { createTestDb } from '../testing.js';
 import type { DbHandle } from '../client.js';
 import { withUserContext } from '../context.js';
-import { actors, loadFixture } from './fixture.js';
+import { actors, ids, loadFixture } from './fixture.js';
 import { ACTOR_NAMES, READ_MATRIX, WRITE_MATRIX } from './matrix.js';
 import type { ActorName } from './matrix.js';
 import { expectDbRejection } from '../test-utils.js';
@@ -74,6 +74,99 @@ describe('RLS access matrix', () => {
         'select count(*)::int as n from core.investment',
       );
       expect(rows[0]?.n).toBe(2);
+    });
+  });
+
+  /*
+   * The client lines of a deal (migration 0017, review finding D1-06): which lines an actor
+   * reads, by id and not only by count, and that a writer reads every line it may replace, so a
+   * replace of the list leaves no line behind.
+   */
+  describe('client lines of a deal', () => {
+    const linesOfOpenOpportunity = async (name: ActorName): Promise<string[]> => {
+      const actor = actorByName(name);
+      return withUserContext(
+        handle.db,
+        {
+          userId: actor.userId,
+          roles: actor.roles,
+          ...(actor.clientIds ? { clientIds: actor.clientIds } : {}),
+        },
+        async (tx) => {
+          const r = await tx.execute<{ id: string }>(
+            sql.raw(
+              `select id from deal.allocation where opportunity_id = '${ids.opportunityOpen}' order by id`,
+            ),
+          );
+          return r.rows.map((x) => x.id);
+        },
+      );
+    };
+    const all = [ids.allocationOpen, ids.allocationOpenClientA, ids.allocationOpenClientB];
+
+    for (const name of [
+      'deal_team',
+      'operations',
+      'approver',
+      'auditor',
+      'wall_member(deal_team)',
+      'service',
+    ] as const)
+      it(`${name} reads the vehicle-level line and both client lines`, async () => {
+        expect(await linesOfOpenOpportunity(name)).toEqual(all);
+      });
+
+    for (const name of ['viewer', 'platform_admin'] as const)
+      it(`${name} reads the vehicle-level line only`, async () => {
+        expect(await linesOfOpenOpportunity(name)).toEqual([ids.allocationOpen]);
+      });
+
+    it('investor relations (A) reads the vehicle-level line and the line of its client, not the other client', async () => {
+      expect(await linesOfOpenOpportunity('investor_relations(A)')).toEqual([
+        ids.allocationOpen,
+        ids.allocationOpenClientA,
+      ]);
+    });
+
+    for (const name of ['deal_team', 'operations', 'wall_member(deal_team)', 'service'] as const)
+      it(`${name}, a writer, removes every line when it replaces the list: none is left that it cannot read`, async () => {
+        const actor = actorByName(name);
+        const attempt = withUserContext(
+          handle.db,
+          { userId: actor.userId, roles: actor.roles },
+          async (tx) => {
+            const deleted = await tx.execute<{ id: string }>(
+              sql.raw(
+                `delete from deal.allocation where opportunity_id = '${ids.opportunityOpen}' returning id`,
+              ),
+            );
+            expect(deleted.rows.map((x) => x.id).sort()).toEqual(all);
+            throw new Rollback();
+          },
+        );
+        await expect(attempt).rejects.toBeInstanceOf(Rollback);
+        // The owner connection, outside row-level security, still counts all three after the rollback.
+        const rows = await handle.query<{ n: number }>(
+          `select count(*)::int as n from deal.allocation where opportunity_id = '${ids.opportunityOpen}'`,
+        );
+        expect(rows[0]?.n).toBe(3);
+      });
+
+    it('the system actor reads the totals of every line, whoever the reader is', async () => {
+      const actor = actorByName('service');
+      const totals = await withUserContext(
+        handle.db,
+        { userId: actor.userId, roles: actor.roles },
+        async (tx) => {
+          const r = await tx.execute<{ lines: number; missing: number; received: string }>(
+            sql.raw(
+              `select count(*)::int as lines, (count(*) filter (where received is null))::int as missing, coalesce(sum(received), 0)::text as received from deal.allocation where opportunity_id = '${ids.opportunityOpen}'`,
+            ),
+          );
+          return r.rows[0];
+        },
+      );
+      expect(totals).toEqual({ lines: 3, missing: 2, received: '6000000.00' });
     });
   });
 

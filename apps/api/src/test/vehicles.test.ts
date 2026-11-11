@@ -239,6 +239,13 @@ describe('vehicles, commitments and clients (M17, decision 0004)', () => {
       // A platform admin is not entitled to client data (SEC-5.4).
       const admin = await detailFor('admin.one', id);
       expect(admin.lpCommitments).toBeNull();
+
+      // The deal team is entitled to every client (the owner's decision of 2026-11-11): the same
+      // rows and the same total operations read, and the open is audited the same way.
+      const team = await detailFor('deal.one', id, 'req-vehicle-deal-1');
+      expect(team.lpCommitments).toEqual(ops.lpCommitments);
+      expect(team.lpCommitmentsTotal).toBe(ops.lpCommitmentsTotal);
+      expect(await auditCount('vehicle.read', 'req-vehicle-deal-1')).toBe(1);
     });
 
     it('hides the walled position in the separate account from a viewer and shows it to a wall member (SEC-5.3)', async () => {
@@ -442,13 +449,18 @@ describe('vehicles, commitments and clients (M17, decision 0004)', () => {
       const viewer = await clientsFor('viewer.one', 'req-clients-viewer-1');
       expect(viewer.items).toEqual([]);
       expect(viewer.asOf).toBe(h.dataset.asOf);
-      expect((await clientsFor('deal.three')).items).toEqual([]);
       expect((await clientsFor('admin.one')).items).toEqual([]);
       const audit = await h.runtime.db.query<{ n: number; details: string }>(
         "select count(*)::int as n, min(details::text) as details from audit.event where action = 'client.read' and request_id = 'req-clients-viewer-1'",
       );
       expect(audit[0]?.n).toBe(1);
       expect(audit[0]?.details).toBe('{}');
+    });
+
+    it("shows the deal team every client, as operations and approvers see them (the owner's decision of 2026-11-11)", async () => {
+      const everyClient = h.dataset.clients.map((c) => c.id).sort();
+      for (const who of ['deal.one', 'deal.three', 'ops.one', 'head.one', 'audit.one'])
+        expect((await clientsFor(who)).items.map((c) => c.id).sort(), who).toEqual(everyClient);
     });
 
     it('shows investor relations users their entitled clients only (SEC-5.2)', async () => {

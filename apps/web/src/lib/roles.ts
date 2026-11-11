@@ -1,4 +1,5 @@
 import type { z } from 'zod';
+import { ALL_CLIENT_ROLES, seesAllClients as rolesSeeAllClients } from '@pb/contracts';
 import type { appRole } from '@pb/contracts';
 
 export type Role = z.infer<typeof appRole>;
@@ -24,11 +25,19 @@ export function userLabel(user: { displayName: string; roles: readonly Role[] })
 }
 
 /**
- * Roles that see every client's LP commitments: pb.sees_all_clients() in packages/db, which row-level
- * security applies. A check that needs every commitment, such as LP ownership summing to 100%,
- * means something only for them; anyone else would sum the subset they are entitled to.
+ * Roles that see every client's data: ALL_CLIENT_ROLES in @pb/contracts, the one statement of
+ * pb.sees_all_clients() in packages/db, which row-level security applies (operations, the deal
+ * team and approvers, who are the investment team, and the auditor). A check that needs every
+ * commitment, such as LP ownership summing to 100%, means something only for them; anyone else
+ * would sum the subset they are entitled to.
  */
-export const SEES_ALL_CLIENTS: ReadonlySet<Role> = new Set(['operations', 'approver', 'auditor']);
+export const SEES_ALL_CLIENTS: ReadonlySet<Role> = new Set(ALL_CLIENT_ROLES);
 
-export const seesAllClients = (roles: readonly Role[]): boolean =>
-  roles.some((r) => SEES_ALL_CLIENTS.has(r));
+export const seesAllClients = (roles: readonly Role[]): boolean => rolesSeeAllClients(roles);
+
+/**
+ * The same roles in the words every page uses when it says who reads client data, so the list is
+ * written once: "operations, the investment team (the deal team and approvers) and auditors".
+ */
+export const WHO_READS_EVERY_CLIENT =
+  'operations, the investment team (the deal team and approvers) and auditors';

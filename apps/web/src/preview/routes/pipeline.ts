@@ -37,7 +37,8 @@ import {
   dealStageMachine,
   diligenceGate,
   icDecisionApproved,
-  tieOut,
+  tieOutFromTotals,
+  totalsForReader,
 } from '@pb/workflows';
 import type { StageMove } from '@pb/workflows';
 import { recordMiss } from '../monitor.js';
@@ -52,7 +53,13 @@ import {
   readAny,
 } from '../state.js';
 import type { SimActor, SimClosing, SimOpportunity } from '../state.js';
-import { checklistOf, closingConfirmed, closingSummaryOf } from './closings.js';
+import {
+  checklistOf,
+  closingConfirmed,
+  closingSummaryOf,
+  linesShownTo,
+  totalsOfOpportunity,
+} from './closings.js';
 import {
   NOT_VISIBLE,
   decodeCursor,
@@ -170,17 +177,28 @@ const gatesOf = (ctx: SimContext, sim: SimOpportunity): OpportunityGates => {
         : {
             state: closing.state,
             items: closing.items,
-            tiedOut: tieOut(closing.commitmentAmount, sim.allocations).tiedOut,
+            // The deal's tie-out, over every line: the gate reads the same for every reader.
+            tiedOut: tieOutFromTotals(closing.commitmentAmount, totalsOfOpportunity(sim)).tiedOut,
           },
     ),
   };
 };
 
-export function opportunityDetailOf(ctx: SimContext, sim: SimOpportunity): OpportunityDetail {
+/**
+ * The deal as one reader is given it: the lines that reader may read (a client line follows the
+ * client's entitlement), the totals of every line with the number not shown, and the closing
+ * summary and the gates, which are the deal's and the same for every reader.
+ */
+export function opportunityDetailOf(
+  ctx: SimContext,
+  sim: SimOpportunity,
+  actor: SimActor,
+): OpportunityDetail {
   const closing =
     sim.closingId === null
       ? undefined
       : ensureClosings(ctx.state, ctx.recordings).get(sim.closingId);
+  const allocations = linesShownTo(actor, sim.allocations);
   return {
     ...sim.row,
     source: sim.source,
@@ -188,8 +206,9 @@ export function opportunityDetailOf(ctx: SimContext, sim: SimOpportunity): Oppor
     stageHistory: sim.stageHistory,
     diligenceTasks: sim.tasks,
     icDecisions: sim.decisions,
-    allocations: sim.allocations,
-    closing: closing === undefined ? null : closingSummaryOf(ctx, closing),
+    allocations,
+    allocationTotals: totalsForReader(totalsOfOpportunity(sim), allocations.length),
+    closing: closing === undefined ? null : closingSummaryOf(ctx, closing, actor),
     gates: gatesOf(ctx, sim),
   };
 }
@@ -207,8 +226,8 @@ function opportunityFor(
   return sim;
 }
 
-const answer = (ctx: SimContext, sim: SimOpportunity, status = 200): Response =>
-  jsonResponse(status, opportunityDetailOf(ctx, sim), {
+const answer = (ctx: SimContext, actor: SimActor, sim: SimOpportunity, status = 200): Response =>
+  jsonResponse(status, opportunityDetailOf(ctx, sim, actor), {
     simulated: true,
     etag: sim.row.rowVersion,
   });
@@ -261,7 +280,7 @@ export const opportunityRoute = defineSimRoute({
   body: null,
   handle: (req, ctx) => {
     const sim = opportunityFor(ctx, req.credential, req.params.id ?? '', req.url.pathname);
-    return sim instanceof Response ? sim : answer(ctx, sim);
+    return sim instanceof Response ? sim : answer(ctx, req.actor, sim);
   },
 });
 
@@ -335,6 +354,7 @@ export const createOpportunityRoute = defineSimRoute({
       tasks: [],
       decisions: [],
       allocations: [],
+      recordedTotals: null,
       closingId: null,
       order: { count: 1, history: [eventKey(1)], tasks: new Map(), decisions: new Map() },
       origin: 'created',
@@ -349,7 +369,7 @@ export const createOpportunityRoute = defineSimRoute({
       from: null,
       to: 'Sourced',
     });
-    return answer(ctx, sim, 201);
+    return answer(ctx, req.actor, sim, 201);
   },
 });
 
@@ -633,7 +653,7 @@ export const opportunityCommandRoute = defineSimRoute({
       from,
       to,
     });
-    return answer(ctx, sim);
+    return answer(ctx, req.actor, sim);
   },
 });
 
@@ -679,7 +699,7 @@ export const createDiligenceTaskRoute = defineSimRoute({
       from: null,
       to: 'open',
     });
-    return answer(ctx, sim, 201);
+    return answer(ctx, req.actor, sim, 201);
   },
 });
 
@@ -728,7 +748,7 @@ export const diligenceTaskCommandRoute = defineSimRoute({
       from: before,
       to: move.to,
     });
-    return answer(ctx, sim);
+    return answer(ctx, req.actor, sim);
   },
 });
 
@@ -780,7 +800,7 @@ export const icDecisionRoute = defineSimRoute({
       from: null,
       to: body.decision,
     });
-    return answer(ctx, sim, 201);
+    return answer(ctx, req.actor, sim, 201);
   },
 });
 
@@ -836,6 +856,9 @@ export const putAllocationsRoute = defineSimRoute({
       (a, b) =>
         byText(a.vehicle.name, b.vehicle.name) || byText(a.client?.id ?? '', b.client?.id ?? ''),
     );
+    // The writers read every line (the deal team and operations read every client), so the list
+    // now held is every line of the deal: the totals are its own from here on, not the recorded ones.
+    sim.recordedTotals = null;
     sim.changed = true;
     recordActivity(ctx, req.actor, {
       action: 'opportunity.allocations.replace',
@@ -846,7 +869,7 @@ export const putAllocationsRoute = defineSimRoute({
       to: null,
       details: { lines: lines.length },
     });
-    return answer(ctx, sim);
+    return answer(ctx, req.actor, sim);
   },
 });
 

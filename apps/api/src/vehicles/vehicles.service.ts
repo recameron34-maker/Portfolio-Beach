@@ -3,6 +3,7 @@ import { eq, inArray } from 'drizzle-orm';
 import type { Principal } from '@pb/adapters';
 import { CALC_VERSION, D, moic } from '@pb/calc';
 import type { Decimal } from '@pb/calc';
+import { seesAllClients } from '@pb/contracts';
 import type {
   ClientList,
   ClientSummary,
@@ -34,14 +35,13 @@ type LpCommitmentRow = NonNullable<VehicleDetail['lpCommitments']>[number];
 type ClientVehicleShare = ClientSummary['vehicles'][number];
 
 /**
- * Roles that see every client, mirroring pb.sees_all_clients() in the database (SEC-5.2);
- * platform_admin is deliberately not one of them (SEC-5.4). Everyone else sees client data only
- * through an explicit entitlement.
+ * Whether the caller reads any client data: a role that reads every client (ALL_CLIENT_ROLES in
+ * @pb/contracts, the one statement of pb.sees_all_clients() in the database: operations, the
+ * investment team and the auditor, SEC-5.2; platform_admin is deliberately not one of them,
+ * SEC-5.4), or an explicit entitlement to a client.
  */
-const ALL_CLIENT_ROLES: ReadonlySet<string> = new Set(['operations', 'approver', 'auditor']);
-
 const seesClientData = (principal: Principal): boolean =>
-  principal.clientIds.length > 0 || principal.roles.some((r) => ALL_CLIENT_ROLES.has(r));
+  principal.clientIds.length > 0 || seesAllClients(principal.roles);
 
 /** Strings from a jsonb list column; anything else in it is not a reporting basis. */
 const stringList = (value: unknown): string[] =>

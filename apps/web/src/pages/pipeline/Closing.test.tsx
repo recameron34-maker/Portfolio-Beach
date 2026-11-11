@@ -305,13 +305,76 @@ describe('closing page', () => {
     const tieOut = within(panel).getByTestId('closing-tie-out');
     expect(within(tieOut).getByRole('group', { name: 'Allocated' })).toHaveTextContent('$12.0M');
     expect(within(tieOut).getByText('Short by $8.0M')).toHaveClass('pb-badge-bad');
-    // The line with nothing received shows the placeholder, never its requested amount.
-    const rows = within(within(tieOut).getByRole('table', { name: 'Allocations' }))
-      .getAllByRole('row')
-      .slice(1);
-    expect(rows[1]).toHaveTextContent('Beach Credit Partners IAlpha Pension Trust$8.0M-');
+    // The vehicle rows lead with the vehicle's totals; a vehicle with nothing received shows the
+    // placeholder, never its requested amount. The client line sits under it, behind a disclosure.
+    const table = within(tieOut).getByRole('table', { name: 'Allocations' });
+    expect(within(table).getByRole('row', { name: /Beach Credit Partners I/ })).toHaveTextContent(
+      'Beach Credit Partners I$8.0M-',
+    );
+    expect(within(table).queryByRole('row', { name: /Alpha Pension Trust/ })).toBeNull();
+    await userEvent.click(
+      within(table).getByRole('button', {
+        name: 'Client breakdown (1 line), Beach Credit Partners I',
+      }),
+    );
+    expect(within(table).getByRole('row', { name: /Alpha Pension Trust/ })).toHaveTextContent(
+      'Alpha Pension Trust$8.0M-',
+    );
+    expect(within(tieOut).queryByTestId('allocations-hidden-lines')).toBeNull();
     expect(tieOut).toHaveTextContent(
       'The closing cannot complete until the received amounts equal the commitment (M22).',
+    );
+  });
+
+  it("tells a reader with lines not shown how many, under the deal's own tie-out, and counts no line in the blockers", async () => {
+    // As the API answers a viewer: the vehicle line alone, the tie-out of every line.
+    open(
+      ['viewer'],
+      closingDetailFixture({
+        itemsOpen: 2,
+        itemsRequiredOpen: 0,
+        allocations: partlyReceivedAllocations().filter((a) => a.client === null),
+        allocationTieOut: { ...SHORT_TIE_OUT, hiddenLines: 1 },
+      }),
+    );
+    const panel = await screen.findByTestId('closing-panel');
+    const tieOut = within(panel).getByTestId('closing-tie-out');
+    // The commitment and the received total lead: the deal's figures, not the visible line's.
+    expect(within(tieOut).getByRole('group', { name: 'Commitment' })).toHaveTextContent('$20.0M');
+    expect(within(tieOut).getByRole('group', { name: 'Allocated' })).toHaveTextContent('$12.0M');
+    expect(within(tieOut).getByText('Short by $8.0M')).toHaveClass('pb-badge-bad');
+    const note = within(tieOut).getByTestId('allocations-hidden-lines');
+    expect(note).toHaveTextContent(
+      '1 client line is not shown. Client-level lines are for operations, the investment team (the deal team and approvers) and auditors, and for readers entitled to the client.',
+    );
+    expect(note).toHaveClass('pb-meta');
+    expect(within(tieOut).queryByRole('alert')).toBeNull();
+    // The hidden line is the one with no received amount; this reader cannot count it, so the
+    // blocker speaks of the tie-out, never of a number of lines.
+    expect(
+      within(within(panel).getByTestId('closing-blockers'))
+        .getAllByRole('listitem')
+        .map((b) => b.textContent),
+    ).toEqual(['Allocations do not tie to the closing commitment, short by $8.0M (M22)']);
+  });
+
+  it('gives a reader shown no line the tie-out and the count of lines not shown, not an empty state', async () => {
+    open(
+      ['viewer'],
+      closingDetailFixture({
+        allocations: [],
+        allocationTieOut: { ...closingDetailFixture().allocationTieOut, hiddenLines: 3 },
+      }),
+    );
+    const tieOut = within(await screen.findByTestId('closing-panel')).getByTestId(
+      'closing-tie-out',
+    );
+    expect(within(tieOut).getByRole('group', { name: 'Allocated' })).toHaveTextContent('$20.0M');
+    expect(within(tieOut).getByText('Tied out')).toHaveClass('pb-badge-good');
+    expect(tieOut).not.toHaveTextContent('No allocation lines');
+    expect(within(tieOut).queryByRole('table', { name: 'Allocations' })).toBeNull();
+    expect(within(tieOut).getByTestId('allocations-hidden-lines')).toHaveTextContent(
+      '3 client lines are not shown. Client-level lines are for operations, the investment team (the deal team and approvers) and auditors, and for readers entitled to the client.',
     );
   });
 

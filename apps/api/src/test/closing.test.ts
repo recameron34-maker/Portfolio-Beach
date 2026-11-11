@@ -113,7 +113,12 @@ describe('closing (M8, M22, docs/18 section 12): the record, its checklist, the 
       ).toBe(true);
       expect(d.allocationTieOut.tiedOut).toBe(true);
       expect(d.allocationTieOut.commitment).toBe(seeded.commitmentAmount);
-      expect(d.allocations.length).toBeGreaterThan(0);
+      // The deal's lines are client lines: a viewer is shown none and told how many there are
+      // (migration 0017), and the tie-out is still the deal's.
+      expect(d.allocations).toEqual([]);
+      expect(d.allocationTieOut.hiddenLines).toBe(3);
+      expect(d.allocationTieOut.allocated).toBe(seeded.commitmentAmount);
+      expect((await detail('ops.one', seeded.id)).allocations).toHaveLength(3);
       expect(d.legalTerms).toHaveLength(2);
       expect(d.legalTerms.every((t) => t.status === 'draft' && t.confirmedBy === null)).toBe(true);
       expect(

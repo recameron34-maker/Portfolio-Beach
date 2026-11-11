@@ -53,6 +53,26 @@ export const appRole = z.enum([
   'auditor',
   'service',
 ]);
+export type AppRole = z.infer<typeof appRole>;
+
+/**
+ * The roles that read every client's data without an entitlement (SEC-5.2): operations, the
+ * investment team (the deal team and approvers) and the auditor, by the owner's decision of
+ * 2026-11-11. Investor relations reads the clients it is entitled to; a viewer and a platform
+ * admin read none (SEC-5.4). Row-level security applies the rule (pb.sees_all_clients in
+ * packages/db, migration 0017, which the access matrix pins); this is its one statement for the
+ * API, the pages and the preview, which use it to say why a figure is or is not shown.
+ */
+export const ALL_CLIENT_ROLES: readonly AppRole[] = [
+  'operations',
+  'deal_team',
+  'approver',
+  'auditor',
+];
+
+/** True when one of the roles reads every client (ALL_CLIENT_ROLES). */
+export const seesAllClients = (roles: readonly string[]): boolean =>
+  roles.some((r) => (ALL_CLIENT_ROLES as readonly string[]).includes(r));
 
 /** RFC 9457 problem details (docs/17 section 3). Never carries stack traces or data values. */
 export const problemDetails = z.object({

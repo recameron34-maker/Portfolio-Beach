@@ -5,6 +5,7 @@ import {
   CLOSING_NOT_CONFIRMED_REFUSAL,
   CLOSING_REENTERED_REASON,
   POSITION_EXISTS_REFUSAL,
+  allocationTotals,
   checklistCounts,
   closingGate,
   confirmRefusal,
@@ -15,8 +16,11 @@ import {
   latestReopen,
   missingReceived,
   missingReceivedRefusal,
+  missingReceivedRefusalOf,
   requiredItemsComplete,
   tieOut,
+  tieOutFromTotals,
+  totalsForReader,
 } from './controls-closing.js';
 import type { ChecklistItem, GateTask, RoundDecision, StageMove } from './controls-closing.js';
 
@@ -116,24 +120,147 @@ describe('the allocation tie-out (M22)', () => {
   });
 
   it('names the missing received amounts in the confirmation refusal only when the tie-out is what refused', () => {
-    const rows = [{ received: '1.00' }, { received: null }];
+    // The count comes from the totals of every line, never from the lines one reader is shown.
     const refused = {
       command: 'confirm',
       code: 'precondition',
       itemsComplete: true,
       tiedOut: false,
-      rows,
+      missingReceived: 1,
     } as const;
     expect(confirmRefusal(refused)).toBe('closing: received amounts are missing on 1 line (M22)');
+    expect(confirmRefusal({ ...refused, missingReceived: 3 })).toBe(
+      'closing: received amounts are missing on 3 lines (M22)',
+    );
     // The checklist refusal comes first, as the machine orders them.
     expect(confirmRefusal({ ...refused, itemsComplete: false })).toBeNull();
     // Every line received and still short: the machine's own tie-out message stands.
-    expect(confirmRefusal({ ...refused, rows: [{ received: '1.00' }] })).toBeNull();
+    expect(confirmRefusal({ ...refused, missingReceived: 0 })).toBeNull();
     expect(confirmRefusal({ ...refused, tiedOut: true })).toBeNull();
     expect(confirmRefusal({ ...refused, code: 'role' })).toBeNull();
     expect(confirmRefusal({ ...refused, code: 'forbidden' })).toBeNull();
     expect(confirmRefusal({ ...refused, command: 'reopen' })).toBeNull();
     expect(confirmRefusal({ ...refused, command: 'changeCloseDate' })).toBeNull();
+  });
+});
+
+describe('the allocation totals and the tie-out built from them (M22, D1-06)', () => {
+  const lines = [
+    { requested: '10000000.00', received: '10000000.00' },
+    { requested: '12000000.00', received: '11999999.99' },
+    { requested: '8000000.00', received: null },
+  ];
+
+  it('counts the lines and the ones with no received amount, and sums requested and received to two places', () => {
+    expect(allocationTotals(lines)).toEqual({
+      lines: 3,
+      requested: '30000000.00',
+      received: '21999999.99',
+      missingReceived: 1,
+    });
+    // A deal with no line answers zeros.
+    expect(allocationTotals([])).toEqual({
+      lines: 0,
+      requested: '0.00',
+      received: '0.00',
+      missingReceived: 0,
+    });
+    // Decimal, never binary floating point.
+    expect(
+      allocationTotals([
+        { requested: '0.10', received: '0.10' },
+        { requested: '0.20', received: '0.20' },
+      ]),
+    ).toMatchObject({ requested: '0.30', received: '0.30' });
+  });
+
+  it('builds the tie-out from the totals: every line received and the sum equal to the commitment', () => {
+    expect(
+      tieOutFromTotals('30000000.00', { lines: 3, received: '30000000.00', missingReceived: 0 }),
+    ).toEqual({
+      commitment: '30000000.00',
+      allocated: '30000000.00',
+      difference: '0.00',
+      tiedOut: true,
+    });
+    // The sum reaches the commitment and a line still has no received amount: not tied.
+    expect(
+      tieOutFromTotals('30000000', { lines: 3, received: '30000000.00', missingReceived: 1 }),
+    ).toEqual({
+      commitment: '30000000.00',
+      allocated: '30000000.00',
+      difference: '0.00',
+      tiedOut: false,
+    });
+    expect(
+      tieOutFromTotals('30000000.00', { lines: 2, received: '29999999.99', missingReceived: 0 }),
+    ).toEqual({
+      commitment: '30000000.00',
+      allocated: '29999999.99',
+      difference: '-0.01',
+      tiedOut: false,
+    });
+    // The sum as the database writes it for no line (a bare zero) reads as 0.00.
+    expect(tieOutFromTotals('5.00', { lines: 0, received: '0', missingReceived: 0 })).toEqual({
+      commitment: '5.00',
+      allocated: '0.00',
+      difference: '-5.00',
+      tiedOut: false,
+    });
+  });
+
+  it('is one rule: the tie-out of the lines equals the tie-out of their totals, whatever the lines', () => {
+    const amounts = ['0.00', '0.01', '0.10', '0.20', '4999999.99', '5000000.00', '10000000.00'];
+    const commitments = ['0.00', '0.30', '5000000.00', '15000000.00', '15000000.01'];
+    let cases = 0;
+    for (const a of [...amounts, null])
+      for (const b of [...amounts, null])
+        for (const c of [undefined, ...amounts, null]) {
+          const rows = [a, b, ...(c === undefined ? [] : [c])].map((received, i) => ({
+            requested: amounts[i] ?? '1.00',
+            received,
+          }));
+          for (const commitment of commitments) {
+            expect(tieOut(commitment, rows)).toEqual(
+              tieOutFromTotals(commitment, allocationTotals(rows)),
+            );
+            cases += 1;
+          }
+        }
+    expect(cases).toBeGreaterThan(2000);
+    expect(tieOut('1.00', [])).toEqual(tieOutFromTotals('1.00', allocationTotals([])));
+  });
+
+  it('tells a reader how many lines are not shown, with the totals of every line', () => {
+    const totals = allocationTotals(lines);
+    // A reader shown every line: nothing hidden.
+    expect(totalsForReader(totals, 3)).toEqual({
+      lines: 3,
+      hiddenLines: 0,
+      requested: '30000000.00',
+      received: '21999999.99',
+      missingReceived: 1,
+    });
+    // A reader shown one line, and one shown none: the totals do not move.
+    expect(totalsForReader(totals, 1)).toMatchObject({ lines: 3, hiddenLines: 2 });
+    expect(totalsForReader(totals, 0)).toEqual({
+      lines: 3,
+      hiddenLines: 3,
+      requested: '30000000.00',
+      received: '21999999.99',
+      missingReceived: 1,
+    });
+    // Never negative, whatever is passed.
+    expect(totalsForReader(totals, 5).hiddenLines).toBe(0);
+  });
+
+  it('words the missing received refusal from a count as it does from the lines', () => {
+    expect(missingReceivedRefusalOf(0)).toBeNull();
+    expect(missingReceivedRefusalOf(1)).toBe('received amounts are missing on 1 line (M22)');
+    expect(missingReceivedRefusalOf(2)).toBe('received amounts are missing on 2 lines (M22)');
+    expect(missingReceivedRefusal(lines)).toBe(
+      missingReceivedRefusalOf(allocationTotals(lines).missingReceived),
+    );
   });
 });
 

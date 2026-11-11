@@ -2,6 +2,8 @@ import { createHash } from 'node:crypto';
 import { describe, expect, it } from 'vitest';
 import type { z } from 'zod';
 import {
+  allocationTieOut,
+  allocationTotals,
   allocationsPutBody,
   bankDetails,
   capitalNoticeCommandBody,
@@ -1034,7 +1036,15 @@ describe('opportunity bodies', () => {
           allocated: '15000000.00',
           difference: '0',
           tiedOut: true,
+          hiddenLines: 0,
         },
+      },
+      allocationTotals: {
+        lines: 1,
+        hiddenLines: 0,
+        requested: '15000000.00',
+        received: '15000000.00',
+        missingReceived: 0,
       },
       gates: {
         diligence: { requiredOpen: 0, ok: true, carriedOver: 0 },
@@ -1049,6 +1059,10 @@ describe('opportunity bodies', () => {
     };
     expect(parses(opportunityDetail, detail)).toBe(true);
     expect(parses(opportunityDetail, { ...detail, closing: null })).toBe(true);
+    // The totals travel with or without a closing record: a detail without them is outside the contract.
+    const { allocationTotals: _totals, ...withoutTotals } = detail;
+    expect(parses(opportunityDetail, withoutTotals)).not.toBe(true);
+    expect(parses(opportunityDetail, { ...withoutTotals, closing: null })).not.toBe(true);
     expect(parses(opportunityDetail, { ...detail, stage: 'Won' })).not.toBe(true);
     expect(parses(opportunityDetail, { ...detail, gates: { diligence: { ok: true } } })).not.toBe(
       true,
@@ -1068,6 +1082,51 @@ describe('opportunity bodies', () => {
         gates: { ...detail.gates, diligence: { requiredOpen: 0, ok: true } },
       }),
     ).not.toBe(true);
+  });
+
+  it('carries the totals of every allocation line at every stage, and how many lines the caller is not shown (D1-06)', () => {
+    const totals = {
+      lines: 3,
+      hiddenLines: 3,
+      requested: '30000000.00',
+      received: '18000000.00',
+      missingReceived: 1,
+    };
+    expect(parses(allocationTotals, totals)).toBe(true);
+    // A deal with no line answers zeros.
+    expect(
+      parses(allocationTotals, {
+        lines: 0,
+        hiddenLines: 0,
+        requested: '0.00',
+        received: '0.00',
+        missingReceived: 0,
+      }),
+    ).toBe(true);
+    // Every field is required, counts are whole and never negative, money is a decimal string.
+    for (const field of Object.keys(totals)) {
+      const { [field]: _dropped, ...rest } = totals as Record<string, unknown>;
+      expect(parses(allocationTotals, rest), field).not.toBe(true);
+    }
+    expect(parses(allocationTotals, { ...totals, hiddenLines: -1 })).not.toBe(true);
+    expect(parses(allocationTotals, { ...totals, hiddenLines: 1.5 })).not.toBe(true);
+    expect(parses(allocationTotals, { ...totals, lines: -1 })).not.toBe(true);
+    expect(parses(allocationTotals, { ...totals, missingReceived: -1 })).not.toBe(true);
+    expect(parses(allocationTotals, { ...totals, received: 18000000 })).not.toBe(true);
+
+    // The tie-out says how many lines the caller is not shown too: a required whole number.
+    const tie = {
+      commitment: '30000000.00',
+      allocated: '30000000.00',
+      difference: '0.00',
+      tiedOut: true,
+      hiddenLines: 3,
+    };
+    expect(parses(allocationTieOut, tie)).toBe(true);
+    const { hiddenLines: _hidden, ...tieWithoutHidden } = tie;
+    expect(parses(allocationTieOut, tieWithoutHidden)).not.toBe(true);
+    expect(parses(allocationTieOut, { ...tie, hiddenLines: -1 })).not.toBe(true);
+    expect(parses(allocationTieOut, { ...tie, hiddenLines: 0.5 })).not.toBe(true);
   });
 });
 
@@ -1144,6 +1203,7 @@ describe('closing bodies', () => {
         allocated: '15000000.00',
         difference: '0',
         tiedOut: true,
+        hiddenLines: 0,
       },
       opportunityId: ID,
       investmentId: INV,
@@ -1185,5 +1245,8 @@ describe('closing bodies', () => {
     expect(
       parses(closingDetail, { ...detail, items: [{ ...detail.items[0], status: 'lost' }] }),
     ).not.toBe(true);
+    // A tie-out that does not say how many lines the caller is not shown is outside the contract.
+    const { hiddenLines: _hidden, ...tieWithoutHidden } = detail.allocationTieOut;
+    expect(parses(closingDetail, { ...detail, allocationTieOut: tieWithoutHidden })).not.toBe(true);
   });
 });

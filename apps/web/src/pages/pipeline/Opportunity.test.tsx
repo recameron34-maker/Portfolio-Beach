@@ -489,6 +489,7 @@ describe('opportunity page', () => {
           allocated: '19500000.00',
           difference: '-500000.00',
           tiedOut: false,
+          hiddenLines: 0,
         },
       }),
     });
@@ -500,9 +501,20 @@ describe('opportunity page', () => {
     await screen.findByTestId('opportunity-detail');
     const editor = screen.getByTestId('allocations-editor');
     expect(editor).toHaveTextContent('2 lines');
+    // The card leads with the commitment and the received total against it, tied or not.
+    const lead = within(editor).getByTestId('allocations-lead');
+    expect(within(lead).getByRole('group', { name: 'Commitment' })).toHaveTextContent('$20.0M');
+    expect(within(lead).getByRole('group', { name: 'Received' })).toHaveTextContent(
+      '$20.0MTied out',
+    );
+    // The foot keeps the running total of the lines as typed.
     expect(editor).toHaveTextContent('Received $20.0M against a commitment of $20.0M.');
-    expect(within(editor).getByText('Tied out')).toHaveClass('pb-badge-good');
+    expect(within(editor).getByText('Tied out', { selector: '.pb-badge' })).toHaveClass(
+      'pb-badge-good',
+    );
     expect(within(editor).queryByTestId('allocations-missing-received')).toBeNull();
+    // A writer is shown every line: nothing is said about lines not shown.
+    expect(within(editor).queryByTestId('allocations-hidden-lines')).toBeNull();
     const second = within(editor).getByTestId('allocation-row-1');
     // The vehicle and client names arrive with their own reads.
     await waitFor(() =>
@@ -560,7 +572,18 @@ describe('opportunity page', () => {
   }, 30_000);
 
   it('shows a viewer the closing deal read only with every action naming its role', async () => {
-    open(['viewer'], closingOpportunityFixture());
+    // As the API answers a viewer: the vehicle line, not the client line, and the deal's totals.
+    const all = closingOpportunityFixture();
+    open(
+      ['viewer'],
+      closingOpportunityFixture({
+        allocations: all.allocations.filter((a) => a.client === null),
+        allocationTotals: { ...all.allocationTotals, hiddenLines: 1 },
+        closing: closingSummaryFixture({
+          allocationTieOut: { ...all.closing!.allocationTieOut, hiddenLines: 1 },
+        }),
+      }),
+    );
     await screen.findByTestId('opportunity-detail');
     const advance = button('Advance, Project Cove');
     expect(advance).toBeDisabled();
@@ -569,7 +592,31 @@ describe('opportunity page', () => {
     const editor = screen.getByTestId('allocations-editor');
     expect(within(editor).getByRole('table', { name: 'Allocations' })).toBeInTheDocument();
     expect(within(editor).queryByRole('button', { name: 'Save allocations' })).toBeNull();
-    expect(editor).toHaveTextContent('Alpha Pension Trust');
+    // The commitment and the received total lead, and they are the deal's: the line the viewer
+    // is shown holds 12.0 of the 20.0 received.
+    const lead = within(editor).getByTestId('allocations-lead');
+    expect(within(lead).getByRole('group', { name: 'Commitment' })).toHaveTextContent('$20.0M');
+    expect(within(lead).getByRole('group', { name: 'Received' })).toHaveTextContent(
+      '$20.0MTied out',
+    );
+    expect(editor).toHaveTextContent('2 lines');
+    expect(editor).not.toHaveTextContent('Alpha Pension Trust');
+    expect(within(editor).queryByRole('button', { name: /Client breakdown/ })).toBeNull();
+    // No vehicle total is stated while a line is not shown; the line shown keeps its own amounts.
+    const table = within(editor).getByRole('table', { name: 'Allocations' });
+    const vehicle = within(table).getByRole('row', { name: /Beach Co-Invest Fund I/ });
+    expect(vehicle).toHaveTextContent('Beach Co-Invest Fund I--');
+    expect(within(vehicle).getAllByTitle(/some lines of this deal are not shown/)).toHaveLength(2);
+    expect(within(table).getByRole('row', { name: /Vehicle line/ })).toHaveTextContent(
+      'Vehicle line$12.0M$12.0M',
+    );
+    // A quiet line says how many lines are not shown; it is not an alert.
+    const note = within(editor).getByTestId('allocations-hidden-lines');
+    expect(note).toHaveTextContent(
+      '1 client line is not shown. Client-level lines are for operations, the investment team (the deal team and approvers) and auditors, and for readers entitled to the client.',
+    );
+    expect(note).toHaveClass('pb-meta');
+    expect(within(editor).queryByRole('alert')).toBeNull();
     expect(button('Reopen, Market and competitive review')).toHaveAttribute(
       'title',
       'Needs deal team or approver',
@@ -581,6 +628,127 @@ describe('opportunity page', () => {
       'Operations have not confirmed the closing; the advance to Closed waits for the confirmation (M8).',
     );
     expect(screen.getByTestId('opportunity-tiles')).toHaveTextContent('Tied out');
+  });
+
+  it('leads with the commitment, lists the lines by vehicle and keeps the client breakdown closed until asked, by mouse or keyboard', async () => {
+    open(['auditor'], closingOpportunityFixture());
+    await screen.findByTestId('opportunity-detail');
+    const editor = screen.getByTestId('allocations-editor');
+    const table = within(editor).getByRole('table', { name: 'Allocations' });
+    // The vehicle rows are the primary rows, each with the vehicle's totals.
+    expect(
+      within(table)
+        .getAllByRole('rowheader')
+        .map((h) => h.textContent),
+    ).toEqual(['Beach Co-Invest Fund I', 'Beach Credit Partners I']);
+    expect(within(table).getByRole('row', { name: /Beach Credit Partners I/ })).toHaveTextContent(
+      'Beach Credit Partners I$8.0M$8.0M',
+    );
+    // The client line sits behind a disclosure that starts closed.
+    const toggle = within(table).getByRole('button', {
+      name: 'Client breakdown (1 line), Beach Credit Partners I',
+    });
+    expect(toggle).toHaveTextContent('Client breakdown (1 line)');
+    expect(toggle).toHaveAttribute('aria-expanded', 'false');
+    expect(within(table).queryByRole('row', { name: /Alpha Pension Trust/ })).toBeNull();
+    await userEvent.click(toggle);
+    expect(toggle).toHaveAttribute('aria-expanded', 'true');
+    const client = within(table).getByRole('row', { name: /Alpha Pension Trust/ });
+    expect(client).toHaveTextContent('Alpha Pension Trust$8.0M$8.0M');
+    expect(client).toHaveClass('pb-pipe-client-row');
+    expect(toggle.getAttribute('aria-controls')).toBe(client.id);
+    // The keyboard opens and closes it too.
+    toggle.focus();
+    await userEvent.keyboard('{Enter}');
+    expect(toggle).toHaveAttribute('aria-expanded', 'false');
+    expect(within(table).queryByRole('row', { name: /Alpha Pension Trust/ })).toBeNull();
+    await userEvent.keyboard(' ');
+    expect(toggle).toHaveAttribute('aria-expanded', 'true');
+    // Every line is shown to an auditor: nothing is said about lines not shown.
+    expect(within(editor).queryByTestId('allocations-hidden-lines')).toBeNull();
+  });
+
+  it('gives a reader who is shown no line the totals of the deal and the count of lines not shown, not an empty state', async () => {
+    const all = closingOpportunityFixture();
+    open(
+      ['viewer'],
+      closingOpportunityFixture({
+        allocations: [],
+        allocationTotals: {
+          lines: 3,
+          hiddenLines: 3,
+          requested: '20000000.00',
+          received: '12000000.00',
+          missingReceived: 1,
+        },
+        closing: closingSummaryFixture({
+          allocationTieOut: {
+            commitment: '20000000.00',
+            allocated: '12000000.00',
+            difference: '-8000000.00',
+            tiedOut: false,
+            hiddenLines: 3,
+          },
+        }),
+        gates: {
+          ...all.gates,
+          closing: { ...all.gates.closing, allocationTiedOut: false },
+        },
+      }),
+    );
+    await screen.findByTestId('opportunity-detail');
+    const editor = screen.getByTestId('allocations-editor');
+    expect(editor).toHaveTextContent('3 lines');
+    const lead = within(editor).getByTestId('allocations-lead');
+    expect(within(lead).getByRole('group', { name: 'Commitment' })).toHaveTextContent('$20.0M');
+    expect(within(lead).getByRole('group', { name: 'Received' })).toHaveTextContent(
+      '$12.0MShort by $8.0M',
+    );
+    expect(within(editor).queryByRole('table', { name: 'Allocations' })).toBeNull();
+    expect(within(editor).queryByTestId('allocations-empty')).toBeNull();
+    expect(within(editor).getByTestId('allocations-hidden-lines')).toHaveTextContent(
+      '3 client lines are not shown. Client-level lines are for operations, the investment team (the deal team and approvers) and auditors, and for readers entitled to the client.',
+    );
+    // The tile and the gate read the deal's tie-out, as every reader's do.
+    expect(screen.getByTestId('opportunity-tiles')).toHaveTextContent('Short by $8.0M');
+    expect(screen.getByTestId('opportunity-gates')).toHaveTextContent(
+      'The received amounts do not tie to the closing commitment (M22).',
+    );
+  });
+
+  it('leads with the requested total and the target before a closing record exists, and still counts the lines not shown', async () => {
+    const vehicleLine = closingOpportunityFixture().allocations.filter((a) => a.client === null);
+    open(
+      ['viewer'],
+      opportunityDetailFixture({
+        id: OPP_ID.approved,
+        stage: 'Approved',
+        targetCommitment: '20000000.00',
+        allocations: vehicleLine.map((a) => ({ ...a, received: null })),
+        allocationTotals: {
+          lines: 2,
+          hiddenLines: 1,
+          requested: '20000000.00',
+          received: '0.00',
+          missingReceived: 2,
+        },
+      }),
+    );
+    await screen.findByTestId('opportunity-detail');
+    const editor = screen.getByTestId('allocations-editor');
+    const lead = within(editor).getByTestId('allocations-lead');
+    // The requested total is the deal's, across the line shown and the one that is not.
+    expect(within(lead).getByRole('group', { name: 'Requested' })).toHaveTextContent(
+      '$20.0MAcross all allocation lines',
+    );
+    expect(within(lead).getByRole('group', { name: 'Target' })).toHaveTextContent(
+      '$20.0MTarget commitment; the tie-out starts once the closing record exists (M22)',
+    );
+    expect(within(lead).queryByRole('group', { name: 'Commitment' })).toBeNull();
+    expect(within(editor).getByTestId('allocations-hidden-lines')).toHaveTextContent(
+      '1 client line is not shown. Client-level lines are for operations, the investment team (the deal team and approvers) and auditors, and for readers entitled to the client.',
+    );
+    expect(document.body.textContent).not.toContain(String.fromCharCode(0x2014));
   });
 
   it('offers the advance from Closing to operations only once the closing is confirmed, and names the missing confirmation until then', async () => {
@@ -669,7 +837,12 @@ describe('opportunity page', () => {
     expect(within(editor).getByTestId('allocations-lock')).toHaveTextContent(
       'The closing is confirmed; change the close date or ask operations to reopen it.',
     );
-    expect(editor).toHaveTextContent('Received $20.0M against a commitment of $20.0M.');
+    const lead = within(editor).getByTestId('allocations-lead');
+    expect(within(lead).getByRole('group', { name: 'Commitment' })).toHaveTextContent('$20.0M');
+    expect(within(lead).getByRole('group', { name: 'Received' })).toHaveTextContent(
+      '$20.0MTied out',
+    );
+    expect(within(editor).queryByTestId('allocations-hidden-lines')).toBeNull();
     cleanup();
     vi.restoreAllMocks();
 

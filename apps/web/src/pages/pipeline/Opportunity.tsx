@@ -300,6 +300,8 @@ function Body({
           opportunityId={detail.id}
           name={detail.name}
           rows={detail.allocations}
+          totals={detail.allocationTotals}
+          targetCommitment={detail.targetCommitment}
           closing={detail.closing}
           rowVersion={detail.rowVersion}
           roles={roles}

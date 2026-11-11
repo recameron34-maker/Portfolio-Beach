@@ -5,6 +5,7 @@ import {
   closingItemCommandBody,
   legalTermCommandBody,
   legalTermCreateBody,
+  seesAllClients,
 } from '@pb/contracts';
 import type {
   AllocationRow,
@@ -17,16 +18,19 @@ import type {
 import {
   CLOSING_CONFIRMED_REFUSAL,
   POSITION_EXISTS_REFUSAL,
+  allocationTotals,
   attempt,
   checklistCounts,
   closingMachine,
   confirmRefusal,
+  hiddenLineCount,
   requiredItemsComplete,
-  tieOut,
+  tieOutFromTotals,
 } from '@pb/workflows';
+import type { AllocationTotals } from '@pb/workflows';
 import { jsonResponse, problem, workflowProblem } from '../problems.js';
 import { ensureClosings, ensureOpportunities } from '../state.js';
-import type { SimClosing } from '../state.js';
+import type { SimActor, SimClosing, SimOpportunity } from '../state.js';
 import {
   defineSimRoute,
   documentVisible,
@@ -51,6 +55,13 @@ import type { SimContext } from './common.js';
  * cannot see is 404. The close date here is the single source of every close date. The tie-out,
  * the checklist gate and the refusal texts are the rules the API uses (controls-closing.ts in
  * @pb/workflows), not a copy of them.
+ *
+ * Who reads an allocation line (migration 0017, review finding D1-06): a client line is read by a
+ * role that reads every client (ALL_CLIENT_ROLES in @pb/contracts) or by a reader entitled to
+ * that client; a vehicle line by everyone who sees the deal. The simulation holds the lines of a
+ * deal and shows each reader the ones that reader may read (linesShownTo); the tie-out and the
+ * totals are the deal's, over every line, the same for every reader, with the number of lines the
+ * reader is not shown.
  */
 
 const NOT_FOUND = 'Closing not found';
@@ -83,7 +94,41 @@ export function allocationsOfClosing(ctx: SimContext, closing: SimClosing): Allo
   return opportunity === undefined ? closing.allocations : opportunity.allocations;
 }
 
-export function closingSummaryOf(ctx: SimContext, closing: SimClosing): ClosingSummary {
+/**
+ * The lines of a deal a reader is shown, as row-level security leaves them in the API: every
+ * vehicle line, and a client line when the reader's role reads every client or the reader is
+ * entitled to that client. A reader whose entitlements are not known is entitled to none.
+ */
+export function linesShownTo(actor: SimActor, lines: readonly AllocationRow[]): AllocationRow[] {
+  const every = seesAllClients(actor.roles);
+  const entitled = new Set(actor.clientIds ?? []);
+  return lines.filter((l) => l.client === null || every || entitled.has(l.client.id));
+}
+
+/**
+ * The totals of every line of a deal, the same for every reader: the recorded ones while the
+ * lines are as recorded (the API answered them over every line), those of the lines held once the
+ * list was replaced in the session or for a deal created in it.
+ */
+export const totalsOfOpportunity = (sim: SimOpportunity): AllocationTotals =>
+  sim.recordedTotals ?? allocationTotals(sim.allocations);
+
+/** The totals of the closing's lines: its opportunity's when the opportunity is known, else those of the lines recorded with it. */
+function totalsOfClosing(ctx: SimContext, closing: SimClosing): AllocationTotals {
+  const opportunity = ensureOpportunities(ctx.state, ctx.recordings).get(closing.opportunityId);
+  return opportunity === undefined
+    ? allocationTotals(closing.allocations)
+    : totalsOfOpportunity(opportunity);
+}
+
+/** The summary as one reader is given it: the tie-out of every line, and how many lines that reader is not shown. */
+export function closingSummaryOf(
+  ctx: SimContext,
+  closing: SimClosing,
+  actor: SimActor,
+): ClosingSummary {
+  const totals = totalsOfClosing(ctx, closing);
+  const shown = linesShownTo(actor, allocationsOfClosing(ctx, closing)).length;
   return {
     id: closing.id,
     closeDate: closing.closeDate,
@@ -93,18 +138,25 @@ export function closingSummaryOf(ctx: SimContext, closing: SimClosing): ClosingS
     opsConfirmedBy: closing.opsConfirmedBy,
     opsConfirmedAt: closing.opsConfirmedAt,
     ...checklistCounts(closing.items),
-    allocationTieOut: tieOut(closing.commitmentAmount, allocationsOfClosing(ctx, closing)),
+    allocationTieOut: {
+      ...tieOutFromTotals(closing.commitmentAmount, totals),
+      hiddenLines: hiddenLineCount(totals, shown),
+    },
   };
 }
 
-export function closingDetailOf(ctx: SimContext, closing: SimClosing): ClosingDetail {
+export function closingDetailOf(
+  ctx: SimContext,
+  closing: SimClosing,
+  actor: SimActor,
+): ClosingDetail {
   return {
-    ...closingSummaryOf(ctx, closing),
+    ...closingSummaryOf(ctx, closing, actor),
     opportunityId: closing.opportunityId,
     investmentId: closing.investmentId,
     items: closing.items,
     legalTerms: closing.legalTerms,
-    allocations: allocationsOfClosing(ctx, closing),
+    allocations: linesShownTo(actor, allocationsOfClosing(ctx, closing)),
     rowVersion: closing.rowVersion,
   };
 }
@@ -157,7 +209,7 @@ export const closingRoute = defineSimRoute({
   handle: (req, ctx) => {
     const closing = closingFor(ctx, req.credential, req.params.id ?? '', req.url.pathname);
     if (closing instanceof Response) return closing;
-    return jsonResponse(200, closingDetailOf(ctx, closing), {
+    return jsonResponse(200, closingDetailOf(ctx, closing, req.actor), {
       simulated: true,
       etag: closing.rowVersion,
     });
@@ -212,7 +264,7 @@ export const closingItemCommandRoute = defineSimRoute({
       from: before,
       to: move.to,
     });
-    return jsonResponse(200, closingDetailOf(ctx, closing), {
+    return jsonResponse(200, closingDetailOf(ctx, closing, req.actor), {
       simulated: true,
       etag: closing.rowVersion,
     });
@@ -258,13 +310,14 @@ export const closingCommandRoute = defineSimRoute({
         from: before,
         to: body.closeDate,
       });
-      return jsonResponse(200, closingDetailOf(ctx, closing), {
+      return jsonResponse(200, closingDetailOf(ctx, closing, req.actor), {
         simulated: true,
         etag: closing.rowVersion,
       });
     }
-    const allocations = allocationsOfClosing(ctx, closing);
-    const tie = tieOut(closing.commitmentAmount, allocations);
+    // The tie-out a command rests on is the deal's, over every line, whoever sends the command.
+    const totals = totalsOfClosing(ctx, closing);
+    const tie = tieOutFromTotals(closing.commitmentAmount, totals);
     const itemsComplete = requiredItemsComplete(closing.items);
     const result = attempt(closingMachine, from, body.command, {
       actorId: req.actor.userId,
@@ -279,7 +332,7 @@ export const closingCommandRoute = defineSimRoute({
         code: result.code,
         itemsComplete,
         tiedOut: tie.tiedOut,
-        rows: allocations,
+        missingReceived: totals.missingReceived,
       });
       if (missing !== null)
         return problem(422, 'workflow-precondition', missing, { instance, simulated: true });
@@ -304,7 +357,7 @@ export const closingCommandRoute = defineSimRoute({
       from,
       to: result.to,
     });
-    return jsonResponse(200, closingDetailOf(ctx, closing), {
+    return jsonResponse(200, closingDetailOf(ctx, closing, req.actor), {
       simulated: true,
       etag: closing.rowVersion,
     });
@@ -356,7 +409,7 @@ export const createLegalTermRoute = defineSimRoute({
       from: null,
       to: 'draft',
     });
-    return jsonResponse(201, closingDetailOf(ctx, closing), {
+    return jsonResponse(201, closingDetailOf(ctx, closing, req.actor), {
       simulated: true,
       etag: closing.rowVersion,
     });
@@ -395,7 +448,7 @@ export const legalTermCommandRoute = defineSimRoute({
       from: 'draft',
       to: 'confirmed',
     });
-    return jsonResponse(200, closingDetailOf(ctx, closing), {
+    return jsonResponse(200, closingDetailOf(ctx, closing, req.actor), {
       simulated: true,
       etag: closing.rowVersion,
     });

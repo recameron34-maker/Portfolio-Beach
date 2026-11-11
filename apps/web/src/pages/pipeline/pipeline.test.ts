@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { MISSING } from '../../lib/format.js';
 import {
+  allocationFixture,
   allocations,
   opportunityRows,
   OPP_ID,
@@ -13,6 +14,7 @@ import {
   allocatedTotal,
   allocationsBody,
   allocationsLock,
+  breakdownLabel,
   carriedOverNote,
   closingBlockers,
   closingLock,
@@ -22,6 +24,8 @@ import {
   filterOpportunities,
   gateLines,
   groupByStage,
+  groupByVehicle,
+  hiddenLinesNote,
   isAging,
   isAmount,
   isCompleteLine,
@@ -31,6 +35,7 @@ import {
   mayUse,
   missingReceivedLines,
   nextStage,
+  orderedByVehicle,
   ownerOptions,
   PIPELINE_ROLES,
   STAGE_AGING_DAYS,
@@ -265,6 +270,7 @@ describe('allocations and the tie-out', () => {
       allocated: '20000000.00',
       difference: '0.00',
       tiedOut: true,
+      hiddenLines: 0,
     };
     expect(tieOutLabel(tied)).toBe('Tied out');
     expect(tieOutTone(tied)).toBe('good');
@@ -340,9 +346,101 @@ describe('allocations and the tie-out', () => {
   });
 });
 
+describe('the lines by vehicle, the client breakdown and the lines not shown (D1-06)', () => {
+  const fundI = { id: '00000000-0000-4000-8000-0000000000a1', name: 'Beach Co-Invest Fund I' };
+  const credit = { id: '00000000-0000-4000-8000-0000000000a2', name: 'Beach Credit Partners I' };
+  const alpha = { id: '00000000-0000-4000-8000-0000000000c1', name: 'Alpha Pension Trust' };
+  const beta = { id: '00000000-0000-4000-8000-0000000000c2', name: 'Beta Endowment' };
+  const line = (
+    id: string,
+    vehicle: typeof fundI,
+    client: typeof alpha | null,
+    requested: string,
+    received: string | null,
+  ) => allocationFixture({ id, vehicle, client, requested, received });
+  // As the API orders them: by vehicle name, the client lines before the vehicle line.
+  const rows = [
+    line('l1', fundI, beta, '4000000.00', null),
+    line('l2', fundI, alpha, '6000000.00', '6000000.00'),
+    line('l3', fundI, null, '10000000.00', '10000000.00'),
+    line('l4', credit, null, '8000000.00', null),
+  ];
+
+  it('groups the lines by vehicle: the vehicle totals first, the client lines under their vehicle by client name', () => {
+    const groups = groupByVehicle(rows, 0);
+    expect(groups.map((g) => g.vehicle.name)).toEqual([
+      'Beach Co-Invest Fund I',
+      'Beach Credit Partners I',
+    ]);
+    expect(groups[0]).toMatchObject({
+      requested: '20000000.00',
+      // The sum of the received amounts on record: the Beta line has none yet.
+      received: '16000000.00',
+      vehicleLine: { id: 'l3' },
+    });
+    expect(groups[0]!.clientLines.map((l) => l.client?.name)).toEqual([
+      'Alpha Pension Trust',
+      'Beta Endowment',
+    ]);
+    // A vehicle with its own line alone: the totals are that line's, and nothing received reads as missing.
+    expect(groups[1]).toMatchObject({
+      requested: '8000000.00',
+      received: null,
+      vehicleLine: { id: 'l4' },
+      clientLines: [],
+    });
+    expect(groupByVehicle([], 0)).toEqual([]);
+  });
+
+  it('states no vehicle total when lines of the deal are not shown: the total would leave them out (rule 10)', () => {
+    // Investor relations entitled to Alpha: its line, and two lines not shown.
+    const own = groupByVehicle([rows[1]!], 2);
+    expect(own).toHaveLength(1);
+    expect(own[0]).toMatchObject({ requested: null, received: null, vehicleLine: null });
+    expect(own[0]!.clientLines.map((l) => l.id)).toEqual(['l2']);
+    // A viewer shown a vehicle line while client lines are hidden: the line keeps its own amounts.
+    const viewer = groupByVehicle([rows[2]!], 2);
+    expect(viewer[0]).toMatchObject({
+      requested: null,
+      received: null,
+      vehicleLine: { id: 'l3', requested: '10000000.00' },
+      clientLines: [],
+    });
+  });
+
+  it('orders the editable lines the same way: each vehicle line first, its client lines under it', () => {
+    expect(orderedByVehicle(rows).map((r) => r.id)).toEqual(['l3', 'l2', 'l1', 'l4']);
+    expect(linesOf(rows).map((l) => [l.vehicleId, l.clientId])).toEqual([
+      [fundI.id, ''],
+      [fundI.id, alpha.id],
+      [fundI.id, beta.id],
+      [credit.id, ''],
+    ]);
+  });
+
+  it('labels the client breakdown with its count, and says how many lines are not shown in plain words', () => {
+    expect(breakdownLabel(3)).toBe('Client breakdown (3 lines)');
+    expect(breakdownLabel(1)).toBe('Client breakdown (1 line)');
+    expect(hiddenLinesNote(0)).toBeNull();
+    expect(hiddenLinesNote(1)).toBe(
+      '1 client line is not shown. Client-level lines are for operations, the investment team (the deal team and approvers) and auditors, and for readers entitled to the client.',
+    );
+    expect(hiddenLinesNote(3)).toBe(
+      '3 client lines are not shown. Client-level lines are for operations, the investment team (the deal team and approvers) and auditors, and for readers entitled to the client.',
+    );
+    for (const n of [1, 3]) expect(hiddenLinesNote(n)).not.toContain(EM_DASH);
+  });
+});
+
 describe('closing words and forms', () => {
   it('lists what blocks the confirmation, in words, and nothing when clear', () => {
-    const tied = { commitment: '1.00', allocated: '1.00', difference: '0.00', tiedOut: true };
+    const tied = {
+      commitment: '1.00',
+      allocated: '1.00',
+      difference: '0.00',
+      tiedOut: true,
+      hiddenLines: 0,
+    };
     const received = [{ received: '1.00' }];
     expect(
       closingBlockers({ itemsRequiredOpen: 0, allocationTieOut: tied, allocations: received }),
@@ -373,6 +471,21 @@ describe('closing words and forms', () => {
         allocations: [{ received: '1.00' }, { received: null }, { received: null }],
       }),
     ).toEqual(['Received amounts are missing on 2 lines (M22)']);
+    // A reader who is not shown every line cannot count the lines with no received amount: the
+    // blocker speaks of the tie-out, which is the deal's, and never of a count of the lines shown.
+    expect(
+      closingBlockers({
+        itemsRequiredOpen: 0,
+        allocationTieOut: {
+          ...tied,
+          allocated: '0.50',
+          difference: '-0.50',
+          tiedOut: false,
+          hiddenLines: 2,
+        },
+        allocations: [{ received: '0.50' }, { received: null }],
+      }),
+    ).toEqual(['Allocations do not tie to the closing commitment, short by $0.0M (M22)']);
   });
 
   it('says why a confirmed closing takes no change, and why one with a position takes none at all', () => {

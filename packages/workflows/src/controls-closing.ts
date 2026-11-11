@@ -32,11 +32,46 @@ export const CLOSING_NOT_CONFIRMED_REFUSAL = 'the closing is not confirmed by op
 export const CLOSING_REENTERED_REASON =
   'The deal reached Closing again with a new close date and commitment; operations confirm again';
 
-/* ---- The allocation tie-out (M22) ---- */
+/* ---- The allocation totals and the tie-out (M22, review finding D1-06) ---- */
 
 /** An allocation line as the tie-out reads it: the amount received, when one is on record. */
 export interface ReceivedLine {
   received: string | null;
+}
+
+/** An allocation line as the totals read it: what was asked for and what was received. */
+export interface AllocationAmounts extends ReceivedLine {
+  requested: string;
+}
+
+/** What the tie-out needs of a deal's lines: how many there are, how many have no received amount, and the received sum. */
+export interface ReceivedTotals {
+  lines: number;
+  /** The sum of the received amounts on record, as a decimal string; a line with none adds nothing. */
+  received: string;
+  /** How many lines have no received amount yet. */
+  missingReceived: number;
+}
+
+/**
+ * The totals of every allocation line of a deal, as decimal strings to two places. They are the
+ * same for every reader: the API reads them as the system actor, over all the lines whoever asks
+ * (a reader may be shown fewer lines than the deal has, since a client line follows the client's
+ * entitlement), and the preview computes them from the lines it holds. Only these figures leave
+ * that read, never a line.
+ */
+export interface AllocationTotals extends ReceivedTotals {
+  /** The sum of the requested amounts. */
+  requested: string;
+}
+
+/** The totals as one reader is given them: with the number of lines of the deal that reader is not shown. */
+export interface ReaderAllocationTotals {
+  lines: number;
+  hiddenLines: number;
+  requested: string;
+  received: string;
+  missingReceived: number;
 }
 
 /** The received amounts against the closing commitment, as decimal strings to two places. */
@@ -51,39 +86,82 @@ export interface TieOut {
 export const missingReceived = (rows: readonly ReceivedLine[]): number =>
   rows.filter((r) => r.received === null).length;
 
+const receivedTotals = (rows: readonly ReceivedLine[]): ReceivedTotals => ({
+  lines: rows.length,
+  received: rows
+    .reduce((sum, r) => (r.received === null ? sum : sum.plus(r.received)), ZERO)
+    .toFixed(2),
+  missingReceived: missingReceived(rows),
+});
+
+/** The totals of the lines given: every line of the deal, for the figures to be the deal's. */
+export function allocationTotals(rows: readonly AllocationAmounts[]): AllocationTotals {
+  const { lines, received, missingReceived: missing } = receivedTotals(rows);
+  return {
+    lines,
+    requested: rows.reduce((sum, r) => sum.plus(r.requested), ZERO).toFixed(2),
+    received,
+    missingReceived: missing,
+  };
+}
+
 /**
- * The M22 tie-out: the received amounts against the commitment, compared exactly. Tied out means
- * every line has a received amount and they sum to the commitment; `allocated` is the sum of the
- * received amounts on record, so a line with none adds nothing and keeps the tie-out false. A
- * requested amount is what was asked for, not what the deal got: it never stands in (rule 10).
+ * The M22 tie-out from the totals of every line: the received amounts against the commitment,
+ * compared exactly. Tied out means every line has a received amount and they sum to the
+ * commitment; `allocated` is the sum of the received amounts on record, so a line with none adds
+ * nothing and keeps the tie-out false. A requested amount is what was asked for, not what the deal
+ * got: it never stands in (rule 10). This is the one rule: the API passes the totals it read as
+ * the system actor, and `tieOut` below passes the totals of the lines it is given.
  */
-export function tieOut(commitment: string, rows: readonly ReceivedLine[]): TieOut {
-  const allocated = rows.reduce(
-    (sum, r) => (r.received === null ? sum : sum.plus(r.received)),
-    ZERO,
-  );
+export function tieOutFromTotals(commitment: string, totals: ReceivedTotals): TieOut {
+  const allocated = D(totals.received);
   const target = D(commitment);
   return {
     commitment: target.toFixed(2),
     allocated: allocated.toFixed(2),
     difference: allocated.minus(target).toFixed(2),
-    tiedOut: missingReceived(rows) === 0 && allocated.comparedTo(target) === 0,
+    tiedOut: totals.missingReceived === 0 && allocated.comparedTo(target) === 0,
   };
 }
 
-/** What a failed tie-out says when received amounts are missing (the plain M22 refusal stands otherwise): null when none is. */
-export function missingReceivedRefusal(rows: readonly ReceivedLine[]): string | null {
-  const missing = missingReceived(rows);
+/** The M22 tie-out of the lines given (tieOutFromTotals over their totals): the lines must be every line of the deal. */
+export function tieOut(commitment: string, rows: readonly ReceivedLine[]): TieOut {
+  return tieOutFromTotals(commitment, receivedTotals(rows));
+}
+
+/** How many lines of the deal a reader shown `shown` of them is not shown; never negative. */
+export const hiddenLineCount = (totals: Pick<ReceivedTotals, 'lines'>, shown: number): number =>
+  Math.max(0, totals.lines - shown);
+
+/** The totals as a reader shown `shown` lines is given them: the same figures, with the count of lines not shown. */
+export function totalsForReader(totals: AllocationTotals, shown: number): ReaderAllocationTotals {
+  return {
+    lines: totals.lines,
+    hiddenLines: hiddenLineCount(totals, shown),
+    requested: totals.requested,
+    received: totals.received,
+    missingReceived: totals.missingReceived,
+  };
+}
+
+/** What a failed tie-out says when `missing` lines have no received amount (the plain M22 refusal stands otherwise): null when none is. */
+export function missingReceivedRefusalOf(missing: number): string | null {
   return missing === 0
     ? null
     : `received amounts are missing on ${missing} ${missing === 1 ? 'line' : 'lines'} (M22)`;
+}
+
+/** missingReceivedRefusalOf for the lines given: every line of the deal. */
+export function missingReceivedRefusal(rows: readonly ReceivedLine[]): string | null {
+  return missingReceivedRefusalOf(missingReceived(rows));
 }
 
 /**
  * The detail the confirmation answers in place of the machine's tie-out refusal when received
  * amounts are missing (M22), or null when the machine's own message stands: the command is not
  * confirm, the refusal is not a precondition, a required item is still open (the checklist
- * refusal comes first, as the machine orders them), or every line has a received amount.
+ * refusal comes first, as the machine orders them), or every line has a received amount. The
+ * count is the deal's (the totals of every line), so the refusal reads the same whoever asks.
  */
 export function confirmRefusal(input: {
   command: string;
@@ -91,7 +169,8 @@ export function confirmRefusal(input: {
   code: 'forbidden' | 'role' | 'precondition';
   itemsComplete: boolean;
   tiedOut: boolean;
-  rows: readonly ReceivedLine[];
+  /** How many lines of the deal have no received amount (AllocationTotals.missingReceived). */
+  missingReceived: number;
 }): string | null {
   if (
     input.command !== 'confirm' ||
@@ -100,7 +179,7 @@ export function confirmRefusal(input: {
     input.tiedOut
   )
     return null;
-  const missing = missingReceivedRefusal(input.rows);
+  const missing = missingReceivedRefusalOf(input.missingReceived);
   return missing === null ? null : `closing: ${missing}`;
 }
 

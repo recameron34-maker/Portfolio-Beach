@@ -19,7 +19,7 @@ export const ROLE_ROWS: readonly RoleRow[] = [
   {
     role: 'deal_team',
     label: 'Deal team',
-    sees: 'Reads what a viewer reads, and can add sponsors, edit the investments it can see and give the first-step valuation approval; no client data, walls or audit events.',
+    sees: 'Reads what a viewer reads plus every client, its LP commitments and the client lines of a deal (the investment team is entitled to all clients, SEC-5.2), and can add sponsors, edit the investments it can see and give the first-step valuation approval; no walls or audit events.',
   },
   {
     role: 'operations',
