@@ -1,7 +1,7 @@
 import { asc, eq, or, sql } from 'drizzle-orm';
 import type { SQL } from 'drizzle-orm';
-import { D, ZERO } from '@pb/calc';
-import type { AllocationRow, AllocationTieOut, AllocationsPutBody } from '@pb/contracts';
+import { ZERO } from '@pb/calc';
+import type { AllocationRow, AllocationsPutBody } from '@pb/contracts';
 import { schema } from '@pb/db';
 import type { Tx } from '@pb/db';
 import { isForeignKeyViolation, pgConstraint } from '../common/pg-errors.js';
@@ -20,7 +20,11 @@ import { NOT_VISIBLE, closingConfirmed, requireMoney } from './rows.js';
  * is what was asked for, not what the deal got: it never stands in for a received amount (rule 10),
  * so a line with no received amount keeps the tie-out false. Once operations confirmed the closing
  * the lines are what was confirmed and stay so until the closing is reopened (docs/18 section 12).
+ * The tie-out itself is a pure rule the web preview follows too, so it lives in @pb/workflows
+ * (controls-closing.ts) and is read from here.
  */
+
+export { missingReceived, missingReceivedRefusal, tieOut } from '@pb/workflows';
 
 const alloc = schema.allocation;
 
@@ -56,42 +60,6 @@ export async function loadAllocationRows(tx: Tx, where: SQL): Promise<Allocation
     requested: r.requested,
     received: r.received,
   }));
-}
-
-/** How many lines have no received amount yet. */
-export const missingReceived = (rows: readonly Pick<AllocationRow, 'received'>[]): number =>
-  rows.filter((r) => r.received === null).length;
-
-/**
- * The M22 tie-out: the received amounts against the commitment, compared exactly. Tied out means
- * every line has a received amount and they sum to the commitment; `allocated` is the sum of the
- * received amounts on record, so a line with none adds nothing and keeps the tie-out false.
- */
-export function tieOut(
-  commitment: string,
-  rows: readonly Pick<AllocationRow, 'received'>[],
-): AllocationTieOut {
-  const allocated = rows.reduce(
-    (sum, r) => (r.received === null ? sum : sum.plus(r.received)),
-    ZERO,
-  );
-  const target = D(commitment);
-  return {
-    commitment: target.toFixed(2),
-    allocated: allocated.toFixed(2),
-    difference: allocated.minus(target).toFixed(2),
-    tiedOut: missingReceived(rows) === 0 && allocated.comparedTo(target) === 0,
-  };
-}
-
-/** What a failed tie-out says when received amounts are missing (the plain M22 refusal stands otherwise): null when none is. */
-export function missingReceivedRefusal(
-  rows: readonly Pick<AllocationRow, 'received'>[],
-): string | null {
-  const missing = missingReceived(rows);
-  return missing === 0
-    ? null
-    : `received amounts are missing on ${missing} ${missing === 1 ? 'line' : 'lines'} (M22)`;
 }
 
 /** What the audit event carries about a set of lines: counts and totals, never a client name. */

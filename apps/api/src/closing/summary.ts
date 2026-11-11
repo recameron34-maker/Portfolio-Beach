@@ -12,8 +12,10 @@ import type {
 } from '@pb/contracts';
 import { schema } from '@pb/db';
 import type { Tx } from '@pb/db';
+import { checklistCounts, closingGate, tieOut } from '@pb/workflows';
+import type { ClosingGate } from '@pb/workflows';
 import { ProblemError } from '../common/problem.js';
-import { allocationsOf, loadAllocationRows, tieOut } from '../pipeline/allocations.js';
+import { allocationsOf, loadAllocationRows } from '../pipeline/allocations.js';
 import { person } from '../pipeline/rows.js';
 
 /*
@@ -22,8 +24,12 @@ import { person } from '../pipeline/rows.js';
  * config/closing_checklist.json lists it, the allocation lines and their tie-out, and the legal
  * terms (M22). The pipeline's opportunity detail and the closing detail share these readers so
  * the gates both show are computed from the same rows the machine sees. Every read runs under
- * the caller's row-level security: the closing follows its opportunity's wall.
+ * the caller's row-level security: the closing follows its opportunity's wall. The gate rules
+ * themselves (the checklist, the tie-out, what the closing gate needs) are the shared ones in
+ * @pb/workflows (controls-closing.ts), which the web preview follows too.
  */
+
+export { requiredItemsComplete } from '@pb/workflows';
 
 export const CLOSING_NOT_FOUND = 'Closing not found';
 export const CLOSING_ENTITY = 'deal.closing';
@@ -150,10 +156,6 @@ export async function loadLegalTerms(tx: Tx, closingId: string): Promise<LegalTe
   }));
 }
 
-/** The M8 gate: every required item received or waived. */
-export const requiredItemsComplete = (items: readonly ClosingItem[]): boolean =>
-  items.every((i) => !i.required || i.status !== 'open');
-
 export function closingSummaryOf(
   row: LoadedClosing,
   items: readonly ClosingItem[],
@@ -167,11 +169,22 @@ export function closingSummaryOf(
     state: closingStateOf(row.state),
     opsConfirmedBy: person(row.opsConfirmedById, row.opsConfirmedByName),
     opsConfirmedAt: row.opsConfirmedAt === null ? null : row.opsConfirmedAt.toISOString(),
-    itemsOpen: items.filter((i) => i.status === 'open').length,
-    itemsRequiredOpen: items.filter((i) => i.required && i.status === 'open').length,
+    ...checklistCounts(items),
     allocationTieOut: tieOut(row.commitmentAmount, allocations),
   };
 }
+
+/** The closing gate of a deal from the closing it has, or the gate of a deal with none yet. */
+export const closingGateOf = (view: ClosingView | null): ClosingGate =>
+  closingGate(
+    view === null
+      ? null
+      : {
+          state: view.summary.state,
+          items: view.items,
+          tiedOut: view.summary.allocationTieOut.tiedOut,
+        },
+  );
 
 /** The closing and everything the detail and the gates read, or null when the caller cannot see it. */
 export async function loadClosingView(

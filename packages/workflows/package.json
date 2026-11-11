@@ -19,5 +19,8 @@
   "scripts": {
     "build": "tsc -b",
     "test": "vitest run"
+  },
+  "dependencies": {
+    "@pb/calc": "workspace:*"
   }
 }

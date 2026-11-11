@@ -1,5 +1,5 @@
 import { asc, desc, eq, sql } from 'drizzle-orm';
-import type { SQL } from 'drizzle-orm';
+import type { AnyColumn, SQL } from 'drizzle-orm';
 import { alias } from 'drizzle-orm/pg-core';
 import { D, daysBetween } from '@pb/calc';
 import { dealStage, diligenceTaskStatus, icDecisionOutcome } from '@pb/contracts';
@@ -13,6 +13,8 @@ import type {
 } from '@pb/contracts';
 import { schema } from '@pb/db';
 import type { Tx } from '@pb/db';
+import { CLOSING_CONFIRMED_REFUSAL } from '@pb/workflows';
+import type { StageMove } from '@pb/workflows';
 import { ProblemError } from '../common/problem.js';
 
 /*
@@ -117,11 +119,7 @@ export function requireMoney(value: string | undefined, path: string): void {
  * and the checklist items of a confirmed closing stay as confirmed until it returns to Open.
  */
 export const closingConfirmed = (): ProblemError =>
-  new ProblemError(
-    422,
-    'workflow-precondition',
-    'the closing is confirmed; change the close date or ask operations to reopen it',
-  );
+  new ProblemError(422, 'workflow-precondition', CLOSING_CONFIRMED_REFUSAL);
 
 /** The problem when a command finds the record already changed by another command. */
 export const conflict = (what: string): ProblemError =>
@@ -260,6 +258,23 @@ export async function loadStageHistory(
     changedBy: { id: r.changedById, name: r.changedByName ?? NOT_VISIBLE },
     changedAt: r.changedAt.toISOString(),
   }));
+}
+
+/**
+ * An instant as the gates compare it (controls-closing.ts in @pb/workflows): the UTC timestamp to
+ * the microsecond in one fixed-width format, so the text sorts exactly as the database orders the
+ * column. A JavaScript date would round it to the millisecond.
+ */
+export const instantOf = (column: SQL | AnyColumn): SQL<string> =>
+  sql<string>`to_char(${column} at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US')`;
+
+/** The stage history as the gates read it: every move of the deal with the instant it was made. */
+export async function loadStageMoves(tx: Tx, opportunityId: string): Promise<StageMove[]> {
+  const h = schema.opportunityStageHistory;
+  return tx
+    .select({ fromStage: h.fromStage, toStage: h.toStage, at: instantOf(h.changedAt) })
+    .from(h)
+    .where(eq(h.opportunityId, opportunityId));
 }
 
 /** The diligence tasks by workstream (the taxonomy's order), then as created, then by title. */

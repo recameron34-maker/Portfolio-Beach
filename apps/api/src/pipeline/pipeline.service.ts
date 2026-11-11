@@ -18,10 +18,16 @@ import type {
 } from '@pb/contracts';
 import { schema } from '@pb/db';
 import type { Tx } from '@pb/db';
-import { attempt, closingMachine, dealStageMachine } from '@pb/workflows';
+import {
+  CLOSING_NOT_CONFIRMED_REFUSAL,
+  CLOSING_REENTERED_REASON,
+  attempt,
+  closingMachine,
+  dealStageMachine,
+} from '@pb/workflows';
 import type { ClosingState } from '@pb/workflows';
 import type { z } from 'zod';
-import { closingStateOf, loadClosingView, requiredItemsComplete } from '../closing/summary.js';
+import { closingGateOf, closingStateOf, loadClosingView } from '../closing/summary.js';
 import type { ClosingView } from '../closing/summary.js';
 import { decodeCursor, encodeCursor } from '../common/cursor.js';
 import { ProblemError, workflowProblem } from '../common/problem.js';
@@ -76,8 +82,7 @@ const UUID = '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}';
 /** The cursor is "receivedDate|id" of the last row, the list's sort key (newest received first). */
 const CURSOR = new RegExp(`^(\\d{4}-\\d{2}-\\d{2})\\|(${UUID})$`);
 /** The reason on record when a confirmed closing returns to Open because its deal came back to Closing. */
-const CLOSING_REENTERED =
-  'The deal reached Closing again with a new close date and commitment; operations confirm again';
+const CLOSING_REENTERED = CLOSING_REENTERED_REASON;
 
 const validation = (path: string, message: string): ProblemError =>
   new ProblemError(400, 'validation', 'Invalid body', [{ path, message }]);
@@ -243,11 +248,12 @@ export class PipelineService {
       const closing = await loadClosingView(tx, eq(closingTable.opportunityId, id), this.checklist);
       const gate = await diligenceGate(tx, id);
       const icApproved = await latestDecisionApproved(tx, id);
+      const closingGate = closingGateOf(closing);
       const record = {
         requiredTasksDone: gate.ok,
         icDecisionRecorded: icApproved,
-        closingChecklistComplete: closing !== null && requiredItemsComplete(closing.items),
-        allocationTiedOut: closing?.summary.allocationTieOut.tiedOut === true,
+        closingChecklistComplete: closingGate.checklistComplete,
+        allocationTiedOut: closingGate.allocationTiedOut,
         closingRecordReady:
           body.command === 'advance' &&
           body.closeDate !== undefined &&
@@ -294,11 +300,7 @@ export class PipelineService {
         );
       } else if (from === 'Closing' && to === 'Closed') {
         if (closing?.summary.state !== 'OpsConfirmed')
-          throw new ProblemError(
-            422,
-            'workflow-precondition',
-            'the closing is not confirmed by operations (M8)',
-          );
+          throw new ProblemError(422, 'workflow-precondition', CLOSING_NOT_CONFIRMED_REFUSAL);
         const created = await this.convert(tx, audit, locked, closing);
         patch.investmentId = created.investmentId;
         details.created = created;
@@ -408,18 +410,10 @@ export class PipelineService {
     const closing = await loadClosingView(tx, eq(closingTable.opportunityId, id), this.checklist);
     const gate = await diligenceGate(tx, id);
     const icApproved = await latestDecisionApproved(tx, id);
-    const checklistComplete = closing !== null && requiredItemsComplete(closing.items);
-    const allocationTiedOut = closing?.summary.allocationTieOut.tiedOut === true;
-    const confirmed = closing?.summary.state === 'OpsConfirmed';
     const gates: OpportunityGates = {
       diligence: gate,
       icDecision: { ok: icApproved },
-      closing: {
-        checklistComplete,
-        allocationTiedOut,
-        confirmed,
-        ok: checklistComplete && allocationTiedOut && confirmed,
-      },
+      closing: closingGateOf(closing),
     };
     return {
       ...toOpportunityRow(row, this.adapters.clock.today()),
@@ -596,11 +590,7 @@ export class PipelineService {
         .for('update')
     )[0];
     if (lockedClosing?.state !== 'OpsConfirmed')
-      throw new ProblemError(
-        422,
-        'workflow-precondition',
-        'the closing is not confirmed by operations (M8)',
-      );
+      throw new ProblemError(422, 'workflow-precondition', CLOSING_NOT_CONFIRMED_REFUSAL);
     const created = await convertToInvestment(
       tx,
       audit,
