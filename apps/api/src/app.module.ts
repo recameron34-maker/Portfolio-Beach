@@ -1,6 +1,6 @@
 import { MiddlewareConsumer, Module, NestModule } from '@nestjs/common';
 import type { DynamicModule } from '@nestjs/common';
-import { APP_FILTER, APP_GUARD } from '@nestjs/core';
+import { APP_FILTER, APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core';
 import { AnalyticsController } from './analytics/analytics.controller.js';
 import { AnalyticsService } from './analytics/analytics.service.js';
 import { AuditController } from './audit/audit.controller.js';
@@ -17,6 +17,7 @@ import { ClosingService } from './closing/closing.service.js';
 import { IdentityMiddleware } from './auth/identity.middleware.js';
 import { AuthGuard } from './auth/principal.js';
 import { FIELD_CIPHER } from './common/fieldCipher.js';
+import { IdempotencyInterceptor } from './common/idempotency.js';
 import { ProblemFilter } from './common/problem.js';
 import {
   ACCOUNTING_LAYOUT,
@@ -150,6 +151,8 @@ export class AppModule implements NestModule {
         PipelineService,
         ClosingService,
         { provide: APP_GUARD, useClass: AuthGuard },
+        // Idempotency-Key on the routes the contract marks idempotent (docs/17 section 3).
+        { provide: APP_INTERCEPTOR, useClass: IdempotencyInterceptor },
         { provide: APP_FILTER, useClass: ProblemFilter },
       ],
     };

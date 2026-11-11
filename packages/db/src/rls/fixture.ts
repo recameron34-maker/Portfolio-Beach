@@ -244,7 +244,14 @@ export async function loadFixture(handle: DbHandle): Promise<void> {
       ('${ids.exceptionOpenRun}', 'extraction', 'doc.extraction_run', '${ids.extractionRunOpen}', 'EXT-RUN-01', 'exception_severity.high', 'open'),
       ('${ids.exceptionWalledRun}', 'extraction', 'doc.extraction_run', '${ids.extractionRunWalled}', 'EXT-RUN-01', 'exception_severity.high', 'open');
   `);
-  // The Phase 3 controls (migration 0013). Base64 ciphertext carries no quotes, so it interpolates.
+  // The Idempotency-Key store (migration 0015): one completed key of operations and one pending
+  // key of the deal team, so the matrix can show that a row is its owner's alone, that a pending
+  // row may be completed or released and that a completed one never changes.
+  await handle.exec(`
+    insert into ops.idempotency_key (user_id, method, path, key, request_hash, response_status, response_body, response_etag) values
+      ('${u.operations}', 'POST', '/api/v1/valuations/${ids.valuationLocked}/commands', 'fixture-key-completed', 'sealed-fixture-digest-1', 200, '{"id": "${ids.valuationLocked}", "state": "Locked"}', '"2"'),
+      ('${u.dealTeam}', 'POST', '/api/v1/opportunities', 'fixture-key-pending', 'sealed-fixture-digest-2', null, null, null);
+  `);
   const enc = encryptBankDetails(fixtureCipher, FIXTURE_BANK_DETAILS);
   const masked = maskBankDetails(FIXTURE_BANK_DETAILS);
   await handle.exec(`

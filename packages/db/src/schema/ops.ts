@@ -5,6 +5,7 @@ import {
   integer,
   jsonb,
   pgSchema,
+  primaryKey,
   text,
   timestamp,
   uuid,
@@ -87,3 +88,23 @@ export const outbox = ops.table('outbox', {
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   publishedAt: timestamp('published_at', { withTimezone: true }),
 });
+
+/**
+ * The API's Idempotency-Key store (migration 0015, docs/17 section 3): one row per key a person
+ * sent on an idempotent route. responseStatus is null while the first request is still running.
+ */
+export const idempotencyKey = ops.table(
+  'idempotency_key',
+  {
+    userId: uuid('user_id').notNull(),
+    method: text('method').notNull(),
+    path: text('path').notNull(),
+    key: text('key').notNull(),
+    requestHash: text('request_hash').notNull(),
+    responseStatus: integer('response_status'),
+    responseBody: jsonb('response_body'),
+    responseEtag: text('response_etag'),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [primaryKey({ columns: [t.userId, t.method, t.path, t.key] })],
+);
