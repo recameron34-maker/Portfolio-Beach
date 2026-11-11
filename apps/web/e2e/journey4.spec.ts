@@ -1,20 +1,24 @@
 import { expect, test } from '@playwright/test';
 import type { Page } from '@playwright/test';
-import { addDays } from '@pb/calc';
-import { problemDetails } from '@pb/contracts';
+import { D, addDays } from '@pb/calc';
+import { problemDetails, wireInstructionDetail } from '@pb/contracts';
 import { generateDataset } from '@pb/synthetic';
-import { loadDataset, signInAs, switchTo } from './fixtures.js';
+import { apiCall, loadDataset, signInAs, switchTo } from './fixtures.js';
 
 /**
  * Critical journey 4 (docs/12 section 3, docs/18 sections 3 and 11, SEC-12) over the real API:
- * the `wire_change` capital call arrives with a second, unverified wire instruction. Operations
- * reviews it and drafts the trade ticket; the release is blocked by the changed instruction (and,
- * for the preparer, by dual control); the proposer cannot make the callback; a second operations
- * person verifies the new version by callback in the wire register, which lifts the hold; the
- * approver releases the ticket; operations confirms funding and reconciles, and the approved
- * contribution appears in the notice's cash flows and on the trade tickets page. Every id and
- * figure comes from the dataset the API is seeded with (small profile, seed 42), never from a
- * screen scrape, so the expectations name what the pages must show.
+ * the `wire_change` capital call arrives with a second, unverified wire instruction. A viewer
+ * reads the notice without any row of the wire register (the page says one is on file and that
+ * the register is restricted). Operations reviews it and drafts the trade ticket, for less than
+ * the notice asks; the release is blocked by the changed instruction (and, for the preparer, by
+ * dual control); the proposer cannot make the callback; a second operations person verifies the
+ * new version by callback in the wire register, which lifts the hold, and then cannot release
+ * the ticket either: inside the hold window the change takes a third person; the approver
+ * releases the ticket; operations confirms funding and reconciles, the approved contribution
+ * carries the funded amount and the notes say it differs from the notice. Last, a version that
+ * is older than a Verified one cannot be verified and its failed callback shows on the register.
+ * Every id and figure comes from the dataset the API is seeded with (small profile, seed 42),
+ * never from a screen scrape, so the expectations name what the pages must show.
  */
 const d = loadDataset();
 const full = generateDataset({ profile: 'small', seed: 42 });
@@ -40,6 +44,16 @@ const SECOND_PERSON_RULE =
 const CHANGED_WITHIN_HOLD =
   "The wire instructions changed within the hold window and wait for a second person's callback (SEC-12.3).";
 const SAME_PERSON = 'You prepared this ticket; a different person must approve it (SEC-12.3).';
+const THIRD_PERSON =
+  'The wire instructions changed recently and you proposed or verified that change; a third person must approve this ticket (SEC-12.3).';
+/** What a reader outside the wire register sees where a register row would stand (SEC-12.2). */
+const REGISTER_RESTRICTED = 'Restricted to the wire register';
+/** The older-version rule as the page words it on the disabled button (wires.ts, SEC-12.2). */
+const OLDER_VERSION_RULE =
+  'A newer version of this counterparty is already Verified; reject this older version instead (SEC-12.2)';
+const FUNDED_DIFFERS = 'Funded amount differs from the notice amount.';
+/** The ticket is drafted for 100,000.00 less than the notice asks, so the two figures read apart. */
+const fundedAmount = D(notice.amount).minus(100_000).toFixed(2);
 
 const user = (externalId: string): string => {
   const u = d.users.find((x) => x.externalId === externalId);
@@ -88,38 +102,62 @@ async function issue(page: Page, label: string): Promise<void> {
     .click();
 }
 
-test('operations reviews the call and drafts the ticket; the changed wire blocks the release until a second person verifies it; the approver releases; operations funds and reconciles', async ({
+test('a viewer reads the notice without the register; operations reviews the call and drafts the ticket; the changed wire blocks the release until a second person verifies it; a third person releases; operations funds and reconciles the funded amount; an older version is rejected, never verified', async ({
   page,
 }) => {
-  test.setTimeout(240_000);
+  test.setTimeout(300_000);
   expect(d.scenarios.wire_change?.[0], 'the scenario names the investment').toBe(investment.id);
+  expect(d.scenarios.walled_deal?.[0], 'the notice is not behind a wall').not.toBe(investment.id);
   expect(v1.state).toBe('Verified');
   expect(v2.state).toBe('Proposed');
+  expect(Number(notice.amount), 'the notice leaves room for a smaller ticket').toBeGreaterThan(
+    200_000,
+  );
+
+  const banner = page.getByTestId('notice-banner');
+  const alerts = page.getByTestId('notice-alerts');
+  const hold = page.getByTestId('wire-hold');
+  const ticketPanel = page.getByTestId('ticket-panel');
+  const release = page.getByTestId('ticket-release');
+  const wireCard = page.getByTestId('notice-wire');
+
+  // The notice as a viewer, outside the wire register (SEC-12.2): the alerts, the hold and the
+  // release check are all there, and no row of the register is: the card says a Verified
+  // instruction is on file and that the register is restricted, never that none is on file.
+  await signInAs(page, 'viewer.one', d);
+  await page.goto(`/capital-activity/${notice.id}`);
+  await expect(banner).toContainText(`Capital call: ${company.name}`);
+  await expect(alerts.getByRole('listitem')).toHaveCount(2);
+  await expect(hold).toContainText(shownDate(addDays(d.asOf, HOLD_DAYS)));
+  await expect(release.getByRole('listitem')).toHaveCount(1);
+  await expect(release).toContainText(CHANGED_WITHIN_HOLD);
+  await expect(wireCard).toContainText('A Verified instruction is on file');
+  await expect(wireCard).toContainText(
+    'Its details are kept in the wire register, which operations, approvers, auditors and platform admins read (SEC-12.2).',
+  );
+  await expect(wireCard).not.toContainText('No Verified instruction on file');
+  await expect(wireCard).not.toContainText(masked(v1));
+  await expect(wireCard).not.toContainText(v1.bankDetails.bankName);
+  await expect(wireCard.getByRole('link')).toHaveCount(0);
 
   // The notice as operations: both SEC-12.4 alerts, the hold, the seeded Drafted ticket and
   // every reason the release is blocked for the person who drafted it.
-  await signInAs(page, 'ops.one', d);
+  await switchTo(page, 'ops.one', d);
   await page.goto(`/capital-activity/${notice.id}`);
-  const banner = page.getByTestId('notice-banner');
   await expect(banner).toContainText(`Capital call: ${company.name}`);
   await expect(banner).toContainText('Extracted');
-  const alerts = page.getByTestId('notice-alerts');
   await expect(alerts).toContainText('Wire changed');
   await expect(alerts).toContainText('Urgency language');
   await expect(alerts.getByRole('listitem')).toHaveCount(2);
-  const hold = page.getByTestId('wire-hold');
   await expect(hold).toContainText(
     `Ticket approval is held until ${shownDate(addDays(d.asOf, HOLD_DAYS))} (${HOLD_DAYS} days, SEC-12.3)`,
   );
-  const ticketPanel = page.getByTestId('ticket-panel');
   await expect(ticketPanel).toContainText('Drafted');
   await expect(ticketPanel).toContainText(moneyM(notice.amount));
-  const release = page.getByTestId('ticket-release');
   await expect(release).toContainText('Release is blocked:');
   await expect(release.getByRole('listitem')).toHaveCount(2);
   await expect(release).toContainText(CHANGED_WITHIN_HOLD);
   await expect(release).toContainText(SAME_PERSON);
-  const wireCard = page.getByTestId('notice-wire');
   await expect(wireCard).toContainText(fund.name);
   await expect(wireCard).toContainText('Version 1');
   await expect(wireCard).toContainText('Verified');
@@ -137,8 +175,10 @@ test('operations reviews the call and drafts the ticket; the changed wire blocks
   await expect(draft.getByLabel('Funding date')).toHaveValue(notice.dueDate);
   await expect(draft.getByLabel('Amount (USD)')).toHaveValue(notice.amount);
   // The wire goes on the as-of date: the reconciliation dates the cash flow at the funding date,
-  // and the notice's readers see flows up to the as-of date only (the as-of bound).
+  // and the notice's readers see flows up to the as-of date only (the as-of bound). The ticket
+  // is drafted for less than the notice asks: what is funded is what the reconciliation books.
   await draft.getByLabel('Funding date').fill(d.asOf);
+  await draft.getByLabel('Amount (USD)').fill(fundedAmount);
   await draft.getByRole('button', { name: 'Draft ticket', exact: true }).click();
   await expect(noticeStatus(page)).toContainText(
     `Capital call for ${company.name} is now Ticket drafted (audited)`,
@@ -147,6 +187,9 @@ test('operations reviews the call and drafts the ticket; the changed wire blocks
   await expect(ticketPanel).toContainText('Drafted');
   await expect(ticketPanel).toContainText(user('ops.one'));
   await expect(ticketPanel).toContainText(shownDate(d.asOf));
+  await expect(ticketPanel).toContainText(moneyM(fundedAmount));
+  await expect(ticketPanel).not.toContainText(moneyM(notice.amount));
+  await expect(page.getByTestId('notice-notes')).not.toContainText(FUNDED_DIFFERS);
   await expect(release.getByRole('listitem')).toHaveCount(2);
 
   // Dual control (SEC-12.3): the preparer's own approval is refused by the rule, in the status region.
@@ -244,10 +287,27 @@ test('operations reviews the call and drafts the ticket; the changed wire blocks
   await page.goto('/capital-activity/wires');
   await expect(count).toContainText('0 versions waiting for a callback');
 
-  // The hold is lifted: the approver releases the ticket against version 2.
+  // The hold on the pending change is lifted, and inside the hold window the change takes a
+  // third person (SEC-12.3): the person whose callback verified it sees the blocker, and the
+  // API refuses their approval with the same rule.
+  await page.goto(`/capital-activity/${notice.id}`);
+  await expect(hold).toHaveCount(0);
+  await expect(release).toContainText('Release is blocked:');
+  await expect(release.getByRole('listitem')).toHaveCount(1);
+  await expect(release).toContainText(THIRD_PERSON);
+  await issue(page, 'Approve ticket');
+  await expect(noticeStatus(page)).toContainText(
+    'Approve ticket: Blocked by a rule. The wire instruction changed recently: the person who verified the change cannot approve the release, a third person must (SEC-12.3)',
+  );
+  await expect(banner).toContainText('Ticket drafted');
+
+  // The approver proposed and verified nothing: a third person, who releases against version 2.
   await switchTo(page, 'head.one', d);
   await page.goto(`/capital-activity/${notice.id}`);
   await expect(release).toContainText('Release allowed');
+  await expect(release).toContainText(
+    'you neither proposed nor verified a change inside the hold window',
+  );
   await expect(hold).toHaveCount(0);
   await expect(wireCard).toContainText('Version 2');
   await expect(wireCard).toContainText(masked(v2));
@@ -272,6 +332,8 @@ test('operations reviews the call and drafts the ticket; the changed wire blocks
   );
   await expect(ticketPanel).toContainText('Funded');
   await expect(release).toContainText('Nothing to release: the ticket is Funded.');
+  // What left the account is the ticket's amount, not the notice's: the notes say so.
+  await expect(page.getByTestId('notice-notes')).toContainText(FUNDED_DIFFERS);
   await issue(page, 'Reconcile');
   await expect(noticeStatus(page)).toContainText(
     `Capital call for ${company.name} is now Reconciled (audited)`,
@@ -285,11 +347,13 @@ test('operations reviews the call and drafts the ticket; the changed wire blocks
   const flow = flows.getByRole('row').nth(1);
   await expect(flow).toContainText(shownDate(d.asOf));
   await expect(flow).toContainText('Contribution');
-  await expect(flow).toContainText(moneyM(`-${notice.amount}`));
+  // The reconciliation books the amount the ticket was approved and funded for.
+  await expect(flow).toContainText(moneyM(`-${fundedAmount}`));
   await expect(flow).toContainText('Approved');
-  await expect(
-    page.getByTestId('notice-tiles').getByRole('group', { name: 'Settled' }),
-  ).toContainText(moneyM(notice.amount));
+  const tiles = page.getByTestId('notice-tiles');
+  await expect(tiles.getByRole('group', { name: 'Settled' })).toContainText(moneyM(fundedAmount));
+  await expect(tiles.getByRole('group', { name: 'Amount' })).toContainText(moneyM(notice.amount));
+  await expect(page.getByTestId('notice-notes')).toContainText(FUNDED_DIFFERS);
 
   // The trade tickets page lists the ticket as Funded against version 2, approved by the approver.
   await page.goto('/capital-activity/tickets');
@@ -299,4 +363,90 @@ test('operations reviews the call and drafts the ticket; the changed wire blocks
   await expect(ticketRow).toContainText(`Capital call: ${company.name}`);
   await expect(ticketRow).toContainText('Funded');
   await expect(ticketRow).toContainText(user('head.one'));
+  await expect(ticketRow).toContainText(moneyM(fundedAmount));
+
+  // The settled notice as a viewer: the cash flow and the note are there; the version the
+  // ticket was approved against is a register row, so the panel says it is restricted.
+  await switchTo(page, 'viewer.one', d);
+  await page.goto(`/capital-activity/${notice.id}`);
+  await expect(banner).toContainText('Reconciled');
+  await expect(page.getByTestId('notice-notes')).toContainText(FUNDED_DIFFERS);
+  await expect(ticketPanel).toContainText(user('head.one'));
+  await expect(ticketPanel.getByText(REGISTER_RESTRICTED)).toHaveCount(2);
+  await expect(ticketPanel).not.toContainText(masked(v2));
+  await expect(wireCard).toContainText('A Verified instruction is on file');
+  await expect(wireCard).not.toContainText(masked(v2));
+
+  // A version older than a Verified one (docs/18 section 11): operations proposes a third and
+  // a fourth version (through the API, with synthetic details typed for the journey), the
+  // second operations person verifies the fourth, and the third can then only be rejected.
+  const proposeVersion = (accountNumber: string) =>
+    apiCall(page, 'POST', '/api/v1/wire-instructions', 'ops.one', wireInstructionDetail, {
+      sponsorFundId: fund.id,
+      counterpartyName: fund.name,
+      bankDetails: {
+        bankName: 'Journey Street Bank',
+        accountName: fund.name,
+        accountNumber,
+        routingCode: '900000017',
+      },
+      sourceNote: 'Typed for journey 4',
+    });
+  const v3 = await proposeVersion('5550003333');
+  const v4 = await proposeVersion('5550004444');
+  expect([v3.version, v4.version]).toEqual([3, 4]);
+  const verifiedV4 = await apiCall(
+    page,
+    'POST',
+    `/api/v1/wire-instructions/${v4.id}/commands`,
+    'ops.two',
+    wireInstructionDetail,
+    { command: 'verify', callbackNumberSource: 'fund_administrator', callbackResult: 'confirmed' },
+  );
+  expect(verifiedV4).toMatchObject({ state: 'Verified', active: true });
+
+  await switchTo(page, 'ops.two', d);
+  await page.goto(`/capital-activity/wires/${v3.id}`);
+  await expect(wireBanner).toContainText(`${fund.name}: version 3`);
+  await expect(wireBanner).toContainText('Proposed');
+  await expect(page.getByTestId('wire-older-version')).toContainText(OLDER_VERSION_RULE);
+  await pick(page, 'Number source', 'Known contact');
+  await pick(page, 'Result', 'Confirmed');
+  const olderVerify = callback.getByRole('button', {
+    name: 'Record callback and verify',
+    exact: true,
+  });
+  await expect(olderVerify).toBeDisabled();
+  await expect(olderVerify).toHaveAttribute('title', OLDER_VERSION_RULE);
+  // The API refuses the same command with the same rule should the page be bypassed.
+  const overNewer = await page.request.post(`/api/v1/wire-instructions/${v3.id}/commands`, {
+    headers: { authorization: 'Bearer ops.two', accept: 'application/json' },
+    data: {
+      command: 'verify',
+      callbackNumberSource: 'known_contact',
+      callbackResult: 'confirmed',
+    },
+  });
+  expect(overNewer.status()).toBe(422);
+  expect(problemDetails.parse(await overNewer.json()).detail).toBe(
+    `wire_instruction: ${OLDER_VERSION_RULE.charAt(0).toLowerCase()}${OLDER_VERSION_RULE.slice(1)}`,
+  );
+  // A callback that did not confirm rejects it: the result and the number source are logged
+  // together, and the failed callback stands out on the register row.
+  await pick(page, 'Result', 'Not confirmed');
+  await callback.getByLabel('Reason').fill('Superseded by version 4 before its callback');
+  await callback.getByRole('button', { name: 'Record callback and reject', exact: true }).click();
+  await expect(page.getByTestId('wire-action-status')).toContainText(
+    `Version 3 for ${fund.name} is now Rejected (audited)`,
+  );
+  await expect(wireBanner).toContainText('Rejected');
+  await expect(page.getByTestId('wire-callback')).toContainText('Not confirmed');
+  await page.goto('/capital-activity/wires');
+  await pick(page, 'State', 'Rejected');
+  const rejectedRow = register.getByRole('row').filter({ hasText: 'Version 3' });
+  await expect(rejectedRow).toHaveCount(1);
+  await expect(rejectedRow).toContainText('Callback failed');
+  await expect(rejectedRow).toContainText(`${user('ops.two')}: not confirmed (known contact)`);
+  await expect(rejectedRow).toContainText('Journey Street Bank ****3333');
+  await expect(rejectedRow).not.toContainText('5550003333');
 });

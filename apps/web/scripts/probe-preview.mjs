@@ -9,7 +9,9 @@ import { extname, join, resolve, sep } from 'node:path';
 import { chromium } from '@playwright/test';
 import { addDays, latestQuarterEndOnOrBefore, toDollars } from '@pb/calc';
 import { accountingExports, generateDataset } from '@pb/synthetic';
+import { readsRegister } from '@pb/workflows';
 import { keyFor } from './preview-plan.mjs';
+import { bankDetailLeaks } from './preview-wires.mjs';
 
 const root = resolve(process.env.PB_PREVIEW_OUT ?? 'dist-preview');
 const shell = join(root, 'index.html');
@@ -946,6 +948,84 @@ if (staleDetail === undefined) {
   );
 }
 
+// ---- The wire register in the published bundle (WEB-1, D1-05) --------------------------------
+
+// Nothing published carries a full account number, a routing code or a payment reference of the
+// register in clear: the book holds each version in its masked form, the recordings none at all.
+{
+  const publishedFiles = JSON.parse(readFileSync(join(root, 'publish.json'), 'utf8')).files;
+  const textFiles = ['artifact.html', ...publishedFiles].filter((f) =>
+    /\.(json|csv|js|css|html|txt|svg)$/.test(f),
+  );
+  const leaks = textFiles.flatMap((f) =>
+    bankDetailLeaks(d, readFileSync(join(root, f), 'utf8')).map(
+      (leak) => `${f}: ${leak.field} of ${leak.id}`,
+    ),
+  );
+  check(
+    `preview bundle: no full account number, routing code or reference of the register in ${textFiles.length} published text files`,
+    textFiles.includes('preview/book.json') &&
+      textFiles.includes('preview/fixtures.json') &&
+      leaks.length === 0,
+    leaks.slice(0, 3).join(' | '),
+  );
+  check(
+    'preview bundle: the book carries every wire instruction as its id and its masked form, nothing else',
+    Array.isArray(book.wireInstructions) &&
+      book.wireInstructions.length === d.wireInstructions.length &&
+      book.wireInstructions.every(
+        (w) =>
+          Object.keys(w).sort().join() === 'bankDetailsMasked,id' &&
+          /^.+ \*{4}\d{4}$/.test(w.bankDetailsMasked),
+      ),
+  );
+  // The register's row, even masked, is recorded for the register's readers only (D1-05): the
+  // notice detail, the ticket list and the ticket of every other role carry none.
+  const outside = d.users.filter((u) => !readsRegister(u));
+  const rowsOutside = [];
+  for (const u of outside) {
+    for (const n of d.capitalNotices) {
+      const r = recorded(u.externalId, `/api/v1/capital-notices/${n.id}`);
+      if (r.status !== 200) continue;
+      if (
+        r.json.activeWireInstruction !== null ||
+        (r.json.ticket?.wireInstruction ?? null) !== null
+      )
+        rowsOutside.push(`${u.externalId} notice ${n.id}`);
+    }
+    const list = recorded(u.externalId, '/api/v1/trade-tickets?limit=200');
+    if (list.status === 200 && list.json.items.some((t) => t.wireInstruction !== null))
+      rowsOutside.push(`${u.externalId} ticket list`);
+  }
+  check(
+    `recordings: no notice or ticket recorded for the ${outside.length} users outside the register carries a register row`,
+    outside.length > 0 && rowsOutside.length === 0,
+    rowsOutside.slice(0, 3).join(' | '),
+  );
+  // The page: the simulated reveal shows a clear reader the masked values of a recorded version
+  // and says that the full details are not part of the preview.
+  const shown = d.wireInstructions[0];
+  const card = await (async () => {
+    try {
+      await signIn('ops.one');
+      await page.goto(`${origin}/#/capital-activity/wires/${shown.id}`);
+      await page.getByTestId('wire-details-reveal').click({ timeout: 15_000 });
+      return await page.getByTestId('wire-instruction').innerText();
+    } catch (error) {
+      return `the reveal did not open: ${error instanceof Error ? error.message.split('\n')[0] : 'unknown error'}`;
+    }
+  })();
+  check(
+    'wire register page: the reveal shows operations the masked values and says full details are not part of the preview',
+    card.includes(`Ends in ${shown.bankDetails.accountNumber.slice(-4)}`) &&
+      card.includes('Not part of the preview') &&
+      card.includes('Full bank details are not part of this preview') &&
+      !card.includes(shown.bankDetails.accountNumber) &&
+      !card.includes(shown.bankDetails.routingCode),
+    card.startsWith('the reveal did not open') ? card : '',
+  );
+}
+
 const wire = d.capitalNotices.find((n) => n.scenarioTag === 'wire_change');
 const wireFund = d.investments.find((i) => i.id === wire.investmentId)?.sponsorFundId;
 if (recorded('ops.one', `/api/v1/capital-notices/${wire.id}`).status !== 200) {
@@ -1021,9 +1101,27 @@ if (recorded('ops.one', `/api/v1/capital-notices/${wire.id}`).status !== 200) {
   );
   const afterCallback = (await api('head.one', 'GET', `/api/v1/capital-notices/${wire.id}`)).json;
   check(
-    'capital notice: the hold lifts and the ticket may be released',
+    'capital notice: the hold lifts and the ticket may be released by a third person',
     afterCallback?.wireChangeHold === null && afterCallback?.ticket?.release?.allowed === true,
     JSON.stringify(afterCallback?.ticket?.release),
+  );
+  // Inside the hold window the change takes a third person (SEC-12.3): the person whose callback
+  // verified it sees the blocker and is refused with the API's sentence.
+  const verifierRelease = (await api('ops.two', 'GET', `/api/v1/capital-notices/${wire.id}`)).json
+    ?.ticket?.release;
+  check(
+    'capital notice: the verifier of the change sees the third-person blocker',
+    verifierRelease?.allowed === false &&
+      verifierRelease?.blockers?.join() === 'verifier_within_hold',
+    JSON.stringify(verifierRelease),
+  );
+  const byVerifier = await run('ops.two', { command: 'approveTicket' });
+  expectStatus(
+    'capital notice: the verifier of the change cannot approve the release (422, SEC-12.3)',
+    byVerifier,
+    422,
+    byVerifier.json?.detail ===
+      'capital_notice: the wire instruction changed recently: the person who verified the change cannot approve the release, a third person must (SEC-12.3)',
   );
   const approved = await run('head.one', { command: 'approveTicket' });
   expectStatus(
@@ -1045,29 +1143,126 @@ if (recorded('ops.one', `/api/v1/capital-notices/${wire.id}`).status !== 200) {
     reason: 'Wire confirmed by the bank',
   });
   expectStatus(
-    'capital notice: ops.one reconciles (200); one approved cash flow and no note',
+    "capital notice: ops.one reconciles (200); one approved cash flow for the ticket's amount and no note",
     reconciled,
     200,
     reconciled.json?.state === 'Reconciled' &&
       reconciled.json?.cashFlows?.length === 1 &&
+      reconciled.json?.cashFlows?.[0]?.amount === `-${reconciled.json?.ticket?.amount}` &&
       reconciled.json?.notes?.length === 0,
   );
+  // The register's row, even masked, goes to the register's readers only (D1-05): a viewer gets
+  // none on the notice or the ticket, and the alerts say a Verified instruction is on file.
+  if (viewerSees) {
+    const asViewer = (await api('viewer.one', 'GET', `/api/v1/capital-notices/${wire.id}`)).json;
+    check(
+      'capital notice: a viewer gets no register row on the notice or its ticket; the alerts say an instruction is on file',
+      asViewer?.state === 'Reconciled' &&
+        asViewer?.activeWireInstruction === null &&
+        asViewer?.ticket?.wireInstruction === null &&
+        asViewer?.alerts?.includes('unverified_instruction') === false &&
+        !/\*{4}\d{4}/.test(JSON.stringify(asViewer)),
+    );
+  }
+  const asOperations = (await api('ops.one', 'GET', `/api/v1/capital-notices/${wire.id}`)).json;
+  check(
+    'capital notice: operations get the active version and the version the ticket was approved against, masked',
+    asOperations?.activeWireInstruction?.id === proposed?.id &&
+      asOperations?.ticket?.wireInstruction?.id === proposed?.id &&
+      /^.+ \*{4}\d{4}$/.test(asOperations?.activeWireInstruction?.bankDetailsMasked ?? ''),
+  );
+  // The preview holds the masked form of a recorded version only (WEB-1): the reveal answers
+  // null to operations as to the auditor, and the page shows the masked values with a note.
   const revealed = (await api('ops.one', 'GET', `/api/v1/wire-instructions/${proposed?.id}`)).json;
   const maskedForAuditor = (
     await api('audit.one', 'GET', `/api/v1/wire-instructions/${proposed?.id}`)
   ).json;
   check(
-    'wire register: the reveal answers the synthetic details to operations from the book, null to the auditor',
-    revealed?.bankDetails?.accountNumber !== undefined && maskedForAuditor?.bankDetails === null,
+    'wire register: the reveal of a recorded version answers the masked form only, to operations as to the auditor',
+    revealed?.bankDetails === null &&
+      maskedForAuditor?.bankDetails === null &&
+      /^.+ \*{4}\d{4}$/.test(revealed?.bankDetailsMasked ?? ''),
   );
   check(
     'wire register: the recordings carry no bank details for any credential',
-    d.users.every(
-      (u) =>
-        recorded(u.externalId, `/api/v1/wire-instructions/${proposed?.id}`).json?.bankDetails ===
-          null ||
-        recorded(u.externalId, `/api/v1/wire-instructions/${proposed?.id}`).status !== 200,
+    d.users.every((u) =>
+      d.wireInstructions.every((w) => {
+        const r = recorded(u.externalId, `/api/v1/wire-instructions/${w.id}`);
+        return r.status !== 200 || r.json?.bankDetails === null;
+      }),
     ),
+  );
+  // A version a person types in the session is shown back to that session's clear readers,
+  // and to nobody else; a version older than a Verified one is rejected, never verified.
+  const typed = {
+    bankName: 'Probe Street Bank',
+    accountName: 'Probe account',
+    accountNumber: '1234500099',
+    routingCode: '900000017',
+  };
+  const proposeTyped = () =>
+    api('ops.one', 'POST', '/api/v1/wire-instructions', {
+      sponsorFundId: wireFund,
+      counterpartyName: d.sponsorFunds.find((f) => f.id === wireFund)?.name ?? 'Probe fund',
+      bankDetails: typed,
+    });
+  const older = await proposeTyped();
+  const olderPath = `/api/v1/wire-instructions/${older.json?.id}`;
+  expectStatus(
+    'wire register: ops.one proposes a version by hand (201); what was typed is shown back to operations and the approver, never to the auditor',
+    older,
+    201,
+    older.json?.bankDetails?.accountNumber === typed.accountNumber &&
+      (await api('head.one', 'GET', olderPath)).json?.bankDetails?.routingCode ===
+        typed.routingCode &&
+      (await api('audit.one', 'GET', olderPath)).json?.bankDetails === null &&
+      (await api('audit.one', 'GET', olderPath)).json?.bankDetailsMasked ===
+        'Probe Street Bank ****0099',
+  );
+  const newer = await proposeTyped();
+  expectStatus(
+    'wire register: a newer version is proposed and verified while the older one still waits (200)',
+    await api(
+      'ops.two',
+      'POST',
+      `/api/v1/wire-instructions/${newer.json?.id}/commands`,
+      verifyBody,
+    ),
+    200,
+    newer.json?.version === (older.json?.version ?? 0) + 1,
+  );
+  const overNewer = await api('ops.two', 'POST', `${olderPath}/commands`, verifyBody);
+  expectStatus(
+    'wire register: the older Proposed version is not verified over the newer Verified one (422, SEC-12.2)',
+    overNewer,
+    422,
+    overNewer.json?.detail ===
+      'wire_instruction: a newer version of this counterparty is already Verified; reject this older version instead (SEC-12.2)',
+  );
+  const resultOnly = await api('ops.two', 'POST', `${olderPath}/commands`, {
+    command: 'reject',
+    callbackResult: 'not_confirmed',
+    reason: 'Superseded before its callback',
+  });
+  expectStatus(
+    'wire register: a failed callback without its number source is refused with the field (400, SEC-12.2)',
+    resultOnly,
+    400,
+    resultOnly.json?.errors?.[0]?.path === 'callbackNumberSource',
+  );
+  const failedCallback = await api('ops.two', 'POST', `${olderPath}/commands`, {
+    command: 'reject',
+    callbackNumberSource: 'known_contact',
+    callbackResult: 'not_confirmed',
+    reason: 'Superseded before its callback',
+  });
+  expectStatus(
+    'wire register: the older version is rejected with its failed callback logged (200)',
+    failedCallback,
+    200,
+    failedCallback.json?.state === 'Rejected' &&
+      failedCallback.json?.callback?.result === 'not_confirmed' &&
+      failedCallback.json?.callback?.numberSource === 'known_contact',
   );
   const tickets = (await api('ops.one', 'GET', '/api/v1/trade-tickets?limit=200')).json;
   check(
