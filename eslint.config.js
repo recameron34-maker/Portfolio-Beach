@@ -37,6 +37,8 @@ export default tseslint.config(
       'apps/web/.e2e/**',
       'apps/web/playwright-report/**',
       'apps/web/test-results/**',
+      'apps/site/media/**',
+      'apps/site/.wrangler/**',
     ],
   },
   js.configs.recommended,

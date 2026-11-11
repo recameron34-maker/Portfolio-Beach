@@ -1,0 +1,226 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Portfolio Beach: controls and security</title>
+    <meta
+      name="description"
+      content="What the Portfolio Beach prototype enforces: roles, walls, segregation of duties, the valuation lock, wire controls, human review of AI output and the audit trail."
+    />
+    <link rel="stylesheet" href="brochure.css" />
+  </head>
+  <body>
+    <!-- Page 1: access, segregation of duties, the lock, the audit trail -->
+    <section class="page cover">
+      <div class="cover-scene">
+        <svg
+          class="swell swell-a"
+          viewBox="0 0 1600 160"
+          preserveAspectRatio="none"
+          aria-hidden="true"
+        >
+          <path
+            d="M0 40 C50 30 150 30 200 40 S350 50 400 40 S550 30 600 40 S750 50 800 40 S950 30 1000 40 S1150 50 1200 40 S1350 30 1400 40 S1550 50 1600 40 V160 H0 Z"
+          />
+        </svg>
+        <svg
+          class="swell swell-b"
+          viewBox="0 0 1600 160"
+          preserveAspectRatio="none"
+          aria-hidden="true"
+        >
+          <path
+            d="M0 40 C50 50 150 50 200 40 S350 30 400 40 S550 50 600 40 S750 30 800 40 S950 50 1000 40 S1150 30 1200 40 S1350 50 1400 40 S1550 30 1600 40 V160 H0 Z"
+          />
+        </svg>
+        <svg class="shore" viewBox="0 0 1600 64" preserveAspectRatio="none" aria-hidden="true">
+          <path
+            class="sand"
+            d="M0 20 C50 12 150 12 200 20 S350 28 400 20 S550 12 600 20 S750 28 800 20 S950 12 1000 20 S1150 28 1200 20 S1350 12 1400 20 S1550 28 1600 20 V64 H0 Z"
+          />
+          <path
+            class="foam"
+            d="M0 20 C50 12 150 12 200 20 S350 28 400 20 S550 12 600 20 S750 28 800 20 S950 12 1000 20 S1150 28 1200 20 S1350 12 1400 20 S1550 28 1600 20"
+          />
+        </svg>
+        <div class="cover-text">
+          <span class="wordmark">Portfolio Beach</span>
+          <p class="kicker">Controls and security</p>
+          <h1>What the prototype enforces.</h1>
+          <p class="subtitle">
+            The rules that are built and covered by tests in the repository, in plain words.
+          </p>
+        </div>
+        <span class="chip">Prototype, synthetic data only</span>
+      </div>
+
+      <p class="lead">
+        A portfolio system holds sponsor financials, valuations, client positions and payment
+        instructions. Portfolio Beach is designed so that a number a client could see cannot change
+        silently, and so that a person sees only what their role and entitlements allow. Access
+        rules are enforced twice: by the application’s API and again by row-level security in the
+        database.
+      </p>
+
+      <div class="section cols-2">
+        <div class="card">
+          <h3>Roles and entitlements</h3>
+          <p>
+            Seven roles: viewer, deal team, operations, approver, investor relations, platform admin
+            and auditor. Client data is visible only to users entitled to that client. Each role
+            reads what its access matrix allows and nothing else.
+          </p>
+        </div>
+        <div class="card">
+          <h3>Walls around restricted deals</h3>
+          <p>
+            A walled deal is visible only to its named members. For everyone else the record answers
+            as not found, so its existence is not revealed. When a walled deal closes, the position
+            it becomes stays behind the same wall.
+          </p>
+        </div>
+        <div class="card">
+          <h3>The preparer never approves</h3>
+          <p>
+            The person who prepares a valuation cannot approve it, and the person who drafts a trade
+            ticket cannot approve its release. The check compares people, not roles.
+          </p>
+        </div>
+        <div class="card">
+          <h3>Every change is audited</h3>
+          <p>
+            A change to a number a client could see is written to an append-only audit trail: who,
+            what, when and why. The financial tables keep their full history.
+          </p>
+        </div>
+      </div>
+
+      <div class="section split">
+        <div>
+          <h2>Locked means locked</h2>
+          <p class="muted">
+            A valuation moves from Draft to Ops prepared to Deal team approved to Locked. The lock
+            is a SHA-256 hash over the version, the method, its inputs and the fair value.
+          </p>
+          <ul class="ticks section">
+            <li>A Locked valuation cannot be updated in place: the database refuses it.</li>
+            <li>
+              A correction reopens it into a new version, with a reason and a task for each prior
+              approver.
+            </li>
+            <li>Reports and analytics read Locked valuations only.</li>
+          </ul>
+        </div>
+        <figure>
+          <div class="shot crop tall">
+            <img src="../media/screens/valuation-lock.webp" alt="" />
+          </div>
+          <figcaption>
+            A Locked version: its steps, the lock text with its hash, and three approvals by three
+            people.
+          </figcaption>
+        </figure>
+      </div>
+
+      <div class="page-foot">
+        <span>Prototype. Synthetic data only: no real firm, fund, company or person appears.</span>
+        <span class="number">1 / 2</span>
+      </div>
+    </section>
+
+    <!-- Page 2: payments, AI output, staging, what the prototype does not include -->
+    <section class="page">
+      <div class="page-head">
+        <span class="wordmark">Portfolio Beach</span
+        ><span class="title">Controls and security</span>
+      </div>
+
+      <div class="section split flip">
+        <figure>
+          <div class="shot crop tall focus">
+            <img src="../media/screens/capital-notice.webp" alt="" />
+          </div>
+          <figcaption>
+            A capital call that arrived with changed wire instructions: the hold on the release and
+            the alerts for a changed wire and urgent language.
+          </figcaption>
+        </figure>
+        <div>
+          <h2>Payment controls</h2>
+          <ul class="ticks">
+            <li>
+              Bank details come only from a versioned wire register. They are never extracted from a
+              document.
+            </li>
+            <li>
+              A new or changed instruction is verified only by a second person’s callback to an
+              independently sourced number.
+            </li>
+            <li>
+              A changed instruction holds the release of the trade ticket. Inside the hold window
+              the approval takes a third person, who neither proposed nor verified the change.
+            </li>
+            <li>
+              Bank details are encrypted, and masked for every role except operations and approvers.
+              Each clear read is audited.
+            </li>
+          </ul>
+        </div>
+      </div>
+
+      <div class="section split">
+        <div>
+          <h2>AI output goes through a person</h2>
+          <ul class="ticks">
+            <li>A tag below the confidence threshold waits in a review queue.</li>
+            <li>
+              Extracted values are staged with a unit, a page, a short quote and a confidence. They
+              reach the record only after a reviewer approves.
+            </li>
+            <li>Draft highlights and commentary carry an AI draft label until accepted.</li>
+            <li>Each AI feature sits behind a kill switch that a platform admin can turn off.</li>
+          </ul>
+          <p class="small muted section">
+            In the prototype the classifier is keyword based and the extraction model is a mock over
+            synthetic documents. No real model is called.
+          </p>
+        </div>
+        <figure>
+          <div class="shot crop tall"><img src="../media/screens/extraction.webp" alt="" /></div>
+          <figcaption>
+            Extraction review: each value with its page and quote, beside the page it was read from.
+          </figcaption>
+        </figure>
+      </div>
+
+      <div class="section cols-2">
+        <div class="card">
+          <h3>Staging before the record</h3>
+          <p>
+            Imported files and extracted values land in staging first. Nothing is written to a core
+            financial table without validation and a person’s approval.
+          </p>
+        </div>
+        <div class="card">
+          <h3>Synthetic data, mock sign-in</h3>
+          <p>
+            The prototype runs on synthetic data and signs in with a picker of synthetic users. The
+            application refuses to start in production mode with any mock adapter or mock identity.
+          </p>
+        </div>
+      </div>
+
+      <p class="note section">
+        Not part of the prototype: single sign-on with multi-factor authentication, private
+        networking, managed encryption keys and security monitoring. They belong to deployment
+        inside a firm’s own environment. In the interactive demo, changes are simulated in the
+        browser and are not written to an audit trail.
+      </p>
+
+      <div class="page-foot">
+        <span>Prototype. Synthetic data only: no real firm, fund, company or person appears.</span>
+        <span class="number">2 / 2</span>
+      </div>
+    </section>
+  </body>
+</html>

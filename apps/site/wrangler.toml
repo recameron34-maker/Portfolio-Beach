@@ -1,0 +1,18 @@
+# The Portfolio Beach site as static assets on a Worker (wrangler 4.146.0; the keys below were
+# checked against that version's config-schema.json and "deploy --help", not written from memory).
+#
+# This file names no route, no domain, no account and no zone, on purpose: a deploy that is not
+# given a domain explicitly must never take one. The one domain lives in the repository variable
+# SITE_DOMAIN and is passed on the command line by .github/workflows/site.yml, which only a
+# person can start. See README.md, "Publishing".
+name = "portfolio-beach-site"
+compatibility_date = "2026-10-01"
+# No usage metrics from this project, on any machine.
+send_metrics = false
+
+[assets]
+directory = "./dist"
+# /demo/index.html is served at /demo/, so the demo's relative asset paths keep resolving.
+html_handling = "auto-trailing-slash"
+# dist/404.html, with status 404, for an address that matches no file.
+not_found_handling = "404-page"

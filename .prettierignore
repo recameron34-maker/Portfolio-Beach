@@ -10,4 +10,6 @@ uv.lock
 *.md
 apps/worker-py/.venv
 apps/web/src/routeTree.gen.ts
+apps/site/media
+apps/site/.wrangler
 .claude/worktrees

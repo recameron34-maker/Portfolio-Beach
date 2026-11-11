@@ -1,0 +1,219 @@
+import { readFileSync, readdirSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { describe, expect, it } from 'vitest';
+import { contrast, tokenSets, tokensCss } from '../scripts/lib/tokens.mjs';
+import * as content from './content/site.js';
+import { escapeHtml, html, trusted } from './render/html.js';
+import { lengthText, sizeText } from './render/media.js';
+import type { Media } from './render/media.js';
+import { renderNotFound } from './render/not-found.js';
+import { renderPage } from './render/page.js';
+
+const here = dirname(fileURLToPath(import.meta.url));
+const site = join(here, '..');
+
+/** A stand-in for the generated media: the names the page asks for, with made-up sizes. */
+function media(): Media {
+  const shots = [content.OVERVIEW.heroShot.name, ...content.TOUR.features.map((f) => f.shot)];
+  return {
+    screens: new Map(
+      shots.map((name) => [
+        name,
+        { name, width: 1440, height: 900, file: `${name}.webp`, file2x: `${name}-2x.webp` },
+      ]),
+    ),
+    videos: [
+      {
+        name: 'tour',
+        title: 'A first look',
+        summary: 'A walk through the tool.',
+        file: 'tour.webm',
+        poster: 'tour.webp',
+        width: 1280,
+        height: 720,
+        seconds: 58.4,
+        bytes: 5_100_000,
+        steps: [{ at: 4, text: 'A <caption> with markup in it' }],
+      },
+    ],
+    brochures: [
+      {
+        name: 'product-overview',
+        title: 'Product overview',
+        description: 'What it is.',
+        file: 'portfolio-beach-product-overview.pdf',
+        cover: 'product-overview.webp',
+        pages: 3,
+        bytes: 3_000_000,
+      },
+    ],
+  };
+}
+
+/** Every string the content file holds, however deep. */
+function strings(value: unknown): string[] {
+  if (typeof value === 'string') return [value];
+  if (Array.isArray(value)) return value.flatMap(strings);
+  if (typeof value === 'object' && value !== null) return Object.values(value).flatMap(strings);
+  return [];
+}
+
+describe('the HTML builder', () => {
+  it('escapes interpolated text and passes nested markup through', () => {
+    const inner = html`<b>${'a < b & "c"'}</b>`;
+    expect(html`<p title="${'x"y'}">${inner}${['1', '2']}${null}${false}</p>`.value).toBe(
+      '<p title="x&quot;y"><b>a &lt; b &amp; &quot;c&quot;</b>12</p>',
+    );
+    expect(escapeHtml('<script>')).toBe('&lt;script&gt;');
+    expect(html`${trusted('<i>as written</i>')}`.value).toBe('<i>as written</i>');
+  });
+});
+
+describe('the tokens', () => {
+  const sets = tokenSets();
+
+  it('defines light on :root and dark twice: for the system setting unless switched to light, and when switched to dark', () => {
+    const css = tokensCss();
+    expect(css).toContain(':root{color-scheme:light;');
+    expect(css).toContain(
+      '@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){color-scheme:dark;',
+    );
+    expect(css).toContain(':root[data-theme="dark"]{color-scheme:dark;');
+    expect(css).toContain('--pb-bg:');
+    expect(css).toContain('--pb-bg-rgb:');
+  });
+
+  it('holds the same keys in both themes, so no property is left over from the other one', () => {
+    expect(Object.keys(sets.dark).sort()).toEqual(Object.keys(sets.light).sort());
+  });
+
+  it('keeps the brand colours of config/brand.json as they are in the light theme', () => {
+    const brand = JSON.parse(
+      readFileSync(join(site, '..', '..', 'config', 'brand.json'), 'utf8'),
+    ) as { colors: { brand: { primary: string; accent: string; sand: string } } };
+    expect(sets.light.primary).toBe(brand.colors.brand.primary);
+    expect(sets.light.accent).toBe(brand.colors.brand.accent);
+    expect(sets.light.sand).toBe(brand.colors.brand.sand);
+  });
+
+  it('reaches 4.5 to 1 for body text, secondary text and headings on every surface, light and dark', () => {
+    for (const set of [sets.light, sets.dark])
+      for (const surface of [set.bg, set.surface, set.card]) {
+        expect(contrast(set.text, surface)).toBeGreaterThanOrEqual(4.5);
+        expect(contrast(set.muted, surface)).toBeGreaterThanOrEqual(4.5);
+        expect(contrast(set.primary, surface)).toBeGreaterThanOrEqual(4.5);
+        expect(contrast(set.accentInk, surface)).toBeGreaterThanOrEqual(4.5);
+      }
+  });
+
+  it('computes a contrast ratio the way WCAG defines it', () => {
+    expect(contrast('#000000', '#ffffff')).toBeCloseTo(21, 5);
+    expect(contrast('#777777', '#777777')).toBe(1);
+  });
+});
+
+describe('the words', () => {
+  const sources = [
+    ...strings(content),
+    ...readdirSync(join(site, 'brochures'))
+      .filter((file) => file.endsWith('.html'))
+      .map((file) => readFileSync(join(site, 'brochures', file), 'utf8')),
+  ];
+
+  it('carry no em dash', () => {
+    // Written as a code point, so this file holds no em dash itself.
+    const emDash = String.fromCharCode(0x2014);
+    for (const text of sources) expect(text).not.toContain(emDash);
+  });
+
+  it('name no product or brand: only kinds of system', () => {
+    // The copy speaks of spreadsheets, dashboards, mail and single sign-on, never of a product.
+    const products =
+      /\b(Excel|PowerPoint|Power BI|Outlook|SharePoint|Teams|Azure|Entra|Microsoft|Cloudflare|GitHub|Anthropic|Claude)\b/;
+    for (const text of sources) expect(text).not.toMatch(products);
+  });
+
+  it('use no sales language', () => {
+    const sales =
+      /\b(best[- ]in[- ]class|world[- ]class|leading|revolutionary|seamless|pricing|free trial|buy now|contact sales)\b/i;
+    for (const text of strings(content)) expect(text).not.toMatch(sales);
+  });
+
+  it('say on every page that this is a prototype on synthetic data', () => {
+    expect(content.SITE.footer).toContain('Prototype');
+    expect(content.SITE.footer).toContain('Synthetic data only');
+    for (const file of readdirSync(join(site, 'brochures')).filter((f) => f.endsWith('.html'))) {
+      const text = readFileSync(join(site, 'brochures', file), 'utf8');
+      const sheets = text.split('<section class="page').length - 1;
+      expect(text.split(content.SITE.footer).length - 1, file).toBe(sheets);
+    }
+  });
+
+  it('mark what is not built as planned or in progress', () => {
+    const statuses = content.TOUR.roadmap.items.map((item) => item.status);
+    expect(new Set(statuses)).toEqual(new Set(['In progress', 'Planned']));
+  });
+});
+
+describe('the page', () => {
+  const page = renderPage(media());
+
+  it('has every section the navigation links to, the hero and the demo', () => {
+    for (const id of ['top', 'overview', 'tour', 'controls', 'videos', 'brochures', 'demo'])
+      expect(page).toContain(`id="${id}"`);
+    for (const item of content.NAV) expect(page).toContain(`href="${item.href}"`);
+  });
+
+  it('writes relative URLs only', () => {
+    const urls = [...page.matchAll(/\s(?:href|src|poster)="([^"]*)"/g)].map((m) => m[1] ?? '');
+    expect(urls.length).toBeGreaterThan(20);
+    for (const url of urls) expect(url, url).toMatch(/^(#|media\/|demo\/)/);
+  });
+
+  it('gives every screenshot its alt text and both widths', () => {
+    for (const feature of content.TOUR.features) {
+      expect(page).toContain(`alt="${escapeHtml(feature.alt)}"`);
+      expect(page).toContain(`media/screens/${feature.shot}-2x.webp 2880w`);
+    }
+  });
+
+  it('gives a video a poster, a WebM source, its length and its steps as escaped text, and never autoplay', () => {
+    expect(page).toContain('poster="media/videos/tour.webp"');
+    expect(page).toContain('<source src="media/videos/tour.webm" type="video/webm" />');
+    expect(page).toContain('58 seconds');
+    expect(page).toContain('A &lt;caption&gt; with markup in it');
+    expect(page).not.toContain('autoplay');
+  });
+
+  it('links a brochure to its PDF with its page count', () => {
+    expect(page).toContain('href="media/brochures/portfolio-beach-product-overview.pdf"');
+    expect(page).toContain('3 pages');
+  });
+
+  it('fails with the script to run when a screenshot is missing', () => {
+    const without = media();
+    without.screens.delete('analytics');
+    expect(() => renderPage(without)).toThrow(/capture-screens/);
+  });
+});
+
+describe('the 404 page', () => {
+  it('is self-contained, links to the base path it was built for and carries the notice', () => {
+    const page = renderNotFound(':root{--pb-bg:#ffffff}', '/portfolio-beach');
+    expect(page).toContain('href="/portfolio-beach/"');
+    expect(renderNotFound('', '/')).toContain('href="/"');
+    expect(page).toContain(content.SITE.footer);
+    expect(page).not.toMatch(/<(link|script|img)\b/);
+  });
+});
+
+describe('lengths and sizes', () => {
+  it('reads as a person would say them', () => {
+    expect(lengthText(58.4)).toBe('58 seconds');
+    expect(lengthText(63)).toBe('1 min 3 s');
+    expect(lengthText(120)).toBe('2 min');
+    expect(sizeText(5_100_000)).toBe('4.9 MB');
+    expect(sizeText(160_000)).toBe('156 KB');
+  });
+});

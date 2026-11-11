@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Portfolio Beach</title>
+    <meta
+      name="description"
+      content="Portfolio Beach is a prototype of a portfolio management workspace for a private equity LP and co-investment team, built on synthetic data."
+    />
+    <meta name="robots" content="noindex" />
+    <meta name="color-scheme" content="light dark" />
+    <!--pb:head-->
+    <script>
+      // Before first paint: the theme the reader chose on an earlier visit, and a mark that script runs.
+      (function () {
+        var root = document.documentElement;
+        root.classList.add('js');
+        try {
+          var theme = localStorage.getItem('pb-site-theme');
+          if (theme === 'light' || theme === 'dark') root.setAttribute('data-theme', theme);
+        } catch (e) {
+          // Storage blocked: the system setting decides.
+        }
+      })();
+    </script>
+    <link rel="stylesheet" href="/src/styles/site.css" />
+  </head>
+  <body>
+    <!--pb:page-->
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

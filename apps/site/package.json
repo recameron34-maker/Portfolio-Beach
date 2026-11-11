@@ -1,0 +1,27 @@
+{
+  "name": "@pb/site",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Portfolio Beach static website: overview, feature tour, demo videos, brochures and the interactive demo (synthetic data only)",
+  "type": "module",
+  "scripts": {
+    "start": "vite --port 5174",
+    "build": "node scripts/build.mjs",
+    "build:site-only": "node scripts/build.mjs --site-only",
+    "media:screens": "node scripts/capture-screens.mjs",
+    "media:videos": "node scripts/record-demos.mjs",
+    "media:brochures": "node scripts/make-brochures.mjs",
+    "check": "node scripts/check-site.mjs",
+    "shots": "node scripts/shoot-site.mjs",
+    "serve": "node scripts/serve-dist.mjs",
+    "typecheck": "tsc -b",
+    "test": "vitest run",
+    "deploy:dry-run": "wrangler deploy --dry-run"
+  },
+  "devDependencies": {
+    "@axe-core/playwright": "4.13.0",
+    "@playwright/test": "1.56.1",
+    "vite": "8.3.3",
+    "wrangler": "4.146.0"
+  }
+}
