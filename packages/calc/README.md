@@ -11,13 +11,15 @@ Financial calculations for Portfolio Beach, specified in `docs/08_CALCULATIONS_S
 |---|---|
 | `decimal.ts` | The private Decimal (34 digits, half up), input checks and `toDecimalString`, the contract decimal string |
 | `irr.ts` | XIRR: Newton-Raphson with bisection fallback, multiple-root detection, short-period flag |
-| `multiples.ts` | Paid-in, DPI, RVPI, TVPI, MOIC, unfunded, holding period, value change |
+| `multiples.ts` | Paid-in, DPI, RVPI, TVPI, MOIC, gain, unfunded, holding period, value change |
 | `operating.ts` | EV/EBITDA, net debt/EBITDA, margin, YoY, growth since entry, multiple delta |
 | `periods.ts` | Same quarter prior year, latest approved period, entry snapshot |
 | `units.ts` | Declared-unit conversion to dollars and the unit sanity flag |
 | `rollforward.ts` | NAV roll-forward, QTD gain/loss, prior-report tie-out |
 | `pme.ts` | Kaplan-Schoar PME and Direct Alpha |
 | `attribution.ts` | Value creation attribution by sequential substitution |
+| `bridge.ts` | EBITDA bridge (EBITDA growth, multiple expansion, debt paydown), measures since entry, our gain by driver |
+| `cohorts.ts` | Entry metric bands in turns and the weighted average of a cohort |
 | `liquidity.ts` | Takahashi-Alexander cash flow model |
 | `credit.ts` | Private credit: all-in coupon, current yield, yield to maturity, coverage, leverage, LTV, DSCR, PIK |
 | `fixtures/` | Golden files shared with the Python cross-check |

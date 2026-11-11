@@ -1,0 +1,73 @@
+{
+  "id": "21_gain_by_driver",
+  "function": "gain_by_driver",
+  "note": "Our gain on a position (distributions + NAV - invested) split by the company's bridge, by hand. The bridges are fixture 19's: A is its case 1 (250, 65, 30 of 345; revenue 120, margin 130), B its case 2 (58.33..., 21.66...67, -10 of 70; no revenue), Z its case 4 (total 0). Case 1: gain 2,000,000 + 14,900,000 - 10,000,000 = 6,900,000 = 20,000 x 345, so EBITDA 5,000,000, multiple 1,300,000, debt 600,000, revenue 2,400,000, margin 2,600,000. Case 2: gain 500,000 + 4,500,000 - 4,000,000 = 1,000,000: EBITDA 1,000,000 x 250 / 345 = 724,637.68115942028985507246 (20 places), multiple 1,000,000 x 65 / 345 = 188,405.79710144927536231884, debt takes the remainder 86,956.52173913043478260870; revenue 1,000,000 x 120 / 345 = 347,826.08695652173913043478, margin the remainder of the EBITDA part, 376,811.59420289855072463768. Case 3: a loss of 690,000 = -2,000 x 345 splits the same way with the sign of the loss. Case 4: gain 700,000 over bridge B: 700,000 x 58.33333333333333333333 / 70 = 583,333.3333333333333333, 700,000 x 21.66666666666666666667 / 70 = 216,666.6666666666666667, remainder -100,000. Case 5: a company whose equity value did not change has no shares, so nothing is split. Case 6: no invested capital means no gain and nothing to split.",
+  "input": {
+    "bridges": {
+      "A": {
+        "entry": { "revenue": "200", "ebitda": "40", "ev": "400", "netDebt": "150" },
+        "current": { "revenue": "260", "ebitda": "65", "ev": "715", "netDebt": "120" }
+      },
+      "B": {
+        "entry": { "ebitda": "30", "ev": "250", "netDebt": "100" },
+        "current": { "ebitda": "37", "ev": "330", "netDebt": "110" }
+      },
+      "Z": {
+        "entry": { "ebitda": "50", "ev": "500", "netDebt": "200" },
+        "current": { "ebitda": "55", "ev": "520", "netDebt": "220" }
+      }
+    },
+    "cases": [
+      {
+        "bridge": "A",
+        "distributions": "2000000",
+        "nav": "14900000",
+        "invested": "10000000"
+      },
+      { "bridge": "A", "distributions": "500000", "nav": "4500000", "invested": "4000000" },
+      { "bridge": "A", "distributions": "0", "nav": "4310000", "invested": "5000000" },
+      { "bridge": "B", "distributions": "100000", "nav": "1600000", "invested": "1000000" },
+      { "bridge": "Z", "distributions": "0", "nav": "1500000", "invested": "1000000" },
+      { "bridge": "A", "distributions": "0", "nav": "0", "invested": "0" }
+    ]
+  },
+  "expected": {
+    "results": [
+      {
+        "gain": "6900000",
+        "ebitdaGrowth": "5000000",
+        "multipleExpansion": "1300000",
+        "debtPaydown": "600000",
+        "revenueGrowth": "2400000",
+        "marginChange": "2600000"
+      },
+      {
+        "gain": "1000000",
+        "ebitdaGrowth": "724637.68115942028985507246",
+        "multipleExpansion": "188405.79710144927536231884",
+        "debtPaydown": "86956.5217391304347826087",
+        "revenueGrowth": "347826.08695652173913043478",
+        "marginChange": "376811.59420289855072463768"
+      },
+      {
+        "gain": "-690000",
+        "ebitdaGrowth": "-500000",
+        "multipleExpansion": "-130000",
+        "debtPaydown": "-60000",
+        "revenueGrowth": "-240000",
+        "marginChange": "-260000"
+      },
+      {
+        "gain": "700000",
+        "ebitdaGrowth": "583333.3333333333333333",
+        "multipleExpansion": "216666.6666666666666667",
+        "debtPaydown": "-100000",
+        "revenueGrowth": null,
+        "marginChange": null
+      },
+      { "gain": "500000", "split": null },
+      { "gain": null, "split": null }
+    ]
+  },
+  "tolerance": "1e-20"
+}
