@@ -74,8 +74,11 @@
     "noValuationFootnote": "No Locked valuation on record; NAV is not calculable this quarter."
   },
   "analytics": {
+    "_note": "Analytics (docs/04 M13 and M20, docs/08 section 8). navSeriesQuarters is how many quarter ends the NAV series shows; topPositions is how many of the largest positions are listed. entryMultipleBands and entryLeverageBands are the ascending band edges, in turns, that the entry metric cohorts are cut at (entry EV / EBITDA and entry net debt / EBITDA): below the first edge, each interval closed below and open above, and at or above the last edge.",
     "navSeriesQuarters": 8,
-    "topPositions": 10
+    "topPositions": 10,
+    "entryMultipleBands": [9, 11, 13],
+    "entryLeverageBands": [4, 5, 6]
   },
   "intake": {
     "_note": "Intake rules (docs/04 M2, packages/validation). Percentages are decimals. figureScale and figureIntegerDigits match the record's numeric(20,2) figure columns; minPeriodYear is the first year a period end may carry. weeklyVarianceThresholdPct is the move against the prior that flags a weekly value; weeklyStaleDays is how many days before the as-of date a report date may be before it is stale; lookthroughNavTolerancePct and lookthroughCostToleranceUsd are the differences a reconcile lets pass; maxWorkbookBase64Chars caps an uploaded ops-drop workbook; workbookMaxCells, workbookMaxSheets and workbookMaxPartBytes are the read limits the workbook parser works to (cells on one sheet and across the workbook, sheets listed, the declared size of one part), the rest stay at the parser defaults.",

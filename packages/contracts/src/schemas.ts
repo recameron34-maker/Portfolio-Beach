@@ -2287,3 +2287,245 @@ export const extractionDefinitions = z
   })
   .strict();
 export type ExtractionDefinitions = z.infer<typeof extractionDefinitions>;
+
+/* ---- Value creation and entry metric analytics (M13, M20; docs/08 section 8) ---- */
+
+/**
+ * Why a figure of the value creation views is not calculable. The first four say why a company
+ * has no EBITDA bridge: no approved entry snapshot on or before the as-of date, no approved
+ * quarter on or before it, an EBITDA, EV or net debt missing at either end, or an EBITDA at or
+ * below zero at either end. The last two say why our gain is not split although the bridge
+ * stands: the company's equity value did not change (no shares to split by), or our own gain is
+ * not calculable (no Locked valuation, or nothing invested).
+ */
+export const valueCreationReason = z.enum([
+  'no_entry_snapshot',
+  'no_current_quarter',
+  'missing_figures',
+  'non_positive_ebitda',
+  'no_equity_change',
+  'no_gain',
+]);
+export type ValueCreationReason = z.infer<typeof valueCreationReason>;
+
+/** The reasons a company has no bridge at all. */
+export const bridgeReason = valueCreationReason.extract([
+  'no_entry_snapshot',
+  'no_current_quarter',
+  'missing_figures',
+  'non_positive_ebitda',
+]);
+export type BridgeReason = z.infer<typeof bridgeReason>;
+
+/** A company's figures at one end of the bridge, with the multiple and the net leverage read from them. */
+export const valueCreationPoint = z
+  .object({
+    periodEnd: isoDate,
+    revenueLtm: decimalString.nullable(),
+    ebitdaLtm: decimalString.nullable(),
+    ev: decimalString.nullable(),
+    netDebt: decimalString.nullable(),
+    /** EV / EBITDA in turns; null when EBITDA is missing or not positive. */
+    evToEbitda: decimalString.nullable(),
+    /** Net debt / EBITDA in turns; null when EBITDA is missing or not positive. */
+    netDebtToEbitda: decimalString.nullable(),
+  })
+  .strict();
+export type ValueCreationPoint = z.infer<typeof valueCreationPoint>;
+
+/** The three drivers a change in value is split into, as money or as shares of the total. */
+export const valueCreationDrivers = z
+  .object({
+    ebitdaGrowth: decimalString,
+    multipleExpansion: decimalString,
+    /** Positive when net debt fell. */
+    debtPaydown: decimalString,
+  })
+  .strict();
+
+/**
+ * The company's EBITDA bridge from the entry snapshot to the current quarter, in the company's
+ * own money (docs/08 section 8): the three drivers sum to `total`, which is equityCurrent less
+ * equityAtEntry. Shares are null when the total is zero; the revenue and margin parts of EBITDA
+ * growth are null unless both quarters carry a positive revenue.
+ */
+export const valueCreationBridge = valueCreationDrivers
+  .extend({
+    equityAtEntry: decimalString,
+    equityCurrent: decimalString,
+    total: decimalString,
+    shares: valueCreationDrivers.nullable(),
+    revenueGrowth: decimalString.nullable(),
+    marginChange: decimalString.nullable(),
+  })
+  .strict();
+export type ValueCreationBridge = z.infer<typeof valueCreationBridge>;
+
+/** Our own gain split by driver: the three drivers sum to the gain; revenue and margin split EBITDA growth. */
+export const gainByDriver = valueCreationDrivers
+  .extend({
+    revenueGrowth: decimalString.nullable(),
+    marginChange: decimalString.nullable(),
+  })
+  .strict();
+export type GainByDriver = z.infer<typeof gainByDriver>;
+
+/** The key of the cohort that holds the positions with no entry figure to band. */
+export const NOT_CALCULABLE_BAND = 'not_calculable';
+
+/**
+ * One equity or continuation vehicle position in the value creation views. The company side
+ * (entry, current, growth, bridge) is in the company's money; the rest is ours (invested, NAV,
+ * distributions, MOIC, IRR, gain). A figure that is not calculable is null, never 0, and
+ * `notCalculable` and `gainNotCalculable` say why the bridge or the gain split is missing.
+ */
+export const valueCreationPosition = z
+  .object({
+    id: uuid,
+    investmentNumber: z.string(),
+    companyName: z.string(),
+    vehicleId: uuid,
+    vehicleName: z.string(),
+    sponsorId: uuid,
+    sponsorName: z.string(),
+    sector: z.string().nullable(),
+    dealType: z.string(),
+    entryDate: isoDate,
+    exitDate: isoDate.nullable(),
+    /** Held on the as-of date; a realized position holds no NAV. */
+    isActive: z.boolean(),
+    /** The approved entry snapshot dated on or before the as-of date; null when there is none. */
+    entry: valueCreationPoint.nullable(),
+    /** The latest approved quarter on or before the as-of date; null when there is none. */
+    current: valueCreationPoint.nullable(),
+    /** Since entry: ratios for EBITDA, EV and equity value; turns for the multiple and net leverage; money for net debt. */
+    growth: z
+      .object({
+        ebitdaGrowth: decimalString.nullable(),
+        evGrowth: decimalString.nullable(),
+        equityValueGrowth: decimalString.nullable(),
+        multipleChange: decimalString.nullable(),
+        netLeverageChange: decimalString.nullable(),
+        netDebtChange: decimalString.nullable(),
+      })
+      .strict(),
+    bridge: valueCreationBridge.nullable(),
+    /** Why there is no bridge; null when there is one. */
+    notCalculable: bridgeReason.nullable(),
+    invested: decimalString.nullable(),
+    nav: decimalString.nullable(),
+    distributions: decimalString.nullable(),
+    grossMoic: decimalString.nullable(),
+    grossIrr: decimalString.nullable(),
+    irrFlag,
+    /** Growth in our mark: (NAV + distributions) / invested - 1, the gross MOIC less one. */
+    valuationGrowth: decimalString.nullable(),
+    /** valuationGrowth less the company's EBITDA growth: positive when our mark ran ahead of earnings. */
+    valuationGrowthGap: decimalString.nullable(),
+    /** Our gain: NAV + distributions - invested. */
+    gain: decimalString.nullable(),
+    gainByDriver: gainByDriver.nullable(),
+    /** Why our gain is not split by driver; null when it is. */
+    gainNotCalculable: valueCreationReason.nullable(),
+    /** The key of the position's cohort in cohorts.byEntryMultiple (NOT_CALCULABLE_BAND when it has no entry multiple). */
+    entryMultipleBand: z.string(),
+    /** The key of the position's cohort in cohorts.byEntryLeverage. */
+    entryLeverageBand: z.string(),
+  })
+  .strict();
+export type ValueCreationPosition = z.infer<typeof valueCreationPosition>;
+
+/**
+ * The positions of one entry metric band, pooled as every pooled view is (docs/08 sections 2 and
+ * 3), with the invested-weighted EBITDA growth of the positions that have both figures. The bands
+ * come from config and are all listed, lowest first, an empty one with a count of 0; the last
+ * cohort (NOT_CALCULABLE_BAND, no bounds) holds the positions with no entry figure.
+ */
+export const entryCohort = pooledMetrics
+  .extend({
+    key: z.string(),
+    label: z.string(),
+    /** The edge the band starts at, in turns; null for the lowest band and for "Not calculable". */
+    lower: decimalString.nullable(),
+    /** The edge the band stops short of, in turns; null for the highest band and for "Not calculable". */
+    upper: decimalString.nullable(),
+    ebitdaGrowth: decimalString.nullable(),
+    /** How many of the cohort's positions the weighted EBITDA growth covers. */
+    ebitdaGrowthPositions: z.number().int(),
+  })
+  .strict();
+export type EntryCohort = z.infer<typeof entryCohort>;
+
+/**
+ * Value creation over every equity and continuation vehicle position the caller can see (M13,
+ * M20). `portfolio` sums our gain by driver over the positions it can be split for, so the three
+ * drivers sum to `portfolio.gain` and invested + gain = totalValue; the positions it
+ * cannot be split for are counted by reason. `leftOut` counts the visible positions of the deal
+ * types these views do not cover (private credit, primary funds).
+ */
+export const valueCreation = z
+  .object({
+    asOf: isoDate,
+    positions: z.array(valueCreationPosition),
+    portfolio: z
+      .object({
+        /** Positions whose gain is split by driver and summed here. */
+        positions: z.number().int(),
+        /** Sums over those positions; null when there is none. */
+        invested: decimalString.nullable(),
+        nav: decimalString.nullable(),
+        distributions: decimalString.nullable(),
+        /** NAV + distributions: what the invested capital is worth now, so invested + gain = totalValue. */
+        totalValue: decimalString.nullable(),
+        gain: decimalString.nullable(),
+        gainByDriver: gainByDriver.nullable(),
+        notCalculable: z.array(
+          z.object({ reason: valueCreationReason, count: z.number().int() }).strict(),
+        ),
+      })
+      .strict(),
+    cohorts: z
+      .object({ byEntryMultiple: z.array(entryCohort), byEntryLeverage: z.array(entryCohort) })
+      .strict(),
+    leftOut: z.array(
+      z.object({ dealType: z.string(), label: z.string(), count: z.number().int() }).strict(),
+    ),
+    calcVersion: z.string(),
+  })
+  .strict();
+export type ValueCreation = z.infer<typeof valueCreation>;
+
+/**
+ * One point of a position's indexed series: the entry snapshot (every company line at 100) and
+ * then each approved quarter on or before the as-of date. EBITDA, EV and equity value are indexed
+ * to 100 at entry; `markIndex` is the Locked mark for the quarter per 100 of the capital invested
+ * by then, so cost reads as 100 on the same axis. Null where a figure is missing or its base is
+ * not positive.
+ */
+export const valueCreationSeriesPoint = z
+  .object({
+    periodEnd: isoDate,
+    isEntry: z.boolean(),
+    ebitdaIndex: decimalString.nullable(),
+    evIndex: decimalString.nullable(),
+    equityValueIndex: decimalString.nullable(),
+    markIndex: decimalString.nullable(),
+  })
+  .strict();
+export type ValueCreationSeriesPoint = z.infer<typeof valueCreationSeriesPoint>;
+
+/**
+ * Value creation of one position (404 when not visible). `position` is its row of the portfolio
+ * view; null, with an empty series, for a deal type these views do not cover.
+ */
+export const investmentValueCreation = z
+  .object({
+    asOf: isoDate,
+    investmentId: uuid,
+    dealType: z.string(),
+    position: valueCreationPosition.nullable(),
+    series: z.array(valueCreationSeriesPoint),
+    calcVersion: z.string(),
+  })
+  .strict();
+export type InvestmentValueCreation = z.infer<typeof investmentValueCreation>;
