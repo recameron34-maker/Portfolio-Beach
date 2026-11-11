@@ -184,13 +184,13 @@ export function describeRefusal(status: number, rawDetail: string): string {
 
 type Issue = NonNullable<ProblemDetails['errors']>[number];
 
-/** "Fair value" stays as it is; "Account number" after another part reads "account number"; "IC decision" keeps its capitals. */
+/** "Fair value" stays as it is; "Bank name" after another part reads "bank name"; "IC decision" keeps its capitals. */
 const lowerFirst = (words: string): string =>
   /^[A-Z][a-z]/.test(words) ? words.charAt(0).toLowerCase() + words.slice(1) : words;
 
 /**
  * The path of a validation issue as a person reads the field: "fairValue" is "Fair value",
- * "bankDetails.accountNumber" is "Bank details, account number", "allocations.0.requested" is
+ * "bankDetails.bankName" is "Bank details, bank name", "allocations.0.requested" is
  * "Allocations, line 1, requested", and an id is called by what it names ("investmentId" is
  * "Investment"). Null for an issue about the body as a whole ("(root)").
  */

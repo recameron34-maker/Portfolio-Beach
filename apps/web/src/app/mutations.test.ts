@@ -183,7 +183,7 @@ describe('a validation refusal (review finding WEB-4)', () => {
 
   it('words a field path for a person: nested fields, lines of a list, and ids by what they name', () => {
     expect(fieldLabel('fairValue')).toBe('Fair value');
-    expect(fieldLabel('bankDetails.accountNumber')).toBe('Bank details, account number');
+    expect(fieldLabel('bankDetails.bankName')).toBe('Bank details, bank name');
     expect(fieldLabel('allocations.0.requested')).toBe('Allocations, line 1, requested');
     expect(fieldLabel('allocations.11.vehicleId')).toBe('Allocations, line 12, vehicle');
     expect(fieldLabel('investmentId')).toBe('Investment');
@@ -239,9 +239,13 @@ describe('a validation refusal (review finding WEB-4)', () => {
       said(wireInstructionProposeBody, {
         sponsorFundId: '30000000-0000-4000-8000-000000000011',
         counterpartyName: 'A fund',
-        bankDetails: { bankName: 'A bank', accountName: 'A fund', routingCode: '021000021' },
+        bankDetails: {
+          accountName: 'A fund',
+          accountNumber: '1234567890',
+          routingCode: '021000021',
+        },
       }),
-    ).toBe('The request was not valid. Bank details, account number: Required.');
+    ).toBe('The request was not valid. Bank details, bank name: Required.');
     expect(
       said(wireInstructionCommandBody, {
         command: 'reject',
