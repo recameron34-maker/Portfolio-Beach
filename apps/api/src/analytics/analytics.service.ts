@@ -1,5 +1,5 @@
 import { Inject, Injectable } from '@nestjs/common';
-import { asc, inArray } from 'drizzle-orm';
+import { and, asc, eq, inArray, notInArray } from 'drizzle-orm';
 import type { Principal } from '@pb/adapters';
 import {
   CALC_VERSION,
@@ -19,6 +19,8 @@ import type {
   AnalyticsSummary,
   ExposureBucket,
   InvestmentSummary,
+  InvestmentValueCreation,
+  ValueCreation,
   Watchlist,
   WatchlistItem,
 } from '@pb/contracts';
@@ -27,7 +29,13 @@ import type { Tx } from '@pb/db';
 import { configDecimal, configError, configInteger } from '../common/definitions.js';
 import { DEFINITIONS } from '../common/tokens.js';
 import { DbService } from '../db/db.service.js';
-import { heldOn, loadInvestmentsWithMetrics } from '../portfolio/loaders.js';
+import { ProblemError } from '../common/problem.js';
+import {
+  enteredBy,
+  heldOn,
+  loadInvestmentRows,
+  loadInvestmentsWithMetrics,
+} from '../portfolio/loaders.js';
 import type { InvestmentBaseRow } from '../portfolio/loaders.js';
 import {
   latestLockedValuation,
@@ -40,12 +48,29 @@ import type { FlowRow, OperatingRow, ValuationRow } from '../portfolio/metrics.j
 import { compareDecimalDesc, compareText, sumCalculable } from '../common/order.js';
 import { fmtDate } from '../common/dates.js';
 import { fmtMoneyM } from '../common/format.js';
+import {
+  VALUE_CREATION_DEAL_TYPES,
+  cohortsOf,
+  computePosition,
+  coversDealType,
+  entryBandsOf,
+  leftOutOf,
+  portfolioOf,
+  seriesOf,
+  valueCreationCsv,
+} from './value-creation.js';
+import type { EntryBands } from './value-creation.js';
 
 /** Calculation settings from config/definitions.json (docs/03 section 4); only the keys this service reads. */
 interface Definitions {
   priorYearPeriodEndToleranceDays?: number;
   watchlist?: Record<string, number | string>;
-  analytics?: { navSeriesQuarters?: number; topPositions?: number };
+  analytics?: {
+    navSeriesQuarters?: number;
+    topPositions?: number;
+    entryMultipleBands?: unknown;
+    entryLeverageBands?: unknown;
+  };
   [key: string]: unknown;
 }
 
@@ -584,6 +609,121 @@ export class AnalyticsService {
         ),
         flowsByYear: flowsByYear(positions, asOf),
         topPositions: topPositions(active, activeNav, top),
+        calcVersion: CALC_VERSION,
+      };
+    });
+  }
+
+  /**
+   * The value creation view over the positions the transaction can see (row-level security
+   * decides; nothing extra): the equity and continuation vehicle positions that exist as of the
+   * date with their approved quarters, and the other visible positions counted by deal type.
+   */
+  private async loadValueCreation(tx: Tx, asOf: string, bands: EntryBands): Promise<ValueCreation> {
+    const positions = await loadInvestmentsWithMetrics(
+      tx,
+      asOf,
+      inArray(schema.investment.dealType, [...VALUE_CREATION_DEAL_TYPES]),
+    );
+    const operating = await loadOperatingRows(
+      tx,
+      positions.map((p) => p.row.id),
+    );
+    const others = await loadInvestmentRows(tx, {
+      where: and(
+        enteredBy(asOf),
+        notInArray(schema.investment.dealType, [...VALUE_CREATION_DEAL_TYPES]),
+      ),
+    });
+    const computed = positions.map((p) =>
+      computePosition({ ...p, operating: operating.get(p.row.id) ?? [] }, asOf, bands),
+    );
+    return {
+      asOf,
+      positions: computed.map((c) => c.position),
+      portfolio: portfolioOf(computed),
+      cohorts: {
+        byEntryMultiple: cohortsOf(computed, bands.multiple, (p) => p.entryMultipleBand, asOf),
+        byEntryLeverage: cohortsOf(computed, bands.leverage, (p) => p.entryLeverageBand, asOf),
+      },
+      leftOut: leftOutOf(others, await loadLabels(tx)),
+      calcVersion: CALC_VERSION,
+    };
+  }
+
+  /**
+   * Value creation and entry metric analytics (docs/04 M13 and M20, docs/08 section 8) over every
+   * equity and continuation vehicle position the caller can see (SEC-5.1, SEC-5.3): per position
+   * the company's EBITDA bridge from the entry snapshot to the latest approved quarter and our
+   * gain split by its drivers, the roll-up of our gain by driver, and performance pooled by entry
+   * multiple band and entry net leverage band. The band edges come from config; without usable
+   * ones the read is a 500 'configuration' problem before the database is touched.
+   */
+  async valueCreation(
+    principal: Principal,
+    requestId: string,
+    asOf: string,
+  ): Promise<ValueCreation> {
+    const bands = entryBandsOf(this.definitions);
+    return this.db.run(principal, requestId, async (tx, audit) => {
+      const view = await this.loadValueCreation(tx, asOf, bands);
+      await audit({ action: 'analytics.value_creation.read', entity: 'core.investment' });
+      return view;
+    });
+  }
+
+  /** The same positions as the view shows the caller, as CSV text with a header line. */
+  async valueCreationExport(
+    principal: Principal,
+    requestId: string,
+    asOf: string,
+  ): Promise<{ asOf: string; csv: string }> {
+    const bands = entryBandsOf(this.definitions);
+    return this.db.run(principal, requestId, async (tx, audit) => {
+      const view = await this.loadValueCreation(tx, asOf, bands);
+      await audit({
+        action: 'analytics.value_creation.export',
+        entity: 'core.investment',
+        details: { asOf, rows: view.positions.length },
+      });
+      return { asOf, csv: valueCreationCsv(view) };
+    });
+  }
+
+  /**
+   * Value creation of one position: its row of the view and the indexed series by quarter. 404
+   * for anything the caller cannot see, and before the position's entry date, as the one-pager
+   * (docs/17 section 3); a successful open is an audited read (SEC-11.1). A deal type these views
+   * do not cover answers no row and an empty series.
+   */
+  async investmentValueCreation(
+    principal: Principal,
+    requestId: string,
+    id: string,
+    asOf: string,
+  ): Promise<InvestmentValueCreation> {
+    const bands = entryBandsOf(this.definitions);
+    const tolerance = configInteger(
+      this.definitions.priorYearPeriodEndToleranceDays,
+      'priorYearPeriodEndToleranceDays',
+    );
+    return this.db.run(principal, requestId, async (tx, audit) => {
+      const found = (await loadInvestmentsWithMetrics(tx, asOf, eq(schema.investment.id, id)))[0];
+      if (found === undefined) throw new ProblemError(404, 'not-found', 'Investment not found');
+      await audit({
+        action: 'investment.value_creation.read',
+        entity: 'core.investment',
+        entityId: found.row.id,
+      });
+      const base = { asOf, investmentId: found.row.id, dealType: found.row.dealType };
+      if (!coversDealType(found.row.dealType))
+        return { ...base, position: null, series: [], calcVersion: CALC_VERSION };
+      const operating = (await loadOperatingRows(tx, [found.row.id])).get(found.row.id) ?? [];
+      const inputs = { ...found, operating };
+      return {
+        ...base,
+        position: computePosition(inputs, asOf, bands).position,
+        series: seriesOf(inputs, asOf, tolerance),
         calcVersion: CALC_VERSION,
       };
     });

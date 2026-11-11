@@ -2139,6 +2139,191 @@ check(
     (await api('ops.one', 'GET', '/api/v1/wire-instructions?limit=200&state=Proposed')).json?.items
       ?.length === 1,
 );
+// ---- Value creation and entry metrics (M13, M20), from the recordings alone ------------------
+
+const VALUE_CREATION = '/api/v1/analytics/value-creation';
+/** Dollars as $M with one decimal, as the pages write them; a change carries its sign. */
+const moneyM = (value) => {
+  const millions = D(value).div(1_000_000);
+  return `${millions.isNegative() ? '-' : ''}$${millions.abs().toFixed(1)}M`;
+};
+const signedM = (value) =>
+  moneyM(value).startsWith('-') || D(value).isZero() ? moneyM(value) : `+${moneyM(value)}`;
+const vcViewer = recorded('viewer.one', VALUE_CREATION).json;
+const vcMember = recorded('deal.three', VALUE_CREATION).json;
+check(
+  'value creation: recorded for every user, with the export and every position (200, 404 past the wall)',
+  d.users.every(
+    (u) =>
+      recorded(u.externalId, VALUE_CREATION).status === 200 &&
+      fixtures.responses[keyFor(u.externalId, 'GET', `${VALUE_CREATION}/export`)]?.status === 200 &&
+      d.investments.every((i) =>
+        [200, 404].includes(
+          recorded(u.externalId, `/api/v1/investments/${i.id}/value-creation`).status,
+        ),
+      ),
+  ) && recorded('viewer.one', `/api/v1/investments/${walledId}/value-creation`).status === 404,
+);
+check(
+  'value creation: the wall member sees one position more than a viewer, as recorded (SEC-5.3)',
+  vcMember.positions.length === vcViewer.positions.length + 1 &&
+    vcMember.positions.some((p) => p.id === walledId) &&
+    !JSON.stringify(vcViewer).includes(walledId),
+  `viewer ${vcViewer.positions.length}, member ${vcMember.positions.length}`,
+);
+/** The drivers of a recorded roll-up are its gain, and invested plus the gain is the value now. */
+const rollUpTies = (portfolio) =>
+  portfolio.gainByDriver !== null &&
+  D(portfolio.gainByDriver.ebitdaGrowth)
+    .plus(portfolio.gainByDriver.multipleExpansion)
+    .plus(portfolio.gainByDriver.debtPaydown)
+    .minus(portfolio.gain)
+    .abs()
+    .lte('3e-10') &&
+  D(portfolio.invested).plus(portfolio.gain).eq(portfolio.totalValue) &&
+  portfolio.positions + portfolio.notCalculable.reduce((n, r) => n + r.count, 0) > 0;
+check(
+  'value creation: the bridge sums to the headline for a viewer and for the wall member (recorded)',
+  rollUpTies(vcViewer.portfolio) && rollUpTies(vcMember.portfolio),
+  `viewer gain ${vcViewer.portfolio.gain}, member gain ${vcMember.portfolio.gain}`,
+);
+await signIn('viewer.one');
+await page.goto(`${origin}/#/analytics/value-creation`);
+await page.getByTestId('value-creation-tiles').waitFor();
+const vcPortfolio = vcViewer.portfolio;
+const vcBridge = page.getByRole('group', { name: 'Our gain by driver' });
+const bridgeMarks = await vcBridge
+  .getByRole('img')
+  .evaluateAll((marks) => marks.map((m) => m.getAttribute('aria-label')));
+check(
+  'value creation tab: the headline is the recorded gain and the bridge shows the recorded steps',
+  (
+    await page
+      .getByTestId('value-creation-tiles')
+      .getByRole('group', { name: 'Our gain' })
+      .innerText()
+  ).includes(moneyM(vcPortfolio.gain)) &&
+    JSON.stringify(bridgeMarks) ===
+      JSON.stringify([
+        `Invested: ${moneyM(vcPortfolio.invested)}`,
+        `EBITDA growth: ${signedM(vcPortfolio.gainByDriver.ebitdaGrowth)}`,
+        `Multiple expansion: ${signedM(vcPortfolio.gainByDriver.multipleExpansion)}`,
+        `Debt paydown: ${signedM(vcPortfolio.gainByDriver.debtPaydown)}`,
+        `Value now: ${moneyM(vcPortfolio.totalValue)}`,
+      ]),
+  bridgeMarks.join(' | '),
+);
+const vcRows = page.getByRole('table', { name: 'Value creation by position' }).locator('tbody tr');
+check(
+  'value creation tab: one row per recorded position, the valuation chart with its reference line, and no walled name for a viewer',
+  (await vcRows.count()) === vcViewer.positions.length &&
+    (await page.getByTestId('value-creation-scatter-equal-line').count()) === 1 &&
+    !(await page.getByTestId('value-creation-positions').innerText()).includes(walledName),
+  `${await vcRows.count()} rows`,
+);
+const [vcDownload] = await Promise.all([
+  page.waitForEvent('download'),
+  page.getByTestId('value-creation-export').click(),
+]);
+await page.getByTestId('value-creation-action-status').filter({ hasText: 'Exported' }).waitFor();
+const vcCsv = (
+  await api('viewer.one', 'GET', `${VALUE_CREATION}/export`, null, { accept: 'text/csv' })
+).text;
+check(
+  'value creation tab: Export CSV downloads the recorded rows (the header plus one line per position)',
+  vcDownload.suggestedFilename() === `value-creation-${fixtures.asOf}.csv` &&
+    (await page.getByTestId('value-creation-action-status').innerText()).includes(
+      `Exported ${vcViewer.positions.length} rows to value-creation-${fixtures.asOf}.csv`,
+    ) &&
+    vcCsv.split('\n')[0].startsWith('investmentNumber,companyName,') &&
+    vcCsv.split('\n').length === vcViewer.positions.length + 2 &&
+    !vcCsv.includes(walledName),
+  vcDownload.suggestedFilename(),
+);
+await page.goto(`${origin}/#/analytics/entry-metrics`);
+await page.getByRole('table', { name: 'Performance by entry net leverage' }).waitFor();
+const bandsOk = async (metric, cohorts) => {
+  const banded = cohorts.filter((c) => c.key !== 'not_calculable');
+  const bars = await page
+    .getByRole('group', { name: `Gross MOIC by ${metric}` })
+    .getByRole('img')
+    .evaluateAll((marks) => marks.map((m) => m.getAttribute('aria-label')));
+  const rows = await page
+    .getByRole('table', { name: `Performance by ${metric}` })
+    .locator('tbody tr')
+    .count();
+  return (
+    banded.filter((c) => c.count > 0).length >= 3 &&
+    JSON.stringify(bars) ===
+      JSON.stringify(
+        banded
+          .filter((c) => c.grossMoic !== null)
+          .map((c) => `${c.label}: ${D(c.grossMoic).toFixed(2)}x`),
+      ) &&
+    rows === cohorts.filter((c) => c.key !== 'not_calculable' || c.count > 0).length &&
+    cohorts.reduce((n, c) => n + c.count, 0) === vcViewer.positions.length
+  );
+};
+check(
+  'entry metrics tab: MOIC bars and a row per band for entry multiple and entry leverage, at least three bands populated, every position counted',
+  (await bandsOk('entry purchase multiple', vcViewer.cohorts.byEntryMultiple)) &&
+    (await bandsOk('entry net leverage', vcViewer.cohorts.byEntryLeverage)) &&
+    (await page
+      .getByRole('group', { name: 'Entry purchase multiple against gross MOIC' })
+      .count()) === 1,
+);
+const vcDeal = vcViewer.positions.find((p) => p.bridge !== null && p.isActive);
+await page.goto(`${origin}/#/portfolio/${vcDeal.id}/performance`);
+await page.getByTestId('deal-value-creation').waitFor();
+const dealMarks = await page
+  .getByRole('group', { name: 'Value creation bridge' })
+  .getByRole('img')
+  .evaluateAll((marks) => marks.map((m) => m.getAttribute('aria-label')));
+check(
+  'deal workspace: the value creation card shows the company bridge, the indexed lines and entry against current',
+  JSON.stringify(dealMarks) ===
+    JSON.stringify([
+      `Equity value at entry: ${moneyM(vcDeal.bridge.equityAtEntry)}`,
+      `EBITDA growth: ${signedM(vcDeal.bridge.ebitdaGrowth)}`,
+      `Multiple expansion: ${signedM(vcDeal.bridge.multipleExpansion)}`,
+      `Debt paydown: ${signedM(vcDeal.bridge.debtPaydown)}`,
+      `Equity value now: ${moneyM(vcDeal.bridge.equityCurrent)}`,
+    ]) &&
+    D(vcDeal.bridge.ebitdaGrowth)
+      .plus(vcDeal.bridge.multipleExpansion)
+      .plus(vcDeal.bridge.debtPaydown)
+      .minus(vcDeal.bridge.total)
+      .abs()
+      .lte('3e-10') &&
+    (await page.getByRole('group', { name: 'Indexed since entry' }).count()) === 1 &&
+    (await page.getByRole('table', { name: 'Entry against current' }).count()) === 1,
+  dealMarks.join(' | '),
+);
+const vcCredit = d.investments.find((i) => i.dealType === 'deal_type.private_credit');
+await page.goto(`${origin}/#/portfolio/${vcCredit.id}/performance`);
+await page.getByTestId('deal-credit-terms').waitFor();
+await settle();
+check(
+  'deal workspace: a credit position has no value creation row as recorded, and shows no card',
+  recorded('viewer.one', `/api/v1/investments/${vcCredit.id}/value-creation`).json?.position ===
+    null && (await page.getByTestId('deal-value-creation').count()) === 0,
+);
+await switchTo('deal.three');
+await page.goto(`${origin}/#/analytics/value-creation`);
+await page.getByTestId('value-creation-tiles').waitFor();
+check(
+  'value creation tab: the wall member sees the walled position row and the member headline',
+  (await vcRows.count()) === vcMember.positions.length &&
+    (await page.getByTestId('value-creation-positions').innerText()).includes(walledName) &&
+    (
+      await page
+        .getByTestId('value-creation-tiles')
+        .getByRole('group', { name: 'Our gain' })
+        .innerText()
+    ).includes(moneyM(vcMember.portfolio.gain)),
+  `${await vcRows.count()} rows`,
+);
+
 check(
   'no recording misses in the whole session',
   (await misses()).length === 0,

@@ -12,5 +12,7 @@ export * from './units.js';
 export * from './rollforward.js';
 export * from './pme.js';
 export * from './attribution.js';
+export * from './bridge.js';
+export * from './cohorts.js';
 export * from './liquidity.js';
 export * from './credit.js';

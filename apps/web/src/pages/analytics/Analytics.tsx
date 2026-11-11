@@ -8,13 +8,15 @@ export { ExposureTab } from './ExposureTab.js';
 export { PerformanceAnalyticsTab } from './PerformanceTab.js';
 export { CreditTab } from './CreditTab.js';
 export { RealizationsTab } from './RealizationsTab.js';
+export { ValueCreationTab } from './ValueCreationTab.js';
+export { EntryMetricsTab } from './EntryMetricsTab.js';
 
 export function AnalyticsLayout(): ReactNode {
   return (
     <>
       <PageHeader
         title="Analytics"
-        meta="Exposure, performance, credit, realizations and client views"
+        meta="Exposure, performance, value creation, entry metrics, credit, realizations and client views"
       />
       <TabNav label="Analytics" items={ANALYTICS_TABS} />
       <Outlet />

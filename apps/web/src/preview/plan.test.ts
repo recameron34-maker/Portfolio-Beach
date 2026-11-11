@@ -41,6 +41,11 @@ import {
   weeklyReportQuery,
 } from '../app/queries.js';
 import { CREDIT_POSITIONS, REALIZED_POSITIONS } from '../pages/analytics/constants.js';
+import {
+  investmentValueCreationQuery,
+  VALUE_CREATION_EXPORT_PATH,
+  valueCreationQuery,
+} from '../pages/analytics/value-creation-queries.js';
 import { exceptionQuery, exceptionsQuery } from '../pages/exceptions/exceptions-queries.js';
 import { opsDropDropsQuery } from '../pages/intake/ops-drop.js';
 import {
@@ -215,6 +220,8 @@ describe('the recording plan', () => {
       opsDropDropsQuery,
       investmentQuery(INV),
       investmentPerformanceQuery(INV),
+      valueCreationQuery,
+      investmentValueCreationQuery(INV),
       sponsorQuery(SPO),
       vehicleQuery(VEH),
       capitalNoticeQuery(NOT),
@@ -256,6 +263,8 @@ describe('the recording plan', () => {
       else if (!planned.has(keyOf(path))) missing.push(path);
     }
     expect(missing).toEqual([]);
+    // The value creation export is fetched as text, outside the query builders; it is recorded too.
+    expect(planned.has(keyOf(VALUE_CREATION_EXPORT_PATH))).toBe(true);
     // Intake files, reconcile runs and data exceptions exist only once the simulation stages
     // them, so the shim answers those reads (every source, every drop folder, the queue); the
     // document hub, the extraction engine and the monitoring board are simulated the same way
@@ -312,6 +321,9 @@ describe('the recording plan', () => {
     expect(paths('investment detail')).toEqual(each((id) => `/api/v1/investments/${id}`));
     expect(paths('investment performance')).toEqual(
       each((id) => `/api/v1/investments/${id}/performance`),
+    );
+    expect(paths('investment value creation')).toEqual(
+      each((id) => `/api/v1/investments/${id}/value-creation`),
     );
     expect(paths('vehicle detail')).toEqual([`/api/v1/vehicles/${VEH}`]);
     expect(paths('sponsor detail')).toEqual([`/api/v1/sponsors/${SPO}`]);

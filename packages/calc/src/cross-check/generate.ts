@@ -12,10 +12,13 @@ import { D } from '../decimal.js';
 import type { Decimal } from '../decimal.js';
 import { addDays } from '../dates.js';
 import { xirr } from '../irr.js';
-import { dpi, rvpi, tvpi, valueChange } from '../multiples.js';
+import { dpi, rvpi, totalGain, tvpi, valueChange } from '../multiples.js';
 import { yieldToMaturity } from '../credit.js';
 import type { PaymentFrequency } from '../credit.js';
 import { valueCreationAttribution } from '../attribution.js';
+import { gainByDriver, indexedLevel, sinceEntryMeasures, valueCreationBridge } from '../bridge.js';
+import type { BridgePoint } from '../bridge.js';
+import { bandIndexOf, turnBands, weightedAverage } from '../cohorts.js';
 import { directAlpha, ksPme } from '../pme.js';
 import type { CashFlow, IndexPoint } from '../index.js';
 
@@ -183,6 +186,135 @@ function run(seed: number, perKind: number): Case[] {
       tolerance: '1e-20',
       input: { current, prior },
       result: { value: str(valueChange(current, prior)) },
+    });
+  }
+
+  // The value creation analytics (docs/08 section 8), after every earlier kind for the same reason.
+  const amount = (min: number, max: number): string => `${int(min, max)}.${cents()}`;
+  for (let i = 0; i < perKind; i++) {
+    const point = (): BridgePoint => {
+      const ebitda = rnd() < 0.08 ? -int(0, 5_000_000) : int(100_000, 900_000_000);
+      const ev = Math.abs(ebitda) * int(4, 18) + int(0, 999);
+      const withRevenue = rnd() < 0.8;
+      return {
+        ebitda: `${ebitda}.${cents()}`,
+        ev: `${ev}.${cents()}`,
+        netDebt: `${Math.floor(ev * (int(-10, 80) / 100))}.${cents()}`,
+        ...(withRevenue ? { revenue: amount(0, 4_000_000_000) } : {}),
+      };
+    };
+    const input = {
+      entry: point(),
+      current: point(),
+      distributions: amount(0, 60_000_000),
+      nav: amount(0, 90_000_000),
+      invested: rnd() < 0.05 ? '0' : amount(1, 60_000_000),
+    };
+    const r = valueCreationBridge(input.entry, input.current);
+    const gain = totalGain(input.distributions, input.nav, input.invested);
+    const split = gainByDriver(gain, r.value);
+    const b = r.value;
+    cases.push({
+      id: id++,
+      kind: 'bridge',
+      tolerance: '1e-18',
+      input,
+      result: {
+        reason: r.reason ?? null,
+        bridge:
+          b === null
+            ? null
+            : {
+                equityAtEntry: str(b.equityAtEntry),
+                equityCurrent: str(b.equityCurrent),
+                ebitdaGrowth: str(b.ebitdaGrowth),
+                multipleExpansion: str(b.multipleExpansion),
+                debtPaydown: str(b.debtPaydown),
+                total: str(b.total),
+                revenueGrowth: str(b.revenueGrowth),
+                marginChange: str(b.marginChange),
+                shares:
+                  b.shares === null
+                    ? null
+                    : {
+                        ebitdaGrowth: str(b.shares.ebitdaGrowth),
+                        multipleExpansion: str(b.shares.multipleExpansion),
+                        debtPaydown: str(b.shares.debtPaydown),
+                      },
+              },
+        gain: str(gain),
+        split:
+          split === null
+            ? null
+            : {
+                ebitdaGrowth: str(split.ebitdaGrowth),
+                multipleExpansion: str(split.multipleExpansion),
+                debtPaydown: str(split.debtPaydown),
+                revenueGrowth: str(split.revenueGrowth),
+                marginChange: str(split.marginChange),
+              },
+      },
+    });
+  }
+
+  for (let i = 0; i < perKind; i++) {
+    const figure = (min: number, max: number): string | null =>
+      rnd() < 0.1 ? null : `${int(min, max)}.${cents()}`;
+    const figures = (): { ebitda: string | null; ev: string | null; netDebt: string | null } => ({
+      ebitda: figure(-20_000_000, 900_000_000),
+      ev: figure(0, 9_000_000_000),
+      netDebt: figure(-500_000_000, 6_000_000_000),
+    });
+    const input = { entry: figures(), current: figures() };
+    const m = sinceEntryMeasures(input.entry, input.current);
+    cases.push({
+      id: id++,
+      kind: 'since_entry',
+      tolerance: '1e-20',
+      input,
+      result: {
+        ebitdaGrowth: str(m.ebitdaGrowth),
+        evGrowth: str(m.evGrowth),
+        equityValueGrowth: str(m.equityValueGrowth),
+        multipleChange: str(m.multipleChange),
+        netLeverageChange: str(m.netLeverageChange),
+        netDebtChange: str(m.netDebtChange),
+        ebitdaIndex: str(indexedLevel(input.current.ebitda, input.entry.ebitda)),
+        evIndex: str(indexedLevel(input.current.ev, input.entry.ev)),
+      },
+    });
+  }
+
+  for (let i = 0; i < perKind; i++) {
+    const edges: string[] = [];
+    let edge = int(10, 80);
+    for (let j = int(1, 6); j > 0; j--) {
+      edges.push(D(String(edge)).div(10).toString());
+      edge += int(1, 40);
+    }
+    const values = Array.from({ length: 6 }, () =>
+      rnd() < 0.3
+        ? (edges[int(0, edges.length - 1)] ?? '0')
+        : D(String(int(-200, 2500)))
+            .div(100)
+            .toString(),
+    );
+    const weighted = Array.from({ length: int(0, 5) }, () => ({
+      weight: rnd() < 0.1 ? '0' : amount(1, 50_000_000),
+      value: D(String(int(-9000, 30_000)))
+        .div(10_000)
+        .toString(),
+    }));
+    cases.push({
+      id: id++,
+      kind: 'bands',
+      tolerance: '1e-20',
+      input: { edges, values, weighted },
+      result: {
+        labels: turnBands(edges).map((b) => b.label),
+        indexes: values.map((v) => bandIndexOf(v, edges)),
+        weightedAverage: str(weightedAverage(weighted)),
+      },
     });
   }
   return cases;

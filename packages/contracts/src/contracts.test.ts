@@ -210,10 +210,10 @@ describe('contracts', () => {
       .flatMap((p) => Object.values(p) as { parameters: { name: string; schema: unknown }[] }[])
       .flatMap((op) => op.parameters)
       .filter((p) => ['asOf', 'periodEnd', 'dueFrom', 'dueTo'].includes(p.name));
-    // asOf on sixteen routes (the expected documents, the board and its export among them),
-    // periodEnd on five (valuations, documents, expected documents, the board and its export),
-    // dueFrom and dueTo on one.
-    expect(dateParams.length).toBe(23);
+    // asOf on nineteen routes (the expected documents, the board and its export, and the three
+    // value creation routes among them), periodEnd on five (valuations, documents, expected
+    // documents, the board and its export), dueFrom and dueTo on one.
+    expect(dateParams.length).toBe(26);
     for (const p of dateParams) {
       expect(p.schema, p.name).toEqual({
         type: 'string',

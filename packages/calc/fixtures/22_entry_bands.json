@@ -1,0 +1,52 @@
+{
+  "id": "22_entry_bands",
+  "function": "entry_bands",
+  "note": "Entry metric bands and the cohort average, by hand. Edges 8, 10, 12, 14 make five bands: below 8, then each interval closed below and open above, then 14 and over; 7.99 sits in the first, 8 in the second (an edge belongs to the band that starts at it), 9.999 in the second, 10 in the third, 13.99 in the fourth, 14 and 25 in the last, a negative figure in the first. Edges 3.5 and 4.25 keep the places they carry in the labels. No edges, a descending pair and a repeated edge are refused. The invested-weighted average: (10 x 0.25 + 30 x -0.05) / 40 = 1 / 40 = 0.025; (1 x 0.1 + 2 x 0.2) / 3 = 0.5 / 3 = 0.1666...; nothing to average and weights that sum to zero give no figure.",
+  "input": {
+    "bandSets": [
+      {
+        "edges": ["8", "10", "12", "14"],
+        "values": ["7.99", "8", "9.999", "10", "13.99", "14", "25", "-1"]
+      },
+      { "edges": ["3.5", "4.25"], "values": ["3.49", "3.5", "4.25"] },
+      { "edges": [], "values": [] },
+      { "edges": ["10", "8"], "values": [] },
+      { "edges": ["8", "8"], "values": [] }
+    ],
+    "weightedAverages": [
+      [
+        { "weight": "10", "value": "0.25" },
+        { "weight": "30", "value": "-0.05" }
+      ],
+      [
+        { "weight": "1", "value": "0.1" },
+        { "weight": "2", "value": "0.2" }
+      ],
+      [],
+      [{ "weight": "0", "value": "0.3" }]
+    ]
+  },
+  "expected": {
+    "bandSets": [
+      {
+        "labels": [
+          "Under 8.0x",
+          "8.0x to 10.0x",
+          "10.0x to 12.0x",
+          "12.0x to 14.0x",
+          "14.0x and over"
+        ],
+        "indexes": [0, 1, 1, 2, 3, 4, 4, 0]
+      },
+      {
+        "labels": ["Under 3.5x", "3.5x to 4.25x", "4.25x and over"],
+        "indexes": [0, 1, 2]
+      },
+      "THROWS:invalid_band_edges",
+      "THROWS:invalid_band_edges",
+      "THROWS:invalid_band_edges"
+    ],
+    "weightedAverages": ["0.025", "0.1666666666666666666666666666666667", null, null]
+  },
+  "tolerance": "1e-25"
+}

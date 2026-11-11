@@ -119,6 +119,11 @@ export function buildPlan(dataset, { dealTypes }) {
           '/api/v1/vehicles',
           withQuery('/api/v1/sponsors', { limit: LIST_LIMIT }),
           '/api/v1/analytics/summary',
+          // Value creation and entry metrics (M13, M20): the two tabs read one answer and sort
+          // it in the page, and the export replays the recorded CSV, so each credential's own
+          // rows (the wall decides) are all the preview needs.
+          '/api/v1/analytics/value-creation',
+          '/api/v1/analytics/value-creation/export',
           '/api/v1/monitoring/watchlist',
           '/api/v1/reports/weekly',
           '/api/v1/commitments',
@@ -154,6 +159,12 @@ export function buildPlan(dataset, { dealTypes }) {
       {
         name: 'investment performance',
         paths: investmentIds.map((id) => segment('/api/v1/investments', id, '/performance')),
+      },
+      // The value creation card of the deal workspace: every position, so a credit position
+      // replays the API's own "no row" and a walled one its 404.
+      {
+        name: 'investment value creation',
+        paths: investmentIds.map((id) => segment('/api/v1/investments', id, '/value-creation')),
       },
       {
         name: 'investment valuations',

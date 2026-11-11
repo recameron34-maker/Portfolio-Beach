@@ -16,6 +16,7 @@ All financial math lives in `packages/calc` (TypeScript) and is cross-checked by
 | RVPI | NAV / PI | PI = 0, or NAV not calculable |
 | TVPI | (distributions + NAV) / PI | PI = 0, or NAV not calculable |
 | MOIC (gross, deal level) | (realized proceeds + unrealized value) / invested capital | invested = 0, or NAV not calculable |
+| Gain (deal level, `totalGain`) | realized proceeds + unrealized value - invested capital, the money behind the gross MOIC | invested = 0, or NAV not calculable |
 | Unfunded | commitment - contributions + recallable distributions | commitment missing |
 | Holding period (years) | (exit or as-of date - first contribution date) / 365 | no contribution |
 | NAV (a set of positions) | sum of each held position's latest Locked mark; realized positions hold 0 | any held position has no Locked mark on or before the as-of date (never counted as 0) |
@@ -39,6 +40,11 @@ All financial math lives in `packages/calc` (TypeScript) and is cross-checked by
 | YoY growth | current / prior_same_quarter - 1 | prior missing or prior <= 0 |
 | Growth since entry | current / entry_snapshot - 1 | entry snapshot missing or <= 0 |
 | Entry vs current multiple delta | current EV/EBITDA - entry EV/EBITDA | either side null |
+| Equity value | EV - net debt | EV or net debt missing |
+| Growth since entry of EBITDA, EV and equity value (`sinceEntryMeasures`) | current / entry_snapshot - 1, each by the growth since entry rule above | entry snapshot missing or <= 0, or current missing |
+| Net leverage change since entry | current net debt/EBITDA - entry net debt/EBITDA, in turns | either side null |
+| Net debt change since entry | current net debt - entry net debt, in money (negative when debt was paid down) | either side missing |
+| Indexed level (`indexedLevel`) | current / base x 100, so lines that start together at entry start at 100 | base missing or <= 0, or current missing |
 
 ## 5. Period selection rules
 - **Same quarter prior year:** fiscal quarter and fiscal year minus one; match on quarter, tolerating period-end dates up to 7 days apart (config). Never fall back to the nearest available period.
@@ -57,6 +63,17 @@ All financial math lives in `packages/calc` (TypeScript) and is cross-checked by
 - **KS-PME:** (sum of distributions compounded to the end date with the index + NAV) / (sum of contributions compounded the same way). Index levels come from the benchmark adapter.
 - **Direct Alpha:** IRR of the index-adjusted cash flows (each flow multiplied by index_end / index_t), expressed as a continuously compounded rate: `ln(1 + irr)`.
 - **Value creation attribution** (per deal, entry to current): equity value change split into revenue growth, margin change, multiple change and net debt change using sequential substitution in that fixed order; document the order because the result depends on it.
+- **EBITDA bridge** (`valueCreationBridge`, per company, entry snapshot to current quarter): the attribution above with its revenue and margin steps taken together, so there is one rule. Equity value = EBITDA x multiple - net debt, where multiple = EV / EBITDA, changed one input at a time in the fixed order **EBITDA, multiple, net debt**:
+  - EBITDA growth = (EBITDA_1 - EBITDA_0) x EV_0 / EBITDA_0
+  - multiple expansion = EBITDA_1 x (EV_1 / EBITDA_1 - EV_0 / EBITDA_0), which is (EV_1 - EV_0) - EBITDA growth
+  - debt paydown = net debt_0 - net debt_1 (positive when net debt fell)
+
+  The three sum to the change in equity value, (EV_1 - net debt_1) - (EV_0 - net debt_0), exactly (for amounts below ten trillion): EBITDA growth is held to 20 decimal places, debt paydown is exact, and multiple expansion takes the remainder. Each driver's share is driver / total (no shares when the total is zero). With a positive revenue at both ends, EBITDA growth opens into revenue growth, (revenue_1 - revenue_0) x EV_0 / revenue_0 (growth at the entry margin and multiple, the attribution's first step), and margin change, the rest of EBITDA growth (its second step). No bridge when an EBITDA is at or below zero (`non_positive_ebitda`): the multiple is then undefined. The caller supplies the two other reasons, no entry snapshot and no current quarter.
+  - Worked example (fixtures 13 and 19): entry EBITDA 40, EV 400, net debt 150 (10.0x, equity 250); now EBITDA 65, EV 715, net debt 120 (11.0x, equity 595). EBITDA growth (65 - 40) x 10.0 = 250; multiple expansion (715 - 400) - 250 = 65, which is 65 x (11.0 - 10.0); debt paydown 150 - 120 = 30; total 250 + 65 + 30 = 345 = 595 - 250. Shares 72.5%, 18.8% and 8.7%. With revenue 200 at entry and 260 now, EBITDA growth opens into revenue growth (260 - 200) x 400 / 200 = 120 and margin change 250 - 120 = 130, the two revenue-side parts of fixture 13.
+- **Our gain by driver** (`gainByDriver`, per position): our own gain on the position (`totalGain`: distributions + NAV - invested, section 2) split by the company's driver shares, each part = gain x driver / company total. The roll-up over a portfolio then ties to our own gain, and a large company does not dominate whatever our stake in it. EBITDA growth and multiple expansion are held to 20 decimal places and debt paydown takes the remainder, so the parts sum to the gain exactly while every part is below ten trillion; the revenue and margin parts split the EBITDA part the same way. Not calculable when the gain is not calculable, when the company has no bridge, or when the company's total is zero. This is an allocation rule, not a measurement: when the company's equity value moved against our gain (a total of the opposite sign), every part carries the opposite sign of its driver, and a total close to zero makes the parts large. It lives in one function so it can change in one place.
+  - Worked example (fixture 21): on the company above we invested 10,000,000, received 2,000,000 and hold a NAV of 14,900,000, a gain of 6,900,000. EBITDA growth 6,900,000 x 250 / 345 = 5,000,000; multiple expansion 6,900,000 x 65 / 345 = 1,300,000; debt paydown the remainder, 600,000.
+- **Entry metric bands** (`turnBands`, `bandIndexOf`): ascending edges from config (`analytics.entryMultipleBands`, `analytics.entryLeverageBands`, in turns) cut the line into one more band than edges: below the first edge, each interval closed below and open above, and at or above the last edge, so every value sits in exactly one band and a value on an edge belongs to the band that starts there. Labels are in turns: "Under 8.0x", "8.0x to 10.0x", "14.0x and over". Edges that are empty, repeated or out of order are refused. A position with no entry figure (no entry snapshot, entry EBITDA at or below zero) is counted in an explicit "Not calculable" cohort, never dropped.
+- **Cohort average** (`weightedAverage`): sum of weight x value / sum of weights, such as the invested-weighted EBITDA growth of a band; null for nothing to average or weights that sum to zero. A cohort's MOIC and IRR are the pooled metrics of sections 2 and 3 over its positions.
 - **Liquidity forecast (Takahashi-Alexander):** contributions `C_t = RC_t x unfunded_t`; distributions `D_t = RD_t x NAV_t`; NAV grows at `G`; parameters per strategy in config.
 
 ## 9. Required test fixtures (golden files)
@@ -79,7 +96,11 @@ All financial math lives in `packages/calc` (TypeScript) and is cross-checked by
 16. Credit ratios: interest coverage, leverage through the tranche, LTV and DSCR, including the null cases (EBITDA, interest or EV at or below zero).
 17. Takahashi-Alexander liquidity forecast over the fund life (section 8).
 18. Value change: up, down, unchanged, a full write-down, a repeating decimal, a zero prior and a missing current or prior value (null).
-Property-based tests (fast-check / Hypothesis): IRR of flows scaled by k is unchanged; TVPI = DPI + RVPI; NPV at the solved IRR is within tolerance; par after PIK capitalization is never below par before it; prior x (1 + value change) gives back the current value, the change has the sign of current - prior, and scaling both values leaves it unchanged. The random cross-check also recomputes value changes in Python.
+19. EBITDA bridge: the worked example of section 8, a multiple that does not terminate with net debt rising, a falling margin with a contracting multiple, a total of zero (no shares), a missing or zero revenue (no split) and an EBITDA at or below zero (no bridge, with the reason).
+20. Measures since entry: growth of EBITDA, EV and equity value, the multiple, net leverage and net debt changes and the indexed levels, with every null case.
+21. Our gain by driver: the worked example of section 8, a split that does not terminate (the remainder goes to the last part), a loss, a company total of zero and no invested capital.
+22. Entry bands and the cohort average: the labels, a value on an edge, below the first and above the last edge, refused edges, and the weighted average with its null cases.
+Property-based tests (fast-check / Hypothesis): IRR of flows scaled by k is unchanged; TVPI = DPI + RVPI; NPV at the solved IRR is within tolerance; par after PIK capitalization is never below par before it; prior x (1 + value change) gives back the current value, the change has the sign of current - prior, and scaling both values leaves it unchanged. The bridge drivers sum to the equity value change exactly and their shares sum to one; the EBITDA step equals the revenue step plus the margin step of the four-driver attribution, and the multiple and net debt steps equal its own; our gain by driver sums to the gain exactly; the bands hold every value exactly once; a weighted average lies between its smallest and largest value. The random cross-check also recomputes value changes, the bridge with the gain split, the measures since entry and the bands in Python.
 
 ## 10. Private credit metrics
 Inputs come from `mon.credit_terms` and `mon.credit_performance` (`docs/03`). All rates are annual decimals.

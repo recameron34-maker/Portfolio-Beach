@@ -16,9 +16,11 @@ import {
   AnalyticsLayout,
   ClientAnalyticsTab,
   CreditTab,
+  EntryMetricsTab,
   ExposureTab,
   PerformanceAnalyticsTab,
   RealizationsTab,
+  ValueCreationTab,
 } from '../pages/analytics/Analytics.js';
 import { AssistantsPage } from '../pages/assistants/Assistants.js';
 import {
@@ -167,6 +169,8 @@ const analyticsTab = <P extends string>(path: P, component: () => ReactNode) =>
   createRoute({ getParentRoute: () => analyticsRoute, path, component });
 const analyticsExposureRoute = analyticsTab('/', ExposureTab);
 const analyticsPerformanceRoute = analyticsTab('/performance', PerformanceAnalyticsTab);
+const analyticsValueCreationRoute = analyticsTab('/value-creation', ValueCreationTab);
+const analyticsEntryMetricsRoute = analyticsTab('/entry-metrics', EntryMetricsTab);
 const analyticsCreditRoute = analyticsTab('/credit', CreditTab);
 const analyticsRealizationsRoute = analyticsTab('/realizations', RealizationsTab);
 const analyticsClientsRoute = analyticsTab('/clients', ClientAnalyticsTab);
@@ -269,6 +273,8 @@ const routeTree = rootRoute.addChildren([
     analyticsRoute.addChildren([
       analyticsExposureRoute,
       analyticsPerformanceRoute,
+      analyticsValueCreationRoute,
+      analyticsEntryMetricsRoute,
       analyticsCreditRoute,
       analyticsRealizationsRoute,
       analyticsClientsRoute,

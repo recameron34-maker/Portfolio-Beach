@@ -41,6 +41,20 @@ export function moic(
 }
 
 /**
+ * Gain on a deal: realized proceeds + unrealized value - invested capital, the money behind the
+ * gross MOIC ((MOIC - 1) x invested). Null when nothing was invested, as MOIC is.
+ */
+export function totalGain(
+  realized: DecimalInput,
+  unrealized: DecimalInput,
+  invested: DecimalInput,
+): Decimal | null {
+  const inv = D(invested).abs();
+  if (inv.isZero()) return null;
+  return D(realized).plus(D(unrealized)).minus(inv);
+}
+
+/**
  * Mark-to-mark value change: (current - prior) / prior, such as a Locked fair value against the
  * previous quarter's. Null when either value is missing or the prior is zero (no ratio to a zero
  * base), never a substitute value (docs/08 section 2).

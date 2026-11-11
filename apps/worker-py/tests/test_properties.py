@@ -1,10 +1,12 @@
 from datetime import date, timedelta
 from decimal import Decimal
+from fractions import Fraction
+from typing import cast
 
-from hypothesis import given, settings
+from hypothesis import assume, given, settings
 from hypothesis import strategies as st
 
-from calc_check import credit, multiples
+from calc_check import attribution, bridge, credit, multiples
 from calc_check.irr import Flow, npv, xirr
 
 
@@ -70,3 +72,121 @@ def test_value_change_is_none_without_a_base(current: int) -> None:
     assert multiples.value_change(Decimal(current), Decimal(0)) is None
     assert multiples.value_change(None, Decimal(10)) is None
     assert multiples.value_change(Decimal(current), None) is None
+
+
+def cents(lo: int, hi: int) -> st.SearchStrategy[Decimal]:
+    """Dollars and cents between two whole-dollar bounds."""
+    return st.integers(lo * 100, hi * 100).map(lambda c: Decimal(c) / Decimal(100))
+
+
+@st.composite
+def company(draw: st.DrawFn) -> dict[str, Decimal | None]:
+    """A company at one date: positive EBITDA, EV of 2 to 40 turns, net cash to 90% net debt."""
+    ebitda = draw(cents(100_000, 2_000_000_000))
+    ev = (ebitda * draw(st.integers(200, 4000)) / Decimal(100)).quantize(Decimal("0.01"))
+    net_debt = (ev * draw(st.integers(-20, 90)) / Decimal(100)).quantize(Decimal("0.01"))
+    revenue = (ebitda * draw(st.integers(150, 2000)) / Decimal(100)).quantize(Decimal("0.01"))
+    return {"ebitda": ebitda, "ev": ev, "netDebt": net_debt, "revenue": revenue}
+
+
+DRIVERS = ("ebitdaGrowth", "multipleExpansion", "debtPaydown")
+
+
+def whole(*parts: Decimal) -> Fraction:
+    """The exact sum of decimals, free of any rounding context."""
+    return sum((Fraction(p) for p in parts), Fraction(0))
+
+
+@settings(max_examples=150, deadline=None)
+@given(company(), company())
+def test_bridge_drivers_sum_exactly_to_the_equity_change(
+    entry: dict[str, Decimal | None], current: dict[str, Decimal | None]
+) -> None:
+    b = bridge.bridge(entry, current)
+    assert b is not None
+    parts = [cast(Decimal, b[k]) for k in DRIVERS]
+    total = cast(Decimal, b["total"])
+    assert whole(*parts) == Fraction(total)
+    ev0, d0 = cast(Decimal, entry["ev"]), cast(Decimal, entry["netDebt"])
+    ev1, d1 = cast(Decimal, current["ev"]), cast(Decimal, current["netDebt"])
+    assert Fraction(total) == whole(ev1, -d1, -ev0, d0)
+    assert Fraction(parts[2]) == whole(d0, -d1)
+    # The remainder given to the multiple is the substitution step itself, to the held places.
+    e0, e1 = cast(Decimal, entry["ebitda"]), cast(Decimal, current["ebitda"])
+    step = Fraction(e1) * (Fraction(ev1) / Fraction(e1) - Fraction(ev0) / Fraction(e0))
+    assert abs(Fraction(parts[1]) - step) <= Fraction(1, 10**20)
+    shares = cast(dict[str, Decimal] | None, b["shares"])
+    if shares is not None:
+        largest = max(abs(Fraction(v)) for v in shares.values())
+        assert abs(whole(*shares.values()) - 1) <= Fraction(1, 10**28) * max(largest, Fraction(1))
+
+
+@settings(max_examples=150, deadline=None)
+@given(company(), company())
+def test_ebitda_step_is_the_revenue_step_plus_the_margin_step(
+    entry: dict[str, Decimal | None], current: dict[str, Decimal | None]
+) -> None:
+    b = bridge.bridge(entry, current)
+    four = attribution.attribution(
+        {k: cast(Decimal, v) for k, v in entry.items()},
+        {k: cast(Decimal, v) for k, v in current.items()},
+    )
+    assert b is not None and four is not None
+    tol = Fraction(1, 10**12)
+
+    def near(mine: object, *theirs: Decimal) -> bool:
+        return abs(Fraction(cast(Decimal, mine)) - whole(*theirs)) <= tol
+
+    assert near(b["ebitdaGrowth"], four["revenueGrowth"], four["marginChange"])
+    assert near(b["multipleExpansion"], four["multipleChange"])
+    assert near(b["debtPaydown"], four["netDebtChange"])
+    assert near(b["revenueGrowth"], four["revenueGrowth"])
+    revenue, margin = cast(Decimal, b["revenueGrowth"]), cast(Decimal, b["marginChange"])
+    assert whole(revenue, margin) == Fraction(cast(Decimal, b["ebitdaGrowth"]))
+
+
+@settings(max_examples=150, deadline=None)
+@given(company(), company(), cents(-2_000_000_000, 2_000_000_000))
+def test_gain_split_sums_exactly_to_the_gain(
+    entry: dict[str, Decimal | None], current: dict[str, Decimal | None], gain: Decimal
+) -> None:
+    b = bridge.bridge(entry, current)
+    assert b is not None
+    split = bridge.gain_by_driver(
+        gain,
+        cast(Decimal, b["ebitdaGrowth"]),
+        cast(Decimal, b["multipleExpansion"]),
+        cast(Decimal, b["total"]),
+        cast(Decimal | None, b["revenueGrowth"]),
+    )
+    if b["total"] == 0:
+        assert split is None
+        return
+    assert split is not None
+    parts = [cast(Decimal, split[k]) for k in DRIVERS]
+    # Exact while every part stays below ten trillion (docs/08 section 8).
+    assume(all(abs(part) < Decimal("1e13") for part in parts))
+    assert whole(*parts) == Fraction(gain)
+    revenue, margin = cast(Decimal, split["revenueGrowth"]), cast(Decimal, split["marginChange"])
+    assert whole(revenue, margin) == Fraction(parts[0])
+
+
+@given(
+    st.lists(st.integers(1, 400), min_size=1, max_size=8, unique=True),
+    st.integers(-5000, 50_000),
+)
+def test_bands_hold_every_value_exactly_once(tenths: list[int], hundredths: int) -> None:
+    edges = [Decimal(t) / Decimal(10) for t in sorted(tenths)]
+    value = Decimal(hundredths) / Decimal(100)
+    index = bridge.band_index(value, edges)
+    bounds: list[Decimal | None] = [None, *edges, None]
+
+    def holds(i: int) -> bool:
+        lower, upper = bounds[i], bounds[i + 1]
+        return (lower is None or lower <= value) and (upper is None or value < upper)
+
+    assert [i for i in range(len(edges) + 1) if holds(i)] == [index]
+    labels = bridge.band_labels(edges)
+    assert len(labels) == len(edges) + 1 and len(set(labels)) == len(labels)
+    for i, edge in enumerate(edges):
+        assert bridge.band_index(edge, edges) == i + 1
