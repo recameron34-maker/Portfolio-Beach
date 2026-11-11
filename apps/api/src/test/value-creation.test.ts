@@ -118,6 +118,11 @@ describe('value creation analytics (M13, M20)', () => {
         expect(point![field] === null ? null : D(point![field]).toString(), label).toBe(
           value === null ? null : D(value).toString(),
         );
+      expect(point!.equityValue, label).toBe(
+        quarter.ev === null || quarter.netDebt === null
+          ? null
+          : str(D(quarter.ev).minus(quarter.netDebt)),
+      );
     }
     const measures = want.measures;
     for (const key of [
@@ -267,6 +272,8 @@ describe('value creation analytics (M13, M20)', () => {
           true,
         );
         expect(D(b.equityAtEntry).eq(D(p.entry!.ev!).minus(p.entry!.netDebt!))).toBe(true);
+        expect(b.equityAtEntry).toBe(p.entry!.equityValue);
+        expect(b.equityCurrent).toBe(p.current!.equityValue);
         expect(D(b.debtPaydown).eq(D(p.entry!.netDebt!).minus(p.current!.netDebt!))).toBe(true);
         if (b.revenueGrowth !== null)
           expect(
@@ -508,6 +515,8 @@ describe('value creation analytics (M13, M20)', () => {
         expect(cell(row, 'companyName')).toBe(p.companyName);
         expect(cell(row, 'status')).toBe(p.isActive ? 'active' : 'realized');
         expect(cell(row, 'entryEvToEbitda')).toBe(p.entry?.evToEbitda ?? '');
+        expect(cell(row, 'entryEquityValue')).toBe(p.entry?.equityValue ?? '');
+        expect(cell(row, 'currentEquityValue')).toBe(p.current?.equityValue ?? '');
         expect(cell(row, 'entryNetDebtToEbitda')).toBe(p.entry?.netDebtToEbitda ?? '');
         expect(cell(row, 'currentPeriodEnd')).toBe(p.current?.periodEnd ?? '');
         expect(cell(row, 'ebitdaGrowth')).toBe(p.growth.ebitdaGrowth ?? '');
@@ -756,6 +765,8 @@ describe('value creation analytics: what does not count (M13, M20)', () => {
     expect(row.growth.netLeverageChange).toBeNull();
     expect(row.growth.equityValueGrowth).toBeNull();
     expect(row.current!.netDebtToEbitda).toBeNull();
+    expect(row.current!.equityValue).toBeNull();
+    expect(row.entry!.equityValue).not.toBeNull();
     expect(row.current!.evToEbitda).not.toBeNull();
   });
 

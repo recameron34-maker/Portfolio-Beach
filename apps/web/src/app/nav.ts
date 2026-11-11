@@ -48,6 +48,8 @@ export const REPORTING_TABS = [
 export const ANALYTICS_TABS = [
   { to: '/analytics', label: 'Exposure', exact: true },
   { to: '/analytics/performance', label: 'Performance' },
+  { to: '/analytics/value-creation', label: 'Value creation' },
+  { to: '/analytics/entry-metrics', label: 'Entry metrics' },
   { to: '/analytics/credit', label: 'Credit book' },
   { to: '/analytics/realizations', label: 'Realizations' },
   { to: '/analytics/clients', label: 'Clients' },

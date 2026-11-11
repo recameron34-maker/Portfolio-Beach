@@ -2325,6 +2325,8 @@ export const valueCreationPoint = z
     ebitdaLtm: decimalString.nullable(),
     ev: decimalString.nullable(),
     netDebt: decimalString.nullable(),
+    /** EV less net debt; null when either is missing. */
+    equityValue: decimalString.nullable(),
     /** EV / EBITDA in turns; null when EBITDA is missing or not positive. */
     evToEbitda: decimalString.nullable(),
     /** Net debt / EBITDA in turns; null when EBITDA is missing or not positive. */

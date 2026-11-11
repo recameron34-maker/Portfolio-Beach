@@ -97,6 +97,12 @@
   stroke: var(--pb-muted);
   stroke-width: 1;
 }
+/* A reference line (where two measures are equal): dashed, so it never reads as a gridline or data. */
+.pb-chart-reference {
+  stroke: var(--pb-muted);
+  stroke-width: 1.5;
+  stroke-dasharray: 5 4;
+}
 .pb-chart-tick,
 .pb-chart-label {
   font-size: 12px;
@@ -124,6 +130,10 @@
 }
 .pb-chart-mark:hover path,
 .pb-chart-mark:focus-visible path {
+  opacity: 0.85;
+}
+.pb-chart-point:hover circle:not(.pb-chart-hit),
+.pb-chart-point:focus-visible circle:not(.pb-chart-hit) {
   opacity: 0.85;
 }
 .pb-chart-mark:focus-visible .pb-chart-hit {

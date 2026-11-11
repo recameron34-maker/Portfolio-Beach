@@ -214,8 +214,14 @@ function walkthroughs(p: GuidePeople): Walkthrough[] {
       title: 'Analytics and the weekly report',
       steps: [
         <>
-          Open <Link to="/analytics">Analytics</Link> and step through Exposure, Performance, Credit
-          book, Realizations and Clients.
+          Open <Link to="/analytics">Analytics</Link> and step through Exposure, Performance, Value
+          creation, Entry metrics, Credit book, Realizations and Clients.
+        </>,
+        <>
+          On Value creation, read how our gain splits into EBITDA growth, multiple expansion and
+          debt paydown, open EBITDA growth into revenue and margin, and sort the positions; a
+          company opens its own bridge on its Performance tab. Entry metrics compares performance by
+          entry purchase multiple and entry net leverage.
         </>,
         <>
           Open the <Link to="/reporting">Weekly report</Link> and choose Print: the printed page
