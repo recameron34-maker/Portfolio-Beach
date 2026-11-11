@@ -18,13 +18,15 @@ import type {
 } from '@pb/contracts';
 import { schema } from '@pb/db';
 import type { Tx } from '@pb/db';
-import { attempt, dealStageMachine } from '@pb/workflows';
+import { attempt, closingMachine, dealStageMachine } from '@pb/workflows';
+import type { ClosingState } from '@pb/workflows';
 import type { z } from 'zod';
-import { loadClosingView, requiredItemsComplete } from '../closing/summary.js';
+import { closingStateOf, loadClosingView, requiredItemsComplete } from '../closing/summary.js';
 import type { ClosingView } from '../closing/summary.js';
 import { decodeCursor, encodeCursor } from '../common/cursor.js';
 import { ProblemError, workflowProblem } from '../common/problem.js';
 import { requireFreshRow } from '../common/row-version.js';
+import { systemStep } from '../common/system-step.js';
 import { ADAPTERS, CLOSING_CHECKLIST, DILIGENCE_TEMPLATES } from '../common/tokens.js';
 import { requireUuid } from '../common/validate.js';
 import { DbService } from '../db/db.service.js';
@@ -57,9 +59,11 @@ import type { LockedOpportunity } from './rows.js';
  * checklist and allocation tie-out), runs the machine for the role, the transition and the
  * preconditions, writes the stage with a guard on the stage and row version it read, appends the
  * stage history row and audits the change with the stage before and after. Advancing Approved to
- * Closing opens the closing record (docs/18 section 12) with the checklist from config; advancing
- * Closing to Closed converts the deal into a position with the data captured once (convert.ts).
- * Anything the caller cannot see is 404 (row-level security carries the opportunity wall).
+ * Closing opens the closing record (docs/18 section 12) with the checklist from config, or, for a
+ * deal that was passed and reopened, rewrites the record it had and returns it to Open so
+ * operations confirm again; advancing Closing to Closed converts the deal into a position with the
+ * data captured once and the opportunity's walls carried to it (convert.ts). Anything the caller
+ * cannot see is 404 (row-level security carries the opportunity wall).
  */
 
 export type OpportunityListOptions = z.infer<typeof opportunityListQuery>;
@@ -71,6 +75,9 @@ const closingItem = schema.closingItem;
 const UUID = '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}';
 /** The cursor is "receivedDate|id" of the last row, the list's sort key (newest received first). */
 const CURSOR = new RegExp(`^(\\d{4}-\\d{2}-\\d{2})\\|(${UUID})$`);
+/** The reason on record when a confirmed closing returns to Open because its deal came back to Closing. */
+const CLOSING_REENTERED =
+  'The deal reached Closing again with a new close date and commitment; operations confirm again';
 
 const validation = (path: string, message: string): ProblemError =>
   new ProblemError(400, 'validation', 'Invalid body', [{ path, message }]);
@@ -279,6 +286,7 @@ export class PipelineService {
         details.closing = await this.openClosing(
           tx,
           audit,
+          principal,
           locked,
           closing,
           body.closeDate,
@@ -402,17 +410,15 @@ export class PipelineService {
     const icApproved = await latestDecisionApproved(tx, id);
     const checklistComplete = closing !== null && requiredItemsComplete(closing.items);
     const allocationTiedOut = closing?.summary.allocationTieOut.tiedOut === true;
+    const confirmed = closing?.summary.state === 'OpsConfirmed';
     const gates: OpportunityGates = {
-      diligence: { requiredOpen: gate.requiredOpen, ok: gate.ok },
+      diligence: gate,
       icDecision: { ok: icApproved },
       closing: {
         checklistComplete,
         allocationTiedOut,
-        ok:
-          closing !== null &&
-          closing.summary.state === 'OpsConfirmed' &&
-          checklistComplete &&
-          allocationTiedOut,
+        confirmed,
+        ok: checklistComplete && allocationTiedOut && confirmed,
       },
     };
     return {
@@ -431,34 +437,19 @@ export class PipelineService {
   /**
    * The closing record opened by Approved > Closing (docs/18 section 12): Open, with the close
    * date and commitment given and one item per entry of config/closing_checklist.json. A deal
-   * that reaches Closing again (passed and reopened) keeps the record it had, with the new date
-   * and commitment written and audited.
+   * that reaches Closing again (passed and reopened) keeps the record it had.
    */
   private async openClosing(
     tx: Tx,
     audit: (entry: AuditEntry) => Promise<void>,
+    principal: Principal,
     locked: LockedOpportunity,
     existing: ClosingView | null,
     closeDate: string,
     commitmentAmount: string,
   ): Promise<Record<string, unknown>> {
-    if (existing !== null) {
-      await tx
-        .update(closingTable)
-        .set({ closeDate, commitmentAmount })
-        .where(eq(closingTable.id, existing.closing.id));
-      await audit({
-        action: 'closing.reuse',
-        entity: 'deal.closing',
-        entityId: existing.closing.id,
-        details: {
-          opportunityId: locked.id,
-          closeDate: { before: existing.closing.closeDate, after: closeDate },
-          commitmentAmount: { before: existing.closing.commitmentAmount, after: commitmentAmount },
-        },
-      });
-      return { id: existing.closing.id, closeDate, commitmentAmount, items: existing.items.length };
-    }
+    if (existing !== null)
+      return this.reuseClosing(tx, audit, principal, locked, existing, closeDate, commitmentAmount);
     const inserted = (
       await tx
         .insert(closingTable)
@@ -495,6 +486,90 @@ export class PipelineService {
       },
     });
     return { id: inserted.id, closeDate, commitmentAmount, items: this.checklist.items.length };
+  }
+
+  /**
+   * The closing of a deal that reaches Closing again after a pass and a reopen: the record it had
+   * takes the new close date and commitment, and a confirmation given for the old ones does not
+   * carry over. A confirmed closing returns to Open through closingMachine (the reopen row, as the
+   * system step it names) with the reason on record and the confirmation cleared, so operations
+   * confirm again before the deal can close; the checklist items stay as they are (the documents
+   * received are still on file). The stage machine authorized the actor for Approved > Closing,
+   * while deal.closing is updated by operations and the service only (migration 0013), so the
+   * write runs as a system step: the roles alone, the actor kept, and updated_by names the person.
+   * It guards on the state and row version read, and the audit event carries the values read
+   * before and the row as written.
+   */
+  private async reuseClosing(
+    tx: Tx,
+    audit: (entry: AuditEntry) => Promise<void>,
+    principal: Principal,
+    locked: LockedOpportunity,
+    existing: ClosingView,
+    closeDate: string,
+    commitmentAmount: string,
+  ): Promise<Record<string, unknown>> {
+    const before = existing.closing;
+    const from = closingStateOf(before.state);
+    let to: ClosingState = from;
+    if (from === 'OpsConfirmed') {
+      const moved = attempt(closingMachine, from, 'reopen', {
+        actorId: principal.userId,
+        actorRoles: ['service'],
+        reason: CLOSING_REENTERED,
+        record: {},
+      });
+      if (!moved.ok) throw workflowProblem(moved);
+      to = moved.to;
+    }
+    const reopened = to !== from;
+    const written = (
+      await systemStep(tx, principal, () =>
+        tx
+          .update(closingTable)
+          .set({
+            closeDate,
+            commitmentAmount,
+            ...(reopened
+              ? {
+                  state: to,
+                  reopenReason: CLOSING_REENTERED,
+                  opsConfirmedBy: null,
+                  opsConfirmedAt: null,
+                }
+              : {}),
+          })
+          .where(
+            and(
+              eq(closingTable.id, before.id),
+              eq(closingTable.state, from),
+              eq(closingTable.rowVersion, before.rowVersion),
+            ),
+          )
+          .returning(),
+      )
+    )[0];
+    if (written === undefined) throw conflict('closing');
+    await audit({
+      action: 'closing.reuse',
+      entity: 'deal.closing',
+      entityId: before.id,
+      ...(reopened ? { reason: CLOSING_REENTERED } : {}),
+      details: {
+        opportunityId: locked.id,
+        state: { before: from, after: written.state },
+        closeDate: { before: before.closeDate, after: written.closeDate },
+        commitmentAmount: { before: before.commitmentAmount, after: written.commitmentAmount },
+        opsConfirmedBy: { before: before.opsConfirmedById, after: written.opsConfirmedBy },
+      },
+    });
+    return {
+      id: before.id,
+      closeDate: written.closeDate,
+      commitmentAmount: written.commitmentAmount,
+      state: written.state,
+      items: existing.items.length,
+    };
   }
 
   /**

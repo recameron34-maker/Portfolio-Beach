@@ -446,7 +446,11 @@ export type AllocationRow = z.infer<typeof allocationRow>;
 export const closingState = z.enum(['Open', 'OpsConfirmed']);
 export type ClosingState = z.infer<typeof closingState>;
 
-/** The allocation tie-out (M22): allocations must equal the closing commitment or closing cannot complete. */
+/**
+ * The allocation tie-out (M22): allocations must equal the closing commitment or closing cannot
+ * complete. `allocated` is the sum of the received amounts alone: a requested amount never stands
+ * in for a received one, so a line with no received amount keeps `tiedOut` false whatever the sum.
+ */
 export const allocationTieOut = z.object({
   commitment: s.decimalString,
   allocated: s.decimalString,
@@ -503,13 +507,25 @@ export const stageHistoryEntry = z.object({
 });
 export type StageHistoryEntry = z.infer<typeof stageHistoryEntry>;
 
-/** The gates the stage commands check (docs/18 section 4), shown before a person tries them. */
+/**
+ * The gates the stage commands check (docs/18 section 4), shown before a person tries them.
+ * `diligence.carriedOver` counts the tasks required for IC that were done or waived before the
+ * deal was last reopened from Passed: the work stands, and the gate says it predates the reopen.
+ * `icDecision.ok` reads the decisions recorded since the deal last entered IC: one from before a
+ * pass never opens Approved. `closing.confirmed` is the operations confirmation of the closing
+ * record (docs/18 section 12), and `closing.ok` needs it with the checklist and the tie-out.
+ */
 export const opportunityGates = z.object({
-  diligence: z.object({ requiredOpen: z.number().int(), ok: z.boolean() }),
+  diligence: z.object({
+    requiredOpen: z.number().int(),
+    ok: z.boolean(),
+    carriedOver: z.number().int(),
+  }),
   icDecision: z.object({ ok: z.boolean() }),
   closing: z.object({
     checklistComplete: z.boolean(),
     allocationTiedOut: z.boolean(),
+    confirmed: z.boolean(),
     ok: z.boolean(),
   }),
 });
@@ -664,13 +680,18 @@ export const closingItemCommandBody = z.discriminatedUnion('command', [
 ]);
 export type ClosingItemCommandBody = z.infer<typeof closingItemCommandBody>;
 
-export const closingCommand = z.enum(['confirm', 'changeCloseDate']);
+export const closingCommand = z.enum(['confirm', 'changeCloseDate', 'reopen']);
 export type ClosingCommand = z.infer<typeof closingCommand>;
 
-/** confirm is the operations confirmation; changeCloseDate after it needs a reason and re-confirmation (docs/04 M8). */
+/**
+ * confirm is the operations confirmation; changeCloseDate after it needs a reason and
+ * re-confirmation (docs/04 M8). reopen returns a confirmed closing to Open with a reason, the one
+ * way its checklist items and allocation lines change after confirmation (docs/18 section 12).
+ */
 export const closingCommandBody = z.discriminatedUnion('command', [
   z.object({ command: z.literal('confirm') }).strict(),
   z.object({ command: z.literal('changeCloseDate'), closeDate: s.isoDate, reason }).strict(),
+  z.object({ command: z.literal('reopen'), reason }).strict(),
 ]);
 export type ClosingCommandBody = z.infer<typeof closingCommandBody>;
 

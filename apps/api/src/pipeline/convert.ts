@@ -1,4 +1,4 @@
-import { eq, sql } from 'drizzle-orm';
+import { and, eq, sql } from 'drizzle-orm';
 import { D } from '@pb/calc';
 import type { AllocationRow } from '@pb/contracts';
 import { asSystemActor, schema } from '@pb/db';
@@ -16,7 +16,8 @@ import type { LockedOpportunity } from './rows.js';
  * and the portfolio company is created from the company name when the deal did not name one yet
  * (or linked to the company already on record under that name, so no second record is made). The
  * next investment number counts every position, walled ones included, so it is read as the system
- * actor; nothing read there is returned to the caller.
+ * actor; nothing read there is returned to the caller. A walled deal becomes a walled position:
+ * every wall of the opportunity is carried to the investment in the same transaction (carryWalls).
  */
 
 export interface Conversion {
@@ -51,6 +52,45 @@ export function largestAllocation(rows: readonly AllocationRow[]): AllocationRow
       D(b.received ?? b.requested).comparedTo(D(a.received ?? a.requested)) ||
       compareText(a.vehicle.name, b.vehicle.name),
   )[0];
+}
+
+/**
+ * The walls of the opportunity, carried to the position it became (SEC-5.3): a walled deal must
+ * not turn into a position everyone can read. Every wall that covers the opportunity is copied to
+ * the investment in the conversion's own transaction, as the system actor: the person closing the
+ * deal is a member of one of those walls at least, not necessarily of all, and members do not
+ * manage walls. Answers how many walls were carried.
+ *
+ * The copy is checked before the conversion goes on. The person sees the wall rows of the walls
+ * they belong to, so they see one at least when the deal is walled; every wall they see must be
+ * among the walls carried. When it is not (the system actor could not read or write the wall
+ * rows), the conversion is refused and nothing is written, rather than leave an unwalled position.
+ */
+export async function carryWalls(
+  tx: Tx,
+  opportunityId: string,
+  investmentId: string,
+): Promise<number> {
+  const walled = schema.walledRecord;
+  const ofOpportunity = and(eq(walled.entity, 'opportunity'), eq(walled.entityId, opportunityId));
+  const seen = await tx.select({ wallId: walled.wallId }).from(walled).where(ofOpportunity);
+  const carried = await asSystemActor(tx, async (sys) => {
+    const walls = await sys.select({ wallId: walled.wallId }).from(walled).where(ofOpportunity);
+    if (walls.length > 0)
+      await sys
+        .insert(walled)
+        .values(
+          walls.map((w) => ({ wallId: w.wallId, entity: 'investment', entityId: investmentId })),
+        );
+    return new Set(walls.map((w) => w.wallId));
+  });
+  if (seen.some((w) => !carried.has(w.wallId)))
+    throw new ProblemError(
+      500,
+      'internal',
+      'conversion: the walls of the deal could not be carried to the position; nothing was written',
+    );
+  return carried.size;
 }
 
 export async function convertToInvestment(
@@ -125,6 +165,7 @@ export async function convertToInvestment(
   )[0];
   if (investment === undefined)
     throw new ProblemError(500, 'internal', 'conversion: the investment was not written');
+  const wallsCarried = await carryWalls(tx, opportunity.id, investment.id);
 
   await audit({
     action: 'investment.create',
@@ -141,6 +182,7 @@ export async function convertToInvestment(
       sponsorFundId: opportunity.sponsorFundId,
       dealType: opportunity.dealType,
       entryDate: closing.closeDate,
+      wallsCarried,
     },
   });
   return {

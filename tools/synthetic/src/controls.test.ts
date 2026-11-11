@@ -1,5 +1,6 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
+import { D } from '@pb/calc';
 import {
   CONTROLS_DEFAULTS,
   closingChecklistFrom,
@@ -10,6 +11,7 @@ import {
   diligenceTemplatesFrom,
   splitByOwnership,
 } from './controls.js';
+import { generateDataset } from './generate.js';
 import { Rng } from './prng.js';
 
 const configFile = (name: string): unknown => {
@@ -126,5 +128,35 @@ describe('the allocation split and the synthetic account digits', () => {
     ]);
     expect(controlsOf({ closings: 'no' }).closings).toEqual([]);
     expect(controlsOf(null).tradeTickets).toEqual([]);
+  });
+});
+
+describe('the seeded closings (docs/04 M22)', () => {
+  it('tie out on received amounts alone: every line of a closing has one and they sum to its commitment', () => {
+    // The API's tie-out reads received amounts only (a requested amount never stands in), so a
+    // seeded closing whose lines were requested and not yet received would read as not tied out.
+    const dataset = generateDataset({ profile: 'small', seed: 42 });
+    const closings = dataset.closings ?? [];
+    const allocations = dataset.allocations ?? [];
+    expect(closings.length).toBeGreaterThan(0);
+    expect(closings.some((c) => c.state === 'Open')).toBe(true);
+    for (const closing of closings) {
+      const lines = allocations.filter(
+        (a) =>
+          a.opportunityId === closing.opportunityId ||
+          (closing.investmentId !== null && a.investmentId === closing.investmentId),
+      );
+      expect(lines.length, closing.id).toBeGreaterThan(0);
+      expect(
+        lines.filter((a) => a.received === null),
+        closing.id,
+      ).toEqual([]);
+      expect(
+        lines.reduce((sum, a) => sum.plus(a.received ?? '0'), D('0')).toFixed(2),
+        closing.id,
+      ).toBe(closing.commitmentAmount);
+    }
+    // A deal not yet at Closing may carry requested lines with nothing received: no closing reads them.
+    expect(allocations.some((a) => a.received === null)).toBe(true);
   });
 });

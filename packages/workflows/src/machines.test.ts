@@ -676,7 +676,7 @@ describe('closing (docs/18 section 12, M8)', () => {
     expect(MACHINES.closing).toBe(closingMachine);
     expect(closingMachine.name).toBe('closing');
     expect(closingMachine.states).toEqual(['Open', 'OpsConfirmed']);
-    expect(closingMachine.commands).toEqual(['confirm', 'changeCloseDate']);
+    expect(closingMachine.commands).toEqual(['confirm', 'changeCloseDate', 'reopen']);
     expect(closingMachine.initial).toBe('Open');
     expect(closingMachine.terminal).toEqual([]);
   });
@@ -759,10 +759,44 @@ describe('closing (docs/18 section 12, M8)', () => {
     expect(path).toEqual(['OpsConfirmed', 'Open', 'OpsConfirmed']);
   });
 
-  it('rejects the two (state, command) pairs the table does not list', () => {
+  it('operations reopen a confirmed closing with a reason, and so does the system step when a deal returns to Closing', () => {
+    for (const role of ['operations', 'service'])
+      expect(
+        attempt(
+          closingMachine,
+          'OpsConfirmed',
+          'reopen',
+          ctx([role], { reason: 'a second vehicle takes part of the allocation' }),
+        ),
+      ).toEqual({ ok: true, to: 'Open' });
+    for (const reason of [null, '', '   '])
+      expect(
+        attempt(closingMachine, 'OpsConfirmed', 'reopen', ctx(['operations'], { reason })),
+      ).toEqual({ ok: false, code: 'precondition', message: 'closing: a reason is required' });
+    const row = closingMachine.transitions.find((t) => t.command === 'reopen');
+    expect(row?.precondition).toBe(requireReason);
+    expect(row?.roles).toEqual(['operations', 'service']);
+    // The deal team hands the closing to operations and never reopens a confirmation themselves.
+    for (const role of EVERY_ROLE.filter((r) => r !== 'operations' && r !== 'service'))
+      expect(
+        attempt(closingMachine, 'OpsConfirmed', 'reopen', ctx([role], { reason: 'a reason' })),
+      ).toEqual({
+        ok: false,
+        code: 'role',
+        message: 'closing: reopen from OpsConfirmed requires one of: operations, service',
+      });
+    // Reopened, the closing is confirmed again like any Open one.
+    expect(attempt(closingMachine, 'Open', 'confirm', ctx(['operations']))).toEqual({
+      ok: true,
+      to: 'OpsConfirmed',
+    });
+  });
+
+  it('rejects the three (state, command) pairs the table does not list', () => {
     const forbidden = forbiddenPairs(closingMachine);
     expect(forbidden).toEqual([
       { from: 'Open', command: 'changeCloseDate' },
+      { from: 'Open', command: 'reopen' },
       { from: 'OpsConfirmed', command: 'confirm' },
     ]);
     for (const { from, command } of forbidden)
