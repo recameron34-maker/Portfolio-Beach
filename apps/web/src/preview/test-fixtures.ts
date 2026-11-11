@@ -51,6 +51,7 @@ import {
   fmtDate,
   noticeAlerts,
   pendingChange,
+  readsRegister,
   releaseOf,
 } from './routes/register.js';
 import type { RegisterView } from './routes/register.js';
@@ -598,7 +599,7 @@ export function wireFixtures(): WireInstructionRow[] {
   ];
 }
 
-/** A minimal book for the register tests: the two funds, the bank details of every recorded version, the bundled config. */
+/** A minimal book for the register tests: the two funds, every recorded version in its masked form (the book carries no clear details), the bundled config. */
 export function testBook(): PreviewBook {
   return parseBook({
     generatedFrom: 'unit test',
@@ -637,13 +638,10 @@ export function testBook(): PreviewBook {
       total: 0,
       lateFinancials: null,
     },
-    wireInstructions: [
-      { id: IDS.wire.Superseded, bankDetails: BANK_DETAILS.Superseded },
-      { id: IDS.wire.Verified, bankDetails: BANK_DETAILS.Verified },
-      { id: IDS.wire.Rejected, bankDetails: BANK_DETAILS.Rejected },
-      { id: IDS.wire.Proposed, bankDetails: BANK_DETAILS.Proposed },
-      { id: IDS.wire.verifiedFund2, bankDetails: BANK_DETAILS.verifiedFund2 },
-    ],
+    wireInstructions: (Object.keys(BANK_DETAILS) as (keyof typeof BANK_DETAILS)[]).map((key) => ({
+      id: IDS.wire[key],
+      bankDetailsMasked: masked(BANK_DETAILS[key]),
+    })),
     diligenceTemplates: templatesConfig,
     closingChecklist: checklistConfig,
   });
@@ -1024,18 +1022,19 @@ export function buildWorld(
       rowVersion: 1,
     },
   ];
+  /** The ticket as the API serves it to one reader: the version it was approved against goes to the register's readers only. */
   const ticketFor = (t: Omit<TradeTicketRow, 'release'>, reader: PreviewUser): TradeTicketRow => {
     const notice = notices.find((x) => x.id === t.capitalNoticeId);
     const register =
       notice === undefined ? { versions: [], active: null } : registerOfNotice(notice);
     return {
       ...t,
-      release: releaseOf(
-        { state: t.state, preparedById: t.preparedBy.id },
-        register,
-        reader.userId,
-        AS_OF,
-      ),
+      wireInstruction: readsRegister(reader) ? t.wireInstruction : null,
+      release: releaseOf({ state: t.state, preparedBy: t.preparedBy.id }, register, {
+        userId: reader.userId,
+        asOf: AS_OF,
+        holdDays: HOLD_DAYS,
+      }),
     };
   };
   const tickets = ticketBase.map((t) => ticketFor(t, USERS.all));
@@ -1558,7 +1557,8 @@ export function buildWorld(
         wireChangeHold: until === null ? null : { until, holdDays: HOLD_DAYS },
         notes,
         ticket: ticket === undefined ? null : ticketFor(ticket, user),
-        activeWireInstruction: register.active,
+        // The register's row goes to the register's readers only (D1-05); the alerts say the rest.
+        activeWireInstruction: readsRegister(user) ? register.active : null,
         alerts: noticeAlerts({
           state: notice.state,
           urgencyFlag: wireChange,

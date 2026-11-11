@@ -135,21 +135,25 @@ describe('the simulated wire register', () => {
     ).toBe(400);
   });
 
-  it('reveals the details in clear for operations and approvers from the book, null for everyone else and without a book', async () => {
+  it('answers the masked form only for a recorded version, to operations and approvers too: the preview holds no clear details (WEB-1)', async () => {
     const { f } = setup();
+    for (const who of [USERS.ops, USERS.ops2, USERS.head, USERS.admin, USERS.all]) {
+      for (const [name, id] of Object.entries(IDS.wire)) {
+        const answer = await send(f, who.externalId, 'GET', path(id));
+        const detail = wireInstructionDetail.parse(answer.json);
+        expect(detail.bankDetails, `${who.externalId} ${name}`).toBeNull();
+        expect(detail.bankDetailsMasked).toMatch(/^.+ \*{4}\d{4}$/);
+        // No full account number or routing code of any recorded version, under any key.
+        for (const clear of Object.values(BANK_DETAILS)) {
+          expect(answer.text).not.toContain(clear.accountNumber);
+          expect(answer.text).not.toContain(clear.routingCode);
+        }
+      }
+    }
     const ops = wireInstructionDetail.parse(
       (await send(f, USERS.ops.externalId, 'GET', path(IDS.wire.Verified))).json,
     );
-    expect(ops.bankDetails).toEqual(BANK_DETAILS.Verified);
     expect(ops.bankDetailsMasked).toBe('Harbor Street Bank ****5566');
-    const head = wireInstructionDetail.parse(
-      (await send(f, USERS.head.externalId, 'GET', path(IDS.wire.Verified))).json,
-    );
-    expect(head.bankDetails).toEqual(BANK_DETAILS.Verified);
-    const admin = wireInstructionDetail.parse(
-      (await send(f, USERS.admin.externalId, 'GET', path(IDS.wire.Verified))).json,
-    );
-    expect(admin.bankDetails).toBeNull();
     expect((await send(f, USERS.ops.externalId, 'GET', path(NO_SUCH_ID))).status).toBe(404);
     const { f: withoutBook } = setup(null);
     expect(
@@ -157,6 +161,33 @@ describe('the simulated wire register', () => {
         (await send(withoutBook, USERS.ops.externalId, 'GET', path(IDS.wire.Verified))).json,
       ).bankDetails,
     ).toBeNull();
+  });
+
+  it('shows what a person typed this session back to the clear readers of that session, and to nobody else', async () => {
+    const { f } = setup();
+    const typed = { ...freshDetails(), accountNumber: '5550001234', routingCode: '071000013' };
+    const created = wireInstructionDetail.parse(
+      (
+        await send(f, USERS.ops.externalId, 'POST', '/api/v1/wire-instructions', {
+          sponsorFundId: IDS.fund,
+          counterpartyName: FUND_NAME,
+          bankDetails: typed,
+        })
+      ).json,
+    );
+    expect(created.bankDetails).toEqual(typed);
+    for (const who of [USERS.ops, USERS.ops2, USERS.head])
+      expect(
+        wireInstructionDetail.parse((await send(f, who.externalId, 'GET', path(created.id))).json)
+          .bankDetails,
+      ).toEqual(typed);
+    const admin = await send(f, USERS.admin.externalId, 'GET', path(created.id));
+    expect(wireInstructionDetail.parse(admin.json).bankDetails).toBeNull();
+    expect(admin.text).not.toContain(typed.accountNumber);
+    // The register itself stays masked for every reader.
+    const list = await send(f, USERS.ops.externalId, 'GET', LIST);
+    expect(list.text).not.toContain(typed.accountNumber);
+    expect(list.text).not.toContain(typed.routingCode);
   });
 
   it('proposes a new version typed by hand: max plus one, Proposed, masked for every reader but the clear ones', async () => {
@@ -272,7 +303,9 @@ describe('the simulated wire register', () => {
         numberSource: 'sponsor_website',
         result: 'confirmed',
       },
-      bankDetails: BANK_DETAILS.Proposed,
+      // A recorded version: the preview holds its masked form only.
+      bankDetails: null,
+      bankDetailsMasked: 'Meridian Clearing ****7890',
     });
     const old = wireInstructionDetail.parse(
       (await send(f, USERS.ops.externalId, 'GET', path(IDS.wire.Verified))).json,
@@ -353,6 +386,99 @@ describe('the simulated wire register', () => {
       at: env.now(),
       numberSource: 'known_contact',
       result: 'not_confirmed',
+    });
+  });
+
+  it('never verifies an older Proposed version over a newer Verified one: 422, reject it instead (W2-4)', async () => {
+    const { f } = setup();
+    const propose = async (body: object): Promise<string> =>
+      wireInstructionDetail.parse(
+        (await send(f, USERS.ops.externalId, 'POST', '/api/v1/wire-instructions', body)).json,
+      ).id;
+    const ofFund = async (): Promise<WireInstructionRow[]> =>
+      wireInstructionPage.parse(
+        (await send(f, USERS.ops.externalId, 'GET', `${LIST}&sponsorFundId=${IDS.fund}`)).json,
+      ).items;
+    // Version 5 is proposed and verified while version 4 still waits for its callback.
+    const v5 = await propose({
+      sponsorFundId: IDS.fund,
+      counterpartyName: FUND_NAME,
+      bankDetails: freshDetails(),
+    });
+    expect((await send(f, USERS.ops2.externalId, 'POST', commands(v5), verify)).status).toBe(200);
+    const older = await send(f, USERS.ops2.externalId, 'POST', commands(IDS.wire.Proposed), verify);
+    expect(older.status).toBe(422);
+    expect(problemOf(older)).toEqual({
+      code: 'workflow-precondition',
+      detail:
+        'wire_instruction: a newer version of this counterparty is already Verified; reject this older version instead (SEC-12.2)',
+    });
+    // Nothing moved: version 5 is still the one active version and version 4 still waits.
+    expect((await ofFund()).filter((r) => r.active).map((r) => r.version)).toEqual([5]);
+    expect((await ofFund()).find((r) => r.id === IDS.wire.Proposed)).toMatchObject({
+      state: 'Proposed',
+      rowVersion: 1,
+    });
+    // The key is exact: a first version for a position of the same fund is not older than the
+    // fund-level version 5.
+    const forPosition = await propose({
+      investmentId: IDS.open,
+      counterpartyName: 'Company 0001',
+      bankDetails: freshDetails(),
+    });
+    expect(
+      (await send(f, USERS.ops2.externalId, 'POST', commands(forPosition), verify)).status,
+    ).toBe(200);
+    expect((await ofFund()).filter((r) => r.active).map((r) => r.version)).toEqual([5]);
+    // The older version is rejected instead.
+    const rejected = await send(f, USERS.ops2.externalId, 'POST', commands(IDS.wire.Proposed), {
+      command: 'reject',
+      reason: 'Superseded by version 5 before its callback',
+    });
+    expect(rejected.status).toBe(200);
+    expect(wireInstructionDetail.parse(rejected.json).state).toBe('Rejected');
+  });
+
+  it('logs a failed callback with its number source or not at all: either alone is 400 with the field (W2-5)', async () => {
+    const { f } = setup();
+    const reject = (body: object) =>
+      send(f, USERS.ops2.externalId, 'POST', commands(IDS.wire.Proposed), {
+        command: 'reject',
+        reason: 'the number did not answer',
+        ...body,
+      });
+    const resultOnly = await reject({ callbackResult: 'not_confirmed' });
+    expect(resultOnly.status).toBe(400);
+    expect(problemDetails.parse(resultOnly.json).errors).toEqual([
+      {
+        path: 'callbackNumberSource',
+        message: 'The number source is required with a callback result',
+      },
+    ]);
+    const sourceOnly = await reject({ callbackNumberSource: 'known_contact' });
+    expect(sourceOnly.status).toBe(400);
+    expect(problemDetails.parse(sourceOnly.json).errors).toEqual([
+      { path: 'callbackResult', message: 'The callback result is required with a number source' },
+    ]);
+    // Nothing was written by either; the pair together is logged, and the register row shows it.
+    const both = await reject({
+      callbackNumberSource: 'known_contact',
+      callbackResult: 'not_confirmed',
+    });
+    expect(both.status).toBe(200);
+    const row = wireInstructionPage
+      .parse((await send(f, USERS.head.externalId, 'GET', `${LIST}&state=Rejected`)).json)
+      .items.find((r) => r.id === IDS.wire.Proposed);
+    expect(row).toMatchObject({
+      state: 'Rejected',
+      rowVersion: 2,
+      rejectionReason: 'the number did not answer',
+      callback: {
+        by: { id: USERS.ops2.userId, name: USERS.ops2.displayName },
+        at: env.now(),
+        numberSource: 'known_contact',
+        result: 'not_confirmed',
+      },
     });
   });
 

@@ -1,4 +1,4 @@
-import { bankDetails, closingChecklist, diligenceTemplates } from '@pb/contracts';
+import { closingChecklist, diligenceTemplates } from '@pb/contracts';
 import { z } from 'zod';
 import { SAMPLE_SCENARIOS, sampleFileName } from '../pages/intake/intake.js';
 
@@ -190,6 +190,14 @@ const bookOpsDropSample = z.object({
   expectations: accountingExpectations.extend({ refused: z.boolean() }),
 });
 
+/** One version of the wire register as the book carries it: the id and the masked form, nothing else. */
+const bookWireInstruction = z
+  .object({
+    id: z.string().min(1),
+    bankDetailsMasked: z.string().regex(/^.+ \*{4}\d{4}$/),
+  })
+  .strict();
+
 export const previewBook = z.object({
   generatedFrom: z.string(),
   asOf: isoDate,
@@ -215,12 +223,14 @@ export const previewBook = z.object({
   documents: z.array(bookDocument),
   documentExpectations: bookDocumentExpectations,
   /**
-   * Phase 3 (decision 0013): the bank details of every synthetic wire instruction, as the system
-   * actor's view holds them. The recordings carry null for every credential (the build strips
-   * them), so the simulated register answers a reveal for operations and approvers from here;
-   * every other reader gets null, as the API answers. Synthetic throughout, never a real account.
+   * Phase 3 (decision 0013, WEB-1): every synthetic wire instruction in its masked form only
+   * ("<bank name> ****<last four digits>", what maskBankDetails gives). The preview is published,
+   * so no full account number, routing code or payment reference is bundled, synthetic or not:
+   * the recordings carry null for every credential (the build strips them) and the simulated
+   * reveal of a recorded version answers null too. The entry is strict: a book that carries
+   * anything beside the id and the masked form (bank details in clear, say) does not load.
    */
-  wireInstructions: z.array(z.object({ id: z.string().min(1), bankDetails })).default([]),
+  wireInstructions: z.array(bookWireInstruction).default([]),
   /** config/diligence_templates.json and config/closing_checklist.json as built, so the simulation needs no API. */
   diligenceTemplates: diligenceTemplates.nullable().default(null),
   closingChecklist: closingChecklist.nullable().default(null),

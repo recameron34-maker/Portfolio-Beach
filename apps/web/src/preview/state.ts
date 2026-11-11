@@ -107,7 +107,10 @@ export interface SimWireInstruction {
   row: WireInstructionRow;
   origin: 'recorded' | 'created';
   changed: boolean;
-  /** The details typed in this session (a propose); null for a recorded version, whose reveal the book answers. */
+  /**
+   * The details a person typed in this session (a propose), shown back to that session's clear
+   * readers; null for a recorded version: the preview holds its masked form only (WEB-1).
+   */
   bankDetails: BankDetails | null;
 }
 
@@ -801,14 +804,22 @@ export function seedWires(recordings: Recordings): Map<string, SimWireInstructio
   return seeded;
 }
 
-/** The tickets as recorded: every row any user can see (a ticket follows its notice's wall). */
+/**
+ * The tickets as recorded: every row any user can see (a ticket follows its notice's wall). The
+ * version a ticket was approved against is served to the register's readers only, so a list
+ * recorded for another role names none: the first list that names it fills it in.
+ */
 export function seedTickets(recordings: Recordings): Map<string, SimTicket> {
   const seeded = new Map<string, SimTicket>();
   for (const list of recordedLists(recordings, (c) =>
     recordings.read(c, TICKETS_PATH, tradeTicketPage),
   )) {
     for (const row of list.items) {
-      if (seeded.has(row.id)) continue;
+      const seen = seeded.get(row.id);
+      if (seen !== undefined) {
+        seen.wireInstructionId ??= row.wireInstruction?.id ?? null;
+        continue;
+      }
       seeded.set(row.id, {
         id: row.id,
         capitalNoticeId: row.capitalNoticeId,

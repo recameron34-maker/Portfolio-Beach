@@ -73,7 +73,17 @@ export function WireTable({
               <td>
                 {w.proposedBy.name}, {formatDate(dayOf(w.proposedAt))}
               </td>
-              <td>{callbackWords(w.callback)}</td>
+              <td>
+                {w.callback?.result === 'not_confirmed' ? (
+                  // A callback that did not confirm stands out on its row (SEC-12.2).
+                  <span className="pb-cap-subject">
+                    <Badge tone="bad">Callback failed</Badge>
+                    <span>{callbackWords(w.callback)}</span>
+                  </span>
+                ) : (
+                  callbackWords(w.callback)
+                )}
+              </td>
               <td>
                 {w.active ? <Badge tone="good">Active</Badge> : <span className="pb-meta">No</span>}
               </td>

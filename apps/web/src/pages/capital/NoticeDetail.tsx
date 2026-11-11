@@ -59,7 +59,14 @@ import {
   noticeSubject,
   progressSteps,
 } from './notices.js';
-import { ALERT_WORDS, BLOCKER_WORDS, nothingToRelease, RELEASE_ALLOWED } from './tickets.js';
+import {
+  ALERT_WORDS,
+  BLOCKER_WORDS,
+  instructionWithheld,
+  nothingToRelease,
+  REGISTER_RESTRICTED,
+  RELEASE_ALLOWED,
+} from './tickets.js';
 import { ticketTone, wireTone } from '../../lib/states.js';
 import { kindLabel, NUMBER_SOURCE_WORDS, RESULT_WORDS } from './wires.js';
 import './capital.css';
@@ -219,10 +226,15 @@ function personAt(person: { name: string } | null, at: string | null): string {
   return `${person.name}, ${formatDateTime(at)}`;
 }
 
-/** The notice's trade ticket (docs/04 M16): the figures, the people and the release check. */
+/**
+ * The notice's trade ticket (docs/04 M16): the figures, the people and the release check. The
+ * version it was approved against is a register row, so a reader outside the register sees that
+ * it is restricted, never the missing placeholder.
+ */
 function TicketCard({ notice }: { notice: CapitalNoticeDetail }): ReactNode {
   const ticket = notice.ticket;
   const instruction = ticket?.wireInstruction ?? null;
+  const absent = ticket !== null && instructionWithheld(ticket) ? REGISTER_RESTRICTED : MISSING;
   return (
     <Card testId="ticket-panel">
       <SectionHeader
@@ -252,7 +264,7 @@ function TicketCard({ notice }: { notice: CapitalNoticeDetail }): ReactNode {
                 label: 'Instruction version',
                 value:
                   instruction === null ? (
-                    MISSING
+                    absent
                   ) : (
                     <span className="pb-cap-subject">
                       <Link to="/capital-activity/wires/$id" params={{ id: instruction.id }}>
@@ -266,7 +278,7 @@ function TicketCard({ notice }: { notice: CapitalNoticeDetail }): ReactNode {
               },
               {
                 label: 'Bank details',
-                value: instruction === null ? MISSING : instruction.bankDetailsMasked,
+                value: instruction === null ? absent : instruction.bankDetailsMasked,
               },
             ]}
           />
@@ -277,14 +289,34 @@ function TicketCard({ notice }: { notice: CapitalNoticeDetail }): ReactNode {
   );
 }
 
-/** The counterparty's active Verified instruction, masked, with the way to the register (SEC-12.2). */
-function WireCard({ wire }: { wire: WireInstructionRow | null }): ReactNode {
+/**
+ * The counterparty's active Verified instruction, masked, with the way to the register
+ * (SEC-12.2). The API hands the row to the register's readers only (operations, approvers,
+ * auditors, platform admins); every other reader gets null whether or not one is on file, so
+ * the card decides from the alerts: unverified_instruction says none is on file, and without
+ * that alert one is on file and the card says the register is restricted.
+ */
+function WireCard({
+  wire,
+  alerts,
+}: {
+  wire: WireInstructionRow | null;
+  alerts: readonly CapitalNoticeAlert[];
+}): ReactNode {
+  const restricted = wire === null && !alerts.includes('unverified_instruction');
   return (
     <Card testId="notice-wire">
-      <SectionHeader aside={<Link to="/capital-activity/wires">Wire register</Link>}>
+      <SectionHeader
+        aside={restricted ? undefined : <Link to="/capital-activity/wires">Wire register</Link>}
+      >
         Wire instruction
       </SectionHeader>
-      {wire === null ? (
+      {restricted ? (
+        <EmptyState
+          title="A Verified instruction is on file"
+          detail="Its details are kept in the wire register, which operations, approvers, auditors and platform admins read (SEC-12.2). The alerts and the release check on this page already take it into account."
+        />
+      ) : wire === null ? (
         <EmptyState
           title="No Verified instruction on file"
           detail="The ticket can be approved only against a Verified instruction (SEC-12.2). Operations propose one in the wire register and a second person verifies it by callback."
@@ -498,7 +530,7 @@ function NoticeBody({
       </div>
       <div className="pb-two-col">
         <TicketCard notice={notice} />
-        <WireCard wire={notice.activeWireInstruction} />
+        <WireCard wire={notice.activeWireInstruction} alerts={notice.alerts} />
       </div>
       <div className="pb-two-col">
         <Card testId="notice-split">

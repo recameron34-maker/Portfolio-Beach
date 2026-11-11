@@ -8,13 +8,13 @@ import type { SimActor, SimNotice, SimTicket } from '../state.js';
 import { defineSimRoute, recordActivity, staleIfMatch } from './common.js';
 import type { SimContext } from './common.js';
 import {
-  HOLD_DAYS,
+  approvalRecordOf,
   controlDetailOf,
   counterpartyOfNotice,
   noticeFlagsOf,
   openNoticesOf,
-  pendingChange,
   readNoticeDetail,
+  recordedFlagsOf,
   registerOf,
   ticketOfNotice,
 } from './register.js';
@@ -25,12 +25,14 @@ import type { CounterpartyKeys } from './register.js';
  * apps/api/src/capital/capital.service.ts moves them: the machine judges the command on the
  * record the session holds (whether a ticket exists and who prepared it, whether the
  * counterparty's active instruction is Verified, whether a change sits inside the hold window,
- * whether the ticket is Approved), then the command writes what it owns: draftTicket drafts or
- * re-drafts the one ticket of the notice, approveTicket approves it against the active version
- * (dual control, SEC-12.3), wireChanged returns it to draft and flags the notice (SEC-12.4),
- * confirmFunding funds it, reconcile writes the one approved cash flow. Bank fields are never
- * extracted (SEC-12.1) and never pass through here; the answer is the notice detail judged on the
- * as-of date, the ticket's release blockers computed for the caller.
+ * who proposed and who verified a change verified inside it, whether the ticket is Approved),
+ * then the command writes what it owns: draftTicket drafts or re-drafts the one ticket of the
+ * notice, approveTicket approves it against the active version (dual control, and a third person
+ * while a verified change is inside the hold window, SEC-12.3), wireChanged returns it to draft
+ * and flags the notice (SEC-12.4), confirmFunding funds it, reconcile writes the one approved
+ * cash flow for the amount the ticket was funded for. Bank fields are never extracted (SEC-12.1)
+ * and never pass through here; the answer is the notice detail judged on the as-of date, the
+ * ticket's release blockers computed for the caller.
  */
 
 const NOT_FOUND = 'Capital notice not found';
@@ -94,8 +96,7 @@ export function runNoticeCommand(
       bankFieldsExtracted: false,
       ticketExists: live,
       ticketPreparedBy: live ? ticket.preparedBy.id : undefined,
-      wireVerified: register.active !== null,
-      wireChangedWithinHold: pendingChange(register, ctx.recordings.asOf, HOLD_DAYS) !== null,
+      ...approvalRecordOf(register, ctx.recordings.asOf),
       ticketApproved: live && ticket.state === 'Approved',
     },
   });
@@ -223,8 +224,11 @@ export function runNoticeCommand(
 /**
  * The reconciliation's one write into the cash flows (rule 5: the notice is the staging record a
  * person approved through the workflow): one approved flow, typed and signed by the notice type,
- * dated on the ticket's funding date (the due date without a ticket). A notice that already has
- * an approved flow is refused: nothing is counted twice.
+ * for the ticket's amount on the ticket's funding date (the notice's amount and due date without
+ * a ticket). The ticket's amount is what two people approved and what was funded (draftTicket may
+ * name an amount other than the notice's), so it is the figure booked; the detail's notes say so
+ * when the two differ. A notice that already has an approved flow is refused: nothing is counted
+ * twice.
  */
 function writeCashFlow(
   sim: SimNotice,
@@ -247,7 +251,9 @@ function writeCashFlow(
   sim.cashFlows.push({
     date: ticket?.fundingDate ?? recorded.dueDate,
     flowType: mapping.flowType,
-    amount: D(recorded.amount).times(mapping.sign).toFixed(2),
+    amount: D(ticket?.amount ?? recorded.amount)
+      .times(mapping.sign)
+      .toFixed(2),
     status: APPROVED,
   });
   return null;
@@ -258,7 +264,10 @@ function writeCashFlow(
  * counterparty not yet Reconciled carries the wire change flag, and a notice whose ticket was
  * approved against the previous version goes back to TicketDrafted through the machine's
  * wireChanged row, with the service path's reason, as apps/api/src/capital/wires.service.ts
- * sweeps them. Walled notices are flagged too: the register is a control, not a deal record.
+ * sweeps them. Walled notices are swept too, an approved ticket behind a wall included (the API
+ * runs the sweep as a system step): the register is a control, not a deal record. The proposer
+ * may not be able to open such a notice, so the flags it already carries are read from the
+ * recording of whoever can.
  */
 export function sweepNoticesForNewVersion(
   ctx: SimContext,
@@ -267,9 +276,7 @@ export function sweepNoticesForNewVersion(
 ): void {
   const tickets = ensureTickets(ctx.state, ctx.recordings);
   for (const sim of openNoticesOf(ctx, keys)) {
-    const flags = (sim.flags ??= noticeFlagsOf(
-      readNoticeDetail(ctx.recordings, actor.externalId, sim.row.id),
-    ));
+    const flags = (sim.flags ??= recordedFlagsOf(ctx.recordings, sim.row.id));
     if (sim.row.state === 'TicketApproved') {
       const result = attempt(capitalNoticeMachine, sim.row.state, 'wireChanged', {
         actorId: actor.userId,

@@ -71,6 +71,36 @@ describe('the simulated trade tickets', () => {
     ).toBe(400);
   });
 
+  it('hands the version a ticket was approved against to the readers of the register only (D1-05)', async () => {
+    const f = setup();
+    // The deal team reads tickets but not the register: the funded ticket names no version.
+    for (const who of [USERS.deal, USERS.dealWall]) {
+      const listed = tradeTicketPage
+        .parse((await send(f, who.externalId, 'GET', LIST)).json)
+        .items.find((t) => t.id === IDS.ticket.funded);
+      expect(listed, who.externalId).toMatchObject({
+        state: 'Funded',
+        approvedBy: { id: USERS.head.userId },
+        wireInstruction: null,
+      });
+      const one = await send(f, who.externalId, 'GET', path(IDS.ticket.funded));
+      expect(tradeTicketRow.parse(one.json).wireInstruction).toBeNull();
+      expect(one.text).not.toMatch(/Harbor Street Bank|\*{4}/);
+    }
+    // Operations, the approver and a holder of every role read the register, so they see it.
+    for (const who of [USERS.ops, USERS.head, USERS.all]) {
+      const one = tradeTicketRow.parse(
+        (await send(f, who.externalId, 'GET', path(IDS.ticket.funded))).json,
+      );
+      expect(one.wireInstruction, who.externalId).toEqual({
+        id: IDS.wire.verifiedFund2,
+        version: 1,
+        state: 'Verified',
+        bankDetailsMasked: 'Harbor Street Bank ****3210',
+      });
+    }
+  });
+
   it('serves one ticket to its roles, 404 outside the notice wall, 403 to roles without tickets', async () => {
     const f = setup();
     const row = await send(f, USERS.head.externalId, 'GET', path(IDS.ticket.drafted));

@@ -3,8 +3,10 @@ import {
   capitalNoticeAlert,
   releaseBlocker,
   tradeTicketState,
+  wireInstructionCommandBody,
   wireInstructionState,
 } from '@pb/contracts';
+import { olderThanVerified } from '@pb/workflows';
 import { ID } from '../../test/fixtures.js';
 import { noticeRows, ticketRows, wireRows, WIRE_ID } from '../../test/fixtures-capital.js';
 import {
@@ -12,14 +14,17 @@ import {
   BLOCKER_WORDS,
   blockerLabel,
   filterTickets,
+  instructionWithheld,
   isTicketState,
   nothingToRelease,
+  REGISTER_RESTRICTED,
   RELEASE_ALLOWED,
   ticketNoticeLabel,
 } from './tickets.js';
 import { ticketTone, wireTone } from '../../lib/states.js';
 import {
   callbackBody,
+  CALLBACK_RESULTS,
   callbackWords,
   counterpartyFilter,
   counterpartyNames,
@@ -29,9 +34,13 @@ import {
   filterWires,
   isWireState,
   kindLabel,
+  maskedParts,
+  NUMBER_SOURCES,
+  OLDER_VERSION_RULE,
   parsedProposeBody,
   proposeProblems,
   SECOND_PERSON_RULE,
+  withdrawBody,
 } from './wires.js';
 import type { ProposeForm } from './wires.js';
 
@@ -154,6 +163,70 @@ describe('wire register helpers', () => {
     });
     expect(SECOND_PERSON_RULE).toContain('SEC-12.2');
   });
+
+  it('never builds a reject that names a callback result without its number source, or the reverse (W2-5)', () => {
+    const reasons = ['', 'ab', 'The contact did not recognise the account'];
+    for (const numberSource of ['', ...NUMBER_SOURCES] as const) {
+      for (const result of ['', ...CALLBACK_RESULTS] as const) {
+        for (const reason of reasons) {
+          const body = callbackBody({ numberSource, result, reason });
+          if (body === null) continue;
+          // What the page sends is what the contract takes: the pair together, whole.
+          expect(wireInstructionCommandBody.safeParse(body).success).toBe(true);
+          expect(body.callbackNumberSource).toBe(numberSource);
+          expect(body.callbackResult).toBe(result);
+        }
+      }
+    }
+    // A withdrawal names neither: the version is rejected without a callback.
+    expect(wireInstructionCommandBody.safeParse(withdrawBody('Typed in error')).success).toBe(true);
+    expect(withdrawBody(' Typed in error ')).toEqual({
+      command: 'reject',
+      reason: 'Typed in error',
+    });
+    // The contract refuses either half alone, so a body built any other way would be a 400.
+    for (const half of [
+      { callbackResult: 'not_confirmed' },
+      { callbackNumberSource: 'known_contact' },
+    ])
+      expect(
+        wireInstructionCommandBody.safeParse({ command: 'reject', reason: 'no answer', ...half })
+          .success,
+      ).toBe(false);
+  });
+
+  it('reads the bank name and the last four digits out of the masked form, or nothing when it is not one', () => {
+    expect(maskedParts('Harbor Street Bank ****4821')).toEqual({
+      bankName: 'Harbor Street Bank',
+      lastFour: '4821',
+    });
+    expect(maskedParts('First **** National ****0007')).toEqual({
+      bankName: 'First **** National',
+      lastFour: '0007',
+    });
+    for (const other of ['Harbor Street Bank', '****4821', 'Bank ****48211', 'Bank ***4821', ''])
+      expect(maskedParts(other)).toBeNull();
+  });
+
+  it('knows a Proposed version that is older than a Verified one of the same counterparty (W2-4)', () => {
+    const rows = wireRows();
+    const proposed = rows.find((w) => w.id === WIRE_ID.proposed)!;
+    // Version 2 of the fund against its Verified version 1: the newest, so it may be verified.
+    expect(olderThanVerified(proposed, rows)).toBe(false);
+    const newer = { ...rows.find((w) => w.id === WIRE_ID.verified)!, id: 'x', version: 3 };
+    expect(olderThanVerified(proposed, [...rows, newer])).toBe(true);
+    // A newer version that was rejected, or one of another counterparty, does not count.
+    expect(olderThanVerified(proposed, [...rows, { ...newer, state: 'Rejected' }])).toBe(false);
+    expect(
+      olderThanVerified(proposed, [
+        ...rows,
+        { ...newer, counterparty: { kind: 'investment', id: ID.inv3, name: 'x' } },
+      ]),
+    ).toBe(false);
+    expect(OLDER_VERSION_RULE).toBe(
+      'A newer version of this counterparty is already Verified; reject this older version instead (SEC-12.2)',
+    );
+  });
 });
 
 describe('trade ticket helpers', () => {
@@ -198,5 +271,16 @@ describe('trade ticket helpers', () => {
     const notices = new Map(noticeRows().map((n) => [n.id, n]));
     expect(ticketNoticeLabel(rows[0]!, notices)).toBe('Capital call: Silverline Staffing Holdings');
     expect(ticketNoticeLabel(rows[0]!, new Map())).toBe('Notice 00000000');
+  });
+
+  it('knows when the version a ticket was approved against is withheld from the reader (D1-05)', () => {
+    const [drafted, approved, funded] = ticketRows();
+    // Not approved yet: no version exists, nothing is withheld.
+    expect(instructionWithheld(drafted!)).toBe(false);
+    expect(instructionWithheld(approved!)).toBe(false);
+    // Approved or funded with no version in the answer: the reader is outside the register.
+    expect(instructionWithheld({ ...approved!, wireInstruction: null })).toBe(true);
+    expect(instructionWithheld({ ...funded!, wireInstruction: null })).toBe(true);
+    expect(REGISTER_RESTRICTED).toBe('Restricted to the wire register');
   });
 });

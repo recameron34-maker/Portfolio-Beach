@@ -94,9 +94,14 @@ describe('wire instruction register', () => {
     expect(within(active).getByText('Verified')).toHaveClass('pb-badge-good');
     expect(active).toHaveTextContent('Tomas Achterberg: confirmed (prior instruction on file)');
     expect(within(active).getByText('Active')).toHaveClass('pb-badge-good');
+    // A failed callback stands out on its row (W2-5): who called, from which number source, and
+    // that it did not confirm.
     const rejected = rows[1]!;
     expect(within(rejected).getByText('Rejected')).toHaveClass('pb-badge-bad');
     expect(rejected).toHaveTextContent('Tomas Achterberg: not confirmed (known contact)');
+    expect(within(rejected).getByText('Callback failed')).toHaveClass('pb-badge-bad');
+    expect(within(active).queryByText('Callback failed')).not.toBeInTheDocument();
+    expect(within(first).queryByText('Callback failed')).not.toBeInTheDocument();
     expect(screen.getByTestId('wire-count')).toHaveTextContent(
       '4 versions shown; 1 version waiting for a callback.',
     );

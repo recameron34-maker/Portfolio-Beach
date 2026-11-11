@@ -16,12 +16,13 @@ import {
   previewOpsDropWorkbooks,
   previewWeeklyFiles,
 } from '@pb/synthetic';
-import { createDb, loadSyntheticDataset, migrate } from '@pb/db';
+import { createDb, loadSyntheticDataset, maskBankDetails, migrate } from '@pb/db';
 import { FixedClock } from '@pb/adapters';
 import { buildRuntime } from '../../api/dist/composition.js';
 import { createApp } from '../../api/dist/app.js';
 import { loadConfig } from '../../api/dist/config.js';
 import { buildPlan, dealTypeCodes, keyFor } from './preview-plan.mjs';
+import { bankDetailLeaks, bookWireInstructions, withoutSecrets } from './preview-wires.mjs';
 
 /** The recordings stay well inside the hosted page limit (16 MB for the page and each file). */
 const MAX_FIXTURE_BYTES = 8 * 1024 * 1024;
@@ -50,20 +51,28 @@ writeFileSync(join(scratch, 'dataset.json'), JSON.stringify(dataset));
 // as the system actor sees it (decision 0009), all straight from the generated dataset. The shim
 // loads the book next to the recordings.
 const documents = generateDocuments(dataset);
-// The Phase 3 controls (decision 0013): the book carries the synthetic bank details of every
-// wire instruction for the simulated reveal (the recordings carry none, see record() below) and
-// the two config files the simulated pipeline and closing read, so the simulation needs no API.
+// The Phase 3 controls (decision 0013): the book carries every wire instruction in its masked
+// form only (WEB-1: the preview is published, so no full account number, routing code or
+// reference is bundled; the recordings carry none either, see record() below) and the two config
+// files the simulated pipeline and closing read, so the simulation needs no API.
 const configDir = new URL('../../../config/', import.meta.url);
 const readConfig = (name) => JSON.parse(readFileSync(new URL(name, configDir), 'utf8'));
 const book = {
   ...previewBook(dataset, { documents }),
-  wireInstructions: (dataset.wireInstructions ?? []).map((w) => ({
-    id: w.id,
-    bankDetails: w.bankDetails,
-  })),
+  wireInstructions: bookWireInstructions(dataset, maskBankDetails),
   diligenceTemplates: readConfig('diligence_templates.json'),
   closingChecklist: readConfig('closing_checklist.json'),
 };
+/** Stops the build when a published data file carries a bank detail of the register in clear (SEC-12.2). */
+function requireNoBankDetails(file, text) {
+  const leaks = bankDetailLeaks(dataset, text);
+  if (leaks.length === 0) return;
+  const named = [...new Set(leaks.map((leak) => `${leak.field} of instruction ${leak.id}`))];
+  process.stderr.write(
+    `preview: ${file} would carry bank details in clear (${named.slice(0, 5).join(', ')}${named.length > 5 ? `, and ${named.length - 5} more` : ''}); the build stops before writing it\n`,
+  );
+  process.exit(1);
+}
 const samplesDir = join(out, 'preview', 'samples');
 mkdirSync(samplesDir, { recursive: true });
 const sampleFiles = [];
@@ -104,6 +113,7 @@ for (const doc of documents.documents) {
 }
 const bookJson = JSON.stringify(book);
 const bookBytes = Buffer.byteLength(bookJson);
+requireNoBankDetails('book.json', bookJson);
 writeFileSync(join(out, 'preview', 'book.json'), bookJson);
 process.stdout.write(
   `preview: book.json ${bookBytes} bytes (${book.investments.length} investments, ${book.documents.length} documents); samples: ${sampleFiles.join(', ')}\n`,
@@ -142,16 +152,9 @@ const get = (credential, path) =>
     headers: credential ? { authorization: `Bearer ${credential}` } : {},
   });
 
-/**
- * The wire instruction detail answers the bank details in clear to operations and approvers
- * (synthetic ones, but the recordings are published): the stored recording carries null for
- * every credential and the simulation answers a reveal from the book instead.
- */
-const WIRE_DETAIL = /^\/api\/v1\/wire-instructions\/[^/?]+$/;
-function withoutSecrets(path, text) {
-  if (!WIRE_DETAIL.test(path)) return text;
-  return JSON.stringify({ ...JSON.parse(text), bankDetails: null });
-}
+// The wire instruction detail answers the bank details in clear to operations and approvers
+// (synthetic ones, but the recordings are published): withoutSecrets (preview-wires.mjs) stores
+// the recording with null for every credential, and the simulation answers null as well.
 
 // Content-addressed bodies: each distinct body is stored once under the first 16 hex digits of its
 // SHA-256; every key points at its hash.
@@ -216,6 +219,7 @@ const fixtures = {
 };
 const fixturesJson = JSON.stringify(fixtures);
 const fixtureBytes = Buffer.byteLength(fixturesJson);
+requireNoBankDetails('fixtures.json', fixturesJson);
 writeFileSync(join(out, 'preview', 'fixtures.json'), fixturesJson);
 for (const [name, stats] of families) {
   const statuses = [...stats.statuses]

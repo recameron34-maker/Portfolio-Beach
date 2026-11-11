@@ -4,7 +4,9 @@ import { Link, useParams } from '@tanstack/react-router';
 import { useQuery } from '@tanstack/react-query';
 import { Button, Dropdown, Field as FluentField, Input, Option } from '@fluentui/react-components';
 import type { Principal, WireInstructionCommandBody, WireInstructionDetail } from '@pb/contracts';
+import { olderThanVerified } from '@pb/workflows';
 import { ApiError } from '../../api/client.js';
+import { previewMode } from '../../app/env.js';
 import { describeActionError } from '../../app/mutations.js';
 import { meQuery } from '../../app/queries.js';
 import { UnavailableState } from '../../components/UnavailableState.js';
@@ -30,16 +32,20 @@ import {
   CALLBACK_RESULTS,
   CALLBACK_ROLES,
   callbackBody,
+  CLEAR_ROLES,
   counterpartyFilter,
   dayOf,
   EMPTY_CALLBACK_FORM,
   isCallbackResult,
   isNumberSource,
   kindLabel,
+  maskedParts,
   NUMBER_SOURCE_WORDS,
   NUMBER_SOURCES,
+  OLDER_VERSION_RULE,
   RESULT_WORDS,
   SECOND_PERSON_RULE,
+  withdrawBody,
 } from './wires.js';
 import type { CallbackForm } from './wires.js';
 import './capital.css';
@@ -57,20 +63,60 @@ function BackLink(): ReactNode {
 }
 
 /**
+ * What the simulated reveal says (WEB-1): the preview is published, so it carries the masked
+ * form of a recorded version only, never a full account number, routing code or reference.
+ */
+export const PREVIEW_DETAILS_NOTE =
+  'Full bank details are not part of this preview: it carries the bank name and the last four digits of the account number only. In the product, operations and approvers read the full details here and each read is recorded in the audit trail (SEC-11.1).';
+
+/** What stands beside details a person typed in the preview session itself. */
+const PREVIEW_TYPED_NOTE =
+  'These details were typed in this preview session and are shown back to its operations and approver readers only; they are not saved and nothing is audited here.';
+
+/** The value of a field the preview does not carry: withheld, which is not the same as missing. */
+const NOT_IN_PREVIEW = 'Not part of the preview';
+
+/** The masked values as the simulated reveal lists them: the two parts the masked form names, the rest withheld. */
+function maskedRows(masked: string): { label: string; value: string }[] {
+  const parts = maskedParts(masked);
+  return [
+    ...(parts === null
+      ? [{ label: 'Bank details', value: masked }]
+      : [
+          { label: 'Bank name', value: parts.bankName },
+          { label: 'Account number', value: `Ends in ${parts.lastFour}` },
+        ]),
+    { label: 'Account name', value: NOT_IN_PREVIEW },
+    { label: 'Routing code', value: NOT_IN_PREVIEW },
+    { label: 'Reference', value: NOT_IN_PREVIEW },
+  ];
+}
+
+/**
  * The bank details: masked for everyone, and for operations and approvers a toggle that shows
  * the clear fields the audited read answered (SEC-12.2, SEC-11.1). The clear fields never reach
- * the page for any other role: the API answers null.
+ * the page for any other role: the API answers null. In the preview a recorded version has no
+ * clear fields for anyone (WEB-1): its clear readers get the same toggle, which shows the masked
+ * values and says the full details are not part of the preview; details a person typed in the
+ * session are shown back to them.
  */
-function DetailsCard({ detail }: { detail: WireInstructionDetail }): ReactNode {
+function DetailsCard({
+  detail,
+  clearReader,
+}: {
+  detail: WireInstructionDetail;
+  clearReader: boolean;
+}): ReactNode {
   const [revealed, setRevealed] = useState(false);
   const clear = detail.bankDetails;
+  const maskedOnly = clear === null && previewMode && clearReader;
   return (
     <Card testId="wire-instruction">
       <SectionHeader>Bank details</SectionHeader>
       <p className="pb-wire-masked" data-testid="wire-masked">
         {detail.bankDetailsMasked}
       </p>
-      {clear === null ? (
+      {clear === null && !maskedOnly ? (
         <p className="pb-meta" data-testid="wire-details-note">
           Bank details in clear are shown to operations and approvers only (SEC-12.2); every other
           role sees the masked form.
@@ -88,23 +134,35 @@ function DetailsCard({ detail }: { detail: WireInstructionDetail }): ReactNode {
           </Button>
           {revealed ? (
             <div className="pb-wire-clear">
-              <KeyValueTable
-                label="Bank details in clear"
-                columns={1}
-                rows={[
-                  { label: 'Bank name', value: clear.bankName },
-                  { label: 'Account name', value: clear.accountName },
-                  { label: 'Account number', value: clear.accountNumber },
-                  { label: 'Routing code', value: clear.routingCode },
-                  { label: 'Reference', value: clear.reference ?? MISSING },
-                ]}
-              />
+              {clear === null ? (
+                <KeyValueTable
+                  label="Bank details in this preview"
+                  columns={1}
+                  rows={maskedRows(detail.bankDetailsMasked)}
+                />
+              ) : (
+                <KeyValueTable
+                  label="Bank details in clear"
+                  columns={1}
+                  rows={[
+                    { label: 'Bank name', value: clear.bankName },
+                    { label: 'Account name', value: clear.accountName },
+                    { label: 'Account number', value: clear.accountNumber },
+                    { label: 'Routing code', value: clear.routingCode },
+                    { label: 'Reference', value: clear.reference ?? MISSING },
+                  ]}
+                />
+              )}
             </div>
           ) : null}
           <p className="pb-meta" data-testid="wire-details-note">
-            {revealed
-              ? AUDITED_READ_NOTE
-              : `Shown to operations and approvers only. ${AUDITED_READ_NOTE}`}
+            {clear === null
+              ? PREVIEW_DETAILS_NOTE
+              : previewMode
+                ? PREVIEW_TYPED_NOTE
+                : revealed
+                  ? AUDITED_READ_NOTE
+                  : `Shown to operations and approvers only. ${AUDITED_READ_NOTE}`}
           </p>
         </>
       )}
@@ -115,17 +173,21 @@ function DetailsCard({ detail }: { detail: WireInstructionDetail }): ReactNode {
 /**
  * The callback form (docs/18 section 11, SEC-12.2): the number source and the result; a result
  * that confirms verifies the version and makes it active, one that does not rejects it with a
- * reason. The proposer cannot make the callback; the button says so before the API does.
+ * reason. The proposer cannot make the callback, and a version older than one already Verified
+ * cannot be verified over it, only rejected: the button says so before the API does.
  */
 function CallbackFormCard({
   detail,
   canAct,
   isProposer,
+  older,
   onLog,
 }: {
   detail: WireInstructionDetail;
   canAct: boolean;
   isProposer: boolean;
+  /** A newer version of the counterparty is already Verified: this one can only be rejected. */
+  older: boolean;
   onLog: ActionLog;
 }): ReactNode {
   const command = useWireInstructionCommand();
@@ -133,7 +195,10 @@ function CallbackFormCard({
   const [withdrawing, setWithdrawing] = useState(false);
   const body = callbackBody(form);
   const roleRule = canAct ? null : `Needs ${rolesLabel(CALLBACK_ROLES)}`;
-  const blocked = roleRule ?? (isProposer ? SECOND_PERSON_RULE : null);
+  const blocked =
+    roleRule ??
+    (isProposer ? SECOND_PERSON_RULE : null) ??
+    (older && form.result !== 'not_confirmed' ? OLDER_VERSION_RULE : null);
   const run = (what: string, b: WireInstructionCommandBody): void =>
     command.mutate(
       { id: detail.id, body: b },
@@ -161,6 +226,11 @@ function CallbackFormCard({
           callback verifies this version and makes it the active one; one that does not confirm
           rejects it.
         </p>
+        {older ? (
+          <p className="pb-notice pb-notice-bad" data-testid="wire-older-version">
+            {OLDER_VERSION_RULE}. Record a callback that did not confirm, or withdraw the version.
+          </p>
+        ) : null}
         <div className="pb-wire-form">
           <FluentField label="Number source" required>
             <Dropdown
@@ -236,7 +306,7 @@ function CallbackFormCard({
           subject={`Version ${detail.version} for ${detail.counterparty.name}, rejected without a callback`}
           onCancel={() => setWithdrawing(false)}
           onSubmit={(reason) => {
-            run('Withdraw version', { command: 'reject', reason });
+            run('Withdraw version', withdrawBody(reason));
             setWithdrawing(false);
           }}
         />
@@ -258,6 +328,11 @@ function CallbackCard({
   const canAct = roles.some((r) => CALLBACK_ROLES.includes(r));
   const isProposer = me !== null && me.userId === detail.proposedBy.id;
   const callback = detail.callback;
+  // The counterparty's versions (the history card reads the same query): a Proposed version
+  // older than a Verified one is rejected, never verified over it (docs/18 section 11).
+  const versions = useQuery(wireInstructionsQuery(counterpartyFilter(detail.counterparty)));
+  const older =
+    detail.state === 'Proposed' && olderThanVerified(detail, versions.data?.items ?? []);
   return (
     <Card testId="wire-callback">
       <SectionHeader aside={<SimulatedBadge />}>Callback</SectionHeader>
@@ -280,7 +355,13 @@ function CallbackCard({
         <p className="pb-meta">Rejected: {detail.rejectionReason}</p>
       )}
       {detail.state === 'Proposed' ? (
-        <CallbackFormCard detail={detail} canAct={canAct} isProposer={isProposer} onLog={onLog} />
+        <CallbackFormCard
+          detail={detail}
+          canAct={canAct}
+          isProposer={isProposer}
+          older={older}
+          onLog={onLog}
+        />
       ) : callback === null ? (
         <p className="pb-meta">No callback was logged for this version.</p>
       ) : null}
@@ -344,7 +425,10 @@ function InstructionBody({
       />
       <ActionStatus latest={log.latest} testId="wire-action-status" />
       <div className="pb-two-col">
-        <DetailsCard detail={detail} />
+        <DetailsCard
+          detail={detail}
+          clearReader={(me?.roles ?? []).some((r) => CLEAR_ROLES.includes(r))}
+        />
         <CallbackCard detail={detail} me={me} onLog={log} />
       </div>
       <VersionsCard detail={detail} />

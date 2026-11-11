@@ -31,7 +31,7 @@ export const BLOCKER_WORDS: Readonly<Record<ReleaseBlocker, string>> = {
     "The wire instructions changed within the hold window and wait for a second person's callback (SEC-12.3).",
   same_person: 'You prepared this ticket; a different person must approve it (SEC-12.3).',
   verifier_within_hold:
-    'You proposed or verified the wire instructions inside the hold window; a third person must approve this ticket (SEC-12.3).',
+    'The wire instructions changed recently and you proposed or verified that change; a third person must approve this ticket (SEC-12.3).',
 };
 
 /** "Changed within hold": the blocker as a short label for a table cell. */
@@ -39,13 +39,35 @@ export function blockerLabel(blocker: ReleaseBlocker): string {
   return labelOf(blocker);
 }
 
-/** The sentence the ticket panel shows when nothing blocks the release. */
+/**
+ * The sentence the ticket panel shows when nothing blocks the release for the reader: every
+ * check of SEC-12.3, the third-person rule after a recent change included.
+ */
 export const RELEASE_ALLOWED =
-  'Release allowed: a Verified instruction is on file, nothing changed within the hold window and a different person prepared the ticket (SEC-12.3).';
+  'Release allowed: a Verified instruction is on file, no change to it waits for a callback, a different person prepared the ticket, and you neither proposed nor verified a change inside the hold window (SEC-12.3).';
 
 /** A Funded or Withdrawn ticket has nothing left to release. */
 export function nothingToRelease(state: TradeTicketState): boolean {
   return state === 'Funded' || state === 'Withdrawn';
+}
+
+/**
+ * What stands where a register row would: the wire register is read by operations, approvers,
+ * auditors and platform admins only (SEC-12.2), so every other reader of a notice or a ticket
+ * gets no version and no masked details from the API.
+ */
+export const REGISTER_RESTRICTED = 'Restricted to the wire register';
+
+/**
+ * Whether the version a ticket was approved against is withheld from the reader. An approved
+ * ticket always names its version; one that comes with an approver and without a version was
+ * answered to a reader outside the register. A ticket not approved yet has no version at all:
+ * that is a missing value, not a withheld one.
+ */
+export function instructionWithheld(
+  ticket: Pick<TradeTicketRow, 'approvedBy' | 'wireInstruction'>,
+): boolean {
+  return ticket.approvedBy !== null && ticket.wireInstruction === null;
 }
 
 export interface AlertWords {

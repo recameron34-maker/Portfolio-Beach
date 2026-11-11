@@ -28,8 +28,10 @@ import {
   BLOCKER_WORDS,
   blockerLabel,
   filterTickets,
+  instructionWithheld,
   isTicketState,
   nothingToRelease,
+  REGISTER_RESTRICTED,
   TICKET_STATES,
   ticketNoticeLabel,
 } from './tickets.js';
@@ -94,9 +96,11 @@ function TicketsTable({
               <td>{t.preparedBy.name}</td>
               <td>{t.approvedBy === null ? MISSING : t.approvedBy.name}</td>
               <td className="pb-nowrap pb-wire-masked">
-                {t.wireInstruction === null
-                  ? MISSING
-                  : `Version ${t.wireInstruction.version}: ${t.wireInstruction.bankDetailsMasked}`}
+                {t.wireInstruction !== null
+                  ? `Version ${t.wireInstruction.version}: ${t.wireInstruction.bankDetailsMasked}`
+                  : instructionWithheld(t)
+                    ? REGISTER_RESTRICTED
+                    : MISSING}
               </td>
               <td>
                 <Badge tone={ticketTone(t.state)}>{humanizeState(t.state)}</Badge>
@@ -113,7 +117,9 @@ function TicketsTable({
 /**
  * Every trade ticket the caller can see (docs/04 M16, SEC-12.3): one per notice, the preparer and
  * the approver, the instruction version it was approved against and whether it may be released
- * now. The notice names come from the notice board's own list when it is at hand.
+ * now. The version is a register row: the deal team, who read tickets but not the register,
+ * see that it is restricted (SEC-12.2). The notice names come from the notice board's own list
+ * when it is at hand.
  */
 export function TradeTicketsPage(): ReactNode {
   const q = useQuery({ ...tradeTicketsQuery(), placeholderData: keepPreviousData });
