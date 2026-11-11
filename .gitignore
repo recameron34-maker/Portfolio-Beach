@@ -40,5 +40,8 @@ apps/web/dist-types/
 apps/web/.e2e/
 # static preview build
 apps/web/dist-preview/
+# the site's generated media (screenshots, recordings, brochures) and wrangler's working folder
+apps/site/media/
+apps/site/.wrangler/
 # agent worktrees (never committed)
 .claude/worktrees/
