@@ -7,4 +7,6 @@ Typed transition tables for every state machine in `docs/18_WORKFLOWS_AND_STATE_
 - Preconditions encode segregation of duties (preparer never approves), required reasons, the IC gate with an audited Approver override, the closing checklist and allocation tie-out, and the wire controls on trade tickets.
 - `requireReason` is used as the precondition itself where a reason is all a transition needs (send back, reopen, reject, resolve, wont_fix), so the web's `commandOptions` can tell the page to ask for one.
 
+- `controls-capital.ts` and `controls-closing.ts` hold the control rules that are arithmetic rather than transitions, as pure functions (plain data in, plain data out, the date passed in): business days, the wire change hold window, the notice alerts and the release blockers of a trade ticket; the allocation tie-out on received amounts, the closing gates, the diligence gate with what was carried over a reopen, and the IC decision round. The API and the static preview call the same functions, so the two cannot answer differently.
+
 Changing a workflow means changing the table and `docs/18` together; the generated tests fail on any transition that one has and the other lacks.

@@ -33,7 +33,7 @@
   - **The web** sends a key on every one of these routes (`apps/web/src/api/idempotency.ts`): one key per action, the same key when that action is tried again while its outcome is unknown, for at most five minutes, and never the same key for another body.
   - **The preview** simulates the store in the browser with the same rules, except the 409: it answers one request at a time, so a repeat always finds the first one finished.
   - The OpenAPI document describes both headers and their problems on the routes that take them.
-- **Validation:** Zod at every boundary; reject unknown fields. A refusal is 400 `validation` with one `errors` entry per issue (`path` and `message`, never the value); the web shows each field and its message.
+- **Validation:** Zod at every boundary; reject unknown fields. A refusal is 400 `validation` with one `errors` entry per issue (`path` and `message`, never the value); the web shows each field and its message. A body the server cannot read is answered in fixed words (400 `validation`, "The body is not valid JSON"; 413 for one over the size limit), after the request has its id and its log line: the parser's own message spells out the body and is never passed on.
 - **Versioning:** `/api/v1`; breaking changes need a new version.
 
 ## 4. Money, numbers and time
