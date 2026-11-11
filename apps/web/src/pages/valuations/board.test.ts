@@ -276,22 +276,28 @@ describe('valuation board helpers', () => {
 
   it('names who signed a version that holds no decision rows, from the version itself', () => {
     const seeded = {
+      state: 'Locked' as const,
       approvals: [],
       preparedBy: 'Avery Mbeki',
       dealTeamApprovedBy: 'Blake Okafor',
       approvedBy: 'Morgan Lindqvist',
       approvedAt: '2025-08-09T15:00:00Z',
     };
-    expect(signOffsOf(seeded)).toEqual([
+    const all = [
       { step: 'ops_prepared', by: 'Avery Mbeki', at: null },
       { step: 'deal_team', by: 'Blake Okafor', at: null },
       { step: 'final', by: 'Morgan Lindqvist', at: '2025-08-09T15:00:00Z' },
-    ]);
+    ];
+    expect(signOffsOf(seeded)).toEqual(all);
+    expect(signOffsOf({ ...seeded, state: 'Reopened' })).toEqual(all);
     expect(lockedBy(seeded)).toBe('Morgan Lindqvist');
     // A version in progress names who has signed so far; nobody named is nobody shown.
-    expect(
-      signOffsOf({ ...seeded, dealTeamApprovedBy: null, approvedBy: null, approvedAt: null }),
-    ).toEqual([{ step: 'ops_prepared', by: 'Avery Mbeki', at: null }]);
+    const prepared = { ...seeded, dealTeamApprovedBy: null, approvedBy: null, approvedAt: null };
+    expect(signOffsOf({ ...prepared, state: 'OpsPrepared' })).toEqual([all[0]]);
+    expect(signOffsOf({ ...seeded, state: 'DealTeamApproved' })).toEqual([all[0], all[1]]);
+    // A Draft may name a preparer already (a staged weekly value made it) without having been
+    // prepared: a name on a step the version has not passed is no sign-off.
+    expect(signOffsOf({ ...prepared, state: 'Draft' })).toEqual([]);
     expect(lockedBy({ ...seeded, approvedBy: null, approvedAt: null })).toBeNull();
     // The decision rows say more (who, when, why): where they exist, they are what is shown.
     const trail = valuationDetailFixture().approvals;

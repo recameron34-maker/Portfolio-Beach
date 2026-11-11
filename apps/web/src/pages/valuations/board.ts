@@ -394,15 +394,26 @@ export interface SignOff {
 
 type Signed = Pick<
   ValuationDetail,
-  'approvals' | 'preparedBy' | 'dealTeamApprovedBy' | 'approvedBy' | 'approvedAt'
+  'state' | 'approvals' | 'preparedBy' | 'dealTeamApprovedBy' | 'approvedBy' | 'approvedAt'
 >;
+
+/** The step a version in each state has behind it: how many of the three sign-offs it has had. */
+const STEPS_PASSED: Readonly<Record<ValuationState, number>> = {
+  Draft: 0,
+  OpsPrepared: 1,
+  DealTeamApproved: 2,
+  Locked: 3,
+  Reopened: 3,
+};
 
 /**
  * The people named on a version that holds no decision rows: who prepared it, who approved it
  * for the deal team and who locked it, with the lock time. A version loaded with its sign-offs
  * (the seeded history, an import) has the names on the version and no step-by-step rows, so the
- * screen shows the names rather than "no decisions". Empty when the version has decision rows
- * (they say who, when and why) or names nobody.
+ * screen shows the names rather than "no decisions". Only the steps the version's state has
+ * behind it count: a Draft may already name a preparer (a staged weekly value made it, or it was
+ * sent back) without having been prepared. Empty when the version has decision rows (they say
+ * who, when and why) or names nobody.
  */
 export function signOffsOf(detail: Signed): SignOff[] {
   if (detail.approvals.length > 0) return [];
@@ -411,7 +422,9 @@ export function signOffsOf(detail: Signed): SignOff[] {
     ['deal_team', detail.dealTeamApprovedBy, null],
     ['final', detail.approvedBy, detail.approvedAt],
   ];
-  return named.flatMap(([step, by, at]) => (by === null ? [] : [{ step, by, at }]));
+  return named
+    .slice(0, STEPS_PASSED[detail.state])
+    .flatMap(([step, by, at]) => (by === null ? [] : [{ step, by, at }]));
 }
 
 /** Who locked the version: the final approval of its trail, else the approver named on the version once it carries a lock time; null while it is not locked. */
