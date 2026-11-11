@@ -43,6 +43,9 @@ describe('diligence tab', () => {
     expect(rows[0]).toHaveTextContent(
       'CommercialMarket and competitive reviewBlake MbekiMay 15, 2025DoneRequiredDocument',
     );
+    // A deal that was never reopened carries nothing over: the card says nothing about it.
+    expect(tasks).toHaveTextContent('4 tasks, 0 required tasks open');
+    expect(tasks).not.toHaveTextContent('before the deal was reopened');
     expect(within(tasks).queryByRole('button')).toBeNull();
     expect(screen.queryByTestId('diligence-task-form')).toBeNull();
     const decisions = screen.getByTestId('ic-decisions');
@@ -52,6 +55,22 @@ describe('diligence tab', () => {
     expect(screen.getByRole('link', { name: 'Open the opportunity' })).toHaveAttribute(
       'href',
       `/pipeline/${OPP_ID.closing}`,
+    );
+    expect(document.body.textContent).not.toContain(EM_DASH);
+  });
+
+  it('says how many required tasks were done before the deal was reopened', async () => {
+    const reopened = closingOpportunityFixture();
+    mockApi({
+      [DEAL_PATHS.detail]: ok(dealDetailFixture({ opportunityId: OPP_ID.closing })),
+      [PIPE_PATHS.opportunity(OPP_ID.closing)]: ok({
+        ...reopened,
+        gates: { ...reopened.gates, diligence: { requiredOpen: 0, ok: true, carriedOver: 3 } },
+      }),
+    });
+    renderWithQuery(<DiligenceTab />);
+    expect(await screen.findByTestId('diligence-tasks')).toHaveTextContent(
+      '4 tasks, 0 required tasks open; 3 were done or waived before the deal was reopened',
     );
     expect(document.body.textContent).not.toContain(EM_DASH);
   });

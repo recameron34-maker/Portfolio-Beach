@@ -62,6 +62,7 @@ import {
 } from './api.js';
 import {
   closingBlockers,
+  closingLock,
   isIsoDate,
   itemStatusTone,
   mayUse,
@@ -80,6 +81,9 @@ import './pipeline.css';
 
 const CLOSE_DATE_RULE =
   'The close date is the single source for every report (docs/04 M8). A change after confirmation returns the closing to Open and needs confirmation again.';
+
+const REOPEN_RULE =
+  'Reopening returns the record to Open so the checklist and the allocations can change; operations confirm again.';
 
 /** A new close date with the reason the audit trail keeps (docs/04 M8). */
 function CloseDateDialog({
@@ -263,20 +267,25 @@ type ItemPending = { kind: 'receive'; item: ClosingItem } | { kind: 'waive'; ite
 function ItemActions({
   item,
   roles,
+  lock,
   busy,
   onStart,
   onReopen,
 }: {
   item: ClosingItem;
   roles: readonly string[];
+  /** Why the checklist takes no change (closingLock), or null while it does. */
+  lock: string | null;
   busy: boolean;
   onStart: (pending: ItemPending) => void;
   onReopen: (item: ClosingItem) => void;
 }): ReactNode {
-  const blocked = blockedTitle({
-    allowed: mayUse(roles, PIPELINE_ROLES.closingItem),
-    roles: PIPELINE_ROLES.closingItem,
-  });
+  // The role first, as the API answers; then what operations confirmed stays as confirmed.
+  const blocked =
+    blockedTitle({
+      allowed: mayUse(roles, PIPELINE_ROLES.closingItem),
+      roles: PIPELINE_ROLES.closingItem,
+    }) ?? lock;
   const button = (label: string, onClick: () => void): ReactNode => (
     <Button
       size="small"
@@ -314,6 +323,7 @@ function ItemsCard({
 }): ReactNode {
   const command = useClosingItemCommand();
   const [pending, setPending] = useState<ItemPending | null>(null);
+  const lock = closingLock(closing).items;
   const issue = (item: ClosingItem, body: ClosingItemCommandBody): void => {
     command.mutate(
       { id: closing.id, itemCode: item.itemCode, body },
@@ -378,6 +388,7 @@ function ItemsCard({
                   <ItemActions
                     item={item}
                     roles={roles}
+                    lock={lock}
                     busy={command.isPending}
                     onStart={setPending}
                     onReopen={(i) => issue(i, { command: 'reopen' })}
@@ -388,10 +399,16 @@ function ItemsCard({
           </tbody>
         </table>
       </TableWrap>
-      <p className="pb-meta pb-deal-note">
-        From config/closing_checklist.json. Operations cannot confirm the closing while a required
-        item is open; an optional item is tracked but never blocks.
-      </p>
+      {lock === null ? (
+        <p className="pb-meta pb-deal-note">
+          From config/closing_checklist.json. Operations cannot confirm the closing while a required
+          item is open; an optional item is tracked but never blocks.
+        </p>
+      ) : (
+        <p className="pb-meta pb-deal-note" data-testid="closing-items-lock">
+          {lock}.
+        </p>
+      )}
       {pending?.kind === 'receive' ? (
         <ReceiveDialog
           item={pending.item}
@@ -429,10 +446,14 @@ function RecordCard({
 }): ReactNode {
   const command = useClosingCommand();
   const [changing, setChanging] = useState(false);
+  const [reopening, setReopening] = useState(false);
   const roleBlocked = blockedTitle({
     allowed: mayUse(roles, PIPELINE_ROLES.closingCommand),
     roles: PIPELINE_ROLES.closingCommand,
   });
+  // Once the deal converted, the close date is the position's entry date: the record no longer moves.
+  const moveLock = closingLock(closing).move;
+  const moveBlocked = roleBlocked ?? moveLock;
   const blockers = closingBlockers(closing);
   const confirmBlocked = roleBlocked ?? (blockers.length === 0 ? null : blockers.join('; '));
   const confirm = (): void => {
@@ -462,6 +483,19 @@ function RecordCard({
       },
     );
   };
+  const reopen = (reason: string): void => {
+    command.mutate(
+      { id: closing.id, body: { command: 'reopen', reason } },
+      {
+        onSuccess: (updated) =>
+          log.record(
+            'good',
+            `Closing reopened; the record is ${humanizeState(updated.state)} ${resultSuffix()}`,
+          ),
+        onError: (error) => log.record('bad', `Reopen closing: ${describeActionError(error)}`),
+      },
+    );
+  };
   return (
     <Card testId="closing-record">
       <SectionHeader aside={<SimulatedBadge />}>Closing record</SectionHeader>
@@ -477,8 +511,8 @@ function RecordCard({
                 <Button
                   size="small"
                   appearance="outline"
-                  disabled={roleBlocked !== null || command.isPending}
-                  {...(roleBlocked === null ? {} : { title: roleBlocked })}
+                  disabled={moveBlocked !== null || command.isPending}
+                  {...(moveBlocked === null ? {} : { title: moveBlocked })}
                   onClick={() => setChanging(true)}
                 >
                   Change close date
@@ -512,10 +546,22 @@ function RecordCard({
             Confirm closing
           </Button>
         ) : (
-          <p className="pb-meta">
-            Confirmed by operations. A close date change returns the record to Open and needs
-            confirmation again (docs/04 M8).
-          </p>
+          <>
+            <Button
+              appearance="secondary"
+              data-testid="closing-reopen"
+              disabled={moveBlocked !== null || command.isPending}
+              {...(moveBlocked === null ? {} : { title: moveBlocked })}
+              onClick={() => setReopening(true)}
+            >
+              Reopen closing
+            </Button>
+            <p className="pb-meta pb-deal-note">
+              {moveLock === null
+                ? 'Confirmed by operations: the checklist and the allocations stay as confirmed. A close date change or a reopen returns the record to Open and needs confirmation again (docs/04 M8).'
+                : `Confirmed by operations. ${moveLock}.`}
+            </p>
+          </>
         )}
       </div>
       {closing.state === 'Open' && blockers.length > 0 ? (
@@ -529,7 +575,7 @@ function RecordCard({
       ) : null}
       {closing.state === 'Open' && blockers.length === 0 ? (
         <p className="pb-meta">
-          Every required item is in and the allocations tie out; operations may confirm.
+          Every required item is in and the received amounts tie out; operations may confirm.
         </p>
       ) : null}
       {changing ? (
@@ -542,12 +588,24 @@ function RecordCard({
           }}
         />
       ) : null}
+      {reopening ? (
+        <ReasonDialog
+          title="Reopen closing"
+          subject={`Confirmed for ${formatDate(closing.closeDate)}. ${REOPEN_RULE}`}
+          onCancel={() => setReopening(false)}
+          onSubmit={(reason) => {
+            reopen(reason);
+            setReopening(false);
+          }}
+        />
+      ) : null}
     </Card>
   );
 }
 
 function TieOutCard({ closing }: { closing: ClosingDetail }): ReactNode {
   const t = closing.allocationTieOut;
+  const lock = closingLock(closing).items;
   return (
     <Card testId="closing-tie-out">
       <SectionHeader aside={<Badge tone={tieOutTone(t)}>{tieOutLabel(t)}</Badge>}>
@@ -558,7 +616,7 @@ function TieOutCard({ closing }: { closing: ClosingDetail }): ReactNode {
         <StatTile
           label="Allocated"
           value={formatMoneyM(t.allocated)}
-          hint="Received when known, else requested"
+          hint="Sum of the received amounts"
         />
         <StatTile
           label="Difference"
@@ -569,7 +627,7 @@ function TieOutCard({ closing }: { closing: ClosingDetail }): ReactNode {
       {closing.allocations.length === 0 ? (
         <EmptyState
           title="No allocation lines"
-          detail="Allocations are edited on the opportunity page; the closing cannot complete until they equal the commitment (M22)."
+          detail="Allocations are edited on the opportunity page; the closing cannot complete until the received amounts equal the commitment (M22)."
         />
       ) : (
         <TableWrap label="Allocations">
@@ -595,12 +653,22 @@ function TieOutCard({ closing }: { closing: ClosingDetail }): ReactNode {
           </table>
         </TableWrap>
       )}
-      <p className="pb-meta pb-deal-note">
-        <Link to="/pipeline/$id" params={{ id: closing.opportunityId }}>
-          Edit the allocations on the opportunity page
-        </Link>
-        . The closing cannot complete until they equal the commitment (M22).
-      </p>
+      {lock === null ? (
+        <p className="pb-meta pb-deal-note">
+          <Link to="/pipeline/$id" params={{ id: closing.opportunityId }}>
+            Edit the allocations on the opportunity page
+          </Link>
+          . The closing cannot complete until the received amounts equal the commitment (M22).
+        </p>
+      ) : (
+        <p className="pb-meta pb-deal-note">
+          The lines stay as confirmed:{' '}
+          <Link to="/pipeline/$id" params={{ id: closing.opportunityId }}>
+            see them on the opportunity page
+          </Link>
+          . {lock}.
+        </p>
+      )}
     </Card>
   );
 }
@@ -850,7 +918,10 @@ function Panel({
 /**
  * The closing record (docs/04 M8, docs/18 section 12; M22): the close date every report reads,
  * the checklist, the operations confirmation with what blocks it in words, the allocation
- * tie-out and the legal terms. Used by the closing page and the deal workspace's Closing tab.
+ * tie-out on received amounts and the legal terms. While the closing is confirmed its checklist
+ * and its lines take no change (operations reopen it with a reason first), and once the position
+ * exists neither the close date change nor the reopen is offered: the reason is shown each time.
+ * Used by the closing page and the deal workspace's Closing tab.
  */
 export function ClosingPanel({
   closingId,

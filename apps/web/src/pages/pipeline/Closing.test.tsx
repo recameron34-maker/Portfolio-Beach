@@ -11,8 +11,10 @@ import {
   confirmedClosingFixture,
   OPP_ID,
   opportunityDetailFixture,
+  partlyReceivedAllocations,
   PIPE_ID,
   PIPE_PATHS,
+  SHORT_TIE_OUT,
   taxonomyFixture,
 } from '../../test/fixtures-pipeline.js';
 import { refusalFixture, rolePrincipal, sentPosts } from '../../test/fixtures-valuations.js';
@@ -135,6 +137,9 @@ describe('closing page', () => {
     const tieOut = within(panel).getByTestId('closing-tie-out');
     expect(within(tieOut).getByRole('group', { name: 'Commitment' })).toHaveTextContent('$20.0M');
     expect(within(tieOut).getByRole('group', { name: 'Allocated' })).toHaveTextContent('$20.0M');
+    expect(within(tieOut).getByRole('group', { name: 'Allocated' })).toHaveTextContent(
+      'Sum of the received amounts',
+    );
     expect(within(tieOut).getByRole('group', { name: 'Difference' })).toHaveTextContent('$0.0M');
     expect(within(tieOut).getByText('Tied out')).toHaveClass('pb-badge-good');
     expect(
@@ -237,8 +242,10 @@ describe('closing page', () => {
     });
     await screen.findByTestId('closing-panel');
     expect(screen.getByTestId('closing-record')).toHaveTextContent(
-      'Every required item is in and the allocations tie out; operations may confirm.',
+      'Every required item is in and the received amounts tie out; operations may confirm.',
     );
+    // While the closing is Open there is nothing to reopen.
+    expect(screen.queryByTestId('closing-reopen')).toBeNull();
     const confirm = screen.getByTestId('closing-confirm');
     expect(confirm).toBeEnabled();
     await userEvent.click(confirm);
@@ -253,7 +260,9 @@ describe('closing page', () => {
     expect(record).toHaveTextContent('Rowan Castellanos');
     expect(record).toHaveTextContent('Aug 16, 2025 10:00:00 UTC');
     expect(screen.queryByTestId('closing-confirm')).toBeNull();
-    expect(record).toHaveTextContent('A close date change returns the record to Open');
+    expect(record).toHaveTextContent(
+      'Confirmed by operations: the checklist and the allocations stay as confirmed. A close date change or a reopen returns the record to Open and needs confirmation again (docs/04 M8).',
+    );
     cleanup();
     vi.restoreAllMocks();
 
@@ -269,6 +278,146 @@ describe('closing page', () => {
       'Confirm: Blocked by a rule. Confirm from Open blocked: allocations do not tie',
     );
   }, 30_000);
+
+  it('names the lines with no received amount as what blocks the confirmation (M22)', async () => {
+    open(
+      ['operations'],
+      closingDetailFixture({
+        itemsOpen: 2,
+        itemsRequiredOpen: 0,
+        items: closingDetailFixture().items.map((i) =>
+          i.itemCode === 'wire_confirmation'
+            ? { ...i, status: 'received', documentId: PIPE_ID.document }
+            : i,
+        ),
+        allocations: partlyReceivedAllocations(),
+        allocationTieOut: SHORT_TIE_OUT,
+      }),
+    );
+    const panel = await screen.findByTestId('closing-panel');
+    const confirm = within(panel).getByTestId('closing-confirm');
+    expect(confirm).toBeDisabled();
+    expect(confirm).toHaveAttribute('title', 'Received amounts are missing on 1 line (M22)');
+    const blockers = within(within(panel).getByTestId('closing-blockers')).getAllByRole('listitem');
+    expect(blockers.map((b) => b.textContent)).toEqual([
+      'Received amounts are missing on 1 line (M22)',
+    ]);
+    const tieOut = within(panel).getByTestId('closing-tie-out');
+    expect(within(tieOut).getByRole('group', { name: 'Allocated' })).toHaveTextContent('$12.0M');
+    expect(within(tieOut).getByText('Short by $8.0M')).toHaveClass('pb-badge-bad');
+    // The line with nothing received shows the placeholder, never its requested amount.
+    const rows = within(within(tieOut).getByRole('table', { name: 'Allocations' }))
+      .getAllByRole('row')
+      .slice(1);
+    expect(rows[1]).toHaveTextContent('Beach Credit Partners IAlpha Pension Trust$8.0M-');
+    expect(tieOut).toHaveTextContent(
+      'The closing cannot complete until the received amounts equal the commitment (M22).',
+    );
+  });
+
+  it('keeps a confirmed closing as confirmed: item actions name the reason, and operations reopen it with a reason', async () => {
+    const state = stateful(confirmedClosingFixture());
+    open(['operations'], confirmedClosingFixture(), {
+      [PIPE_PATHS.closing(PIPE_ID.closing)]: state.get,
+      [PIPE_PATHS.closingCommands(PIPE_ID.closing)]: () =>
+        state.set(closingDetailFixture({ itemsRequiredOpen: 0, itemsOpen: 2, rowVersion: 3 })),
+    });
+    const panel = await screen.findByTestId('closing-panel');
+    const CONFIRMED =
+      'The closing is confirmed; change the close date or ask operations to reopen it';
+    for (const name of [
+      'Reopen, Signed subscription and transaction documents',
+      'Receive, Side letter',
+      'Waive, Side letter',
+    ]) {
+      expect(button(name)).toBeDisabled();
+      expect(button(name)).toHaveAttribute('title', CONFIRMED);
+    }
+    expect(within(panel).getByTestId('closing-items-lock')).toHaveTextContent(`${CONFIRMED}.`);
+    expect(within(panel).getByTestId('closing-tie-out')).toHaveTextContent(`${CONFIRMED}.`);
+    // Legal terms are not part of what the confirmation covers.
+    expect(button('Confirm, Mfn')).toBeEnabled();
+
+    const reopen = within(panel).getByTestId('closing-reopen');
+    expect(reopen).toBeEnabled();
+    expect(reopen).toHaveAccessibleName('Reopen closing');
+    await userEvent.click(reopen);
+    const dialog = await screen.findByRole('dialog');
+    expect(dialog).toHaveTextContent(
+      'Reopening returns the record to Open so the checklist and the allocations can change; operations confirm again.',
+    );
+    const submit = within(dialog).getByRole('button', { name: 'Reopen closing' });
+    expect(submit).toBeDisabled();
+    await userEvent.type(
+      within(dialog).getByLabelText(/Reason/),
+      'The second vehicle takes part of the allocation',
+    );
+    await userEvent.click(submit);
+    await dialogClosed();
+    expect(await screen.findByTestId('closing-action-status')).toHaveTextContent(
+      'Closing reopened; the record is Open',
+    );
+    expect(sentPosts()).toEqual([
+      [
+        PIPE_PATHS.closingCommands(PIPE_ID.closing),
+        { command: 'reopen', reason: 'The second vehicle takes part of the allocation' },
+      ],
+    ]);
+    // Open again: the items take changes and there is nothing to reopen.
+    expect(await find('Receive, Side letter')).toBeEnabled();
+    expect(screen.queryByTestId('closing-reopen')).toBeNull();
+    expect(screen.queryByTestId('closing-items-lock')).toBeNull();
+    expect(screen.getByTestId('closing-confirm')).toBeInTheDocument();
+    cleanup();
+    vi.restoreAllMocks();
+
+    // The reopen is for operations: the deal team sees it with the role it needs.
+    open(['deal_team'], confirmedClosingFixture());
+    await screen.findByTestId('closing-panel');
+    expect(screen.getByTestId('closing-reopen')).toBeDisabled();
+    expect(screen.getByTestId('closing-reopen')).toHaveAttribute('title', 'Needs operations');
+    expect(button('Receive, Side letter')).toHaveAttribute('title', CONFIRMED);
+    cleanup();
+    vi.restoreAllMocks();
+
+    // A refusal is reported in words.
+    open(['operations'], confirmedClosingFixture(), {
+      [PIPE_PATHS.closingCommands(PIPE_ID.closing)]: {
+        status: 422,
+        body: refusalFixture(
+          422,
+          'the position exists; record the change through a deal change request',
+        ),
+      },
+    });
+    await screen.findByTestId('closing-panel');
+    await userEvent.click(screen.getByTestId('closing-reopen'));
+    const again = await screen.findByRole('dialog');
+    await userEvent.type(within(again).getByLabelText(/Reason/), 'A line moved');
+    await userEvent.click(within(again).getByRole('button', { name: 'Reopen closing' }));
+    await dialogClosed();
+    expect(await screen.findByTestId('closing-action-status')).toHaveTextContent(
+      'Reopen closing: Blocked by a rule. The position exists; record the change through a deal change request',
+    );
+  }, 45_000);
+
+  it('offers neither a close date change nor a reopen once the position exists, and says where the change goes', async () => {
+    open(['operations'], { ...confirmedClosingFixture(), investmentId: PIPE_ID.investment });
+    const panel = await screen.findByTestId('closing-panel');
+    const POSITION = 'The position exists; record the change through a deal change request';
+    const change = button('Change close date');
+    expect(change).toBeDisabled();
+    expect(change).toHaveAttribute('title', POSITION);
+    const reopen = within(panel).getByTestId('closing-reopen');
+    expect(reopen).toBeDisabled();
+    expect(reopen).toHaveAttribute('title', POSITION);
+    expect(within(panel).getByTestId('closing-record')).toHaveTextContent(
+      `Confirmed by operations. ${POSITION}.`,
+    );
+    expect(button('Receive, Side letter')).toHaveAttribute('title', POSITION);
+    expect(within(panel).getByTestId('closing-items-lock')).toHaveTextContent(`${POSITION}.`);
+    expect(document.body.textContent).not.toContain(String.fromCharCode(0x2014));
+  });
 
   it('changes the close date with a reason, from a confirmed closing back to Open', async () => {
     const state = stateful(confirmedClosingFixture());

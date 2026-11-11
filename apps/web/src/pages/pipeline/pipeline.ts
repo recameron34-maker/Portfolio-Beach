@@ -1,9 +1,9 @@
-import { D, ZERO } from '@pb/calc';
 import { API_PREFIX, isoDate, ROUTES } from '@pb/contracts';
 import type {
   AllocationRow,
   AllocationsPutBody,
   AllocationTieOut,
+  ClosingDetail,
   ClosingItem,
   ClosingSummary,
   DealStage,
@@ -15,7 +15,15 @@ import type {
   Person,
   Taxonomy,
 } from '@pb/contracts';
-import { dealStageMachine } from '@pb/workflows';
+import {
+  CLOSING_CONFIRMED_REFUSAL,
+  CLOSING_NOT_CONFIRMED_REFUSAL,
+  dealStageMachine,
+  missingReceived,
+  missingReceivedRefusal,
+  POSITION_EXISTS_REFUSAL,
+  tieOut,
+} from '@pb/workflows';
 import definitions from '../../../../../config/definitions.json';
 import type { Tone } from '../../components/ui.js';
 import { formatMoneyM, labelOf, MISSING, plural } from '../../lib/format.js';
@@ -127,28 +135,40 @@ export function nextStage(stage: DealStage): DealStage | null {
 }
 
 export interface GateLine {
-  key: 'diligence' | 'ic' | 'checklist' | 'tieOut';
+  key: 'diligence' | 'ic' | 'checklist' | 'tieOut' | 'confirmed';
   ok: boolean;
   text: string;
 }
 
-/** The four gates of docs/18 section 4 as sentences, each saying whether it is clear and what clears it. */
+/**
+ * How many tasks required for IC were done or waived before the deal was last reopened from
+ * Passed, in words; null when none was (a deal that was never reopened). The work stands, and the
+ * people taking the deal to IC again should see that it predates the reopen.
+ */
+export function carriedOverNote(carriedOver: number): string | null {
+  if (carriedOver <= 0) return null;
+  return `${carriedOver} ${carriedOver === 1 ? 'was' : 'were'} done or waived before the deal was reopened`;
+}
+
+/** The gates of docs/18 sections 4 and 12 as sentences, each saying whether it is clear and what clears it. */
 export function gateLines(gates: OpportunityGates, hasClosing: boolean): GateLine[] {
   const open = gates.diligence.requiredOpen;
+  const carried = carriedOverNote(gates.diligence.carriedOver);
   return [
     {
       key: 'diligence',
       ok: gates.diligence.ok,
       text: gates.diligence.ok
-        ? 'Every diligence task required for IC is done or waived.'
-        : `${plural(open, 'diligence task')} required for IC ${open === 1 ? 'is' : 'are'} still open; the advance to IC waits for them (an approver may override with a reason).`,
+        ? `Every diligence task required for IC is done or waived${carried === null ? '' : `; ${carried}`}.`
+        : `${plural(open, 'diligence task')} required for IC ${open === 1 ? 'is' : 'are'} still open; the advance to IC waits for them (an approver may override with a reason).${carried === null ? '' : ` ${carried}.`}`,
     },
     {
       key: 'ic',
       ok: gates.icDecision.ok,
+      // A decision from before a pass is history: only one recorded since the deal last entered IC counts.
       text: gates.icDecision.ok
         ? 'An IC decision is recorded.'
-        : 'No IC decision is recorded; the advance from IC waits for one.',
+        : 'No approved IC decision is recorded since the deal last entered IC; the advance from IC waits for one.',
     },
     {
       key: 'checklist',
@@ -165,8 +185,17 @@ export function gateLines(gates: OpportunityGates, hasClosing: boolean): GateLin
       text: !hasClosing
         ? 'The allocation tie-out starts once the closing record exists.'
         : gates.closing.allocationTiedOut
-          ? 'Allocations tie to the closing commitment.'
-          : 'Allocations do not tie to the closing commitment (M22).',
+          ? 'The received amounts tie to the closing commitment.'
+          : 'The received amounts do not tie to the closing commitment (M22).',
+    },
+    {
+      key: 'confirmed',
+      ok: gates.closing.confirmed,
+      text: !hasClosing
+        ? 'Operations confirm the closing once the closing record exists.'
+        : gates.closing.confirmed
+          ? 'Operations confirmed the closing.'
+          : 'Operations have not confirmed the closing; the advance to Closed waits for the confirmation (M8).',
     },
   ];
 }
@@ -193,6 +222,8 @@ export function advanceBlocker(
       if (!gates.closing.checklistComplete) reasons.push('the closing checklist is incomplete');
       if (!gates.closing.allocationTiedOut)
         reasons.push('allocations do not tie to the closing commitment (M22)');
+      // The API refuses Closing to Closed until operations confirmed, in these words.
+      if (!gates.closing.confirmed) reasons.push(CLOSING_NOT_CONFIRMED_REFUSAL);
       return reasons.length === 0 ? null : capitalize(reasons.join('; '));
     }
     case 'Sourced':
@@ -291,18 +322,54 @@ export function isCompleteLine(line: AllocationLine): boolean {
   );
 }
 
+/** The typed lines as the tie-out reads them: the received amount of each, null while none is typed. */
+const receivedOf = (lines: readonly AllocationLine[]): { received: string | null }[] =>
+  lines.map((l) => ({ received: l.received.trim() === '' ? null : l.received.trim() }));
+
 /**
- * The allocated total as the API ties it out (received when known, otherwise requested), to two
- * places; null while a line is incomplete, so the editor shows the placeholder, never a guess.
+ * The allocated total as the API ties it out: the sum of the received amounts alone, to two
+ * places (a requested amount never stands in for a received one, M22); null while a line is
+ * incomplete, so the editor shows the placeholder, never a guess.
  */
 export function allocatedTotal(lines: readonly AllocationLine[]): string | null {
   if (!lines.every(isCompleteLine)) return null;
-  return lines
-    .reduce(
-      (sum, l) => sum.plus(D(l.received.trim() === '' ? l.requested.trim() : l.received.trim())),
-      ZERO,
-    )
-    .toFixed(2);
+  return tieOut('0', receivedOf(lines)).allocated;
+}
+
+/** How many typed lines have no received amount yet: each keeps the tie-out from closing (M22). */
+export function missingReceivedLines(lines: readonly AllocationLine[]): number {
+  return missingReceived(receivedOf(lines));
+}
+
+/**
+ * Why the allocation lines take no change, or null while they do: fixed for good once the deal is
+ * Closed, and held as confirmed while operations' confirmation of the closing stands (the API's
+ * two refusals, in the same words). A confirmed closing of a deal that was passed and reopened
+ * keeps its lines until the deal reaches Closing again or operations reopen the closing.
+ */
+export function allocationsLock(
+  stage: DealStage,
+  closing: Pick<ClosingSummary, 'state'> | null,
+): string | null {
+  if (stage === 'Closed')
+    return 'Allocations are fixed once the deal is closed (M22); raise a change request instead';
+  return closing?.state === 'OpsConfirmed' ? capitalize(CLOSING_CONFIRMED_REFUSAL) : null;
+}
+
+/**
+ * Why a closing takes no change (docs/18 section 12), each null while it does. `items` is for
+ * the checklist: what operations confirmed stays as confirmed until the closing is back to Open.
+ * `move` is for the close date change and the reopen: once the deal converted, the close date is
+ * the position's entry date, and a correction is a deal change request (M11).
+ */
+export function closingLock(closing: Pick<ClosingDetail, 'state' | 'investmentId'>): {
+  items: string | null;
+  move: string | null;
+} {
+  const move = closing.investmentId === null ? null : capitalize(POSITION_EXISTS_REFUSAL);
+  const items =
+    closing.state === 'OpsConfirmed' ? (move ?? capitalize(CLOSING_CONFIRMED_REFUSAL)) : null;
+  return { items, move };
 }
 
 /** The PUT body for the typed lines; every line must be complete (isCompleteLine) first. */
@@ -317,19 +384,29 @@ export function allocationsBody(lines: readonly AllocationLine[]): AllocationsPu
   };
 }
 
-/** What stops the operations confirmation, in words (docs/18 section 12); empty when nothing does. */
+/**
+ * What stops the operations confirmation, in words (docs/18 section 12); empty when nothing does.
+ * A failed tie-out names the lines with no received amount when there are any, as the API's
+ * refusal does (a requested amount never stands in, M22), and the size of the gap otherwise.
+ */
 export function closingBlockers(
-  summary: Pick<ClosingSummary, 'itemsRequiredOpen' | 'allocationTieOut'>,
+  closing: Pick<ClosingSummary, 'itemsRequiredOpen' | 'allocationTieOut'> & {
+    allocations: readonly Pick<AllocationRow, 'received'>[];
+  },
 ): string[] {
   const out: string[] = [];
-  if (summary.itemsRequiredOpen > 0)
+  if (closing.itemsRequiredOpen > 0)
     out.push(
-      `${plural(summary.itemsRequiredOpen, 'required closing item')} still open: a required closing document is missing (M8)`,
+      `${plural(closing.itemsRequiredOpen, 'required closing item')} still open: a required closing document is missing (M8)`,
     );
-  if (!summary.allocationTieOut.tiedOut)
+  if (!closing.allocationTieOut.tiedOut) {
+    const missing = missingReceivedRefusal(closing.allocations);
     out.push(
-      `Allocations do not tie to the closing commitment, ${lowerFirst(tieOutLabel(summary.allocationTieOut))} (M22)`,
+      missing === null
+        ? `Allocations do not tie to the closing commitment, ${lowerFirst(tieOutLabel(closing.allocationTieOut))} (M22)`
+        : capitalize(missing),
     );
+  }
   return out;
 }
 

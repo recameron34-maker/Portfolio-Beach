@@ -18,15 +18,19 @@ import {
   linesOf,
   lowerFirst,
   mayUse,
+  missingReceivedLines,
   PIPELINE_ROLES,
   tieOutLabel,
   tieOutTone,
 } from './pipeline.js';
 import type { AllocationLine } from './pipeline.js';
 
-const INCOMPLETE = 'Every line needs a vehicle and a requested amount (received is optional)';
+const INCOMPLETE = 'Every line needs a vehicle and a requested amount';
 
-/** The tie-out against the closing commitment, or what it waits for when no closing exists (M22). */
+/**
+ * The received total against the closing commitment, or what the tie-out waits for when no
+ * closing exists (M22). The total is what was received: a requested amount never stands in.
+ */
 function TieOutLine({
   closing,
   total,
@@ -37,7 +41,7 @@ function TieOutLine({
   if (closing === null) {
     return (
       <span className="pb-meta">
-        Allocated {total === null ? MISSING : formatMoneyM(total)}. The tie-out starts once the
+        Received {total === null ? MISSING : formatMoneyM(total)}. The tie-out starts once the
         closing record exists (M22).
       </span>
     );
@@ -45,7 +49,7 @@ function TieOutLine({
   return (
     <>
       <span className="pb-meta">
-        Allocated {total === null ? MISSING : formatMoneyM(total)} against a commitment of{' '}
+        Received {total === null ? MISSING : formatMoneyM(total)} against a commitment of{' '}
         {formatMoneyM(closing.commitmentAmount)}.
       </span>
       <Badge tone={tieOutTone(closing.allocationTieOut)}>
@@ -107,6 +111,7 @@ function Editor({
   const clientItems = clients.data?.items ?? [];
   const complete = lines.every(isCompleteLine);
   const total = allocatedTotal(lines);
+  const missing = missingReceivedLines(lines);
   const blocked =
     blockedTitle({
       allowed: mayUse(roles, PIPELINE_ROLES.allocations),
@@ -235,6 +240,12 @@ function Editor({
           Client lines need a role entitled to client data; vehicle lines are enough to tie out.
         </p>
       ) : null}
+      {missing === 0 ? null : (
+        <p className="pb-meta pb-deal-note" data-testid="allocations-missing-received">
+          {plural(missing, 'line')} {missing === 1 ? 'has' : 'have'} no received amount yet. The
+          tie-out counts received amounts only: a requested amount never stands in for one (M22).
+        </p>
+      )}
       <div className="pb-pipe-allocation-foot">
         <Button
           size="small"
@@ -260,8 +271,10 @@ function Editor({
 
 /**
  * Requested against received by vehicle and client (docs/04 M5, M22). The whole list is saved at
- * once (PUT replaces it); the tie-out against the closing commitment decides whether the deal can
- * close. Roles the route does not admit see the lines read only.
+ * once (PUT replaces it); the tie-out of the received amounts against the closing commitment
+ * decides whether the deal can close. Roles the route does not admit see the lines read only, and
+ * so does everyone while the lines take no change (`lock` says why: the closing is confirmed, or
+ * the deal is closed).
  */
 export function AllocationsEditor({
   opportunityId,
@@ -271,6 +284,7 @@ export function AllocationsEditor({
   rowVersion,
   roles,
   log,
+  lock,
 }: {
   opportunityId: string;
   name: string;
@@ -279,13 +293,20 @@ export function AllocationsEditor({
   rowVersion: number;
   roles: readonly string[];
   log: ActionLog;
+  /** Why the lines take no change (allocationsLock), or null while they do. */
+  lock: string | null;
 }): ReactNode {
-  const canEdit = mayUse(roles, PIPELINE_ROLES.allocations);
+  const canEdit = mayUse(roles, PIPELINE_ROLES.allocations) && lock === null;
   return (
     <Card testId="allocations-editor">
       <SectionHeader aside={rows.length === 0 ? undefined : plural(rows.length, 'line')}>
         Allocations
       </SectionHeader>
+      {lock === null ? null : (
+        <p className="pb-meta pb-deal-note" data-testid="allocations-lock">
+          {lock}.
+        </p>
+      )}
       {canEdit ? (
         // Keyed by the row version: a saved answer re-seeds the lines from the record.
         <Editor

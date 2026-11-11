@@ -265,7 +265,7 @@ export function allocationFixture(overrides: Partial<AllocationRow> = {}): Alloc
   };
 }
 
-/** Two lines: the vehicle line and a client line, tying out to a 20,000,000.00 commitment. */
+/** Two lines, both received in full: the vehicle line and a client line, tying out to a 20,000,000.00 commitment. */
 export function allocations(): AllocationRow[] {
   return [
     allocationFixture(),
@@ -274,10 +274,23 @@ export function allocations(): AllocationRow[] {
       vehicle: { id: ID.vehicle2, name: 'Beach Credit Partners I' },
       client: { id: VS_ID.clientAlpha, name: 'Alpha Pension Trust' },
       requested: '8000000.00',
-      received: null,
+      received: '8000000.00',
     }),
   ];
 }
+
+/** The same two lines with nothing received on the client line yet: the received amounts are 8,000,000.00 short. */
+export function partlyReceivedAllocations(): AllocationRow[] {
+  return allocations().map((a) => (a.id === PIPE_ID.allocationB ? { ...a, received: null } : a));
+}
+
+/** The tie-out of partlyReceivedAllocations against the 20,000,000.00 commitment. */
+export const SHORT_TIE_OUT: ClosingSummary['allocationTieOut'] = {
+  commitment: '20000000.00',
+  allocated: '12000000.00',
+  difference: '-8000000.00',
+  tiedOut: false,
+};
 
 export function closingSummaryFixture(overrides: Partial<ClosingSummary> = {}): ClosingSummary {
   return {
@@ -347,9 +360,9 @@ export function opportunityDetailFixture(
     allocations: [],
     closing: null,
     gates: {
-      diligence: { requiredOpen: 1, ok: false },
+      diligence: { requiredOpen: 1, ok: false, carriedOver: 0 },
       icDecision: { ok: false },
-      closing: { checklistComplete: false, allocationTiedOut: false, ok: false },
+      closing: { checklistComplete: false, allocationTiedOut: false, confirmed: false, ok: false },
     },
     ...overrides,
   };
@@ -376,9 +389,30 @@ export function closingOpportunityFixture(
     allocations: allocations(),
     closing: closingSummaryFixture(),
     gates: {
-      diligence: { requiredOpen: 0, ok: true },
+      diligence: { requiredOpen: 0, ok: true, carriedOver: 0 },
       icDecision: { ok: true },
-      closing: { checklistComplete: false, allocationTiedOut: true, ok: false },
+      closing: { checklistComplete: false, allocationTiedOut: true, confirmed: false, ok: false },
+    },
+    ...overrides,
+  });
+}
+
+/** The Closing deal once operations confirmed its closing: every gate clear, the advance to Closed open. */
+export function confirmedOpportunityFixture(
+  overrides: Partial<OpportunityDetail> = {},
+): OpportunityDetail {
+  return closingOpportunityFixture({
+    closing: closingSummaryFixture({
+      state: 'OpsConfirmed',
+      opsConfirmedBy: OPS,
+      opsConfirmedAt: '2025-08-16T10:00:00Z',
+      itemsOpen: 2,
+      itemsRequiredOpen: 0,
+    }),
+    gates: {
+      diligence: { requiredOpen: 0, ok: true, carriedOver: 0 },
+      icDecision: { ok: true },
+      closing: { checklistComplete: true, allocationTiedOut: true, confirmed: true, ok: true },
     },
     ...overrides,
   });

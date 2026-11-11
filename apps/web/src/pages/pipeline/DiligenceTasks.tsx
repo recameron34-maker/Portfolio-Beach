@@ -28,6 +28,7 @@ import { blockedTitle, resultSuffix } from '../../lib/workflow.js';
 import type { ActionLog } from '../../lib/workflow.js';
 import { useCreateDiligenceTask, useDiligenceTaskCommand } from './api.js';
 import {
+  carriedOverNote,
   isIsoDate,
   mayUse,
   personName,
@@ -252,17 +253,22 @@ function TaskActions({
  * The diligence tasks of an opportunity (docs/04 M7 skeleton, docs/18 section 4): the template
  * tasks of its deal type plus any added by hand, with the IC gate's required flag. Read only on
  * the deal workspace's Diligence tab; on the opportunity page the deal team and approvers
- * complete, waive or reopen them and the deal team adds tasks.
+ * complete, waive or reopen them and the deal team adds tasks. A deal that was passed and
+ * reopened keeps the tasks it had done: the header says how many of the required ones predate
+ * the reopen (the diligence gate's `carriedOver`).
  */
 export function DiligenceTasksCard({
   opportunityId,
   tasks,
+  carriedOver,
   roles,
   log,
   readOnly = false,
 }: {
   opportunityId: string;
   tasks: readonly DiligenceTask[];
+  /** Tasks required for IC done or waived before the deal was last reopened from Passed. */
+  carriedOver: number;
   roles: readonly string[];
   log: ActionLog | null;
   readOnly?: boolean;
@@ -270,6 +276,7 @@ export function DiligenceTasksCard({
   const command = useDiligenceTaskCommand();
   const [pending, setPending] = useState<Pending | null>(null);
   const requiredOpen = tasks.filter((t) => t.requiredForIc && t.status === 'open').length;
+  const carried = carriedOverNote(carriedOver);
   const issue = (task: DiligenceTask, body: DiligenceTaskCommandBody): void => {
     command.mutate(
       { id: opportunityId, taskId: task.id, body },
@@ -296,7 +303,7 @@ export function DiligenceTasksCard({
         aside={
           tasks.length === 0
             ? undefined
-            : `${plural(tasks.length, 'task')}, ${plural(requiredOpen, 'required task')} open`
+            : `${plural(tasks.length, 'task')}, ${plural(requiredOpen, 'required task')} open${carried === null ? '' : `; ${carried}`}`
         }
       >
         Diligence tasks

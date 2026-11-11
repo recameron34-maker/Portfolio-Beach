@@ -1,8 +1,13 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, screen, within } from '@testing-library/react';
 import { mockApi, ok } from '../../test/api-mock.js';
-import { DEAL_IDS, DEAL_PATHS, dealDetailFixture } from '../../test/fixtures-deal.js';
-import { closingDetailFixture, PIPE_PATHS, taxonomyFixture } from '../../test/fixtures-pipeline.js';
+import { DEAL_ID, DEAL_IDS, DEAL_PATHS, dealDetailFixture } from '../../test/fixtures-deal.js';
+import {
+  closingDetailFixture,
+  confirmedClosingFixture,
+  PIPE_PATHS,
+  taxonomyFixture,
+} from '../../test/fixtures-pipeline.js';
 import { rolePrincipal } from '../../test/fixtures-valuations.js';
 import { renderWithQuery } from '../../test/render.js';
 import { ClosingTab } from './ClosingTab.js';
@@ -50,5 +55,31 @@ describe('closing tab', () => {
       'title',
       'Needs operations',
     );
+  });
+
+  it('does not offer a close date change or a reopen on the closing of a position: the change is a deal change request', async () => {
+    mockApi({
+      [DEAL_PATHS.me]: ok(rolePrincipal(['operations'])),
+      [DEAL_PATHS.detail]: ok(dealDetailFixture()),
+      [PIPE_PATHS.closing(DEAL_IDS.closing)]: ok({
+        ...confirmedClosingFixture(),
+        id: DEAL_IDS.closing,
+        closeDate: '2018-11-15',
+        investmentId: DEAL_ID,
+      }),
+      [PIPE_PATHS.taxonomy]: ok(taxonomyFixture()),
+    });
+    renderWithQuery(<ClosingTab />);
+    const panel = await screen.findByTestId('closing-panel');
+    const POSITION = 'The position exists; record the change through a deal change request';
+    const change = within(panel).getByRole('button', { name: 'Change close date' });
+    expect(change).toBeDisabled();
+    expect(change).toHaveAttribute('title', POSITION);
+    expect(within(panel).getByTestId('closing-reopen')).toBeDisabled();
+    expect(within(panel).getByTestId('closing-reopen')).toHaveAttribute('title', POSITION);
+    expect(within(panel).getByTestId('closing-record')).toHaveTextContent(
+      `Confirmed by operations. ${POSITION}.`,
+    );
+    expect(within(panel).queryByTestId('closing-confirm')).toBeNull();
   });
 });

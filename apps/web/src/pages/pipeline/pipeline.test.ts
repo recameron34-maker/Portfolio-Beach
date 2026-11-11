@@ -12,7 +12,10 @@ import {
   agingTone,
   allocatedTotal,
   allocationsBody,
+  allocationsLock,
+  carriedOverNote,
   closingBlockers,
+  closingLock,
   conditionsFromText,
   daysInStageLabel,
   dealTypeOptions,
@@ -26,6 +29,7 @@ import {
   linesOf,
   LIVE_STAGES,
   mayUse,
+  missingReceivedLines,
   nextStage,
   ownerOptions,
   PIPELINE_ROLES,
@@ -133,37 +137,76 @@ describe('board grouping and filters', () => {
 
 describe('gates', () => {
   const blocked = {
-    diligence: { requiredOpen: 2, ok: false },
+    diligence: { requiredOpen: 2, ok: false, carriedOver: 0 },
     icDecision: { ok: false },
-    closing: { checklistComplete: false, allocationTiedOut: false, ok: false },
+    closing: { checklistComplete: false, allocationTiedOut: false, confirmed: false, ok: false },
   };
   const clear = {
-    diligence: { requiredOpen: 0, ok: true },
+    diligence: { requiredOpen: 0, ok: true, carriedOver: 0 },
     icDecision: { ok: true },
-    closing: { checklistComplete: true, allocationTiedOut: true, ok: true },
+    closing: { checklistComplete: true, allocationTiedOut: true, confirmed: true, ok: true },
   };
 
   it('says what each gate waits for in a sentence, and that the closing gates wait for a record', () => {
     const lines = gateLines(blocked, false);
-    expect(lines.map((l) => l.ok)).toEqual([false, false, false, false]);
+    expect(lines.map((l) => l.key)).toEqual([
+      'diligence',
+      'ic',
+      'checklist',
+      'tieOut',
+      'confirmed',
+    ]);
+    expect(lines.map((l) => l.ok)).toEqual([false, false, false, false, false]);
     expect(lines[0]!.text).toBe(
       '2 diligence tasks required for IC are still open; the advance to IC waits for them (an approver may override with a reason).',
     );
-    expect(lines[1]!.text).toBe('No IC decision is recorded; the advance from IC waits for one.');
+    expect(lines[1]!.text).toBe(
+      'No approved IC decision is recorded since the deal last entered IC; the advance from IC waits for one.',
+    );
     expect(lines[2]!.text).toMatch(/^No closing record yet/);
     expect(lines[3]!.text).toMatch(/starts once the closing record exists/);
-    const one = gateLines({ ...blocked, diligence: { requiredOpen: 1, ok: false } }, true);
+    expect(lines[4]!.text).toBe('Operations confirm the closing once the closing record exists.');
+    const one = gateLines(
+      { ...blocked, diligence: { requiredOpen: 1, ok: false, carriedOver: 0 } },
+      true,
+    );
     expect(one[0]!.text).toMatch(/^1 diligence task required for IC is still open/);
     expect(one[2]!.text).toBe('A required closing item is still open (M8).');
-    expect(one[3]!.text).toBe('Allocations do not tie to the closing commitment (M22).');
+    expect(one[3]!.text).toBe('The received amounts do not tie to the closing commitment (M22).');
+    expect(one[4]!.text).toBe(
+      'Operations have not confirmed the closing; the advance to Closed waits for the confirmation (M8).',
+    );
     const ok = gateLines(clear, true);
+    expect(ok.map((l) => l.ok)).toEqual([true, true, true, true, true]);
     expect(ok.map((l) => l.text)).toEqual([
       'Every diligence task required for IC is done or waived.',
       'An IC decision is recorded.',
       'Every required closing item is received or waived.',
-      'Allocations tie to the closing commitment.',
+      'The received amounts tie to the closing commitment.',
+      'Operations confirmed the closing.',
     ]);
-    for (const l of [...lines, ...ok]) expect(l.text).not.toContain(EM_DASH);
+    for (const l of [...lines, ...one, ...ok]) expect(l.text).not.toContain(EM_DASH);
+  });
+
+  it('says how many tasks were done before the deal was reopened, where the diligence gate is shown', () => {
+    expect(carriedOverNote(0)).toBeNull();
+    expect(carriedOverNote(1)).toBe('1 was done or waived before the deal was reopened');
+    expect(carriedOverNote(4)).toBe('4 were done or waived before the deal was reopened');
+    const reopened = gateLines(
+      { ...clear, diligence: { requiredOpen: 0, ok: true, carriedOver: 4 } },
+      true,
+    );
+    expect(reopened[0]!.text).toBe(
+      'Every diligence task required for IC is done or waived; 4 were done or waived before the deal was reopened.',
+    );
+    const stillOpen = gateLines(
+      { ...blocked, diligence: { requiredOpen: 1, ok: false, carriedOver: 1 } },
+      true,
+    );
+    expect(stillOpen[0]!.text).toBe(
+      '1 diligence task required for IC is still open; the advance to IC waits for them (an approver may override with a reason). 1 was done or waived before the deal was reopened.',
+    );
+    expect(reopened[0]!.text).not.toContain(EM_DASH);
   });
 
   it('names the rule that blocks an advance, letting an approver past the diligence gate', () => {
@@ -173,15 +216,42 @@ describe('gates', () => {
     expect(advanceBlocker('Diligence', blocked, ['approver'])).toBeNull();
     expect(advanceBlocker('IC', blocked, ['approver'])).toBe('An IC decision record is required');
     expect(advanceBlocker('Closing', blocked, ['operations'])).toBe(
-      'The closing checklist is incomplete; allocations do not tie to the closing commitment (M22)',
+      'The closing checklist is incomplete; allocations do not tie to the closing commitment (M22); the closing is not confirmed by operations (M8)',
     );
     expect(
       advanceBlocker(
         'Closing',
-        { ...blocked, closing: { checklistComplete: true, allocationTiedOut: false, ok: false } },
+        {
+          ...blocked,
+          closing: {
+            checklistComplete: true,
+            allocationTiedOut: false,
+            confirmed: false,
+            ok: false,
+          },
+        },
         ['operations'],
       ),
-    ).toBe('Allocations do not tie to the closing commitment (M22)');
+    ).toBe(
+      'Allocations do not tie to the closing commitment (M22); the closing is not confirmed by operations (M8)',
+    );
+    // The checklist is in and the lines tie: the advance to Closed still names the confirmation.
+    expect(
+      advanceBlocker(
+        'Closing',
+        {
+          ...blocked,
+          closing: {
+            checklistComplete: true,
+            allocationTiedOut: true,
+            confirmed: false,
+            ok: false,
+          },
+        },
+        ['operations'],
+      ),
+    ).toBe('The closing is not confirmed by operations (M8)');
+    expect(advanceBlocker('Closing', clear, ['operations'])).toBeNull();
     expect(advanceBlocker('Approved', blocked, ['deal_team'])).toBeNull();
     expect(advanceBlocker('Sourced', blocked, ['deal_team'])).toBeNull();
     for (const stage of STAGES) expect(advanceBlocker(stage, clear, [])).toBeNull();
@@ -206,7 +276,7 @@ describe('allocations and the tie-out', () => {
     ).toBe('Over by $1.0M');
   });
 
-  it('turns rows into editable lines, sums them as the API does and builds the PUT body', () => {
+  it('turns rows into editable lines, sums the received amounts as the API does and builds the PUT body', () => {
     const lines = linesOf(allocations());
     expect(lines).toEqual([
       {
@@ -219,23 +289,46 @@ describe('allocations and the tie-out', () => {
         vehicleId: allocations()[1]!.vehicle.id,
         clientId: allocations()[1]!.client!.id,
         requested: '8000000.00',
-        received: '',
+        received: '8000000.00',
       },
     ]);
     expect(lines.every(isCompleteLine)).toBe(true);
-    // Received when known, otherwise requested: exactly as the API ties out.
     expect(allocatedTotal(lines)).toBe('20000000.00');
+    expect(missingReceivedLines(lines)).toBe(0);
     expect(allocatedTotal([{ ...lines[0]!, received: '11999999.99' }, lines[1]!])).toBe(
       '19999999.99',
     );
+    // The received amounts only: a requested amount never stands in for a received one (M22).
+    const requestedOnly = [lines[0]!, { ...lines[1]!, received: ' ' }];
+    expect(requestedOnly.every(isCompleteLine)).toBe(true);
+    expect(allocatedTotal(requestedOnly)).toBe('12000000.00');
+    expect(missingReceivedLines(requestedOnly)).toBe(1);
+    expect(allocatedTotal([{ ...lines[0]!, received: '' }])).toBe('0.00');
     expect(allocatedTotal([{ ...lines[0]!, requested: 'abc' }])).toBeNull();
     expect(allocatedTotal([{ ...lines[0]!, vehicleId: '' }])).toBeNull();
-    expect(allocationsBody(lines)).toEqual({
+    expect(allocationsBody(requestedOnly)).toEqual({
       allocations: [
         { vehicleId: lines[0]!.vehicleId, requested: '12000000.00', received: '12000000.00' },
         { vehicleId: lines[1]!.vehicleId, clientId: lines[1]!.clientId, requested: '8000000.00' },
       ],
     });
+  });
+
+  it('locks the lines once operations confirmed the closing, and for good once the deal is closed', () => {
+    const open = { state: 'Open' as const };
+    const confirmed = { state: 'OpsConfirmed' as const };
+    expect(allocationsLock('Approved', null)).toBeNull();
+    expect(allocationsLock('Closing', open)).toBeNull();
+    expect(allocationsLock('Closing', confirmed)).toBe(
+      'The closing is confirmed; change the close date or ask operations to reopen it',
+    );
+    // A confirmed closing of a deal that was passed and reopened is still what was confirmed.
+    expect(allocationsLock('Screening', confirmed)).toBe(
+      'The closing is confirmed; change the close date or ask operations to reopen it',
+    );
+    expect(allocationsLock('Closed', confirmed)).toBe(
+      'Allocations are fixed once the deal is closed (M22); raise a change request instead',
+    );
   });
 
   it('accepts digits with an optional decimal point and nothing negative', () => {
@@ -250,16 +343,56 @@ describe('allocations and the tie-out', () => {
 describe('closing words and forms', () => {
   it('lists what blocks the confirmation, in words, and nothing when clear', () => {
     const tied = { commitment: '1.00', allocated: '1.00', difference: '0.00', tiedOut: true };
-    expect(closingBlockers({ itemsRequiredOpen: 0, allocationTieOut: tied })).toEqual([]);
+    const received = [{ received: '1.00' }];
+    expect(
+      closingBlockers({ itemsRequiredOpen: 0, allocationTieOut: tied, allocations: received }),
+    ).toEqual([]);
     expect(
       closingBlockers({
         itemsRequiredOpen: 2,
         allocationTieOut: { ...tied, allocated: '0.50', difference: '-0.50', tiedOut: false },
+        allocations: [{ received: '0.50' }],
       }),
     ).toEqual([
       '2 required closing items still open: a required closing document is missing (M8)',
       'Allocations do not tie to the closing commitment, short by $0.0M (M22)',
     ]);
+    // A line with no received amount is what the API names in its refusal: count the lines.
+    expect(
+      closingBlockers({
+        itemsRequiredOpen: 0,
+        allocationTieOut: { ...tied, allocated: '0.50', difference: '-0.50', tiedOut: false },
+        allocations: [{ received: '0.50' }, { received: null }],
+      }),
+    ).toEqual(['Received amounts are missing on 1 line (M22)']);
+    // The received amounts reach the commitment and two lines still have none.
+    expect(
+      closingBlockers({
+        itemsRequiredOpen: 0,
+        allocationTieOut: { ...tied, tiedOut: false },
+        allocations: [{ received: '1.00' }, { received: null }, { received: null }],
+      }),
+    ).toEqual(['Received amounts are missing on 2 lines (M22)']);
+  });
+
+  it('says why a confirmed closing takes no change, and why one with a position takes none at all', () => {
+    expect(closingLock({ state: 'Open', investmentId: null })).toEqual({
+      items: null,
+      move: null,
+    });
+    expect(closingLock({ state: 'OpsConfirmed', investmentId: null })).toEqual({
+      items: 'The closing is confirmed; change the close date or ask operations to reopen it',
+      move: null,
+    });
+    expect(closingLock({ state: 'OpsConfirmed', investmentId: 'x' })).toEqual({
+      items: 'The position exists; record the change through a deal change request',
+      move: 'The position exists; record the change through a deal change request',
+    });
+    // A closing that predates the pipeline may still be Open with its position on record.
+    expect(closingLock({ state: 'Open', investmentId: 'x' })).toEqual({
+      items: null,
+      move: 'The position exists; record the change through a deal change request',
+    });
   });
 
   it('splits conditions by line and builds a term value from its typed rows', () => {

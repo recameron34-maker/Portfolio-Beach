@@ -39,6 +39,7 @@ function DiligenceRecord({ opportunityId }: { opportunityId: string }): ReactNod
       <DiligenceTasksCard
         opportunityId={d.id}
         tasks={d.diligenceTasks}
+        carriedOver={d.gates.diligence.carriedOver}
         roles={[]}
         log={null}
         readOnly
