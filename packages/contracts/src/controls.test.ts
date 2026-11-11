@@ -9,6 +9,7 @@ import {
   changeRequestCommandBody,
   changeRequestCreateBody,
   changeRequestRow,
+  closingCommand,
   closingCommandBody,
   closingDetail,
   closingItemCommandBody,
@@ -1018,9 +1019,14 @@ describe('opportunity bodies', () => {
         },
       },
       gates: {
-        diligence: { requiredOpen: 0, ok: true },
+        diligence: { requiredOpen: 0, ok: true, carriedOver: 0 },
         icDecision: { ok: true },
-        closing: { checklistComplete: false, allocationTiedOut: true, ok: false },
+        closing: {
+          checklistComplete: false,
+          allocationTiedOut: true,
+          confirmed: false,
+          ok: false,
+        },
       },
     };
     expect(parses(opportunityDetail, detail)).toBe(true);
@@ -1029,6 +1035,21 @@ describe('opportunity bodies', () => {
     expect(parses(opportunityDetail, { ...detail, gates: { diligence: { ok: true } } })).not.toBe(
       true,
     );
+    // The closing gate says whether operations confirmed, and the diligence gate how many tasks
+    // required for IC predate a reopen: a response without either is outside the contract.
+    const { confirmed: _confirmed, ...closingWithoutConfirmed } = detail.gates.closing;
+    expect(
+      parses(opportunityDetail, {
+        ...detail,
+        gates: { ...detail.gates, closing: closingWithoutConfirmed },
+      }),
+    ).not.toBe(true);
+    expect(
+      parses(opportunityDetail, {
+        ...detail,
+        gates: { ...detail.gates, diligence: { requiredOpen: 0, ok: true } },
+      }),
+    ).not.toBe(true);
   });
 });
 
@@ -1056,6 +1077,16 @@ describe('closing bodies', () => {
     expect(
       parses(closingCommandBody, { command: 'changeCloseDate', reason: 'x'.repeat(5) }),
     ).not.toBe(true);
+    // reopen returns a confirmed closing to Open: a reason and nothing else.
+    expect(
+      parses(closingCommandBody, { command: 'reopen', reason: 'a second vehicle takes a share' }),
+    ).toBe(true);
+    expect(parses(closingCommandBody, { command: 'reopen' })).not.toBe(true);
+    expect(parses(closingCommandBody, { command: 'reopen', reason: '' })).not.toBe(true);
+    expect(
+      parses(closingCommandBody, { command: 'reopen', reason: 'x', closeDate: '2025-12-18' }),
+    ).not.toBe(true);
+    expect(closingCommand.options).toEqual(['confirm', 'changeCloseDate', 'reopen']);
   });
 
   it('adds a legal term as structured values and confirms it', () => {

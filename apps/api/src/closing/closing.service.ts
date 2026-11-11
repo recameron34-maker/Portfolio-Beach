@@ -18,8 +18,14 @@ import { requireFreshRow } from '../common/row-version.js';
 import { ADAPTERS, CLOSING_CHECKLIST } from '../common/tokens.js';
 import { requireUuid } from '../common/validate.js';
 import { DbService } from '../db/db.service.js';
-import { allocationsOf, loadAllocationRows, tieOut } from '../pipeline/allocations.js';
+import {
+  allocationsOf,
+  loadAllocationRows,
+  missingReceivedRefusal,
+  tieOut,
+} from '../pipeline/allocations.js';
 import { requireTaxonomyCodes, requireVisibleDocument } from '../pipeline/refs.js';
+import { closingConfirmed, lockOpportunity } from '../pipeline/rows.js';
 import {
   CLOSING_ENTITY,
   CLOSING_NOT_FOUND,
@@ -31,13 +37,22 @@ import {
 
 /*
  * The closing workflow (docs/04 M8, docs/18 section 12, decision 0013): the record the deal team
- * hands to operations, its required-document checklist, the operations confirmation and the
- * audited close-date change, plus the legal terms captured at close (M22). A command locks the
- * closing, reads the gates from the same rows the detail shows, runs closingMachine for the role,
- * the transition and the preconditions, writes with a guard on the state and row version it read
- * and audits the change with the values before and after. The close date on this record is the
- * single source of every close date (the investment detail reads it from here). Anything the
+ * hands to operations, its required-document checklist, the operations confirmation, the audited
+ * close-date change and the reopen, plus the legal terms captured at close (M22). A command locks
+ * the closing, reads the gates from the same rows the detail shows, runs closingMachine for the
+ * role, the transition and the preconditions, writes with a guard on the state and row version it
+ * read and audits the change with the values before and after. The close date on this record is
+ * the single source of every close date (the investment detail reads it from here). Anything the
  * caller cannot see is 404: the closing follows its opportunity's wall.
+ *
+ * What operations confirmed stays as confirmed: while the closing is OpsConfirmed its checklist
+ * items and its allocation lines are refused every change (the lines in pipeline/allocations.ts),
+ * and they change again only once the closing is back to Open. Every command that changes or
+ * rests on what the confirmation covers takes the opportunity's row lock first (the closing's own
+ * commands then lock the closing, the order the stage commands use), so a confirmation and a
+ * change to an item or a line cannot pass each other. Once the deal converted, the close date is
+ * the position's entry date: the closing no longer moves, and a correction is a deal change
+ * request (M11).
  */
 
 const closing = schema.closing;
@@ -46,6 +61,7 @@ const term = schema.legalTerm;
 const ITEM_NOT_FOUND = 'Closing item not found';
 const TERM_NOT_FOUND = 'Legal term not found';
 const ITEM_CODE = /^[a-z0-9_]{1,64}$/;
+const POSITION_EXISTS = 'the position exists; record the change through a deal change request';
 
 /** The status moves an item command makes; a command from any other status is a 409. */
 const ITEM_MOVES: Record<
@@ -94,7 +110,10 @@ export class ClosingService {
     });
   }
 
-  /** receive (with the hub document), waive (with a reason) or reopen one checklist item. */
+  /**
+   * receive (with the hub document), waive (with a reason) or reopen one checklist item. Refused
+   * while the closing is confirmed: the items are what operations confirmed (docs/18 section 12).
+   */
   async itemCommand(
     principal: Principal,
     requestId: string,
@@ -105,7 +124,7 @@ export class ClosingService {
     requireUuid(id, CLOSING_NOT_FOUND);
     if (!ITEM_CODE.test(itemCode)) throw new ProblemError(404, 'not-found', ITEM_NOT_FOUND);
     return this.db.run(principal, requestId, async (tx, audit) => {
-      await this.read(tx, id, false);
+      const current = await this.readUnderOpportunityLock(tx, id, false);
       const locked = (
         await tx
           .select({
@@ -119,6 +138,7 @@ export class ClosingService {
           .for('update')
       )[0];
       if (locked === undefined) throw new ProblemError(404, 'not-found', ITEM_NOT_FOUND);
+      if (current.state === 'OpsConfirmed') throw closingConfirmed();
       const move = ITEM_MOVES[body.command];
       if (!move.from.includes(locked.status))
         throw new ProblemError(
@@ -162,12 +182,14 @@ export class ClosingService {
   }
 
   /**
-   * confirm (operations, once every required item is in and the allocations tie out) and
-   * changeCloseDate (operations, with a reason). After confirmation the date change returns the
-   * record to Open through the machine, so operations confirm again (docs/04 M8); while the
-   * closing is still Open the table has no Open to Open row, so the same command is a plain,
-   * audited date change with no state move. If-Match, when sent, is checked against the row
-   * version read under lock.
+   * confirm (operations, once every required item is in and the allocations tie out),
+   * changeCloseDate (operations, with a reason) and reopen (operations, with a reason). After
+   * confirmation the date change returns the record to Open through the machine, so operations
+   * confirm again (docs/04 M8); while the closing is still Open the table has no Open to Open
+   * row, so the same command is a plain, audited date change with no state move. reopen returns
+   * a confirmed closing to Open so its items and lines can change, and it is confirmed again.
+   * Neither moves a closing whose deal converted: the position's entry date is that close date.
+   * If-Match, when sent, is checked against the row version read under lock.
    */
   async command(
     principal: Principal,
@@ -178,9 +200,11 @@ export class ClosingService {
   ): Promise<ClosingDetail> {
     requireUuid(id, CLOSING_NOT_FOUND);
     return this.db.run(principal, requestId, async (tx, audit) => {
-      const locked = await this.read(tx, id, true);
+      const locked = await this.readUnderOpportunityLock(tx, id, true);
       requireFreshRow(ifMatch, locked.rowVersion, 'closing');
       const from = closingStateOf(locked.state);
+      if (body.command !== 'confirm' && locked.investmentId !== null)
+        throw new ProblemError(422, 'workflow-precondition', POSITION_EXISTS);
       const items = await loadClosingItems(tx, id, this.checklist);
       const allocations = await loadAllocationRows(
         tx,
@@ -203,16 +227,27 @@ export class ClosingService {
         return this.loadDetail(tx, id);
       }
 
+      const itemsComplete = requiredItemsComplete(items);
       const result = attempt(closingMachine, from, body.command, {
         actorId: principal.userId,
         actorRoles: principal.roles,
-        ...(body.command === 'changeCloseDate' ? { reason: body.reason } : {}),
-        record: {
-          requiredItemsComplete: requiredItemsComplete(items),
-          allocationTiedOut: tie.tiedOut,
-        },
+        ...(body.command === 'confirm' ? {} : { reason: body.reason }),
+        record: { requiredItemsComplete: itemsComplete, allocationTiedOut: tie.tiedOut },
       });
-      if (!result.ok) throw workflowProblem(result);
+      if (!result.ok) {
+        // The confirmation's tie-out refusal names what is missing when it is a received amount
+        // (M22); the checklist refusal comes first, as the machine orders them.
+        const missing = missingReceivedRefusal(allocations);
+        if (
+          body.command === 'confirm' &&
+          result.code === 'precondition' &&
+          itemsComplete &&
+          !tie.tiedOut &&
+          missing !== null
+        )
+          throw new ProblemError(422, 'workflow-precondition', `closing: ${missing}`);
+        throw workflowProblem(result);
+      }
 
       if (body.command === 'confirm') {
         await this.claim(tx, locked, from, {
@@ -234,7 +269,7 @@ export class ClosingService {
             opsConfirmedBy: { before: locked.opsConfirmedBy, after: principal.userId },
           },
         });
-      } else {
+      } else if (body.command === 'changeCloseDate') {
         await this.claim(tx, locked, from, {
           state: result.to,
           closeDate: body.closeDate,
@@ -250,6 +285,25 @@ export class ClosingService {
           details: {
             state: { before: from, after: result.to },
             closeDate: { before: locked.closeDate, after: body.closeDate },
+            opsConfirmedBy: { before: locked.opsConfirmedBy, after: null },
+          },
+        });
+      } else {
+        await this.claim(tx, locked, from, {
+          state: result.to,
+          reopenReason: body.reason,
+          opsConfirmedBy: null,
+          opsConfirmedAt: null,
+        });
+        await audit({
+          action: 'closing.reopen',
+          entity: CLOSING_ENTITY,
+          entityId: id,
+          reason: body.reason,
+          details: {
+            state: { before: from, after: result.to },
+            closeDate: locked.closeDate,
+            commitmentAmount: locked.commitmentAmount,
             opsConfirmedBy: { before: locked.opsConfirmedBy, after: null },
           },
         });
@@ -366,6 +420,22 @@ export class ClosingService {
       allocations: view.allocations,
       rowVersion: view.closing.rowVersion,
     };
+  }
+
+  /**
+   * The closing read once its opportunity's row is locked, for the commands that change or rest on
+   * what a confirmation covers (the confirmation itself, the date change, the reopen, the items):
+   * the opportunity's lock is the one both the deal team and operations may take, and the stage
+   * commands and the allocation list take it first too, so the lock order never crosses.
+   */
+  private async readUnderOpportunityLock(
+    tx: Tx,
+    id: string,
+    lock: boolean,
+  ): Promise<LockedClosing> {
+    const seen = await this.read(tx, id, false);
+    await lockOpportunity(tx, seen.opportunityId);
+    return this.read(tx, id, lock);
   }
 
   /**

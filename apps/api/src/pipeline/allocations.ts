@@ -8,15 +8,18 @@ import { isForeignKeyViolation, pgConstraint } from '../common/pg-errors.js';
 import { ProblemError } from '../common/problem.js';
 import type { AuditEntry } from '../db/db.service.js';
 import { requireVehicles } from './refs.js';
-import { NOT_VISIBLE, requireMoney } from './rows.js';
+import { NOT_VISIBLE, closingConfirmed, requireMoney } from './rows.js';
 
 /*
  * Allocations by vehicle and client (docs/04 M5 and M22, migration 0013): requested against
  * received, anchored on the opportunity before close and carrying the investment as well once the
  * deal converts. The closing reads the same lines (the table has no closing column: the closing's
  * allocations are its opportunity's, or its position's for a closing that predates the pipeline).
- * The tie-out compares the lines with the closing commitment as decimals, never rounded (M22 AC:
- * the totals must equal the commitment or the closing cannot complete).
+ * The tie-out compares the received amounts with the closing commitment as decimals, never rounded
+ * (M22 AC: the totals must equal the commitment or the closing cannot complete). A requested amount
+ * is what was asked for, not what the deal got: it never stands in for a received amount (rule 10),
+ * so a line with no received amount keeps the tie-out false. Once operations confirmed the closing
+ * the lines are what was confirmed and stay so until the closing is reopened (docs/18 section 12).
  */
 
 const alloc = schema.allocation;
@@ -55,19 +58,40 @@ export async function loadAllocationRows(tx: Tx, where: SQL): Promise<Allocation
   }));
 }
 
-/** The M22 tie-out: the lines (received when known, else requested) against the commitment, compared exactly. */
+/** How many lines have no received amount yet. */
+export const missingReceived = (rows: readonly Pick<AllocationRow, 'received'>[]): number =>
+  rows.filter((r) => r.received === null).length;
+
+/**
+ * The M22 tie-out: the received amounts against the commitment, compared exactly. Tied out means
+ * every line has a received amount and they sum to the commitment; `allocated` is the sum of the
+ * received amounts on record, so a line with none adds nothing and keeps the tie-out false.
+ */
 export function tieOut(
   commitment: string,
-  rows: readonly Pick<AllocationRow, 'requested' | 'received'>[],
+  rows: readonly Pick<AllocationRow, 'received'>[],
 ): AllocationTieOut {
-  const allocated = rows.reduce((sum, r) => sum.plus(r.received ?? r.requested), ZERO);
+  const allocated = rows.reduce(
+    (sum, r) => (r.received === null ? sum : sum.plus(r.received)),
+    ZERO,
+  );
   const target = D(commitment);
   return {
     commitment: target.toFixed(2),
     allocated: allocated.toFixed(2),
     difference: allocated.minus(target).toFixed(2),
-    tiedOut: allocated.comparedTo(target) === 0,
+    tiedOut: missingReceived(rows) === 0 && allocated.comparedTo(target) === 0,
   };
+}
+
+/** What a failed tie-out says when received amounts are missing (the plain M22 refusal stands otherwise): null when none is. */
+export function missingReceivedRefusal(
+  rows: readonly Pick<AllocationRow, 'received'>[],
+): string | null {
+  const missing = missingReceived(rows);
+  return missing === 0
+    ? null
+    : `received amounts are missing on ${missing} ${missing === 1 ? 'line' : 'lines'} (M22)`;
 }
 
 /** What the audit event carries about a set of lines: counts and totals, never a client name. */
@@ -86,8 +110,12 @@ function totalsOf(
 
 /**
  * Replaces the opportunity's lines with the body's (docs/04 M22). Refused once the deal is Closed:
- * the lines then belong to the position and change through a change request (M11). Every id is
- * checked before the write; the audit event carries the totals before and after.
+ * the lines then belong to the position and change through a change request (M11). Refused while
+ * its closing is confirmed: operations confirmed the tie-out of these lines, so they change only
+ * after the closing returns to Open (a close date change or a reopen, docs/18 section 12). The
+ * caller holds the opportunity's row lock, which the confirmation takes too, so the check and the
+ * confirmation cannot pass each other. Every id is checked before the write; the audit event
+ * carries the totals before and after.
  */
 export async function replaceAllocations(
   tx: Tx,
@@ -101,6 +129,14 @@ export async function replaceAllocations(
       'workflow-precondition',
       'allocations are fixed once the deal is closed (M22); raise a change request instead',
     );
+  const closing = (
+    await tx
+      .select({ state: schema.closing.state })
+      .from(schema.closing)
+      .where(eq(schema.closing.opportunityId, opportunity.id))
+      .limit(1)
+  )[0];
+  if (closing?.state === 'OpsConfirmed') throw closingConfirmed();
   const seen = new Set<string>();
   const lines = body.allocations.map((line, i) => {
     const clientId = line.clientId ?? null;

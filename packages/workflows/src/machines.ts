@@ -619,18 +619,21 @@ export const wireInstructionMachine: Machine<WireInstructionState, WireInstructi
 
 // ---- 12. Closing (docs/18 section 12, M8) ----------------------------------------------------
 export type ClosingState = 'Open' | 'OpsConfirmed';
-export type ClosingCommand = 'confirm' | 'changeCloseDate';
+export type ClosingCommand = 'confirm' | 'changeCloseDate' | 'reopen';
 
 /**
  * deal.closing.state. Operations confirms a closing once every required checklist item is received
  * or waived and the allocations tie to the closing commitment (M22). A close date change after
  * confirmation returns the record to Open with a reason and needs confirmation again (docs/04 M8).
- * No state is terminal.
+ * What operations confirmed stays as confirmed: the checklist items and the allocation lines
+ * change again only once the closing is reopened with a reason, by operations, or by the system
+ * step when a deal that was passed and reopened reaches Closing again with a new close date and
+ * commitment (section 4). No state is terminal.
  */
 export const closingMachine: Machine<ClosingState, ClosingCommand> = {
   name: 'closing',
   states: ['Open', 'OpsConfirmed'],
-  commands: ['confirm', 'changeCloseDate'],
+  commands: ['confirm', 'changeCloseDate', 'reopen'],
   initial: 'Open',
   terminal: [],
   transitions: [
@@ -651,6 +654,14 @@ export const closingMachine: Machine<ClosingState, ClosingCommand> = {
       roles: ['operations'],
       precondition: requireReason,
       note: 'The close date is the single source for every report; the change is audited and the closing needs confirmation again.',
+    },
+    {
+      from: 'OpsConfirmed',
+      to: 'Open',
+      command: 'reopen',
+      roles: ['operations', 'service'],
+      precondition: requireReason,
+      note: 'The one way the checklist and the allocations change after confirmation; the closing needs confirmation again.',
     },
   ],
 };

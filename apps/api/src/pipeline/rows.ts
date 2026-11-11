@@ -112,6 +112,17 @@ export function requireMoney(value: string | undefined, path: string): void {
     ]);
 }
 
+/**
+ * The refusal for a change to what operations confirmed (docs/18 section 12): the allocation lines
+ * and the checklist items of a confirmed closing stay as confirmed until it returns to Open.
+ */
+export const closingConfirmed = (): ProblemError =>
+  new ProblemError(
+    422,
+    'workflow-precondition',
+    'the closing is confirmed; change the close date or ask operations to reopen it',
+  );
+
 /** The problem when a command finds the record already changed by another command. */
 export const conflict = (what: string): ProblemError =>
   new ProblemError(

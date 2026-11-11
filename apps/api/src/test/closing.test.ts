@@ -393,10 +393,11 @@ describe('closing (M8, M22, docs/18 section 12): the record, its checklist, the 
       expect((await commandOk('ops.one', id, { command: 'confirm' })).state).toBe('OpsConfirmed');
     });
 
-    it('answers 409 for the forbidden pair of the closing machine; Open plus changeCloseDate is the documented date update', async () => {
+    it('answers 409 for the forbidden pairs of the closing machine; Open plus changeCloseDate is the documented date update', async () => {
       const pairs = forbiddenPairs(closingMachine);
       expect(pairs).toEqual([
         { from: 'Open', command: 'changeCloseDate' },
+        { from: 'Open', command: 'reopen' },
         { from: 'OpsConfirmed', command: 'confirm' },
       ]);
       const confirmedClosing = h.dataset.closings!.find(
@@ -408,6 +409,25 @@ describe('closing (M8, M22, docs/18 section 12): the record, its checklist, the 
         'workflow-transition',
       );
       expect((await detail('ops.one', confirmedClosing.id)).state).toBe('OpsConfirmed');
+      // An Open closing is not reopened: nothing was confirmed. The record stays as it was.
+      const openClosing = closingOf(tagged('closing_open'));
+      const before = await detail('ops.one', openClosing.id);
+      if (before.state !== 'Open')
+        await commandOk('ops.one', openClosing.id, {
+          command: 'reopen',
+          reason: 'returned to Open for the forbidden pair',
+        });
+      const open = await detail('ops.one', openClosing.id);
+      expect(open.state).toBe('Open');
+      expectProblem(
+        await command('ops.one', openClosing.id, {
+          command: 'reopen',
+          reason: 'nothing was confirmed yet',
+        }),
+        409,
+        'workflow-transition',
+      );
+      expect(await detail('ops.one', openClosing.id)).toEqual(open);
     });
   });
 

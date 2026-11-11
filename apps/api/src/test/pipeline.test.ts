@@ -169,9 +169,14 @@ describe('pipeline (M5 skeleton, docs/18 section 4): opportunities, their stage 
       expect(closing.closing!.allocationTieOut.tiedOut).toBe(true);
       expect(closing.closing!.allocationTieOut.difference).toBe('0.00');
       expect(closing.gates).toEqual({
-        diligence: { requiredOpen: 0, ok: true },
+        diligence: { requiredOpen: 0, ok: true, carriedOver: 0 },
         icDecision: { ok: true },
-        closing: { checklistComplete: false, allocationTiedOut: true, ok: false },
+        closing: {
+          checklistComplete: false,
+          allocationTiedOut: true,
+          confirmed: false,
+          ok: false,
+        },
       });
       expect(
         await h.runtime.db.query(
@@ -186,7 +191,7 @@ describe('pipeline (M5 skeleton, docs/18 section 4): opportunities, their stage 
 
       const sourced = await detail('viewer.one', tagged('sourced_deal'));
       expect(sourced.diligenceTasks.every((t) => t.status === 'open')).toBe(true);
-      expect(sourced.gates.diligence).toEqual({ requiredOpen: 4, ok: false });
+      expect(sourced.gates.diligence).toEqual({ requiredOpen: 4, ok: false, carriedOver: 0 });
 
       await get('viewer.one', `/api/v1/opportunities/${NO_SUCH_ID}`).expect(404);
       await get('viewer.one', '/api/v1/opportunities/not-a-uuid').expect(404);
@@ -316,6 +321,7 @@ describe('pipeline (M5 skeleton, docs/18 section 4): opportunities, their stage 
       expect(diligence.gates.diligence).toEqual({
         requiredOpen: template.filter((t) => t.requiredForIc).length,
         ok: false,
+        carriedOver: 0,
       });
 
       // The IC gate holds server side while a required task is open (M7 AC).
@@ -382,7 +388,7 @@ describe('pipeline (M5 skeleton, docs/18 section 4): opportunities, their stage 
         status: 'open',
         waivedReason: null,
       });
-      expect(reopened.gates.diligence).toEqual({ requiredOpen: 0, ok: true });
+      expect(reopened.gates.diligence).toEqual({ requiredOpen: 0, ok: true, carriedOver: 0 });
 
       // Diligence > IC, then the decision gate (approver only).
       const ic = await commandOk('deal.one', id, { command: 'advance' });
@@ -534,7 +540,7 @@ describe('pipeline (M5 skeleton, docs/18 section 4): opportunities, their stage 
         ),
       ).toMatch(/allocations do not tie/);
       const [vehicleA, vehicleB] = h.dataset.vehicles;
-      const allocations = {
+      const requestedOnly = {
         allocations: [
           { vehicleId: vehicleA!.id, requested: '10000000.00', received: '10000000.00' },
           { vehicleId: vehicleB!.id, requested: '5000000.00' },
@@ -544,35 +550,36 @@ describe('pipeline (M5 skeleton, docs/18 section 4): opportunities, their stage 
         .http()
         .put(`/api/v1/opportunities/${id}/allocations`)
         .set('authorization', h.as('viewer.one'))
-        .send(allocations)
+        .send(requestedOnly)
         .expect(403);
-      const allocated = opportunityDetail.parse(
-        (
-          await h
-            .http()
-            .put(`/api/v1/opportunities/${id}/allocations`)
-            .set('authorization', h.as('deal.one'))
-            .set('x-request-id', 'req-j6-allocations')
-            .send(allocations)
-            .expect(200)
-        ).body,
-      );
+      const putAllocations = (body: object, requestId: string) =>
+        h
+          .http()
+          .put(`/api/v1/opportunities/${id}/allocations`)
+          .set('authorization', h.as('deal.one'))
+          .set('x-request-id', requestId)
+          .send(body);
       // Lines come back by vehicle name; compare them by vehicle id.
       const byVehicle = (lines: (string | null)[][]) =>
         [...lines].sort((a, b) => (String(a[0]) < String(b[0]) ? -1 : 1));
+      // A requested amount is not a received one: the second line has none yet, so the lines
+      // do not tie and the confirmation says what is missing.
+      const requested = opportunityDetail.parse(
+        (await putAllocations(requestedOnly, 'req-j6-allocations').expect(200)).body,
+      );
       expect(
-        byVehicle(allocated.allocations.map((a) => [a.vehicle.id, a.requested, a.received])),
+        byVehicle(requested.allocations.map((a) => [a.vehicle.id, a.requested, a.received])),
       ).toEqual(
         byVehicle([
           [vehicleA!.id, '10000000.00', '10000000.00'],
           [vehicleB!.id, '5000000.00', null],
         ]),
       );
-      expect(allocated.closing!.allocationTieOut).toEqual({
+      expect(requested.closing!.allocationTieOut).toEqual({
         commitment: '15000000.00',
-        allocated: '15000000.00',
-        difference: '0.00',
-        tiedOut: true,
+        allocated: '10000000.00',
+        difference: '-5000000.00',
+        tiedOut: false,
       });
       expect(
         (await audits('opportunity.allocations.replace', 'req-j6-allocations'))[0]!.details,
@@ -580,9 +587,32 @@ describe('pipeline (M5 skeleton, docs/18 section 4): opportunities, their stage 
         before: { lines: 0, requested: '0.00', received: null },
         after: { lines: 2, requested: '15000000.00', received: '10000000.00' },
       });
+      expect(
+        expectProblem(
+          await post('ops.one', `${closingPath}/commands`, { command: 'confirm' }),
+          422,
+          'workflow-precondition',
+        ),
+      ).toMatch(/received amounts are missing on 1 line/);
+      const allocations = {
+        allocations: [
+          { vehicleId: vehicleA!.id, requested: '10000000.00', received: '10000000.00' },
+          { vehicleId: vehicleB!.id, requested: '5000000.00', received: '5000000.00' },
+        ],
+      };
+      const allocated = opportunityDetail.parse(
+        (await putAllocations(allocations, 'req-j6-allocations-received').expect(200)).body,
+      );
+      expect(allocated.closing!.allocationTieOut).toEqual({
+        commitment: '15000000.00',
+        allocated: '15000000.00',
+        difference: '0.00',
+        tiedOut: true,
+      });
       expect(allocated.gates.closing).toEqual({
         checklistComplete: true,
         allocationTiedOut: true,
+        confirmed: false,
         ok: false,
       });
       const confirmed = (

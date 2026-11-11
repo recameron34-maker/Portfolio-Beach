@@ -1,4 +1,4 @@
-import { and, eq } from 'drizzle-orm';
+import { and, eq, sql } from 'drizzle-orm';
 import { diligenceTemplateFor } from '@pb/contracts';
 import type {
   DiligenceTaskCommandBody,
@@ -34,17 +34,35 @@ const MOVES: Record<DiligenceTaskCommandBody['command'], { from: readonly string
     reopen: { from: ['done', 'waived'], to: 'open' },
   };
 
-/** The gate as the machine reads it: how many tasks required for IC are still open. */
-export async function diligenceGate(
-  tx: Tx,
-  opportunityId: string,
-): Promise<{ requiredOpen: number; ok: boolean }> {
+/** The diligence gate as the detail shows it; the machine reads `ok`. */
+export interface DiligenceGate {
+  /** Tasks required for IC that are still open. */
+  requiredOpen: number;
+  ok: boolean;
+  /** Tasks required for IC that were done or waived before the deal was last reopened from Passed. */
+  carriedOver: number;
+}
+
+/**
+ * The gate as the machine reads it: how many tasks required for IC are still open. A task done or
+ * waived before a pass stays done when the deal is reopened (the work was done); the gate counts
+ * those as carried over, from the task's last change against the latest reopen in the stage
+ * history, so the people taking the deal to IC again can see what predates the reopen.
+ */
+export async function diligenceGate(tx: Tx, opportunityId: string): Promise<DiligenceGate> {
   const rows = await tx
-    .select({ status: task.status })
+    .select({
+      status: task.status,
+      beforeReopen: sql<boolean>`coalesce(${task.updatedAt} < (select max(h.changed_at) from deal.opportunity_stage_history h where h.opportunity_id = ${opportunityId} and h.from_stage = 'Passed'), false)`,
+    })
     .from(task)
     .where(and(eq(task.opportunityId, opportunityId), eq(task.requiredForIc, true)));
   const requiredOpen = rows.filter((r) => r.status === 'open').length;
-  return { requiredOpen, ok: requiredOpen === 0 };
+  return {
+    requiredOpen,
+    ok: requiredOpen === 0,
+    carriedOver: rows.filter((r) => r.status !== 'open' && r.beforeReopen).length,
+  };
 }
 
 /**

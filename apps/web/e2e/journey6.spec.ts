@@ -291,8 +291,8 @@ test('a deal moves from Sourced to Closed through the diligence gate and the clo
   expect(shortAllocations.status).toBe(422);
   expect(shortAllocations.detail).toMatch(/allocations do not tie/);
 
-  // The allocations editor on the opportunity page: two vehicle lines that tie to the commitment
-  // exactly (received when known, else requested; M22).
+  // The allocations editor on the opportunity page: two vehicle lines whose received amounts tie
+  // to the commitment exactly (a requested amount never stands in for a received one; M22).
   await page.goto(`/pipeline/${sourcedId}`);
   const editor = page.getByTestId('allocations-editor');
   await editor.getByRole('button', { name: 'Add line', exact: true }).click();
@@ -304,6 +304,7 @@ test('a deal moves from Sourced to Closed through the diligence gate and the clo
   const line2 = page.getByTestId('allocation-row-1');
   await choose(page, line2.getByRole('combobox', { name: 'Vehicle, line 2' }), vehicleB.name);
   await line2.getByLabel('Requested, line 2').fill('1000000.00');
+  await line2.getByLabel('Received, line 2').fill('1000000.00');
   await editor.getByRole('button', { name: 'Save allocations', exact: true }).click();
   await expect(opportunityStatus(page)).toContainText(
     `Allocations saved for ${deal.name}: 2 lines, tied out`,
