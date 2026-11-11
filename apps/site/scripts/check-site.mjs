@@ -354,9 +354,17 @@ check(
   `${switched}, ${back}`,
 );
 await main.page.locator('a[data-lightbox]').first().click();
+const enlarged = main.page.locator('dialog[open] img');
+await enlarged.waitFor({ state: 'visible', timeout: 10_000 }).catch(() => undefined);
+const enlargedBox = await enlarged.boundingBox();
 check(
-  'lightbox: a screenshot opens enlarged',
-  await main.page.locator('dialog[open] img').isVisible(),
+  'lightbox: a screenshot opens enlarged, inside the view',
+  enlargedBox !== null &&
+    enlargedBox.width > 600 &&
+    enlargedBox.x >= 0 &&
+    enlargedBox.x + enlargedBox.width <= DESKTOP.width &&
+    enlargedBox.y + enlargedBox.height <= DESKTOP.height,
+  JSON.stringify(enlargedBox),
 );
 await main.page.keyboard.press('Escape');
 check('lightbox: Escape closes it', (await main.page.locator('dialog[open]').count()) === 0);

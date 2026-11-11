@@ -1208,15 +1208,16 @@ figcaption {
   backdrop-filter: blur(6px);
 }
 .lightbox img {
-  width: auto;
-  max-width: 100%;
+  width: min(94vw, 1500px);
   max-height: 94vh;
+  object-fit: contain;
   border-radius: var(--radius);
 }
+/* On the frame's corner, clear of the picture. */
 .lightbox-close {
   position: absolute;
-  right: 10px;
-  top: 10px;
+  right: -10px;
+  top: -18px;
   background: var(--pb-primary);
   color: var(--pb-on-primary);
 }

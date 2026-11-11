@@ -55,6 +55,22 @@ for (const view of VIEWS)
     await page.screenshot({ path: join(out, `${label}-fold.png`) });
     await page.screenshot({ path: join(out, `${label}-full.png`), fullPage: true });
     count += 2;
+    // Two states a still page does not show: the menu on a phone, a screenshot enlarged.
+    if (view.isMobile === true) {
+      await page.locator('[data-menu-toggle]').click();
+      await page.screenshot({ path: join(out, `${label}-menu.png`) });
+      await page.locator('[data-menu-toggle]').click();
+    } else {
+      await page.locator('#tour a[data-lightbox]').first().click();
+      await page.locator('dialog[open] img').waitFor();
+      await page.waitForFunction(() => {
+        const image = globalThis.document.querySelector('dialog[open] img');
+        return image !== null && image.complete && image.naturalWidth > 0;
+      });
+      await page.screenshot({ path: join(out, `${label}-lightbox.png`) });
+      await page.keyboard.press('Escape');
+    }
+    count += 1;
     // A section taller than the view is stitched from several captures, and anything pinned to
     // the window would be drawn into its middle: set the header and the skip link aside.
     await page.addStyleTag({

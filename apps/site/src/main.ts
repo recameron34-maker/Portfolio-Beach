@@ -137,6 +137,9 @@ function lightbox(): void {
       if (event.metaKey || event.ctrlKey || event.shiftKey) return;
       event.preventDefault();
       const shown = link.querySelector('img');
+      // The shape of the picture is known before it loads, so the dialog opens at its size.
+      if (shown !== null && shown.width > 0 && shown.height > 0)
+        image.style.aspectRatio = `${shown.width} / ${shown.height}`;
       image.src = link.href;
       image.alt = shown?.alt ?? '';
       dialog.showModal();
