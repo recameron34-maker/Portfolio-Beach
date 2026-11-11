@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  ALLOCATIONS_FIXED_REFUSAL,
   CLOSING_CONFIRMED_REFUSAL,
   CLOSING_NOT_CONFIRMED_REFUSAL,
   CLOSING_REENTERED_REASON,
@@ -36,10 +37,14 @@ describe('the refusals both sides answer', () => {
       'the position exists; record the change through a deal change request',
     );
     expect(CLOSING_NOT_CONFIRMED_REFUSAL).toBe('the closing is not confirmed by operations (M8)');
+    expect(ALLOCATIONS_FIXED_REFUSAL).toBe(
+      'allocations are fixed once the deal is closed (M22); raise a change request instead',
+    );
     expect(CLOSING_REENTERED_REASON).toBe(
       'The deal reached Closing again with a new close date and commitment; operations confirm again',
     );
     for (const text of [
+      ALLOCATIONS_FIXED_REFUSAL,
       CLOSING_CONFIRMED_REFUSAL,
       POSITION_EXISTS_REFUSAL,
       CLOSING_NOT_CONFIRMED_REFUSAL,

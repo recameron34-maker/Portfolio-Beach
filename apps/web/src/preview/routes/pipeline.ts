@@ -28,6 +28,7 @@ import type {
   OpportunityRow,
 } from '@pb/contracts';
 import {
+  ALLOCATIONS_FIXED_REFUSAL,
   CLOSING_NOT_CONFIRMED_REFUSAL,
   CLOSING_REENTERED_REASON,
   attempt,
@@ -798,11 +799,7 @@ export const putAllocationsRoute = defineSimRoute({
     const instance = req.url.pathname;
     const sim = opportunityFor(ctx, req.credential, req.params.id ?? '', instance);
     if (sim instanceof Response) return sim;
-    if (sim.row.stage === 'Closed')
-      return precondition(
-        instance,
-        'allocations are fixed once the deal is closed (M22); raise a change request instead',
-      );
+    if (sim.row.stage === 'Closed') return precondition(instance, ALLOCATIONS_FIXED_REFUSAL);
     const closing =
       sim.closingId === null
         ? undefined

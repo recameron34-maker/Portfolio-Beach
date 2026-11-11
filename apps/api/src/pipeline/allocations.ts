@@ -4,6 +4,7 @@ import { ZERO } from '@pb/calc';
 import type { AllocationRow, AllocationsPutBody } from '@pb/contracts';
 import { schema } from '@pb/db';
 import type { Tx } from '@pb/db';
+import { ALLOCATIONS_FIXED_REFUSAL } from '@pb/workflows';
 import { isForeignKeyViolation, pgConstraint } from '../common/pg-errors.js';
 import { ProblemError } from '../common/problem.js';
 import type { AuditEntry } from '../db/db.service.js';
@@ -92,11 +93,7 @@ export async function replaceAllocations(
   body: AllocationsPutBody,
 ): Promise<void> {
   if (opportunity.stage === 'Closed')
-    throw new ProblemError(
-      422,
-      'workflow-precondition',
-      'allocations are fixed once the deal is closed (M22); raise a change request instead',
-    );
+    throw new ProblemError(422, 'workflow-precondition', ALLOCATIONS_FIXED_REFUSAL);
   const closing = (
     await tx
       .select({ state: schema.closing.state })

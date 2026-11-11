@@ -16,6 +16,7 @@ import type {
   Taxonomy,
 } from '@pb/contracts';
 import {
+  ALLOCATIONS_FIXED_REFUSAL,
   CLOSING_CONFIRMED_REFUSAL,
   CLOSING_NOT_CONFIRMED_REFUSAL,
   dealStageMachine,
@@ -351,8 +352,7 @@ export function allocationsLock(
   stage: DealStage,
   closing: Pick<ClosingSummary, 'state'> | null,
 ): string | null {
-  if (stage === 'Closed')
-    return 'Allocations are fixed once the deal is closed (M22); raise a change request instead';
+  if (stage === 'Closed') return capitalize(ALLOCATIONS_FIXED_REFUSAL);
   return closing?.state === 'OpsConfirmed' ? capitalize(CLOSING_CONFIRMED_REFUSAL) : null;
 }
 

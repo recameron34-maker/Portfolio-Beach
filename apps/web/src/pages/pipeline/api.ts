@@ -259,7 +259,7 @@ export interface ClosingCommandVariables {
   body: ClosingCommandBody;
 }
 
-/** confirm or changeCloseDate (docs/18 section 12): the close date moves on every one-pager. */
+/** confirm, changeCloseDate or reopen (docs/18 section 12): the close date moves on every one-pager. */
 export function useClosingCommand(): UseMutationResult<
   ClosingDetail,
   Error,

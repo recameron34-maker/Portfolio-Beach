@@ -13,6 +13,10 @@ import { D, ZERO } from '@pb/calc';
 
 /* ---- The refusals both sides answer, word for word ---- */
 
+/** 422 for a change to the allocation lines of a closed deal: they belong to the position, and change through a change request (M11). */
+export const ALLOCATIONS_FIXED_REFUSAL =
+  'allocations are fixed once the deal is closed (M22); raise a change request instead';
+
 /** 422 for a change to the allocation lines or the checklist items of a confirmed closing. */
 export const CLOSING_CONFIRMED_REFUSAL =
   'the closing is confirmed; change the close date or ask operations to reopen it';
