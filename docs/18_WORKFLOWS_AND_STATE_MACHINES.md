@@ -12,6 +12,7 @@ States are Postgres enums. Transitions happen only through API commands that che
 | DealTeamApproved | Locked | Approver (not the preparer) | Lock hash computed over inputs + value |
 | Locked | Reopened | Operations, Approver | Reason; creates a new version in Draft; alerts prior approvers |
 Reports read Locked only. One Locked version per investment and period (unique partial index).
+A Draft is the only state that can be edited: operations may correct its method, inputs and fair value (`PATCH /valuations/{id}`, audited as `valuation.edit`, no approval row), which is how a reopened version takes its corrected mark; every other state answers 409. The lock hash is the SHA-256 of the lock text: the investment, the period end, the version, the method, the method inputs (keys sorted at every depth) and the fair value.
 
 ## 2. Staging records (`stg.*.status`)
 new > validated | flagged; flagged > validated (after edit) | rejected; validated > approved (reviewer) > promoted (system, single transaction). rejected is terminal.
@@ -52,6 +53,7 @@ Queued > Running > Succeeded | Failed | NeedsRetry; NeedsRetry > Running (max 1 
 
 ## 8. Deal change request
 Submitted > Routed > InProgress > Applied | Rejected; quarter-end job lists any not Applied.
+Preconditions checked by the API: the owner named at Routed must be able to open the request (inside the wall of the position when it has one); the applied-in period at Applied is a quarter end on or after the effective date and no later than the quarter end the clock is in. The quarter-end job runs over every request, the ones its runner cannot see included: it opens one exception per unapplied request (read under the request's own wall) and tells the runner how many it could not show.
 
 ## 9. Data exception (`ops.data_exception.state`)
 | From | To | Who | Preconditions |
