@@ -8,8 +8,9 @@ import {
   opportunityPage,
   problemDetails,
 } from '@pb/contracts';
-import type { DealStage, OpportunityDetail, OpportunityRow } from '@pb/contracts';
+import type { ClosingDetail, DealStage, OpportunityDetail, OpportunityRow } from '@pb/contracts';
 import { dealStageMachine, forbiddenPairs } from '@pb/workflows';
+import type { PreviewUser } from '../fixtures.js';
 import { createPreviewFetch } from '../shim.js';
 import { createPreviewState } from '../state.js';
 import type { PreviewState, SimDocument } from '../state.js';
@@ -92,6 +93,7 @@ describe('reads', () => {
     const page = opportunityPage.parse((await send(f, USERS.viewer.externalId, 'GET', LIST)).json);
     expect(page.items.map((o) => o.id)).toEqual([
       IDS.opportunity.sourced,
+      IDS.opportunity.reopened,
       IDS.opportunity.ic,
       IDS.opportunity.passed,
       IDS.opportunity.closingOpen,
@@ -99,7 +101,7 @@ describe('reads', () => {
     ]);
     expect(
       opportunityPage.parse((await send(f, USERS.dealWall.externalId, 'GET', LIST)).json).items,
-    ).toHaveLength(6);
+    ).toHaveLength(7);
     expect(
       opportunityPage
         .parse((await send(f, USERS.viewer.externalId, 'GET', `${LIST}&stage=Passed`)).json)
@@ -153,14 +155,24 @@ describe('reads', () => {
     expect(closing.diligenceTasks.filter((t) => t.status === 'waived')).toHaveLength(1);
     expect(closing.closing).toMatchObject({ state: 'Open', itemsRequiredOpen: 1, itemsOpen: 3 });
     expect(closing.gates).toEqual({
-      diligence: { requiredOpen: 0, ok: true },
+      diligence: { requiredOpen: 0, ok: true, carriedOver: 0 },
       icDecision: { ok: true },
-      closing: { checklistComplete: false, allocationTiedOut: true, ok: false },
+      closing: {
+        checklistComplete: false,
+        allocationTiedOut: true,
+        confirmed: false,
+        ok: false,
+      },
     });
     const sourced = detailOf(
       await send(f, USERS.viewer.externalId, 'GET', path(IDS.opportunity.sourced)),
     );
-    expect(sourced.gates.diligence).toEqual({ requiredOpen: 4, ok: false });
+    expect(sourced.gates.diligence).toEqual({ requiredOpen: 4, ok: false, carriedOver: 0 });
+    // The closed deal: its closing is confirmed, and only then does the gate read clear.
+    expect(
+      detailOf(await send(f, USERS.viewer.externalId, 'GET', path(IDS.opportunity.closed))).gates
+        .closing,
+    ).toEqual({ checklistComplete: true, allocationTiedOut: true, confirmed: true, ok: true });
     expect((await send(f, USERS.deal.externalId, 'GET', path(IDS.opportunity.walled))).status).toBe(
       404,
     );
@@ -262,6 +274,7 @@ describe('journey 6: Sourced to Closed through the gates', () => {
     expect(diligence.gates.diligence).toEqual({
       requiredOpen: template.filter((t) => t.requiredForIc).length,
       ok: false,
+      carriedOver: 0,
     });
 
     // The IC gate holds while a required task is open (M7 AC).
@@ -318,7 +331,7 @@ describe('journey 6: Sourced to Closed through the gates', () => {
       status: 'open',
       waivedReason: null,
     });
-    expect(reopened.gates.diligence).toEqual({ requiredOpen: 0, ok: true });
+    expect(reopened.gates.diligence).toEqual({ requiredOpen: 0, ok: true, carriedOver: 0 });
 
     // Diligence > IC, then the decision gate (approver only).
     expect(detailOf(await run(USERS.deal.externalId, { command: 'advance' })).stage).toBe('IC');
@@ -440,23 +453,52 @@ describe('journey 6: Sourced to Closed through the gates', () => {
     ).toMatch(/allocations do not tie/);
 
     // M22 AC: the allocations must equal the closing commitment or the closing cannot complete.
-    const allocations = {
+    // The tie-out sums what was received: a requested amount never stands in for a received one.
+    const requestedOnly = {
       allocations: [
         { vehicleId: IDS.vehicle, requested: '10000000.00', received: '10000000.00' },
         { vehicleId: IDS.vehicle2, requested: '5000000.00' },
       ],
     };
     expect(
-      (await send(f, USERS.viewer.externalId, 'PUT', `${path(id)}/allocations`, allocations))
+      (await send(f, USERS.viewer.externalId, 'PUT', `${path(id)}/allocations`, requestedOnly))
         .status,
     ).toBe(403);
-    const allocated = detailOf(
-      await send(f, USERS.deal.externalId, 'PUT', `${path(id)}/allocations`, allocations),
+    const partly = detailOf(
+      await send(f, USERS.deal.externalId, 'PUT', `${path(id)}/allocations`, requestedOnly),
     );
-    expect(allocated.allocations.map((a) => [a.vehicle.name, a.requested, a.received])).toEqual([
+    expect(partly.allocations.map((a) => [a.vehicle.name, a.requested, a.received])).toEqual([
       ['Test Vehicle I', '10000000.00', '10000000.00'],
       ['Test Vehicle II', '5000000.00', null],
     ]);
+    expect(partly.closing?.allocationTieOut).toEqual({
+      commitment: '15000000.00',
+      allocated: '10000000.00',
+      difference: '-5000000.00',
+      tiedOut: false,
+    });
+    expect(partly.gates.closing).toEqual({
+      checklistComplete: true,
+      allocationTiedOut: false,
+      confirmed: false,
+      ok: false,
+    });
+    expect(
+      problemOf(
+        await send(f, USERS.ops.externalId, 'POST', `${closingPath}/commands`, {
+          command: 'confirm',
+        }),
+      ).detail,
+    ).toBe('closing: received amounts are missing on 1 line (M22)');
+    const allocations = {
+      allocations: [
+        { vehicleId: IDS.vehicle, requested: '10000000.00', received: '10000000.00' },
+        { vehicleId: IDS.vehicle2, requested: '5000000.00', received: '5000000.00' },
+      ],
+    };
+    const allocated = detailOf(
+      await send(f, USERS.deal.externalId, 'PUT', `${path(id)}/allocations`, allocations),
+    );
     expect(allocated.closing?.allocationTieOut).toEqual({
       commitment: '15000000.00',
       allocated: '15000000.00',
@@ -466,7 +508,15 @@ describe('journey 6: Sourced to Closed through the gates', () => {
     expect(allocated.gates.closing).toEqual({
       checklistComplete: true,
       allocationTiedOut: true,
+      confirmed: false,
       ok: false,
+    });
+    // The checklist is in and the lines tie: Closing to Closed still waits for the confirmation.
+    const unconfirmed = await run(USERS.ops.externalId, { command: 'advance' });
+    expect(unconfirmed.status).toBe(422);
+    expect(problemOf(unconfirmed)).toEqual({
+      code: 'workflow-precondition',
+      detail: 'the closing is not confirmed by operations (M8)',
     });
     const confirmed = closingDetail.parse(
       (
@@ -476,9 +526,12 @@ describe('journey 6: Sourced to Closed through the gates', () => {
       ).json,
     );
     expect(confirmed.state).toBe('OpsConfirmed');
-    expect(detailOf(await send(f, USERS.deal.externalId, 'GET', path(id))).gates.closing.ok).toBe(
-      true,
-    );
+    expect(detailOf(await send(f, USERS.deal.externalId, 'GET', path(id))).gates.closing).toEqual({
+      checklistComplete: true,
+      allocationTiedOut: true,
+      confirmed: true,
+      ok: true,
+    });
 
     // Closing > Closed converts the deal into a position: nothing is re-entered.
     const closed = detailOf(await run(USERS.ops.externalId, { command: 'advance' }));
@@ -518,14 +571,22 @@ describe('journey 6: Sourced to Closed through the gates', () => {
     );
     expect(grid.items[0]?.id).toBe(investmentId);
     expect(grid.items[0]?.investmentNumber).toBe('INV-0002');
+    // The stamp is a write to the closing row: opened at 1, confirmed at 2, stamped at 3.
     expect(
-      closingDetail.parse((await send(f, USERS.viewer.externalId, 'GET', closingPath)).json)
-        .investmentId,
-    ).toBe(investmentId);
+      closingDetail.parse((await send(f, USERS.viewer.externalId, 'GET', closingPath)).json),
+    ).toMatchObject({ investmentId, state: 'OpsConfirmed', rowVersion: 3 });
     expect((await run(USERS.ops.externalId, { command: 'advance' })).status).toBe(409);
-    expect(
-      (await send(f, USERS.ops.externalId, 'PUT', `${path(id)}/allocations`, allocations)).status,
-    ).toBe(422);
+    const fixed = await send(
+      f,
+      USERS.ops.externalId,
+      'PUT',
+      `${path(id)}/allocations`,
+      allocations,
+    );
+    expect(fixed.status).toBe(422);
+    expect(problemOf(fixed).detail).toBe(
+      'allocations are fixed once the deal is closed (M22); raise a change request instead',
+    );
     expect(state.audit.map((e) => e.action)).toContain('investment.create');
     expect(window.__pbPreviewMisses).toEqual([]);
   });
@@ -760,5 +821,467 @@ describe('pass, reopen and the refusals', () => {
       .parse((await send(f, USERS.viewer.externalId, 'GET', LIST)).json)
       .items.find((o) => o.id === id);
     expect(row?.stage).toBe('Sourced');
+  });
+});
+
+/** The people who walk a deal in the tests below: the deal team member, the approver and operations. */
+interface Cast {
+  team: PreviewUser;
+  approver: PreviewUser;
+  ops: PreviewUser;
+}
+const CAST: Cast = { team: USERS.deal, approver: USERS.head, ops: USERS.ops };
+const COMMITMENT = '15000000.00';
+
+/** The walk of a deal through the simulated API, step by step, as the API's own tests walk it. */
+function walker(f: typeof fetch) {
+  const post = (who: PreviewUser, p: string, b: object): Promise<Answer> =>
+    send(f, who.externalId, 'POST', p, b);
+  const detail = async (who: PreviewUser, id: string): Promise<OpportunityDetail> =>
+    detailOf(await send(f, who.externalId, 'GET', path(id)));
+  const command = (who: PreviewUser, id: string, b: object): Promise<Answer> =>
+    post(who, commands(id), b);
+  const advance = async (
+    who: PreviewUser,
+    id: string,
+    extra: object = {},
+  ): Promise<OpportunityDetail> =>
+    detailOf(await command(who, id, { command: 'advance', ...extra }));
+  const create = async (label: string, cast: Cast = CAST): Promise<OpportunityDetail> => {
+    const answer = await post(cast.team, '/api/v1/opportunities', {
+      name: `Project ${label}`,
+      companyName: `${label} Holdings Co`,
+      sponsorId: IDS.sponsor,
+      sponsorFundId: IDS.fund,
+      dealType: CO_INVEST,
+      receivedDate: AS_OF,
+      targetCommitment: COMMITMENT,
+    });
+    expect(answer.status, answer.text).toBe(201);
+    return opportunityDetail.parse(answer.json);
+  };
+  const decide = (
+    who: PreviewUser,
+    id: string,
+    decisionDate: string,
+    decision = 'approved',
+  ): Promise<Answer> =>
+    post(who, `${path(id)}/ic-decisions`, {
+      decisionDate,
+      decision,
+      amount: COMMITMENT,
+      conditions: [],
+    });
+  /** Every open task required for IC is completed. */
+  const completeRequired = async (id: string, cast: Cast): Promise<void> => {
+    for (const t of (await detail(cast.team, id)).diligenceTasks.filter(
+      (x) => x.requiredForIc && x.status === 'open',
+    ))
+      expect(
+        (
+          await post(cast.team, `${path(id)}/diligence-tasks/${t.id}/commands`, {
+            command: 'complete',
+          })
+        ).status,
+      ).toBe(200);
+  };
+  /** Sourced to IC: the template tasks required for IC are completed on the way. */
+  const toIc = async (id: string, cast: Cast = CAST): Promise<OpportunityDetail> => {
+    await advance(cast.team, id);
+    await advance(cast.team, id);
+    expect((await advance(cast.team, id)).stage).toBe('Diligence');
+    await completeRequired(id, cast);
+    const ic = await advance(cast.team, id);
+    expect(ic.stage).toBe('IC');
+    return ic;
+  };
+  /** Sourced to Approved, the decision dated the day before the as-of date. */
+  const toApproved = async (id: string, cast: Cast = CAST): Promise<OpportunityDetail> => {
+    await toIc(id, cast);
+    expect((await decide(cast.approver, id, '2025-06-29')).status).toBe(201);
+    const approved = await advance(cast.approver, id);
+    expect(approved.stage).toBe('Approved');
+    return approved;
+  };
+  /** Approved to Closing with the closing opened for the as-of date and the commitment. */
+  const openClosing = async (id: string, cast: Cast = CAST): Promise<string> => {
+    const opportunity = await advance(cast.team, id, {
+      closeDate: AS_OF,
+      commitmentAmount: COMMITMENT,
+    });
+    expect(opportunity.stage).toBe('Closing');
+    return opportunity.closing?.id ?? '';
+  };
+  const closing = async (who: PreviewUser, closingId: string): Promise<ClosingDetail> => {
+    const answer = await send(f, who.externalId, 'GET', `/api/v1/closings/${closingId}`);
+    expect(answer.status, answer.text).toBe(200);
+    return closingDetail.parse(answer.json);
+  };
+  const closingCommand = (who: PreviewUser, closingId: string, b: object): Promise<Answer> =>
+    post(who, `/api/v1/closings/${closingId}/commands`, b);
+  /** Every required item received with the hub document. */
+  const receiveRequired = async (closingId: string, cast: Cast = CAST): Promise<void> => {
+    for (const i of (await closing(cast.ops, closingId)).items.filter(
+      (x) => x.required && x.status === 'open',
+    ))
+      expect(
+        (
+          await post(cast.ops, `/api/v1/closings/${closingId}/items/${i.itemCode}/commands`, {
+            command: 'receive',
+            documentId: IDS.document,
+          })
+        ).status,
+      ).toBe(200);
+  };
+  /** One vehicle line, requested and received in full, so the lines tie to the amount. */
+  const allocateInFull = async (id: string, amount: string, cast: Cast = CAST): Promise<void> => {
+    expect(
+      (
+        await send(f, cast.team.externalId, 'PUT', `${path(id)}/allocations`, {
+          allocations: [{ vehicleId: IDS.vehicle, requested: amount, received: amount }],
+        })
+      ).status,
+    ).toBe(200);
+  };
+  /** Closing to a closing confirmed by operations. */
+  const confirm = async (
+    id: string,
+    closingId: string,
+    cast: Cast = CAST,
+  ): Promise<ClosingDetail> => {
+    await receiveRequired(closingId, cast);
+    await allocateInFull(id, COMMITMENT, cast);
+    const answer = await closingCommand(cast.ops, closingId, { command: 'confirm' });
+    expect(answer.status, answer.text).toBe(200);
+    return closingDetail.parse(answer.json);
+  };
+  /** Passed, reopened and walked back to IC: Screening, Prescreen, Diligence (the tasks stay as they were), IC. */
+  const passAndReturnToIc = async (id: string, cast: Cast = CAST): Promise<OpportunityDetail> => {
+    expect(
+      (
+        await command(cast.team, id, {
+          command: 'pass',
+          passReasonCode: 'pass_reason.other',
+          note: 'The sponsor withdrew the allocation',
+        })
+      ).status,
+    ).toBe(200);
+    const reopened = detailOf(
+      await command(cast.team, id, {
+        command: 'reopen',
+        reason: 'the sponsor came back with the allocation',
+      }),
+    );
+    expect(reopened.stage).toBe('Screening');
+    await advance(cast.team, id);
+    await advance(cast.team, id);
+    const ic = await advance(cast.team, id);
+    expect(ic.stage).toBe('IC');
+    return ic;
+  };
+  return {
+    post,
+    detail,
+    command,
+    advance,
+    create,
+    decide,
+    completeRequired,
+    toApproved,
+    openClosing,
+    closing,
+    closingCommand,
+    allocateInFull,
+    confirm,
+    passAndReturnToIc,
+  };
+}
+
+describe('a deal that was passed and reopened (docs/18 section 4)', () => {
+  it('serves the recorded gates of a reopened deal: the tasks done before the reopen are carried over and the first round approval is not the gate', async () => {
+    const { f } = setup();
+    const w = walker(f);
+    const id = IDS.opportunity.reopened;
+    const recorded = await w.detail(USERS.viewer, id);
+    expect(recorded.stage).toBe('IC');
+    expect(recorded.icDecisions.map((d) => d.decision)).toEqual(['approved']);
+    expect(recorded.gates).toEqual({
+      diligence: { requiredOpen: 0, ok: true, carriedOver: 4 },
+      icDecision: { ok: false },
+      closing: {
+        checklistComplete: false,
+        allocationTiedOut: false,
+        confirmed: false,
+        ok: false,
+      },
+    });
+    const refused = await w.command(USERS.head, id, { command: 'advance' });
+    expect(refused.status).toBe(422);
+    expect(problemOf(refused)).toEqual({
+      code: 'workflow-precondition',
+      detail: 'deal_stage: an IC decision record is required',
+    });
+    // A task reopened and done again is this round's work: one fewer is carried over.
+    const task = recorded.diligenceTasks.find((t) => t.requiredForIc);
+    const taskPath = `${path(id)}/diligence-tasks/${task?.id ?? ''}/commands`;
+    expect(
+      detailOf(await w.post(USERS.deal, taskPath, { command: 'reopen' })).gates.diligence,
+    ).toEqual({ requiredOpen: 1, ok: false, carriedOver: 3 });
+    expect(
+      detailOf(await w.post(USERS.deal, taskPath, { command: 'complete' })).gates.diligence,
+    ).toEqual({ requiredOpen: 0, ok: true, carriedOver: 3 });
+    // A decision of this round opens the gate, even one dated before the first round's.
+    const decided = await w.decide(USERS.head, id, '2025-05-10');
+    expect(decided.status).toBe(201);
+    expect(opportunityDetail.parse(decided.json).gates.icDecision.ok).toBe(true);
+    expect((await w.advance(USERS.head, id)).stage).toBe('Approved');
+  });
+
+  it('needs a new IC decision: one recorded before the pass no longer opens Approved, and the tasks done before it are counted as carried over', async () => {
+    const { f } = setup();
+    const w = walker(f);
+    const id = (await w.create('Tidewater')).id;
+    const approved = await w.toApproved(id);
+    expect(approved.gates.icDecision.ok).toBe(true);
+    expect(approved.gates.diligence).toEqual({ requiredOpen: 0, ok: true, carriedOver: 0 });
+    const required = approved.diligenceTasks.filter((t) => t.requiredForIc).length;
+    expect(required).toBeGreaterThan(0);
+
+    const ic = await w.passAndReturnToIc(id);
+    // The decision of the first round is still on record, and no longer the gate's.
+    expect(ic.icDecisions).toHaveLength(1);
+    expect(ic.icDecisions[0]?.decision).toBe('approved');
+    expect(ic.gates.icDecision.ok).toBe(false);
+    // The work was done, so the tasks stay done; the gate says they predate the reopen.
+    expect(ic.gates.diligence).toEqual({ requiredOpen: 0, ok: true, carriedOver: required });
+    const refused = await w.command(CAST.approver, id, { command: 'advance' });
+    expect(refused.status).toBe(422);
+    expect(problemOf(refused).detail).toBe('deal_stage: an IC decision record is required');
+    expect((await w.detail(CAST.team, id)).stage).toBe('IC');
+
+    // A decision of this round opens the gate again; a declined one does not.
+    expect((await w.decide(CAST.approver, id, AS_OF, 'declined')).status).toBe(201);
+    expect((await w.command(CAST.approver, id, { command: 'advance' })).status).toBe(422);
+    const decided = opportunityDetail.parse((await w.decide(CAST.approver, id, '2025-07-01')).json);
+    expect(decided.icDecisions).toHaveLength(3);
+    expect(decided.gates.icDecision.ok).toBe(true);
+    expect((await w.advance(CAST.approver, id)).stage).toBe('Approved');
+  });
+
+  it('shows no IC decision as the gate between the reopen and the next IC, whatever was recorded before the pass', async () => {
+    const { f } = setup();
+    const w = walker(f);
+    const id = (await w.create('Saltmarsh')).id;
+    await w.toApproved(id);
+    expect(
+      (await w.command(CAST.team, id, { command: 'pass', passReasonCode: 'pass_reason.other' }))
+        .status,
+    ).toBe(200);
+    const reopened = detailOf(
+      await w.command(CAST.team, id, { command: 'reopen', reason: 'reopened to look again' }),
+    );
+    expect(reopened.stage).toBe('Screening');
+    expect(reopened.gates.icDecision.ok).toBe(false);
+    expect(reopened.icDecisions).toHaveLength(1);
+  });
+
+  it('reaching Closing again rewrites the closing, returns a confirmed one to Open and needs confirmation again before Closed', async () => {
+    const { f, state } = setup();
+    const w = walker(f);
+    const id = (await w.create('Longshore')).id;
+    await w.toApproved(id);
+    const closingId = await w.openClosing(id);
+    const confirmed = await w.confirm(id, closingId);
+    expect(confirmed).toMatchObject({ state: 'OpsConfirmed', rowVersion: 2 });
+    expect((await w.detail(CAST.team, id)).gates.closing.ok).toBe(true);
+    const receivedBefore = confirmed.items.filter((i) => i.status === 'received').length;
+    expect(receivedBefore).toBeGreaterThan(0);
+
+    await w.passAndReturnToIc(id);
+    // Passed and reopened, the closing is still what operations confirmed: its lines stay frozen.
+    expect(
+      problemOf(
+        await send(f, CAST.team.externalId, 'PUT', `${path(id)}/allocations`, { allocations: [] }),
+      ).detail,
+    ).toBe('the closing is confirmed; change the close date or ask operations to reopen it');
+    expect((await w.decide(CAST.approver, id, AS_OF)).status).toBe(201);
+    await w.advance(CAST.approver, id);
+
+    // The deal team opens the closing again with a new date and a new commitment.
+    const newDate = '2025-06-27';
+    const newCommitment = '12000000.00';
+    const back = await w.advance(CAST.team, id, {
+      closeDate: newDate,
+      commitmentAmount: newCommitment,
+    });
+    expect(back.stage).toBe('Closing');
+    expect(back.closing).toMatchObject({
+      id: closingId,
+      closeDate: newDate,
+      commitmentAmount: newCommitment,
+      state: 'Open',
+      opsConfirmedBy: null,
+      opsConfirmedAt: null,
+    });
+    expect(back.gates.closing).toEqual({
+      checklistComplete: true,
+      allocationTiedOut: false,
+      confirmed: false,
+      ok: false,
+    });
+    // The change is on the activity list with who made it and why the confirmation was cleared.
+    expect(state.audit.find((e) => e.action === 'closing.reuse')).toMatchObject({
+      entity: 'closing',
+      entityId: closingId,
+      actorId: CAST.team.userId,
+      from: 'OpsConfirmed',
+      to: 'Open',
+      reason:
+        'The deal reached Closing again with a new close date and commitment; operations confirm again',
+    });
+
+    // The documents are still on file: received items stay received; the record moved once more.
+    const reopened = await w.closing(CAST.ops, closingId);
+    expect(reopened.items).toEqual(confirmed.items);
+    expect(reopened.itemsRequiredOpen).toBe(0);
+    expect(reopened.rowVersion).toBe(3);
+
+    // Closing to Closed waits for the tie-out against the new commitment and a new confirmation.
+    const untied = await w.command(CAST.ops, id, { command: 'advance' });
+    expect(untied.status).toBe(422);
+    expect(problemOf(untied).detail).toBe(
+      'deal_stage: allocations do not tie to the closing commitment (M22)',
+    );
+    await w.allocateInFull(id, newCommitment);
+    const unconfirmed = await w.command(CAST.ops, id, { command: 'advance' });
+    expect(unconfirmed.status).toBe(422);
+    expect(problemOf(unconfirmed).detail).toBe('the closing is not confirmed by operations (M8)');
+    expect((await w.detail(CAST.team, id)).stage).toBe('Closing');
+    expect((await w.closingCommand(CAST.ops, closingId, { command: 'confirm' })).status).toBe(200);
+    const closed = await w.advance(CAST.ops, id);
+    expect(closed.stage).toBe('Closed');
+    const position = investmentDetail.parse(
+      (
+        await send(
+          f,
+          CAST.ops.externalId,
+          'GET',
+          `/api/v1/investments/${closed.investmentId ?? ''}`,
+        )
+      ).json,
+    );
+    expect(position).toMatchObject({ entryDate: newDate, closeDate: newDate });
+  });
+
+  it('reaching Closing again with a closing that was never confirmed rewrites the date and commitment and leaves it Open', async () => {
+    const { f, state } = setup();
+    const w = walker(f);
+    const id = (await w.create('Driftline')).id;
+    await w.toApproved(id);
+    const closingId = await w.openClosing(id);
+    await w.passAndReturnToIc(id);
+    expect((await w.decide(CAST.approver, id, AS_OF)).status).toBe(201);
+    await w.advance(CAST.approver, id);
+    const back = await w.advance(CAST.team, id, {
+      closeDate: '2025-07-10',
+      commitmentAmount: '9000000.00',
+    });
+    expect(back.closing).toMatchObject({
+      id: closingId,
+      closeDate: '2025-07-10',
+      commitmentAmount: '9000000.00',
+      state: 'Open',
+    });
+    expect(state.audit.find((e) => e.action === 'closing.reuse')).toMatchObject({
+      from: 'Open',
+      to: 'Open',
+      reason: null,
+    });
+    // One closing record for the deal, opened once.
+    expect(state.audit.filter((e) => e.action === 'closing.open')).toHaveLength(1);
+    expect((await w.closing(CAST.ops, closingId)).rowVersion).toBe(2);
+  });
+});
+
+describe('a walled deal that converts (SEC-5.3)', () => {
+  it('puts the position behind the wall of its deal: a non-member gets 404 on it and does not see it on the grid, a member does', async () => {
+    const { f } = setup();
+    const w = walker(f);
+    const id = IDS.opportunity.walled;
+    // A member of the wall who holds every role walks the walled deal from Diligence to Closed.
+    const member: Cast = { team: USERS.all, approver: USERS.all, ops: USERS.all };
+    await w.completeRequired(id, member);
+    expect((await w.advance(USERS.all, id)).stage).toBe('IC');
+    expect((await w.decide(USERS.all, id, AS_OF)).status).toBe(201);
+    await w.advance(USERS.all, id);
+    const closingId = await w.openClosing(id, member);
+    await w.confirm(id, closingId, member);
+    const closed = await w.advance(USERS.all, id);
+    expect(closed.stage).toBe('Closed');
+    const investmentId = closed.investmentId ?? '';
+    const position = `/api/v1/investments/${investmentId}`;
+    const grid = async (who: PreviewUser): Promise<string[]> =>
+      investmentPage
+        .parse((await send(f, who.externalId, 'GET', '/api/v1/investments?limit=100')).json)
+        .items.map((i) => i.id);
+
+    for (const who of [USERS.all, USERS.dealWall, USERS.head]) {
+      expect((await send(f, who.externalId, 'GET', position)).status, who.externalId).toBe(200);
+      expect(await grid(who)).toContain(investmentId);
+    }
+    for (const who of [USERS.viewer, USERS.deal, USERS.ops]) {
+      const hidden = await send(f, who.externalId, 'GET', position);
+      expect(hidden.status, who.externalId).toBe(404);
+      expect(problemOf(hidden)).toEqual({ code: 'not-found', detail: 'Investment not found' });
+      expect(await grid(who)).not.toContain(investmentId);
+      // Its closing follows the deal too.
+      expect((await send(f, who.externalId, 'GET', `/api/v1/closings/${closingId}`)).status).toBe(
+        404,
+      );
+    }
+    expect(window.__pbPreviewMisses).toEqual([]);
+  });
+
+  it('carries no wall for a deal that has none: the position of a recorded or a new deal is open to every reader', async () => {
+    const { f } = setup();
+    const w = walker(f);
+    const id = (await w.create('Open Water')).id;
+    await w.toApproved(id);
+    const closingId = await w.openClosing(id);
+    await w.confirm(id, closingId);
+    const closed = await w.advance(CAST.ops, id);
+    for (const who of [USERS.viewer, USERS.dealWall, USERS.admin])
+      expect(
+        (await send(f, who.externalId, 'GET', `/api/v1/investments/${closed.investmentId ?? ''}`))
+          .status,
+        who.externalId,
+      ).toBe(200);
+    // The recorded Closing deal has no wall either: once closed, every reader opens its position.
+    expect(
+      (
+        await w.post(
+          USERS.ops,
+          `/api/v1/closings/${IDS.closing.open}/items/wire_confirmation/commands`,
+          { command: 'receive', documentId: IDS.document },
+        )
+      ).status,
+    ).toBe(200);
+    expect(
+      (await w.closingCommand(USERS.ops, IDS.closing.open, { command: 'confirm' })).status,
+    ).toBe(200);
+    const recordedClosed = await w.advance(USERS.ops, IDS.opportunity.closingOpen);
+    expect(recordedClosed.stage).toBe('Closed');
+    for (const who of [USERS.viewer, USERS.deal, USERS.admin])
+      expect(
+        (
+          await send(
+            f,
+            who.externalId,
+            'GET',
+            `/api/v1/investments/${recordedClosed.investmentId ?? ''}`,
+          )
+        ).status,
+        who.externalId,
+      ).toBe(200);
   });
 });

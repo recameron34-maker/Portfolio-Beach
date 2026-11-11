@@ -21,6 +21,7 @@ import type {
   IcDecision,
   InvestmentDetail,
   LegalTerm,
+  OpportunityDetail,
   OpportunityRow,
   Person,
   StageHistoryEntry,
@@ -136,6 +137,67 @@ export interface SimChangeRequest {
   changed: boolean;
 }
 
+/**
+ * The order of a deal's events as its gates read it (routes/pipeline.ts). The contract shapes
+ * carry no instant for a task's last change or for the moment a decision was recorded, and a
+ * test clock may stand still, so the simulation keeps its own sequence: each key is text that
+ * sorts as the events happened, which is all the shared gate rules compare (controls-closing.ts
+ * in @pb/workflows).
+ */
+export interface SimEventOrder {
+  /** How many keys were handed out; the next event takes the next one. */
+  count: number;
+  /** One key per stage history row, in the same order. */
+  history: string[];
+  /** The key of each task's last change, by task id. */
+  tasks: Map<string, string>;
+  /** The key each IC decision was recorded at, by decision id. */
+  decisions: Map<string, string>;
+}
+
+/** The n-th key of a deal's event order: fixed width, so the text sorts as the numbers do. */
+export const eventKey = (n: number): string => String(n).padStart(9, '0');
+
+/** The key of the next event of a deal; every simulated change to its history, tasks or decisions takes one. */
+export function nextEventKey(order: SimEventOrder): string {
+  order.count += 1;
+  return eventKey(order.count);
+}
+
+/**
+ * The event order of a recorded deal, from the gates the API recorded for it: the stage history
+ * keeps its recorded order; as many tasks required for IC as the recorded gate counts as carried
+ * over predate the whole history (the first such done or waived tasks in list order, since the
+ * record does not say which), every other task follows it; and the recorded decisions fall in the
+ * current IC round unless the recorded gate is closed while the latest decision is an approval,
+ * which only a decision from before the round can explain. A deal with no recorded detail has no
+ * child rows to order.
+ */
+export function seedEventOrder(
+  detail:
+    | Pick<OpportunityDetail, 'stageHistory' | 'diligenceTasks' | 'icDecisions' | 'gates'>
+    | undefined,
+): SimEventOrder {
+  const history = (detail?.stageHistory ?? []).map((_row, i) => eventKey(i + 1));
+  const before = eventKey(0);
+  const after = eventKey(history.length + 1);
+  let carried = detail?.gates.diligence.carriedOver ?? 0;
+  const tasks = new Map<string, string>();
+  for (const task of detail?.diligenceTasks ?? []) {
+    const carriedOver = carried > 0 && task.requiredForIc && task.status !== 'open';
+    if (carriedOver) carried -= 1;
+    tasks.set(task.id, carriedOver ? before : after);
+  }
+  const inRound =
+    detail === undefined ||
+    detail.gates.icDecision.ok ||
+    detail.icDecisions[0]?.decision !== 'approved';
+  const decisions = new Map(
+    (detail?.icDecisions ?? []).map((d) => [d.id, inRound ? after : before]),
+  );
+  return { count: history.length + 1, history, tasks, decisions };
+}
+
 /** An opportunity (deal.opportunity) with the child rows its detail shows. */
 export interface SimOpportunity {
   row: OpportunityRow;
@@ -143,10 +205,12 @@ export interface SimOpportunity {
   passNote: string | null;
   stageHistory: StageHistoryEntry[];
   tasks: DiligenceTask[];
-  /** Latest first: the first row is the one the IC gate reads. */
+  /** Latest first by decision date; the IC gate reads the latest of the current round (order). */
   decisions: IcDecision[];
   allocations: AllocationRow[];
   closingId: string | null;
+  /** When each stage move, task change and decision happened, relative to one another. */
+  order: SimEventOrder;
   origin: 'recorded' | 'created';
   changed: boolean;
 }
@@ -867,6 +931,7 @@ export function seedOpportunities(recordings: Recordings): Map<string, SimOpport
         decisions: detail?.icDecisions ?? [],
         allocations: detail?.allocations ?? [],
         closingId: detail?.closing?.id ?? null,
+        order: seedEventOrder(detail),
         origin: 'recorded',
         changed: false,
       });
@@ -908,6 +973,27 @@ export function seedClosings(
     });
   }
   return seeded;
+}
+
+/**
+ * Whether the credential may see a position a simulated close created (SEC-5.3): the position
+ * sits behind every wall of the deal it came from, as the API carries the deal's walls to it. A
+ * deal logged this session has no wall. A recorded deal is walled when any user's recording of
+ * it answered 404; its position is then open only to the users whose own recording of the deal
+ * answered 200 (the wall's members among the roles that read the pipeline).
+ */
+export function createdInvestmentVisible(
+  state: PreviewState,
+  recordings: Recordings,
+  credential: string,
+  sim: SimInvestment,
+): boolean {
+  const opportunity = state.opportunities?.get(sim.opportunityId);
+  if (opportunity === undefined) return false;
+  if (opportunity.origin === 'created') return true;
+  const path = `/api/v1/opportunities/${encodeURIComponent(opportunity.row.id)}`;
+  const walled = recordings.users.some((u) => recordings.status(u.externalId, path) === 404);
+  return !walled || recordings.status(credential, path) === 200;
 }
 
 export function ensureValuations(

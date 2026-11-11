@@ -1,4 +1,3 @@
-import { D, ZERO } from '@pb/calc';
 import checklistConfig from '../../../../../config/closing_checklist.json';
 import {
   closingChecklist,
@@ -9,14 +8,22 @@ import {
 } from '@pb/contracts';
 import type {
   AllocationRow,
-  AllocationTieOut,
   ClosingChecklist,
   ClosingDetail,
   ClosingItem,
   ClosingSummary,
   LegalTerm,
 } from '@pb/contracts';
-import { attempt, closingMachine } from '@pb/workflows';
+import {
+  CLOSING_CONFIRMED_REFUSAL,
+  POSITION_EXISTS_REFUSAL,
+  attempt,
+  checklistCounts,
+  closingMachine,
+  confirmRefusal,
+  requiredItemsComplete,
+  tieOut,
+} from '@pb/workflows';
 import { jsonResponse, problem, workflowProblem } from '../problems.js';
 import { ensureClosings, ensureOpportunities } from '../state.js';
 import type { SimClosing } from '../state.js';
@@ -34,11 +41,16 @@ import type { SimContext } from './common.js';
  * The closing workflow (docs/04 M8, M22, docs/18 section 12, decision 0013) simulated the way
  * apps/api/src/closing/closing.service.ts serves it: the record the deal team hands to
  * operations, its required-document checklist from config/closing_checklist.json, the operations
- * confirmation through closingMachine (every required item received or waived, the allocations
- * tying to the commitment), the audited close-date change (after confirmation it returns the
- * record to Open with a reason; while Open it is a plain date change) and the legal terms
- * captured in draft and confirmed once. The closing follows its opportunity's wall: anything the
- * caller cannot see is 404. The close date here is the single source of every close date.
+ * confirmation through closingMachine (every required item received or waived, the received
+ * amounts tying to the commitment), the audited close-date change (after confirmation it returns
+ * the record to Open with a reason; while Open it is a plain date change), the reopen with a
+ * reason and the legal terms captured in draft and confirmed once. What operations confirmed
+ * stays as confirmed: while the closing is OpsConfirmed its items and its allocation lines are
+ * refused every change. Once the deal converted, the close date is the position's entry date and
+ * the closing no longer moves. The closing follows its opportunity's wall: anything the caller
+ * cannot see is 404. The close date here is the single source of every close date. The tie-out,
+ * the checklist gate and the refusal texts are the rules the API uses (controls-closing.ts in
+ * @pb/workflows), not a copy of them.
  */
 
 const NOT_FOUND = 'Closing not found';
@@ -61,24 +73,9 @@ export function checklistOf(ctx: SimContext): ClosingChecklist {
   return ctx.book?.closingChecklist ?? closingChecklist.parse(checklistConfig);
 }
 
-/** The M22 tie-out: the lines (received when known, else requested) against the commitment, compared exactly. */
-export function tieOut(
-  commitment: string,
-  rows: readonly Pick<AllocationRow, 'requested' | 'received'>[],
-): AllocationTieOut {
-  const allocated = rows.reduce((sum, r) => sum.plus(r.received ?? r.requested), ZERO);
-  const target = D(commitment);
-  return {
-    commitment: target.toFixed(2),
-    allocated: allocated.toFixed(2),
-    difference: allocated.minus(target).toFixed(2),
-    tiedOut: allocated.comparedTo(target) === 0,
-  };
-}
-
-/** The M8 gate: every required item received or waived. */
-export const requiredItemsComplete = (items: readonly ClosingItem[]): boolean =>
-  items.every((i) => !i.required || i.status !== 'open');
+/** 422 for a change to what operations confirmed: the lines and the items of a confirmed closing (docs/18 section 12). */
+export const closingConfirmed = (instance: string): Response =>
+  problem(422, 'workflow-precondition', CLOSING_CONFIRMED_REFUSAL, { instance, simulated: true });
 
 /** The closing's allocation lines: its opportunity's when the opportunity is known, else the lines recorded with it. */
 export function allocationsOfClosing(ctx: SimContext, closing: SimClosing): AllocationRow[] {
@@ -95,8 +92,7 @@ export function closingSummaryOf(ctx: SimContext, closing: SimClosing): ClosingS
     state: closing.state,
     opsConfirmedBy: closing.opsConfirmedBy,
     opsConfirmedAt: closing.opsConfirmedAt,
-    itemsOpen: closing.items.filter((i) => i.status === 'open').length,
-    itemsRequiredOpen: closing.items.filter((i) => i.required && i.status === 'open').length,
+    ...checklistCounts(closing.items),
     allocationTieOut: tieOut(closing.commitmentAmount, allocationsOfClosing(ctx, closing)),
   };
 }
@@ -168,7 +164,10 @@ export const closingRoute = defineSimRoute({
   },
 });
 
-/** POST /api/v1/closings/{id}/items/{itemCode}/commands: receive (with a visible hub document), waive (with a reason) or reopen one item. */
+/**
+ * POST /api/v1/closings/{id}/items/{itemCode}/commands: receive (with a visible hub document),
+ * waive (with a reason) or reopen one item; refused while the closing is confirmed.
+ */
 export const closingItemCommandRoute = defineSimRoute({
   method: 'POST',
   path: '/api/v1/closings/{id}/items/{itemCode}/commands',
@@ -183,6 +182,7 @@ export const closingItemCommandRoute = defineSimRoute({
     const item = ITEM_CODE.test(code) ? closing.items.find((i) => i.itemCode === code) : undefined;
     if (item === undefined)
       return problem(404, 'not-found', ITEM_NOT_FOUND, { instance, simulated: true });
+    if (closing.state === 'OpsConfirmed') return closingConfirmed(instance);
     const body = req.body;
     const move = ITEM_MOVES[body.command];
     if (!move.from.includes(item.status))
@@ -221,8 +221,10 @@ export const closingItemCommandRoute = defineSimRoute({
 
 /**
  * POST /api/v1/closings/{id}/commands (operations): confirm once the required items are in and
- * the allocations tie out; changeCloseDate with a reason, which after confirmation returns the
- * record to Open and while Open is a plain audited date change.
+ * the received amounts tie out; changeCloseDate with a reason, which after confirmation returns
+ * the record to Open and while Open is a plain audited date change; reopen with a reason, which
+ * returns a confirmed closing to Open so its items and lines can change. Neither of the last two
+ * moves a closing whose deal converted: the position's entry date is that close date.
  */
 export const closingCommandRoute = defineSimRoute({
   method: 'POST',
@@ -238,6 +240,11 @@ export const closingCommandRoute = defineSimRoute({
     if (stale !== null) return stale;
     const body = req.body;
     const from = closing.state;
+    if (body.command !== 'confirm' && closing.investmentId !== null)
+      return problem(422, 'workflow-precondition', POSITION_EXISTS_REFUSAL, {
+        instance,
+        simulated: true,
+      });
     if (body.command === 'changeCloseDate' && from === 'Open') {
       const before = closing.closeDate;
       closing.closeDate = body.closeDate;
@@ -256,22 +263,33 @@ export const closingCommandRoute = defineSimRoute({
         etag: closing.rowVersion,
       });
     }
-    const tie = tieOut(closing.commitmentAmount, allocationsOfClosing(ctx, closing));
+    const allocations = allocationsOfClosing(ctx, closing);
+    const tie = tieOut(closing.commitmentAmount, allocations);
+    const itemsComplete = requiredItemsComplete(closing.items);
     const result = attempt(closingMachine, from, body.command, {
       actorId: req.actor.userId,
       actorRoles: req.actor.roles,
-      ...(body.command === 'changeCloseDate' ? { reason: body.reason } : {}),
-      record: {
-        requiredItemsComplete: requiredItemsComplete(closing.items),
-        allocationTiedOut: tie.tiedOut,
-      },
+      ...(body.command === 'confirm' ? {} : { reason: body.reason }),
+      record: { requiredItemsComplete: itemsComplete, allocationTiedOut: tie.tiedOut },
     });
-    if (!result.ok) return workflowProblem(result, { instance, simulated: true });
+    if (!result.ok) {
+      // The confirmation's tie-out refusal names what is missing when it is a received amount (M22).
+      const missing = confirmRefusal({
+        command: body.command,
+        code: result.code,
+        itemsComplete,
+        tiedOut: tie.tiedOut,
+        rows: allocations,
+      });
+      if (missing !== null)
+        return problem(422, 'workflow-precondition', missing, { instance, simulated: true });
+      return workflowProblem(result, { instance, simulated: true });
+    }
     if (body.command === 'confirm') {
       closing.opsConfirmedBy = personOf(req.actor);
       closing.opsConfirmedAt = ctx.env.now();
     } else {
-      closing.closeDate = body.closeDate;
+      if (body.command === 'changeCloseDate') closing.closeDate = body.closeDate;
       closing.opsConfirmedBy = null;
       closing.opsConfirmedAt = null;
     }
@@ -282,7 +300,7 @@ export const closingCommandRoute = defineSimRoute({
       action: `closing.${body.command}`,
       entity: 'closing',
       entityId: closing.id,
-      reason: body.command === 'changeCloseDate' ? body.reason : null,
+      reason: body.command === 'confirm' ? null : body.reason,
       from,
       to: result.to,
     });

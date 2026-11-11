@@ -110,8 +110,9 @@ export function problemOf(answer: Answer): { code: string; detail: string } {
 /**
  * Contract-shaped fixtures for the preview unit tests: a small synthetic world with a walled
  * investment, valuation versions in every state, capital notices in every state, a wire register
- * in every state, trade tickets, change requests, a pipeline with a deal at every gate and the
- * closings those deals name, recorded per user the way scripts/build-preview.mjs records them.
+ * in every state, trade tickets, change requests, a pipeline with a deal at every gate (one of
+ * them passed, reopened and back at IC) and the closings those deals name, recorded per user the
+ * way scripts/build-preview.mjs records them.
  * Names and figures are invented here.
  */
 
@@ -183,6 +184,8 @@ export const IDS = {
     walled: uuid(604),
     passed: uuid(605),
     closed: uuid(606),
+    /** Passed after its first approval, reopened and back at IC: the first round's decision is history. */
+    reopened: uuid(607),
   },
   closing: {
     open: uuid(701),
@@ -1127,7 +1130,14 @@ export function buildWorld(
     stages.map((toStage, i) => ({
       fromStage: i === 0 ? null : (stages[i - 1] ?? null),
       toStage,
-      command: i === 0 ? 'create' : toStage === 'Passed' ? 'pass' : 'advance',
+      command:
+        i === 0
+          ? 'create'
+          : toStage === 'Passed'
+            ? 'pass'
+            : stages[i - 1] === 'Passed'
+              ? 'reopen'
+              : 'advance',
       reason: null,
       changedBy: personOf(by),
       changedAt: `2025-0${Math.min(6, 1 + i)}-15T10:00:00.000Z`,
@@ -1242,9 +1252,14 @@ export function buildWorld(
       allocations: [],
       closing: null,
       gates: {
-        diligence: { requiredOpen: 4, ok: false },
+        diligence: { requiredOpen: 4, ok: false, carriedOver: 0 },
         icDecision: { ok: false },
-        closing: { checklistComplete: false, allocationTiedOut: false, ok: false },
+        closing: {
+          checklistComplete: false,
+          allocationTiedOut: false,
+          confirmed: false,
+          ok: false,
+        },
       },
     },
     {
@@ -1257,9 +1272,14 @@ export function buildWorld(
       allocations: [],
       closing: null,
       gates: {
-        diligence: { requiredOpen: 0, ok: true },
+        diligence: { requiredOpen: 0, ok: true, carriedOver: 0 },
         icDecision: { ok: false },
-        closing: { checklistComplete: false, allocationTiedOut: false, ok: false },
+        closing: {
+          checklistComplete: false,
+          allocationTiedOut: false,
+          confirmed: false,
+          ok: false,
+        },
       },
     },
     {
@@ -1280,9 +1300,14 @@ export function buildWorld(
       allocations: tiedAllocation,
       closing: summaryOf(openClosing),
       gates: {
-        diligence: { requiredOpen: 0, ok: true },
+        diligence: { requiredOpen: 0, ok: true, carriedOver: 0 },
         icDecision: { ok: true },
-        closing: { checklistComplete: false, allocationTiedOut: true, ok: false },
+        closing: {
+          checklistComplete: false,
+          allocationTiedOut: true,
+          confirmed: false,
+          ok: false,
+        },
       },
     },
     {
@@ -1295,9 +1320,14 @@ export function buildWorld(
       allocations: [],
       closing: null,
       gates: {
-        diligence: { requiredOpen: 4, ok: false },
+        diligence: { requiredOpen: 4, ok: false, carriedOver: 0 },
         icDecision: { ok: false },
-        closing: { checklistComplete: false, allocationTiedOut: false, ok: false },
+        closing: {
+          checklistComplete: false,
+          allocationTiedOut: false,
+          confirmed: false,
+          ok: false,
+        },
       },
     },
     {
@@ -1314,9 +1344,14 @@ export function buildWorld(
       allocations: [],
       closing: null,
       gates: {
-        diligence: { requiredOpen: 0, ok: true },
+        diligence: { requiredOpen: 0, ok: true, carriedOver: 0 },
         icDecision: { ok: false },
-        closing: { checklistComplete: false, allocationTiedOut: false, ok: false },
+        closing: {
+          checklistComplete: false,
+          allocationTiedOut: false,
+          confirmed: false,
+          ok: false,
+        },
       },
     },
     {
@@ -1344,9 +1379,43 @@ export function buildWorld(
       allocations: closedAllocation,
       closing: summaryOf(confirmedClosing),
       gates: {
-        diligence: { requiredOpen: 0, ok: true },
+        diligence: { requiredOpen: 0, ok: true, carriedOver: 0 },
         icDecision: { ok: true },
-        closing: { checklistComplete: true, allocationTiedOut: true, ok: true },
+        closing: { checklistComplete: true, allocationTiedOut: true, confirmed: true, ok: true },
+      },
+    },
+    {
+      // Approved once, passed, reopened and walked back to IC: the tasks done before the reopen
+      // are carried over, and the first round's approval no longer opens the gate.
+      ...opportunityRow(o.reopened, 'IC', { receivedDate: '2025-05-01', daysInStage: 2 }),
+      source: null,
+      passNote: null,
+      stageHistory: history([
+        'Sourced',
+        'Screening',
+        'Prescreen',
+        'Diligence',
+        'IC',
+        'Approved',
+        'Passed',
+        'Screening',
+        'Prescreen',
+        'Diligence',
+        'IC',
+      ]),
+      diligenceTasks: templateTasks(681, CO_INVEST, 'done'),
+      icDecisions: [approvedDecision(uuid(643))],
+      allocations: [],
+      closing: null,
+      gates: {
+        diligence: { requiredOpen: 0, ok: true, carriedOver: 4 },
+        icDecision: { ok: false },
+        closing: {
+          checklistComplete: false,
+          allocationTiedOut: false,
+          confirmed: false,
+          ok: false,
+        },
       },
     },
   ];

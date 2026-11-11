@@ -6,7 +6,7 @@ import type { z } from 'zod';
 import type { PreviewBook } from '../book.js';
 import type { Recordings } from '../fixtures.js';
 import { problem } from '../problems.js';
-import { exceptionsOfFile } from '../state.js';
+import { createdInvestmentVisible, exceptionsOfFile } from '../state.js';
 import type {
   PreviewEnv,
   PreviewState,
@@ -220,12 +220,14 @@ export function bookOf(ctx: SimContext): PreviewBook | null {
   return ctx.book;
 }
 
-/** Whether the credential may open the investment: its own recorded detail answered 200, so a wall still hides what it hid; a position a simulated close created is open to everyone. */
+/** Whether the credential may open the investment: its own recorded detail answered 200, so a wall still hides what it hid; a position a simulated close created follows the walls of its deal. */
 export function canOpen(ctx: SimContext, credential: string, investmentId: string): boolean {
+  const created = ctx.state.investments.get(investmentId);
+  if (created !== undefined)
+    return createdInvestmentVisible(ctx.state, ctx.recordings, credential, created);
   return (
-    ctx.state.investments.has(investmentId) ||
     ctx.recordings.status(credential, `/api/v1/investments/${encodeURIComponent(investmentId)}`) ===
-      200
+    200
   );
 }
 

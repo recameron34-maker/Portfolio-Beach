@@ -27,13 +27,31 @@ import type {
   OpportunityPage,
   OpportunityRow,
 } from '@pb/contracts';
-import { attempt, dealStageMachine } from '@pb/workflows';
+import {
+  CLOSING_NOT_CONFIRMED_REFUSAL,
+  CLOSING_REENTERED_REASON,
+  attempt,
+  closingGate,
+  closingMachine,
+  dealStageMachine,
+  diligenceGate,
+  icDecisionApproved,
+  tieOut,
+} from '@pb/workflows';
+import type { StageMove } from '@pb/workflows';
 import { recordMiss } from '../monitor.js';
 import { overlayRecordedBody } from '../overlay.js';
 import { jsonResponse, problem, workflowProblem } from '../problems.js';
-import { ensureClosings, ensureOpportunities, readAny } from '../state.js';
+import {
+  createdInvestmentVisible,
+  ensureClosings,
+  ensureOpportunities,
+  eventKey,
+  nextEventKey,
+  readAny,
+} from '../state.js';
 import type { SimActor, SimClosing, SimOpportunity } from '../state.js';
-import { checklistOf, closingSummaryOf, requiredItemsComplete, tieOut } from './closings.js';
+import { checklistOf, closingConfirmed, closingSummaryOf } from './closings.js';
 import {
   NOT_VISIBLE,
   decodeCursor,
@@ -51,12 +69,16 @@ import type { SimContext } from './common.js';
  * The pipeline (docs/04 M5 skeleton, M7, docs/18 section 4, decision 0013) simulated the way
  * apps/api/src/pipeline/pipeline.service.ts serves it: opportunities with their stage commands
  * through dealStageMachine, the gates read from the same rows the detail shows (the diligence
- * tasks, the latest IC decision, the closing's checklist and allocation tie-out). Entering
- * Diligence creates the template tasks of the deal type (config/diligence_templates.json);
- * Approved to Closing opens the closing record with the checklist; Closing to Closed converts
- * the deal into a position with the data captured once, which the portfolio lists and the
- * one-pager then show. A walled deal is 404 outside its wall; a name the caller may not read
- * shows as "Not visible" while the id travels.
+ * tasks, the latest IC decision of the current round, the closing's checklist, its tie-out on
+ * received amounts and its confirmation). Entering Diligence creates the template tasks of the
+ * deal type (config/diligence_templates.json); Approved to Closing opens the closing record with
+ * the checklist, or, for a deal that was passed and reopened, rewrites the record it had and
+ * returns it to Open so operations confirm again; Closing to Closed converts the deal into a
+ * position with the data captured once, which the portfolio lists and the one-pager then show. A
+ * walled deal is 404 outside its wall, and so is the position it becomes; a name the caller may
+ * not read shows as "Not visible" while the id travels. The gates themselves are the rules the
+ * API uses (controls-closing.ts in @pb/workflows), read over the session's own order of events
+ * (SimEventOrder in state.ts), since the contract carries no instant for a task or a decision.
  */
 
 const NOT_FOUND = 'Opportunity not found';
@@ -107,23 +129,49 @@ export function opportunityVisibleTo(
   );
 }
 
+/** The stage history with the session's order key of each row, as the gate rules read it. */
+const stageMoves = (sim: SimOpportunity): StageMove[] =>
+  sim.stageHistory.map((h, i) => ({
+    fromStage: h.fromStage,
+    toStage: h.toStage,
+    at: sim.order.history[i] ?? eventKey(0),
+  }));
+
 const gatesOf = (ctx: SimContext, sim: SimOpportunity): OpportunityGates => {
-  const requiredOpen = sim.tasks.filter((t) => t.requiredForIc && t.status === 'open').length;
   const closing =
     sim.closingId === null
       ? undefined
       : ensureClosings(ctx.state, ctx.recordings).get(sim.closingId);
-  const checklistComplete = closing !== undefined && requiredItemsComplete(closing.items);
-  const allocationTiedOut =
-    closing !== undefined && tieOut(closing.commitmentAmount, sim.allocations).tiedOut;
+  const history = stageMoves(sim);
   return {
-    diligence: { requiredOpen, ok: requiredOpen === 0 },
-    icDecision: { ok: sim.decisions[0]?.decision === 'approved' },
-    closing: {
-      checklistComplete,
-      allocationTiedOut,
-      ok: closing?.state === 'OpsConfirmed' && checklistComplete && allocationTiedOut,
+    diligence: diligenceGate(
+      sim.tasks.map((t) => ({
+        status: t.status,
+        requiredForIc: t.requiredForIc,
+        changedAt: sim.order.tasks.get(t.id) ?? null,
+      })),
+      history,
+    ),
+    icDecision: {
+      ok: icDecisionApproved(
+        sim.decisions.map((d) => ({
+          id: d.id,
+          decisionDate: d.decisionDate,
+          decision: d.decision,
+          recordedAt: sim.order.decisions.get(d.id) ?? eventKey(0),
+        })),
+        history,
+      ),
     },
+    closing: closingGate(
+      closing === undefined
+        ? null
+        : {
+            state: closing.state,
+            items: closing.items,
+            tiedOut: tieOut(closing.commitmentAmount, sim.allocations).tiedOut,
+          },
+    ),
   };
 };
 
@@ -287,6 +335,7 @@ export const createOpportunityRoute = defineSimRoute({
       decisions: [],
       allocations: [],
       closingId: null,
+      order: { count: 1, history: [eventKey(1)], tasks: new Map(), decisions: new Map() },
       origin: 'created',
       changed: true,
     };
@@ -307,9 +356,12 @@ export const createOpportunityRoute = defineSimRoute({
 function createTemplateTasks(ctx: SimContext, sim: SimOpportunity): number {
   if (sim.tasks.length > 0) return 0;
   const template = diligenceTemplateFor(templatesOf(ctx), sim.row.dealType);
-  for (const t of template)
+  // The template tasks are written together, with the stage change that creates them.
+  const at = nextEventKey(sim.order);
+  for (const t of template) {
+    const id = ctx.env.newId();
     sim.tasks.push({
-      id: ctx.env.newId(),
+      id,
       workstream: t.workstream,
       title: t.title,
       owner: sim.row.owner,
@@ -319,6 +371,8 @@ function createTemplateTasks(ctx: SimContext, sim: SimOpportunity): number {
       evidenceDocumentId: null,
       waivedReason: null,
     });
+    sim.order.tasks.set(id, at);
+  }
   return template.length;
 }
 
@@ -349,8 +403,9 @@ const largestAllocation = (rows: readonly AllocationRow[]): AllocationRow | unde
 /**
  * Closing to Closed: the position is created from the deal as captured (docs/04 M5 AC: data
  * captured once), its entry date the closing's close date, its vehicle the largest allocation
- * line's; the closing is stamped with it. The one-pager's figures stay null: no flow or mark is
- * on record yet, and nothing is invented (rule 10).
+ * line's; the closing is stamped with it (a write to the closing row, so its row version moves).
+ * The one-pager's figures stay null: no flow or mark is on record yet, and nothing is invented
+ * (rule 10). The position sits behind the walls of its deal (createdInvestmentVisible).
  */
 function convert(
   ctx: SimContext,
@@ -405,6 +460,7 @@ function convert(
     closingId: closing.id,
   });
   closing.investmentId = detail.id;
+  closing.rowVersion += 1;
   closing.changed = true;
   recordActivity(ctx, actor, {
     action: 'investment.create',
@@ -419,8 +475,9 @@ function convert(
 
 /**
  * POST /api/v1/opportunities/{id}/commands: advance through the gates, pass with a reason code,
- * reopen with a reason; Approved to Closing opens the closing record, Closing to Closed converts
- * the deal once operations confirmed the closing.
+ * reopen with a reason; Approved to Closing opens the closing record (or rewrites the one a
+ * reopened deal already has and returns it to Open), Closing to Closed converts the deal once
+ * operations confirmed the closing.
  */
 export const opportunityCommandRoute = defineSimRoute({
   method: 'POST',
@@ -480,10 +537,35 @@ export const opportunityCommandRoute = defineSimRoute({
       if (body.closeDate === undefined || body.commitmentAmount === undefined)
         return precondition(instance, 'a close date and commitment are required to open closing');
       if (closing !== undefined) {
-        // A deal that reaches Closing again keeps the record it had, with the new date and commitment.
+        // A deal that reaches Closing again keeps the record it had, with the new date and
+        // commitment. A confirmation given for the old ones does not carry over: a confirmed
+        // closing returns to Open through closingMachine, as the system step its reopen row
+        // names, so operations confirm again; the checklist items stay as they are.
+        const before = closing.state;
+        if (before === 'OpsConfirmed') {
+          const moved = attempt(closingMachine, before, 'reopen', {
+            actorId: req.actor.userId,
+            actorRoles: ['service'],
+            reason: CLOSING_REENTERED_REASON,
+            record: {},
+          });
+          if (!moved.ok) return workflowProblem(moved, { instance, simulated: true });
+          closing.state = moved.to;
+          closing.opsConfirmedBy = null;
+          closing.opsConfirmedAt = null;
+        }
         closing.closeDate = body.closeDate;
         closing.commitmentAmount = body.commitmentAmount;
+        closing.rowVersion += 1;
         closing.changed = true;
+        recordActivity(ctx, req.actor, {
+          action: 'closing.reuse',
+          entity: 'closing',
+          entityId: closing.id,
+          reason: closing.state === before ? null : CLOSING_REENTERED_REASON,
+          from: before,
+          to: closing.state,
+        });
       } else {
         const opened: SimClosing = {
           id: ctx.env.newId(),
@@ -523,7 +605,7 @@ export const opportunityCommandRoute = defineSimRoute({
       }
     } else if (from === 'Closing' && to === 'Closed') {
       if (closing?.state !== 'OpsConfirmed')
-        return precondition(instance, 'the closing is not confirmed by operations (M8)');
+        return precondition(instance, CLOSING_NOT_CONFIRMED_REFUSAL);
       const created = convert(ctx, req.actor, sim, closing, instance);
       if (created instanceof Response) return created;
       next.investmentId = created.id;
@@ -540,6 +622,7 @@ export const opportunityCommandRoute = defineSimRoute({
       changedBy: personOf(req.actor),
       changedAt: ctx.env.now(),
     });
+    sim.order.history.push(nextEventKey(sim.order));
     sim.changed = true;
     recordActivity(ctx, req.actor, {
       action: `opportunity.${body.command}`,
@@ -585,6 +668,7 @@ export const createDiligenceTaskRoute = defineSimRoute({
       waivedReason: null,
     };
     sim.tasks.push(task);
+    sim.order.tasks.set(task.id, nextEventKey(sim.order));
     sim.changed = true;
     recordActivity(ctx, req.actor, {
       action: 'diligence_task.create',
@@ -633,6 +717,7 @@ export const diligenceTaskCommandRoute = defineSimRoute({
     const before = task.status;
     task.status = move.to;
     task.waivedReason = body.command === 'waive' ? body.reason : null;
+    sim.order.tasks.set(task.id, nextEventKey(sim.order));
     sim.changed = true;
     recordActivity(ctx, req.actor, {
       action: `diligence_task.${body.command}`,
@@ -684,6 +769,7 @@ export const icDecisionRoute = defineSimRoute({
     sim.decisions = [decision, ...sim.decisions].sort((a, b) =>
       byText(b.decisionDate, a.decisionDate),
     );
+    sim.order.decisions.set(decision.id, nextEventKey(sim.order));
     sim.changed = true;
     recordActivity(ctx, req.actor, {
       action: 'ic_decision.record',
@@ -697,7 +783,11 @@ export const icDecisionRoute = defineSimRoute({
   },
 });
 
-/** PUT /api/v1/opportunities/{id}/allocations (deal team, operations): the whole list at once; fixed once the deal is Closed. */
+/**
+ * PUT /api/v1/opportunities/{id}/allocations (deal team, operations): the whole list at once;
+ * fixed once the deal is Closed, and refused while its closing is confirmed (the lines are what
+ * operations confirmed, until the closing returns to Open).
+ */
 export const putAllocationsRoute = defineSimRoute({
   method: 'PUT',
   path: '/api/v1/opportunities/{id}/allocations',
@@ -713,6 +803,11 @@ export const putAllocationsRoute = defineSimRoute({
         instance,
         'allocations are fixed once the deal is closed (M22); raise a change request instead',
       );
+    const closing =
+      sim.closingId === null
+        ? undefined
+        : ensureClosings(ctx.state, ctx.recordings).get(sim.closingId);
+    if (closing?.state === 'OpsConfirmed') return closingConfirmed(instance);
     const vehicles = ctx.recordings.read(req.credential, '/api/v1/vehicles', vehicleList)?.items;
     const clients = ctx.recordings.read(req.credential, '/api/v1/clients', clientList)?.items;
     const seen = new Set<string>();
@@ -760,9 +855,10 @@ export const putAllocationsRoute = defineSimRoute({
 
 /**
  * GET /api/v1/investments/{id}: the one-pager of a position a simulated close created this
- * session, built from the conversion; every other position answers from the credential's own
- * recording with this session's overlays, as the shim would, so a wall still hides what it hid
- * and a request outside the recordings is still logged as a miss.
+ * session, built from the conversion and 404 outside the walls of the deal it came from (the API
+ * carries the deal's walls to the position); every other position answers from the credential's
+ * own recording with this session's overlays, as the shim would, so a wall still hides what it
+ * hid and a request outside the recordings is still logged as a miss.
  */
 export const investmentDetailRoute = defineSimRoute({
   method: 'GET',
@@ -773,8 +869,14 @@ export const investmentDetailRoute = defineSimRoute({
   handle: (req, ctx) => {
     const id = req.params.id ?? '';
     const created = ctx.state.investments.get(id);
-    if (created !== undefined)
+    if (created !== undefined) {
+      if (!createdInvestmentVisible(ctx.state, ctx.recordings, req.credential, created))
+        return problem(404, 'not-found', 'Investment not found', {
+          instance: req.url.pathname,
+          simulated: true,
+        });
       return jsonResponse(200, investmentDetail.parse(created.detail), { simulated: true });
+    }
     const key = `${req.credential}|GET ${req.url.pathname}${req.url.search}`;
     const recorded = ctx.recordings.byKey(key);
     if (recorded === undefined) {
