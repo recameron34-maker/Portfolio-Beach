@@ -309,7 +309,7 @@ export const quarterEndCheckRoute = defineSimRoute({
       to: null,
       details: { unapplied: unapplied.length, exceptionsOpened },
     });
-    const body: QuarterEndCheckResult = { periodEnd, unapplied, exceptionsOpened };
+    const body: QuarterEndCheckResult = { periodEnd, unapplied, hidden: 0, exceptionsOpened };
     return jsonResponse(200, body, { simulated: true });
   },
 });

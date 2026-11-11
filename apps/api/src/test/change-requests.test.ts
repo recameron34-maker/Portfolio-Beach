@@ -1,5 +1,10 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { addDays, containingQuarterEnd, latestQuarterEndOnOrBefore } from '@pb/calc';
+import {
+  addDays,
+  containingQuarterEnd,
+  latestQuarterEndOnOrBefore,
+  nextQuarterEnd,
+} from '@pb/calc';
 import {
   changeRequestPage,
   changeRequestRow,
@@ -8,7 +13,7 @@ import {
   quarterEndCheckResult,
 } from '@pb/contracts';
 import type { ChangeRequestRow, ChangeRequestState } from '@pb/contracts';
-import { withUserContext } from '@pb/db';
+import { SYSTEM_USER_ID, withUserContext } from '@pb/db';
 import { dealChangeRequestMachine, forbiddenPairs } from '@pb/workflows';
 import type { ChangeRequestCommand } from '@pb/workflows';
 import { openChangeRequestsFor } from '../change-requests/queries.js';
@@ -143,8 +148,28 @@ describe('deal change requests (M11, docs/18 section 8): the one form, the owner
     { entity_id: string; expected: string; actual: string; severity: string; state: string }[]
   > =>
     h.runtime.db.query(
-      "select entity_id, expected, actual, severity, state from ops.data_exception where source = 'change_request' and rule_id = 'CR-QE-01' and entity = 'mon.deal_change_request' order by entity_id",
+      "select entity_id, expected, actual, severity, state from ops.data_exception where source = 'change_request' and rule_id = 'CR-QE-01' and entity = 'mon.deal_change_request' order by entity_id, created_at, id",
     );
+  /** The data exceptions queue as the caller reads it (the change request source only). */
+  const queueOf = async (who: string) =>
+    dataExceptionPage.parse(
+      (
+        await h
+          .http()
+          .get('/api/v1/data-exceptions?source=change_request&limit=200')
+          .set('authorization', h.as(who))
+          .set('x-request-id', 'req-cr-queue')
+          .expect(200)
+      ).body,
+    );
+  /** The open requests of the walled position on or before the period end, read outside row-level security. */
+  const walledUnapplied = async (periodEnd: string): Promise<string[]> =>
+    (
+      await h.runtime.db.query<{ id: string }>(
+        "select id from mon.deal_change_request where investment_id = $1 and state in ('Submitted', 'Routed', 'InProgress') and effective_date <= $2",
+        [walledId(), periodEnd],
+      )
+    ).map((r) => r.id);
 
   it('lists the synthetic requests the caller may see, named, with their people, and filters by state and position', async () => {
     const ops = await list(OWNER);
@@ -484,6 +509,7 @@ describe('deal change requests (M11, docs/18 section 8): the one form, the owner
     ).toBe(true);
     for (const r of first.unapplied) expect(changeRequestRow.parse(r)).toEqual(r);
     expect(first.exceptionsOpened).toBe(expectedIds.length);
+    expect(first.hidden).toBe(0);
     const opened = await exceptionsOf();
     expect(opened.map((e) => e.entity_id)).toEqual(expectedIds);
     expect(opened.find((e) => e.entity_id === openId())).toEqual({
@@ -510,6 +536,7 @@ describe('deal change requests (M11, docs/18 section 8): the one form, the owner
     expect(audit.periodEnd).toBe(periodEnd);
     expect(audit.unapplied).toBe(expectedIds.length);
     expect(audit.exceptionsOpened).toBe(expectedIds.length);
+    expect(audit.hidden).toBe(0);
     expect((audit.requestIds as string[]).sort()).toEqual(expectedIds);
     // A second run for the same period lists the same requests and opens nothing more.
     const again = quarterEndCheckResult.parse(
@@ -544,7 +571,7 @@ describe('deal change requests (M11, docs/18 section 8): the one form, the owner
     expect(third.exceptionsOpened).toBe(1);
     expect(
       (await exceptionsOf()).filter((e) => e.entity_id === openId()).map((e) => e.state),
-    ).toEqual(['open', 'resolved']);
+    ).toEqual(['resolved', 'open']);
     // A period end that is no quarter end, or a body outside the contract, is refused at the boundary.
     const notQuarter = problemDetails.parse(
       (await checkAs(OWNER, { periodEnd: '2025-02-15' }).expect(400)).body,
@@ -622,14 +649,35 @@ describe('deal change requests (M11, docs/18 section 8): the one form, the owner
     expect(
       await count("select count(*)::int as n from audit.event where request_id = 'req-cr-wall-2'"),
     ).toBe(0);
-    // The member routes it; the owner named outside the wall still cannot open it (the wall is the position's).
+    // CR-3: the owner must be someone who can open the request. An owner outside the wall is
+    // refused and nothing is written; a member of the wall is accepted.
+    const outside = problemDetails.parse(
+      (
+        await commandAs(
+          'deal.three',
+          made.id,
+          { command: 'route', ownerId: user(OWNER).id },
+          'req-cr-wall-3',
+        ).expect(422)
+      ).body,
+    );
+    expect(outside.type).toBe(`${PROBLEM}workflow-precondition`);
+    expect(outside.detail).toContain('outside the wall');
+    const still = await detail('deal.three', made.id);
+    expect(still.state).toBe('Submitted');
+    expect(still.owner).toBeNull();
+    expect(still.rowVersion).toBe(1);
+    expect(
+      await count("select count(*)::int as n from audit.event where request_id = 'req-cr-wall-3'"),
+    ).toBe(0);
     const routed = await command(
       'deal.three',
       made.id,
-      { command: 'route', ownerId: user(OWNER).id },
-      'req-cr-wall-3',
+      { command: 'route', ownerId: user('head.one').id },
+      'req-cr-wall-4',
     );
     expect(routed.state).toBe('Routed');
+    expect(routed.owner).toEqual(person('head.one'));
     await detailAs(OWNER, made.id).expect(404);
     await detailAs('viewer', made.id).expect(403);
     // The quarter-end check run by operations outside the wall does not list it.
@@ -672,5 +720,204 @@ describe('deal change requests (M11, docs/18 section 8): the one form, the owner
       (tx) => openChangeRequestsFor(tx, walledId()),
     );
     expect(seen.map((r) => r.state)).toEqual(['Routed']);
+  });
+
+  it('a routed request is stamped with the person who routed it, never the system user (D1-07)', async () => {
+    const made = await create('deal.one', 'req-cr-stamp-0');
+    const stamp = async (): Promise<{ created_by: string; updated_by: string }> =>
+      (
+        await h.runtime.db.query<{ created_by: string; updated_by: string }>(
+          'select created_by, updated_by from mon.deal_change_request where id = $1',
+          [made.id],
+        )
+      )[0]!;
+    expect(await stamp()).toEqual({
+      created_by: user('deal.one').id,
+      updated_by: user('deal.one').id,
+    });
+    // Another member of the deal team routes it: the row names that person.
+    await command(
+      'deal.two',
+      made.id,
+      { command: 'route', ownerId: user(OWNER).id },
+      'req-cr-stamp-1',
+    );
+    const routed = await stamp();
+    expect(routed.updated_by).not.toBe(SYSTEM_USER_ID);
+    expect(routed).toEqual({ created_by: user('deal.one').id, updated_by: user('deal.two').id });
+    await start(made.id);
+    expect((await stamp()).updated_by).toBe(user(OWNER).id);
+    // Nothing in the table was written as the system user by a person's command.
+    expect(
+      await count(
+        'select count(*)::int as n from mon.deal_change_request where updated_by = $1 or created_by = $1',
+        [SYSTEM_USER_ID],
+      ),
+    ).toBe(0);
+  });
+
+  it('apply refuses a quarter end after the one the clock is in, and accepts the current one (CR-6)', async () => {
+    const working = await inState('InProgress');
+    const future = nextQuarterEnd(quarterEnd());
+    expect(future > quarterEnd()).toBe(true);
+    const refused = problemDetails.parse(
+      (
+        await commandAs(
+          OWNER,
+          working.id,
+          { command: 'apply', appliedPeriod: future },
+          'req-cr-future-1',
+        ).expect(422)
+      ).body,
+    );
+    expect(refused.type).toBe(`${PROBLEM}workflow-precondition`);
+    expect(refused.detail).toContain(`after the current quarter end ${quarterEnd()}`);
+    const after = await detail(OWNER, working.id);
+    expect(after.state).toBe('InProgress');
+    expect(after.appliedPeriod).toBeNull();
+    expect(after.rowVersion).toBe(working.rowVersion);
+    expect(
+      await count(
+        "select count(*)::int as n from audit.event where request_id = 'req-cr-future-1'",
+      ),
+    ).toBe(0);
+    // A request that takes effect after the current quarter cannot be applied yet either: the
+    // only periods on or after its effective date are in the future.
+    const later = changeRequestRow.parse(
+      (
+        await createAs(
+          'deal.one',
+          form(visibleInvestment().id, { effectiveDate: addDays(quarterEnd(), 10) }),
+        ).expect(201)
+      ).body,
+    );
+    await route(later.id);
+    await start(later.id);
+    await commandAs(OWNER, later.id, { command: 'apply', appliedPeriod: future }).expect(422);
+    await commandAs(OWNER, later.id, { command: 'apply', appliedPeriod: quarterEnd() }).expect(422);
+    expect((await detail(OWNER, later.id)).state).toBe('InProgress');
+    expect((await apply(working.id)).appliedPeriod).toBe(quarterEnd());
+  });
+
+  it('the quarter-end check opens an exception for a request its runner cannot see and counts it as hidden (CR-2)', async () => {
+    const periodEnd = quarterEnd();
+    // A request on the walled position, made by a member; the operations user is outside the wall.
+    const walled = changeRequestRow.parse(
+      (await createAs('deal.three', form(walledId()), 'req-cr-hidden-0').expect(201)).body,
+    );
+    await detailAs(OWNER, walled.id).expect(404);
+    const before = await exceptionsOf();
+    expect(before.filter((e) => e.entity_id === walled.id)).toEqual([]);
+    const result = quarterEndCheckResult.parse(
+      (await checkAs(OWNER, { periodEnd }, 'req-cr-hidden-1').expect(200)).body,
+    );
+    // The answer lists what the runner may see and counts the rest.
+    const hiddenIds = await walledUnapplied(periodEnd);
+    expect(hiddenIds).toContain(walled.id);
+    expect(result.unapplied.map((r) => r.id)).not.toContain(walled.id);
+    expect(JSON.stringify(result)).not.toContain(walledId());
+    // The walled request has its exception all the same, opened by the system actor.
+    const after = await exceptionsOf();
+    expect(after.filter((e) => e.entity_id === walled.id)).toEqual([
+      {
+        entity_id: walled.id,
+        expected: `Applied by ${periodEnd}`,
+        actual: 'Submitted',
+        severity: 'exception_severity.medium',
+        state: 'open',
+      },
+    ]);
+    expect(result.hidden).toBe(hiddenIds.length);
+    expect(result.exceptionsOpened).toBe(after.length - before.length);
+    expect(result.exceptionsOpened).toBeGreaterThanOrEqual(1);
+    expect(
+      await count(
+        "select count(*)::int as n from ops.data_exception where entity = 'mon.deal_change_request' and entity_id = $1 and created_by = $2",
+        [walled.id, SYSTEM_USER_ID],
+      ),
+    ).toBe(1);
+    // The audit event carries the counts and the visible ids only: the audit trail is read outside the wall.
+    const audit = await auditDetails('change_request.quarter_end_check', 'req-cr-hidden-1');
+    expect(audit.hidden).toBe(hiddenIds.length);
+    expect(audit.unapplied).toBe(result.unapplied.length + hiddenIds.length);
+    expect(audit.exceptionsOpened).toBe(result.exceptionsOpened);
+    expect((audit.requestIds as string[]).sort()).toEqual(result.unapplied.map((r) => r.id).sort());
+    expect(JSON.stringify(audit)).not.toContain(walled.id);
+    // A repeat opens nothing more, for the hidden request as for the others.
+    const again = quarterEndCheckResult.parse(
+      (await checkAs(OWNER, { periodEnd }, 'req-cr-hidden-2').expect(200)).body,
+    );
+    expect(again.exceptionsOpened).toBe(0);
+    expect(again.hidden).toBe(hiddenIds.length);
+    expect((await exceptionsOf()).length).toBe(after.length);
+    // An earlier period end hides nothing that was not effective by then.
+    const earlier = quarterEndCheckResult.parse(
+      (await checkAs(OWNER, { periodEnd: priorQuarterEnd() }).expect(200)).body,
+    );
+    expect(earlier.hidden).toBe((await walledUnapplied(priorQuarterEnd())).length);
+  });
+
+  it("a quarter-end exception about a walled position's request is read and worked only inside the wall (CR-1)", async () => {
+    const periodEnd = quarterEnd();
+    // An operations user inside the wall: the one person who can both see the request and run the check.
+    await h.runtime.db.query(
+      "insert into core.wall_member (wall_id, user_id) select w.wall_id, $2::uuid from core.walled_record w where w.entity = 'investment' and w.entity_id = $1::uuid",
+      [walledId(), user('ops.two').id],
+    );
+    const walled = changeRequestRow.parse(
+      (await createAs('deal.three', form(walledId()), 'req-cr-xwall-0').expect(201)).body,
+    );
+    const run = await checkAs('ops.two', { periodEnd }, 'req-cr-xwall-1').expect(200);
+    const result = quarterEndCheckResult.parse(run.body);
+    expect(result.unapplied.map((r) => r.id)).toContain(walled.id);
+    const walledIds = await walledUnapplied(periodEnd);
+    expect(walledIds).toContain(walled.id);
+    // Inside the wall the exception is on the queue.
+    const inside = await queueOf('ops.two');
+    const mine = inside.items.find((x) => x.entityId === walled.id);
+    expect(mine).toMatchObject({ ruleId: 'CR-QE-01', state: 'open', actual: 'Submitted' });
+    for (const who of ['deal.three', 'head.one'])
+      expect((await queueOf(who)).items.map((x) => x.entityId)).toContain(walled.id);
+    // Outside the wall it is not: not in the queue, not by id, not for a command.
+    for (const who of [OWNER, 'deal.one', 'audit.one']) {
+      const queue = await queueOf(who);
+      for (const id of walledIds) {
+        expect(
+          queue.items.map((x) => x.entityId),
+          who,
+        ).not.toContain(id);
+        expect(JSON.stringify(queue), who).not.toContain(id);
+      }
+      await h
+        .http()
+        .get(`/api/v1/data-exceptions/${mine!.id}`)
+        .set('authorization', h.as(who))
+        .expect(404);
+    }
+    await h
+      .http()
+      .post(`/api/v1/data-exceptions/${mine!.id}/commands`)
+      .set('authorization', h.as(OWNER))
+      .set('x-request-id', 'req-cr-xwall-2')
+      .send({ command: 'acknowledge' })
+      .expect(404);
+    expect(
+      await count("select count(*)::int as n from audit.event where request_id = 'req-cr-xwall-2'"),
+    ).toBe(0);
+    // The member works it.
+    const worked = await h
+      .http()
+      .post(`/api/v1/data-exceptions/${mine!.id}/commands`)
+      .set('authorization', h.as('ops.two'))
+      .send({ command: 'acknowledge' })
+      .expect(200);
+    expect((worked.body as { state: string }).state).toBe('acknowledged');
+    // Nothing is hidden from the member, and the outsider is told how many requests it cannot see.
+    expect(result.hidden).toBe(0);
+    const outside = quarterEndCheckResult.parse(
+      (await checkAs(OWNER, { periodEnd }).expect(200)).body,
+    );
+    expect(outside.hidden).toBe(walledIds.length);
+    expect(outside.unapplied.map((r) => r.id)).not.toContain(walled.id);
   });
 });

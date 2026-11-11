@@ -628,13 +628,13 @@ describe('change request bodies', () => {
       rowVersion: 2,
     };
     expect(parses(changeRequestRow, row)).toBe(true);
-    expect(
-      parses(quarterEndCheckResult, {
-        periodEnd: '2025-09-30',
-        unapplied: [row],
-        exceptionsOpened: 1,
-      }),
-    ).toBe(true);
+    const result = { periodEnd: '2025-09-30', unapplied: [row], hidden: 1, exceptionsOpened: 2 };
+    expect(parses(quarterEndCheckResult, result)).toBe(true);
+    // The count of requests the caller may not see is part of the answer, and never negative.
+    const { hidden: _hidden, ...withoutHidden } = result;
+    expect(parses(quarterEndCheckResult, withoutHidden)).not.toBe(true);
+    expect(parses(quarterEndCheckResult, { ...result, hidden: -1 })).not.toBe(true);
+    expect(parses(quarterEndCheckResult, { ...result, hidden: 0.5 })).not.toBe(true);
     expect(parses(changeRequestRow, { ...row, state: 'Open' })).not.toBe(true);
   });
 });

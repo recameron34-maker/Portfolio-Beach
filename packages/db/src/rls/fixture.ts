@@ -18,7 +18,8 @@ import type { AppRole } from '../roles.js';
  * one legal term, plus an allocation on the open investment; two wire instruction versions on the
  * open investment (one Verified and active, one Proposed); three capital notices (two on the open
  * investment, one walled) with a Funded ticket on the first and a Drafted one on the walled; one
- * change request per investment. Loaded as the owner, outside RLS.
+ * change request per investment; the review fixes (migration 0014): one quarter-end data exception
+ * about each change request. Loaded as the owner, outside RLS.
  */
 export const ids = {
   users: {
@@ -104,6 +105,10 @@ export const ids = {
   changeRequestWalled: 'b0000000-0000-4000-8000-000000000019',
   /** A second notice on the open investment with no ticket yet, so a ticket can be drafted on it. */
   capitalNoticeOpenDistribution: 'b0000000-0000-4000-8000-00000000001a',
+  // The review fixes (migration 0014): a quarter-end exception about each change request (CR-QE-01),
+  // so the walled one must stay inside the wall.
+  exceptionOpenChangeRequest: 'b0000000-0000-4000-8000-00000000001b',
+  exceptionWalledChangeRequest: 'b0000000-0000-4000-8000-00000000001c',
 } as const;
 
 /** The synthetic bank details every fixture wire instruction carries, encrypted with the prototype key. */
@@ -287,5 +292,8 @@ export async function loadFixture(handle: DbHandle): Promise<void> {
     insert into mon.deal_change_request (id, investment_id, change_type, effective_date, summary, owner_id, submitted_by, state) values
       ('${ids.changeRequestOpen}', '${ids.investment1}', 'change_type.add_on_acquisition', '2024-08-15', 'Add-on acquisition of a regional competitor closed', null, '${u.dealTeam}', 'Submitted'),
       ('${ids.changeRequestWalled}', '${ids.investmentWalled}', 'change_type.recapitalization', '2024-08-20', 'Dividend recapitalization completed', '${u.operations}', '${u.wallMember}', 'Routed');
+    insert into ops.data_exception (id, source, entity, entity_id, rule_id, expected, actual, severity, state) values
+      ('${ids.exceptionOpenChangeRequest}', 'change_request', 'mon.deal_change_request', '${ids.changeRequestOpen}', 'CR-QE-01', 'Applied by 2024-09-30', 'Submitted', 'exception_severity.medium', 'open'),
+      ('${ids.exceptionWalledChangeRequest}', 'change_request', 'mon.deal_change_request', '${ids.changeRequestWalled}', 'CR-QE-01', 'Applied by 2024-09-30', 'Routed', 'exception_severity.medium', 'open');
   `);
 }

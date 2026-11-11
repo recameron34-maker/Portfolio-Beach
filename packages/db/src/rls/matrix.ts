@@ -73,11 +73,12 @@ export const READ_MATRIX: Record<string, Row> = {
   'mon.cash_flow': row(2, 2, 2, 2, 2, 2, 2, 3, 3),
   'mon.valuation_history': row(0, 0, 2, 2, 0, 0, 2, 0, 0),
   'ops.feature_flag': row(10, 10, 10, 10, 10, 10, 10, 10, 10),
-  // An exception about a staged row, a document or an extraction run is visible to whoever that
-  // record's own policy admits (migrations 0010 and 0012): three fixture exceptions are about the
-  // open, the walled and the unlinked accounting row (reviewers only), and four are about the open
-  // and the walled document and run (every authenticated user, under the wall).
-  'ops.data_exception': row(2, 4, 4, 4, 2, 2, 4, 7, 7),
+  // An exception about a staged row, a document, an extraction run or a change request is visible
+  // to whoever that record's own policy admits (migrations 0010, 0012 and 0014): three fixture
+  // exceptions are about the open, the walled and the unlinked accounting row (reviewers only), four
+  // are about the open and the walled document and run, and two about the open and the walled
+  // change request (every authenticated user, under the wall).
+  'ops.data_exception': row(3, 5, 5, 5, 3, 3, 5, 9, 9),
   'audit.event': row(0, 0, 2, 2, 0, 2, 2, 0, 0),
   // Staging: reviewers (operations, deal team, approver, auditor) and the service read files, and
   // rows under the wall of the investment they link to (migration 0009); an unlinked row is every
@@ -446,5 +447,18 @@ export const WRITE_MATRIX: WriteCase[] = [
     name: 'confirm the legal term of the walled closing',
     sql: "update deal.legal_term set status = 'confirmed', confirmed_by = '10000000-0000-4000-8000-000000000008', confirmed_at = now() where id = 'b0000000-0000-4000-8000-000000000011'",
     allowed: ['wall_member(deal_team)', 'service'],
+  },
+  // The review fixes (migration 0014).
+  {
+    name: 'work the quarter-end exception about the open change request',
+    sql: "update ops.data_exception set state = 'acknowledged' where id = 'b0000000-0000-4000-8000-00000000001b'",
+    allowed: ['operations'],
+  },
+  {
+    name: 'work the quarter-end exception about the walled change request',
+    sql: "update ops.data_exception set state = 'acknowledged' where id = 'b0000000-0000-4000-8000-00000000001c'",
+    // Hidden from everyone outside the wall (migration 0014); the wall member is deal team and may
+    // not work the queue, so nobody in the fixture can.
+    allowed: [],
   },
 ];

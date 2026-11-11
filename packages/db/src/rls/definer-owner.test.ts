@@ -27,6 +27,7 @@ describe('walls with a definer owner that is neither superuser nor bypassrls', (
       alter table core.walled_record owner to pb_migrator;
       alter table core.wall_member owner to pb_migrator;
       alter function pb.can_see_walled(text, uuid) owner to pb_migrator;
+      alter function pb.user_inside_wall(text, uuid, uuid) owner to pb_migrator;
     `);
   });
   afterAll(async () => {
@@ -90,5 +91,35 @@ describe('walls with a definer owner that is neither superuser nor bypassrls', (
     expect(await asks('deal_team')).toEqual({ open: true, walled: false });
     expect(await asks('wall_member(deal_team)')).toEqual({ open: true, walled: true });
     expect(await asks('service')).toEqual({ open: true, walled: true });
+  });
+
+  it('answers the wall question about a named person only to someone who can see the record (migration 0014)', async () => {
+    const asks = async (name: ActorName, person: string) => {
+      const a = actorByName(name);
+      return withUserContext(
+        handle.db,
+        { userId: a.userId, roles: a.roles, ...(a.clientIds ? { clientIds: a.clientIds } : {}) },
+        async (tx) => {
+          const r = await tx.execute<{ open: boolean; walled: boolean }>(
+            sql`select pb.user_inside_wall('investment', ${ids.investment1}::uuid, ${person}::uuid) as open, pb.user_inside_wall('investment', ${ids.investmentWalled}::uuid, ${person}::uuid) as walled`,
+          );
+          return r.rows[0];
+        },
+      );
+    };
+    const member = ids.users.wallMember;
+    const outsider = ids.users.operations;
+    // A member asks about a fellow member and about someone outside the wall; nobody is outside
+    // an open record.
+    expect(await asks('wall_member(deal_team)', member)).toEqual({ open: true, walled: true });
+    expect(await asks('wall_member(deal_team)', outsider)).toEqual({ open: true, walled: false });
+    // Someone outside the wall learns nothing: the answer is false whoever is named, as it is for
+    // a record that does not exist.
+    expect(await asks('operations', member)).toEqual({ open: true, walled: false });
+    expect(await asks('operations', outsider)).toEqual({ open: true, walled: false });
+    expect(await asks('approver', member)).toEqual({ open: true, walled: false });
+    // The system actor sees every record and gets the plain membership answer.
+    expect(await asks('service', member)).toEqual({ open: true, walled: true });
+    expect(await asks('service', outsider)).toEqual({ open: true, walled: false });
   });
 });

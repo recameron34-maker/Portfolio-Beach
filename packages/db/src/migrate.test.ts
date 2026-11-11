@@ -444,6 +444,37 @@ describe('migrations', () => {
     expect(grants).toEqual([{ table: 'deal.allocation', privilege: 'DELETE' }]);
   });
 
+  it("0014: exceptions about change requests read under the request's policy, and the wall question about a named person", async () => {
+    // CR-1: the read policy on ops.data_exception walls mon.deal_change_request as it walls the
+    // staging tables, the documents and the runs (migrations 0010 and 0012).
+    const queue = await handle.query<{ qual: string }>(
+      "select qual from pg_policies where schemaname = 'ops' and tablename = 'data_exception' and policyname = 'read_all'",
+    );
+    expect(queue).toHaveLength(1);
+    for (const entity of [
+      'stg.intake_row',
+      'stg.valuation',
+      'doc.extraction_run',
+      'doc.document',
+      'mon.deal_change_request',
+    ])
+      expect(queue[0]?.qual, entity).toContain(`'${entity}'`);
+    // CR-3: the wall question about a named person is a definer with the pinned search path, as
+    // pb.can_see_walled is (migration 0009).
+    const fn = await handle.query<{ secdef: boolean; config: string[] | null; args: string }>(
+      `select p.prosecdef as secdef, p.proconfig as config, pg_get_function_identity_arguments(p.oid) as args
+       from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+       where n.nspname = 'pb' and p.proname = 'user_inside_wall'`,
+    );
+    expect(fn).toEqual([
+      {
+        secdef: true,
+        config: ['search_path=pg_catalog, public'],
+        args: 'entity_name text, record_id uuid, person_id uuid',
+      },
+    ]);
+  });
+
   it('never grant DELETE on financial tables or UPDATE/DELETE on the audit trail to the application role', async () => {
     const grants = await handle.query<{ table: string; privilege: string }>(`
       select table_schema || '.' || table_name as "table", privilege_type as privilege

@@ -457,6 +457,7 @@ export function quarterEndCheckFixture(): QuarterEndCheckResult {
   return {
     periodEnd: AS_OF,
     unapplied: rows.filter((r) => r.state !== 'Applied' && r.state !== 'Rejected'),
+    hidden: 0,
     exceptionsOpened: 2,
   };
 }

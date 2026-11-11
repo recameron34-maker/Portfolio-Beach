@@ -9,11 +9,12 @@ import { EXACT_AT_FORMAT } from '../common/cursor.js';
 
 /*
  * The one read of mon.deal_change_request (docs/04 M11, docs/18 section 8, decision 0013): the
- * queue, the detail, the quarter-end check and the valuation screen's open requests all read
- * through selectChangeRequests, under the caller's own row-level security (migration 0013: a
+ * queue, the detail, the quarter-end check's answer and the valuation screen's open requests all
+ * read through selectChangeRequests, under the caller's own row-level security (migration 0013: a
  * request carries its investment's wall, SEC-5.3), so a walled position's requests are simply
  * absent for anyone outside the wall. People are named from core.app_user by id; the position
- * is named by its company, as the valuation board names it.
+ * is named by its company, as the valuation board names it. The one read that is not the caller's
+ * is the quarter-end scan (unappliedRequestStates): ids and states only, for the system actor.
  */
 
 export const changeRequest = schema.dealChangeRequest;
@@ -124,15 +125,35 @@ export function pageChangeRequests(
     .limit(limit);
 }
 
-/** Every request not Applied or Rejected with an effective date on or before the period end, earliest first. */
-export function unappliedChangeRequests(tx: Tx, periodEnd: string): Promise<LoadedChangeRequest[]> {
-  return selectChangeRequests(tx)
+/**
+ * The id and state of every request not Applied or Rejected with an effective date on or before
+ * the period end: the quarter-end check's scan. It names no position and no person, and it is read
+ * as the system actor so that a walled position's requests are counted with the rest; what the
+ * caller is shown of them comes from changeRequestsAmong, under the caller's own policy.
+ */
+export function unappliedRequestStates(
+  tx: Tx,
+  periodEnd: string,
+): Promise<{ id: string; state: string }[]> {
+  return tx
+    .select({ id: changeRequest.id, state: changeRequest.state })
+    .from(changeRequest)
     .where(
       and(
         inArray(changeRequest.state, [...OPEN_STATES]),
         lte(changeRequest.effectiveDate, periodEnd),
       ),
-    )
+    );
+}
+
+/** Those of the requests named that the caller may see, the earliest effective date first. */
+export async function changeRequestsAmong(
+  tx: Tx,
+  ids: readonly string[],
+): Promise<LoadedChangeRequest[]> {
+  if (ids.length === 0) return [];
+  return selectChangeRequests(tx)
+    .where(inArray(changeRequest.id, [...ids]))
     .orderBy(asc(changeRequest.effectiveDate), asc(changeRequest.createdAt), asc(changeRequest.id));
 }
 

@@ -236,7 +236,11 @@ export type QuarterEndCheckBody = z.infer<typeof quarterEndCheckBody>;
 
 export const quarterEndCheckResult = z.object({
   periodEnd: s.isoDate,
+  /** The unapplied requests the caller may see, earliest effective date first. */
   unapplied: z.array(changeRequestRow),
+  /** Unapplied requests on positions not visible to the caller; never a reason to show them. */
+  hidden: z.number().int().min(0),
+  /** Exceptions this run opened, for the listed and the hidden requests alike. */
   exceptionsOpened: z.number().int(),
 });
 export type QuarterEndCheckResult = z.infer<typeof quarterEndCheckResult>;

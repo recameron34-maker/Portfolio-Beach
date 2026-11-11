@@ -2,7 +2,7 @@ import { Inject, Injectable } from '@nestjs/common';
 import { and, eq, inArray, lt, or, sql } from 'drizzle-orm';
 import type { SQL } from 'drizzle-orm';
 import type { AdapterSet, Principal } from '@pb/adapters';
-import { isQuarterEnd } from '@pb/calc';
+import { containingQuarterEnd, isQuarterEnd } from '@pb/calc';
 import { changeRequestState } from '@pb/contracts';
 import type {
   ChangeRequestCommandBody,
@@ -21,15 +21,17 @@ import type { z } from 'zod';
 import { AT_ID_CURSOR, decodeAtIdCursor, encodeCursor } from '../common/cursor.js';
 import { ProblemError, workflowProblem } from '../common/problem.js';
 import { requireFreshRow } from '../common/row-version.js';
+import { systemStep } from '../common/system-step.js';
 import { ADAPTERS } from '../common/tokens.js';
 import { requireUuid } from '../common/validate.js';
 import { DbService } from '../db/db.service.js';
 import {
   changeRequest as cr,
+  changeRequestsAmong,
   loadChangeRequest,
   pageChangeRequests,
   toChangeRequestRow,
-  unappliedChangeRequests,
+  unappliedRequestStates,
 } from './queries.js';
 
 /*
@@ -41,7 +43,15 @@ import {
  * the state before and after (SEC-11.1). Reads run under the caller's row-level security: a
  * request on a walled position is 404 outside the wall (SEC-5.3). The quarter-end check is the
  * M11 acceptance criterion: a request not applied by the quarter end appears on the exceptions
- * list, through one data exception per request that the system actor opens (docs/18 section 9).
+ * list, through one data exception per request that the system actor opens (docs/18 section 9),
+ * for every request on the book, the ones behind a wall the runner is outside of included; each
+ * exception is then read under its request's own policy (migration 0014).
+ *
+ * Two ways of acting past the caller's own role, each where it belongs (CLAUDE.md rule 7):
+ * systemStep (the service role, the actor kept) for the deal team's route, a person's write that
+ * the table's update policy leaves to operations and the service, so updated_by names the person;
+ * asSystemActor (the system user) for the quarter-end scan and its exceptions, which no person
+ * decides and whose rows the runner may not even see.
  */
 
 export type ChangeRequestListOptions = z.infer<typeof changeRequestListQuery>;
@@ -209,14 +219,17 @@ export class ChangeRequestsService {
   }
 
   /**
-   * route (the deal team, or the service) names the operations owner and moves Submitted to
-   * Routed; start (operations) opens the work; apply (operations) records the quarter end the
-   * change was applied in, which must be a quarter end on or after the effective date; reject
-   * (operations) needs the reason the table requires. The row stays locked until the transaction
-   * ends and the write guards on the state and row version read, so a command that lost the race
-   * is 409. An If-Match that no longer matches is 412. The route write runs as the system actor:
-   * the table's update policy admits operations and the service (migration 0013), and the machine
-   * has already admitted the deal team member; the audit event names the person.
+   * route (the deal team, or the service) names the owner, who must be able to open the request
+   * (inside the position's wall when it has one), and moves Submitted to Routed; start
+   * (operations) opens the work; apply (operations) records the quarter end the change was
+   * applied in, which must be a quarter end on or after the effective date and no later than the
+   * quarter the clock is in; reject (operations) needs the reason the table requires. The row
+   * stays locked until the transaction ends and the write guards on the state and row version
+   * read, so a command that lost the race is 409. An If-Match that no longer matches is 412.
+   * The table's update policy admits operations and the service (migration 0013), so a deal team
+   * member's lock and route write run as a system step once the machine has admitted them: the
+   * role is the service's, the actor stays the person, and updated_by and the audit event both
+   * name who routed it.
    */
   async command(
     principal: Principal,
@@ -227,16 +240,19 @@ export class ChangeRequestsService {
   ): Promise<ChangeRequestRow> {
     requireUuid(id, NOT_FOUND);
     return this.db.run(principal, requestId, async (tx, audit) => {
-      // Visibility is the caller's own (404 past a wall); the lock is taken as the system actor,
-      // because a row locked for update must also pass the table's update policy, which admits
-      // operations and the service only, and the deal team's route would otherwise never find it.
+      // Visibility is the caller's own (404 past a wall). A row locked for update must also pass
+      // the table's update policy, which admits operations and the service only: operations locks
+      // it as itself, and the deal team's route takes the lock in a system step (the actor kept),
+      // or it would never find the row.
       const visible = (await tx.select({ id: cr.id }).from(cr).where(eq(cr.id, id)))[0];
       if (visible === undefined) throw new ProblemError(404, 'not-found', NOT_FOUND);
-      const locked = await asSystemActor(
-        tx,
-        async (stx) =>
+      const worksQueue = principal.roles.includes('operations');
+      const asWriter = <T>(fn: () => Promise<T>): Promise<T> =>
+        worksQueue ? fn() : systemStep(tx, principal, fn);
+      const locked = await asWriter(
+        async () =>
           (
-            await stx
+            await tx
               .select({
                 id: cr.id,
                 investmentId: cr.investmentId,
@@ -265,9 +281,7 @@ export class ChangeRequestsService {
       });
       if (!result.ok) throw workflowProblem(result);
       const patch = await this.patchFor(tx, locked, body, result.to, principal.userId);
-      if (body.command === 'route')
-        await asSystemActor(tx, (stx) => claim(stx, locked, from, patch));
-      else await claim(tx, locked, from, patch);
+      await asWriter(() => claim(tx, locked, from, patch));
       await audit({
         action: `change_request.${body.command}`,
         entity: ENTITY,
@@ -290,12 +304,17 @@ export class ChangeRequestsService {
   }
 
   /**
-   * The quarter-end check (docs/18 section 8, the M11 acceptance criterion): every request the
-   * caller sees that is not Applied or Rejected with an effective date on or before the period
-   * end is listed, and each one without a data exception still on the queue gets one, opened as
-   * the system actor (the queue's writer for what no person decides): source change_request,
-   * rule CR-QE-01, expected "Applied by <period end>", actual the state. A second run for the
-   * same period opens nothing more. The run is audited with its counts.
+   * The quarter-end check (docs/18 section 8, the M11 acceptance criterion): every request on
+   * the book that is not Applied or Rejected with an effective date on or before the period end
+   * gets a data exception unless one is still on the queue, whoever runs the check. The scan and
+   * the inserts are the system actor's (the queue's writer for what no person decides, docs/18
+   * section 9), so a request behind a wall the runner is outside of is covered like the rest:
+   * source change_request, rule CR-QE-01, expected "Applied by <period end>", actual the state.
+   * The answer lists the requests the caller may see, read under the caller's own policy, and
+   * counts the others as hidden; each exception is read under its request's policy (migration
+   * 0014), so the hidden ones stay inside their wall. A second run for the same period opens
+   * nothing more. The run is audited with its counts and the ids the caller saw, never a hidden
+   * id: the audit trail is read outside the walls.
    */
   async quarterEndCheck(
     principal: Principal,
@@ -303,63 +322,69 @@ export class ChangeRequestsService {
     body: QuarterEndCheckBody,
   ): Promise<QuarterEndCheckResult> {
     return this.db.run(principal, requestId, async (tx, audit) => {
-      const rows = await unappliedChangeRequests(tx, body.periodEnd);
-      const unapplied = rows.map(toChangeRequestRow);
-      const ids = unapplied.map((r) => r.id);
-      const exceptionsOpened =
-        ids.length === 0
-          ? 0
-          : await asSystemActor(tx, async (stx) => {
-              const listed = new Set(
-                (
-                  await stx
-                    .select({ entityId: x.entityId })
-                    .from(x)
-                    .where(
-                      and(
-                        eq(x.entity, ENTITY),
-                        eq(x.ruleId, QUARTER_END_RULE),
-                        inArray(x.state, [...EXCEPTION_OPEN_STATES]),
-                        inArray(x.entityId, ids),
-                      ),
-                    )
-                ).map((e) => e.entityId),
-              );
-              const missing = unapplied.filter((r) => !listed.has(r.id));
-              if (missing.length === 0) return 0;
-              await stx.insert(x).values(
-                missing.map((r) => ({
-                  source: QUARTER_END_SOURCE,
-                  entity: ENTITY,
-                  entityId: r.id,
-                  ruleId: QUARTER_END_RULE,
-                  expected: `Applied by ${body.periodEnd}`,
-                  actual: r.state,
-                  severity: QUARTER_END_SEVERITY,
-                  state: 'open',
-                  candidates: [],
-                })),
-              );
-              return missing.length;
-            });
+      const scan = await asSystemActor(
+        tx,
+        async (stx): Promise<{ ids: string[]; opened: number }> => {
+          const requests = await unappliedRequestStates(stx, body.periodEnd);
+          if (requests.length === 0) return { ids: [], opened: 0 };
+          const ids = requests.map((r) => r.id);
+          const listed = new Set(
+            (
+              await stx
+                .select({ entityId: x.entityId })
+                .from(x)
+                .where(
+                  and(
+                    eq(x.entity, ENTITY),
+                    eq(x.ruleId, QUARTER_END_RULE),
+                    inArray(x.state, [...EXCEPTION_OPEN_STATES]),
+                    inArray(x.entityId, ids),
+                  ),
+                )
+            ).map((e) => e.entityId),
+          );
+          const missing = requests.filter((r) => !listed.has(r.id));
+          if (missing.length > 0)
+            await stx.insert(x).values(
+              missing.map((r) => ({
+                source: QUARTER_END_SOURCE,
+                entity: ENTITY,
+                entityId: r.id,
+                ruleId: QUARTER_END_RULE,
+                expected: `Applied by ${body.periodEnd}`,
+                actual: r.state,
+                severity: QUARTER_END_SEVERITY,
+                state: 'open',
+                candidates: [],
+              })),
+            );
+          return { ids, opened: missing.length };
+        },
+      );
+      // What the caller is shown of the scan: the requests their own policy admits. The rest is a count.
+      const unapplied = (await changeRequestsAmong(tx, scan.ids)).map(toChangeRequestRow);
+      const hidden = scan.ids.length - unapplied.length;
       await audit({
         action: 'change_request.quarter_end_check',
         entity: ENTITY,
         details: {
           periodEnd: body.periodEnd,
-          unapplied: ids.length,
-          exceptionsOpened,
-          requestIds: ids,
+          unapplied: scan.ids.length,
+          hidden,
+          exceptionsOpened: scan.opened,
+          requestIds: unapplied.map((r) => r.id),
         },
       });
-      return { periodEnd: body.periodEnd, unapplied, exceptionsOpened };
+      return { periodEnd: body.periodEnd, unapplied, hidden, exceptionsOpened: scan.opened };
     });
   }
 
   /**
    * What a command writes once the table admits it, with the checks the table leaves to the
-   * service: route names a known active user; apply names a quarter end on or after the
-   * effective date (the contract already refuses a date that is no quarter end).
+   * service: route names a known active user who can open the request (inside the position's
+   * wall when it has one, asked of pb.user_inside_wall as the caller, who is inside it); apply
+   * names a quarter end on or after the effective date and no later than the quarter the clock
+   * is in (the contract already refuses a date that is no quarter end).
    */
   private async patchFor(
     tx: Tx,
@@ -377,6 +402,13 @@ export class ChangeRequestsService {
             .where(and(eq(schema.appUser.id, body.ownerId), eq(schema.appUser.isActive, true)))
         )[0];
         if (owner === undefined) throw precondition('the owner is not a known active user');
+        const wall = await tx.execute<{ inside: boolean }>(
+          sql`select pb.user_inside_wall('investment', ${locked.investmentId}::uuid, ${body.ownerId}::uuid) as inside`,
+        );
+        if (wall.rows[0]?.inside !== true)
+          throw precondition(
+            'the owner is outside the wall of this position and could not open the request; name an owner inside the wall',
+          );
         return { state: to, ownerId: body.ownerId };
       }
       case 'start':
@@ -387,6 +419,12 @@ export class ChangeRequestsService {
         if (body.appliedPeriod < locked.effectiveDate)
           throw precondition(
             `the applied-in period ${body.appliedPeriod} is before the effective date ${locked.effectiveDate}`,
+          );
+        // A change is applied in a quarter that has started: never one the clock has not reached.
+        const currentQuarterEnd = containingQuarterEnd(this.adapters.clock.today());
+        if (body.appliedPeriod > currentQuarterEnd)
+          throw precondition(
+            `the applied-in period ${body.appliedPeriod} is after the current quarter end ${currentQuarterEnd}`,
           );
         return {
           state: to,
