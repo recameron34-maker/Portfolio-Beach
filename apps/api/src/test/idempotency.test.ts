@@ -3,6 +3,7 @@ import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import {
   ROUTES,
   capitalNoticeControlDetail,
+  changeRequestRow,
   opportunityDetail,
   problemDetails,
   valuationRow,
@@ -188,6 +189,53 @@ describe('Idempotency-Key (docs/17 section 3)', () => {
     // The repeat is its own request: it carries its own request id, never the first one's.
     expect(again.headers['x-request-id']).toBe('req-idem-review-2');
     expect(problemType(await send('ops.one', path, { command: 'review' }).expect(409))).toBe(
+      `${PROBLEM}workflow-transition`,
+    );
+  });
+
+  it('replays a change request create and its routing: one request, routed once', async () => {
+    const walled = h.dataset.scenarios.walled_deal![0]!;
+    const investment = h.dataset.investments.find((i) => i.isActive && i.id !== walled)!;
+    const form = {
+      investmentId: investment.id,
+      changeType: 'change_type.add_on_acquisition',
+      effectiveDate: h.dataset.asOf,
+      summary: 'Idem add-on acquisition of a regional competitor closed',
+      details: { target: 'A regional competitor' },
+    };
+    const first = await send(
+      'deal.one',
+      '/api/v1/change-requests',
+      form,
+      keyOf('cr-create-1'),
+    ).expect(201);
+    const created = changeRequestRow.parse(first.body);
+    const again = await send(
+      'deal.one',
+      '/api/v1/change-requests',
+      form,
+      keyOf('cr-create-1'),
+    ).expect(201);
+    expect(again.headers[REPLAYED]).toBe('true');
+    expect(again.body).toEqual(first.body);
+    expect(again.headers.etag).toBe(first.headers.etag);
+    expect(await count('mon.deal_change_request where summary = $1', [form.summary])).toBe(1);
+
+    const path = `/api/v1/change-requests/${created.id}/commands`;
+    const route = { command: 'route', ownerId: user('ops.one').id };
+    const routed = await send('deal.one', path, route, keyOf('cr-route-1')).expect(200);
+    expect(changeRequestRow.parse(routed.body).state).toBe('Routed');
+    const snapshot = async () => ({
+      audits: await count('audit.event'),
+      rowVersion: await rowVersionOf('mon.deal_change_request', created.id),
+    });
+    const before = await snapshot();
+    const replayed = await send('deal.one', path, route, keyOf('cr-route-1')).expect(200);
+    expect(replayed.headers[REPLAYED]).toBe('true');
+    expect(replayed.body).toEqual(routed.body);
+    expect(await snapshot()).toEqual(before);
+    // Without the key the routing is evaluated again, and the table refuses it.
+    expect(problemType(await send('deal.one', path, route).expect(409))).toBe(
       `${PROBLEM}workflow-transition`,
     );
   });
