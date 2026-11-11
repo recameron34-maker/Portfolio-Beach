@@ -77,7 +77,7 @@ describe('closing tab', () => {
     expect(within(tieOut).getByRole('group', { name: 'Commitment' })).toHaveTextContent('$20.0M');
     expect(within(tieOut).getByRole('group', { name: 'Allocated' })).toHaveTextContent('$20.0M');
     expect(within(tieOut).getByTestId('allocations-hidden-lines')).toHaveTextContent(
-      '1 client line is not shown. Client-level lines are for operations, the investment team and readers entitled to the client.',
+      '1 client line is not shown. Client-level lines are for operations, the investment team (the deal team and approvers) and auditors, and for readers entitled to the client.',
     );
     expect(within(tieOut).queryByRole('button', { name: /Client breakdown/ })).toBeNull();
     cleanup();

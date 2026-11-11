@@ -29,6 +29,7 @@ import {
 import definitions from '../../../../../config/definitions.json';
 import type { Tone } from '../../components/ui.js';
 import { formatMoneyM, labelOf, MISSING, plural } from '../../lib/format.js';
+import { WHO_READS_EVERY_CLIENT } from '../../lib/roles.js';
 import { isFairValue } from '../valuations/board.js';
 
 /*
@@ -360,12 +361,13 @@ export function breakdownLabel(clientLines: number): string {
 
 /**
  * What a reader who is shown fewer lines than the deal has is told, or null when every line is
- * shown: how many are not, and who reads client-level lines (docs/05 SEC-5.2). A quiet line beside
- * the client breakdown, never a warning: the totals above it are the deal's either way.
+ * shown: how many are not, and who reads client-level lines (docs/05 SEC-5.2; the roles come from
+ * the one list every page shares, WHO_READS_EVERY_CLIENT). A quiet line beside the client
+ * breakdown, never a warning: the totals above it are the deal's either way.
  */
 export function hiddenLinesNote(hiddenLines: number): string | null {
   if (hiddenLines <= 0) return null;
-  return `${plural(hiddenLines, 'client line')} ${hiddenLines === 1 ? 'is' : 'are'} not shown. Client-level lines are for operations, the investment team and readers entitled to the client.`;
+  return `${plural(hiddenLines, 'client line')} ${hiddenLines === 1 ? 'is' : 'are'} not shown. Client-level lines are for ${WHO_READS_EVERY_CLIENT}, and for readers entitled to the client.`;
 }
 
 /** The editor's lines from the rows, in the order the pages show them (orderedByVehicle). */

@@ -613,7 +613,7 @@ describe('opportunity page', () => {
     // A quiet line says how many lines are not shown; it is not an alert.
     const note = within(editor).getByTestId('allocations-hidden-lines');
     expect(note).toHaveTextContent(
-      '1 client line is not shown. Client-level lines are for operations, the investment team and readers entitled to the client.',
+      '1 client line is not shown. Client-level lines are for operations, the investment team (the deal team and approvers) and auditors, and for readers entitled to the client.',
     );
     expect(note).toHaveClass('pb-meta');
     expect(within(editor).queryByRole('alert')).toBeNull();
@@ -707,7 +707,7 @@ describe('opportunity page', () => {
     expect(within(editor).queryByRole('table', { name: 'Allocations' })).toBeNull();
     expect(within(editor).queryByTestId('allocations-empty')).toBeNull();
     expect(within(editor).getByTestId('allocations-hidden-lines')).toHaveTextContent(
-      '3 client lines are not shown. Client-level lines are for operations, the investment team and readers entitled to the client.',
+      '3 client lines are not shown. Client-level lines are for operations, the investment team (the deal team and approvers) and auditors, and for readers entitled to the client.',
     );
     // The tile and the gate read the deal's tie-out, as every reader's do.
     expect(screen.getByTestId('opportunity-tiles')).toHaveTextContent('Short by $8.0M');
@@ -746,7 +746,7 @@ describe('opportunity page', () => {
     );
     expect(within(lead).queryByRole('group', { name: 'Commitment' })).toBeNull();
     expect(within(editor).getByTestId('allocations-hidden-lines')).toHaveTextContent(
-      '1 client line is not shown. Client-level lines are for operations, the investment team and readers entitled to the client.',
+      '1 client line is not shown. Client-level lines are for operations, the investment team (the deal team and approvers) and auditors, and for readers entitled to the client.',
     );
     expect(document.body.textContent).not.toContain(String.fromCharCode(0x2014));
   });

@@ -551,7 +551,8 @@ describe('migrations', () => {
       'write_insert',
       'write_update',
     ]);
-    for (const w of writes) expect(w.roles, w.policyname).toContain('{deal_team,operations,service}');
+    for (const w of writes)
+      expect(w.roles, w.policyname).toContain('{deal_team,operations,service}');
     // Row-level security stays forced on the table and no definer function reads it.
     const forced = await handle.query<{ forced: boolean }>(
       "select c.relforcerowsecurity as forced from pg_class c join pg_namespace n on n.oid = c.relnamespace where n.nspname = 'deal' and c.relname = 'allocation'",

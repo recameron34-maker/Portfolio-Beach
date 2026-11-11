@@ -345,7 +345,7 @@ describe('closing page', () => {
     expect(within(tieOut).getByText('Short by $8.0M')).toHaveClass('pb-badge-bad');
     const note = within(tieOut).getByTestId('allocations-hidden-lines');
     expect(note).toHaveTextContent(
-      '1 client line is not shown. Client-level lines are for operations, the investment team and readers entitled to the client.',
+      '1 client line is not shown. Client-level lines are for operations, the investment team (the deal team and approvers) and auditors, and for readers entitled to the client.',
     );
     expect(note).toHaveClass('pb-meta');
     expect(within(tieOut).queryByRole('alert')).toBeNull();
@@ -374,7 +374,7 @@ describe('closing page', () => {
     expect(tieOut).not.toHaveTextContent('No allocation lines');
     expect(within(tieOut).queryByRole('table', { name: 'Allocations' })).toBeNull();
     expect(within(tieOut).getByTestId('allocations-hidden-lines')).toHaveTextContent(
-      '3 client lines are not shown. Client-level lines are for operations, the investment team and readers entitled to the client.',
+      '3 client lines are not shown. Client-level lines are for operations, the investment team (the deal team and approvers) and auditors, and for readers entitled to the client.',
     );
   });
 

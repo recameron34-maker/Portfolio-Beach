@@ -423,10 +423,10 @@ describe('the lines by vehicle, the client breakdown and the lines not shown (D1
     expect(breakdownLabel(1)).toBe('Client breakdown (1 line)');
     expect(hiddenLinesNote(0)).toBeNull();
     expect(hiddenLinesNote(1)).toBe(
-      '1 client line is not shown. Client-level lines are for operations, the investment team and readers entitled to the client.',
+      '1 client line is not shown. Client-level lines are for operations, the investment team (the deal team and approvers) and auditors, and for readers entitled to the client.',
     );
     expect(hiddenLinesNote(3)).toBe(
-      '3 client lines are not shown. Client-level lines are for operations, the investment team and readers entitled to the client.',
+      '3 client lines are not shown. Client-level lines are for operations, the investment team (the deal team and approvers) and auditors, and for readers entitled to the client.',
     );
     for (const n of [1, 3]) expect(hiddenLinesNote(n)).not.toContain(EM_DASH);
   });
