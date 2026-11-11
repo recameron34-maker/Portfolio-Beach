@@ -720,12 +720,17 @@ export type WireInstructionRow = z.infer<typeof wireInstructionRow>;
 export const tradeTicketState = z.enum(['Drafted', 'Approved', 'Funded', 'Withdrawn']);
 export type TradeTicketState = z.infer<typeof tradeTicketState>;
 
-/** Why a ticket cannot be released (SEC-12.3), each one shown on the ticket. */
+/**
+ * Why a ticket cannot be released (SEC-12.3), each one shown on the ticket. verifier_within_hold:
+ * the active instruction was proposed inside the hold window and the caller proposed it or made
+ * the callback that verified it, so a third person releases the ticket.
+ */
 export const releaseBlocker = z.enum([
   'unverified_instruction',
   'changed_within_hold',
   'same_person',
   'no_instruction',
+  'verifier_within_hold',
 ]);
 export type ReleaseBlocker = z.infer<typeof releaseBlocker>;
 
@@ -739,7 +744,10 @@ export const tradeTicketRow = z.object({
   preparedAt: z.string(),
   approvedBy: person.nullable(),
   approvedAt: z.string().nullable(),
-  /** The instruction version the ticket was approved against; null until approved. */
+  /**
+   * The instruction version the ticket was approved against; null until approved, and null for a
+   * reader outside the register's roles (operations, approver, auditor, platform_admin).
+   */
   wireInstruction: z
     .object({
       id: uuid,
@@ -776,7 +784,11 @@ export const capitalNoticeDetail = capitalNoticeRow.extend({
   notes: z.array(z.string()),
   /** The notice's trade ticket with its release check (SEC-12.3); null until one is drafted. */
   ticket: tradeTicketRow.nullable(),
-  /** The counterparty's active Verified instruction, masked; null when none (SEC-12.2). */
+  /**
+   * The counterparty's active Verified instruction, masked (SEC-12.2); null when none, and null
+   * for a reader outside the register's roles (operations, approver, auditor, platform_admin):
+   * the unverified_instruction alert says whether one is on file.
+   */
   activeWireInstruction: wireInstructionRow.nullable(),
   /** The alerts in the contract's order; empty when nothing needs attention. */
   alerts: z.array(capitalNoticeAlert),

@@ -41,6 +41,8 @@ import {
   keyOf,
   loadRegisters,
   pendingChange,
+  readsRegister,
+  recentVerifiedChange,
 } from './register.js';
 import type { RegisterView } from './register.js';
 import { TICKET_ORDER, buildTicketRows } from './tickets.js';
@@ -61,14 +63,23 @@ import { TICKET_ORDER, buildTicketRows } from './tickets.js';
  * The hold window rule (SEC-12.3, register.ts pendingChange): a version of the counterparty other
  * than the active Verified one, proposed within capitalActivity.wireChangeHoldDays before today
  * and not Rejected, holds the ticket. A Proposed version waiting for its callback holds it; once
- * that version is verified by a second person it is the active one and the hold lifts, the
+ * that version is verified by a second person it is the active one and that hold lifts, the
  * callback being the second approval the control asks for. The detail's wireChangeHold field
- * derives from the same rule against the as-of date.
+ * derives from the same rule against the as-of date. For the rest of the window the verified
+ * change still counts as recent (register.ts recentVerifiedChange): the ticket approver must be a
+ * person other than its proposer and other than the person whose callback verified it, so three
+ * people touch a recently changed instruction; after the window dual control alone stands.
+ *
+ * The reconciliation books what was approved and funded: the cash flow carries the ticket's
+ * amount, and when that differs from the notice amount the audit event names both and the detail
+ * says so in its notes.
  *
  * Writes to the notice by an actor whose role the notice's write policy does not admit (an
  * approver approving a ticket) run as the system actor inside the same transaction (systemStep),
  * after the machine authorized the command for that role. Bank details never pass through here:
- * the ticket panel carries the masked form only.
+ * the ticket panel carries the masked form only, and only for the roles that read the register
+ * (register.ts readsRegister); every other reader of a notice gets the alerts, the hold and the
+ * release check without the register's row.
  */
 
 export type CapitalNoticeListOptions = Omit<z.infer<typeof capitalNoticeListQuery>, 'asOf'> & {
@@ -334,6 +345,7 @@ export class CapitalService {
           .where(eq(schema.document.id, locked.sourceDocumentId))
       ).length > 0;
     const live = ticketBefore !== null && ticketBefore.state !== 'Withdrawn';
+    const recent = recentVerifiedChange(register, today, holdDays);
     const record = {
       documentIndexed,
       bankFieldsExtracted: false,
@@ -341,6 +353,10 @@ export class CapitalService {
       ticketPreparedBy: live ? ticketBefore.preparedBy : undefined,
       wireVerified: register.active !== null,
       wireChangedWithinHold: pendingChange(register, today, holdDays) !== null,
+      // Null when no verified change sits inside the hold window: the machine then asks for
+      // nothing beyond dual control.
+      wireProposedByWithinHold: recent?.proposedBy.id ?? null,
+      wireVerifiedByWithinHold: recent?.callback?.by.id ?? null,
       ticketApproved: live && ticketBefore.state === 'Approved',
     };
     const result = attempt(capitalNoticeMachine, from, body.command, {
@@ -580,6 +596,9 @@ export class CapitalService {
       { asOf, holdDays, principal },
       eq(ticket.capitalNoticeId, id),
     );
+    // What left the account is the ticket's amount; the reconciliation books it (writeCashFlow).
+    if (ticketRow?.state === 'Funded' && !D(ticketRow.amount).equals(D(row.amount)))
+      notes.push('Funded amount differs from the notice amount.');
     const alerts = noticeAlerts({
       state: row.state,
       urgencyFlag: control.urgencyFlag,
@@ -595,7 +614,9 @@ export class CapitalService {
       wireChangeHold,
       notes,
       ticket: ticketRow ?? null,
-      activeWireInstruction: register.active,
+      // The register's row goes to the register's readers only; the alerts above already say
+      // whether a Verified instruction is on file (unverified_instruction).
+      activeWireInstruction: readsRegister(principal) ? register.active : null,
       alerts,
     };
   }
@@ -684,9 +705,12 @@ export class CapitalService {
   /**
    * The reconciliation's one write into mon.cash_flow (rule 5: the notice is the staging record a
    * person approved through the workflow; rule 6: the audit event carries the figure): one approved
-   * flow for the notice, typed and signed by the notice type, dated on the ticket's funding date
-   * (the due date without a ticket), with the actor as approver and the notice as its source. A
-   * notice that already has an approved flow is refused: nothing is counted twice.
+   * flow for the notice, typed and signed by the notice type, for the ticket's amount on the
+   * ticket's funding date (the notice's amount and due date without a ticket), with the actor as
+   * approver and the notice as its source. The ticket's amount is what two people approved and
+   * what was funded (draftTicket may name an amount other than the notice's), so it is the figure
+   * booked; when the two differ the audit event carries both. A notice that already has an
+   * approved flow is refused: nothing is counted twice.
    */
   private async writeCashFlow(
     tx: Tx,
@@ -713,7 +737,8 @@ export class CapitalService {
         'workflow-precondition',
         'capital_notice: no cash flow type is defined for this notice type',
       );
-    const amount = str(D(locked.amount).times(mapping.sign));
+    const funded = ticketRow?.amount ?? locked.amount;
+    const amount = str(D(funded).times(mapping.sign));
     if (amount === null) throw conflict('cash_flow');
     const flowDate = ticketRow?.fundingDate ?? locked.dueDate;
     const [inserted] = await tx
@@ -733,7 +758,16 @@ export class CapitalService {
       })
       .returning();
     if (inserted === undefined) throw conflict('cash_flow');
-    return { id: inserted.id, flowType: mapping.flowType, amount, flowDate, status: APPROVED };
+    return {
+      id: inserted.id,
+      flowType: mapping.flowType,
+      amount,
+      flowDate,
+      status: APPROVED,
+      ...(ticketRow !== null && !D(ticketRow.amount).equals(D(locked.amount))
+        ? { noticeAmount: locked.amount, ticketAmount: ticketRow.amount }
+        : {}),
+    };
   }
 
   /**

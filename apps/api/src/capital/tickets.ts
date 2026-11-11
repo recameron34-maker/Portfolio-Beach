@@ -7,7 +7,13 @@ import type { ReleaseBlocker, TradeTicketRow, TradeTicketState } from '@pb/contr
 import { schema } from '@pb/db';
 import type { Tx } from '@pb/db';
 import { systemStep } from '../common/system-step.js';
-import { keyOf, loadRegisters, pendingChange } from './register.js';
+import {
+  keyOf,
+  loadRegisters,
+  pendingChange,
+  readsRegister,
+  recentVerifiedChange,
+} from './register.js';
 import type { CounterpartyKeys, RegisterView } from './register.js';
 
 /*
@@ -33,10 +39,11 @@ export interface TicketContext {
   asOf: string;
   holdDays: number;
   /**
-   * Who is looking: the preparer sees same_person on their own ticket. The counterparty's register
-   * is read as a system step on their behalf: the masked active instruction and the hold are facts
-   * of the ticket its readers (TICKET_ROLES) see, while the register's own rows stay behind the
-   * register's policy.
+   * Who is looking: the preparer sees same_person on their own ticket, and the proposer or the
+   * verifier of a change inside the hold window sees verifier_within_hold. The counterparty's
+   * register is read as a system step on their behalf: the release check and the hold are facts
+   * of the ticket its readers (TICKET_ROLES) see, while the register's own rows, the version the
+   * ticket was approved against included, go to the register's readers only (readsRegister).
    */
   principal: Principal;
 }
@@ -63,6 +70,14 @@ export function releaseOf(
   if (pendingChange(register, ctx.asOf, ctx.holdDays) !== null)
     blockers.push('changed_within_hold');
   if (row.preparedBy === ctx.principal.userId) blockers.push('same_person');
+  // A change verified inside the window takes a third person: not its proposer, not its verifier.
+  const recent = recentVerifiedChange(register, ctx.asOf, ctx.holdDays);
+  if (
+    recent !== null &&
+    (recent.proposedBy.id === ctx.principal.userId ||
+      recent.callback?.by.id === ctx.principal.userId)
+  )
+    blockers.push('verifier_within_hold');
   return { allowed: blockers.length === 0, blockers };
 }
 
@@ -113,6 +128,9 @@ export async function buildTicketRows(
     sponsorFundId: r.investmentFundId ?? r.commitmentFundId,
   });
   const registers = await systemStep(tx, ctx.principal, () => loadRegisters(tx, rows.map(keysOf)));
+  // The register's policy already hides the joined version from other roles; said here as well so
+  // the rule does not rest on the join running under the reader's own roles.
+  const showVersion = readsRegister(ctx.principal);
   return rows.map((r) => {
     const state = tradeTicketState.parse(r.state);
     const register = registers.get(keyOf(keysOf(r))) ?? { versions: [], active: null };
@@ -130,7 +148,11 @@ export async function buildTicketRows(
           : null,
       approvedAt: r.approvedAt === null ? null : r.approvedAt.toISOString(),
       wireInstruction:
-        r.wireId !== null && r.wireVersion !== null && r.wireState !== null && r.wireMasked !== null
+        showVersion &&
+        r.wireId !== null &&
+        r.wireVersion !== null &&
+        r.wireState !== null &&
+        r.wireMasked !== null
           ? {
               id: r.wireId,
               version: r.wireVersion,

@@ -230,8 +230,9 @@ export async function loadRegisters(
  * A Rejected version is not a change (the callback refused it; the active instruction stands), so
  * it never holds a release; a Proposed version waiting for its callback, or a version Verified or
  * Superseded within the window, does. Once the changed version is verified by a second person
- * and becomes the active one, it is no longer "other than the active one" and the hold lifts:
- * the callback is the second approval the control asks for. Null when nothing holds.
+ * and becomes the active one, it is no longer "other than the active one" and this hold lifts:
+ * the callback is the second approval the control asks for, and recentVerifiedChange below then
+ * keeps the people who made the change from releasing against it. Null when nothing holds.
  */
 export function pendingChange(
   register: RegisterView,
@@ -246,6 +247,43 @@ export function pendingChange(
   }
   return latest;
 }
+
+/**
+ * The verified change still inside the hold window (SEC-12.3 "recently changed without a second
+ * approval"): the active Verified version when it was proposed within
+ * capitalActivity.wireChangeHoldDays before the date given, the same window pendingChange
+ * measures, from the day the new or changed instruction was proposed. While it is inside the
+ * window, the ticket approver must be a person other than its proposer and other than the person
+ * whose callback verified it, so three people touch a recently changed instruction
+ * (capitalNoticeMachine approveTicket, releaseOf in tickets.ts). Null once the window has passed
+ * or when there is no active version: the dual control rule alone stands.
+ */
+export function recentVerifiedChange(
+  register: RegisterView,
+  asOf: string,
+  holdDays: number,
+): WireInstructionRow | null {
+  const active = register.active;
+  if (active === null) return null;
+  return asOf < addDays(isoDateOf(new Date(active.proposedAt)), holdDays) ? active : null;
+}
+
+/**
+ * The roles the register is read by (the read_register policy of migration 0013 and WIRE_ROLES
+ * of the contract's route table, plus the system actor). A register row, even masked, carries the
+ * bank's name, the last four digits and the names of the people who proposed and verified it:
+ * pages that every role reads (the notice detail, the ticket) hand it to these roles only.
+ */
+const REGISTER_READERS: readonly string[] = [
+  'operations',
+  'approver',
+  'auditor',
+  'platform_admin',
+  'service',
+];
+
+export const readsRegister = (principal: { roles: readonly string[] }): boolean =>
+  principal.roles.some((role) => REGISTER_READERS.includes(role));
 
 /** The notices a counterparty's instructions pay: by the investment, or by the fund through the investment or the commitment. */
 export function noticesOfCounterpartyWhere(keys: CounterpartyKeys): SQL {

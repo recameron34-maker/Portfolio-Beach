@@ -1,5 +1,9 @@
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { existsSync, mkdtempSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { createTestDb } from './testing.js';
+import { createDb } from './client.js';
 import type { DbHandle } from './client.js';
 import { decryptBankDetails, DEV_FIELD_KEY, FieldCipher } from './fieldCrypto.js';
 import { loadSyntheticDataset, syntheticDatasetSchema } from './seed.js';
@@ -520,6 +524,72 @@ describe('the seed loader and the Phase 3 controls (migration 0013)', () => {
     } finally {
       await own.close();
     }
+  });
+
+  describe('the seed CLI (cli/seed.ts) hands the loader the cipher of the environment (SEC-12.2)', () => {
+    const KEY_HEX = '2a'.repeat(32);
+    const scratch = mkdtempSync(join(tmpdir(), 'pb-seed-cli-'));
+    const datasetPath = join(scratch, 'dataset.json');
+    const argv = process.argv;
+    beforeAll(() => {
+      writeFileSync(datasetPath, JSON.stringify(controlsDataset()));
+    });
+    afterEach(() => {
+      vi.unstubAllEnvs();
+      vi.restoreAllMocks();
+      process.argv = argv;
+    });
+
+    /** Runs the script as `pnpm db:seed:synthetic <dataset>` does, against its own database folder. */
+    const runCli = async (name: string, env: Record<string, string>): Promise<string> => {
+      const dataDir = join(scratch, name);
+      vi.resetModules();
+      vi.stubEnv('PB_DATABASE_URL', '');
+      vi.stubEnv('PB_PGLITE_DIR', dataDir);
+      vi.stubEnv('PB_FIELD_KEY_HEX', '');
+      for (const [key, value] of Object.entries(env)) vi.stubEnv(key, value);
+      process.argv = ['node', 'seed.js', datasetPath];
+      vi.spyOn(process.stdout, 'write').mockReturnValue(true);
+      vi.spyOn(process.stderr, 'write').mockReturnValue(true);
+      vi.spyOn(process, 'exit').mockImplementation((code) => {
+        throw new Error(`exit ${String(code)}`);
+      });
+      await import('./cli/seed.js');
+      return dataDir;
+    };
+    const seededCiphertext = async (dataDir: string): Promise<string> => {
+      const seeded = await createDb({ kind: 'pglite', dataDir });
+      try {
+        const rows = await seeded.query<{ bank_details_enc: string }>(
+          'select bank_details_enc from mon.wire_instruction where version = 1',
+        );
+        return rows[0]!.bank_details_enc;
+      } finally {
+        await seeded.close();
+      }
+    };
+
+    it('encrypts with PB_FIELD_KEY_HEX when it is set, so the API holding that key reads what the seed wrote', async () => {
+      const enc = await seededCiphertext(await runCli('keyed', { PB_FIELD_KEY_HEX: KEY_HEX }));
+      const key = new Uint8Array(32).fill(0x2a);
+      expect(decryptBankDetails(new FieldCipher(key), enc)).toEqual(BANK);
+      expect(() => decryptBankDetails(new FieldCipher(DEV_FIELD_KEY), enc)).toThrow();
+    });
+
+    it('falls back to the prototype key outside production only: in production an unset key is refused before anything is written', async () => {
+      const enc = await seededCiphertext(await runCli('dev', { NODE_ENV: 'development' }));
+      expect(decryptBankDetails(new FieldCipher(DEV_FIELD_KEY), enc)).toEqual(BANK);
+
+      await expect(runCli('production', { NODE_ENV: 'production' })).rejects.toThrow('exit 1');
+      expect(existsSync(join(scratch, 'production'))).toBe(false);
+    });
+
+    it('refuses a key that is set but malformed, never falling back to the prototype key', async () => {
+      await expect(runCli('malformed', { PB_FIELD_KEY_HEX: 'ab'.repeat(31) })).rejects.toThrow(
+        /64 hex/,
+      );
+      expect(existsSync(join(scratch, 'malformed'))).toBe(false);
+    });
   });
 });
 

@@ -176,6 +176,17 @@ export const capitalNoticeMachine: Machine<CapitalNoticeState, CapitalNoticeComm
           false,
           'the wire instruction changed recently and needs a second approval (SEC-12.3)',
         ),
+        // A change verified inside the hold window: its proposer and the person whose callback
+        // verified it are the first two people, the release takes a third. Both keys are null
+        // when the active instruction was proposed before the window.
+        notSameAs(
+          'wireProposedByWithinHold',
+          'the wire instruction changed recently: the person who proposed the change cannot approve the release, a third person must (SEC-12.3)',
+        ),
+        notSameAs(
+          'wireVerifiedByWithinHold',
+          'the wire instruction changed recently: the person who verified the change cannot approve the release, a third person must (SEC-12.3)',
+        ),
       ),
     },
     {
@@ -547,10 +558,20 @@ export type WireInstructionState = 'Proposed' | 'Verified' | 'Rejected' | 'Super
 export type WireInstructionCommand = 'verify' | 'reject' | 'supersede';
 
 /**
+ * A Proposed version older than the counterparty's Verified one would supersede a newer
+ * instruction if it were verified: olderThanVerified is true when such a newer version exists.
+ */
+const notOlderThanVerified = (ctx: TransitionContext): string | null =>
+  ctx.record.olderThanVerified === true
+    ? 'a newer version of this counterparty is already Verified; reject this older version instead (SEC-12.2)'
+    : null;
+
+/**
  * mon.wire_instruction.state. A new or changed instruction is a new Proposed version for its
  * counterparty. It becomes Verified only through a callback made by a person other than the
  * proposer, to an independently sourced number, that confirmed it (SEC-12.2); a later Verified
- * version supersedes it. Rejected and Superseded are terminal: a corrected instruction is proposed
+ * version supersedes it, and a Proposed version older than the Verified one is rejected, never
+ * verified over it. Rejected and Superseded are terminal: a corrected instruction is proposed
  * again as a new version.
  */
 export const wireInstructionMachine: Machine<WireInstructionState, WireInstructionCommand> = {
@@ -571,6 +592,7 @@ export const wireInstructionMachine: Machine<WireInstructionState, WireInstructi
           'the callback must be made by a person other than the proposer (SEC-12.2)',
         ),
         flag('callbackConfirmed', true, 'the callback did not confirm the instruction (SEC-12.2)'),
+        notOlderThanVerified,
       ),
       note: 'The callback is logged with its date, number source and result; this version becomes the active instruction.',
     },
