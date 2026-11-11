@@ -1,10 +1,11 @@
 import {
   CalcError,
   D,
-  ZERO,
   alignedQuarterEnd,
-  bandIndexOf,
+  bandKeyOf,
+  entryCohortBands,
   entrySnapshot,
+  entryStake,
   equityValue,
   evToEbitda,
   gainByDriver,
@@ -14,19 +15,20 @@ import {
   netDebtToEbitda,
   sinceEntryMeasures,
   summarizeFlows,
+  toSignedFlows,
   totalGain,
   turnBands,
   valueChange,
   valueCreationBridge,
-  weightedAverage,
+  valueCreationRollup,
 } from '@pb/calc';
-import type { Band, Decimal, GainByDriver as GainParts, ValueCreationBridge } from '@pb/calc';
-import { NOT_CALCULABLE_BAND, valueCreationReason } from '@pb/contracts';
+import type { Decimal, ValueCreationBridge } from '@pb/calc';
+import { matchesValueCreationFilters } from '@pb/contracts';
 import type {
   BridgeReason,
-  EntryCohort,
   InvestmentSummary,
   ValueCreation,
+  ValueCreationFilters,
   ValueCreationPoint,
   ValueCreationPosition,
   ValueCreationReason,
@@ -37,7 +39,7 @@ import { configDecimal, configError } from '../common/definitions.js';
 import { compareText } from '../common/order.js';
 import { QUARTERLY_REPORTING_DEAL_TYPES } from '../documents/expected.js';
 import type { InvestmentBaseRow } from '../portfolio/loaders.js';
-import { kindOf, pooledPositionMetrics, str } from '../portfolio/metrics.js';
+import { kindOf, str } from '../portfolio/metrics.js';
 import type { FlowRow, OperatingRow, ValuationRow } from '../portfolio/metrics.js';
 
 /*
@@ -95,17 +97,6 @@ export interface PositionInputs {
   operating: OperatingRow[];
 }
 
-/** A position's row with the Decimals the roll-up and the cohorts sum, so nothing is parsed back from strings. */
-export interface ComputedPosition {
-  inputs: PositionInputs;
-  position: ValueCreationPosition;
-  /** The approved entry snapshot dated on or before the as-of date. */
-  entry: OperatingRow | null;
-  gain: Decimal | null;
-  split: GainParts | null;
-  ebitdaGrowth: Decimal | null;
-}
-
 const withCalcStatus = (rows: readonly OperatingRow[]): OperatingRow[] =>
   rows.map((r) => ({ ...r, status: r.status.replace('record_status.', '') }));
 
@@ -128,32 +119,46 @@ function pointOf(row: OperatingRow): ValueCreationPoint {
   };
 }
 
+/** The day a position's company figures stop counting: the as-of date, or its exit when that came first. */
+export const bridgeCutoff = (exitDate: string | null, asOf: string): string =>
+  exitDate !== null && exitDate < asOf ? exitDate : asOf;
+
 /**
  * The entry and current quarters of a position as of a date. Entry is the row flagged
  * is_entry_snapshot (never the earliest date), and only once it is approved and dated on or
  * before the as-of date: a forward-dated snapshot is no basis for a comparison as of an earlier
- * day. Current is the latest approved quarter on or before the as-of date (docs/08 section 5);
- * a quarter that is not approved never counts.
+ * day, and `forwardDated` says that this is why there is no entry. Current is the latest approved
+ * quarter on or before the as-of date (docs/08 section 5), or on or before the exit date of a
+ * position realized by then: what the company did after we left is not our value creation. A
+ * quarter that is not approved never counts.
  */
 export function entryAndCurrent(
   operating: readonly OperatingRow[],
   asOf: string,
-): { entry: OperatingRow | null; current: OperatingRow | null } {
+  exitDate: string | null,
+): { entry: OperatingRow | null; current: OperatingRow | null; forwardDated: boolean } {
   const rows = withCalcStatus(operating);
-  const snapshot = entrySnapshot(rows);
-  const entry =
-    snapshot !== null && snapshot.status === 'approved' && snapshot.periodEnd <= asOf
-      ? snapshot
-      : null;
-  return { entry, current: latestPeriod(rows, asOf) };
+  const flagged = entrySnapshot(rows);
+  const snapshot = flagged !== null && flagged.status === 'approved' ? flagged : null;
+  const forwardDated = snapshot !== null && snapshot.periodEnd > asOf;
+  return {
+    entry: forwardDated ? null : snapshot,
+    current: latestPeriod(rows, bridgeCutoff(exitDate, asOf)),
+    forwardDated,
+  };
 }
 
 /** The company's bridge between two quarters, or the first reason it cannot be computed. */
 function bridgeOf(
   entry: OperatingRow | null,
   current: OperatingRow | null,
+  forwardDated: boolean,
 ): { bridge: ValueCreationBridge | null; reason: BridgeReason | null } {
-  if (entry === null) return { bridge: null, reason: 'no_entry_snapshot' };
+  if (entry === null)
+    return {
+      bridge: null,
+      reason: forwardDated ? 'entry_snapshot_forward_dated' : 'no_entry_snapshot',
+    };
   if (current === null) return { bridge: null, reason: 'no_current_quarter' };
   if (
     entry.ebitdaLtm === null ||
@@ -182,22 +187,35 @@ const figuresOf = (row: OperatingRow): Parameters<typeof sinceEntryMeasures>[0] 
   netDebt: row.netDebt,
 });
 
-const bandKey = (value: Decimal | null, edges: readonly Decimal[]): string =>
-  value === null ? NOT_CALCULABLE_BAND : `band_${bandIndexOf(value, edges)}`;
+/**
+ * A position's approved flows on or before the as-of date as the row carries them: signed from
+ * our side (paid out negative, received positive, fees and expenses included), by date and then
+ * by amount so the same book always answers the same list.
+ */
+function signedFlows(inputs: PositionInputs, asOf: string): ValueCreationPosition['flows'] {
+  return toSignedFlows(
+    inputs.flows
+      .filter((f) => f.flowDate <= asOf)
+      .map((f) => ({ date: f.flowDate, kind: kindOf(f.flowType), amount: f.amount })),
+  )
+    .map((f) => ({ date: f.date, amount: D(f.amount) }))
+    .sort((a, b) => compareText(a.date, b.date) || a.amount.comparedTo(b.amount))
+    .map((f) => ({ date: f.date, amount: str(f.amount)! }));
+}
 
 /** One position's row: the company side from its quarters, our side from the portfolio's own metrics. */
 export function computePosition(
   inputs: PositionInputs,
   asOf: string,
   bands: EntryBands,
-): ComputedPosition {
+): ValueCreationPosition {
   const { row, summary } = inputs;
-  const { entry, current } = entryAndCurrent(inputs.operating, asOf);
+  const { entry, current, forwardDated } = entryAndCurrent(inputs.operating, asOf, row.exitDate);
   const measures =
     entry === null || current === null
       ? null
       : sinceEntryMeasures(figuresOf(entry), figuresOf(current));
-  const { bridge, reason } = bridgeOf(entry, current);
+  const { bridge, reason } = bridgeOf(entry, current, forwardDated);
 
   // Our side is the position's own summary (the figures the portfolio grid shows), never a
   // second calculation: invested, distributions and NAV as of the date.
@@ -206,186 +224,114 @@ export function computePosition(
   const gain = calculable ? totalGain(distributions, nav, invested) : null;
   const valuationGrowth = calculable ? valueChange(D(nav).plus(distributions), invested) : null;
   const ebitdaGrowth = measures?.ebitdaGrowth ?? null;
-  const split = gainByDriver(gain, bridge);
-  const gainReason: ValueCreationReason | null =
-    split !== null
-      ? null
-      : bridge === null
-        ? reason
-        : gain === null
-          ? 'no_gain'
-          : 'no_equity_change';
+  // Our gain against the company's drivers at our entry stake (docs/08 section 8): without a
+  // bridge the bridge's reason stands, otherwise the split says why it has none.
+  const ours = bridge === null ? null : gainByDriver(gain, invested, bridge);
+  const split = ours?.value ?? null;
+  const gainReason: ValueCreationReason | null = ours === null ? reason : (ours.reason ?? null);
 
   return {
-    inputs,
-    entry,
-    gain,
-    split,
-    ebitdaGrowth,
-    position: {
-      id: row.id,
-      investmentNumber: row.investmentNumber,
-      companyName: row.companyName,
-      vehicleId: row.vehicleId,
-      vehicleName: row.vehicleName,
-      sponsorId: row.sponsorId,
-      sponsorName: row.sponsorName,
-      sector: row.sector,
-      dealType: row.dealType,
-      entryDate: row.entryDate,
-      exitDate: row.exitDate,
-      isActive: row.isActive,
-      entry: entry === null ? null : pointOf(entry),
-      current: current === null ? null : pointOf(current),
-      growth: {
-        ebitdaGrowth: str(ebitdaGrowth),
-        evGrowth: str(measures?.evGrowth ?? null),
-        equityValueGrowth: str(measures?.equityValueGrowth ?? null),
-        multipleChange: str(measures?.multipleChange ?? null),
-        netLeverageChange: str(measures?.netLeverageChange ?? null),
-        netDebtChange: str(measures?.netDebtChange ?? null),
-      },
-      bridge:
-        bridge === null
-          ? null
-          : {
-              equityAtEntry: str(bridge.equityAtEntry)!,
-              equityCurrent: str(bridge.equityCurrent)!,
-              ebitdaGrowth: str(bridge.ebitdaGrowth)!,
-              multipleExpansion: str(bridge.multipleExpansion)!,
-              debtPaydown: str(bridge.debtPaydown)!,
-              total: str(bridge.total)!,
-              shares:
-                bridge.shares === null
-                  ? null
-                  : {
-                      ebitdaGrowth: str(bridge.shares.ebitdaGrowth)!,
-                      multipleExpansion: str(bridge.shares.multipleExpansion)!,
-                      debtPaydown: str(bridge.shares.debtPaydown)!,
-                    },
-              revenueGrowth: str(bridge.revenueGrowth),
-              marginChange: str(bridge.marginChange),
-            },
-      notCalculable: reason,
-      invested,
-      nav,
-      distributions,
-      grossMoic: summary.grossMoic,
-      grossIrr: summary.grossIrr,
-      irrFlag: summary.irrFlag,
-      valuationGrowth: str(valuationGrowth),
-      valuationGrowthGap: str(
-        valuationGrowth === null || ebitdaGrowth === null
-          ? null
-          : valuationGrowth.minus(ebitdaGrowth),
-      ),
-      gain: str(gain),
-      gainByDriver: split === null ? null : gainParts(split),
-      gainNotCalculable: gainReason,
-      entryMultipleBand: bandKey(entry === null ? null : multipleOf(entry), bands.multiple),
-      entryLeverageBand: bandKey(entry === null ? null : leverageOf(entry), bands.leverage),
+    id: row.id,
+    investmentNumber: row.investmentNumber,
+    companyName: row.companyName,
+    vehicleId: row.vehicleId,
+    vehicleName: row.vehicleName,
+    sponsorId: row.sponsorId,
+    sponsorName: row.sponsorName,
+    sector: row.sector,
+    dealType: row.dealType,
+    entryDate: row.entryDate,
+    entryYear: Number(row.entryDate.slice(0, 4)),
+    exitDate: row.exitDate,
+    isActive: row.isActive,
+    status: row.isActive ? 'active' : 'realized',
+    entry: entry === null ? null : pointOf(entry),
+    current: current === null ? null : pointOf(current),
+    growth: {
+      ebitdaGrowth: str(ebitdaGrowth),
+      evGrowth: str(measures?.evGrowth ?? null),
+      equityValueGrowth: str(measures?.equityValueGrowth ?? null),
+      multipleChange: str(measures?.multipleChange ?? null),
+      netLeverageChange: str(measures?.netLeverageChange ?? null),
+      netDebtChange: str(measures?.netDebtChange ?? null),
     },
-  };
-}
-
-function gainParts(split: GainParts): NonNullable<ValueCreationPosition['gainByDriver']> {
-  return {
-    ebitdaGrowth: str(split.ebitdaGrowth)!,
-    multipleExpansion: str(split.multipleExpansion)!,
-    debtPaydown: str(split.debtPaydown)!,
-    revenueGrowth: str(split.revenueGrowth),
-    marginChange: str(split.marginChange),
+    bridge:
+      bridge === null
+        ? null
+        : {
+            equityAtEntry: str(bridge.equityAtEntry)!,
+            equityCurrent: str(bridge.equityCurrent)!,
+            ebitdaGrowth: str(bridge.ebitdaGrowth)!,
+            multipleExpansion: str(bridge.multipleExpansion)!,
+            debtPaydown: str(bridge.debtPaydown)!,
+            total: str(bridge.total)!,
+            shares:
+              bridge.shares === null
+                ? null
+                : {
+                    ebitdaGrowth: str(bridge.shares.ebitdaGrowth)!,
+                    multipleExpansion: str(bridge.shares.multipleExpansion)!,
+                    debtPaydown: str(bridge.shares.debtPaydown)!,
+                  },
+            revenueGrowth: str(bridge.revenueGrowth),
+            marginChange: str(bridge.marginChange),
+          },
+    notCalculable: reason,
+    invested,
+    nav,
+    distributions,
+    grossMoic: summary.grossMoic,
+    grossIrr: summary.grossIrr,
+    irrFlag: summary.irrFlag,
+    valuationGrowth: str(valuationGrowth),
+    valuationGrowthGap: str(
+      valuationGrowth === null || ebitdaGrowth === null
+        ? null
+        : valuationGrowth.minus(ebitdaGrowth),
+    ),
+    // The stake needs the entry snapshot and our invested capital only, so it stands where the
+    // bridge does not (a current quarter with EBITDA below zero, say).
+    stake: str(
+      entryStake(invested, entry === null ? null : equityValue(entry.ev, entry.netDebt)),
+    ),
+    gain: str(gain),
+    gainByDriver:
+      split === null
+        ? null
+        : {
+            ebitdaGrowth: str(split.ebitdaGrowth)!,
+            multipleExpansion: str(split.multipleExpansion)!,
+            debtPaydown: str(split.debtPaydown)!,
+            other: str(split.other)!,
+            revenueGrowth: str(split.revenueGrowth),
+            marginChange: str(split.marginChange),
+          },
+    gainNotCalculable: gainReason,
+    flows: signedFlows(inputs, asOf),
+    entryMultipleBand: bandKeyOf(entry === null ? null : multipleOf(entry), bands.multiple),
+    entryLeverageBand: bandKeyOf(entry === null ? null : leverageOf(entry), bands.leverage),
   };
 }
 
 /**
- * Our gain by driver summed over the positions it can be split for, so the drivers sum to the
- * gain and invested + gain = totalValue (NAV + distributions); the rest are counted by reason, in the order
- * the contract lists the reasons. The revenue and margin parts are a total only when every
- * position summed carries them, never a partial sum.
+ * The roll-up of the rows (docs/08 section 8): our gain by driver over the positions it is split
+ * for, and the positions pooled by entry multiple band and by entry net leverage band. It is the
+ * calculation library's own roll-up over the rows as the response carries them, so a page that
+ * filters those rows rolls the rest up by the same rule, and the two cannot disagree.
  */
-export function portfolioOf(computed: readonly ComputedPosition[]): ValueCreation['portfolio'] {
-  const included = computed.filter((c) => c.split !== null);
-  const reasons = new Map<ValueCreationReason, number>();
-  for (const c of computed) {
-    const reason = c.position.gainNotCalculable;
-    if (reason !== null) reasons.set(reason, (reasons.get(reason) ?? 0) + 1);
-  }
-  const notCalculable = valueCreationReason.options.flatMap((reason) => {
-    const count = reasons.get(reason);
-    return count === undefined ? [] : [{ reason, count }];
-  });
-  if (included.length === 0)
-    return {
-      positions: 0,
-      invested: null,
-      nav: null,
-      distributions: null,
-      totalValue: null,
-      gain: null,
-      gainByDriver: null,
-      notCalculable,
-    };
-  const sum = (pick: (c: ComputedPosition) => Decimal | string | null): Decimal =>
-    included.reduce((acc, c) => acc.plus(pick(c) ?? ZERO), ZERO);
-  const nav = sum((c) => c.position.nav);
-  const distributions = sum((c) => c.position.distributions);
-  const everyOne = included.every((c) => c.split !== null && c.split.revenueGrowth !== null);
-  return {
-    positions: included.length,
-    invested: str(sum((c) => c.position.invested)),
-    nav: str(nav),
-    distributions: str(distributions),
-    totalValue: str(nav.plus(distributions)),
-    gain: str(sum((c) => c.gain)),
-    gainByDriver: {
-      ebitdaGrowth: str(sum((c) => c.split?.ebitdaGrowth ?? null))!,
-      multipleExpansion: str(sum((c) => c.split?.multipleExpansion ?? null))!,
-      debtPaydown: str(sum((c) => c.split?.debtPaydown ?? null))!,
-      revenueGrowth: everyOne ? str(sum((c) => c.split?.revenueGrowth ?? null)) : null,
-      marginChange: everyOne ? str(sum((c) => c.split?.marginChange ?? null)) : null,
-    },
-    notCalculable,
-  };
-}
-
-/**
- * The positions pooled by the band of one entry metric: every config band, lowest first, an
- * empty one with a count of 0, then the "Not calculable" cohort for the positions with no entry
- * figure. Each cohort is pooled by the one pooled rule (docs/08 sections 2 and 3).
- */
-export function cohortsOf(
-  computed: readonly ComputedPosition[],
-  edges: readonly Decimal[],
-  keyOf: (position: ValueCreationPosition) => string,
+export function rollupOf(
+  positions: readonly ValueCreationPosition[],
+  bands: EntryBands,
   asOf: string,
-): EntryCohort[] {
-  const bands: (Band | null)[] = [...turnBands(edges), null];
-  return bands.map((band) => {
-    const key = band === null ? NOT_CALCULABLE_BAND : `band_${band.index}`;
-    const members = computed.filter((c) => keyOf(c.position) === key);
-    const weighted = members.flatMap((c) =>
-      c.position.invested === null || c.ebitdaGrowth === null
-        ? []
-        : [{ weight: c.position.invested, value: c.ebitdaGrowth }],
-    );
-    return {
-      key,
-      label: band === null ? 'Not calculable' : band.label,
-      lower: str(band?.lower ?? null),
-      upper: str(band?.upper ?? null),
-      ...pooledPositionMetrics(
-        members.map((c) => ({
-          flows: c.inputs.flows,
-          valuations: c.inputs.valuations,
-          isActive: c.inputs.row.isActive,
-        })),
-        asOf,
-      ),
-      ebitdaGrowth: str(weightedAverage(weighted)),
-      ebitdaGrowthPositions: weighted.length,
-    };
-  });
+): Pick<ValueCreation, 'portfolio' | 'cohorts'> {
+  return valueCreationRollup(
+    positions,
+    {
+      byEntryMultiple: entryCohortBands(bands.multiple),
+      byEntryLeverage: entryCohortBands(bands.leverage),
+    },
+    asOf,
+  );
 }
 
 /** The visible positions these views do not cover, counted by deal type and ordered by label. */
@@ -402,7 +348,8 @@ export function leftOutOf(
 
 /**
  * The indexed series of one position: the entry snapshot (the company lines at 100), then each
- * approved quarter after it on or before the as-of date. The company lines are indexed to the
+ * approved quarter after it on or before the as-of date, or on or before the exit of a position
+ * realized by then (the series stops where its bridge does). The company lines are indexed to the
  * entry figures; `markIndex` is the Locked mark that counts for the quarter (lockedNear, the
  * valuation board's rule) per 100 of the capital invested by the quarter's period end. A figure
  * that is missing, or whose base is not positive, is null: never carried and never zero.
@@ -412,7 +359,8 @@ export function seriesOf(
   asOf: string,
   toleranceDays: number,
 ): ValueCreationSeriesPoint[] {
-  const { entry } = entryAndCurrent(inputs.operating, asOf);
+  const { entry } = entryAndCurrent(inputs.operating, asOf, inputs.row.exitDate);
+  const cutoff = bridgeCutoff(inputs.row.exitDate, asOf);
   const company = (
     row: OperatingRow,
   ): Pick<ValueCreationSeriesPoint, 'ebitdaIndex' | 'evIndex' | 'equityValueIndex'> => ({
@@ -434,7 +382,7 @@ export function seriesOf(
       (r) =>
         !r.isEntrySnapshot &&
         r.status === 'approved' &&
-        r.periodEnd <= asOf &&
+        r.periodEnd <= cutoff &&
         (entry === null || r.periodEnd > entry.periodEnd),
     )
     .sort((a, b) => compareText(a.periodEnd, b.periodEnd));
@@ -468,6 +416,7 @@ export const VALUE_CREATION_CSV_COLUMNS = [
   'sector',
   'dealType',
   'entryDate',
+  'entryYear',
   'exitDate',
   'status',
   'entryPeriodEnd',
@@ -510,10 +459,12 @@ export const VALUE_CREATION_CSV_COLUMNS = [
   'irrFlag',
   'valuationGrowth',
   'valuationGrowthGap',
+  'stake',
   'gain',
   'gainEbitdaGrowth',
   'gainMultipleExpansion',
   'gainDebtPaydown',
+  'gainOther',
   'gainRevenueGrowth',
   'gainMarginChange',
   'gainNotCalculable',
@@ -537,8 +488,9 @@ function csvCells(
     sector: p.sector,
     dealType: p.dealType,
     entryDate: p.entryDate,
+    entryYear: String(p.entryYear),
     exitDate: p.exitDate,
-    status: p.isActive ? 'active' : 'realized',
+    status: p.status,
     entryPeriodEnd: p.entry?.periodEnd ?? null,
     entryRevenueLtm: p.entry?.revenueLtm ?? null,
     entryEbitdaLtm: p.entry?.ebitdaLtm ?? null,
@@ -579,10 +531,12 @@ function csvCells(
     irrFlag: p.irrFlag,
     valuationGrowth: p.valuationGrowth,
     valuationGrowthGap: p.valuationGrowthGap,
+    stake: p.stake,
     gain: p.gain,
     gainEbitdaGrowth: p.gainByDriver?.ebitdaGrowth ?? null,
     gainMultipleExpansion: p.gainByDriver?.multipleExpansion ?? null,
     gainDebtPaydown: p.gainByDriver?.debtPaydown ?? null,
+    gainOther: p.gainByDriver?.other ?? null,
     gainRevenueGrowth: p.gainByDriver?.revenueGrowth ?? null,
     gainMarginChange: p.gainByDriver?.marginChange ?? null,
     gainNotCalculable: p.gainNotCalculable,
@@ -592,13 +546,24 @@ function csvCells(
   };
 }
 
-/** The positions as CSV: a header line and one line per position, with the band labels of the view. */
-export function valueCreationCsv(view: ValueCreation): string {
+/** The positions of a view that pass its filters: the rule a page filters its own rows by. */
+export function filteredPositions(
+  view: ValueCreation,
+  filters: ValueCreationFilters,
+): ValueCreationPosition[] {
+  return view.positions.filter((p) => matchesValueCreationFilters(p, filters));
+}
+
+/**
+ * The positions as CSV: a header line and one line per position that passes the filters (every
+ * position when none is set), with the band labels of the view.
+ */
+export function valueCreationCsv(view: ValueCreation, filters: ValueCreationFilters = {}): string {
   const multipleLabels = new Map(view.cohorts.byEntryMultiple.map((c) => [c.key, c.label]));
   const leverageLabels = new Map(view.cohorts.byEntryLeverage.map((c) => [c.key, c.label]));
   return toCsv(
     VALUE_CREATION_CSV_COLUMNS,
-    view.positions.map((p) => {
+    filteredPositions(view, filters).map((p) => {
       const cells = csvCells(p, multipleLabels, leverageLabels);
       return VALUE_CREATION_CSV_COLUMNS.map((column) => cells[column] ?? '');
     }),

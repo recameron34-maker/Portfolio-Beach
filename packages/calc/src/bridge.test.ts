@@ -3,8 +3,10 @@ import fc from 'fast-check';
 import {
   CalcError,
   D,
+  RESULT_PLACES,
   ZERO,
   bandIndexOf,
+  entryStake,
   equityValue,
   evToEbitda,
   gainByDriver,
@@ -248,65 +250,129 @@ describe('totalGain and gainByDriver (docs/08 section 8)', () => {
     expect(totalGain('5', '5', '-4')?.toString()).toBe('6');
   });
 
-  it('splits our gain by the company shares into parts that sum to it exactly', () => {
+  it('sets our gain against the company drivers at our entry stake; the four parts are the gain exactly', () => {
     fc.assert(
       fc.property(
         companyPoint,
         companyPoint,
+        money(1, 2_000_000_000),
         money(-2_000_000_000, 2_000_000_000),
-        (entry, current, gain) => {
+        (entry, current, invested, gain) => {
           const b = bridgeOf(entry, current);
-          const split = gainByDriver(gain, b);
-          if (b.total.isZero()) {
-            expect(split).toBeNull();
+          const r = gainByDriver(gain, invested, b);
+          if (b.equityAtEntry.lte(0)) {
+            expect(r).toEqual({ value: null, reason: 'non_positive_entry_equity' });
+            expect(entryStake(invested, b.equityAtEntry)).toBeNull();
             return;
           }
-          expect(split).not.toBeNull();
-          const s = split!;
-          // Exact while every part stays below ten trillion (docs/08 section 8).
-          fc.pre(
-            [s.ebitdaGrowth, s.multipleExpansion, s.debtPaydown].every((p) => p.abs().lt('1e13')),
-          );
-          expect(sumOf(s.ebitdaGrowth, s.multipleExpansion, s.debtPaydown).eq(D(gain))).toBe(true);
+          expect(r.reason).toBeUndefined();
+          const s = r.value!;
+          // Any stake, any gain, any company total (zero included): no tolerance.
+          expect(
+            sumOf(s.ebitdaGrowth, s.multipleExpansion, s.debtPaydown, s.other).eq(D(gain)),
+          ).toBe(true);
+          expect(s.stake.eq(D(invested).div(b.equityAtEntry))).toBe(true);
+          expect(s.stake.eq(entryStake(invested, b.equityAtEntry)!)).toBe(true);
+          // Each driver part is the stake times the company's driver, held to the result places.
+          const half = D('0.5e-10');
+          const share = (driver: Decimal): Decimal => D(invested).times(driver).div(b.equityAtEntry);
+          expect(s.ebitdaGrowth.minus(share(b.ebitdaGrowth)).abs().lte(half)).toBe(true);
+          expect(s.multipleExpansion.minus(share(b.multipleExpansion)).abs().lte(half)).toBe(true);
+          expect(s.debtPaydown.minus(share(b.debtPaydown)).abs().lte(half)).toBe(true);
+          for (const part of [s.ebitdaGrowth, s.multipleExpansion, s.debtPaydown, s.other])
+            expect(part.decimalPlaces()).toBeLessThanOrEqual(RESULT_PLACES);
+          // The revenue and margin parts open the EBITDA part exactly.
           expect(s.revenueGrowth).not.toBeNull();
           expect(s.revenueGrowth!.plus(s.marginChange!).eq(s.ebitdaGrowth)).toBe(true);
-          // Each part is the gain times the driver's share, to the places the parts are held to.
-          const tol = '1e-15';
-          expect(within(s.ebitdaGrowth, D(gain).times(b.ebitdaGrowth).div(b.total), tol)).toBe(
-            true,
-          );
-          expect(
-            within(s.multipleExpansion, D(gain).times(b.multipleExpansion).div(b.total), tol),
-          ).toBe(true);
-          expect(within(s.debtPaydown, D(gain).times(b.debtPaydown).div(b.total), tol)).toBe(true);
+          // The remainder is what the company's change at our stake does not explain.
+          const explained = sumOf(s.ebitdaGrowth, s.multipleExpansion, s.debtPaydown);
+          expect(s.other.eq(D(gain).minus(explained))).toBe(true);
+          expect(explained.minus(share(b.total)).abs().lte(half.times(3))).toBe(true);
         },
       ),
       { numRuns: 300 },
     );
   });
 
-  it('is not calculable without a gain, without a bridge or when the company total is zero', () => {
+  it('scales the driver parts linearly with the stake, and moves the remainder by the same amount', () => {
+    fc.assert(
+      fc.property(
+        companyPoint,
+        companyPoint,
+        money(1, 20_000_000),
+        money(-2_000_000_000, 2_000_000_000),
+        fc.integer({ min: 2, max: 100 }),
+        (entry, current, invested, gain, k) => {
+          const b = bridgeOf(entry, current);
+          fc.pre(b.equityAtEntry.gt(0));
+          const one = gainByDriver(gain, invested, b).value!;
+          const many = gainByDriver(gain, D(invested).times(k), b).value!;
+          expect(many.stake.minus(one.stake.times(k)).abs().lte(one.stake.times('1e-30'))).toBe(
+            true,
+          );
+          // One rounding at the tenth place on each side: k halves and one more.
+          const tol = D('0.5e-10').times(k + 1);
+          for (const key of ['ebitdaGrowth', 'multipleExpansion', 'debtPaydown'] as const)
+            expect(many[key].minus(one[key].times(k)).abs().lte(tol), key).toBe(true);
+          expect(many.revenueGrowth!.minus(one.revenueGrowth!.times(k)).abs().lte(tol)).toBe(true);
+          // The gain is the same, so what the drivers gain the remainder gives up.
+          const drivers = (s: typeof one): Decimal =>
+            sumOf(s.ebitdaGrowth, s.multipleExpansion, s.debtPaydown);
+          expect(many.other.plus(drivers(many)).eq(one.other.plus(drivers(one)))).toBe(true);
+        },
+      ),
+      { numRuns: 200 },
+    );
+  });
+
+  it('says why nothing is split: no gain, nothing invested, or an entry equity value that is not positive', () => {
     const bridge = bridgeOf(
       { ebitda: '40', ev: '400', netDebt: '150' },
       { ebitda: '65', ev: '715', netDebt: '120' },
     );
+    expect(gainByDriver(null, '100', bridge)).toEqual({ value: null, reason: 'no_gain' });
+    expect(gainByDriver('100', null, bridge)).toEqual({ value: null, reason: 'no_gain' });
+    expect(gainByDriver('100', '0', bridge)).toEqual({ value: null, reason: 'no_gain' });
+    for (const netDebt of ['400', '400.01', '900']) {
+      const under = bridgeOf(
+        { ebitda: '40', ev: '400', netDebt },
+        { ebitda: '65', ev: '715', netDebt: '120' },
+      );
+      expect(gainByDriver('100', '10', under)).toEqual({
+        value: null,
+        reason: 'non_positive_entry_equity',
+      });
+    }
+    expect(entryStake('10', '250')?.toString()).toBe('0.04');
+    expect(entryStake('10', '0')).toBeNull();
+    expect(entryStake('10', '-1')).toBeNull();
+    expect(entryStake('0', '250')).toBeNull();
+    expect(entryStake(null, '250')).toBeNull();
+    expect(entryStake('10', null)).toBeNull();
+    // A stake of 10 in 250 of entry equity: 4% of each driver, and the rest of the gain.
+    const split = gainByDriver('20', '10', bridge).value!;
+    expect(split.stake.toString()).toBe('0.04');
+    expect(split.ebitdaGrowth.toString()).toBe('10');
+    expect(split.multipleExpansion.toString()).toBe('2.6');
+    expect(split.debtPaydown.toString()).toBe('1.2');
+    expect(split.other.toString()).toBe('6.2');
+    // No revenue on the bridge, so no revenue and margin parts of the gain either.
+    expect(split.revenueGrowth).toBeNull();
+    expect(split.marginChange).toBeNull();
+    // A company whose equity value did not move is no special case: the drivers cancel.
     const flat = bridgeOf(
       { ebitda: '50', ev: '500', netDebt: '200' },
       { ebitda: '55', ev: '520', netDebt: '220' },
     );
-    expect(gainByDriver(null, bridge)).toBeNull();
-    expect(gainByDriver('100', null)).toBeNull();
-    expect(gainByDriver('100', flat)).toBeNull();
-    const split = gainByDriver('345', bridge)!;
-    expect(split.ebitdaGrowth.toString()).toBe('250');
-    expect(split.multipleExpansion.toString()).toBe('65');
-    expect(split.debtPaydown.toString()).toBe('30');
-    // No revenue on the bridge, so no revenue and margin parts of the gain either.
-    expect(split.revenueGrowth).toBeNull();
-    expect(split.marginChange).toBeNull();
-    // A gain of zero splits into zeros, not into nothing.
-    const none = gainByDriver('0', bridge)!;
-    expect(none.ebitdaGrowth.isZero() && none.debtPaydown.isZero()).toBe(true);
+    expect(flat.total.isZero()).toBe(true);
+    const level = gainByDriver('7', '30', flat).value!;
+    expect(sumOf(level.ebitdaGrowth, level.multipleExpansion, level.debtPaydown).isZero()).toBe(
+      true,
+    );
+    expect(level.other.toString()).toBe('7');
+    // A gain of zero is split too: the remainder offsets the drivers.
+    const none = gainByDriver('0', '10', bridge).value!;
+    expect(none.other.toString()).toBe('-13.8');
   });
 });
 

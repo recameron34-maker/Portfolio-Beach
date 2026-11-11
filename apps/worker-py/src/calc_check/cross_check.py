@@ -9,10 +9,11 @@ from __future__ import annotations
 import json
 import sys
 from decimal import Decimal, localcontext
+from fractions import Fraction
 from pathlib import Path
 from typing import Any, cast
 
-from calc_check import CTX, credit, multiples, pme
+from calc_check import CTX, credit, multiples, pme, rollup
 from calc_check import attribution as attr
 from calc_check import bridge as vc
 from calc_check.irr import xirr
@@ -114,6 +115,22 @@ def check_case(case: dict[str, Any]) -> list[str]:
         )
         if not _agree(average, _dec(ts["weightedAverage"]), tol):
             problems.append(f"weightedAverage {average} vs ts {ts['weightedAverage']}")
+    elif kind == "rollup":
+        bands = {
+            name: rollup.cohort_bands(edges, vc.band_labels(edges))
+            for name, edges in (
+                ("byEntryMultiple", [Decimal(e) for e in inp["edges"]["multiple"]]),
+                ("byEntryLeverage", [Decimal(e) for e in inp["edges"]["leverage"]]),
+            )
+        }
+        rolled = rollup.rollup(inp["positions"], bands, inp["asOf"])
+        problems.extend(rollup.differences(rolled, ts, tol))
+        # The parts as they travel are the gain exactly: no tolerance (docs/08 section 8).
+        book = ts["portfolio"]
+        if book["gainByDriver"] is not None:
+            summed = sum((Fraction(book["gainByDriver"][k]) for k in rollup.PARTS), Fraction(0))
+            if summed != Fraction(book["gain"]):
+                problems.append("ts portfolio parts do not sum to the gain")
     else:
         problems.append(f"unknown kind {kind}")
     return problems
@@ -166,23 +183,26 @@ def _check_bridge(inp: dict[str, Any], ts: dict[str, Any], tol: Decimal) -> list
                 problems.append(f"share {key} {my_shares[key]} vs ts {theirs['shares'][key]}")
     split = vc.gain_by_driver(
         gain,
+        Decimal(inp["invested"]),
+        cast(Decimal, mine["equityAtEntry"]),
         cast(Decimal, mine["ebitdaGrowth"]),
         cast(Decimal, mine["multipleExpansion"]),
-        cast(Decimal, mine["total"]),
+        cast(Decimal, mine["debtPaydown"]),
         cast(Decimal | None, mine["revenueGrowth"]),
     )
-    if (split is None) != (ts["split"] is None):
-        problems.append("split null mismatch")
-    elif split is not None:
-        for key in (*DRIVERS, "revenueGrowth", "marginChange"):
-            if not _agree(split[key], _dec(ts["split"][key]), tol):
-                problems.append(f"split {key} {split[key]} vs ts {ts['split'][key]}")
-        # Exact while every part stays below ten trillion (docs/08 section 8).
-        small = all(abs(Decimal(ts["split"][k])) < Decimal("1e13") for k in DRIVERS)
-        with localcontext(CTX):
-            parts = sum((Decimal(ts["split"][k]) for k in DRIVERS), Decimal(0))
-        if small and parts != _dec(ts["gain"]):
-            problems.append("ts split does not sum to the gain")
+    if isinstance(split, str):
+        if ts["split"] is not None or ts["splitReason"] != split:
+            problems.append(f"split reason {split} vs ts {ts['splitReason']} {ts['split']}")
+        return problems
+    if ts["split"] is None:
+        return [*problems, f"split null mismatch (ts reason {ts['splitReason']})"]
+    for key in ("stake", *DRIVERS, "other", "revenueGrowth", "marginChange"):
+        if not _agree(split[key], _dec(ts["split"][key]), tol):
+            problems.append(f"split {key} {split[key]} vs ts {ts['split'][key]}")
+    # The four parts are the gain exactly, whatever the stake (docs/08 section 8).
+    parts = sum((Fraction(ts["split"][k]) for k in (*DRIVERS, "other")), Fraction(0))
+    if parts != Fraction(ts["gain"]):
+        problems.append("ts split does not sum to the gain")
     return problems
 
 

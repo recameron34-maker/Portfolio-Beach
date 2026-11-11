@@ -12,7 +12,9 @@ import {
   directAlpha,
   dscr,
   ebitdaMargin,
+  entryCohortBands,
   entrySnapshot,
+  entryStake,
   evToEbitda,
   gainByDriver,
   indexedLevel,
@@ -34,6 +36,7 @@ import {
   valueChange,
   valueCreationAttribution,
   valueCreationBridge,
+  valueCreationRollup,
   weightedAverage,
   xirr,
   yieldToMaturity,
@@ -46,6 +49,7 @@ import type {
   OperatingFigures,
   PaymentFrequency,
   PeriodRow,
+  RollupPosition,
 } from './index.js';
 
 /**
@@ -312,27 +316,60 @@ describe('golden fixtures', () => {
           cases.forEach((c, i) => {
             const e = results[i]!;
             const points = bridges[c.bridge]!;
-            const bridge = valueCreationBridge(points.entry, points.current).value;
+            const bridge = valueCreationBridge(points.entry, points.current).value!;
             const gain = totalGain(c.distributions, c.nav, c.invested);
             expectClose(gain, e.gain, tol);
-            const split = gainByDriver(gain, bridge);
+            const r = gainByDriver(gain, c.invested, bridge);
             if ('split' in e) {
-              expect(split).toBeNull();
+              expect(r.value).toBeNull();
+              expect(r.reason).toBe(e.reason);
               return;
             }
-            expect(split).not.toBeNull();
+            expect(r.reason).toBeUndefined();
+            const split = r.value!;
             for (const key of [
+              'stake',
               'ebitdaGrowth',
               'multipleExpansion',
               'debtPaydown',
+              'other',
               'revenueGrowth',
               'marginChange',
             ] as const) {
-              expectClose(split![key], e[key], tol);
+              expectClose(split[key], e[key], tol);
             }
+            expectClose(entryStake(c.invested, bridge.equityAtEntry), e.stake, tol);
+            // The four parts are the gain, to the last place: no tolerance here.
             expect(
-              split!.ebitdaGrowth.plus(split!.multipleExpansion).plus(split!.debtPaydown).eq(gain!),
+              split.ebitdaGrowth
+                .plus(split.multipleExpansion)
+                .plus(split.debtPaydown)
+                .plus(split.other)
+                .eq(gain!),
             ).toBe(true);
+          });
+          break;
+        }
+        case 'value_creation_rollup': {
+          const input = fx.input as {
+            asOf: string;
+            edges: { multiple: string[]; leverage: string[] };
+            positions: (RollupPosition & { id: string })[];
+            cases: string[][];
+          };
+          const results = fx.expected.results as unknown[];
+          expect(results.length).toBe(input.cases.length);
+          const bands = {
+            byEntryMultiple: entryCohortBands(input.edges.multiple),
+            byEntryLeverage: entryCohortBands(input.edges.leverage),
+          };
+          input.cases.forEach((ids, i) => {
+            const rows = input.positions.filter((p) => ids.includes(p.id));
+            expect(rows.length).toBe(ids.length);
+            // The figures as they travel: the golden strings, to the letter.
+            expect(valueCreationRollup(rows, bands, input.asOf), `case ${i + 1}`).toEqual(
+              results[i],
+            );
           });
           break;
         }

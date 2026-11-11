@@ -1,5 +1,6 @@
 import type { Decimal, DecimalInput } from './decimal.js';
-import { CalcError, D, ZERO } from './decimal.js';
+import { CalcError, D, ZERO, toDecimalString } from './decimal.js';
+import { NOT_CALCULABLE_BAND } from './terms.js';
 
 /*
  * Cohorts by an entry metric (docs/08 section 8): bands over a figure measured in turns (the
@@ -57,6 +58,39 @@ export function turnBands(edges: readonly DecimalInput[]): Band[] {
 export function bandIndexOf(value: DecimalInput, edges: readonly DecimalInput[]): number {
   const v = D(value);
   return ascending(edges).filter((edge) => edge.lte(v)).length;
+}
+
+/** A band as a cohort is listed under it: its key, its label and its bounds in turns as they travel. */
+export interface CohortBand {
+  key: string;
+  label: string;
+  /** The edge the band starts at; null for the lowest band and for "Not calculable". */
+  lower: string | null;
+  /** The edge the band stops short of; null for the highest band and for "Not calculable". */
+  upper: string | null;
+}
+
+const keyOfBand = (index: number): string => `band_${index}`;
+
+/** The cohort key of a figure in turns: its band by the edges, or NOT_CALCULABLE_BAND when there is no figure. */
+export function bandKeyOf(value: DecimalInput | null, edges: readonly DecimalInput[]): string {
+  return value === null ? NOT_CALCULABLE_BAND : keyOfBand(bandIndexOf(value, edges));
+}
+
+/**
+ * The cohorts an entry metric is listed under: every band of the edges, lowest first, then the
+ * explicit "Not calculable" cohort for the positions with no entry figure (never dropped).
+ */
+export function entryCohortBands(edges: readonly DecimalInput[]): CohortBand[] {
+  return [
+    ...turnBands(edges).map((band) => ({
+      key: keyOfBand(band.index),
+      label: band.label,
+      lower: toDecimalString(band.lower),
+      upper: toDecimalString(band.upper),
+    })),
+    { key: NOT_CALCULABLE_BAND, label: 'Not calculable', lower: null, upper: null },
+  ];
 }
 
 /**

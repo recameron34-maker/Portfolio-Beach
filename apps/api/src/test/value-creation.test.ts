@@ -1,15 +1,17 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { D, ZERO, toDecimalString, turnBands, valueChange } from '@pb/calc';
+import { D, ZERO, toDecimalString, turnBands, valueChange, valueCreationRollup } from '@pb/calc';
 import type { Decimal } from '@pb/calc';
 import {
   investmentPage,
   investmentValueCreation,
+  matchesValueCreationFilters,
   valueCreation as valueCreationSchema,
 } from '@pb/contracts';
 import type {
   EntryCohort,
   InvestmentValueCreation,
   ValueCreation,
+  ValueCreationFilters,
   ValueCreationPosition,
 } from '@pb/contracts';
 import { parseCsv } from '@pb/validation';
@@ -18,6 +20,7 @@ import { startHarness } from './harness.js';
 import type { Harness } from './harness.js';
 import {
   EQUITY_DEAL_TYPES,
+  cutoffOf,
   expectedBand,
   expectedPool,
   expectedPosition,
@@ -97,7 +100,12 @@ describe('value creation analytics (M13, M20)', () => {
     expect(row.id, label).toBe(want.investment.id);
     expect(row.dealType, label).toBe(want.investment.dealType);
     expect(row.entryDate, label).toBe(want.investment.entryDate);
+    expect(row.entryYear, label).toBe(Number(want.investment.entryDate.slice(0, 4)));
     expect(row.isActive, label).toBe(want.isActive);
+    expect(row.status, label).toBe(want.isActive ? 'active' : 'realized');
+    // A realized position's current quarter never falls after its exit.
+    if (row.current !== null)
+      expect(row.current.periodEnd <= cutoffOf(want.investment, asOf), label).toBe(true);
     for (const [point, quarter] of [
       [row.entry, want.entry],
       [row.current, want.current],
@@ -173,6 +181,7 @@ describe('value creation analytics (M13, M20)', () => {
           : valuationGrowth.minus(ebitdaGrowth),
       ),
     );
+    expect(row.stake, `${label} stake`).toBe(str(want.stake));
     expect(row.gainNotCalculable, label).toBe(want.gainReason);
     if (want.split === null) expect(row.gainByDriver, label).toBeNull();
     else
@@ -180,10 +189,12 @@ describe('value creation analytics (M13, M20)', () => {
         'ebitdaGrowth',
         'multipleExpansion',
         'debtPaydown',
+        'other',
         'revenueGrowth',
         'marginChange',
       ] as const)
         expect(row.gainByDriver![key], `${label} gain ${key}`).toBe(str(want.split[key]));
+    expect(row.flows, `${label} flows`).toEqual(want.flows);
     expect(row.entryMultipleBand, label).toBe(
       expectedBand(want.entryMultiple, bands().entryMultipleBands),
     );
@@ -203,15 +214,24 @@ describe('value creation analytics (M13, M20)', () => {
       .expect(401);
   });
 
-  it('takes the as-of date as its only filter: the clock by default, anything else is refused', async () => {
+  it('takes the as-of date as the only query of the views (the clock by default); the export takes the filters too', async () => {
     const res = await get('viewer.one', SUMMARY).expect(200);
     expect(valueCreationSchema.parse(res.body).asOf).toBe(h.dataset.asOf);
     const single = await get('viewer.one', one(idOf('INV-0001'))).expect(200);
     expect(investmentValueCreation.parse(single.body).asOf).toBe(h.dataset.asOf);
-    for (const path of [SUMMARY, EXPORT, one(idOf('INV-0001'))]) {
-      for (const query of ['junk=1', 'dealType=deal_type.co_invest_equity', 'asOf=2025-02-30']) {
+    const refusals: [string, string[]][] = [
+      // The views answer every row; a page filters the rows it holds.
+      [SUMMARY, ['junk=1', 'dealType=deal_type.co_invest_equity', 'asOf=2025-02-30']],
+      [one(idOf('INV-0001')), ['junk=1', 'status=active', 'asOf=2025-02-30']],
+      [
+        EXPORT,
+        ['junk=1', 'asOf=2025-02-30', 'status=held', 'entryYear=19', 'vehicleId=not-a-uuid'],
+      ],
+    ];
+    for (const [path, queries] of refusals) {
+      for (const query of queries) {
         const refused = await get('viewer.one', `${path}?${query}`).expect(400);
-        expect((refused.body as { type: string }).type).toMatch(/validation$/);
+        expect((refused.body as { type: string }).type, `${path}?${query}`).toMatch(/validation$/);
       }
     }
   });
@@ -282,17 +302,234 @@ describe('value creation analytics (M13, M20)', () => {
           ).toBe(true);
         if (p.gainByDriver !== null) {
           const g = p.gainByDriver;
-          const ours = D(g.ebitdaGrowth).plus(g.multipleExpansion).plus(g.debtPaydown);
-          expect(ours.minus(p.gain!).abs().lte('3e-10'), p.investmentNumber).toBe(true);
+          const drivers = D(g.ebitdaGrowth).plus(g.multipleExpansion).plus(g.debtPaydown);
+          // The parts travel at the places they were held to, so on the wire the four are the gain
+          // exactly: no tolerance.
+          expect(drivers.plus(g.other).eq(p.gain!), p.investmentNumber).toBe(true);
           expect(D(p.gain!).eq(D(p.nav!).plus(p.distributions!).minus(p.invested!))).toBe(true);
+          // Each driver part is our entry stake times the company's driver, to the tenth place.
+          const share = (driver: string): Decimal =>
+            D(p.invested!).times(driver).div(b.equityAtEntry);
+          for (const key of ['ebitdaGrowth', 'multipleExpansion', 'debtPaydown'] as const)
+            expect(
+              D(g[key]).minus(share(b[key])).abs().lte('1e-9'),
+              `${p.investmentNumber} ${key}`,
+            ).toBe(true);
+          expect(p.stake, p.investmentNumber).toBe(str(D(p.invested!).div(b.equityAtEntry)));
+          if (g.revenueGrowth !== null)
+            expect(D(g.revenueGrowth).plus(g.marginChange!).eq(g.ebitdaGrowth)).toBe(true);
         }
       }
-      // The seeded book has marks that ran ahead of earnings and marks that did not.
+      // The seeded book has marks that ran ahead of earnings. With each bridge stopping at its
+      // exit none trails them (levered equity, and marks that count what was distributed); on
+      // enterprise value, the like-for-like measure, the companies fall on both sides of EBITDA
+      // growth, which is what the chart's measure selector is for.
       const gaps = s.positions.flatMap((p) =>
         p.valuationGrowthGap === null ? [] : [D(p.valuationGrowthGap)],
       );
       expect(gaps.some((g) => g.gt(0))).toBe(true);
-      expect(gaps.some((g) => g.lt(0))).toBe(true);
+      const onEv = s.positions.flatMap((p) =>
+        p.growth.evGrowth === null || p.growth.ebitdaGrowth === null
+          ? []
+          : [D(p.growth.evGrowth).minus(p.growth.ebitdaGrowth)],
+      );
+      expect(onEv.some((g) => g.gt(0))).toBe(true);
+      expect(onEv.some((g) => g.lt(0))).toBe(true);
+    });
+
+    it('sets our gain against the company drivers at our entry stake, with the remainder shown (INV-0007)', async () => {
+      const s = await summaryFor('deal.three');
+      // The company's equity value barely moved while our mark is well up: the case the old rule
+      // (gain x driver / company total) blew up on.
+      const p = s.positions.find((x) => x.investmentNumber === 'INV-0007')!;
+      const b = p.bridge!;
+      const g = p.gainByDriver!;
+      expect(D(b.total).abs().lt(D(p.gain!).abs())).toBe(true);
+      const stake = D(p.invested!).div(b.equityAtEntry);
+      expect(p.stake).toBe(str(stake));
+      expect(stake.gt(0) && stake.lt(1)).toBe(true);
+      expect(g.ebitdaGrowth).toBe(str(stake.times(b.ebitdaGrowth).toDecimalPlaces(10)));
+      expect(g.multipleExpansion).toBe(str(stake.times(b.multipleExpansion).toDecimalPlaces(10)));
+      expect(g.debtPaydown).toBe(str(stake.times(b.debtPaydown).toDecimalPlaces(10)));
+      const drivers = D(g.ebitdaGrowth).plus(g.multipleExpansion).plus(g.debtPaydown);
+      expect(g.other).toBe(str(D(p.gain!).minus(drivers)));
+      // No part is larger than the company's own driver, and the remainder carries the gain.
+      for (const key of ['ebitdaGrowth', 'multipleExpansion', 'debtPaydown'] as const)
+        expect(D(g[key]).abs().lte(D(b[key]).abs()), key).toBe(true);
+      expect(D(g.other).gt(drivers.abs())).toBe(true);
+      expect(p.gainNotCalculable).toBeNull();
+      // Every position with a bridge, a gain and a positive entry equity value is split.
+      for (const row of s.positions) {
+        const splittable =
+          row.bridge !== null && row.gain !== null && D(row.bridge.equityAtEntry).gt(0);
+        expect(row.gainByDriver !== null, row.investmentNumber).toBe(splittable);
+        expect(row.gainNotCalculable === null, row.investmentNumber).toBe(splittable);
+      }
+    });
+
+    it('stops the bridge of a realized position at its exit', async () => {
+      const asOf = h.dataset.asOf;
+      const s = await summaryFor('deal.three');
+      const realized = s.positions.filter((p) => !p.isActive);
+      expect(realized.length).toBeGreaterThanOrEqual(4);
+      for (const p of realized) {
+        expect(p.exitDate, p.investmentNumber).not.toBeNull();
+        expect(p.current!.periodEnd <= p.exitDate!, p.investmentNumber).toBe(true);
+        // It is the latest approved quarter on or before the exit, not an earlier one.
+        const quarters = h.dataset.quarterlyPerformance
+          .filter(
+            (q) =>
+              q.investmentId === p.id &&
+              !q.isEntrySnapshot &&
+              q.status === 'record_status.approved' &&
+              q.periodEnd <= p.exitDate!,
+          )
+          .map((q) => q.periodEnd)
+          .sort();
+        expect(p.current!.periodEnd, p.investmentNumber).toBe(quarters[quarters.length - 1]);
+        const detail = await oneFor('deal.three', p.id);
+        expect(detail.series[detail.series.length - 1]!.periodEnd, p.investmentNumber).toBe(
+          p.current!.periodEnd,
+        );
+        expect(detail.series.every((point) => point.periodEnd <= p.exitDate!)).toBe(true);
+      }
+      // INV-0017 left on 2020-09-01 and kept reporting to 2022-03-31: those quarters do not count.
+      const late = s.positions.find((p) => p.investmentNumber === 'INV-0017')!;
+      expect(late.exitDate).toBe('2020-09-01');
+      expect(late.current!.periodEnd).toBe('2020-06-30');
+      expect(
+        h.dataset.quarterlyPerformance.some(
+          (q) => q.investmentId === late.id && q.periodEnd > late.exitDate!,
+        ),
+      ).toBe(true);
+      // While it was still held, the as-of date decides: INV-0019 exits 2023-12-28.
+      const held = await summaryFor('deal.three', '2023-06-30');
+      const before = held.positions.find((p) => p.investmentNumber === 'INV-0019')!;
+      expect(before.isActive).toBe(true);
+      expect(before.current!.periodEnd).toBe('2023-06-30');
+      const after = s.positions.find((p) => p.investmentNumber === 'INV-0019')!;
+      expect(after.current!.periodEnd).toBe('2023-09-30');
+      expect(asOf > after.exitDate!).toBe(true);
+    });
+
+    it('says when the entry snapshot is dated after the as-of date', async () => {
+      const id = h.dataset.scenarios.forward_entry_snapshot![0]!;
+      const snapshot = h.dataset.quarterlyPerformance.find(
+        (q) => q.investmentId === id && q.isEntrySnapshot,
+      )!;
+      expect(snapshot.periodEnd > h.dataset.asOf).toBe(true);
+      const s = await summaryFor('viewer.one');
+      const row = s.positions.find((p) => p.id === id)!;
+      expect(row.entry).toBeNull();
+      expect(row.notCalculable).toBe('entry_snapshot_forward_dated');
+      expect(row.gainNotCalculable).toBe('entry_snapshot_forward_dated');
+      expect(row.bridge).toBeNull();
+      expect(row.stake).toBeNull();
+      expect(row.entryMultipleBand).toBe('not_calculable');
+      expect(s.portfolio.notCalculable).toContainEqual({
+        reason: 'entry_snapshot_forward_dated',
+        count: 1,
+      });
+      expect(s.portfolio.notCalculable.some((r) => r.reason === 'no_entry_snapshot')).toBe(false);
+      // From the snapshot's own date on it is an entry like any other.
+      const later = await summaryFor('viewer.one', snapshot.periodEnd);
+      const then = later.positions.find((p) => p.id === id)!;
+      expect(then.entry?.periodEnd).toBe(snapshot.periodEnd);
+      expect(then.notCalculable).not.toBe('entry_snapshot_forward_dated');
+      expect(then.stake).not.toBeNull();
+    });
+
+    it('rolls the positions up by the rule a page uses: the roll-up of the rows is the answer, field for field', async () => {
+      for (const [who, asOf] of [
+        ['deal.three', h.dataset.asOf],
+        ['viewer.one', h.dataset.asOf],
+        ['deal.three', '2024-12-31'],
+        ['deal.three', '2010-01-01'],
+      ] as const) {
+        const s = await summaryFor(who, asOf);
+        // What a page does with no filter set: the rows, the cohorts' own bands, the as-of date.
+        const rolled = valueCreationRollup(s.positions, s.cohorts, s.asOf);
+        expect(rolled.portfolio, `${who} ${asOf}`).toEqual(s.portfolio);
+        expect(rolled.cohorts, `${who} ${asOf}`).toEqual(s.cohorts);
+      }
+    });
+
+    it('rolls a filtered set up exactly: one vehicle against figures built from the seeded rows', async () => {
+      const asOf = h.dataset.asOf;
+      const s = await summaryFor('deal.three');
+      const vehicle = s.positions.find((p) => p.investmentNumber === 'INV-0001')!;
+      const filters: ValueCreationFilters = { vehicleId: vehicle.vehicleId };
+      const rows = s.positions.filter((p) => matchesValueCreationFilters(p, filters));
+      const want = eligible(asOf, true).filter(
+        (p) => p.investment.vehicleId === vehicle.vehicleId,
+      );
+      expect(want.length).toBeGreaterThanOrEqual(3);
+      expect(want.length).toBeLessThan(s.positions.length);
+      expect(rows.map((p) => p.id)).toEqual(want.map((p) => p.investment.id));
+      const rolled = valueCreationRollup(rows, s.cohorts, s.asOf);
+
+      const included = want.filter((p) => p.split !== null);
+      const sum = (pick: (p: ExpectedPosition) => Decimal | null): Decimal =>
+        included.reduce((acc, p) => acc.plus(pick(p) ?? ZERO), ZERO);
+      expect(rolled.portfolio.positions).toBe(included.length);
+      expect(rolled.portfolio.invested).toBe(str(sum((p) => p.invested)));
+      expect(rolled.portfolio.nav).toBe(str(sum((p) => p.nav)));
+      expect(rolled.portfolio.distributions).toBe(str(sum((p) => p.distributions)));
+      expect(rolled.portfolio.gain).toBe(str(sum((p) => p.gain)));
+      const g = rolled.portfolio.gainByDriver!;
+      expect(g.ebitdaGrowth).toBe(str(sum((p) => p.split!.ebitdaGrowth)));
+      expect(g.multipleExpansion).toBe(str(sum((p) => p.split!.multipleExpansion)));
+      expect(g.debtPaydown).toBe(str(sum((p) => p.split!.debtPaydown)));
+      expect(g.other).toBe(str(sum((p) => p.split!.other)));
+      expect(
+        D(g.ebitdaGrowth)
+          .plus(g.multipleExpansion)
+          .plus(g.debtPaydown)
+          .plus(g.other)
+          .eq(rolled.portfolio.gain!),
+      ).toBe(true);
+      expect(
+        rolled.portfolio.positions +
+          rolled.portfolio.notCalculable.reduce((n, r) => n + r.count, 0),
+      ).toBe(want.length);
+      // Each cohort is pooled over the vehicle's members alone: flows, NAV, MOIC and IRR.
+      for (const [cohorts, edges, figure] of [
+        [rolled.cohorts.byEntryMultiple, bands().entryMultipleBands, 'entryMultiple'],
+        [rolled.cohorts.byEntryLeverage, bands().entryLeverageBands, 'entryLeverage'],
+      ] as const) {
+        expect(cohorts.reduce((n, c) => n + c.count, 0)).toBe(want.length);
+        for (const cohort of cohorts) {
+          const members = want.filter((p) => expectedBand(p[figure], edges) === cohort.key);
+          const pool = expectedPool(h.dataset, members, asOf);
+          expect(
+            {
+              count: cohort.count,
+              invested: cohort.invested,
+              distributions: cohort.distributions,
+              nav: cohort.nav,
+              grossMoic: cohort.grossMoic,
+              grossIrr: cohort.grossIrr,
+              ebitdaGrowth: cohort.ebitdaGrowth,
+              ebitdaGrowthPositions: cohort.ebitdaGrowthPositions,
+            },
+            `${cohort.key} ${cohort.label}`,
+          ).toEqual(pool);
+        }
+        // The vehicle does not fill every band: an emptied band has no figure, never a zero.
+        const empty = cohorts.filter((c) => c.count === 0);
+        expect(empty.length).toBeGreaterThan(0);
+        expect(empty.every((c) => c.invested === null && c.grossMoic === null)).toBe(true);
+      }
+      // It is a different answer from the whole book's, and a filter that leaves nothing has none.
+      expect(rolled.portfolio.gain).not.toBe(s.portfolio.gain);
+      const none = valueCreationRollup(
+        s.positions.filter((p) => matchesValueCreationFilters(p, { entryYear: '1999' })),
+        s.cohorts,
+        s.asOf,
+      );
+      expect(none.portfolio.gain).toBeNull();
+      expect(none.portfolio.gainByDriver).toBeNull();
+      expect(none.cohorts.byEntryMultiple.every((c) => c.count === 0)).toBe(true);
     });
 
     it('rolls our gain up by driver over the positions it can be split for, and counts the rest by reason', async () => {
@@ -312,17 +549,22 @@ describe('value creation analytics (M13, M20)', () => {
       expect(g.ebitdaGrowth).toBe(str(sum((p) => p.split!.ebitdaGrowth)));
       expect(g.multipleExpansion).toBe(str(sum((p) => p.split!.multipleExpansion)));
       expect(g.debtPaydown).toBe(str(sum((p) => p.split!.debtPaydown)));
+      expect(g.other).toBe(str(sum((p) => p.split!.other)));
       expect(g.revenueGrowth).toBe(str(sum((p) => p.split!.revenueGrowth)));
       expect(g.marginChange).toBe(str(sum((p) => p.split!.marginChange)));
-      // The roll-up ties to our own numbers: the drivers are the gain, and cost plus gain is value.
+      // The roll-up ties to our own numbers: the four parts are the gain exactly, and cost plus
+      // gain is value.
       expect(
         D(g.ebitdaGrowth)
           .plus(g.multipleExpansion)
           .plus(g.debtPaydown)
-          .minus(s.portfolio.gain!)
-          .abs()
-          .lte('3e-10'),
+          .plus(g.other)
+          .eq(s.portfolio.gain!),
       ).toBe(true);
+      // No driver is larger than the gain it is part of by an order of magnitude: the headline
+      // no longer carries a company whose equity value barely moved.
+      for (const key of ['ebitdaGrowth', 'multipleExpansion', 'debtPaydown'] as const)
+        expect(D(g[key]).abs().lt(D(s.portfolio.gain!).abs()), key).toBe(true);
       expect(D(s.portfolio.invested!).plus(s.portfolio.gain!).eq(s.portfolio.totalValue!)).toBe(
         true,
       );
@@ -331,13 +573,13 @@ describe('value creation analytics (M13, M20)', () => {
       ).toBe(true);
       // The seeded forward-dated snapshot and the negative EBITDA are counted, never dropped.
       expect(s.portfolio.notCalculable).toEqual([
-        { reason: 'no_entry_snapshot', count: 1 },
+        { reason: 'entry_snapshot_forward_dated', count: 1 },
         { reason: 'non_positive_ebitda', count: 1 },
       ]);
       expect(
         s.portfolio.positions + s.portfolio.notCalculable.reduce((n, r) => n + r.count, 0),
       ).toBe(s.positions.length);
-      expect(s.positions.find((p) => p.notCalculable === 'no_entry_snapshot')?.id).toBe(
+      expect(s.positions.find((p) => p.notCalculable === 'entry_snapshot_forward_dated')?.id).toBe(
         h.dataset.scenarios.forward_entry_snapshot![0],
       );
       expect(s.positions.find((p) => p.notCalculable === 'non_positive_ebitda')?.id).toBe(
@@ -528,8 +770,13 @@ describe('value creation analytics (M13, M20)', () => {
         expect(cell(row, 'grossMoic')).toBe(p.grossMoic ?? '');
         expect(cell(row, 'grossIrr')).toBe(p.grossIrr ?? '');
         expect(cell(row, 'gain')).toBe(p.gain ?? '');
+        expect(cell(row, 'stake')).toBe(p.stake ?? '');
         expect(cell(row, 'gainEbitdaGrowth')).toBe(p.gainByDriver?.ebitdaGrowth ?? '');
+        expect(cell(row, 'gainMultipleExpansion')).toBe(p.gainByDriver?.multipleExpansion ?? '');
+        expect(cell(row, 'gainDebtPaydown')).toBe(p.gainByDriver?.debtPaydown ?? '');
+        expect(cell(row, 'gainOther')).toBe(p.gainByDriver?.other ?? '');
         expect(cell(row, 'gainNotCalculable')).toBe(p.gainNotCalculable ?? '');
+        expect(cell(row, 'entryYear')).toBe(String(p.entryYear));
         expect(cell(row, 'entryMultipleBand')).toBe(multipleLabels.get(p.entryMultipleBand));
         expect(cell(row, 'entryLeverageBand')).toBe(leverageLabels.get(p.entryLeverageBand));
       });
@@ -555,6 +802,66 @@ describe('value creation analytics (M13, M20)', () => {
       expect(earlier.text.trimEnd().split('\n').length).toBe(
         eligible('2024-12-31', false).length + 1,
       );
+    });
+
+    it('follows the filters of the view: the rows a page shows are the rows it exports', async () => {
+      const s = await summaryFor('deal.three');
+      const unfiltered = (await get('deal.three', EXPORT).expect(200)).text.trimEnd().split('\n');
+      const lineOf = new Map(
+        s.positions.map((p, i) => [p.id, unfiltered[i + 1]!] as [string, string]),
+      );
+      const sample = s.positions.find((p) => p.investmentNumber === 'INV-0001')!;
+      const realized = s.positions.find((p) => !p.isActive)!;
+      const cases: ValueCreationFilters[] = [
+        { vehicleId: sample.vehicleId },
+        { sponsorId: sample.sponsorId },
+        { sector: sample.sector! },
+        { dealType: 'deal_type.cv_single_asset' },
+        { entryYear: String(sample.entryYear) },
+        { status: 'realized' },
+        { status: 'active', dealType: 'deal_type.co_invest_equity', vehicleId: sample.vehicleId },
+        { vehicleId: realized.vehicleId, status: 'realized', entryYear: String(realized.entryYear) },
+        // A filter that leaves nothing exports the header alone.
+        { entryYear: '1999' },
+      ];
+      for (const filters of cases) {
+        const query = new URLSearchParams(
+          Object.entries(filters).flatMap(([name, value]) =>
+            value === undefined ? [] : [[name, value] as [string, string]],
+          ),
+        ).toString();
+        const res = await get('deal.three', `${EXPORT}?${query}`).expect(200);
+        // The one rule: the predicate a page filters its rows with.
+        const want = s.positions.filter((p) => matchesValueCreationFilters(p, filters));
+        expect(res.text.trimEnd().split('\n'), query).toEqual([
+          VALUE_CREATION_CSV_COLUMNS.join(','),
+          ...want.map((p) => lineOf.get(p.id)!),
+        ]);
+        expect(res.headers['content-disposition'], query).toBe(
+          `attachment; filename="value-creation-${h.dataset.asOf}.csv"`,
+        );
+      }
+      expect(s.positions.filter((p) => matchesValueCreationFilters(p, cases[0]!)).length).toBeGreaterThan(1);
+      expect(s.positions.filter((p) => matchesValueCreationFilters(p, cases[5]!)).length).toBe(4);
+      // A filtered export is audited as an export, with the number of rows it carried.
+      const filtered = await get(
+        'deal.three',
+        `${EXPORT}?status=realized&asOf=${h.dataset.asOf}`,
+        'req-value-creation-export-filtered',
+      ).expect(200);
+      expect(filtered.text.trimEnd().split('\n').length).toBe(5);
+      const audit = await h.runtime.db.query<{ details: { rows: number } }>(
+        "select details from audit.event where action = 'analytics.value_creation.export' and request_id = 'req-value-creation-export-filtered'",
+      );
+      expect(audit.length).toBe(1);
+      expect(audit[0]!.details.rows).toBe(4);
+      // The wall still decides first: a filter never widens what a caller sees.
+      const walled = s.positions.find((p) => p.id === walledId())!;
+      const outsider = await get('viewer.one', `${EXPORT}?vehicleId=${walled.vehicleId}`).expect(200);
+      expect(outsider.text).not.toContain(walled.companyName);
+      expect(outsider.text).not.toContain(walledId());
+      const member = await get('deal.three', `${EXPORT}?vehicleId=${walled.vehicleId}`).expect(200);
+      expect(member.text).toContain(walledId());
     });
   });
 
@@ -596,17 +903,19 @@ describe('value creation analytics (M13, M20)', () => {
         ).toBe(true);
       }
       // A sponsor closing three days early still has its Locked mark for the quarter (INV-0002),
-      // and a realized position has no mark in its last quarter: null, never zero (INV-0018).
+      // and a realized position's series stops with its last quarter before the exit (INV-0018,
+      // exited 2020-07-06), where it still had a mark.
       const shifted = await oneFor('deal.three', idOf('INV-0002'));
       expect(shifted.series[shifted.series.length - 1]!.markIndex).not.toBeNull();
       const realized = await oneFor('deal.three', idOf('INV-0018'));
-      expect(realized.series[realized.series.length - 1]!.markIndex).toBeNull();
-      expect(realized.series.some((p) => p.markIndex !== null)).toBe(true);
+      const last = realized.series[realized.series.length - 1]!;
+      expect(last.periodEnd).toBe('2020-06-30');
+      expect(last.markIndex).not.toBeNull();
     });
 
     it('keeps the quarters and our mark when the bridge is not calculable', async () => {
       const forward = await oneFor('viewer.one', h.dataset.scenarios.forward_entry_snapshot![0]!);
-      expect(forward.position!.notCalculable).toBe('no_entry_snapshot');
+      expect(forward.position!.notCalculable).toBe('entry_snapshot_forward_dated');
       expect(forward.position!.entry).toBeNull();
       expect(forward.series.length).toBeGreaterThan(0);
       // No base to index to, so the company lines are missing; our mark per cost is not.
@@ -770,7 +1079,7 @@ describe('value creation analytics: what does not count (M13, M20)', () => {
     expect(row.current!.evToEbitda).not.toBeNull();
   });
 
-  it('does not split our gain when the company equity value did not change, or when we have no gain figure', async () => {
+  it('splits our gain when the company equity value did not change (the remainder carries it), and not when we have no stake or no gain figure', async () => {
     // INV-0016: the current quarter restated to the entry equity value (EV and net debt as at entry).
     const entry = h.dataset.quarterlyPerformance.find(
       (q) => q.investmentId === idOf('INV-0016') && q.isEntrySnapshot,
@@ -788,8 +1097,33 @@ describe('value creation analytics: what does not count (M13, M20)', () => {
     // EBITDA growth and the multiple still moved, against each other.
     expect(D(flat.bridge!.ebitdaGrowth).plus(flat.bridge!.multipleExpansion).isZero()).toBe(true);
     expect(flat.gain).not.toBeNull();
-    expect(flat.gainByDriver).toBeNull();
-    expect(flat.gainNotCalculable).toBe('no_equity_change');
+    // A total of zero is no special case: the driver parts cancel (to the tenth place each) and
+    // the remainder is the gain.
+    expect(flat.gainNotCalculable).toBeNull();
+    const parts = flat.gainByDriver!;
+    expect(parts.debtPaydown).toBe('0');
+    const drivers = D(parts.ebitdaGrowth).plus(parts.multipleExpansion).plus(parts.debtPaydown);
+    expect(drivers.abs().lte('1e-10')).toBe(true);
+    expect(drivers.plus(parts.other).eq(flat.gain!)).toBe(true);
+    expect(D(parts.ebitdaGrowth).isZero()).toBe(false);
+
+    // INV-0008: an entry snapshot with more net debt than EV. The bridge stands, a stake in a
+    // company with no equity value has no size, and nothing is split.
+    const under = h.dataset.quarterlyPerformance.find(
+      (q) => q.investmentId === idOf('INV-0008') && q.isEntrySnapshot,
+    )!;
+    await sql(
+      'update mon.quarterly_performance set net_debt = $2 where investment_id = $1 and is_entry_snapshot',
+      [idOf('INV-0008'), D(under.ev!).plus(1).toString()],
+    );
+    const noStake = await rowFor('INV-0008');
+    expect(noStake.entry!.equityValue).toBe('-1');
+    expect(noStake.bridge).not.toBeNull();
+    expect(noStake.notCalculable).toBeNull();
+    expect(noStake.gain).not.toBeNull();
+    expect(noStake.stake).toBeNull();
+    expect(noStake.gainByDriver).toBeNull();
+    expect(noStake.gainNotCalculable).toBe('non_positive_entry_equity');
 
     // INV-0005: no Locked valuation left, so no NAV, no gain and nothing to split.
     await sql(
@@ -814,8 +1148,18 @@ describe('value creation analytics: what does not count (M13, M20)', () => {
       .expect(200);
     const s = valueCreationSchema.parse(res.body);
     const reasons = Object.fromEntries(s.portfolio.notCalculable.map((r) => [r.reason, r.count]));
-    expect(reasons.no_equity_change).toBe(1);
+    expect(reasons.non_positive_entry_equity).toBe(1);
     expect(reasons.no_gain).toBe(1);
+    // By now this book holds one position for every reason, listed in the order every view uses.
+    expect(s.portfolio.notCalculable).toEqual([
+      { reason: 'no_entry_snapshot', count: 1 },
+      { reason: 'entry_snapshot_forward_dated', count: 1 },
+      { reason: 'no_current_quarter', count: 1 },
+      { reason: 'missing_figures', count: 1 },
+      { reason: 'non_positive_ebitda', count: 1 },
+      { reason: 'non_positive_entry_equity', count: 1 },
+      { reason: 'no_gain', count: 1 },
+    ]);
     expect(reasons.missing_figures).toBe(1);
     expect(s.portfolio.positions + s.portfolio.notCalculable.reduce((n, r) => n + r.count, 0)).toBe(
       s.positions.length,

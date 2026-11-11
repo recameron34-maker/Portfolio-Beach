@@ -1,11 +1,11 @@
 import type { Decimal, DecimalInput } from './decimal.js';
-import { D } from './decimal.js';
+import { D, RESULT_PLACES } from './decimal.js';
 import { evToEbitda, growthSinceEntry, multipleDelta, netDebtToEbitda } from './operating.js';
 
 /*
  * Value creation analytics (docs/08 section 8): the EBITDA bridge of a company from entry to the
- * current quarter, the growth measures since entry, and our own gain on a position split by the
- * company's drivers. Every function is null instead of a misleading value.
+ * current quarter, the growth measures since entry, and our own gain on a position set against
+ * the company's drivers at our entry stake. Every function is null instead of a misleading value.
  */
 
 /**
@@ -116,42 +116,80 @@ function revenueOf(point: BridgePoint): Decimal | null {
   return r.lte(0) ? null : r;
 }
 
-/** Our gain on a position split by driver; the three drivers sum to the gain exactly. */
+/**
+ * Our stake in a company at entry (docs/08 section 8): our invested capital in the position over
+ * the company's equity value at entry. Null without invested capital, without an entry equity
+ * value, or when that equity value is not positive (a stake in nothing has no size).
+ */
+export function entryStake(
+  invested: DecimalInput | null,
+  equityAtEntry: DecimalInput | null,
+): Decimal | null {
+  if (invested === null || equityAtEntry === null) return null;
+  const paid = D(invested).abs();
+  const equity = D(equityAtEntry);
+  return paid.isZero() || equity.lte(0) ? null : paid.div(equity);
+}
+
+/** Our gain on a position set against the company's drivers at our entry stake; the four parts sum to the gain exactly. */
 export interface GainByDriver extends BridgeDrivers {
+  /** Our invested capital over the company's equity value at entry. */
+  stake: Decimal;
+  /**
+   * The gain less the three driver parts: what the company's equity value change at our entry
+   * stake does not explain (our mark against the company's value, fees, the timing of flows,
+   * follow-on investments and realizations). A real figure, shown and summed.
+   */
+  other: Decimal;
   /** The part of ebitdaGrowth from revenue; null when the company's bridge has no revenue split. */
   revenueGrowth: Decimal | null;
   marginChange: Decimal | null;
 }
 
+export type GainSplitReason = 'no_gain' | 'non_positive_entry_equity';
+
+/** The split, or no split and always the reason why. */
+export type GainSplitResult =
+  { value: GainByDriver; reason?: undefined } | { value: null; reason: GainSplitReason };
+
 /**
- * Our own gain on a position split by the company's driver shares (docs/08 section 8): each
- * driver takes gain x driver / company total. The roll-up of these over a portfolio ties to our
- * own gain, and a large company does not dominate whatever our stake in it. EBITDA growth and
- * multiple expansion are held to SPLIT_PLACES and debt paydown takes the remainder, so the parts
- * sum to the gain exactly; the revenue and margin parts split the EBITDA part the same way.
+ * Our own gain on a position by driver (docs/08 section 8). Our share of each company driver is
+ * our entry stake times the driver in money, invested x driver / entry equity value, held to the
+ * places a result travels with (RESULT_PLACES), so the parts a reader receives are the parts that
+ * were summed. `other` is the gain less the three shares, so the four parts are the gain exactly;
+ * the revenue and margin parts open the EBITDA part the same way. A company whose equity value
+ * did not move is no special case: its drivers cancel and `other` carries the gain.
  *
- * Not calculable (null) without a gain, without a bridge, or when the company's equity value did
- * not change (a total of zero has no shares). This is an allocation rule, kept in this one
+ * Not calculable without a gain or invested capital (`no_gain`), or when the company's equity
+ * value at entry is not positive (`non_positive_entry_equity`). The rule lives in this one
  * function so it can change in one place.
  */
 export function gainByDriver(
   gain: DecimalInput | null,
-  bridge: ValueCreationBridge | null,
-): GainByDriver | null {
-  if (gain === null || bridge === null || bridge.total.isZero()) return null;
-  const g = D(gain);
-  const part = (driver: Decimal): Decimal =>
-    g.times(driver).div(bridge.total).toDecimalPlaces(SPLIT_PLACES);
-  const ebitdaGrowth = part(bridge.ebitdaGrowth);
-  const multipleExpansion = part(bridge.multipleExpansion);
-  const debtPaydown = g.minus(ebitdaGrowth).minus(multipleExpansion);
-  const revenueGrowth = bridge.revenueGrowth === null ? null : part(bridge.revenueGrowth);
+  invested: DecimalInput | null,
+  bridge: ValueCreationBridge,
+): GainSplitResult {
+  if (gain === null || invested === null || D(invested).isZero())
+    return { value: null, reason: 'no_gain' };
+  const stake = entryStake(invested, bridge.equityAtEntry);
+  if (stake === null) return { value: null, reason: 'non_positive_entry_equity' };
+  const paid = D(invested).abs();
+  const share = (driver: Decimal): Decimal =>
+    paid.times(driver).div(bridge.equityAtEntry).toDecimalPlaces(RESULT_PLACES);
+  const ebitdaGrowth = share(bridge.ebitdaGrowth);
+  const multipleExpansion = share(bridge.multipleExpansion);
+  const debtPaydown = share(bridge.debtPaydown);
+  const revenueGrowth = bridge.revenueGrowth === null ? null : share(bridge.revenueGrowth);
   return {
-    ebitdaGrowth,
-    multipleExpansion,
-    debtPaydown,
-    revenueGrowth,
-    marginChange: revenueGrowth === null ? null : ebitdaGrowth.minus(revenueGrowth),
+    value: {
+      stake,
+      ebitdaGrowth,
+      multipleExpansion,
+      debtPaydown,
+      other: D(gain).minus(ebitdaGrowth).minus(multipleExpansion).minus(debtPaydown),
+      revenueGrowth,
+      marginChange: revenueGrowth === null ? null : ebitdaGrowth.minus(revenueGrowth),
+    },
   };
 }
 

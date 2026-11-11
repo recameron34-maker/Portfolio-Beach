@@ -15,15 +15,26 @@ from itertools import pairwise
 from calc_check import CTX
 
 SPLIT_PLACES = 20
+RESULT_PLACES = 10
 _QUANTUM = Decimal(1).scaleb(-SPLIT_PLACES)
+_RESULT_QUANTUM = Decimal(1).scaleb(-RESULT_PLACES)
+
+
+def _rounded(value: Fraction, quantum: Decimal) -> Decimal:
+    with localcontext() as ctx:
+        ctx.prec = 200
+        exact = Decimal(value.numerator) / Decimal(value.denominator)
+        return exact.quantize(quantum, rounding=ROUND_HALF_UP)
 
 
 def _held(value: Fraction) -> Decimal:
     """A fraction as a decimal held to the split places, rounded half up, in one rounding."""
-    with localcontext() as ctx:
-        ctx.prec = 200
-        exact = Decimal(value.numerator) / Decimal(value.denominator)
-        return exact.quantize(_QUANTUM, rounding=ROUND_HALF_UP)
+    return _rounded(value, _QUANTUM)
+
+
+def _travels(value: Fraction) -> Decimal:
+    """A fraction as a decimal at the ten places a result travels with, rounded half up."""
+    return _rounded(value, _RESULT_QUANTUM)
 
 
 def _ratio(numerator: Decimal, denominator: Decimal) -> Decimal:
@@ -92,28 +103,51 @@ def total_gain(distributions: Decimal, nav: Decimal, invested: Decimal) -> Decim
         return distributions + nav - paid
 
 
+def entry_stake(invested: Decimal | None, equity_at_entry: Decimal | None) -> Decimal | None:
+    """Our invested capital over the company's equity value at entry; None when either is not."""
+    if invested is None or equity_at_entry is None:
+        return None
+    paid = abs(invested)
+    if paid == 0 or equity_at_entry <= 0:
+        return None
+    return _ratio(paid, equity_at_entry)
+
+
 def gain_by_driver(
     gain: Decimal | None,
+    invested: Decimal | None,
+    equity_at_entry: Decimal,
     ebitda_growth: Decimal,
     multiple_expansion: Decimal,
-    total: Decimal,
+    debt_paydown: Decimal,
     revenue_growth: Decimal | None,
-) -> dict[str, Decimal | None] | None:
-    """Our gain split by the company's shares; the last driver takes the remainder."""
-    if gain is None or total == 0:
-        return None
+) -> dict[str, Decimal | None] | str:
+    """Our gain against the company's drivers at our entry stake, or the reason there is none.
+
+    Each driver part is the stake times the driver, rounded once to the places a result travels
+    with; what remains of the gain is the part the company's change does not explain.
+    """
+    if gain is None or invested is None or invested == 0:
+        return "no_gain"
+    stake = entry_stake(invested, equity_at_entry)
+    if stake is None:
+        return "non_positive_entry_equity"
+    ours = Fraction(abs(invested)) / Fraction(equity_at_entry)
 
     def part(driver: Decimal) -> Decimal:
-        return _held(Fraction(gain) * Fraction(driver) / Fraction(total))
+        return _travels(ours * Fraction(driver))
 
     from_ebitda = part(ebitda_growth)
     from_multiple = part(multiple_expansion)
+    from_debt = part(debt_paydown)
     from_revenue = None if revenue_growth is None else part(revenue_growth)
     with localcontext(CTX):
         return {
+            "stake": stake,
             "ebitdaGrowth": from_ebitda,
             "multipleExpansion": from_multiple,
-            "debtPaydown": gain - from_ebitda - from_multiple,
+            "debtPaydown": from_debt,
+            "other": gain - from_ebitda - from_multiple - from_debt,
             "revenueGrowth": from_revenue,
             "marginChange": None if from_revenue is None else from_ebitda - from_revenue,
         }

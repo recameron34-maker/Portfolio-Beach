@@ -1,4 +1,4 @@
-import { ISO_DATE, isCalendarDate, isQuarterEnd } from '@pb/calc';
+import { ISO_DATE, VALUE_CREATION_REASONS, isCalendarDate, isQuarterEnd } from '@pb/calc';
 import { z } from 'zod';
 
 /** A decimal amount or rate as text, never a float: the one pattern every reader checks against. */
@@ -2311,26 +2311,22 @@ export type ExtractionDefinitions = z.infer<typeof extractionDefinitions>;
 /* ---- Value creation and entry metric analytics (M13, M20; docs/08 section 8) ---- */
 
 /**
- * Why a figure of the value creation views is not calculable. The first four say why a company
- * has no EBITDA bridge: no approved entry snapshot on or before the as-of date, no approved
- * quarter on or before it, an EBITDA, EV or net debt missing at either end, or an EBITDA at or
- * below zero at either end. The last two say why our gain is not split although the bridge
- * stands: the company's equity value did not change (no shares to split by), or our own gain is
- * not calculable (no Locked valuation, or nothing invested).
+ * Why a figure of the value creation views is not calculable: the list of the calculation
+ * library (VALUE_CREATION_REASONS in @pb/calc), which orders its roll-up by it. The first five
+ * say why a company has no EBITDA bridge: no approved entry snapshot, an approved entry snapshot
+ * dated after the as-of date, no approved quarter on or before the as-of date (or the exit), an
+ * EBITDA, EV or net debt missing at either end, or an EBITDA at or below zero at either end. The
+ * last two say why our gain is not set against a bridge that stands: the company's equity value
+ * at entry is not positive (no stake), or our own gain is not calculable (no Locked valuation,
+ * or nothing invested).
  */
-export const valueCreationReason = z.enum([
-  'no_entry_snapshot',
-  'no_current_quarter',
-  'missing_figures',
-  'non_positive_ebitda',
-  'no_equity_change',
-  'no_gain',
-]);
+export const valueCreationReason = z.enum(VALUE_CREATION_REASONS);
 export type ValueCreationReason = z.infer<typeof valueCreationReason>;
 
 /** The reasons a company has no bridge at all. */
 export const bridgeReason = valueCreationReason.extract([
   'no_entry_snapshot',
+  'entry_snapshot_forward_dated',
   'no_current_quarter',
   'missing_figures',
   'non_positive_ebitda',
@@ -2383,23 +2379,37 @@ export const valueCreationBridge = valueCreationDrivers
   .strict();
 export type ValueCreationBridge = z.infer<typeof valueCreationBridge>;
 
-/** Our own gain split by driver: the three drivers sum to the gain; revenue and margin split EBITDA growth. */
+/**
+ * Our own gain by driver (docs/08 section 8): our share of each company driver at our entry
+ * stake, and `other`, the gain less those three shares: what the company's equity value change
+ * at our stake does not explain (our mark against the company's value, fees, the timing of
+ * flows, follow-on investments and realizations). The four parts sum to the gain exactly;
+ * revenue and margin open EBITDA growth.
+ */
 export const gainByDriver = valueCreationDrivers
   .extend({
+    other: decimalString,
     revenueGrowth: decimalString.nullable(),
     marginChange: decimalString.nullable(),
   })
   .strict();
 export type GainByDriver = z.infer<typeof gainByDriver>;
 
-/** The key of the cohort that holds the positions with no entry figure to band. */
-export const NOT_CALCULABLE_BAND = 'not_calculable';
+/** The key of the cohort that holds the positions with no entry figure to band (the calculation library's own). */
+export { NOT_CALCULABLE_BAND } from '@pb/calc';
+
+/** Held on the as-of date, or exited on or before it. */
+export const valueCreationStatus = z.enum(['active', 'realized']);
+export type ValueCreationStatus = z.infer<typeof valueCreationStatus>;
 
 /**
  * One equity or continuation vehicle position in the value creation views. The company side
  * (entry, current, growth, bridge) is in the company's money; the rest is ours (invested, NAV,
  * distributions, MOIC, IRR, gain). A figure that is not calculable is null, never 0, and
- * `notCalculable` and `gainNotCalculable` say why the bridge or the gain split is missing.
+ * `notCalculable` and `gainNotCalculable` say why the bridge or the gain split is missing. The
+ * row carries what a filter reads (vehicle, sponsor, sector, deal type, entry year, status) and
+ * what the roll-up of @pb/calc reads (`flows` among them), so a page can roll a filtered set up
+ * exactly as the API rolls up the whole.
  */
 export const valueCreationPosition = z
   .object({
@@ -2413,12 +2423,19 @@ export const valueCreationPosition = z
     sector: z.string().nullable(),
     dealType: z.string(),
     entryDate: isoDate,
+    /** The calendar year of entryDate. */
+    entryYear: z.number().int(),
     exitDate: isoDate.nullable(),
     /** Held on the as-of date; a realized position holds no NAV. */
     isActive: z.boolean(),
+    /** `active` while held on the as-of date, `realized` once exited. */
+    status: valueCreationStatus,
     /** The approved entry snapshot dated on or before the as-of date; null when there is none. */
     entry: valueCreationPoint.nullable(),
-    /** The latest approved quarter on or before the as-of date; null when there is none. */
+    /**
+     * The latest approved quarter on or before the as-of date, or on or before the exit date for
+     * a position realized by then (its bridge stops at its exit); null when there is none.
+     */
     current: valueCreationPoint.nullable(),
     /** Since entry: ratios for EBITDA, EV and equity value; turns for the multiple and net leverage; money for net debt. */
     growth: z
@@ -2444,11 +2461,21 @@ export const valueCreationPosition = z
     valuationGrowth: decimalString.nullable(),
     /** valuationGrowth less the company's EBITDA growth: positive when our mark ran ahead of earnings. */
     valuationGrowthGap: decimalString.nullable(),
+    /**
+     * Our entry stake: invested capital over the company's equity value at entry. Null without
+     * an entry snapshot or invested capital, or when that equity value is not positive.
+     */
+    stake: decimalString.nullable(),
     /** Our gain: NAV + distributions - invested. */
     gain: decimalString.nullable(),
     gainByDriver: gainByDriver.nullable(),
     /** Why our gain is not split by driver; null when it is. */
     gainNotCalculable: valueCreationReason.nullable(),
+    /**
+     * The position's cash flows on or before the as-of date, signed from our side (paid out
+     * negative, received positive; fees and expenses included): what a pooled IRR runs over.
+     */
+    flows: z.array(z.object({ date: isoDate, amount: decimalString }).strict()),
     /** The key of the position's cohort in cohorts.byEntryMultiple (NOT_CALCULABLE_BAND when it has no entry multiple). */
     entryMultipleBand: z.string(),
     /** The key of the position's cohort in cohorts.byEntryLeverage. */
@@ -2480,10 +2507,12 @@ export type EntryCohort = z.infer<typeof entryCohort>;
 
 /**
  * Value creation over every equity and continuation vehicle position the caller can see (M13,
- * M20). `portfolio` sums our gain by driver over the positions it can be split for, so the three
- * drivers sum to `portfolio.gain` and invested + gain = totalValue; the positions it
- * cannot be split for are counted by reason. `leftOut` counts the visible positions of the deal
- * types these views do not cover (private credit, primary funds).
+ * M20). `portfolio` sums our gain by driver over the positions it can be split for, so the four
+ * parts (the three drivers and `other`) sum to `portfolio.gain` and invested + gain =
+ * totalValue; the positions it cannot be split for are counted by reason. `portfolio` and
+ * `cohorts` are valueCreationRollup of @pb/calc over `positions`, so a page that filters the
+ * positions rolls the rest up by the same rule. `leftOut` counts the visible positions of the
+ * deal types these views do not cover (private credit, primary funds).
  */
 export const valueCreation = z
   .object({
@@ -2516,6 +2545,49 @@ export const valueCreation = z
   })
   .strict();
 export type ValueCreation = z.infer<typeof valueCreation>;
+
+/**
+ * The filters of the value creation views: each narrows the positions to one vehicle, sponsor,
+ * sector, deal type, entry year or status, and the ones that are set must all hold. A page
+ * applies them to the rows it holds (matchesValueCreationFilters) and sends them to the export,
+ * which applies the same rule.
+ */
+export const valueCreationFilters = z
+  .object({
+    vehicleId: uuid.optional(),
+    sponsorId: uuid.optional(),
+    sector: z.string().min(1).optional(),
+    dealType: z.string().min(1).optional(),
+    /** A calendar year, as four digits. */
+    entryYear: z
+      .string()
+      .regex(/^\d{4}$/)
+      .optional(),
+    status: valueCreationStatus.optional(),
+  })
+  .strict();
+export type ValueCreationFilters = z.infer<typeof valueCreationFilters>;
+
+/** The export's query: the as-of date and the filters of the view it exports. */
+export const valueCreationExportQuery = asOfQuery.extend(valueCreationFilters.shape).strict();
+
+/** Whether a position passes every filter that is set: the one rule the page and the export share. */
+export function matchesValueCreationFilters(
+  position: Pick<
+    ValueCreationPosition,
+    'vehicleId' | 'sponsorId' | 'sector' | 'dealType' | 'entryYear' | 'status'
+  >,
+  filters: ValueCreationFilters,
+): boolean {
+  return (
+    (filters.vehicleId === undefined || position.vehicleId === filters.vehicleId) &&
+    (filters.sponsorId === undefined || position.sponsorId === filters.sponsorId) &&
+    (filters.sector === undefined || position.sector === filters.sector) &&
+    (filters.dealType === undefined || position.dealType === filters.dealType) &&
+    (filters.entryYear === undefined || String(position.entryYear) === filters.entryYear) &&
+    (filters.status === undefined || position.status === filters.status)
+  );
+}
 
 /**
  * One point of a position's indexed series: the entry snapshot (every company line at 100) and

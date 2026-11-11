@@ -222,7 +222,7 @@ export const ROUTES: readonly RouteDefinition[] = [
     method: 'GET',
     path: `${API_PREFIX}/analytics/value-creation`,
     summary:
-      'Value creation: per equity and continuation vehicle position, the EBITDA bridge from entry (EBITDA growth, multiple expansion, debt paydown) and our gain by driver; the portfolio roll-up; performance by entry multiple and entry net leverage band (M13, M20)',
+      'Value creation: per equity and continuation vehicle position, the EBITDA bridge from entry (EBITDA growth, multiple expansion, debt paydown) and our gain by driver at our entry stake, with the remainder; the portfolio roll-up; performance by entry multiple and entry net leverage band (M13, M20)',
     tags: ['analytics'],
     roles: [],
     auth: true,
@@ -233,11 +233,11 @@ export const ROUTES: readonly RouteDefinition[] = [
     method: 'GET',
     path: `${API_PREFIX}/analytics/value-creation/export`,
     summary:
-      'The value creation positions as CSV (text/csv), the same rows the view shows the caller',
+      'The value creation positions as CSV (text/csv): the rows the view shows the caller, narrowed by the filters of the view (vehicle, sponsor, sector, deal type, entry year, status)',
     tags: ['analytics'],
     roles: [],
     auth: true,
-    query: s.asOfQuery,
+    query: s.valueCreationExportQuery,
     response: s.csvText,
     responseContentType: 'text/csv',
   },

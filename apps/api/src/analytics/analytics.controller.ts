@@ -1,6 +1,7 @@
 import { Controller, Get, Header, Inject, Param, Query, Req, Res } from '@nestjs/common';
 import type { Response } from 'express';
 import type { AdapterSet, Principal } from '@pb/adapters';
+import { valueCreationExportQuery } from '@pb/contracts';
 import type {
   AnalyticsSummary,
   InvestmentValueCreation,
@@ -10,7 +11,7 @@ import type {
 import { CurrentPrincipal } from '../auth/principal.js';
 import type { RequestWithPrincipal } from '../auth/principal.js';
 import { ADAPTERS } from '../common/tokens.js';
-import { asOfOrToday, requireUuid } from '../common/validate.js';
+import { asOfOrToday, parseOrProblem, requireUuid } from '../common/validate.js';
 import { AnalyticsService } from './analytics.service.js';
 
 @Controller('api/v1')
@@ -46,7 +47,10 @@ export class AnalyticsController {
     );
   }
 
-  /** The view's positions as text/csv (the contract says so), offered as a download named by the as-of date. */
+  /**
+   * The view's positions as text/csv (the contract says so), narrowed by the filters of the view,
+   * offered as a download named by the as-of date.
+   */
   @Get('analytics/value-creation/export')
   @Header('Content-Type', 'text/csv; charset=utf-8')
   async valueCreationExport(
@@ -55,10 +59,12 @@ export class AnalyticsController {
     @Req() req: RequestWithPrincipal,
     @Res({ passthrough: true }) res: Response,
   ): Promise<string> {
+    const { asOf: asked, ...filters } = parseOrProblem(valueCreationExportQuery, query, 'query');
     const { asOf, csv } = await this.service.valueCreationExport(
       principal,
       req.id ?? 'unknown',
-      asOfOrToday(query, this.adapters.clock),
+      asked ?? this.adapters.clock.today(),
+      filters,
     );
     res.setHeader('Content-Disposition', `attachment; filename="value-creation-${asOf}.csv"`);
     return csv;
