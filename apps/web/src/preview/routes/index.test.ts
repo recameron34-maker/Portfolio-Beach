@@ -409,3 +409,43 @@ describe('If-Match in the preview, read at the boundary as the API reads it', ()
     expect(fresh.status).toBe(200);
   });
 });
+
+describe('the body of a simulated request', () => {
+  it('refuses an empty body with the issue the API lists, and keeps nothing for a body that is not JSON', async () => {
+    const { f, state } = setup();
+    // No body at all is a body the contract refuses, in the words the API answers it with.
+    const empty = await send(f, USERS.ops.externalId, 'POST', commands(NO_SUCH_ID));
+    expect(empty.status).toBe(400);
+    expect(problemDetails.parse(empty.json)).toMatchObject({
+      type: 'https://portfolio-beach.example/problems/validation',
+      detail: 'Invalid command',
+      errors: [{ path: '(root)', message: 'Invalid input: expected object, received undefined' }],
+    });
+    // Text that is not JSON is refused with a fixed message, never with the text itself.
+    const broken = await send(
+      f,
+      USERS.ops.externalId,
+      'POST',
+      VALUATIONS,
+      'VALUE-9931 and more',
+      keyOf('broken-1'),
+    );
+    expect(broken.status).toBe(400);
+    expect(broken.text).not.toContain('VALUE-9931');
+    expect(problemDetails.parse(broken.json).errors).toEqual([
+      { path: '(root)', message: 'The body is not valid JSON' },
+    ]);
+    expect(state.idempotency.size).toBe(0);
+    // The key carried nothing, so the corrected request may use it.
+    const corrected = await send(
+      f,
+      USERS.ops.externalId,
+      'POST',
+      VALUATIONS,
+      createBody(),
+      keyOf('broken-1'),
+    );
+    expect(corrected.status).toBe(201);
+    expect(corrected.headers.get(REPLAYED)).toBeNull();
+  });
+});
