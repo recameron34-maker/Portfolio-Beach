@@ -1,5 +1,5 @@
 import type { ZodError } from 'zod';
-import { WORKFLOW_REFUSALS } from '@pb/contracts';
+import { WORKFLOW_REFUSALS, rowVersionEtag } from '@pb/contracts';
 import type { ProblemDetails } from '@pb/contracts';
 import type { TransitionResult } from '@pb/workflows';
 
@@ -35,7 +35,7 @@ export interface ProblemOptions {
 function headers(contentType: string, simulated: boolean, etag?: number): Headers {
   const h = new Headers({ 'content-type': contentType, 'x-request-id': 'preview' });
   if (simulated) h.set('x-pb-simulated', 'true');
-  if (etag !== undefined) h.set('etag', `"${etag}"`);
+  if (etag !== undefined) h.set('etag', rowVersionEtag(etag));
   return h;
 }
 

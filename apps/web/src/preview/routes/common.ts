@@ -1,4 +1,17 @@
-import { ROUTES, SIMULATED_ROUTES, featureFlagList, taxonomy } from '@pb/contracts';
+import {
+  IF_MATCH_HEADER,
+  IF_MATCH_ISSUE,
+  INVALID_IF_MATCH_DETAIL,
+  ROUTES,
+  SIMULATED_ROUTES,
+  STALE_ROW_VERSION_CODE,
+  featureFlagList,
+  isFreshRow,
+  parseIfMatch,
+  routePathMatcher,
+  staleRowVersionDetail,
+  taxonomy,
+} from '@pb/contracts';
 import type { IntakeFile, IntakeLink, IntakeSource, Person, RouteDefinition } from '@pb/contracts';
 import { countsOf, fileStatusOf } from '@pb/validation';
 import type { StagingState } from '@pb/workflows';
@@ -47,7 +60,7 @@ export interface SimRoute {
   definition: RouteDefinition;
   /** Noun for validation problems ("Invalid command"). */
   what: string;
-  /** Honours Idempotency-Key (docs/17 section 3). */
+  /** Honours Idempotency-Key (docs/17 section 3): the contract route's own flag, never the route file's. */
   idempotent: boolean;
   bodySchema: z.ZodTypeAny | null;
   querySchema: z.ZodTypeAny | null;
@@ -57,38 +70,13 @@ export interface SimRoute {
 
 const CONTRACT: readonly RouteDefinition[] = [...ROUTES, ...SIMULATED_ROUTES];
 
-function matcher(template: string): (pathname: string) => Record<string, string> | null {
-  const names: string[] = [];
-  const source = template
-    .split(/(\{[a-zA-Z]+\})/)
-    .map((part) => {
-      const name = /^\{([a-zA-Z]+)\}$/.exec(part)?.[1];
-      if (name === undefined) return part.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-      names.push(name);
-      return '([^/]+)';
-    })
-    .join('');
-  const pattern = new RegExp(`^${source}$`);
-  return (pathname) => {
-    const m = pattern.exec(pathname);
-    if (m === null) return null;
-    const params: Record<string, string> = {};
-    for (const [i, name] of names.entries()) {
-      try {
-        params[name] = decodeURIComponent(m[i + 1] ?? '');
-      } catch {
-        return null;
-      }
-    }
-    return params;
-  };
-}
-
 /**
  * A simulated route: a write, or a read of records that exist only in the simulation (the intake
  * files). It must name a route of the contract (ROUTES or SIMULATED_ROUTES in @pb/contracts) and
  * validate with that route's own body and query schemas, so the preview cannot accept a request
- * the API would refuse, or the other way round.
+ * the API would refuse, or the other way round. The contract route also decides whether the
+ * route honours Idempotency-Key, as it does in the API (apps/api/src/common/idempotency.ts): a
+ * route file may repeat the flag for the reader, and one that contradicts it does not load.
  */
 export function defineSimRoute<B, Q = undefined>(spec: {
   method: 'GET' | 'POST' | 'PATCH' | 'PUT';
@@ -110,15 +98,20 @@ export function defineSimRoute<B, Q = undefined>(spec: {
     throw new Error(
       `simulated route ${spec.method} ${spec.path} must validate with its contract query`,
     );
+  const idempotent = definition.idempotent === true;
+  if (spec.idempotent !== undefined && spec.idempotent !== idempotent)
+    throw new Error(
+      `simulated route ${spec.method} ${spec.path} must be idempotent exactly when its contract route is`,
+    );
   return {
     method: spec.method,
     path: spec.path,
     definition,
     what: spec.what,
-    idempotent: spec.idempotent ?? false,
+    idempotent,
     bodySchema: spec.body,
     querySchema: spec.query ?? null,
-    match: matcher(spec.path),
+    match: routePathMatcher(spec.path),
     // The dispatcher validated the body and query with the schemas above, which are typed as B and Q.
     handle: async (req, ctx) => spec.handle(req as SimRequest<B, Q>, ctx),
   };
@@ -133,30 +126,48 @@ export function contractBody<B>(method: RouteDefinition['method'], path: string)
   return definition.body as z.ZodType<B>;
 }
 
-/** 412 when an If-Match header names another row version (docs/17 section 3). No header, no check. */
+/** The routes of the contract that read If-Match, each with the kind of record the header guards. */
+const IF_MATCH_ROUTES = CONTRACT.flatMap((route) =>
+  route.ifMatch === undefined ? [] : [{ kind: route.ifMatch, match: routePathMatcher(route.path) }],
+);
+
+/** 400 for an If-Match header that is not a list of row versions, in the API's words (ifMatchVersions). */
+export function invalidIfMatch(instance: string): Response {
+  return problem(400, 'validation', INVALID_IF_MATCH_DETAIL, {
+    instance,
+    simulated: true,
+    errors: [{ ...IF_MATCH_ISSUE }],
+  });
+}
+
+/**
+ * The API's check of an If-Match header against the row version of the record a command is
+ * about to change (docs/17 section 3; apps/api/src/common/row-version.ts): null when the command
+ * may run (no header, "*", or one of the versions named is the record's), else the refusal. A
+ * stale version is 412 with the detail the API gives, which names the record kind and the
+ * version the record is at; the kind is the one the contract gives the route (`ifMatch`), unless
+ * the caller guards another record and says which. A malformed header is 400; the dispatcher has
+ * already refused it at the boundary on the routes the contract marks (routes/index.ts). The
+ * header itself is read by the contracts' parser, the same one the API uses.
+ */
 export function staleIfMatch(
   headers: Headers,
   rowVersion: number,
   instance: string,
+  what?: string,
 ): Response | null {
-  const raw = headers.get('if-match');
-  if (raw === null) return null;
-  const tags = raw
-    .split(',')
-    .map((t) => t.trim())
-    .filter((t) => t.length > 0);
-  if (tags.includes('*')) return null;
-  const versions = tags.map((t) => t.replace(/^W\//, '').replace(/^"(.*)"$/, '$1'));
-  if (versions.includes(String(rowVersion))) return null;
-  return problem(
-    412,
-    'stale-row-version',
-    'The record changed since it was read. Reload it and try again.',
-    {
-      instance,
-      simulated: true,
-    },
-  );
+  const parsed = parseIfMatch(headers.get(IF_MATCH_HEADER));
+  if (!parsed.ok) return invalidIfMatch(instance);
+  if (isFreshRow(parsed.versions, rowVersion)) return null;
+  const kind = what ?? IF_MATCH_ROUTES.find((r) => r.match(instance) !== null)?.kind;
+  if (kind === undefined)
+    throw new Error(
+      `the contract does not mark the route of ${instance} as reading If-Match (ifMatch)`,
+    );
+  return problem(412, STALE_ROW_VERSION_CODE, staleRowVersionDetail(kind, rowVersion), {
+    instance,
+    simulated: true,
+  });
 }
 
 /**
