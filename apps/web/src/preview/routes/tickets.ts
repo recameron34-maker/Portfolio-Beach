@@ -5,14 +5,16 @@ import { ensureNotices, ensureTickets, ensureWires } from '../state.js';
 import type { SimTicket } from '../state.js';
 import { decodeCursor, defineSimRoute, encodeCursor } from './common.js';
 import type { SimContext } from './common.js';
-import { counterpartyOfNotice, readerIdOf, registerOf, ticketRowOf } from './register.js';
+import { counterpartyOfNotice, readerOf, registerOf, ticketRowOf } from './register.js';
 
 /**
  * Trade tickets (docs/04 M16, SEC-12.3) simulated the way apps/api/src/capital/tickets.ts serves
  * them: one per capital notice, read by the contract's roles, each following its notice's wall
  * (a ticket on a notice the credential cannot open is absent from the list and not found on its
  * own), with the release check computed for the reader from the same register the notice
- * commands judge approveTicket on, so what the ticket shows is what the command will say.
+ * commands judge approveTicket on, so what the ticket shows is what the command will say. The
+ * version a ticket was approved against is a register row: it goes to the register's readers
+ * only, and the deal team, who read tickets but not the register, get null there.
  */
 
 const NOT_FOUND = 'Trade ticket not found';
@@ -45,7 +47,7 @@ function rowFor(ctx: SimContext, credential: string, sim: SimTicket): TradeTicke
     sim,
     wires,
     registerOf(wires.values(), keys),
-    readerIdOf(ctx.recordings, credential),
+    readerOf(ctx.recordings, credential),
     ctx.recordings.asOf,
   );
 }

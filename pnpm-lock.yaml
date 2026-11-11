@@ -291,7 +291,11 @@ importers:
         specifier: 4.6.5
         version: 4.6.5
 
-  packages/workflows: {}
+  packages/workflows:
+    dependencies:
+      '@pb/calc':
+        specifier: workspace:*
+        version: link:../calc
 
   packages/xlsx: {}
 

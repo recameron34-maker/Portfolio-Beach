@@ -10,7 +10,7 @@ import type {
   WireInstructionPage,
   WireInstructionRow,
 } from '@pb/contracts';
-import { attempt, wireInstructionMachine } from '@pb/workflows';
+import { attempt, olderThanVerified, wireInstructionMachine } from '@pb/workflows';
 import { jsonResponse, problem, workflowProblem } from '../problems.js';
 import { ensureWires } from '../state.js';
 import type { SimActor, SimWireInstruction } from '../state.js';
@@ -23,8 +23,6 @@ import {
   recordActivity,
   staleIfMatch,
 } from './common.js';
-import type { SimContext } from './common.js';
-
 import type { CounterpartyKeys } from './register.js';
 
 /**
@@ -32,11 +30,15 @@ import type { CounterpartyKeys } from './register.js';
  * decision 0013) simulated the way apps/api/src/capital/wires.service.ts serves it. Bank details
  * enter in one way: a person types them into the propose body (never from a document, an email
  * or a model). The register has no wall (it is an operations control), its readers are the
- * contract's roles, and only operations and approvers read the details in clear: a recorded
- * version answers the reveal from the book (the recordings carry null for every credential), a
- * version proposed this session from what was typed. A new version is Proposed; it becomes
- * Verified through a callback by a person other than the proposer, supersedes the previous active
- * version and lifts the hold on the counterparty's tickets; a reject records the reason.
+ * contract's roles, and only operations and approvers read the details in clear. The preview is
+ * published, so it holds no clear details of a recorded version at all (WEB-1): the recordings
+ * and the book carry the masked form only, and the reveal of a recorded version answers null to
+ * every reader (the page says the full details are not part of the preview). A version proposed
+ * this session answers what the person typed, to the clear readers of that session. A new
+ * version is Proposed; it becomes Verified through a callback by a person other than the
+ * proposer, supersedes the previous active version and lifts the hold on the counterparty's
+ * tickets; a Proposed version older than a Verified one is rejected, never verified over it; a
+ * reject records the reason and the failed callback when one was made.
  */
 
 const NOT_FOUND = 'Wire instruction not found';
@@ -55,18 +57,13 @@ const sameKey = (row: WireInstructionRow, keys: CounterpartyKeys): boolean =>
     ? row.counterparty.kind === 'investment' && row.counterparty.id === keys.investmentId
     : row.counterparty.kind === 'sponsor_fund' && row.counterparty.id === keys.sponsorFundId;
 
-/** The row with the details in clear for a clear reader, null for anyone else or when nothing is known. */
-function detailOf(
-  ctx: SimContext,
-  actor: SimActor,
-  sim: SimWireInstruction,
-): WireInstructionDetail {
+/**
+ * The row with the details in clear for a clear reader when a person typed them this session;
+ * null for anyone else, and for every recorded version (the preview holds its masked form only).
+ */
+function detailOf(actor: SimActor, sim: SimWireInstruction): WireInstructionDetail {
   if (!actor.roles.some((r) => CLEAR_READERS.includes(r))) return { ...sim.row, bankDetails: null };
-  const bankDetails =
-    sim.bankDetails ??
-    ctx.book?.wireInstructions.find((w) => w.id === sim.row.id)?.bankDetails ??
-    null;
-  return { ...sim.row, bankDetails };
+  return { ...sim.row, bankDetails: sim.bankDetails };
 }
 
 /** GET /api/v1/wire-instructions: the register, newest proposal first, masked, filtered by counterparty and state. */
@@ -99,7 +96,7 @@ export const wireInstructionsRoute = defineSimRoute({
   },
 });
 
-/** GET /api/v1/wire-instructions/{id}: one version; the details in clear for operations and approvers only. */
+/** GET /api/v1/wire-instructions/{id}: one version; details typed this session in clear for operations and approvers only. */
 export const wireInstructionRoute = defineSimRoute({
   method: 'GET',
   path: '/api/v1/wire-instructions/{id}',
@@ -109,7 +106,7 @@ export const wireInstructionRoute = defineSimRoute({
     const sim = ensureWires(ctx.state, ctx.recordings).get(req.params.id ?? '');
     if (sim === undefined)
       return problem(404, 'not-found', NOT_FOUND, { instance: req.url.pathname, simulated: true });
-    return jsonResponse(200, detailOf(ctx, req.actor, sim), {
+    return jsonResponse(200, detailOf(req.actor, sim), {
       simulated: true,
       etag: sim.row.rowVersion,
     });
@@ -186,15 +183,17 @@ export const proposeWireInstructionRoute = defineSimRoute({
       to: 'Proposed',
     });
     sweepNoticesForNewVersion(ctx, req.actor, keys);
-    return jsonResponse(201, detailOf(ctx, req.actor, sim), { simulated: true, etag: 1 });
+    return jsonResponse(201, detailOf(req.actor, sim), { simulated: true, etag: 1 });
   },
 });
 
 /**
  * POST /api/v1/wire-instructions/{id}/commands (operations, approver): verify records the
  * confirming callback by the actor (never the proposer, SEC-12.2), makes the version active and
- * supersedes the previous active one as the system's step; reject records the reason and the
- * failed callback when one was made.
+ * supersedes the previous active one as the system's step; an older Proposed version is never
+ * verified over a newer Verified one (422, reject it instead). reject records the reason and
+ * the failed callback when one was made: the contract's body takes the callback result and its
+ * number source together or not at all (400 with the field otherwise).
  */
 export const wireInstructionCommandRoute = defineSimRoute({
   method: 'POST',
@@ -219,6 +218,14 @@ export const wireInstructionCommandRoute = defineSimRoute({
       record: {
         proposedBy: row.proposedBy.id,
         callbackConfirmed: body.command === 'verify' && body.callbackResult === 'confirmed',
+        // Verifying an older version over a newer Verified one would make the older bank
+        // details the active instruction again: the machine refuses it.
+        olderThanVerified:
+          body.command === 'verify' &&
+          olderThanVerified(
+            row,
+            [...wires.values()].map((w) => w.row),
+          ),
       },
     });
     if (!result.ok) return workflowProblem(result, { instance, simulated: true });
@@ -231,12 +238,14 @@ export const wireInstructionCommandRoute = defineSimRoute({
     if (body.command === 'verify') {
       // The previous active version of the same key moves to Superseded through the machine as
       // the system actor, before the new one becomes active: one active per counterparty.
+      // Whether the version being verified is the newer one is computed from the two version
+      // numbers, never assumed.
       for (const old of wires.values()) {
         if (old.row.id === row.id || !old.row.active || !sameKey(old.row, keys)) continue;
         const superseded = attempt(wireInstructionMachine, old.row.state, 'supersede', {
           actorId: SYSTEM_ACTOR.actorId,
           actorRoles: [...SYSTEM_ACTOR.actorRoles],
-          record: { newerVerifiedExists: true },
+          record: { newerVerifiedExists: row.version > old.row.version },
         });
         if (!superseded.ok) return workflowProblem(superseded, { instance, simulated: true });
         old.row = {
@@ -304,7 +313,7 @@ export const wireInstructionCommandRoute = defineSimRoute({
       from: row.state,
       to: result.to,
     });
-    return jsonResponse(200, detailOf(ctx, req.actor, sim), {
+    return jsonResponse(200, detailOf(req.actor, sim), {
       simulated: true,
       etag: sim.row.rowVersion,
     });

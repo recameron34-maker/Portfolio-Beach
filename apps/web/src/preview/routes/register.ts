@@ -1,4 +1,4 @@
-import { D, addDays, toDayNumber } from '@pb/calc';
+import { D } from '@pb/calc';
 import definitions from '../../../../../config/definitions.json';
 import {
   capitalNoticeAlert,
@@ -8,14 +8,18 @@ import {
   tradeTicketRow,
   wireInstructionRow,
 } from '@pb/contracts';
-import type {
-  CapitalNoticeAlert,
-  CapitalNoticeControlDetail,
-  CapitalNoticeState,
-  ReleaseBlocker,
-  TradeTicketRow,
-  WireInstructionRow,
-} from '@pb/contracts';
+import type { CapitalNoticeControlDetail, TradeTicketRow, WireInstructionRow } from '@pb/contracts';
+import {
+  holdUntil,
+  noticeAlerts,
+  pendingChange,
+  readsRegister,
+  recentVerifiedChange,
+  registerViewOf,
+  releaseOf,
+  utcDateOf,
+} from '@pb/workflows';
+import type { CounterpartyKeys, RegisterView as RegisterViewOf } from '@pb/workflows';
 import { z } from 'zod';
 import type { Recordings } from '../fixtures.js';
 import { ensureNotices, ensureTickets, ensureWires, readAny } from '../state.js';
@@ -35,10 +39,20 @@ import type {
  * active Verified version of its investment (the more specific) or of that investment's or its
  * commitment's sponsor fund. The hold window (SEC-12.3): a version other than the active one,
  * proposed within capitalActivity.wireChangeHoldDays before today and not Rejected, holds every
- * ticket of the counterparty until a second person's callback verifies it. Pure functions over
- * the session state and the recordings; "today" is the recordings' as-of date, the API clock's
- * today when the preview was built. Bank details never pass through here (masked rows only).
+ * ticket of the counterparty until a second person's callback verifies it; for the rest of the
+ * window that verified change takes a third person to release against.
+ *
+ * The rules themselves (the business-day count, the alerts, the active version, the hold window,
+ * the release check, who reads the register) are the pure functions of @pb/workflows
+ * (controls-capital.ts) that the API reads too; this module gathers what they need from the
+ * session state and the recordings. "Today" is the recordings' as-of date, the API clock's today
+ * when the preview was built. Bank details never pass through here (masked rows only), and a
+ * register row, even masked, goes to the register's readers alone (operations, approver, auditor,
+ * platform admin): every other reader of a notice or a ticket gets null in its place.
  */
+
+export { noticeAlerts, pendingChange, readsRegister, releaseOf };
+export type { CounterpartyKeys };
 
 /** What the preview and the overlay share: the session state and the recordings. */
 export interface ControlContext {
@@ -50,21 +64,10 @@ export interface ControlContext {
 export const HOLD_DAYS: number = definitions.capitalActivity.wireChangeHoldDays;
 export const DUE_SOON_BUSINESS_DAYS: number = definitions.capitalActivity.dueSoonBusinessDays;
 
-export interface CounterpartyKeys {
-  investmentId: string | null;
-  sponsorFundId: string | null;
-}
-
 /** The register of one counterparty: every version, newest first, and the active Verified one. */
-export interface RegisterView {
-  versions: WireInstructionRow[];
-  active: WireInstructionRow | null;
-}
+export type RegisterView = RegisterViewOf<WireInstructionRow>;
 
 export const EMPTY_REGISTER: RegisterView = { versions: [], active: null };
-
-/** The ISO calendar date of a timestamp, for the hold window arithmetic. */
-export const isoDateOf = (at: string): string => at.slice(0, 10);
 
 const byText = (a: string, b: string): number => (a < b ? -1 : a > b ? 1 : 0);
 
@@ -72,49 +75,24 @@ const byText = (a: string, b: string): number => (a < b ? -1 : a > b ? 1 : 0);
 export const registerOrder = (a: WireInstructionRow, b: WireInstructionRow): number =>
   byText(b.proposedAt, a.proposedAt) || byText(b.id, a.id);
 
-/** Whether a version belongs to a counterparty, by either of its keys. */
-export function belongsTo(row: WireInstructionRow, keys: CounterpartyKeys): boolean {
-  return (
-    (row.counterparty.kind === 'investment' && row.counterparty.id === keys.investmentId) ||
-    (row.counterparty.kind === 'sponsor_fund' && row.counterparty.id === keys.sponsorFundId)
-  );
-}
-
 /** The register of one counterparty over the simulated versions; the investment-level active version wins. */
 export function registerOf(
   wires: Iterable<SimWireInstruction>,
   keys: CounterpartyKeys,
 ): RegisterView {
-  const versions = [...wires]
-    .map((w) => w.row)
-    .filter((row) => belongsTo(row, keys))
-    .sort(registerOrder);
-  return {
-    versions,
-    active:
-      versions.find((v) => v.active && v.counterparty.kind === 'investment') ??
-      versions.find((v) => v.active) ??
-      null,
-  };
+  return registerViewOf([...wires].map((w) => w.row).sort(registerOrder), keys);
 }
 
-/**
- * The pending change that holds a release (SEC-12.3, docs/04 M16): the latest version of the
- * counterparty other than the active one, not Rejected, whose proposal date plus the hold days
- * is still after the date given. Null when nothing holds.
- */
-export function pendingChange(
-  register: RegisterView,
-  asOf: string,
-  holdDays: number,
-): WireInstructionRow | null {
-  let latest: WireInstructionRow | null = null;
-  for (const v of register.versions) {
-    if (v.id === register.active?.id || v.state === 'Rejected') continue;
-    if (asOf >= addDays(isoDateOf(v.proposedAt), holdDays)) continue;
-    if (latest === null || v.proposedAt > latest.proposedAt) latest = v;
-  }
-  return latest;
+/** Who is reading: the user behind a credential, from the recorded sign-in. */
+export interface Reader {
+  userId: string;
+  roles: readonly string[];
+}
+
+/** The reader behind a credential; nobody (no id, no role) when the sign-in was not recorded. */
+export function readerOf(recordings: Recordings, credential: string): Reader {
+  const user = recordings.user(credential);
+  return { userId: user?.userId ?? '', roles: user?.roles ?? [] };
 }
 
 /**
@@ -143,79 +121,47 @@ export function counterpartyOfNotice(
   return { investmentId: null, sponsorFundId: null };
 }
 
-const isWeekday = (dayNumber: number): boolean => {
-  const weekday = (((dayNumber + 4) % 7) + 7) % 7;
-  return weekday !== 0 && weekday !== 6;
-};
-
-/** Business days (Monday to Friday) strictly after `from` up to and including `to`; negative when `to` is earlier. */
-export function businessDaysBetween(from: string, to: string): number {
-  const a = toDayNumber(from);
-  const b = toDayNumber(to);
-  if (b < a) return -businessDaysBetween(to, from);
-  const span = b - a;
-  const weeks = Math.floor(span / 7);
-  let count = weeks * 5;
-  for (let d = a + weeks * 7 + 1; d <= b; d += 1) if (isWeekday(d)) count += 1;
-  return count;
-}
-
-/** The states in which the wire is already out, so the due date no longer needs attention. */
-const SETTLED: readonly CapitalNoticeState[] = ['Funded', 'Reconciled'];
-
-export interface AlertInput {
-  state: CapitalNoticeState;
-  urgencyFlag: boolean;
-  wireChangeFlag: boolean;
-  dueDate: string;
-  asOf: string;
-  dueSoonBusinessDays: number;
+/**
+ * What capitalNoticeMachine reads of the register for approveTicket, the four keys
+ * apps/api/src/capital/capital.service.ts builds: whether an instruction is Verified, whether a
+ * change is pending inside the hold window, and who proposed and whose callback verified a
+ * change verified inside it. Those two are null when no verified change sits inside the window:
+ * the machine then asks for nothing beyond dual control.
+ */
+export function approvalRecordOf(
+  register: RegisterView,
+  asOf: string,
+): {
   wireVerified: boolean;
-}
-
-/** The SEC-12.4 alerts in the contract's order; an empty list when nothing needs attention. */
-export function noticeAlerts(input: AlertInput): CapitalNoticeAlert[] {
-  const out: CapitalNoticeAlert[] = [];
-  if (input.wireChangeFlag) out.push('wire_changed');
-  if (input.urgencyFlag) out.push('urgency_language');
-  if (
-    !SETTLED.includes(input.state) &&
-    businessDaysBetween(input.asOf, input.dueDate) < input.dueSoonBusinessDays
-  )
-    out.push('due_within_two_business_days');
-  if (!input.wireVerified) out.push('unverified_instruction');
-  return out;
+  wireChangedWithinHold: boolean;
+  wireProposedByWithinHold: string | null;
+  wireVerifiedByWithinHold: string | null;
+} {
+  const recent = recentVerifiedChange(register, asOf, HOLD_DAYS);
+  return {
+    wireVerified: register.active !== null,
+    wireChangedWithinHold: pendingChange(register, asOf, HOLD_DAYS) !== null,
+    wireProposedByWithinHold: recent?.proposedBy.id ?? null,
+    wireVerifiedByWithinHold: recent?.callback?.by.id ?? null,
+  };
 }
 
 /**
- * Why a ticket cannot be released by the reader now (SEC-12.3), in the contract's order: only a
- * Drafted or Approved ticket is judged; a Funded or Withdrawn one has nothing to release.
+ * A ticket as the contract serves it to one reader: the release check judged for that person,
+ * and the version it was approved against (masked) for a reader of the register only; every
+ * other reader of the ticket gets null there, as the API answers.
  */
-export function releaseOf(
-  ticket: { state: SimTicket['state']; preparedById: string },
-  register: RegisterView,
-  readerId: string,
-  asOf: string,
-): { allowed: boolean; blockers: ReleaseBlocker[] } {
-  if (ticket.state === 'Funded' || ticket.state === 'Withdrawn')
-    return { allowed: false, blockers: [] };
-  const blockers: ReleaseBlocker[] = [];
-  if (register.versions.length === 0) blockers.push('no_instruction');
-  else if (register.active === null) blockers.push('unverified_instruction');
-  if (pendingChange(register, asOf, HOLD_DAYS) !== null) blockers.push('changed_within_hold');
-  if (ticket.preparedById === readerId) blockers.push('same_person');
-  return { allowed: blockers.length === 0, blockers };
-}
-
-/** A ticket as the contract serves it to one reader: the version it was approved against (masked) and the release check. */
 export function ticketRowOf(
   sim: SimTicket,
   wires: ReadonlyMap<string, SimWireInstruction>,
   register: RegisterView,
-  readerId: string,
+  reader: Reader,
   asOf: string,
 ): TradeTicketRow {
-  const against = sim.wireInstructionId === null ? undefined : wires.get(sim.wireInstructionId);
+  const against =
+    sim.wireInstructionId === null || !readsRegister(reader)
+      ? undefined
+      : wires.get(sim.wireInstructionId);
   return {
     id: sim.id,
     capitalNoticeId: sim.capitalNoticeId,
@@ -236,12 +182,11 @@ export function ticketRowOf(
             bankDetailsMasked: against.row.bankDetailsMasked,
           },
     state: sim.state,
-    release: releaseOf(
-      { state: sim.state, preparedById: sim.preparedBy.id },
-      register,
-      readerId,
+    release: releaseOf({ state: sim.state, preparedBy: sim.preparedBy.id }, register, {
+      userId: reader.userId,
       asOf,
-    ),
+      holdDays: HOLD_DAYS,
+    }),
     rowVersion: sim.rowVersion,
   };
 }
@@ -275,22 +220,22 @@ export function noticeFlagsOf(recorded: RecordedNoticeDetail | undefined): SimNo
   };
 }
 
+/** The note a funded ticket adds when its amount is not the notice's, in the API's words. */
+export const FUNDED_AMOUNT_DIFFERS = 'Funded amount differs from the notice amount.';
+
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
 /** An ISO date for a notice note, as the API writes it: "2025-03-31" is "Mar 31, 2025". */
 export const fmtDate = (iso: string): string =>
   `${MONTHS[Number(iso.slice(5, 7)) - 1] ?? '?'} ${Number(iso.slice(8, 10))}, ${iso.slice(0, 4)}`;
 
-/** The user id behind a credential, from the recorded sign-in; empty when unknown. */
-export function readerIdOf(recordings: Recordings, credential: string): string {
-  return recordings.user(credential)?.userId ?? '';
-}
-
 /**
  * The notice detail as the contract serves it, built from the recorded detail with the
  * session's register, ticket and flags laid over: the state and row version, the cash flow a
- * reconcile wrote, the hold from the register (SEC-12.3) and its note, the ticket judged for
- * the reader, the counterparty's active instruction (masked) and the SEC-12.4 alerts.
+ * reconcile wrote, the hold from the register (SEC-12.3) and its note, the note of a funded
+ * amount that differs from the notice, the ticket judged for the reader, the counterparty's
+ * active instruction (masked, for a reader of the register only) and the SEC-12.4 alerts, which
+ * tell every reader whether a Verified instruction is on file.
  */
 export function controlDetailOf(
   ctx: ControlContext,
@@ -304,9 +249,11 @@ export function controlDetailOf(
   const keys = counterpartyOfNotice(ctx.recordings, recorded);
   const register = registerOf(wires.values(), keys);
   const pending = pendingChange(register, asOf, HOLD_DAYS);
-  const changedOn = pending === null ? null : isoDateOf(pending.proposedAt);
+  const changedOn = pending === null ? null : utcDateOf(pending.proposedAt);
   const wireChangeHold =
-    changedOn === null ? null : { until: addDays(changedOn, HOLD_DAYS), holdDays: HOLD_DAYS };
+    pending === null
+      ? null
+      : { until: holdUntil(pending.proposedAt, HOLD_DAYS), holdDays: HOLD_DAYS };
   const cashFlows = [...recorded.cashFlows, ...sim.cashFlows];
   const settled = sim.cashFlows.reduce((sum, f) => sum.plus(D(f.amount).abs()), D('0'));
   const settledAmount =
@@ -326,7 +273,10 @@ export function controlDetailOf(
     );
   const flags = (sim.flags ??= noticeFlagsOf(recorded));
   const ticket = ticketOfNotice(tickets, recorded.id);
-  const readerId = readerIdOf(ctx.recordings, credential);
+  // What left the account is the ticket's amount; the reconciliation books it (writeCashFlow).
+  if (ticket?.state === 'Funded' && !D(ticket.amount).equals(D(recorded.amount)))
+    notes.push(FUNDED_AMOUNT_DIFFERS);
+  const reader = readerOf(ctx.recordings, credential);
   return {
     ...recorded,
     state: sim.row.state,
@@ -335,8 +285,10 @@ export function controlDetailOf(
     settledAmount,
     wireChangeHold,
     notes,
-    ticket: ticket === undefined ? null : ticketRowOf(ticket, wires, register, readerId, asOf),
-    activeWireInstruction: register.active,
+    ticket: ticket === undefined ? null : ticketRowOf(ticket, wires, register, reader, asOf),
+    // The register's row goes to the register's readers only; the alerts below already say
+    // whether a Verified instruction is on file (unverified_instruction).
+    activeWireInstruction: readsRegister(reader) ? register.active : null,
     alerts: noticeAlerts({
       state: sim.row.state,
       urgencyFlag: flags.urgencyFlag,
@@ -359,6 +311,18 @@ export function readNoticeDetail(
     credential,
     `/api/v1/capital-notices/${encodeURIComponent(id)}`,
     recordedNoticeDetail,
+  );
+}
+
+/**
+ * The flags a notice carried when the preview was built, from the recorded detail of any user
+ * who could open it: the flags are the notice's own (mon.capital_notice), whoever reads them, so
+ * a step taken by someone outside the notice's wall (the register's sweep) starts from the same
+ * flags a wall member sees.
+ */
+export function recordedFlagsOf(recordings: Recordings, id: string): SimNoticeFlags {
+  return noticeFlagsOf(
+    readAny(recordings, `/api/v1/capital-notices/${encodeURIComponent(id)}`, recordedNoticeDetail),
   );
 }
 

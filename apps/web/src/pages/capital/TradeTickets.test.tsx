@@ -78,6 +78,21 @@ describe('trade tickets', () => {
     expect(screen.getByTestId('ticket-count')).toHaveTextContent('3 tickets shown.');
   });
 
+  it('says the instruction version is restricted when the reader is outside the wire register (D1-05)', async () => {
+    // What the API answers the deal team: the approved and the funded ticket name no version.
+    open({
+      [TICKETS]: ok(ticketPageFixture(ticketRows().map((t) => ({ ...t, wireInstruction: null })))),
+    });
+    const rows = rowsOf(await screen.findByRole('table', { name: 'Trade tickets' }));
+    const [drafted, approved, funded] = rows;
+    // A Drafted ticket has no version yet: the missing placeholder stands (no approver either).
+    expect(within(drafted!).getAllByText('-')).toHaveLength(2);
+    for (const row of [approved!, funded!]) {
+      expect(within(row).getByText('Restricted to the wire register')).toBeInTheDocument();
+      expect(within(row).queryByText('-')).not.toBeInTheDocument();
+    }
+  });
+
   it('falls back to the notice id when the notice list is not at hand', async () => {
     open({ [NOTICES]: failing(403, '/api/v1/capital-notices') });
     const table = await screen.findByRole('table', { name: 'Trade tickets' });

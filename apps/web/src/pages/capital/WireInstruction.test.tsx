@@ -10,6 +10,7 @@ import {
   SPONSOR_FUND_ID,
   wireDetailFixture,
   wirePageFixture,
+  wireRowFixture,
   wireRows,
   WIRE_ID,
 } from '../../test/fixtures-capital.js';
@@ -218,6 +219,77 @@ describe('wire instruction page', () => {
         },
       ],
     ]);
+  });
+
+  it(
+    'does not offer to verify a Proposed version older than a Verified one, and says to reject it (W2-4)',
+    TIMEOUT,
+    async () => {
+      // Version 3 of the fund was proposed and verified while version 2 still waited.
+      const newer = wireRowFixture({
+        id: '00000000-0000-4000-8000-000000000705',
+        version: 3,
+        proposedAt: '2025-07-11T09:00:00.000Z',
+      });
+      const history = [
+        newer,
+        rowOf(WIRE_ID.proposed),
+        { ...rowOf(WIRE_ID.verified), state: 'Superseded' as const, active: false },
+      ];
+      open(WIRE_ID.proposed, opsTwo(), true, {
+        [FUND_VERSIONS]: ok(wirePageFixture(history)),
+        [commandsPath(WIRE_ID.proposed)]: ok(
+          wireDetailFixture({
+            ...rowOf(WIRE_ID.proposed),
+            state: 'Rejected',
+            rejectionReason: 'Superseded by version 3 before its callback',
+          }),
+        ),
+      });
+      const form = await screen.findByTestId('wire-callback-form');
+      const rule =
+        'A newer version of this counterparty is already Verified; reject this older version instead (SEC-12.2)';
+      expect(await within(form).findByTestId('wire-older-version')).toHaveTextContent(rule);
+      await pick('Number source', 'Sponsor website');
+      await pick('Result', 'Confirmed');
+      const verify = within(form).getByRole('button', { name: 'Record callback and verify' });
+      expect(verify).toBeDisabled();
+      expect(verify).toHaveAttribute('title', rule);
+      // A callback that did not confirm, or a withdrawal, still rejects it.
+      expect(within(form).getByRole('button', { name: 'Withdraw version' })).toBeEnabled();
+      await pick('Result', 'Not confirmed');
+      await userEvent.type(
+        within(form).getByRole('textbox', { name: 'Reason' }),
+        'Superseded by version 3 before its callback',
+      );
+      const reject = within(form).getByRole('button', { name: 'Record callback and reject' });
+      expect(reject).toBeEnabled();
+      expect(reject).not.toHaveAttribute('title');
+      await userEvent.click(reject);
+      expect(
+        await within(screen.getByRole('status')).findByText(
+          'Version 2 for Silverline Partners Fund II is now Rejected (audited)',
+        ),
+      ).toBeInTheDocument();
+      expect(sentPosts()).toEqual([
+        [
+          commandsPath(WIRE_ID.proposed),
+          {
+            command: 'reject',
+            callbackNumberSource: 'sponsor_website',
+            callbackResult: 'not_confirmed',
+            reason: 'Superseded by version 3 before its callback',
+          },
+        ],
+      ]);
+    },
+  );
+
+  it('offers to verify the newest Proposed version as before: an older Verified one does not block it', async () => {
+    open(WIRE_ID.proposed, opsTwo());
+    const form = await screen.findByTestId('wire-callback-form');
+    await screen.findByRole('table', { name: 'Versions of this counterparty' });
+    expect(within(form).queryByTestId('wire-older-version')).not.toBeInTheDocument();
   });
 
   it('withdraws a Proposed version with a reason from the dialog', TIMEOUT, async () => {

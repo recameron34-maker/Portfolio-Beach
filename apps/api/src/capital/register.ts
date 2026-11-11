@@ -1,11 +1,12 @@
 import { and, desc, eq, inArray, or, sql } from 'drizzle-orm';
 import type { SQL } from 'drizzle-orm';
 import { alias } from 'drizzle-orm/pg-core';
-import { addDays } from '@pb/calc';
 import { callbackNumberSource, callbackResult, wireInstructionState } from '@pb/contracts';
 import type { WireInstructionRow } from '@pb/contracts';
 import { schema } from '@pb/db';
 import type { Tx } from '@pb/db';
+import { activeVersionOf, belongsToCounterparty } from '@pb/workflows';
+import type { CounterpartyKeys, RegisterView as RegisterViewOf } from '@pb/workflows';
 import { EXACT_AT_FORMAT } from '../common/cursor.js';
 
 /*
@@ -17,24 +18,21 @@ import { EXACT_AT_FORMAT } from '../common/cursor.js';
  * and wins. Everything here reads under the caller's own row-level security (the register is
  * readable by operations, approvers, auditors, platform admins and the system actor only) and
  * returns the masked form of the bank details; the clear form is decrypted in wires.service.ts
- * alone. Nothing here reads the clock: the as-of date or today comes from the caller.
+ * alone. Nothing here reads the clock: the as-of date or today comes from the caller. The rules
+ * over a loaded register (which version is active, the hold window, the pending and the recent
+ * verified change, who reads the register) are the shared pure functions of @pb/workflows
+ * (controls-capital.ts), which the preview simulation reads too.
  */
+
+export { pendingChange, readsRegister, recentVerifiedChange } from '@pb/workflows';
+export type { CounterpartyKeys };
 
 const wire = schema.wireInstruction;
 const proposer = alias(schema.appUser, 'wire_proposer');
 const callbackPerson = alias(schema.appUser, 'wire_callback_by');
 
-/** The two keys an instruction can carry; a notice's counterparty may hold both. */
-export interface CounterpartyKeys {
-  sponsorFundId: string | null;
-  investmentId: string | null;
-}
-
 /** The register for one counterparty: every version, newest first, and the active Verified one. */
-export interface RegisterView {
-  versions: WireInstructionRow[];
-  active: WireInstructionRow | null;
-}
+export type RegisterView = RegisterViewOf<WireInstructionRow>;
 
 export const EMPTY_REGISTER: RegisterView = { versions: [], active: null };
 
@@ -208,82 +206,11 @@ export async function loadRegisters(
   for (const keys of counterparties) {
     const view = out.get(keyOf(keys));
     if (view === undefined) continue;
-    view.versions = rows
-      .filter(
-        (r) =>
-          (r.counterparty.kind === 'investment' && r.counterparty.id === keys.investmentId) ||
-          (r.counterparty.kind === 'sponsor_fund' && r.counterparty.id === keys.sponsorFundId),
-      )
-      .map(toInstructionRow);
-    view.active =
-      view.versions.find((v) => v.active && v.counterparty.kind === 'investment') ??
-      view.versions.find((v) => v.active) ??
-      null;
+    view.versions = rows.filter((r) => belongsToCounterparty(r, keys)).map(toInstructionRow);
+    view.active = activeVersionOf(view.versions);
   }
   return out;
 }
-
-/**
- * The pending change that holds a release (SEC-12.3, docs/04 M16): the latest version of the
- * counterparty other than the active Verified one that was proposed within the hold window, that
- * is, whose proposal date plus capitalActivity.wireChangeHoldDays is still after the date given.
- * A Rejected version is not a change (the callback refused it; the active instruction stands), so
- * it never holds a release; a Proposed version waiting for its callback, or a version Verified or
- * Superseded within the window, does. Once the changed version is verified by a second person
- * and becomes the active one, it is no longer "other than the active one" and this hold lifts:
- * the callback is the second approval the control asks for, and recentVerifiedChange below then
- * keeps the people who made the change from releasing against it. Null when nothing holds.
- */
-export function pendingChange(
-  register: RegisterView,
-  asOf: string,
-  holdDays: number,
-): WireInstructionRow | null {
-  let latest: WireInstructionRow | null = null;
-  for (const v of register.versions) {
-    if (v.id === register.active?.id || v.state === 'Rejected') continue;
-    if (asOf >= addDays(isoDateOf(new Date(v.proposedAt)), holdDays)) continue;
-    if (latest === null || v.proposedAt > latest.proposedAt) latest = v;
-  }
-  return latest;
-}
-
-/**
- * The verified change still inside the hold window (SEC-12.3 "recently changed without a second
- * approval"): the active Verified version when it was proposed within
- * capitalActivity.wireChangeHoldDays before the date given, the same window pendingChange
- * measures, from the day the new or changed instruction was proposed. While it is inside the
- * window, the ticket approver must be a person other than its proposer and other than the person
- * whose callback verified it, so three people touch a recently changed instruction
- * (capitalNoticeMachine approveTicket, releaseOf in tickets.ts). Null once the window has passed
- * or when there is no active version: the dual control rule alone stands.
- */
-export function recentVerifiedChange(
-  register: RegisterView,
-  asOf: string,
-  holdDays: number,
-): WireInstructionRow | null {
-  const active = register.active;
-  if (active === null) return null;
-  return asOf < addDays(isoDateOf(new Date(active.proposedAt)), holdDays) ? active : null;
-}
-
-/**
- * The roles the register is read by (the read_register policy of migration 0013 and WIRE_ROLES
- * of the contract's route table, plus the system actor). A register row, even masked, carries the
- * bank's name, the last four digits and the names of the people who proposed and verified it:
- * pages that every role reads (the notice detail, the ticket) hand it to these roles only.
- */
-const REGISTER_READERS: readonly string[] = [
-  'operations',
-  'approver',
-  'auditor',
-  'platform_admin',
-  'service',
-];
-
-export const readsRegister = (principal: { roles: readonly string[] }): boolean =>
-  principal.roles.some((role) => REGISTER_READERS.includes(role));
 
 /** The notices a counterparty's instructions pay: by the investment, or by the fund through the investment or the commitment. */
 export function noticesOfCounterpartyWhere(keys: CounterpartyKeys): SQL {

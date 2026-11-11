@@ -77,9 +77,26 @@ export const CALLBACK_ROLES: readonly string[] = ['operations', 'approver'];
 /** The roles that propose a version: operations types the details from a verified source (SEC-12.1). */
 export const PROPOSE_ROLES: readonly string[] = ['operations'];
 
+/** The roles that read bank details in clear (SEC-12.2); every other role sees the masked form. */
+export const CLEAR_ROLES: readonly string[] = ['operations', 'approver'];
+
 /** The second-person rule as the machine words it (SEC-12.2). */
 export const SECOND_PERSON_RULE =
   'The callback must be made by a person other than the proposer (SEC-12.2)';
+
+/** Why an older Proposed version cannot be verified, as the machine words it (SEC-12.2). */
+export const OLDER_VERSION_RULE =
+  'A newer version of this counterparty is already Verified; reject this older version instead (SEC-12.2)';
+
+/**
+ * The two parts of the masked form ("<bank name> ****<last four digits>", what every role
+ * sees), or null when the text is not in that form: then the page shows it whole.
+ */
+export function maskedParts(masked: string): { bankName: string; lastFour: string } | null {
+  const match = /^(.+) \*{4}(\d{4})$/.exec(masked);
+  if (match === null) return null;
+  return { bankName: match[1] ?? '', lastFour: match[2] ?? '' };
+}
 
 export interface WireFilters {
   state: WireInstructionState | '';
@@ -219,7 +236,9 @@ export const EMPTY_CALLBACK_FORM: CallbackForm = { numberSource: '', result: '',
 
 /**
  * verify for a confirming callback; reject, with the callback logged, for one that did not
- * confirm (docs/18 section 11: reject needs a reason). Null while a choice or the reason is missing.
+ * confirm (docs/18 section 11: reject needs a reason). Null while a choice or the reason is
+ * missing: a callback is logged whole or not at all (SEC-12.2), so the result and the number
+ * source always leave together, and the API refuses either one alone.
  */
 export function callbackBody(form: CallbackForm): WireInstructionCommandBody | null {
   if (form.numberSource === '' || form.result === '') return null;
@@ -236,4 +255,12 @@ export function callbackBody(form: CallbackForm): WireInstructionCommandBody | n
     callbackResult: 'not_confirmed',
     reason: form.reason.trim(),
   };
+}
+
+/**
+ * A withdrawal: the version is rejected with a reason and no callback, so the body names
+ * neither the result nor the number source (the pair travels together or not at all).
+ */
+export function withdrawBody(reason: string): WireInstructionCommandBody {
+  return { command: 'reject', reason: reason.trim() };
 }

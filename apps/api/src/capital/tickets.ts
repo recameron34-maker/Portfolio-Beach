@@ -6,23 +6,19 @@ import { tradeTicketState } from '@pb/contracts';
 import type { ReleaseBlocker, TradeTicketRow, TradeTicketState } from '@pb/contracts';
 import { schema } from '@pb/db';
 import type { Tx } from '@pb/db';
+import { releaseOf as releaseFor } from '@pb/workflows';
 import { systemStep } from '../common/system-step.js';
-import {
-  keyOf,
-  loadRegisters,
-  pendingChange,
-  readsRegister,
-  recentVerifiedChange,
-} from './register.js';
+import { keyOf, loadRegisters, readsRegister } from './register.js';
 import type { CounterpartyKeys, RegisterView } from './register.js';
 
 /*
  * Trade tickets (docs/04 M16, SEC-12.3): one per capital notice, prepared by one person and
  * approved by another against the counterparty's active Verified instruction. The release check
  * on every row is computed from the same record capitalNoticeMachine judges approveTicket on
- * (capital.service.ts), so what the ticket shows is what the command will say. Rows read under
- * the caller's row-level security: a ticket follows its notice, so a walled notice's ticket is
- * simply absent (404 on the detail).
+ * (capital.service.ts), so what the ticket shows is what the command will say: the check itself
+ * is the shared pure rule of @pb/workflows (controls-capital.ts releaseOf), which the preview
+ * simulation reads too. Rows read under the caller's row-level security: a ticket follows its
+ * notice, so a walled notice's ticket is simply absent (404 on the detail).
  */
 
 const ticket = schema.tradeTicket;
@@ -63,22 +59,11 @@ export function releaseOf(
   register: RegisterView,
   ctx: TicketContext,
 ): { allowed: boolean; blockers: ReleaseBlocker[] } {
-  if (row.state === 'Funded' || row.state === 'Withdrawn') return { allowed: false, blockers: [] };
-  const blockers: ReleaseBlocker[] = [];
-  if (register.versions.length === 0) blockers.push('no_instruction');
-  else if (register.active === null) blockers.push('unverified_instruction');
-  if (pendingChange(register, ctx.asOf, ctx.holdDays) !== null)
-    blockers.push('changed_within_hold');
-  if (row.preparedBy === ctx.principal.userId) blockers.push('same_person');
-  // A change verified inside the window takes a third person: not its proposer, not its verifier.
-  const recent = recentVerifiedChange(register, ctx.asOf, ctx.holdDays);
-  if (
-    recent !== null &&
-    (recent.proposedBy.id === ctx.principal.userId ||
-      recent.callback?.by.id === ctx.principal.userId)
-  )
-    blockers.push('verifier_within_hold');
-  return { allowed: blockers.length === 0, blockers };
+  return releaseFor(row, register, {
+    userId: ctx.principal.userId,
+    asOf: ctx.asOf,
+    holdDays: ctx.holdDays,
+  });
 }
 
 /** Tickets as contract rows with their counterparty's register judged for release. */

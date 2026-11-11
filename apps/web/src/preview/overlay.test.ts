@@ -187,16 +187,21 @@ describe('capital notice overlays', () => {
     state.notices.set(extracted.id, reviewed);
     const out = overlayCapitalNoticeDetail(detail, reviewed, ctx);
     // The notice is on the first fund, whose fourth version is Proposed inside the hold window.
+    // The viewer is outside the register: its row is withheld, and the alerts say one is on file.
     expect(out).toMatchObject({
       state: 'Reviewed',
       rowVersion: 2,
       wireChangeHold: { until: '2025-07-30', holdDays: 30 },
       ticket: null,
-      activeWireInstruction: { id: IDS.wire.Verified, active: true },
+      activeWireInstruction: null,
       alerts: ['due_within_two_business_days'],
     });
     expect(out.notes[0]).toContain('release is held until Jul 30, 2025 (SEC-12.3)');
     expect(out.notes[1]).toBe('No cash flow has been recorded for this notice.');
+    // A reader of the register gets the active version, masked.
+    expect(
+      overlayCapitalNoticeDetail(detail, reviewed, { ...ctx, credential: USERS.ops.externalId }),
+    ).toMatchObject({ activeWireInstruction: { id: IDS.wire.Verified, active: true } });
   });
 });
 

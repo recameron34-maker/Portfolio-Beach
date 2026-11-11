@@ -218,6 +218,134 @@ describe('capital notice detail', () => {
     );
   });
 
+  it('tells a reader outside the register that a Verified instruction is on file and that the register is restricted (D1-05)', async () => {
+    params.id = NOTICE_ID.drafted;
+    const approved = ticketRows()[1]!;
+    mockApi({
+      [ME]: ok(rolePrincipal(['viewer'])),
+      // What the API answers a viewer, the deal team and investor relations: no register row on
+      // the notice or the ticket, and alerts without unverified_instruction.
+      [detailPath(NOTICE_ID.drafted)]: ok(
+        noticeDetailFixture({
+          id: NOTICE_ID.drafted,
+          state: 'TicketApproved',
+          wireChangeHold: null,
+          ticket: { ...approved, wireInstruction: null },
+          activeWireInstruction: null,
+          alerts: ['urgency_language'],
+        }),
+      ),
+    });
+    renderWithQuery(<CapitalNoticePage />);
+    const wire = await screen.findByTestId('notice-wire');
+    expect(within(wire).getByText('A Verified instruction is on file')).toBeInTheDocument();
+    expect(wire).toHaveTextContent(
+      'Its details are kept in the wire register, which operations, approvers, auditors and platform admins read (SEC-12.2).',
+    );
+    expect(within(wire).queryByText('No Verified instruction on file')).not.toBeInTheDocument();
+    expect(wire).not.toHaveTextContent('Operations propose one');
+    // No link into a register this reader cannot open, and no table of an instruction.
+    expect(within(wire).queryByRole('link')).not.toBeInTheDocument();
+    expect(within(wire).queryByRole('table')).not.toBeInTheDocument();
+
+    // The approved ticket names its approver; the version it was approved against is a
+    // register row, so the panel says it is restricted, never the missing placeholder.
+    const ticket = within(screen.getByTestId('ticket-panel')).getByRole('table', {
+      name: 'Trade ticket',
+    });
+    expect(
+      within(ticket).getByText('Mina Halvorsen, Jun 24, 2025 09:00:00 UTC'),
+    ).toBeInTheDocument();
+    expect(within(ticket).getAllByText('Restricted to the wire register')).toHaveLength(2);
+    expect(within(ticket).queryByText('-')).not.toBeInTheDocument();
+    expect(within(ticket).queryByRole('link')).not.toBeInTheDocument();
+  });
+
+  it('still says no Verified instruction is on file to a reader outside the register when the alert says so', async () => {
+    params.id = NOTICE_ID.reviewed;
+    mockApi({
+      [ME]: ok(rolePrincipal(['deal_team'])),
+      [detailPath(NOTICE_ID.reviewed)]: ok(
+        noticeDetailFixture({
+          id: NOTICE_ID.reviewed,
+          state: 'Reviewed',
+          wireChangeHold: null,
+          ticket: null,
+          activeWireInstruction: null,
+          alerts: ['unverified_instruction'],
+        }),
+      ),
+    });
+    renderWithQuery(<CapitalNoticePage />);
+    const wire = await screen.findByTestId('notice-wire');
+    expect(within(wire).getByText('No Verified instruction on file')).toBeInTheDocument();
+    expect(within(wire).queryByText('A Verified instruction is on file')).not.toBeInTheDocument();
+  });
+
+  it('says a third person must release when the reader proposed or verified a recent change (W2-3)', async () => {
+    params.id = NOTICE_ID.extracted;
+    mockApi({
+      [ME]: ok(rolePrincipal(['operations'])),
+      [detailPath(NOTICE_ID.extracted)]: ok(
+        noticeDetailFixture({
+          wireChangeHold: null,
+          ticket: {
+            ...ticketRows()[0]!,
+            release: { allowed: false, blockers: ['verifier_within_hold'] },
+          },
+        }),
+      ),
+    });
+    renderWithQuery(<CapitalNoticePage />);
+    const release = await screen.findByTestId('ticket-release');
+    expect(release).toHaveClass('pb-notice-bad');
+    expect(
+      within(release)
+        .getAllByRole('listitem')
+        .map((b) => b.textContent),
+    ).toEqual([
+      'The wire instructions changed recently and you proposed or verified that change; a third person must approve this ticket (SEC-12.3).',
+    ]);
+    // The sentence for an allowed release names the same rule.
+    expect(RELEASE_ALLOWED).toContain(
+      'you neither proposed nor verified a change inside the hold window',
+    );
+  });
+
+  it('shows the note that the funded amount differs from the notice amount (W2-2)', async () => {
+    params.id = NOTICE_ID.funded;
+    mockApi({
+      [ME]: ok(rolePrincipal(['operations'])),
+      [detailPath(NOTICE_ID.funded)]: ok(
+        noticeDetailFixture({
+          id: NOTICE_ID.funded,
+          state: 'Funded',
+          wireChangeHold: null,
+          notes: [
+            'No cash flow has been recorded for this notice.',
+            'Funded amount differs from the notice amount.',
+          ],
+          ticket: { ...ticketRows()[2]!, amount: '2000000.00' },
+        }),
+      ),
+    });
+    renderWithQuery(<CapitalNoticePage />);
+    const notes = await screen.findByTestId('notice-notes');
+    expect(
+      within(notes)
+        .getAllByRole('listitem')
+        .map((n) => n.textContent),
+    ).toEqual([
+      'No cash flow has been recorded for this notice.',
+      'Funded amount differs from the notice amount.',
+    ]);
+    // The ticket panel shows what was funded beside the notice's own amount in the tiles.
+    expect(
+      within(screen.getByRole('table', { name: 'Trade ticket' })).getByText('$2.0M'),
+    ).toBeInTheDocument();
+    expect(within(tile('notice-tiles', 'Amount')).getByText('$2.5M')).toBeInTheDocument();
+  });
+
   it.each([404, 403] as const)('says not found or not visible on a %s', async (status) => {
     params.id = NOTICE_ID.received;
     mockApi({
