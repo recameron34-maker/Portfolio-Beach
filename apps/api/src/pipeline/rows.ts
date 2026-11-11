@@ -263,7 +263,7 @@ export async function loadStageHistory(
 /**
  * An instant as the gates compare it (controls-closing.ts in @pb/workflows): the UTC timestamp to
  * the microsecond in one fixed-width format, so the text sorts exactly as the database orders the
- * column. A JavaScript date would round it to the millisecond.
+ * column. A JavaScript date would keep only the millisecond.
  */
 export const instantOf = (column: SQL | AnyColumn): SQL<string> =>
   sql<string>`to_char(${column} at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US')`;
