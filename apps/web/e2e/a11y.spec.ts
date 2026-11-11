@@ -378,6 +378,32 @@ for (const width of [1280, 390]) {
       await scanPages(page, W3_PAGES);
     });
 
+    // Review finding D1-06: the allocation of the deal at Closing (three client lines) as a
+    // reader who is shown none of them, and with the client breakdown opened from the keyboard.
+    test(`a viewer and an auditor: the allocation with lines not shown and with the client breakdown open @a11y`, async ({
+      page,
+    }) => {
+      test.setTimeout(180_000);
+      const hidden = (p: Page): Locator => p.getByTestId('allocations-hidden-lines');
+      await signInAs(page, 'viewer.one', d);
+      await scanPages(page, [
+        { path: `/pipeline/${closingDeal}`, ready: hidden },
+        { path: `/pipeline/${closingDeal}/closing`, ready: hidden },
+      ]);
+      await signInAs(page, 'audit.one', d);
+      for (const path of [`/pipeline/${closingDeal}`, `/pipeline/${closingDeal}/closing`]) {
+        await page.goto(path);
+        const toggle = page.getByRole('button', { name: /^Client breakdown \(3 lines\)/ });
+        await toggle.focus();
+        await expect(toggle).toHaveAttribute('aria-expanded', 'false');
+        await page.keyboard.press('Enter');
+        await expect(toggle).toHaveAttribute('aria-expanded', 'true');
+        await expect(page.getByRole('row', { name: /Client Alpha Pension/ })).toBeVisible();
+        await expect(hidden(page)).toHaveCount(0);
+        await expectNoSeriousViolations(page);
+      }
+    });
+
     test(`operations: every deal workspace tab @a11y`, async ({ page }) => {
       test.setTimeout(180_000);
       await signInAs(page, 'ops.one', d);

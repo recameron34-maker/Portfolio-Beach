@@ -177,6 +177,38 @@ await page.goto(`${origin}/#/data/dictionary`);
 await page.getByRole('table', { name: 'Definitions' }).waitFor();
 check('viewer: data dictionary renders', true);
 
+// A client allocation line follows the client's entitlement (review finding D1-06). The deal at
+// Closing holds client lines only: a viewer is shown none of them, reads the deal's own
+// commitment and tie-out, and is told how many lines are not shown, on both pages.
+const clientLineDeal = d.scenarios.closing_open[0];
+const clientLineCount = d.allocations.filter(
+  (a) => a.opportunityId === clientLineDeal && a.clientId !== null,
+).length;
+const hiddenNote = `${clientLineCount} client lines are not shown.`;
+const namesAClient = (text) => d.clients.some((c) => text.includes(c.name));
+await page.goto(`${origin}/#/pipeline/${clientLineDeal}`);
+await page.getByTestId('allocations-hidden-lines').waitFor();
+const viewerCard = await page.getByTestId('allocations-editor').innerText();
+check(
+  'viewer: the allocations card leads with the commitment and says how many client lines are not shown',
+  clientLineCount > 1 &&
+    viewerCard.includes(hiddenNote) &&
+    /commitment/i.test(viewerCard) &&
+    viewerCard.includes('Tied out') &&
+    !namesAClient(viewerCard),
+  viewerCard.replace(/\s+/g, ' ').slice(0, 160),
+);
+await page.goto(`${origin}/#/pipeline/${clientLineDeal}/closing`);
+await page.getByTestId('allocations-hidden-lines').waitFor();
+const viewerTieOut = await page.getByTestId('closing-tie-out').innerText();
+check(
+  'viewer: the closing page shows the tie-out of every line and the same count of lines not shown',
+  viewerTieOut.includes(hiddenNote) &&
+    viewerTieOut.includes('Tied out') &&
+    !namesAClient(viewerTieOut),
+  viewerTieOut.replace(/\s+/g, ' ').slice(0, 160),
+);
+
 await signIn('deal.three');
 await page.goto(`${origin}/#/portfolio`);
 await page.getByTestId('portfolio-count').waitFor();
@@ -1633,6 +1665,26 @@ expectStatus(
     Math.abs(
       Number(withoutReceived.json?.closing?.allocationTieOut?.allocated) - receivedElsewhere,
     ) < 0.005,
+);
+// After the simulated replace the simulation holds every line: it still answers a viewer the
+// lines a viewer may read, with the deal's totals and tie-out and the count of lines not shown.
+const replacedForViewer = (await api('viewer.one', 'GET', closingOpenPath)).json;
+const replacedClientLines = recordedLines.filter((line) => line.clientId !== undefined).length;
+const sameFigures = (mine, theirs) =>
+  JSON.stringify({ ...mine, hiddenLines: 0 }) === JSON.stringify({ ...theirs, hiddenLines: 0 });
+check(
+  'closing: after a simulated replace a viewer is shown no client line, the count not shown and the same tie-out',
+  replacedClientLines > 0 &&
+    replacedForViewer?.allocations?.every((a) => a.client === null) === true &&
+    replacedForViewer?.allocationTotals?.hiddenLines === replacedClientLines &&
+    replacedForViewer?.closing?.allocationTieOut?.hiddenLines === replacedClientLines &&
+    withoutReceived.json?.allocationTotals?.hiddenLines === 0 &&
+    sameFigures(replacedForViewer?.allocationTotals, withoutReceived.json?.allocationTotals) &&
+    sameFigures(
+      replacedForViewer?.closing?.allocationTieOut,
+      withoutReceived.json?.closing?.allocationTieOut,
+    ),
+  JSON.stringify(replacedForViewer?.allocationTotals ?? null),
 );
 const missingReceived = await api('ops.one', 'POST', `${closingPath}/commands`, {
   command: 'confirm',
