@@ -28,6 +28,17 @@ export async function createApp(runtime: Runtime): Promise<INestApplication> {
     }),
   );
   app.use(requestIdMiddleware);
+  // No answer is stored and no read is conditional (docs/17 section 3). Answers hold restricted
+  // data, so a browser or a proxy keeps none of them. And the ETag of a record is its row
+  // version, a concurrency token for If-Match, not a cache validator: a detail carries child
+  // rows the row version does not cover (tasks, checklist items, alerts, open change requests),
+  // so a read that named that tag in If-None-Match would be told 304 for a body that changed.
+  app.use((req: Request, res: Response, next: () => void) => {
+    delete req.headers['if-none-match'];
+    delete req.headers['if-modified-since'];
+    res.setHeader('Cache-Control', 'no-store');
+    next();
+  });
   app.use((req: Request, res: Response, next: () => void) => {
     const started = runtime.adapters.clock.nowMs();
     res.on('finish', () => {

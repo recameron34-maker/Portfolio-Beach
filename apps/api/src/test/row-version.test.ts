@@ -162,6 +162,17 @@ describe('the routes the contract marks ifMatch', () => {
         if (res.status !== 200) continue; // behind a wall operations is not on
         const body = res.body as { rowVersion: number };
         expect(res.headers.etag, kind).toBe(rowVersionEtag(body.rowVersion));
+        // The tag is a concurrency token, not a cache validator: a detail carries child rows the
+        // row version does not cover (tasks, items, alerts, open change requests). So a
+        // conditional read is answered in full, never 304, and no answer may be stored.
+        expect(res.headers['cache-control'], kind).toBe('no-store');
+        const again = await h
+          .http()
+          .get(read.path.replace('{id}', id))
+          .set('authorization', h.as('operations'))
+          .set('if-none-match', String(res.headers.etag));
+        expect(again.status, kind).toBe(200);
+        expect((again.body as { rowVersion: number }).rowVersion, kind).toBe(body.rowVersion);
         tagged = true;
         break;
       }
