@@ -460,9 +460,7 @@ describe('value creation analytics (M13, M20)', () => {
       const vehicle = s.positions.find((p) => p.investmentNumber === 'INV-0001')!;
       const filters: ValueCreationFilters = { vehicleId: vehicle.vehicleId };
       const rows = s.positions.filter((p) => matchesValueCreationFilters(p, filters));
-      const want = eligible(asOf, true).filter(
-        (p) => p.investment.vehicleId === vehicle.vehicleId,
-      );
+      const want = eligible(asOf, true).filter((p) => p.investment.vehicleId === vehicle.vehicleId);
       expect(want.length).toBeGreaterThanOrEqual(3);
       expect(want.length).toBeLessThan(s.positions.length);
       expect(rows.map((p) => p.id)).toEqual(want.map((p) => p.investment.id));
@@ -820,7 +818,11 @@ describe('value creation analytics (M13, M20)', () => {
         { entryYear: String(sample.entryYear) },
         { status: 'realized' },
         { status: 'active', dealType: 'deal_type.co_invest_equity', vehicleId: sample.vehicleId },
-        { vehicleId: realized.vehicleId, status: 'realized', entryYear: String(realized.entryYear) },
+        {
+          vehicleId: realized.vehicleId,
+          status: 'realized',
+          entryYear: String(realized.entryYear),
+        },
         // A filter that leaves nothing exports the header alone.
         { entryYear: '1999' },
       ];
@@ -841,7 +843,9 @@ describe('value creation analytics (M13, M20)', () => {
           `attachment; filename="value-creation-${h.dataset.asOf}.csv"`,
         );
       }
-      expect(s.positions.filter((p) => matchesValueCreationFilters(p, cases[0]!)).length).toBeGreaterThan(1);
+      expect(
+        s.positions.filter((p) => matchesValueCreationFilters(p, cases[0]!)).length,
+      ).toBeGreaterThan(1);
       expect(s.positions.filter((p) => matchesValueCreationFilters(p, cases[5]!)).length).toBe(4);
       // A filtered export is audited as an export, with the number of rows it carried.
       const filtered = await get(
@@ -857,7 +861,9 @@ describe('value creation analytics (M13, M20)', () => {
       expect(audit[0]!.details.rows).toBe(4);
       // The wall still decides first: a filter never widens what a caller sees.
       const walled = s.positions.find((p) => p.id === walledId())!;
-      const outsider = await get('viewer.one', `${EXPORT}?vehicleId=${walled.vehicleId}`).expect(200);
+      const outsider = await get('viewer.one', `${EXPORT}?vehicleId=${walled.vehicleId}`).expect(
+        200,
+      );
       expect(outsider.text).not.toContain(walled.companyName);
       expect(outsider.text).not.toContain(walledId());
       const member = await get('deal.three', `${EXPORT}?vehicleId=${walled.vehicleId}`).expect(200);

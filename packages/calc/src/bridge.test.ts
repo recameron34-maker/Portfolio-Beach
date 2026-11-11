@@ -275,7 +275,8 @@ describe('totalGain and gainByDriver (docs/08 section 8)', () => {
           expect(s.stake.eq(entryStake(invested, b.equityAtEntry)!)).toBe(true);
           // Each driver part is the stake times the company's driver, held to the result places.
           const half = D('0.5e-10');
-          const share = (driver: Decimal): Decimal => D(invested).times(driver).div(b.equityAtEntry);
+          const share = (driver: Decimal): Decimal =>
+            D(invested).times(driver).div(b.equityAtEntry);
           expect(s.ebitdaGrowth.minus(share(b.ebitdaGrowth)).abs().lte(half)).toBe(true);
           expect(s.multipleExpansion.minus(share(b.multipleExpansion)).abs().lte(half)).toBe(true);
           expect(s.debtPaydown.minus(share(b.debtPaydown)).abs().lte(half)).toBe(true);

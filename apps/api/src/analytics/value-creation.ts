@@ -291,9 +291,7 @@ export function computePosition(
     ),
     // The stake needs the entry snapshot and our invested capital only, so it stands where the
     // bridge does not (a current quarter with EBITDA below zero, say).
-    stake: str(
-      entryStake(invested, entry === null ? null : equityValue(entry.ev, entry.netDebt)),
-    ),
+    stake: str(entryStake(invested, entry === null ? null : equityValue(entry.ev, entry.netDebt))),
     gain: str(gain),
     gainByDriver:
       split === null

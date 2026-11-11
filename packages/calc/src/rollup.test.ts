@@ -102,8 +102,10 @@ const position: fc.Arbitrary<RollupPosition> = fc
 
 const positions = fc.array(position, { minLength: 0, maxLength: 9 });
 const num = (v: string | null): Decimal => (v === null ? ZERO : D(v));
-const sum = (rows: readonly RollupPosition[], pick: (p: RollupPosition) => string | null): Decimal =>
-  rows.reduce((acc, p) => acc.plus(num(pick(p))), ZERO);
+const sum = (
+  rows: readonly RollupPosition[],
+  pick: (p: RollupPosition) => string | null,
+): Decimal => rows.reduce((acc, p) => acc.plus(num(pick(p))), ZERO);
 
 describe('valueCreationRollup: the portfolio (docs/08 section 8)', () => {
   it('sums the parts over the positions that are split, and the parts are the gain exactly', () => {
@@ -163,29 +165,33 @@ describe('valueCreationRollup: the portfolio (docs/08 section 8)', () => {
 
   it('adds up over any split of the rows, which is what makes a filtered view exact', () => {
     fc.assert(
-      fc.property(positions, fc.array(fc.boolean(), { minLength: 9, maxLength: 9 }), (rows, side) => {
-        const whole = valueCreationRollup(rows, BANDS, AS_OF).portfolio;
-        const a = valueCreationRollup(
-          rows.filter((_p, i) => side[i]),
-          BANDS,
-          AS_OF,
-        ).portfolio;
-        const b = valueCreationRollup(
-          rows.filter((_p, i) => !side[i]),
-          BANDS,
-          AS_OF,
-        ).portfolio;
-        expect(whole.positions).toBe(a.positions + b.positions);
-        for (const key of ['invested', 'nav', 'distributions', 'totalValue', 'gain'] as const)
-          expect(num(whole[key]).eq(num(a[key]).plus(num(b[key]))), key).toBe(true);
-        for (const key of ['ebitdaGrowth', 'multipleExpansion', 'debtPaydown', 'other'] as const)
-          expect(
-            num(whole.gainByDriver?.[key] ?? null).eq(
-              num(a.gainByDriver?.[key] ?? null).plus(num(b.gainByDriver?.[key] ?? null)),
-            ),
-            key,
-          ).toBe(true);
-      }),
+      fc.property(
+        positions,
+        fc.array(fc.boolean(), { minLength: 9, maxLength: 9 }),
+        (rows, side) => {
+          const whole = valueCreationRollup(rows, BANDS, AS_OF).portfolio;
+          const a = valueCreationRollup(
+            rows.filter((_p, i) => side[i]),
+            BANDS,
+            AS_OF,
+          ).portfolio;
+          const b = valueCreationRollup(
+            rows.filter((_p, i) => !side[i]),
+            BANDS,
+            AS_OF,
+          ).portfolio;
+          expect(whole.positions).toBe(a.positions + b.positions);
+          for (const key of ['invested', 'nav', 'distributions', 'totalValue', 'gain'] as const)
+            expect(num(whole[key]).eq(num(a[key]).plus(num(b[key]))), key).toBe(true);
+          for (const key of ['ebitdaGrowth', 'multipleExpansion', 'debtPaydown', 'other'] as const)
+            expect(
+              num(whole.gainByDriver?.[key] ?? null).eq(
+                num(a.gainByDriver?.[key] ?? null).plus(num(b.gainByDriver?.[key] ?? null)),
+              ),
+              key,
+            ).toBe(true);
+        },
+      ),
       { numRuns: 50 },
     );
   });
@@ -197,8 +203,16 @@ describe('valueCreationRollup: the cohorts (docs/08 section 8)', () => {
       fc.property(positions, (rows) => {
         const { cohorts } = valueCreationRollup(rows, BANDS, AS_OF);
         for (const [list, bands, keyOf] of [
-          [cohorts.byEntryMultiple, BANDS.byEntryMultiple, (p: RollupPosition) => p.entryMultipleBand],
-          [cohorts.byEntryLeverage, BANDS.byEntryLeverage, (p: RollupPosition) => p.entryLeverageBand],
+          [
+            cohorts.byEntryMultiple,
+            BANDS.byEntryMultiple,
+            (p: RollupPosition) => p.entryMultipleBand,
+          ],
+          [
+            cohorts.byEntryLeverage,
+            BANDS.byEntryLeverage,
+            (p: RollupPosition) => p.entryLeverageBand,
+          ],
         ] as const) {
           expect(list.map((c) => [c.key, c.label, c.lower, c.upper])).toEqual(
             bands.map((b) => [b.key, b.label, b.lower, b.upper]),

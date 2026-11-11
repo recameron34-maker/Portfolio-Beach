@@ -142,9 +142,7 @@ export function expectedPosition(
       date: f.flowDate,
       amount: INFLOWS.has(f.flowType) ? D(f.amount).abs() : D(f.amount).abs().neg(),
     }))
-    .sort((a, b) =>
-      a.date < b.date ? -1 : a.date > b.date ? 1 : a.amount.comparedTo(b.amount),
-    );
+    .sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : a.amount.comparedTo(b.amount)));
   return {
     investment,
     isActive,
