@@ -2,6 +2,10 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 import type { QueryClient, QueryKey, UseMutationResult } from '@tanstack/react-query';
 import type { z } from 'zod';
 import {
+  IDEMPOTENCY_KEY_IN_PROGRESS,
+  IDEMPOTENCY_KEY_ISSUE,
+  IDEMPOTENCY_KEY_REUSE,
+  IF_MATCH_ISSUE,
   capitalNoticeRow,
   documentDetail,
   documentIndexResult,
@@ -31,6 +35,7 @@ import type {
   IntakeFileDetail,
   IntakeImportBody,
   IntakeImportResult,
+  ProblemDetails,
   RealizationOutlookBody,
   RealizationOutlookDetail,
   ValuationCommand,
@@ -177,11 +182,117 @@ export function describeRefusal(status: number, rawDetail: string): string {
   }
 }
 
-/** The sentence for a failed write: the problem's refusal, or the error's own words. */
+type Issue = NonNullable<ProblemDetails['errors']>[number];
+
+/** "Fair value" stays as it is; "Account number" after another part reads "account number"; "IC decision" keeps its capitals. */
+const lowerFirst = (words: string): string =>
+  /^[A-Z][a-z]/.test(words) ? words.charAt(0).toLowerCase() + words.slice(1) : words;
+
+/**
+ * The path of a validation issue as a person reads the field: "fairValue" is "Fair value",
+ * "bankDetails.accountNumber" is "Bank details, account number", "allocations.0.requested" is
+ * "Allocations, line 1, requested", and an id is called by what it names ("investmentId" is
+ * "Investment"). Null for an issue about the body as a whole ("(root)").
+ */
+export function fieldLabel(path: string): string | null {
+  if (path === '' || path === '(root)') return null;
+  const parts = path.split('.').map((part) => {
+    if (/^\d+$/.test(part)) return `line ${Number(part) + 1}`;
+    return commandLabel(part.replace(/(?<=.)Ids$/, 's').replace(/(?<=.)Id$/, ''));
+  });
+  return parts.map((part, i) => (i === 0 ? part : lowerFirst(part))).join(', ');
+}
+
+/**
+ * The messages zod writes by default (zod 4), in the words a person would use. A message that
+ * is not listed is kept as the API wrote it: the contracts word their own rules plainly ("Must
+ * be above zero", "Not a quarter end"). A pattern is never shown. mutations.test.ts builds these
+ * messages from the contracts, so a zod upgrade that rewords them fails there.
+ */
+const PLAIN_MESSAGES: readonly (readonly [RegExp, string])[] = [
+  [/^Invalid input: expected \w+, received undefined$/, 'Required'],
+  [/^Too small: expected string to have >=1 characters$/, 'Required'],
+  [/^Too small: expected string to have >=(\d+) characters$/, 'Needs at least $1 characters'],
+  [/^Too big: expected string to have <=(\d+) characters$/, 'Allows at most $1 characters'],
+  [/^Too small: expected array to have >=(\d+) items$/, 'Needs at least $1'],
+  [/^Too big: expected array to have <=(\d+) items$/, 'Allows at most $1'],
+  [/^Too small: expected number to be >=(\S+)$/, 'Must be $1 or more'],
+  [/^Too big: expected number to be <=(\S+)$/, 'Must be $1 or less'],
+  [/^Invalid (?:UUID|string: must match pattern .*)$/, 'Not in the expected format'],
+  [
+    /^Invalid (?:option: expected one of .*|discriminator value\..*|input: expected ".*")$/,
+    'Not one of the allowed values',
+  ],
+  [/^Invalid input: expected \w+, received \w+$/, 'Not the expected kind of value'],
+];
+
+/** "Unrecognized key: "extra"" names fields, never values, so the names are shown. */
+const UNRECOGNIZED_KEYS = /^Unrecognized keys?: (.*)$/;
+
+function plainMessage(message: string): string {
+  const unknownFields = UNRECOGNIZED_KEYS.exec(message)?.[1];
+  if (unknownFields !== undefined)
+    return `The server does not accept these fields: ${unknownFields.replace(/"/g, '')}`;
+  for (const [pattern, words] of PLAIN_MESSAGES)
+    if (pattern.test(message)) return message.replace(pattern, words);
+  return message;
+}
+
+/** The headers the client sets itself; an issue about one is a fault of the app, not of what was entered. */
+const HEADER_PATHS: ReadonlySet<string> = new Set([
+  IDEMPOTENCY_KEY_ISSUE.path,
+  IF_MATCH_ISSUE.path,
+]);
+
+/** How many issues one message lists before it counts the rest. */
+const MAX_ISSUES = 5;
+
+const sentence = (text: string): string => (/[.!?]$/.test(text) ? text : `${text}.`);
+
+/**
+ * A validation refusal (400 with an `errors` list, docs/17 section 3) as sentences: each issue
+ * with its field in words and what is wrong with it. The API lists paths and messages only,
+ * never the values, so nothing entered is echoed here either.
+ */
+function describeIssues(issues: readonly Issue[]): string {
+  const header = issues.find((issue) => HEADER_PATHS.has(issue.path));
+  if (header !== undefined)
+    return `The app sent a request the server could not read (${header.path} header: ${header.message}). Nothing was changed. Reload the page and try again.`;
+  const listed = issues.slice(0, MAX_ISSUES).map((issue) => {
+    const field = fieldLabel(issue.path);
+    const message = plainMessage(issue.message);
+    return sentence(field === null ? message : `${field}: ${message}`);
+  });
+  const rest = issues.length - listed.length;
+  return ['The request was not valid.', ...listed, ...(rest > 0 ? [`And ${rest} more.`] : [])].join(
+    ' ',
+  );
+}
+
+/**
+ * The two refusals of the Idempotency-Key store (apps/web/src/api/idempotency.ts names each
+ * write with a key). Neither is about the record's state or a business rule, so neither reads
+ * as one: the first request may still be running (409), or the app sent one key with two
+ * different bodies (422).
+ */
+const STILL_RUNNING =
+  'This action is still running from an earlier try. Wait a moment, then check the record before you try again.';
+const KEY_REUSED =
+  'The app repeated an earlier request with different content, and the server refused it. Nothing was changed. Try again.';
+
+/**
+ * The sentence for a failed write: the issues of a validation refusal field by field, the
+ * problem's refusal otherwise, or the error's own words.
+ */
 export function describeActionError(error: unknown): string {
   if (!(error instanceof ApiError))
     return error instanceof Error ? error.message : 'The action failed.';
-  return describeRefusal(error.status, error.problem.detail ?? error.problem.title);
+  const { problem } = error;
+  if (error.code === IDEMPOTENCY_KEY_IN_PROGRESS.code) return STILL_RUNNING;
+  if (error.code === IDEMPOTENCY_KEY_REUSE.code) return KEY_REUSED;
+  const issues = problem.status === 400 ? (problem.errors ?? []) : [];
+  if (issues.length > 0) return describeIssues(issues);
+  return describeRefusal(error.status, problem.detail ?? problem.title);
 }
 
 export interface CommandVariables<C extends string> {
