@@ -17,6 +17,7 @@ import type {
 } from '@pb/contracts';
 import {
   ALLOCATIONS_FIXED_REFUSAL,
+  allocationTotals,
   CLOSING_CONFIRMED_REFUSAL,
   CLOSING_NOT_CONFIRMED_REFUSAL,
   dealStageMachine,
@@ -295,8 +296,81 @@ export interface AllocationLine {
   received: string;
 }
 
+/**
+ * The lines of one vehicle as the pages show them (review finding D1-06): the vehicle's totals
+ * lead, its own line (no client) comes next and its client lines sit under it, by client name.
+ */
+export interface VehicleGroup {
+  vehicle: AllocationRow['vehicle'];
+  /**
+   * The vehicle's totals over its lines, to two places; `received` is null while no line has a
+   * received amount. Both are null when lines of the deal are not shown to the reader: a total of
+   * the lines shown would leave the others out, so none is stated (rule 10).
+   */
+  requested: string | null;
+  received: string | null;
+  /** The vehicle's own line (no client), when the reader is shown one. */
+  vehicleLine: AllocationRow | null;
+  clientLines: AllocationRow[];
+}
+
+/** The lines the reader is shown, grouped by vehicle name; `hiddenLines` is how many lines of the deal are not shown. */
+export function groupByVehicle(
+  rows: readonly AllocationRow[],
+  hiddenLines: number,
+): VehicleGroup[] {
+  const byVehicle = new Map<string, AllocationRow[]>();
+  for (const r of rows) byVehicle.set(r.vehicle.id, [...(byVehicle.get(r.vehicle.id) ?? []), r]);
+  return [...byVehicle.values()]
+    .map((lines): VehicleGroup => {
+      const totals = allocationTotals(lines);
+      const complete = hiddenLines === 0;
+      return {
+        vehicle: lines[0]?.vehicle ?? { id: '', name: '' },
+        requested: complete ? totals.requested : null,
+        received: complete && totals.missingReceived < totals.lines ? totals.received : null,
+        vehicleLine: lines.find((l) => l.client === null) ?? null,
+        clientLines: lines
+          .filter((l) => l.client !== null)
+          .sort(
+            (a, b) =>
+              (a.client?.name ?? '').localeCompare(b.client?.name ?? '') ||
+              a.id.localeCompare(b.id),
+          ),
+      };
+    })
+    .sort(
+      (a, b) =>
+        a.vehicle.name.localeCompare(b.vehicle.name) || a.vehicle.id.localeCompare(b.vehicle.id),
+    );
+}
+
+/** The lines in the order the pages show them: by vehicle, the vehicle's own line first, then its client lines. */
+export function orderedByVehicle(rows: readonly AllocationRow[]): AllocationRow[] {
+  return groupByVehicle(rows, 0).flatMap((g) => [
+    ...(g.vehicleLine === null ? [] : [g.vehicleLine]),
+    ...g.clientLines,
+  ]);
+}
+
+/** The label of the disclosure that holds a vehicle's client lines: "Client breakdown (3 lines)". */
+export function breakdownLabel(clientLines: number): string {
+  return `Client breakdown (${plural(clientLines, 'line')})`;
+}
+
+/**
+ * What a reader who is shown fewer lines than the deal has is told, or null when every line is
+ * shown: how many are not, and who reads client-level lines (docs/05 SEC-5.2). A quiet line beside
+ * the client breakdown, never a warning: the totals above it are the deal's either way.
+ */
+export function hiddenLinesNote(hiddenLines: number): string | null {
+  if (hiddenLines <= 0) return null;
+  return `${plural(hiddenLines, 'client line')} ${hiddenLines === 1 ? 'is' : 'are'} not shown. Client-level lines are for operations, the investment team and readers entitled to the client.`;
+}
+
+/** The editor's lines from the rows, in the order the pages show them (orderedByVehicle). */
 export function linesOf(rows: readonly AllocationRow[]): AllocationLine[] {
-  return rows.map((r) => ({
+  return orderedByVehicle(rows).map((r) => ({
     vehicleId: r.vehicle.id,
     clientId: r.client?.id ?? '',
     requested: r.requested,
@@ -387,7 +461,9 @@ export function allocationsBody(lines: readonly AllocationLine[]): AllocationsPu
 /**
  * What stops the operations confirmation, in words (docs/18 section 12); empty when nothing does.
  * A failed tie-out names the lines with no received amount when there are any, as the API's
- * refusal does (a requested amount never stands in, M22), and the size of the gap otherwise.
+ * refusal does (a requested amount never stands in, M22), and the size of the gap otherwise. A
+ * reader who is not shown every line cannot count them, so for that reader the blocker speaks of
+ * the tie-out alone, which is the deal's (operations, who confirm, are shown every line).
  */
 export function closingBlockers(
   closing: Pick<ClosingSummary, 'itemsRequiredOpen' | 'allocationTieOut'> & {
@@ -400,7 +476,8 @@ export function closingBlockers(
       `${plural(closing.itemsRequiredOpen, 'required closing item')} still open: a required closing document is missing (M8)`,
     );
   if (!closing.allocationTieOut.tiedOut) {
-    const missing = missingReceivedRefusal(closing.allocations);
+    const missing =
+      closing.allocationTieOut.hiddenLines > 0 ? null : missingReceivedRefusal(closing.allocations);
     out.push(
       missing === null
         ? `Allocations do not tie to the closing commitment, ${lowerFirst(tieOutLabel(closing.allocationTieOut))} (M22)`

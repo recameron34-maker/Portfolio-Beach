@@ -33,6 +33,7 @@ import {
   problemDetails,
   valuationLockText,
 } from '@pb/contracts';
+import { allocationTotals, totalsForReader } from '@pb/workflows';
 import checklistConfig from '../../../../config/closing_checklist.json';
 import templatesConfig from '../../../../config/diligence_templates.json';
 import { parseBook } from './book.js';
@@ -1177,6 +1178,7 @@ export function buildWorld(
       allocated: '2000000.00',
       difference: '0.00',
       tiedOut: true,
+      hiddenLines: 0,
     },
     opportunityId: IDS.opportunity.closingOpen,
     investmentId: null,
@@ -1214,6 +1216,7 @@ export function buildWorld(
       allocated: '1000.00',
       difference: '0.00',
       tiedOut: true,
+      hiddenLines: 0,
     },
     opportunityId: IDS.opportunity.closed,
     investmentId: IDS.open,
@@ -1252,7 +1255,9 @@ export function buildWorld(
     recordedBy: personOf(USERS.head),
   });
   const o = IDS.opportunity;
-  const opportunities: OpportunityDetail[] = [
+  // Every recorded deal holds vehicle lines only, so each reader is shown every line: the totals
+  // are those of the lines, with none hidden.
+  const recordedDeals: Omit<OpportunityDetail, 'allocationTotals'>[] = [
     {
       ...opportunityRow(o.sourced, 'Sourced'),
       source: 'Sponsor introduction',
@@ -1430,6 +1435,10 @@ export function buildWorld(
       },
     },
   ];
+  const opportunities: OpportunityDetail[] = recordedDeals.map((d) => ({
+    ...d,
+    allocationTotals: totalsForReader(allocationTotals(d.allocations), d.allocations.length),
+  }));
   const rowOf = (d: OpportunityDetail): OpportunityRow => {
     const {
       source: _s,
@@ -1438,6 +1447,7 @@ export function buildWorld(
       diligenceTasks: _t,
       icDecisions: _d,
       allocations: _a,
+      allocationTotals: _at,
       closing: _c,
       gates: _g,
       ...row

@@ -216,6 +216,66 @@
   margin: 12px 0 0;
 }
 
+/* Allocation lines by vehicle (D1-06): the vehicle's totals are the primary row; its own line and
+   its client lines sit under it, indented, and the client lines read smaller and quieter, behind a
+   disclosure that starts closed. The commitment and the received total lead in the tiles above. */
+.pb-pipe-lines .pb-pipe-vehicle-row > th,
+.pb-pipe-lines .pb-pipe-vehicle-row > td {
+  font-weight: 600;
+}
+.pb-pipe-lines .pb-pipe-sub-row > td:first-child,
+.pb-pipe-lines .pb-pipe-client-row > td:first-child {
+  padding-left: 26px;
+}
+.pb-pipe-lines .pb-pipe-client-row > td {
+  padding-top: 4px;
+  padding-bottom: 4px;
+  font-size: 12px;
+  line-height: 16px;
+  color: var(--pb-muted-strong);
+}
+/* A vehicle's rows end with a hairline even when its last row is a client line or the disclosure. */
+.pb-pipe-lines tbody tr:last-child td,
+.pb-pipe-lines tbody tr:last-child th {
+  border-bottom: 1px solid var(--pb-hairline);
+}
+.pb-pipe-lines tbody:last-child tr:last-child td,
+.pb-pipe-lines tbody:last-child tr:last-child th {
+  border-bottom: 0;
+}
+.pb-pipe-breakdown {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  font-size: 12px;
+  line-height: 16px;
+  color: var(--pb-brand-primary);
+  cursor: pointer;
+}
+.pb-pipe-breakdown::before {
+  content: '';
+  flex: none;
+  width: 0;
+  height: 0;
+  border-style: solid;
+  border-width: 4px 0 4px 6px;
+  border-color: transparent transparent transparent currentColor;
+}
+.pb-pipe-breakdown[aria-expanded='true']::before {
+  transform: rotate(90deg);
+}
+/* The quiet line for a reader who is not shown every line: beside the breakdown, never a banner. */
+.pb-pipe-hidden-lines {
+  margin: 10px 0 0;
+  font-size: 12px;
+  line-height: 16px;
+}
+
 /* Key and value rows in the legal term form. */
 .pb-pipe-kv-rows {
   display: grid;

@@ -522,14 +522,34 @@ export type ClosingState = z.infer<typeof closingState>;
  * The allocation tie-out (M22): allocations must equal the closing commitment or closing cannot
  * complete. `allocated` is the sum of the received amounts alone: a requested amount never stands
  * in for a received one, so a line with no received amount keeps `tiedOut` false whatever the sum.
+ * The figures are computed over every line of the deal, whoever asks, so they read the same for
+ * every reader; `hiddenLines` is the number of lines of the deal the caller is not shown (a client
+ * line follows the client's entitlement, SEC-5.2): 0 for a caller shown every line.
  */
 export const allocationTieOut = z.object({
   commitment: s.decimalString,
   allocated: s.decimalString,
   difference: s.decimalString,
   tiedOut: z.boolean(),
+  hiddenLines: z.number().int().min(0),
 });
 export type AllocationTieOut = z.infer<typeof allocationTieOut>;
+
+/**
+ * The totals of every allocation line of a deal, answered at every stage, with or without a
+ * closing record, and the same for every reader: how many lines the deal has, how many of them
+ * the caller is not shown, the sums of the requested and of the received amounts (a line with no
+ * received amount adds nothing) and how many lines have no received amount. A deal with no line
+ * answers zeros. Only these figures describe a line the caller is not shown.
+ */
+export const allocationTotals = z.object({
+  lines: z.number().int().min(0),
+  hiddenLines: z.number().int().min(0),
+  requested: s.decimalString,
+  received: s.decimalString,
+  missingReceived: z.number().int().min(0),
+});
+export type AllocationTotals = z.infer<typeof allocationTotals>;
 
 export const closingSummary = z.object({
   id: s.uuid,
@@ -609,7 +629,10 @@ export const opportunityDetail = opportunityRow.extend({
   stageHistory: z.array(stageHistoryEntry),
   diligenceTasks: z.array(diligenceTask),
   icDecisions: z.array(icDecision),
+  /** The lines the caller is shown: a client line follows the client's entitlement (SEC-5.2). */
   allocations: z.array(allocationRow),
+  /** The totals of every line, shown to the caller or not. */
+  allocationTotals,
   closing: closingSummary.nullable(),
   gates: opportunityGates,
 });

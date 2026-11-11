@@ -12,7 +12,7 @@ const d = loadDataset();
 const full = generateDataset({ profile: 'small', seed: 42 });
 const CV_FUND = 'Beach CV Opportunities I';
 const CLIENT_DATA_VISIBILITY =
-  'Client commitments are visible to operations, approvers, auditors and entitled investor relations users (SEC-5.4)';
+  'Client commitments are visible to operations, the investment team (the deal team and approvers) and auditors, and to entitled investor relations users (SEC-5.2, SEC-5.4)';
 
 /** The sponsor with the most active positions, so its 360 page has every section filled. */
 function busiestSponsor(): { id: string; name: string } {

@@ -12,6 +12,7 @@ import type {
   OpportunityRow,
   Taxonomy,
 } from '@pb/contracts';
+import { allocationTotals, totalsForReader } from '@pb/workflows';
 import { AS_OF, ID } from './fixtures.js';
 import { USER_ID } from './fixtures-valuations.js';
 import { VS_ID } from './fixtures-vehicles-sponsors.js';
@@ -290,6 +291,7 @@ export const SHORT_TIE_OUT: ClosingSummary['allocationTieOut'] = {
   allocated: '12000000.00',
   difference: '-8000000.00',
   tiedOut: false,
+  hiddenLines: 0,
 };
 
 export function closingSummaryFixture(overrides: Partial<ClosingSummary> = {}): ClosingSummary {
@@ -308,16 +310,21 @@ export function closingSummaryFixture(overrides: Partial<ClosingSummary> = {}): 
       allocated: '20000000.00',
       difference: '0.00',
       tiedOut: true,
+      hiddenLines: 0,
     },
     ...overrides,
   };
 }
 
-/** A deal at Diligence with one required task open; no decision, no allocations, no closing. */
+/**
+ * A deal at Diligence with one required task open; no decision, no allocations, no closing. The
+ * totals of the lines are those of a reader shown every line, computed from the lines the fixture
+ * ends up with, unless a test gives its own (a reader with lines not shown).
+ */
 export function opportunityDetailFixture(
   overrides: Partial<OpportunityDetail> = {},
 ): OpportunityDetail {
-  return {
+  const detail: Omit<OpportunityDetail, 'allocationTotals'> = {
     ...opportunityRowFixture(),
     source: 'Sponsor introduction at the annual meeting',
     passNote: null,
@@ -365,6 +372,12 @@ export function opportunityDetailFixture(
       closing: { checklistComplete: false, allocationTiedOut: false, confirmed: false, ok: false },
     },
     ...overrides,
+  };
+  return {
+    ...detail,
+    allocationTotals:
+      overrides.allocationTotals ??
+      totalsForReader(allocationTotals(detail.allocations), detail.allocations.length),
   };
 }
 

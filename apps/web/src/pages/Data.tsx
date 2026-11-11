@@ -19,7 +19,7 @@ import {
   Toolbar,
 } from '../components/ui.js';
 import { formatDate, formatPct, plural } from '../lib/format.js';
-import { seesAllClients } from '../lib/roles.js';
+import { seesAllClients, WHO_READS_EVERY_CLIENT } from '../lib/roles.js';
 import { balanceTiles } from '../lib/tiles.js';
 
 /**
@@ -39,9 +39,9 @@ function OwnershipCard({
       <SectionHeader>Client ownership</SectionHeader>
       {!checked ? (
         <p className="pb-meta" data-testid="ownership-not-checked">
-          LP ownership is checked against 100% for operations, approvers and auditors, who see every
-          client's commitments. Your view covers only the clients you are entitled to, so it cannot
-          be checked here.
+          LP ownership is checked against 100% for {WHO_READS_EVERY_CLIENT}, who see every client's
+          commitments. Your view covers only the clients you are entitled to, so it cannot be
+          checked here.
         </p>
       ) : gaps.length === 0 ? (
         <p className="pb-status-good">

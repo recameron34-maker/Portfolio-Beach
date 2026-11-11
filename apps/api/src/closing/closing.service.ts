@@ -12,13 +12,19 @@ import type {
 } from '@pb/contracts';
 import { schema } from '@pb/db';
 import type { Tx } from '@pb/db';
-import { POSITION_EXISTS_REFUSAL, attempt, closingMachine, confirmRefusal } from '@pb/workflows';
+import {
+  POSITION_EXISTS_REFUSAL,
+  attempt,
+  closingMachine,
+  confirmRefusal,
+  tieOutFromTotals,
+} from '@pb/workflows';
 import { ProblemError, workflowProblem } from '../common/problem.js';
 import { requireFreshRow } from '../common/row-version.js';
 import { ADAPTERS, CLOSING_CHECKLIST } from '../common/tokens.js';
 import { requireUuid } from '../common/validate.js';
 import { DbService } from '../db/db.service.js';
-import { allocationsOf, loadAllocationRows, tieOut } from '../pipeline/allocations.js';
+import { allocationsOf, loadAllocationTotals } from '../pipeline/allocations.js';
 import { requireTaxonomyCodes, requireVisibleDocument } from '../pipeline/refs.js';
 import { closingConfirmed, lockOpportunity } from '../pipeline/rows.js';
 import {
@@ -201,11 +207,13 @@ export class ClosingService {
       if (body.command !== 'confirm' && locked.investmentId !== null)
         throw new ProblemError(422, 'workflow-precondition', POSITION_EXISTS);
       const items = await loadClosingItems(tx, id, this.checklist);
-      const allocations = await loadAllocationRows(
+      // The tie-out a command rests on is the deal's: the totals of every line, not the lines
+      // the actor is shown, so the command answers the same whoever sends it (migration 0017).
+      const totals = await loadAllocationTotals(
         tx,
         allocationsOf(locked.opportunityId, locked.investmentId),
       );
-      const tie = tieOut(locked.commitmentAmount, allocations);
+      const tie = tieOutFromTotals(locked.commitmentAmount, totals);
 
       if (body.command === 'changeCloseDate' && from === 'Open') {
         await this.claim(tx, locked, from, { closeDate: body.closeDate });
@@ -237,7 +245,7 @@ export class ClosingService {
           code: result.code,
           itemsComplete,
           tiedOut: tie.tiedOut,
-          rows: allocations,
+          missingReceived: totals.missingReceived,
         });
         if (missing !== null) throw new ProblemError(422, 'workflow-precondition', missing);
         throw workflowProblem(result);

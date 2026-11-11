@@ -10,12 +10,14 @@ import {
 } from '@pb/contracts';
 import type { ClosingDetail, DealStage, OpportunityDetail, OpportunityRow } from '@pb/contracts';
 import { dealStageMachine, forbiddenPairs } from '@pb/workflows';
-import type { PreviewUser } from '../fixtures.js';
+import type { PreviewFixtures, PreviewUser } from '../fixtures.js';
+import { getKey } from '../keys.js';
 import { createPreviewFetch } from '../shim.js';
 import { createPreviewState } from '../state.js';
 import type { PreviewState, SimDocument } from '../state.js';
 import { AS_OF, IDS, USERS, buildWorld, problemOf, send, testBook } from '../test-fixtures.js';
 import type { Answer } from '../test-fixtures.js';
+import { linesShownTo } from './closings.js';
 import { templatesOf } from './pipeline.js';
 
 /**
@@ -476,6 +478,7 @@ describe('journey 6: Sourced to Closed through the gates', () => {
       allocated: '10000000.00',
       difference: '-5000000.00',
       tiedOut: false,
+      hiddenLines: 0,
     });
     expect(partly.gates.closing).toEqual({
       checklistComplete: true,
@@ -504,6 +507,7 @@ describe('journey 6: Sourced to Closed through the gates', () => {
       allocated: '15000000.00',
       difference: '0.00',
       tiedOut: true,
+      hiddenLines: 0,
     });
     expect(allocated.gates.closing).toEqual({
       checklistComplete: true,
@@ -1283,5 +1287,279 @@ describe('a walled deal that converts (SEC-5.3)', () => {
         ).status,
         who.externalId,
       ).toBe(200);
+  });
+});
+
+/*
+ * The client-level allocation lines of a deal (review finding D1-06, migration 0017): the API
+ * answers each reader the lines that reader may read, with the totals and the tie-out of every
+ * line and the number of lines not shown. The simulation holds the lines of a deal once and must
+ * answer each reader the same way: from the recordings, and after a simulated replace.
+ */
+describe('client allocation lines per reader (D1-06)', () => {
+  const alpha = { id: '77000000-0000-4000-8000-0000000000a1', name: 'Alpha Pension Trust' };
+  const beta = { id: '77000000-0000-4000-8000-0000000000a2', name: 'Beta Endowment' };
+  const vehicle = { id: IDS.vehicle, name: 'Test Vehicle I' };
+  const ir: PreviewUser = {
+    externalId: 'ir.one',
+    userId: '40000000-0000-4000-8000-000000000021',
+    displayName: 'Test Investor Relations',
+    roles: ['investor_relations'],
+  };
+  const auditor: PreviewUser = {
+    externalId: 'audit.one',
+    userId: '40000000-0000-4000-8000-000000000022',
+    displayName: 'Test Auditor',
+    roles: ['auditor'],
+  };
+  /** Who reads every client, who reads Alpha alone, who reads none. */
+  const everyLine = [USERS.deal, USERS.ops, USERS.head, auditor];
+  const entitled = (who: PreviewUser): string[] => (who === ir ? [alpha.id] : []);
+  const dealId = IDS.opportunity.closingOpen;
+  const closingPath = `/api/v1/closings/${IDS.closing.open}`;
+
+  /** The lines of the recorded deal in Closing: a vehicle line and a line for each client, tying out to 2,000,000.00. */
+  const recordedLines: OpportunityDetail['allocations'] = [
+    {
+      id: '77000000-0000-4000-8000-0000000000b1',
+      vehicle,
+      client: null,
+      requested: '1000000.00',
+      received: '1000000.00',
+    },
+    {
+      id: '77000000-0000-4000-8000-0000000000b2',
+      vehicle,
+      client: alpha,
+      requested: '600000.00',
+      received: '600000.00',
+    },
+    {
+      id: '77000000-0000-4000-8000-0000000000b3',
+      vehicle,
+      client: beta,
+      requested: '400000.00',
+      received: '400000.00',
+    },
+  ];
+
+  /**
+   * The test world with the recorded Closing deal answered per reader the way the API answers it:
+   * the lines the reader may read, the totals of all three and the number not shown. The viewer,
+   * who is shown no client line, is the first user of the recordings.
+   */
+  function perReaderWorld(): PreviewFixtures {
+    const world = buildWorld();
+    const fx = world.fixtures;
+    const record = (credential: string, path: string, body: unknown): void => {
+      const key = `d106-${Object.keys(fx.bodies).length}`;
+      fx.bodies[key] = JSON.stringify(body);
+      fx.responses[getKey(credential, path)] = {
+        status: 200,
+        contentType: 'application/json',
+        body: key,
+      };
+    };
+    const deal = world.opportunities.find((d) => d.id === dealId)!;
+    const closing = world.closings.find((c) => c.id === IDS.closing.open)!;
+    fx.users.push(ir, auditor);
+    expect(fx.users[0]?.externalId).toBe(USERS.viewer.externalId);
+    for (const who of [USERS.viewer, ...everyLine, ir]) {
+      const c = who.externalId;
+      const all = everyLine.includes(who);
+      const shown = recordedLines.filter(
+        (l) => l.client === null || all || entitled(who).includes(l.client.id),
+      );
+      const hiddenLines = recordedLines.length - shown.length;
+      if (who === ir || who === auditor)
+        record(c, '/api/v1/auth/me', {
+          userId: who.userId,
+          externalId: c,
+          displayName: who.displayName,
+          roles: who.roles,
+          clientIds: entitled(who),
+          mockIdentity: true,
+        });
+      const tieOut = { ...closing.allocationTieOut, hiddenLines };
+      record(c, path(dealId), {
+        ...deal,
+        allocations: shown,
+        allocationTotals: {
+          lines: 3,
+          hiddenLines,
+          requested: '2000000.00',
+          received: '2000000.00',
+          missingReceived: 0,
+        },
+        closing: { ...deal.closing, allocationTieOut: tieOut },
+      });
+      record(c, closingPath, { ...closing, allocations: shown, allocationTieOut: tieOut });
+      record(c, '/api/v1/vehicles', {
+        items: [
+          {
+            id: vehicle.id,
+            name: vehicle.name,
+            vehicleType: 'vehicle_type.co_invest',
+            vintage: 2022,
+            activeInvestments: 5,
+            lpCommitmentsTotal: null,
+          },
+        ],
+      });
+      // The client look-through: every client for the roles that read them all, the entitled one for investor relations.
+      const clients = [alpha, beta].filter((cl) => all || entitled(who).includes(cl.id));
+      record(c, '/api/v1/clients', {
+        asOf: AS_OF,
+        items: clients.map((cl) => ({
+          id: cl.id,
+          name: cl.name,
+          reportingBases: ['reporting_basis.gross'],
+          reportingCadence: 'reporting_cadence.quarterly',
+          vehicles: [],
+          totals: {
+            commitment: null,
+            invested: null,
+            distributions: null,
+            nav: null,
+            grossMoic: null,
+          },
+        })),
+        calcVersion: '0.1.0',
+      });
+    }
+    return fx;
+  }
+
+  function open(): typeof fetch {
+    return createPreviewFetch(perReaderWorld(), never, {
+      env,
+      state: createPreviewState(),
+      book: testBook(),
+    });
+  }
+  const read = async (f: typeof fetch, who: PreviewUser): Promise<OpportunityDetail> =>
+    detailOf(await send(f, who.externalId, 'GET', path(dealId)));
+  const readClosing = async (f: typeof fetch, who: PreviewUser): Promise<ClosingDetail> => {
+    const answer = await send(f, who.externalId, 'GET', closingPath);
+    expect(answer.status, answer.text).toBe(200);
+    return closingDetail.parse(answer.json);
+  };
+  const clientsOf = (d: { allocations: OpportunityDetail['allocations'] }): (string | null)[] =>
+    d.allocations.map((a) => a.client?.name ?? null);
+
+  it('seeds a deal from the recording that shows every line and answers each reader the lines that reader may read', async () => {
+    const f = open();
+    const totals = {
+      lines: 3,
+      requested: '2000000.00',
+      received: '2000000.00',
+      missingReceived: 0,
+    };
+    const tied = {
+      commitment: '2000000.00',
+      allocated: '2000000.00',
+      difference: '0.00',
+      tiedOut: true,
+    };
+    // The viewer's recording comes first and holds no client line: the deal still has all three.
+    for (const who of everyLine) {
+      const seen = await read(f, who);
+      expect(clientsOf(seen), who.externalId).toEqual([null, alpha.name, beta.name]);
+      expect(seen.allocationTotals, who.externalId).toEqual({ ...totals, hiddenLines: 0 });
+      expect(seen.closing?.allocationTieOut, who.externalId).toEqual({ ...tied, hiddenLines: 0 });
+    }
+    const viewer = await read(f, USERS.viewer);
+    expect(clientsOf(viewer)).toEqual([null]);
+    expect(viewer.allocationTotals).toEqual({ ...totals, hiddenLines: 2 });
+    expect(viewer.closing?.allocationTieOut).toEqual({ ...tied, hiddenLines: 2 });
+    const own = await read(f, ir);
+    expect(clientsOf(own)).toEqual([null, alpha.name]);
+    expect(own.allocationTotals).toEqual({ ...totals, hiddenLines: 1 });
+    expect(own.closing?.allocationTieOut).toEqual({ ...tied, hiddenLines: 1 });
+    // The gates are the deal's, and the closing detail agrees with the opportunity for each reader.
+    for (const who of [USERS.viewer, ir, ...everyLine]) {
+      const seen = await read(f, who);
+      const record = await readClosing(f, who);
+      expect(seen.gates, who.externalId).toEqual(viewer.gates);
+      expect(record.allocations, who.externalId).toEqual(seen.allocations);
+      expect(record.allocationTieOut, who.externalId).toEqual(seen.closing?.allocationTieOut);
+    }
+    // A platform admin does not read the pipeline at all, as in the API.
+    expect((await send(f, USERS.admin.externalId, 'GET', path(dealId))).status).toBe(403);
+  });
+
+  it('filters and counts the same way after a simulated replace of the lines, with the totals of every line', async () => {
+    const f = open();
+    const saved = detailOf(
+      await send(f, USERS.ops.externalId, 'PUT', `${path(dealId)}/allocations`, {
+        allocations: [
+          { vehicleId: vehicle.id, requested: '500000.00', received: '500000.00' },
+          {
+            vehicleId: vehicle.id,
+            clientId: alpha.id,
+            requested: '900000.00',
+            received: '900000.00',
+          },
+          { vehicleId: vehicle.id, clientId: beta.id, requested: '600000.00' },
+        ],
+      }),
+    );
+    const totals = {
+      lines: 3,
+      requested: '2000000.00',
+      received: '1400000.00',
+      missingReceived: 1,
+    };
+    const short = {
+      commitment: '2000000.00',
+      allocated: '1400000.00',
+      difference: '-600000.00',
+      tiedOut: false,
+    };
+    // The writer reads back every line it wrote, the client lines with their client named.
+    expect(clientsOf(saved)).toEqual([null, alpha.name, beta.name]);
+    expect(saved.allocationTotals).toEqual({ ...totals, hiddenLines: 0 });
+    expect(saved.closing?.allocationTieOut).toEqual({ ...short, hiddenLines: 0 });
+    for (const who of everyLine) {
+      const seen = await read(f, who);
+      expect(seen.allocations, who.externalId).toEqual(saved.allocations);
+      expect(seen.allocationTotals, who.externalId).toEqual(saved.allocationTotals);
+    }
+    // A viewer: the vehicle line, two lines not shown, and the tie-out of all three, not of one.
+    const viewer = await read(f, USERS.viewer);
+    expect(clientsOf(viewer)).toEqual([null]);
+    expect(viewer.allocations[0]).toMatchObject({ requested: '500000.00', received: '500000.00' });
+    expect(viewer.allocationTotals).toEqual({ ...totals, hiddenLines: 2 });
+    expect(viewer.closing?.allocationTieOut).toEqual({ ...short, hiddenLines: 2 });
+    expect(viewer.gates).toEqual(saved.gates);
+    expect(viewer.gates.closing.allocationTiedOut).toBe(false);
+    // Investor relations: the vehicle line and the line of the client it is entitled to.
+    const own = await read(f, ir);
+    expect(clientsOf(own)).toEqual([null, alpha.name]);
+    expect(own.allocationTotals).toEqual({ ...totals, hiddenLines: 1 });
+    expect(own.closing?.allocationTieOut).toEqual({ ...short, hiddenLines: 1 });
+    for (const who of [USERS.viewer, ir, auditor]) {
+      const seen = await read(f, who);
+      const record = await readClosing(f, who);
+      expect(record.allocations, who.externalId).toEqual(seen.allocations);
+      expect(record.allocationTieOut, who.externalId).toEqual(seen.closing?.allocationTieOut);
+    }
+  });
+
+  it('shows a reader whose entitlements are not known no client line (fail closed)', () => {
+    const reader = { userId: ir.userId, externalId: 'ir.unknown', displayName: 'Unknown' };
+    expect(
+      linesShownTo({ ...reader, roles: ['investor_relations'] }, recordedLines).map((l) => l.id),
+    ).toEqual([recordedLines[0]?.id]);
+    expect(
+      linesShownTo(
+        { ...reader, roles: ['investor_relations'], clientIds: [beta.id] },
+        recordedLines,
+      ).map((l) => l.client?.name ?? null),
+    ).toEqual([null, beta.name]);
+    for (const role of ['operations', 'deal_team', 'approver', 'auditor'])
+      expect(linesShownTo({ ...reader, roles: [role] }, recordedLines), role).toHaveLength(3);
+    for (const role of ['viewer', 'platform_admin', 'service'])
+      expect(linesShownTo({ ...reader, roles: [role] }, recordedLines), role).toHaveLength(1);
   });
 });

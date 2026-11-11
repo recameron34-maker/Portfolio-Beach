@@ -36,11 +36,23 @@ describe('Data Health: client ownership', () => {
     expect(screen.queryByTestId('ownership-not-checked')).not.toBeInTheDocument();
   });
 
+  it('checks the ownership for the deal team too: the investment team sees every client (the decision of 2026-11-11)', async () => {
+    for (const roles of [['deal_team'], ['approver'], ['deal_team', 'platform_admin']]) {
+      renderAs(roles);
+      expect(
+        await screen.findByText('Beach Co-Invest Fund III: ownership sums to 75.0%'),
+      ).toBeInTheDocument();
+      expect(screen.queryByTestId('ownership-not-checked')).not.toBeInTheDocument();
+      cleanup();
+      vi.restoreAllMocks();
+    }
+  });
+
   it('never shows a partial sum as a data error to a role entitled to some clients or none', async () => {
-    for (const roles of [['viewer'], ['investor_relations'], ['deal_team', 'platform_admin']]) {
+    for (const roles of [['viewer'], ['investor_relations'], ['viewer', 'platform_admin']]) {
       renderAs(roles);
       expect(await screen.findByTestId('ownership-not-checked')).toHaveTextContent(
-        'checked against 100% for operations, approvers and auditors',
+        'checked against 100% for operations, the investment team (the deal team and approvers) and auditors, who see every',
       );
       expect(screen.queryByText(/ownership sums to/)).not.toBeInTheDocument();
       cleanup();

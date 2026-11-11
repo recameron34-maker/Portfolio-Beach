@@ -27,7 +27,6 @@ import {
   EmptyState,
   ErrorState,
   KeyValueTable,
-  NumCell,
   PageSkeleton,
   SectionHeader,
   SimulatedBadge,
@@ -53,6 +52,7 @@ import {
   useActionLog,
 } from '../../lib/workflow.js';
 import type { ActionLog } from '../../lib/workflow.js';
+import { AllocationLinesTable } from './AllocationLines.js';
 import {
   closingQuery,
   useClosingCommand,
@@ -603,6 +603,11 @@ function RecordCard({
   );
 }
 
+/**
+ * The tie-out card: the commitment, the received total and the difference lead (the deal's own
+ * figures, the same for every reader), then the lines by vehicle with the client breakdown as
+ * quiet secondary detail and the count of lines the reader is not shown (AllocationLines.tsx).
+ */
 function TieOutCard({ closing }: { closing: ClosingDetail }): ReactNode {
   const t = closing.allocationTieOut;
   const lock = closingLock(closing).items;
@@ -624,34 +629,13 @@ function TieOutCard({ closing }: { closing: ClosingDetail }): ReactNode {
           tone={t.tiedOut ? 'good' : 'bad'}
         />
       </div>
-      {closing.allocations.length === 0 ? (
+      {closing.allocations.length === 0 && t.hiddenLines === 0 ? (
         <EmptyState
           title="No allocation lines"
           detail="Allocations are edited on the opportunity page; the closing cannot complete until the received amounts equal the commitment (M22)."
         />
       ) : (
-        <TableWrap label="Allocations">
-          <table className="pb-table" aria-label="Allocations">
-            <thead>
-              <tr>
-                <th>Vehicle</th>
-                <th>Client</th>
-                <th className="num">Requested</th>
-                <th className="num">Received</th>
-              </tr>
-            </thead>
-            <tbody>
-              {closing.allocations.map((a) => (
-                <tr key={a.id}>
-                  <td>{a.vehicle.name}</td>
-                  <td>{a.client === null ? 'Vehicle line' : a.client.name}</td>
-                  <NumCell>{formatMoneyM(a.requested)}</NumCell>
-                  <NumCell>{formatMoneyM(a.received)}</NumCell>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </TableWrap>
+        <AllocationLinesTable rows={closing.allocations} hiddenLines={t.hiddenLines} />
       )}
       {lock === null ? (
         <p className="pb-meta pb-deal-note">

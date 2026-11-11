@@ -22,10 +22,10 @@ import {
   StatTile,
   TableWrap,
 } from './ui.js';
+import { WHO_READS_EVERY_CLIENT } from '../lib/roles.js';
 import { balanceTiles } from '../lib/tiles.js';
 
-const ENTITLED =
-  'Client data is visible to operations, approvers, auditors and the investor relations users entitled to each client (SEC-5.4).';
+const ENTITLED = `Client data is visible to ${WHO_READS_EVERY_CLIENT}, and to the investor relations users entitled to each client (SEC-5.2, SEC-5.4).`;
 
 function ClientCard({ client }: { client: ClientSummary }): ReactNode {
   const t = client.totals;

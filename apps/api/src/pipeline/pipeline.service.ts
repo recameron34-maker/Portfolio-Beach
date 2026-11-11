@@ -24,6 +24,7 @@ import {
   attempt,
   closingMachine,
   dealStageMachine,
+  totalsForReader,
 } from '@pb/workflows';
 import type { ClosingState } from '@pb/workflows';
 import type { z } from 'zod';
@@ -37,7 +38,12 @@ import { ADAPTERS, CLOSING_CHECKLIST, DILIGENCE_TEMPLATES } from '../common/toke
 import { requireUuid } from '../common/validate.js';
 import { DbService } from '../db/db.service.js';
 import type { AuditEntry } from '../db/db.service.js';
-import { allocationsOf, loadAllocationRows, replaceAllocations } from './allocations.js';
+import {
+  allocationsOf,
+  loadAllocationRows,
+  loadAllocationTotals,
+  replaceAllocations,
+} from './allocations.js';
 import { convertToInvestment } from './convert.js';
 import type { Conversion } from './convert.js';
 import { createTask, createTemplateTasks, diligenceGate, taskCommand } from './diligence.js';
@@ -399,15 +405,23 @@ export class PipelineService {
     });
   }
 
-  /** The detail from the rows the caller can see; the gates are computed from the same rows the machine reads. */
+  /**
+   * The detail from the rows the caller can see; the gates are computed from the same rows the
+   * machine reads. The allocation lines are the ones the caller is shown (a client line follows
+   * the client rule, migration 0017); the totals are the deal's, answered at every stage, with
+   * the number of lines the caller is not shown. A deal with a closing takes its lines and its
+   * totals from the one read the closing's tie-out is built from, so the two cannot disagree.
+   */
   private async loadDetail(tx: Tx, id: string): Promise<OpportunityDetail> {
     const row = (await loadOpportunities(tx, { where: eq(opp.id, id), limit: 1 }))[0];
     if (row === undefined) throw new ProblemError(404, 'not-found', NOT_FOUND);
     const stageHistory = await loadStageHistory(tx, id);
     const diligenceTasks = await loadTasks(tx, id);
     const icDecisions = await loadIcDecisions(tx, id);
-    const allocations = await loadAllocationRows(tx, allocationsOf(id, row.investmentId));
     const closing = await loadClosingView(tx, eq(closingTable.opportunityId, id), this.checklist);
+    const lines = allocationsOf(id, row.investmentId);
+    const allocations = closing?.allocations ?? (await loadAllocationRows(tx, lines));
+    const totals = closing?.totals ?? (await loadAllocationTotals(tx, lines));
     const gate = await diligenceGate(tx, id);
     const icApproved = await latestDecisionApproved(tx, id);
     const gates: OpportunityGates = {
@@ -423,6 +437,7 @@ export class PipelineService {
       diligenceTasks,
       icDecisions,
       allocations,
+      allocationTotals: totalsForReader(totals, allocations.length),
       closing: closing?.summary ?? null,
       gates,
     };

@@ -649,6 +649,7 @@ describe('pipeline and closing controls (docs/18 sections 4 and 12): reopened de
         allocated: '10000000.00',
         difference: '-5000000.00',
         tiedOut: false,
+        hiddenLines: 0,
       });
       expect(partly.gates.closing).toMatchObject({ allocationTiedOut: false, ok: false });
       expect(
@@ -674,6 +675,7 @@ describe('pipeline and closing controls (docs/18 sections 4 and 12): reopened de
         allocated: COMMITMENT,
         difference: '0.00',
         tiedOut: false,
+        hiddenLines: 0,
       });
       expect(
         expectProblem(
@@ -717,6 +719,7 @@ describe('pipeline and closing controls (docs/18 sections 4 and 12): reopened de
         allocated: COMMITMENT,
         difference: '0.00',
         tiedOut: true,
+        hiddenLines: 0,
       });
       await closingCommand(CAST.ops, closingId, { command: 'confirm' }).expect(200);
     });
@@ -810,5 +813,298 @@ describe('pipeline and closing controls (docs/18 sections 4 and 12): reopened de
       });
       await get('viewer.one', `/api/v1/investments/${closed.investmentId}`).expect(200);
     });
+  });
+});
+
+/*
+ * The client-level allocation lines of a deal (review finding D1-06, migration 0017, the owner's
+ * decisions of 2026-11-11): a client line is read by whoever reads its client (operations, the
+ * investment team and the auditor read every client, investor relations its own), everyone else is
+ * shown the vehicle lines only, and every reader gets the same totals and the same tie-out with
+ * the number of lines not shown. The seeded deal in Closing holds three client lines, one for each
+ * client of the vehicle with several investors, and no vehicle line.
+ */
+describe('client-level allocation lines (D1-06): who reads a line, the totals and the tie-out every reader gets', () => {
+  let h: Harness;
+
+  beforeAll(async () => {
+    h = await startHarness();
+  });
+  afterAll(async () => {
+    await h.close();
+  });
+
+  const NOT_VISIBLE = 'Not visible';
+  const get = (who: string, path: string) =>
+    h.http().get(path).set('authorization', h.as(who)).set('x-request-id', 'req-al-get');
+  const detail = async (who: string, id: string): Promise<OpportunityDetail> =>
+    opportunityDetail.parse((await get(who, `/api/v1/opportunities/${id}`).expect(200)).body);
+  const closing = async (who: string, closingId: string): Promise<ClosingDetail> =>
+    closingDetail.parse((await get(who, `/api/v1/closings/${closingId}`).expect(200)).body);
+  const putAllocations = (who: string, id: string, allocations: object[]) =>
+    h
+      .http()
+      .put(`/api/v1/opportunities/${id}/allocations`)
+      .set('authorization', h.as(who))
+      .set('x-request-id', 'req-al-put')
+      .send({ allocations });
+  const user = (externalId: string) => h.dataset.users.find((u) => u.externalId === externalId)!;
+  const clientName = (id: string) => h.dataset.clients.find((c) => c.id === id)!.name;
+
+  /** The seeded deal in Closing, with its three client lines as the dataset holds them. */
+  const reefpoint = () => {
+    const opportunity = h.dataset.opportunities!.find((o) => o.stage === 'Closing')!;
+    const lines = h.dataset.allocations!.filter((a) => a.opportunityId === opportunity.id);
+    return { opportunity, lines };
+  };
+  /** The seeded deal at Approved: one vehicle line, no received amount, no closing record yet. */
+  const approved = () => h.dataset.opportunities!.find((o) => o.stage === 'Approved')!;
+  const everyLine = ['deal.one', 'ops.one', 'head.one', 'audit.one'];
+
+  it('starts from a deal in Closing with three client lines and a closing that ties out', () => {
+    const { opportunity, lines } = reefpoint();
+    expect(opportunity.name).toBe('Project Reefpoint');
+    expect(lines).toHaveLength(3);
+    expect(lines.every((l) => l.clientId !== null && l.received !== null)).toBe(true);
+    // Investor relations: one user entitled to two of the three clients, one to the third.
+    const clients = new Set(lines.map((l) => l.clientId));
+    expect(user('ir.one').clientIds.filter((c) => clients.has(c))).toHaveLength(2);
+    expect(user('ir.two').clientIds.filter((c) => clients.has(c))).toHaveLength(1);
+  });
+
+  it('shows operations every line, and gives a viewer no client line, 3 hidden lines and the same totals and tie-out', async () => {
+    const { opportunity } = reefpoint();
+    const ops = await detail('ops.one', opportunity.id);
+    expect(ops.allocations).toHaveLength(3);
+    expect(ops.allocationTotals).toEqual({
+      lines: 3,
+      hiddenLines: 0,
+      requested: opportunity.targetCommitment,
+      received: opportunity.targetCommitment,
+      missingReceived: 0,
+    });
+    expect(ops.closing!.allocationTieOut).toEqual({
+      commitment: opportunity.targetCommitment,
+      allocated: opportunity.targetCommitment,
+      difference: '0.00',
+      tiedOut: true,
+      hiddenLines: 0,
+    });
+    // A platform admin does not read the pipeline at all (the route's roles, SEC-5.4).
+    await get('admin.one', '/api/v1/opportunities/' + opportunity.id).expect(403);
+    for (const who of ['viewer.one']) {
+      const seen = await detail(who, opportunity.id);
+      expect(seen.allocations, who).toEqual([]);
+      expect(seen.allocationTotals, who).toEqual({ ...ops.allocationTotals, hiddenLines: 3 });
+      // The figures are the deal's, not a sum of the lines this reader is shown (none).
+      expect(seen.closing!.allocationTieOut, who).toEqual({
+        ...ops.closing!.allocationTieOut,
+        hiddenLines: 3,
+      });
+      expect(seen.gates, who).toEqual(ops.gates);
+      expect(seen.gates.closing.allocationTiedOut, who).toBe(true);
+    }
+  });
+
+  it('shows the deal team, an approver and the auditor every line with the client named, and nothing hidden', async () => {
+    const { opportunity, lines } = reefpoint();
+    const names = lines.map((l) => clientName(l.clientId!)).sort();
+    const ops = await detail('ops.one', opportunity.id);
+    for (const who of everyLine) {
+      const seen = await detail(who, opportunity.id);
+      expect(seen.allocations.map((a) => a.id).sort(), who).toEqual(lines.map((l) => l.id).sort());
+      // The investment team reads the client behind a line (the owner's decision of 2026-11-11).
+      expect(seen.allocations.map((a) => a.client?.name).sort(), who).toEqual(names);
+      expect(seen.allocationTotals, who).toEqual(ops.allocationTotals);
+      expect(seen.closing!.allocationTieOut, who).toEqual(ops.closing!.allocationTieOut);
+    }
+  });
+
+  it('shows investor relations the lines of its entitled clients only, each with the client named', async () => {
+    const { opportunity, lines } = reefpoint();
+    const ops = await detail('ops.one', opportunity.id);
+    for (const who of ['ir.one', 'ir.two']) {
+      const entitled = new Set(user(who).clientIds);
+      const own = lines.filter((l) => entitled.has(l.clientId!));
+      const seen = await detail(who, opportunity.id);
+      expect(seen.allocations.map((a) => a.id).sort(), who).toEqual(own.map((l) => l.id).sort());
+      for (const a of seen.allocations) {
+        expect(a.client!.name, who).toBe(clientName(a.client!.id));
+        expect(a.client!.name, who).not.toBe(NOT_VISIBLE);
+      }
+      expect(seen.allocationTotals, who).toEqual({
+        ...ops.allocationTotals,
+        hiddenLines: 3 - own.length,
+      });
+      expect(seen.closing!.allocationTieOut, who).toEqual({
+        ...ops.closing!.allocationTieOut,
+        hiddenLines: 3 - own.length,
+      });
+    }
+  });
+
+  it('answers the closing detail as the opportunity detail does for each reader, and the two counts of hidden lines agree', async () => {
+    const { opportunity } = reefpoint();
+    for (const who of [...everyLine, 'viewer.one', 'ir.one', 'ir.two']) {
+      const seen = await detail(who, opportunity.id);
+      const record = await closing(who, seen.closing!.id);
+      expect(record.allocations, who).toEqual(seen.allocations);
+      expect(record.allocationTieOut, who).toEqual(seen.closing!.allocationTieOut);
+      // One read of the totals feeds both: the tie-out and the totals cannot disagree.
+      expect(seen.allocationTotals.hiddenLines, who).toBe(record.allocationTieOut.hiddenLines);
+      expect(seen.allocationTotals.received, who).toBe(record.allocationTieOut.allocated);
+      expect(seen.allocationTotals.lines - seen.allocations.length, who).toBe(
+        record.allocationTieOut.hiddenLines,
+      );
+    }
+  });
+
+  it('answers the totals with no closing record too, and zeros for a deal with no line', async () => {
+    const deal = approved();
+    for (const who of ['viewer.one', 'ops.one', 'deal.one']) {
+      const seen = await detail(who, deal.id);
+      expect(seen.closing, who).toBeNull();
+      expect(seen.allocations, who).toHaveLength(1);
+      expect(seen.allocationTotals, who).toEqual({
+        lines: 1,
+        hiddenLines: 0,
+        requested: deal.targetCommitment,
+        received: '0.00',
+        missingReceived: 1,
+      });
+    }
+    const sourced = h.dataset.opportunities!.find((o) => o.stage === 'Sourced')!;
+    expect((await detail('viewer.one', sourced.id)).allocationTotals).toEqual({
+      lines: 0,
+      hiddenLines: 0,
+      requested: '0.00',
+      received: '0.00',
+      missingReceived: 0,
+    });
+  });
+
+  it('tells a viewer how many lines are not shown before a closing record exists', async () => {
+    const deal = approved();
+    const before = await detail('ops.one', deal.id);
+    const vehicleId = before.allocations[0]!.vehicle.id;
+    const clientId = h.dataset.clients[0]!.id;
+    const saved = opportunityDetail.parse(
+      (
+        await putAllocations('ops.one', deal.id, [
+          { vehicleId, requested: '6000000.00', received: '6000000.00' },
+          { vehicleId, clientId, requested: '4000000.00' },
+        ]).expect(200)
+      ).body,
+    );
+    expect(saved.allocations).toHaveLength(2);
+    const totals = {
+      lines: 2,
+      requested: '10000000.00',
+      received: '6000000.00',
+      missingReceived: 1,
+    };
+    expect(saved.allocationTotals).toEqual({ ...totals, hiddenLines: 0 });
+    const viewer = await detail('viewer.one', deal.id);
+    expect(viewer.closing).toBeNull();
+    expect(viewer.allocations.map((a) => a.client)).toEqual([null]);
+    expect(viewer.allocationTotals).toEqual({ ...totals, hiddenLines: 1 });
+  });
+
+  it('lets the deal team replace the lines: it reads back every line it wrote and leaves none behind', async () => {
+    const { opportunity, lines } = reefpoint();
+    const before = await detail('deal.one', opportunity.id);
+    const vehicleId = before.allocations[0]!.vehicle.id;
+    const first = lines[0]!.clientId!;
+    const second = lines[1]!.clientId!;
+    const saved = opportunityDetail.parse(
+      (
+        await putAllocations('deal.one', opportunity.id, [
+          { vehicleId, requested: '10000000.00', received: '10000000.00' },
+          { vehicleId, clientId: first, requested: '12000000.00', received: '12000000.00' },
+          { vehicleId, clientId: second, requested: '8000000.00' },
+        ]).expect(200)
+      ).body,
+    );
+    // Every line written comes back to its writer, the client lines with their client named.
+    const written = new Map(saved.allocations.map((a) => [a.client?.id ?? 'vehicle', a]));
+    expect(saved.allocations).toHaveLength(3);
+    expect(written.get('vehicle')).toMatchObject({
+      client: null,
+      requested: '10000000.00',
+      received: '10000000.00',
+    });
+    expect(written.get(first)).toMatchObject({
+      client: { id: first, name: clientName(first) },
+      requested: '12000000.00',
+      received: '12000000.00',
+    });
+    expect(written.get(second)).toMatchObject({
+      client: { id: second, name: clientName(second) },
+      requested: '8000000.00',
+      received: null,
+    });
+    expect(saved.allocationTotals).toEqual({
+      lines: 3,
+      hiddenLines: 0,
+      requested: '30000000.00',
+      received: '22000000.00',
+      missingReceived: 1,
+    });
+    // None of the three lines it replaced is left: the table holds exactly the lines written.
+    const stored = await h.runtime.db.query<{ id: string }>(
+      'select id from deal.allocation where opportunity_id = $1 order by id',
+      [opportunity.id],
+    );
+    expect(stored.map((r) => r.id)).toEqual(saved.allocations.map((a) => a.id).sort());
+    for (const old of lines) expect(stored.map((r) => r.id)).not.toContain(old.id);
+
+    // A viewer is shown the vehicle line, told two lines are not shown, and reads the same tie-out.
+    const viewer = await detail('viewer.one', opportunity.id);
+    expect(viewer.allocations.map((a) => a.client)).toEqual([null]);
+    expect(viewer.allocationTotals).toEqual({ ...saved.allocationTotals, hiddenLines: 2 });
+    expect(viewer.closing!.allocationTieOut).toEqual({
+      commitment: '30000000.00',
+      allocated: '22000000.00',
+      difference: '-8000000.00',
+      tiedOut: false,
+      hiddenLines: 2,
+    });
+    expect(saved.closing!.allocationTieOut).toEqual({
+      ...viewer.closing!.allocationTieOut,
+      hiddenLines: 0,
+    });
+    expect(viewer.gates.closing).toEqual(saved.gates.closing);
+    // Investor relations entitled to the first client reads that line and the vehicle line only.
+    const ir = ['ir.one', 'ir.two'].find((who) => user(who).clientIds.includes(first))!;
+    const own = (await detail(ir, opportunity.id)).allocations;
+    expect(own.map((a) => a.client?.id ?? null)).toContain(first);
+    expect(own.every((a) => a.client === null || user(ir).clientIds.includes(a.client.id))).toBe(
+      true,
+    );
+  });
+
+  it('refuses the confirmation for the missing received amount on a line, counted over every line', async () => {
+    const { opportunity } = reefpoint();
+    const seen = await detail('ops.one', opportunity.id);
+    const record = await closing('ops.one', seen.closing!.id);
+    // Waive what is still open so the checklist refusal, which comes first, is out of the way.
+    for (const item of record.items.filter((i) => i.required && i.status === 'open'))
+      await h
+        .http()
+        .post(`/api/v1/closings/${record.id}/items/${item.itemCode}/commands`)
+        .set('authorization', h.as('ops.one'))
+        .set('x-request-id', 'req-al-waive')
+        .send({ command: 'waive', reason: 'Not needed for this deal' })
+        .expect(200);
+    const refused = await h
+      .http()
+      .post(`/api/v1/closings/${record.id}/commands`)
+      .set('authorization', h.as('ops.one'))
+      .set('x-request-id', 'req-al-confirm')
+      .send({ command: 'confirm' });
+    expect(refused.status, JSON.stringify(refused.body)).toBe(422);
+    expect(problemDetails.parse(refused.body).detail).toBe(
+      'closing: received amounts are missing on 1 line (M22)',
+    );
   });
 });

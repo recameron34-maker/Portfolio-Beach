@@ -196,6 +196,8 @@ export function actorFor(ctx: SimContext, credential: string): SimActor | undefi
     externalId: me.externalId,
     displayName: me.displayName,
     roles: me.roles,
+    // The entitlements the sign-in recorded: which client lines of a deal this reader is shown.
+    clientIds: me.clientIds,
   };
 }
 

@@ -2,14 +2,15 @@ import { useState } from 'react';
 import type { ReactNode } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Button, Dropdown, Input, Option } from '@fluentui/react-components';
-import type { AllocationRow, ClosingSummary } from '@pb/contracts';
+import type { AllocationRow, AllocationTotals, ClosingSummary } from '@pb/contracts';
 import { describeActionError } from '../../app/mutations.js';
 import { clientsQuery, vehiclesQuery } from '../../app/queries.js';
-import { Badge, Card, EmptyState, NumCell, SectionHeader, TableWrap } from '../../components/ui.js';
+import { Badge, Card, EmptyState, SectionHeader, TableWrap } from '../../components/ui.js';
 import { formatMoneyM, MISSING, plural } from '../../lib/format.js';
 import { retryUnlessUnavailable } from '../../lib/unavailable.js';
 import { blockedTitle, resultSuffix } from '../../lib/workflow.js';
 import type { ActionLog } from '../../lib/workflow.js';
+import { AllocationLead, AllocationLinesTable } from './AllocationLines.js';
 import { usePutAllocations } from './api.js';
 import {
   allocatedTotal,
@@ -28,10 +29,12 @@ import type { AllocationLine } from './pipeline.js';
 const INCOMPLETE = 'Every line needs a vehicle and a requested amount';
 
 /**
- * The received total against the closing commitment, or what the tie-out waits for when no
- * closing exists (M22). The total is what was received: a requested amount never stands in.
+ * The received total of the lines as typed against the closing commitment, or what the tie-out
+ * waits for when no closing exists (M22), beside the Save button: a running total of the edit, not
+ * the saved figures (the lead above the lines states those). The total is what was received: a
+ * requested amount never stands in. Only writers see it, and writers are shown every line.
  */
-function TieOutLine({
+function TypedTotalLine({
   closing,
   total,
 }: {
@@ -56,33 +59,6 @@ function TieOutLine({
         {tieOutLabel(closing.allocationTieOut)}
       </Badge>
     </>
-  );
-}
-
-function ReadOnlyTable({ rows }: { rows: readonly AllocationRow[] }): ReactNode {
-  return (
-    <TableWrap label="Allocations">
-      <table className="pb-table" aria-label="Allocations">
-        <thead>
-          <tr>
-            <th>Vehicle</th>
-            <th>Client</th>
-            <th className="num">Requested</th>
-            <th className="num">Received</th>
-          </tr>
-        </thead>
-        <tbody>
-          {rows.map((r) => (
-            <tr key={r.id}>
-              <td>{r.vehicle.name}</td>
-              <td>{r.client === null ? 'Vehicle line' : r.client.name}</td>
-              <NumCell>{formatMoneyM(r.requested)}</NumCell>
-              <NumCell>{formatMoneyM(r.received)}</NumCell>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </TableWrap>
   );
 }
 
@@ -237,7 +213,8 @@ function Editor({
       )}
       {clients.isError ? (
         <p className="pb-meta pb-deal-note">
-          Client lines need a role entitled to client data; vehicle lines are enough to tie out.
+          The client list could not load, so a client cannot be picked right now. Vehicle lines can
+          still be saved.
         </p>
       ) : null}
       {missing === 0 ? null : (
@@ -263,23 +240,30 @@ function Editor({
         >
           Save allocations
         </Button>
-        <TieOutLine closing={closing} total={total} />
+        <TypedTotalLine closing={closing} total={total} />
       </div>
     </>
   );
 }
 
 /**
- * Requested against received by vehicle and client (docs/04 M5, M22). The whole list is saved at
- * once (PUT replaces it); the tie-out of the received amounts against the closing commitment
- * decides whether the deal can close. Roles the route does not admit see the lines read only, and
- * so does everyone while the lines take no change (`lock` says why: the closing is confirmed, or
- * the deal is closed).
+ * Requested against received by vehicle and client (docs/04 M5, M22). The card leads with the
+ * deal's own figures, the same for every reader: the closing commitment and the received total
+ * against it once a closing record exists, the requested total beside the target commitment
+ * before. The lines follow by vehicle, the client lines under their vehicle as quiet secondary
+ * detail (AllocationLines.tsx). The whole list is saved at once (PUT replaces it); the tie-out of
+ * the received amounts against the closing commitment decides whether the deal can close. Roles
+ * the route does not admit see the lines read only, and so does everyone while the lines take no
+ * change (`lock` says why: the closing is confirmed, or the deal is closed). A reader who is shown
+ * fewer lines than the deal has (a client line follows the client's entitlement, SEC-5.2) is told
+ * how many are not shown; writers are always shown every line.
  */
 export function AllocationsEditor({
   opportunityId,
   name,
   rows,
+  totals,
+  targetCommitment,
   closing,
   rowVersion,
   roles,
@@ -288,7 +272,11 @@ export function AllocationsEditor({
 }: {
   opportunityId: string;
   name: string;
+  /** The lines the reader is shown. */
   rows: readonly AllocationRow[];
+  /** The totals of every line of the deal, with the number the reader is not shown. */
+  totals: AllocationTotals;
+  targetCommitment: string | null;
   closing: ClosingSummary | null;
   rowVersion: number;
   roles: readonly string[];
@@ -299,7 +287,7 @@ export function AllocationsEditor({
   const canEdit = mayUse(roles, PIPELINE_ROLES.allocations) && lock === null;
   return (
     <Card testId="allocations-editor">
-      <SectionHeader aside={rows.length === 0 ? undefined : plural(rows.length, 'line')}>
+      <SectionHeader aside={totals.lines === 0 ? undefined : plural(totals.lines, 'line')}>
         Allocations
       </SectionHeader>
       {lock === null ? null : (
@@ -307,6 +295,12 @@ export function AllocationsEditor({
           {lock}.
         </p>
       )}
+      <AllocationLead
+        totals={totals}
+        commitment={closing?.commitmentAmount ?? null}
+        tieOut={closing?.allocationTieOut ?? null}
+        targetCommitment={targetCommitment}
+      />
       {canEdit ? (
         // Keyed by the row version: a saved answer re-seeds the lines from the record.
         <Editor
@@ -318,19 +312,14 @@ export function AllocationsEditor({
           roles={roles}
           log={log}
         />
-      ) : rows.length === 0 ? (
+      ) : totals.lines === 0 ? (
         <EmptyState
           title="No allocation lines"
           detail="The deal team or operations records the allocation by vehicle and client."
           testId="allocations-empty"
         />
       ) : (
-        <>
-          <ReadOnlyTable rows={rows} />
-          <div className="pb-pipe-allocation-foot">
-            <TieOutLine closing={closing} total={allocatedTotal(linesOf(rows))} />
-          </div>
-        </>
+        <AllocationLinesTable rows={rows} hiddenLines={totals.hiddenLines} />
       )}
     </Card>
   );

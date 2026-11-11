@@ -3,6 +3,8 @@ import type { z } from 'zod';
 import { buildOpenApi } from './openapi.js';
 import { ROUTES } from './routes.js';
 import {
+  ALL_CLIENT_ROLES,
+  appRole,
   asOfQuery,
   auditQuery,
   capitalNoticeListQuery,
@@ -15,6 +17,7 @@ import {
   plainText,
   problemDetails,
   quarterRow,
+  seesAllClients,
   valuationListQuery,
 } from './schemas.js';
 
@@ -32,6 +35,25 @@ function responseSchema(doc: ReturnType<typeof buildOpenApi>, path: string): Obj
   if (schema === undefined) throw new Error(`no 200 response schema for GET ${path}`);
   return schema;
 }
+
+describe('the roles that read every client (SEC-5.2, SEC-5.4)', () => {
+  it('names operations, the investment team and the auditor, and no one else', () => {
+    // pb.sees_all_clients in the database (migration 0017) is the rule row-level security applies;
+    // this is its one statement for the API, the pages and the preview.
+    expect([...ALL_CLIENT_ROLES]).toEqual(['operations', 'deal_team', 'approver', 'auditor']);
+    for (const role of ALL_CLIENT_ROLES) expect(appRole.options).toContain(role);
+    expect(seesAllClients(['operations'])).toBe(true);
+    expect(seesAllClients(['deal_team'])).toBe(true);
+    expect(seesAllClients(['approver'])).toBe(true);
+    expect(seesAllClients(['auditor'])).toBe(true);
+    expect(seesAllClients(['viewer', 'deal_team'])).toBe(true);
+    // A viewer, investor relations (entitled per client), a platform admin (SEC-5.4) and the
+    // system actor read no client by role.
+    for (const role of ['viewer', 'investor_relations', 'platform_admin', 'service'])
+      expect(seesAllClients([role]), role).toBe(false);
+    expect(seesAllClients([])).toBe(false);
+  });
+});
 
 describe('contracts', () => {
   it('builds a valid-looking OpenAPI 3.1 document for every route', () => {

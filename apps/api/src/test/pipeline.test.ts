@@ -161,7 +161,11 @@ describe('pipeline (M5 skeleton, docs/18 section 4): opportunities, their stage 
       expect(closing.diligenceTasks.filter((t) => t.status === 'waived').length).toBe(1);
       expect(closing.icDecisions.length).toBe(1);
       expect(closing.icDecisions[0]!.decision).toBe('approved');
-      expect(closing.allocations.length).toBeGreaterThan(0);
+      // The deal's lines are client lines: a viewer is shown none and told how many there are
+      // (migration 0017); the deal team reads them all.
+      expect(closing.allocations).toEqual([]);
+      expect(closing.allocationTotals).toMatchObject({ lines: 3, hiddenLines: 3 });
+      expect((await detail('deal.one', tagged('closing_open'))).allocations).toHaveLength(3);
       expect(closing.closing).not.toBeNull();
       expect(closing.closing!.state).toBe('Open');
       expect(closing.closing!.itemsRequiredOpen).toBe(1);
@@ -476,6 +480,7 @@ describe('pipeline (M5 skeleton, docs/18 section 4): opportunities, their stage 
         allocated: '0.00',
         difference: '-15000000.00',
         tiedOut: false,
+        hiddenLines: 0,
       });
       expect((await audits('closing.open', 'req-j6-closing'))[0]!.details).toMatchObject({
         opportunityId: id,
@@ -580,6 +585,7 @@ describe('pipeline (M5 skeleton, docs/18 section 4): opportunities, their stage 
         allocated: '10000000.00',
         difference: '-5000000.00',
         tiedOut: false,
+        hiddenLines: 0,
       });
       expect(
         (await audits('opportunity.allocations.replace', 'req-j6-allocations'))[0]!.details,
@@ -608,6 +614,7 @@ describe('pipeline (M5 skeleton, docs/18 section 4): opportunities, their stage 
         allocated: '15000000.00',
         difference: '0.00',
         tiedOut: true,
+        hiddenLines: 0,
       });
       expect(allocated.gates.closing).toEqual({
         checklistComplete: true,

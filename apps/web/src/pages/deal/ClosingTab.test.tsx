@@ -57,6 +57,48 @@ describe('closing tab', () => {
     );
   });
 
+  it('tells a reader with lines not shown how many, and says nothing of it to operations', async () => {
+    const closing = closingDetailFixture({ id: DEAL_IDS.closing, closeDate: '2018-11-15' });
+    mockApi({
+      [DEAL_PATHS.me]: ok(rolePrincipal(['viewer'])),
+      [DEAL_PATHS.detail]: ok(dealDetailFixture()),
+      [PIPE_PATHS.closing(DEAL_IDS.closing)]: ok({
+        ...closing,
+        allocations: closing.allocations.filter((a) => a.client === null),
+        allocationTieOut: { ...closing.allocationTieOut, hiddenLines: 1 },
+      }),
+      [PIPE_PATHS.taxonomy]: ok(taxonomyFixture()),
+    });
+    renderWithQuery(<ClosingTab />);
+    const tieOut = within(await screen.findByTestId('closing-panel')).getByTestId(
+      'closing-tie-out',
+    );
+    // The commitment and the received total lead; the client breakdown is not offered.
+    expect(within(tieOut).getByRole('group', { name: 'Commitment' })).toHaveTextContent('$20.0M');
+    expect(within(tieOut).getByRole('group', { name: 'Allocated' })).toHaveTextContent('$20.0M');
+    expect(within(tieOut).getByTestId('allocations-hidden-lines')).toHaveTextContent(
+      '1 client line is not shown. Client-level lines are for operations, the investment team and readers entitled to the client.',
+    );
+    expect(within(tieOut).queryByRole('button', { name: /Client breakdown/ })).toBeNull();
+    cleanup();
+    vi.restoreAllMocks();
+
+    mockApi({
+      [DEAL_PATHS.me]: ok(rolePrincipal(['operations'])),
+      [DEAL_PATHS.detail]: ok(dealDetailFixture()),
+      [PIPE_PATHS.closing(DEAL_IDS.closing)]: ok(closing),
+      [PIPE_PATHS.taxonomy]: ok(taxonomyFixture()),
+    });
+    renderWithQuery(<ClosingTab />);
+    const full = within(await screen.findByTestId('closing-panel')).getByTestId('closing-tie-out');
+    expect(within(full).queryByTestId('allocations-hidden-lines')).toBeNull();
+    expect(
+      within(full).getByRole('button', {
+        name: 'Client breakdown (1 line), Beach Credit Partners I',
+      }),
+    ).toHaveAttribute('aria-expanded', 'false');
+  });
+
   it('does not offer a close date change or a reopen on the closing of a position: the change is a deal change request', async () => {
     mockApi({
       [DEAL_PATHS.me]: ok(rolePrincipal(['operations'])),

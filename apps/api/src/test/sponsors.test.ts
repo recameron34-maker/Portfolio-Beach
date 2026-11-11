@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { D } from '@pb/calc';
-import { commitmentList, sponsorDetail, vehicleDetail } from '@pb/contracts';
+import { commitmentList, seesAllClients, sponsorDetail, vehicleDetail } from '@pb/contracts';
 import type { SponsorDetail } from '@pb/contracts';
 import { startHarness } from './harness.js';
 import type { Harness } from './harness.js';
@@ -31,7 +31,7 @@ describe('sponsor 360 (M6): GET /api/v1/sponsors/{id}', () => {
     sponsorId: string,
   ): Harness['dataset']['commitments'] => {
     const user = h.dataset.users.find((u) => u.externalId === who)!;
-    const seesAll = user.roles.some((r) => ['operations', 'approver', 'auditor'].includes(r));
+    const seesAll = seesAllClients(user.roles);
     const fundIds = new Set(fundsOf(sponsorId).map((f) => f.id));
     return h.dataset.commitments.filter(
       (c) =>

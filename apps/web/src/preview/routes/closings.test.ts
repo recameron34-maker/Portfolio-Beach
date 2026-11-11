@@ -387,6 +387,7 @@ describe('the checklist and the confirmation (journey 6, the operations half)', 
       allocated: '0.00',
       difference: '-2000000.00',
       tiedOut: false,
+      hiddenLines: 0,
     });
     expect(requestedOnly.gates.closing).toMatchObject({ allocationTiedOut: false, ok: false });
     // While a required item is open the checklist refusal comes first, as the machine orders them.
@@ -420,6 +421,7 @@ describe('the checklist and the confirmation (journey 6, the operations half)', 
       allocated: '2000000.00',
       difference: '0.00',
       tiedOut: false,
+      hiddenLines: 0,
     });
     expect(problemOf(await confirm()).detail).toBe(
       'closing: received amounts are missing on 2 lines (M22)',
@@ -455,6 +457,7 @@ describe('the checklist and the confirmation (journey 6, the operations half)', 
       allocated: '2000000.00',
       difference: '0.00',
       tiedOut: true,
+      hiddenLines: 0,
     });
     expect(detailOf(await confirm()).state).toBe('OpsConfirmed');
   });
