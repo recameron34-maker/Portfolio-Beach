@@ -200,6 +200,14 @@ describe('the Idempotency-Key of a write', () => {
     void write({ command: 'lock' });
     expect(fetchSpy).toHaveBeenCalledTimes(2);
   });
+
+  it('is not kept past a sign-out', async () => {
+    fetchSpy.mockRejectedValueOnce(new TypeError('Failed to fetch'));
+    const first = await keyOf({ command: 'prepare' });
+    clearCredential();
+    setCredential('ops.one');
+    expect(await keyOf({ command: 'prepare' })).not.toBe(first);
+  });
 });
 
 describe('a write whose answer was lost, tried again', () => {
