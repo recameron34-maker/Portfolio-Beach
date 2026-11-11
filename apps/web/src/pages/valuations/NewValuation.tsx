@@ -16,14 +16,16 @@ import {
 import type { InvestmentSummary } from '@pb/contracts';
 import type { ValuationCreateBody } from '../../app/mutations.js';
 import { formatDate, formatMoneyM, labelOf } from '../../lib/format.js';
-import { isFairValue } from './board.js';
+import { fairValueProblem } from './board.js';
 
 const positionLabel = (p: InvestmentSummary): string => `${p.investmentNumber} ${p.companyName}`;
 
 /**
  * Starts a Draft version for one active position and the selected period (docs/18 section 1:
- * operations, investment active). The fair value is validated against the decimalString contract
- * before anything is sent.
+ * operations, investment active). The fair value is validated against the contract's
+ * positiveMoney before anything is sent (above zero, at most 18 digits before the decimal point
+ * and two after: what the column stores exactly as sent), and a refused value is told why in
+ * the contract's own words.
  */
 export function NewValuationDialog({
   positions,
@@ -51,7 +53,8 @@ export function NewValuationDialog({
   const [touched, setTouched] = useState(false);
   const position = positions.find((p) => p.id === investmentId);
   const valueText = fairValue.trim();
-  const valueOk = isFairValue(valueText);
+  const valueProblem = fairValueProblem(valueText);
+  const valueOk = valueProblem === null;
   const ready = position !== undefined && method !== '' && valueOk;
   const showValueError = touched && valueText !== '' && !valueOk;
   return (
@@ -120,15 +123,11 @@ export function NewValuationDialog({
                 label="Fair value (dollars)"
                 required
                 {...(showValueError
-                  ? {
-                      validationState: 'error' as const,
-                      validationMessage:
-                        'Use digits with an optional decimal point, for example 12500000.00.',
-                    }
+                  ? { validationState: 'error' as const, validationMessage: valueProblem }
                   : {
                       hint: valueOk
                         ? `Reads as ${formatMoneyM(valueText)}.`
-                        : 'Digits with an optional decimal point, for example 12500000.00.',
+                        : 'Digits with up to two decimals, for example 12500000.00.',
                     })}
               >
                 <Input

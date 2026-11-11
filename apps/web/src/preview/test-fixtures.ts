@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import type {
   AllocationRow,
   CapitalNoticeControlDetail,
@@ -466,6 +467,13 @@ export function valuationFixture(
   };
 }
 
+/** The lock hash the API records for a version without method inputs: SHA-256 of its lock text, lowercase hex. */
+export function recordedLockHash(row: ValuationRow): string {
+  return createHash('sha256')
+    .update(valuationLockText({ ...row, inputs: {} }))
+    .digest('hex');
+}
+
 export function noticeFixture(
   id: string,
   overrides: Partial<CapitalNoticeRow> = {},
@@ -848,14 +856,12 @@ export function buildWorld(
       periodEnd: '2024-06-30',
       state: 'OpsPrepared',
       preparedBy: USERS.all.displayName,
-      lockHash: 'h-recorded',
     }),
     valuationFixture(v.DealTeamApproved, states, {
       periodEnd: '2024-09-30',
       state: 'DealTeamApproved',
       preparedBy: USERS.all.displayName,
       dealTeamApprovedBy: USERS.deal.displayName,
-      lockHash: 'h-recorded',
     }),
     valuationFixture(v.Locked, states, {
       periodEnd: '2024-12-31',
@@ -864,11 +870,14 @@ export function buildWorld(
       dealTeamApprovedBy: USERS.deal.displayName,
       approvedBy: USERS.head.displayName,
       approvedAt: '2025-01-20T12:00:00Z',
-      lockHash: 'h-recorded',
     }),
     valuationFixture(v.Reopened, states, {
       periodEnd: '2023-12-31',
       state: 'Reopened',
+      preparedBy: USERS.ops.displayName,
+      dealTeamApprovedBy: USERS.deal.displayName,
+      approvedBy: USERS.head.displayName,
+      approvedAt: '2024-01-20T12:00:00Z',
       reopenReason: 'restated by the sponsor',
     }),
     valuationFixture(v.openPrior, open, {
@@ -888,7 +897,6 @@ export function buildWorld(
             dealTeamApprovedBy: USERS.deal.displayName,
             approvedBy: USERS.head.displayName,
             approvedAt: '2025-04-20T12:00:00Z',
-            lockHash: 'h-recorded',
           }),
           valuationFixture(v.twoChainsApproved, twoChains, {
             periodEnd: '2025-03-31',
@@ -896,11 +904,14 @@ export function buildWorld(
             state: 'DealTeamApproved',
             preparedBy: USERS.ops.displayName,
             dealTeamApprovedBy: USERS.deal.displayName,
-            lockHash: 'h-recorded',
           }),
         ]
       : []),
   ];
+  // As the API records them (VAL-6): a version carries a lock hash once it was Locked, the
+  // SHA-256 of its own lock text, and none before. No recorded version has method inputs.
+  for (const row of valuations)
+    if (row.state === 'Locked' || row.state === 'Reopened') row.lockHash = recordedLockHash(row);
   const entries = (inv: InvestmentDetail): InvestmentDetail['valuations'] =>
     valuations
       .filter((r) => r.investmentId === inv.id)
@@ -1088,8 +1099,9 @@ export function buildWorld(
       createdAt: '2025-02-20T10:00:00.000Z',
       rowVersion: 4,
     }),
+    // Routed to a member of the wall: the API refuses an owner who could not open it (CR-3).
     changeRequest(IDS.changeRequest.walled, walled, {
-      owner: personOf(USERS.ops),
+      owner: personOf(USERS.head),
       state: 'Routed',
       submittedBy: personOf(USERS.dealWall),
       createdAt: '2025-06-20T10:00:00.000Z',
@@ -1530,8 +1542,9 @@ export function buildWorld(
           page(visibleValuations.filter((r) => r.investmentId === inv.id)),
         );
     }
-    // The valuation detail: the recorded approval trail of the Locked version, the open change
-    // requests of the position and, once Locked, the lock text.
+    // The valuation detail: the method inputs (none recorded), the recorded approval trail of
+    // the Locked version, the open change requests of the position for the roles the change
+    // request routes serve (CR-5) and, once Locked, the lock text.
     const visibleRequests = changeRequests.filter((r) => canSee(r.investmentId));
     for (const row of valuations) {
       const path = `/api/v1/valuations/${row.id}`;
@@ -1574,12 +1587,17 @@ export function buildWorld(
           : [];
       const detail: ValuationDetail = {
         ...row,
+        inputs: {},
         approvals,
-        openChangeRequests: visibleRequests.filter(
-          (r) =>
-            r.investmentId === row.investmentId && r.state !== 'Applied' && r.state !== 'Rejected',
-        ),
-        lockText: row.state === 'Locked' ? valuationLockText(row) : null,
+        openChangeRequests: holds(CHANGE_REQUEST_ROLES)
+          ? visibleRequests.filter(
+              (r) =>
+                r.investmentId === row.investmentId &&
+                r.state !== 'Applied' &&
+                r.state !== 'Rejected',
+            )
+          : [],
+        lockText: row.state === 'Locked' ? valuationLockText({ ...row, inputs: {} }) : null,
       };
       b.add(c, path, detail);
     }

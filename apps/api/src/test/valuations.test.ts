@@ -269,6 +269,8 @@ describe('valuation board (M10)', () => {
         .set('authorization', h.as('viewer'))
         .expect(200);
       const shown = valuationDetail.parse(res.body);
+      // No version is seeded with inputs: the detail says so with an empty record.
+      expect(shown.inputs).toEqual({});
       expect(shown.lockText).not.toBeNull();
       expect(createHash('sha256').update(shown.lockText!).digest('hex')).toBe(shown.lockHash);
     });
@@ -647,7 +649,8 @@ describe('valuation workflow (M10, docs/18 section 1)', () => {
     };
     // No inputs is an empty object in the text; with inputs the text carries them, keys sorted
     // at every depth (VAL-2). Both digests are pinned in packages/contracts/src/controls.test.ts.
-    expect(valuationLockHash(version)).toBe(
+    const withoutInputs = { ...version, inputs: {} };
+    expect(valuationLockHash(withoutInputs)).toBe(
       '6fd3860e1478d9d2c4d9a474158c6be92302c71d68d882ab32db28e93191a28d',
     );
     const withInputs = {
@@ -657,7 +660,7 @@ describe('valuation workflow (M10, docs/18 section 1)', () => {
     expect(valuationLockHash(withInputs)).toBe(
       'baaad81ac39ae0b9e8985df94333a747188726d460e2bacb886238d1b2479599',
     );
-    for (const each of [version, withInputs])
+    for (const each of [withoutInputs, withInputs])
       expect(valuationLockHash(each)).toBe(
         createHash('sha256').update(valuationLockText(each)).digest('hex'),
       );
@@ -690,6 +693,10 @@ describe('valuation workflow (M10, docs/18 section 1)', () => {
     const approved = await row('deal.one', created.id, { command: 'dealTeamApprove' });
     expect(approved.state).toBe('DealTeamApproved');
     expect(approved.dealTeamApprovedBy).toBe(userName('deal.one'));
+    // The approver reads the inputs the lock will cover before locking, not only afterwards.
+    const beforeLock = await detail('head.one', created.id);
+    expect(beforeLock.inputs).toEqual(inputs);
+    expect(beforeLock.lockText).toBeNull();
     // Nothing a client could see has moved: the weekly report and the one-pager read Locked only.
     expect(await weekly()).toEqual(report);
     const unchanged = await onePager(stale);
@@ -703,7 +710,7 @@ describe('valuation workflow (M10, docs/18 section 1)', () => {
     expect(locked.approvedAt).toBe(`${h.dataset.asOf}T12:00:00.000Z`);
     // The hash covers the inputs with the identity, the method and the value (VAL-2).
     expect(locked.lockHash).toBe(valuationLockHash({ ...locked, inputs }));
-    expect(locked.lockHash).not.toBe(valuationLockHash(locked));
+    expect(locked.lockHash).not.toBe(valuationLockHash({ ...locked, inputs: {} }));
     const after = await onePager(stale);
     expect(after.nav).toBe(fairValue);
     expect(after.navDate).toBe(PERIOD);
@@ -711,6 +718,8 @@ describe('valuation workflow (M10, docs/18 section 1)', () => {
     expect(relocked).not.toEqual(report);
     expect(relocked.staleValuations.map((x) => x.investmentId)).not.toContain(stale);
     const seen = await detail('viewer', created.id);
+    expect(seen.inputs).toEqual(inputs);
+    expect(seen.lockText).toBe(valuationLockText(seen));
     expect(seen.lockText).toBe(valuationLockText({ ...locked, inputs }));
     expect(seen.lockText).toContain('"inputs":{"note":"Q2 mark","source":"sponsor letter"}');
     expect(createHash('sha256').update(seen.lockText!).digest('hex')).toBe(locked.lockHash);
@@ -1253,6 +1262,7 @@ describe('valuation workflow (M10, docs/18 section 1)', () => {
         draft.method,
         draft.rowVersion,
       ]);
+      expect(untouched.inputs).toEqual({});
 
       // The method alone: the value stays. Then the value and the inputs: the audit records the
       // value as stored (two decimals) and the inputs replace the ones before, whole.
@@ -1269,8 +1279,13 @@ describe('valuation workflow (M10, docs/18 section 1)', () => {
       );
       expect([byValue.method, byValue.fairValue]).toEqual(['valuation_method.cost', '1300.50']);
       expect(byValue.rowVersion).toBe(draft.rowVersion + 2);
+      // The detail carries the stored inputs, so the edit form starts from them (a PATCH
+      // replaces them whole) and every reader of the screen sees what a lock would cover.
+      for (const who of ['ops.one', 'deal.one', 'viewer'])
+        expect((await detail(who, draft.id)).inputs, who).toEqual({ aa: 'x', b: 2 });
       const cleared = valuationRow.parse((await edit('ops.one', draft.id, { inputs: {} })).body);
       expect(cleared.fairValue).toBe('1300.50');
+      expect((await detail('ops.one', draft.id)).inputs).toEqual({});
       const written = await events('valuation.edit', draft.id);
       expect(written.map((e) => e.actor_id)).toEqual([
         userId('ops.one'),
@@ -1345,6 +1360,16 @@ describe('valuation workflow (M10, docs/18 section 1)', () => {
         command: 'reopen',
         reason: 'Nested inputs',
       });
+      // Inputs that are no record at all (the API never writes one) are said, never passed on
+      // to the screen as if the version had none.
+      await asOps(async (tx) => {
+        await tx
+          .update(schema.valuation)
+          .set({ inputs: ['x'] })
+          .where(eq(schema.valuation.id, draft.id));
+      });
+      const broken = problemDetails.parse(await detail('viewer', draft.id, 500));
+      expect(broken.type).toMatch(/internal$/);
       // Inputs another writer stored: nested, and with keys the database orders by length first.
       const stored = { comps: { set: 'peers', count: 6, range: [9.5, 12] }, b: 2, aa: 'x' };
       await asOps(async (tx) => {
@@ -1357,12 +1382,13 @@ describe('valuation workflow (M10, docs/18 section 1)', () => {
       await row('deal.one', draft.id, { command: 'dealTeamApprove' });
       const locked = await row('head.one', draft.id, { command: 'lock' });
       const seen = await detail('viewer', draft.id);
+      expect(seen.inputs).toEqual(stored);
       expect(seen.lockText).toBe(valuationLockText({ ...locked, inputs: stored }));
       expect(seen.lockText).toContain(
         '"inputs":{"aa":"x","b":2,"comps":{"count":6,"range":[9.5,12],"set":"peers"}}',
       );
       expect(locked.lockHash).toBe(createHash('sha256').update(seen.lockText!).digest('hex'));
-      expect(locked.lockHash).not.toBe(valuationLockHash(locked));
+      expect(locked.lockHash).not.toBe(valuationLockHash({ ...locked, inputs: {} }));
     });
   });
 

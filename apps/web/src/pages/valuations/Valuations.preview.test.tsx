@@ -205,7 +205,7 @@ describe('valuation board (preview)', () => {
   });
 
   it(
-    'checks the fair value against the decimal contract before anything is sent',
+    'checks the fair value against the money contract before anything is sent, and says why in its words (VAL-3)',
     TIMEOUT,
     async () => {
       mockApi(routes(['operations']));
@@ -216,17 +216,69 @@ describe('valuation board (preview)', () => {
       const dialog = await screen.findByRole('dialog');
       expect(within(dialog).getByDisplayValue('Jun 30, 2025')).toHaveAttribute('readonly');
       const value = within(dialog).getByRole('textbox', { name: /Fair value/ });
+      const SHAPE =
+        'An amount above zero: at most 18 digits before the decimal point and two after';
+      // Leave the field (jsdom cannot tab inside the dialog's focus trap; a click elsewhere blurs it).
+      const leave = (): Promise<void> =>
+        userEvent.click(within(dialog).getByText(/Starts a Draft version/));
       await userEvent.click(value);
       await userEvent.paste('41.5M');
-      // Leave the field (jsdom cannot tab inside the dialog's focus trap; a click elsewhere blurs it).
-      await userEvent.click(within(dialog).getByText(/Starts a Draft version/));
-      expect(
-        within(dialog).getByText(
-          'Use digits with an optional decimal point, for example 12500000.00.',
-        ),
-      ).toBeInTheDocument();
+      await leave();
+      expect(within(dialog).getByText(SHAPE)).toBeInTheDocument();
       expect(within(dialog).getByRole('button', { name: 'Create draft' })).toBeDisabled();
+      // A third decimal would be rounded by the column, and zero is no value: both are refused.
+      await userEvent.clear(value);
+      await userEvent.paste('41500000.005');
+      await leave();
+      expect(within(dialog).getByText(SHAPE)).toBeInTheDocument();
+      await userEvent.clear(value);
+      await userEvent.paste('0.00');
+      await leave();
+      expect(within(dialog).getByText('Must be above zero')).toBeInTheDocument();
+      expect(within(dialog).getByRole('button', { name: 'Create draft' })).toBeDisabled();
+      await userEvent.clear(value);
+      await userEvent.paste('41500000.5');
+      expect(within(dialog).getByText('Reads as $41.5M.')).toBeInTheDocument();
+      expect(within(dialog).getByRole('button', { name: 'Create draft' })).toBeEnabled();
       expect(posts()).toEqual([]);
+    },
+  );
+
+  it(
+    'words the 409 of a lost race for a version number and reads the board again',
+    TIMEOUT,
+    async () => {
+      mockApi(
+        routes(['operations'], {
+          [`/api/v1/valuations/${VAL_ID.locked}/commands`]: {
+            status: 409,
+            body: {
+              ...refusalFixture(
+                409,
+                'valuation: another version was created first; open the list again',
+              ),
+              type: 'https://portfolio-beach.example/problems/workflow-transition',
+            },
+          },
+        }),
+      );
+      renderWithQuery(<ValuationsPage />);
+      await screen.findByRole('table', { name: 'Valuations' });
+      const boardReads = (): number =>
+        vi.mocked(globalThis.fetch).mock.calls.filter(([input]) => input === BOARD).length;
+      const before = boardReads();
+      await userEvent.click(button('Reopen, Meridian Data Partners, Jun 30, 2025 v1'));
+      const dialog = await screen.findByRole('dialog');
+      await userEvent.type(within(dialog).getByRole('textbox', { name: /Reason/ }), 'Restated');
+      await userEvent.click(within(dialog).getByRole('button', { name: 'Reopen' }));
+      await dialogClosed();
+      expect(
+        await within(screen.getByRole('status')).findByText(
+          'Reopen for Meridian Data Partners, Jun 30, 2025 v1: Another version was created for this position and period first, so nothing was saved. The list is refreshed: continue with the version it shows.',
+        ),
+      ).toHaveClass('pb-notice-bad');
+      // The other version exists now: the board is read again so the person sees it.
+      await waitFor(() => expect(boardReads()).toBe(before + 1));
     },
   );
 

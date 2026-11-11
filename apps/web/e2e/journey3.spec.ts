@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import { expect, test } from '@playwright/test';
 import type { Page } from '@playwright/test';
 import { D, addDays } from '@pb/calc';
-import { investmentDetail, valuationLockText, valuationPage } from '@pb/contracts';
+import { investmentDetail, valuationDetail, valuationLockText, valuationPage } from '@pb/contracts';
 import type { ValuationRow } from '@pb/contracts';
 import { generateDataset } from '@pb/synthetic';
 import { apiCall, latestQuarter, loadDataset, signInAs, switchTo } from './fixtures.js';
@@ -15,6 +15,10 @@ import { apiCall, latestQuarter, loadDataset, signInAs, switchTo } from './fixtu
  * Locked fair value. The edit after lock: the approver reopens the version with a reason, which
  * opens a new Draft version (v2), marks v1 Reopened, writes a valuation.reopen audit event and
  * takes the one-pager back to the prior Locked mark, since reports read Locked versions only.
+ * Operations then corrects the new Draft on the version screen (Edit draft: the fair value and
+ * the method inputs), prepares it, the deal team approves it and the approver, who reads the
+ * inputs before locking, locks it: the lock text covers the inputs, its hash verifies, and the
+ * one-pager reads the corrected value.
  * The alert to the prior approver is an ops.task row the API test checks; the prototype has no
  * tasks page yet (M15), so this journey does not read it.
  */
@@ -23,6 +27,8 @@ const full = generateDataset({ profile: 'small', seed: 42 });
 const quarter = latestQuarter(d);
 const METHOD = 'valuation_method.sponsor_mark';
 const REASON = 'Journey 3: the sponsor restated the quarter';
+/** The method inputs operations records with the corrected value; the lock covers them. */
+const INPUTS = { multiple: 11.5, source: 'restated sponsor letter' };
 /** config/definitions.json priorYearPeriodEndToleranceDays: a mark within these days of the quarter end belongs to it. */
 const TOLERANCE_DAYS = 7;
 
@@ -103,6 +109,8 @@ function freshPosition(): Position {
 const position = freshPosition();
 /** Ten percent above the prior mark: a visible change, below nothing the API refuses. */
 const FAIR_VALUE = D(position.prior.fairValue).times('1.1').toFixed(2);
+/** The restated value operations enters on the reopened Draft: twenty percent above the prior mark. */
+const CORRECTED = D(position.prior.fairValue).times('1.2').toFixed(2);
 /** "Cobalt Energy Group, Jun 30, 2025 v1": how the board and its messages name a version. */
 const label = (version: number): string =>
   `${position.companyName}, ${shownDate(quarter)} v${version}`;
@@ -218,7 +226,9 @@ test('operations prepares, the deal team approves and an approver locks a valuat
   expect(locked?.state).toBe('Locked');
   expect(locked?.approvedBy).toBe(userName('head.one'));
   if (locked === undefined) return;
-  const lockText = valuationLockText(locked);
+  // Started on the board without method inputs: the lock text says so with an empty record.
+  const lockText = valuationLockText({ ...locked, inputs: {} });
+  expect(lockText).toContain('"inputs":{}');
   expect(locked.lockHash).toBe(sha256(lockText));
 
   // The version screen: the lock text, its hash and the three approvals.
@@ -324,7 +334,112 @@ test('operations prepares, the deal team approves and an approver locks a valuat
   );
   await expect(page.getByTestId('deal-valuations')).toContainText(`Reopen reason: ${REASON}`);
 
-  // The audit trail lists the reopen with its reason and actor, and the lock before it.
+  // The correction (VAL-1): operations edits the new Draft on its version screen. The form starts
+  // from the value the reopened version held; the restated value and its inputs are typed in.
+  await switchTo(page, 'ops.one', d);
+  await page.goto(`/valuations/${v2.id}`);
+  const v2Workflow = page.getByTestId('valuation-workflow');
+  const v2Status = page.getByTestId('valuation-action-status');
+  await expect(page.getByTestId('valuation-inputs')).toContainText('No method inputs');
+  await v2Workflow.getByRole('button', { name: 'Edit draft', exact: true }).click();
+  const editDialog = page.getByRole('dialog');
+  await expect(editDialog).toContainText(label(2));
+  const value = editDialog.getByLabel('Fair value (dollars)');
+  await expect(value).toHaveValue(FAIR_VALUE);
+  const save = editDialog.getByRole('button', { name: 'Save changes', exact: true });
+  await expect(save).toBeDisabled();
+  // A value the column could not store is refused in the form, in the contract's words.
+  await value.fill(`${CORRECTED}5`);
+  await expect(editDialog).toContainText(
+    'An amount above zero: at most 18 digits before the decimal point and two after',
+  );
+  await expect(save).toBeDisabled();
+  await value.fill(CORRECTED);
+  await expect(editDialog).toContainText(`Reads as ${moneyM(CORRECTED)}.`);
+  await editDialog.getByRole('button', { name: 'Add input', exact: true }).click();
+  await editDialog.getByLabel('Input 1 name').fill('multiple');
+  await editDialog.getByLabel('Input 1 value').fill(String(INPUTS.multiple));
+  await editDialog.getByRole('button', { name: 'Add input', exact: true }).click();
+  await editDialog.getByLabel('Input 2 name').fill('source');
+  await editDialog.getByLabel('Input 2 value').fill(INPUTS.source);
+  await save.click();
+  await expect(v2Status).toContainText(
+    `${label(2)} corrected: the fair value and the inputs (audited)`,
+  );
+  await expect(
+    page
+      .getByTestId('valuation-detail-tiles')
+      .getByRole('group', { name: 'Fair value', exact: true }),
+  ).toContainText(moneyM(CORRECTED));
+  const inputRows = page.getByRole('table', { name: 'Method inputs' }).getByRole('row');
+  await expect(inputRows).toHaveCount(3);
+  await expect(inputRows.nth(1)).toContainText('multiple');
+  await expect(inputRows.nth(1)).toContainText('11.5');
+  await expect(inputRows.nth(2)).toContainText(INPUTS.source);
+  const edited = await apiCall(
+    page,
+    'GET',
+    `/api/v1/valuations/${v2.id}`,
+    'ops.one',
+    valuationDetail,
+  );
+  expect(edited.state).toBe('Draft');
+  expect(edited.fairValue).toBe(CORRECTED);
+  expect(edited.inputs).toEqual(INPUTS);
+  expect(edited.approvals).toEqual([]);
+
+  // Prepare from the version screen; a prepared version is no longer edited.
+  await v2Workflow.getByRole('button', { name: 'Prepare', exact: true }).click();
+  await expect(v2Status).toContainText(`${label(2)} is now Ops prepared (audited)`);
+  await expect(v2Workflow.getByRole('button', { name: 'Edit draft', exact: true })).toHaveCount(0);
+
+  // The deal team approves; the approver reads the inputs the lock will cover, then locks.
+  await switchTo(page, 'deal.one', d);
+  await page.goto(`/valuations/${v2.id}`);
+  await page
+    .getByTestId('valuation-workflow')
+    .getByRole('button', { name: 'Deal team approve', exact: true })
+    .click();
+  await expect(page.getByTestId('valuation-action-status')).toContainText(
+    `${label(2)} is now Deal team approved (audited)`,
+  );
+  await switchTo(page, 'head.one', d);
+  await page.goto(`/valuations/${v2.id}`);
+  await expect(page.getByTestId('valuation-inputs')).toContainText(INPUTS.source);
+  await expect(page.getByTestId('valuation-lock')).toContainText('Not locked');
+  await page
+    .getByTestId('valuation-workflow')
+    .getByRole('button', { name: 'Lock', exact: true })
+    .click();
+  await expect(page.getByTestId('valuation-action-status')).toContainText(
+    `${label(2)} is now Locked (audited)`,
+  );
+  const [lockedV2] = await versions(page, 'head.one');
+  expect(lockedV2?.id).toBe(v2.id);
+  expect(lockedV2?.state).toBe('Locked');
+  expect(lockedV2?.fairValue).toBe(CORRECTED);
+  if (lockedV2 === undefined) return;
+  // The lock covers the corrected value and its inputs (VAL-2): the text names them, keys
+  // sorted, and the hash on the screen is the SHA-256 of that text.
+  const correctedText = valuationLockText({ ...lockedV2, inputs: INPUTS });
+  expect(correctedText).toContain(
+    `"inputs":{"multiple":${INPUTS.multiple},"source":"${INPUTS.source}"}`,
+  );
+  expect(lockedV2.lockHash).toBe(sha256(correctedText));
+  expect(lockedV2.lockHash).not.toBe(locked.lockHash);
+  await expect(page.getByTestId('valuation-lock-text')).toHaveText(correctedText);
+  await expect(page.getByTestId('valuation-lock')).toContainText(
+    `Hash: ${lockedV2.lockHash ?? ''}`,
+  );
+  // Reports read the corrected mark now; the Reopened version keeps what it locked.
+  await expectOnePagerNav(page, CORRECTED, quarter);
+  await page.goto(`/valuations/${draft.id}`);
+  await expect(page.getByTestId('valuation-banner')).toContainText('Reopened');
+  await expect(page.getByTestId('valuation-lock')).toContainText('Reopened after its lock');
+  await expect(page.getByTestId('valuation-lock')).toContainText(locked.lockHash ?? '');
+
+  // The audit trail lists the reopen with its reason and actor, the lock before it, the edit of
+  // the new Draft by operations and the lock of the corrected version.
   await switchTo(page, 'audit.one', d);
   await page.goto('/admin/audit');
   const events = page.getByRole('table', { name: 'Audit events' }).getByRole('row');
@@ -333,8 +448,14 @@ test('operations prepares, the deal team approves and an approver locks a valuat
   await expect(reopenEvent).toContainText(userName('head.one'));
   await expect(reopenEvent).toContainText(REASON);
   await expect(reopenEvent).toContainText(draft.id.slice(0, 8));
-  const lockEvent = events.filter({ hasText: 'valuation.lock' });
-  await expect(lockEvent).toHaveCount(1);
-  await expect(lockEvent).toContainText(userName('head.one'));
-  await expect(lockEvent).toContainText(draft.id.slice(0, 8));
+  const editEvent = events.filter({ hasText: 'valuation.edit' });
+  await expect(editEvent).toHaveCount(1);
+  await expect(editEvent).toContainText(userName('ops.one'));
+  await expect(editEvent).toContainText(v2.id.slice(0, 8));
+  const lockEvents = events.filter({ hasText: 'valuation.lock' });
+  await expect(lockEvents).toHaveCount(2);
+  await expect(lockEvents.filter({ hasText: draft.id.slice(0, 8) })).toHaveCount(1);
+  const correctedLock = lockEvents.filter({ hasText: v2.id.slice(0, 8) });
+  await expect(correctedLock).toHaveCount(1);
+  await expect(correctedLock).toContainText(userName('head.one'));
 });

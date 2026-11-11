@@ -1,12 +1,4 @@
-import {
-  addDays,
-  alignedQuarterEnd,
-  isQuarterEnd,
-  latestQuarterEndOnOrBefore,
-  lockedNear,
-  toDecimalString,
-  valueChange,
-} from '@pb/calc';
+import { D, alignedQuarterEnd, isQuarterEnd } from '@pb/calc';
 import definitions from '../../../../../config/definitions.json';
 import {
   investmentDetail,
@@ -15,6 +7,7 @@ import {
   valuationCommandBody,
   valuationCreateBody,
   valuationDetail,
+  valuationEditBody,
   valuationLockText,
 } from '@pb/contracts';
 import type {
@@ -23,12 +16,15 @@ import type {
   ValuationBatchResult,
   ValuationCommandBody,
   ValuationDetail,
+  ValuationLockInputs,
   ValuationRow,
+  ValuationStoredInputs,
 } from '@pb/contracts';
 import { attempt, valuationMachine } from '@pb/workflows';
 import { closedByLock, isInFlight } from '../../pages/valuations/board.js';
 import { sha256Hex, subtleCrypto } from '../hash.js';
-import { overlayInvestmentDetail } from '../overlay.js';
+import { versionsNow, withPriorMark } from '../overlay.js';
+import type { VersionEntry } from '../overlay.js';
 import { jsonResponse, problem, workflowProblem } from '../problems.js';
 import { ensureValuations, personFor } from '../state.js';
 import type { SimActor, SimValuation } from '../state.js';
@@ -42,11 +38,15 @@ import type { SimContext } from './common.js';
  * operations only (the contract's role guard), the investment must be one the credential can
  * open and must be active (404 otherwise, never a hint that it exists), the period a quarter end
  * or within the tolerance of one, on or after the entry date, and one chain per investment and
- * quarter (a Locked version is reopened first, a version in progress continued). Every other
- * change goes through attempt() on valuationMachine; each command writes one approval row the
- * detail shows and one activity entry; a reopen marks the Locked version Reopened and answers the
- * next version as a Draft with the same inputs, as the API does. The batch screen runs the same
- * command id by id and never stops at a refusal.
+ * quarter (a Locked version is reopened first, a version in progress continued). Operations
+ * corrects a Draft, and only a Draft, with the edit: the method, the value and the method inputs,
+ * which approves nothing and writes no approval row. Every other change goes through attempt()
+ * on valuationMachine; each command writes one approval row the detail shows and one activity
+ * entry; the lock takes the hash over the identity, the method, the inputs and the value the
+ * version holds then; a reopen marks the Locked version Reopened and answers the next version as
+ * a Draft with the same method, inputs and value, as the API does. Every answer carries the
+ * prior Locked mark as it stands when it is given. The batch screen runs the same command id by
+ * id and never stops at a refusal.
  */
 
 const NOT_FOUND = 'Valuation not found';
@@ -75,21 +75,59 @@ export function isPositiveDecimal(value: string): boolean {
 }
 
 /**
- * The lock hash covers the inputs and the value (docs/18 section 1): SHA-256 over the text
- * @pb/contracts fixes (valuationLockText), the same text the API hashes with node:crypto.
+ * A fair value as the column answers it (mon.valuation.fair_value is numeric with two decimals):
+ * the contract's positiveMoney admits at most two, so this adds zeros and never rounds, and a
+ * value sent as 10.5 reads back as 10.50 the way the API reads it back from the row written.
  */
-export function lockHashOf(row: ValuationRow): Promise<string> {
-  return sha256Hex(valuationLockText(row));
+const storedMoney = (value: string): string => D(value).toFixed(2);
+
+/**
+ * The lock hash covers the identity, the method, the method inputs and the value (docs/18
+ * section 1): SHA-256 over the text @pb/contracts fixes (valuationLockText), the same text the
+ * API hashes with node:crypto. The version is passed with its inputs: a board row carries none.
+ */
+export function lockHashOf(version: ValuationLockInputs): Promise<string> {
+  return sha256Hex(valuationLockText(version));
 }
 
-type VersionEntry = InvestmentDetail['valuations'][number];
+/**
+ * The method inputs of a version: what a create, an edit or a reopen of this session gave it,
+ * or, for a version as recorded, the inputs of its recorded detail (none when the build
+ * recorded no detail for it: no version is seeded with inputs).
+ */
+function inputsOf(ctx: SimContext, credential: string, sim: SimValuation): ValuationStoredInputs {
+  if (sim.inputs !== null) return sim.inputs;
+  return (
+    ctx.recordings.read(
+      credential,
+      `/api/v1/valuations/${encodeURIComponent(sim.row.id)}`,
+      valuationDetail,
+    )?.inputs ?? {}
+  );
+}
 
 /** The versions of the investment the credential can see, with every simulated change applied. */
 function versionsOf(ctx: SimContext, credential: string, investmentId: string): VersionEntry[] {
-  const detail = readDetail(ctx, credential, investmentId);
-  if (detail === undefined) return [];
-  return overlayInvestmentDetail(detail, ensureValuations(ctx.state, ctx.recordings).values())
-    .valuations;
+  return versionsNow(
+    { credential, recordings: ctx.recordings, state: ctx.state },
+    ensureValuations(ctx.state, ctx.recordings),
+    investmentId,
+  );
+}
+
+/**
+ * The row as the API would answer it now: the prior Locked mark and the change against it are
+ * read when the answer is given (valuations.service.ts rowById), so a reopen or a lock of this
+ * session shows on every later answer for the position. A position nothing changed on keeps
+ * its recorded figures.
+ */
+function answered(ctx: SimContext, credential: string, row: ValuationRow): ValuationRow {
+  const sims = ensureValuations(ctx.state, ctx.recordings);
+  for (const sim of sims.values()) {
+    if (sim.changed && sim.row.investmentId === row.investmentId)
+      return withPriorMark(row, versionsOf(ctx, credential, row.investmentId), TOLERANCE_DAYS);
+  }
+  return row;
 }
 
 /** The versions among these that report for the same quarter as the period end (alignedQuarterEnd). */
@@ -124,11 +162,13 @@ const freshFields = {
   rowVersion: 1,
 } as const;
 
-/** What a new Draft version takes: the period, the method and the value, and who prepared it when a staged value made it. */
+/** What a new Draft version takes: the period, the method, the value and the inputs, and who prepared it when a staged value made it. */
 export interface DraftInput {
   periodEnd: string;
   method: string;
   fairValue: string;
+  /** The method inputs the create carried; none for a Draft a staged weekly value made. */
+  inputs?: ValuationStoredInputs | undefined;
   /** The reviewer whose approval of a staged weekly value created the Draft (the API's preparedBy); none for a Draft started on the board. */
   preparedBy?: SimActor | undefined;
 }
@@ -149,34 +189,28 @@ export function createDraft(
   const sims = ensureValuations(ctx.state, ctx.recordings);
   const versions = versionsOf(ctx, credential, detail.id);
   const { periodEnd, method, fairValue } = input;
-  const quarterEnd = alignedQuarterEnd(periodEnd, TOLERANCE_DAYS);
-  // The API's rule (packages/calc): the Locked mark that reports for the quarter before this
-  // one; the highest version first so the latest version wins.
-  const prior =
-    lockedNear(
-      [...versions].sort((a, b) => b.version - a.version),
-      latestQuarterEndOnOrBefore(addDays(quarterEnd, -1)),
-      TOLERANCE_DAYS,
-    ) ?? undefined;
-  const row: ValuationRow = {
-    ...freshFields,
-    id: ctx.env.newId(),
-    investmentId: detail.id,
-    investmentNumber: detail.investmentNumber,
-    companyName: detail.companyName,
-    vehicleName: detail.vehicleName,
-    dealType: detail.dealType,
-    periodEnd,
-    quarterEnd,
-    version: nextVersion(versions, sims.values(), detail.id, periodEnd),
-    method,
-    fairValue,
-    priorFairValue: prior?.fairValue ?? null,
-    // The API's rule from @pb/calc (docs/08 section 2): null without a recorded prior Locked
-    // mark or against a zero one.
-    changePct: toDecimalString(valueChange(fairValue, prior?.fairValue ?? null)),
-    preparedBy: input.preparedBy?.displayName ?? null,
-  };
+  const row: ValuationRow = withPriorMark(
+    {
+      ...freshFields,
+      id: ctx.env.newId(),
+      investmentId: detail.id,
+      investmentNumber: detail.investmentNumber,
+      companyName: detail.companyName,
+      vehicleName: detail.vehicleName,
+      dealType: detail.dealType,
+      periodEnd,
+      quarterEnd: alignedQuarterEnd(periodEnd, TOLERANCE_DAYS),
+      version: nextVersion(versions, sims.values(), detail.id, periodEnd),
+      method,
+      fairValue,
+      priorFairValue: null,
+      changePct: null,
+      preparedBy: input.preparedBy?.displayName ?? null,
+    },
+    // The Locked mark that reports for the quarter before this one, as the versions now stand.
+    versions,
+    TOLERANCE_DAYS,
+  );
   sims.set(row.id, {
     row,
     origin: 'created',
@@ -186,6 +220,7 @@ export function createDraft(
     dealTeamApprovedByIds: [],
     approvedByIds: [],
     approvals: [],
+    inputs: input.inputs ?? {},
   });
   return row;
 }
@@ -193,10 +228,24 @@ export function createDraft(
 const precondition = (instance: string, detail: string): Response =>
   problem(422, 'workflow-precondition', detail, { instance, simulated: true });
 
+const notFound = (instance: string): Response =>
+  problem(404, 'not-found', NOT_FOUND, { instance, simulated: true });
+
+/** 400 on the method field, in the API's two wordings: the shape of the code, then the taxonomy. */
+const badMethod = (instance: string, message: string): Response =>
+  problem(400, 'validation', 'Invalid body', {
+    instance,
+    simulated: true,
+    errors: [{ path: 'method', message }],
+  });
+
+const NOT_A_METHOD_CODE = 'Not a valuation_method code';
+const UNKNOWN_METHOD = 'Unknown valuation method';
+
 export const createValuationRoute = defineSimRoute({
   method: 'POST',
   path: '/api/v1/valuations',
-  what: 'valuation',
+  what: 'body',
   body: valuationCreateBody,
   idempotent: true,
   handle: (req, ctx) => {
@@ -214,16 +263,13 @@ export const createValuationRoute = defineSimRoute({
         simulated: true,
         errors: [{ path: 'fairValue', message: 'Must be above zero' }],
       });
-    if (!METHOD_CODE.test(req.body.method) || !knownCode(ctx, req.credential, req.body.method))
-      return problem(400, 'validation', 'Invalid body', {
-        instance,
-        simulated: true,
-        errors: [{ path: 'method', message: 'Not a valuation_method code' }],
-      });
+    if (!METHOD_CODE.test(req.body.method)) return badMethod(instance, NOT_A_METHOD_CODE);
     const detail = readDetail(ctx, req.credential, req.body.investmentId);
     // An investment the credential cannot open, or one no longer held, is not found: no hint that it exists.
     if (detail?.isActive !== true)
       return problem(404, 'not-found', 'Investment not found', { instance, simulated: true });
+    if (!knownCode(ctx, req.credential, req.body.method))
+      return badMethod(instance, UNKNOWN_METHOD);
     const versions = versionsOf(ctx, req.credential, detail.id);
     if (periodEnd < detail.entryDate)
       return precondition(
@@ -243,7 +289,12 @@ export const createValuationRoute = defineSimRoute({
         instance,
         'valuation: a version for this investment and quarter is already in progress; continue that version',
       );
-    const row = createDraft(ctx, req.credential, detail, req.body);
+    const row = createDraft(ctx, req.credential, detail, {
+      periodEnd,
+      method: req.body.method,
+      fairValue: storedMoney(req.body.fairValue),
+      inputs: req.body.inputs ?? {},
+    });
     recordActivity(ctx, req.actor, {
       action: 'valuation.create',
       entity: 'valuation',
@@ -256,7 +307,72 @@ export const createValuationRoute = defineSimRoute({
   },
 });
 
+/**
+ * PATCH /api/v1/valuations/{id} (operations, the contract's guard): the correction of a Draft
+ * before it is prepared, which is how a reopened valuation comes to carry a corrected value
+ * (docs/18 section 1, SEC-9.3). In the API's order: a method that is no valuation_method code is
+ * 400, a version the credential cannot open is 404, a stale If-Match is 412, any state but
+ * Draft is 409 and keeps every value, a method the taxonomy does not carry is 400. What the
+ * body leaves out stays as it was; inputs replace the stored ones whole. The state stays Draft,
+ * the row version goes up by one and no approval row is written, since an edit approves nothing.
+ */
+export const editValuationRoute = defineSimRoute({
+  method: 'PATCH',
+  path: '/api/v1/valuations/{id}',
+  what: 'body',
+  body: valuationEditBody,
+  idempotent: true,
+  handle: (req, ctx) => {
+    const instance = req.url.pathname;
+    const { method, fairValue, inputs } = req.body;
+    if (method !== undefined && !METHOD_CODE.test(method))
+      return badMethod(instance, NOT_A_METHOD_CODE);
+    const sims = ensureValuations(ctx.state, ctx.recordings);
+    const sim = sims.get(req.params.id ?? '');
+    if (sim === undefined || !canOpen(ctx, req.credential, sim.row.investmentId))
+      return notFound(instance);
+    const stale = staleIfMatch(req.headers, sim.row.rowVersion, instance);
+    if (stale !== null) return stale;
+    const { row } = sim;
+    if (row.state !== 'Draft')
+      return problem(
+        409,
+        'workflow-transition',
+        `valuation: edit is not allowed from ${row.state}; only a Draft can be edited`,
+        { instance, simulated: true },
+      );
+    if (method !== undefined && !knownCode(ctx, req.credential, method))
+      return badMethod(instance, UNKNOWN_METHOD);
+
+    const next: ValuationRow = {
+      ...row,
+      ...(method !== undefined ? { method } : {}),
+      ...(fairValue !== undefined ? { fairValue: storedMoney(fairValue) } : {}),
+      rowVersion: row.rowVersion + 1,
+    };
+    sims.set(next.id, {
+      ...sim,
+      row: next,
+      changed: true,
+      inputs: inputs ?? sim.inputs,
+    });
+    recordActivity(ctx, req.actor, {
+      action: 'valuation.edit',
+      entity: 'valuation',
+      entityId: next.id,
+      reason: null,
+      from: row.state,
+      to: next.state,
+    });
+    const answer = answered(ctx, req.credential, next);
+    return jsonResponse(200, answer, { simulated: true, etag: answer.rowVersion });
+  },
+});
+
 type Outcome = { ok: true; row: ValuationRow } | { ok: false; response: Response };
+
+/** What the machine's lock precondition is shown where this browser cannot take the hash; the 503 below answers instead. */
+const HASH_UNAVAILABLE = 'unavailable';
 
 /**
  * One command on one version for one credential, in the API's order: 404 for a version the
@@ -277,12 +393,23 @@ export async function runValuationCommand(
   const sims = ensureValuations(ctx.state, ctx.recordings);
   const sim = sims.get(id);
   if (sim === undefined || !canOpen(ctx, credential, sim.row.investmentId))
-    return refuse(problem(404, 'not-found', NOT_FOUND, { instance, simulated: true }));
+    return refuse(notFound(instance));
   const stale = staleIfMatch(headers, sim.row.rowVersion, instance);
   if (stale !== null) return refuse(stale);
 
   const { row } = sim;
   const { command, reason } = body;
+  const inputs = inputsOf(ctx, credential, sim);
+  // The hash the lock would write, taken over what the version holds now and before the machine
+  // is asked, so its precondition sees it; every other command carries the hash the row holds
+  // (none before a lock), as the API does.
+  const hashable = subtleCrypto() !== undefined;
+  const lockHash =
+    command !== 'lock'
+      ? row.lockHash
+      : hashable
+        ? await lockHashOf({ ...row, inputs })
+        : HASH_UNAVAILABLE;
   const result = attempt(valuationMachine, row.state, command, {
     actorId: actor.userId,
     actorRoles: actor.roles,
@@ -291,7 +418,7 @@ export async function runValuationCommand(
       inputsComplete: row.method.length > 0 && row.fairValue.length > 0,
       validationPassed: isPositiveDecimal(row.fairValue),
       preparedBy: personFor(sim.preparedByIds, actor),
-      lockHash: row.lockHash,
+      lockHash,
     },
   });
   if (!result.ok) return refuse(workflowProblem(result, { instance, simulated: true }));
@@ -302,6 +429,15 @@ export async function runValuationCommand(
   let step: ValuationApproval['step'];
   let decision: ValuationApproval['decision'];
   if (command === 'lock') {
+    if (!hashable)
+      return refuse(
+        problem(
+          503,
+          'unavailable',
+          'This browser offers SHA-256 only on secure (https) pages, so the lock hash cannot be computed here.',
+          { instance, simulated: true },
+        ),
+      );
     // One Locked version per investment and quarter (valuationMachine's lock row).
     const others = sameQuarterAs(versionsOf(ctx, credential, row.investmentId), row.periodEnd);
     if (
@@ -320,17 +456,7 @@ export async function runValuationCommand(
       );
   }
   if (command === 'prepare') {
-    if (subtleCrypto() === undefined)
-      return refuse(
-        problem(
-          503,
-          'unavailable',
-          'This browser offers SHA-256 only on secure (https) pages, so the lock hash cannot be computed here.',
-          { instance, simulated: true },
-        ),
-      );
     next.preparedBy = actor.displayName;
-    next.lockHash = await lockHashOf(row);
     updated.preparedByIds = [actor.userId];
     step = 'ops_prepared';
     decision = 'approve';
@@ -345,6 +471,7 @@ export async function runValuationCommand(
   } else if (command === 'lock') {
     next.approvedBy = actor.displayName;
     next.approvedAt = `${ctx.recordings.asOf}T12:00:00Z`;
+    next.lockHash = lockHash;
     updated.approvedByIds = [actor.userId];
     step = 'final';
     decision = 'approve';
@@ -371,10 +498,10 @@ export async function runValuationCommand(
     from: row.state,
     to: next.state,
   });
-  if (draftId === null) return { ok: true, row: next };
+  if (draftId === null) return { ok: true, row: answered(ctx, credential, next) };
 
-  // docs/18 section 1: reopening creates a new Draft version with the same inputs to edit, and
-  // the answer is that Draft, as the API answers it.
+  // docs/18 section 1: reopening creates a new Draft version with the same method, inputs and
+  // value to edit, and the answer is that Draft, as the API answers it.
   const detail = readDetail(ctx, credential, row.investmentId);
   const draft: ValuationRow = {
     ...next,
@@ -396,6 +523,7 @@ export async function runValuationCommand(
     dealTeamApprovedByIds: [],
     approvedByIds: [],
     approvals: [],
+    inputs: { ...inputs },
   });
   recordActivity(ctx, actor, {
     action: 'valuation.create',
@@ -405,7 +533,7 @@ export async function runValuationCommand(
     from: null,
     to: draft.state,
   });
-  return { ok: true, row: draft };
+  return { ok: true, row: answered(ctx, credential, draft) };
 }
 
 export const valuationCommandRoute = defineSimRoute({
@@ -437,7 +565,7 @@ export const valuationCommandRoute = defineSimRoute({
 export const valuationBatchCommandRoute = defineSimRoute({
   method: 'POST',
   path: '/api/v1/valuations/batch-commands',
-  what: 'batch',
+  what: 'body',
   body: valuationBatchCommandBody,
   idempotent: true,
   handle: async (req, ctx) => {
@@ -476,9 +604,12 @@ export const valuationBatchCommandRoute = defineSimRoute({
 });
 
 /**
- * GET /api/v1/valuations/{id}: the version as the session holds it, the recorded approval trail
- * with this session's rows after it, the open change requests of its position (M11) and, once
- * Locked, the exact text its hash covers. 404 for a version the credential cannot open.
+ * GET /api/v1/valuations/{id}: the version as the session holds it with its method inputs, the
+ * recorded approval trail with this session's rows after it, the open change requests of its
+ * position (M11) for the roles the change request routes serve and, once Locked, the exact text
+ * its hash covers. A recorded version the build recorded no detail for is built from its list
+ * row, which carries the people and the hash: the API holds no decision rows for a seeded
+ * version either. 404 for a version the credential cannot open.
  */
 export const valuationDetailRoute = defineSimRoute({
   method: 'GET',
@@ -495,13 +626,20 @@ export const valuationDetailRoute = defineSimRoute({
       valuationDetail,
     );
     if (sim === undefined || !canOpen(ctx, req.credential, sim.row.investmentId))
-      return problem(404, 'not-found', NOT_FOUND, { instance, simulated: true });
-    const { row } = sim;
+      return notFound(instance);
+    const row = answered(ctx, req.credential, sim.row);
+    const inputs = inputsOf(ctx, req.credential, sim);
     const detail: ValuationDetail = {
       ...row,
+      inputs,
       approvals: [...(recorded?.approvals ?? []), ...sim.approvals],
-      openChangeRequests: openChangeRequestsOf(ctx, req.credential, row.investmentId),
-      lockText: row.state === 'Locked' ? valuationLockText(row) : null,
+      openChangeRequests: openChangeRequestsOf(
+        ctx,
+        req.credential,
+        req.actor.roles,
+        row.investmentId,
+      ),
+      lockText: row.state === 'Locked' ? valuationLockText({ ...row, inputs }) : null,
     };
     return jsonResponse(200, detail, { simulated: true, etag: row.rowVersion });
   },

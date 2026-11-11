@@ -75,6 +75,7 @@ import { resetRoute } from './reset.js';
 import { tradeTicketRoute, tradeTicketsRoute } from './tickets.js';
 import {
   createValuationRoute,
+  editValuationRoute,
   valuationBatchCommandRoute,
   valuationCommandRoute,
   valuationDetailRoute,
@@ -111,6 +112,7 @@ export const SIM_ROUTES: readonly SimRoute[] = [
   valuationBatchCommandRoute,
   valuationCommandRoute,
   valuationDetailRoute,
+  editValuationRoute,
   capitalNoticeCommandRoute,
   tradeTicketsRoute,
   tradeTicketRoute,

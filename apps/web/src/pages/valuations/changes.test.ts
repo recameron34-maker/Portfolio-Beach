@@ -1,4 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { containingQuarterEnd } from '@pb/calc';
 import {
   changeRequestPage,
   mockUserList,
@@ -46,6 +47,7 @@ describe('change request fixtures match the contracts', () => {
   it.each([
     ['change request page', changeRequestPage, changeRequestPageFixture()],
     ['quarter-end check', quarterEndCheckResult, quarterEndCheckFixture()],
+    ['quarter-end check with hidden requests', quarterEndCheckResult, quarterEndCheckFixture(2)],
     ['valuation detail', valuationDetail, valuationDetailFixture()],
     ['mock users', mockUserList, mockUsersFixture()],
   ])('%s', (_name, schema, fixture) => {
@@ -131,8 +133,24 @@ describe('change request helpers (docs/18 section 8)', () => {
     expect(recentQuarterEnds('2025-06-30', 2)).toEqual(['2025-06-30', '2025-03-31']);
     expect(applicablePeriods('2025-04-30', '2025-08-15')).toEqual(['2025-06-30']);
     expect(applicablePeriods('2025-01-20', '2025-08-15')).toEqual(['2025-06-30', '2025-03-31']);
-    // Effective after the latest quarter end: that quarter alone, so the API's rule is never broken.
+    // Effective in the quarter the day is in: that quarter alone, the one the API still accepts.
     expect(applicablePeriods('2025-08-01', '2025-08-15')).toEqual(['2025-09-30']);
+    expect(applicablePeriods('2025-06-30', '2025-06-30')).toEqual(['2025-06-30']);
+  });
+
+  it('never offers a quarter end after the one the day is in: the API refuses it (CR-6)', () => {
+    // Effective after the current quarter: nothing can be applied yet, so nothing is offered.
+    expect(applicablePeriods('2025-10-05', '2025-08-15')).toEqual([]);
+    expect(applicablePeriods('2025-07-10', '2025-06-30')).toEqual([]);
+    expect(applicablePeriods('2026-01-15', '2025-08-15')).toEqual([]);
+    // Whatever is offered is on or before the end of the current quarter.
+    for (const [effective, today] of [
+      ['2025-01-20', '2025-08-15'],
+      ['2025-08-01', '2025-08-15'],
+      ['2024-02-29', '2025-12-31'],
+    ] as const)
+      for (const period of applicablePeriods(effective, today))
+        expect(period <= containingQuarterEnd(today), `${effective} ${today} ${period}`).toBe(true);
   });
 
   it('turns the form rows into the details record and drops rows without a name', () => {

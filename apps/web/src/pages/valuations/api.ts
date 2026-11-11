@@ -6,6 +6,7 @@ import {
   quarterEndCheckResult,
   valuationBatchResult,
   valuationDetail,
+  valuationRow,
 } from '@pb/contracts';
 import type {
   ChangeRequestCommandBody,
@@ -16,9 +17,11 @@ import type {
   QuarterEndCheckResult,
   ValuationBatchCommandBody,
   ValuationBatchResult,
+  ValuationEditBody,
+  ValuationRow,
 } from '@pb/contracts';
-import { api } from '../../api/client.js';
-import { invalidate, post, VALUATION_KEYS } from '../../app/mutations.js';
+import { api, ApiError } from '../../api/client.js';
+import { describeActionError, invalidate, post, VALUATION_KEYS } from '../../app/mutations.js';
 import { LIST_LIMIT } from '../../app/queries.js';
 import { retryUnlessUnavailable } from '../../lib/unavailable.js';
 
@@ -84,6 +87,53 @@ export function postValuationBatchCommand(
   return post('/api/v1/valuations/batch-commands', valuationBatchResult, body);
 }
 
+/**
+ * PATCH /valuations/{id}: operations corrects a Draft (its method, its fair value, its method
+ * inputs; any of them, at least one) before preparing it, which is how a reopened valuation
+ * comes to carry a corrected value (docs/18 section 1). The If-Match header carries the row
+ * version the form was opened on, so an edit made on a version someone changed meanwhile is
+ * refused (412) instead of overwriting it; any state but Draft is 409.
+ */
+export function patchValuation(
+  id: string,
+  body: ValuationEditBody,
+  rowVersion: number,
+): Promise<ValuationRow> {
+  return api(`/api/v1/valuations/${encodeURIComponent(id)}`, valuationRow, {
+    method: 'PATCH',
+    headers: { 'if-match': `"${rowVersion}"` },
+    body: JSON.stringify(body),
+  });
+}
+
+/**
+ * The API's words when two writers raced for one version number (apps/api workflow.service.ts
+ * versionTaken): a 409 with the transition problem code, which a refused command shares, so the
+ * detail tells it apart.
+ */
+const VERSION_TAKEN = 'another version was created first';
+
+/** Whether a failed create or reopen lost the race for a version number: the other version now exists. */
+export function isVersionTaken(error: unknown): boolean {
+  return (
+    error instanceof ApiError &&
+    error.status === 409 &&
+    (error.problem.detail ?? '').includes(VERSION_TAKEN)
+  );
+}
+
+/**
+ * The sentence for a failed valuation write. The lost race is not a state the person can act
+ * on from the general wording ("not allowed from the current state"): it says what happened and
+ * what to do, and the page refreshes the list (refreshIfVersionTaken). Anything else is worded
+ * as every other refusal.
+ */
+export function describeValuationError(error: unknown): string {
+  if (isVersionTaken(error))
+    return 'Another version was created for this position and period first, so nothing was saved. The list is refreshed: continue with the version it shows.';
+  return describeActionError(error);
+}
+
 /** POST /change-requests: the one form (M11); deal team and operations. */
 export function postChangeRequest(body: ChangeRequestCreateBody): Promise<ChangeRequestRow> {
   return post('/api/v1/change-requests', changeRequestRow, body);
@@ -127,6 +177,34 @@ export function useValuationBatchCommand(): UseMutationResult<
     mutationFn: (body: ValuationBatchCommandBody) => postValuationBatchCommand(body),
     onSuccess: () => invalidate(queryClient, VALUATION_KEYS),
   });
+}
+
+export interface ValuationEditVariables {
+  id: string;
+  body: ValuationEditBody;
+  /** The row version the form was opened on (the If-Match the edit carries). */
+  rowVersion: number;
+}
+
+/** The edit of a Draft changes the version's own screen, the board row and the audit trail: the valuation read set. */
+export function useEditValuation(): UseMutationResult<ValuationRow, Error, ValuationEditVariables> {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, body, rowVersion }: ValuationEditVariables) =>
+      patchValuation(id, body, rowVersion),
+    onSuccess: () => invalidate(queryClient, VALUATION_KEYS),
+  });
+}
+
+/**
+ * After a create or a reopen that lost the race for a version number, the list is out of date
+ * (the other version exists): refresh the valuation reads so the person sees it.
+ */
+export function useRefreshIfVersionTaken(): (error: unknown) => void {
+  const queryClient = useQueryClient();
+  return (error) => {
+    if (isVersionTaken(error)) invalidate(queryClient, VALUATION_KEYS);
+  };
 }
 
 export function useCreateChangeRequest(): UseMutationResult<

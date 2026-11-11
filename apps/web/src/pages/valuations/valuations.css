@@ -145,7 +145,12 @@
 .pb-val-back {
   margin: 0 0 6px;
 }
+/* The commands of the version and, on a Draft, its edit, on one row that wraps. */
 .pb-val-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
   margin: 0 0 12px;
 }
 

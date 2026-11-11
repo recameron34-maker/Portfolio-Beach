@@ -10,8 +10,10 @@ import {
   refusalFixture,
   rolePrincipal,
   sentPosts,
+  sentRequests,
   VAL_ID,
   valuationDetailFixture,
+  valuationMethodTaxonomyFixture,
   valuationRowFixture,
 } from '../../test/fixtures-valuations.js';
 import { renderWithQuery } from '../../test/render.js';
@@ -25,13 +27,18 @@ vi.mock('@tanstack/react-router', async () => ({
   useParams: () => ({ id: params.id }),
 }));
 
-/** The shell registers the taxonomy labels for labelOf; the tests register the change types the same way. */
+/** The shell registers the taxonomy labels for labelOf; the tests register the change types and the methods the same way. */
 beforeAll(() =>
-  registerTaxonomyLabels(changeTypeTaxonomyFixture().domains.flatMap((d) => d.terms)),
+  registerTaxonomyLabels(
+    [...changeTypeTaxonomyFixture().domains, ...valuationMethodTaxonomyFixture().domains].flatMap(
+      (d) => d.terms,
+    ),
+  ),
 );
 afterAll(() => clearTaxonomyLabels());
 
 const ME = '/api/v1/auth/me';
+const TAXONOMY = '/api/v1/taxonomy';
 const detailPath = (id: string): string => `/api/v1/valuations/${id}`;
 const commandsPath = (id: string): string => `/api/v1/valuations/${id}/commands`;
 const NEW_DRAFT_ID = '00000000-0000-4000-8000-000000000199';
@@ -63,6 +70,54 @@ const status = (): HTMLElement => screen.getByTestId('valuation-action-status');
 async function dialogClosed(): Promise<void> {
   await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
 }
+
+/** A Draft the edit works on: version 2 after a reopen, with two method inputs and no decisions yet. */
+function draftDetail(overrides: Parameters<typeof valuationDetailFixture>[0] = {}) {
+  return valuationDetailFixture({
+    id: VAL_ID.draft,
+    version: 2,
+    state: 'Draft',
+    lockHash: null,
+    preparedBy: null,
+    dealTeamApprovedBy: null,
+    approvedBy: null,
+    approvedAt: null,
+    rowVersion: 4,
+    inputs: { multiple: 11.5, basis: 'LTM EBITDA' },
+    approvals: [],
+    openChangeRequests: [],
+    lockText: null,
+    ...overrides,
+  });
+}
+
+function draftRoutes(
+  roles: Parameters<typeof rolePrincipal>[0],
+  overrides: MockRoutes = {},
+): MockRoutes {
+  params.id = VAL_ID.draft;
+  return {
+    [ME]: ok(rolePrincipal(roles)),
+    [TAXONOMY]: ok(valuationMethodTaxonomyFixture()),
+    [detailPath(VAL_ID.draft)]: ok(draftDetail()),
+    ...overrides,
+  };
+}
+
+/** The PATCH requests the page sent, as [path, parsed body, the If-Match header]. */
+function sentEdits(): [string, unknown, string | null][] {
+  return vi
+    .mocked(globalThis.fetch)
+    .mock.calls.filter(([, init]) => init?.method === 'PATCH')
+    .map(([input, init]) => [
+      typeof input === 'string' ? input : input instanceof URL ? input.href : input.url,
+      typeof init?.body === 'string' ? (JSON.parse(init.body) as unknown) : undefined,
+      new Headers(init?.headers).get('if-match'),
+    ]);
+}
+
+const MONEY_SHAPE =
+  'An amount above zero: at most 18 digits before the decimal point and two after';
 
 describe('valuation version screen', () => {
   afterEach(() => {
@@ -115,9 +170,18 @@ describe('valuation version screen', () => {
 
     const lock = screen.getByTestId('valuation-lock');
     expect(screen.getByTestId('valuation-lock-text')).toHaveTextContent(
-      valuationLockText(valuationRowFixture()),
+      valuationLockText({ ...valuationRowFixture(), inputs: {} }),
     );
     expect(within(lock).getByText('h-00000104')).toHaveClass('pb-val-hash');
+    expect(lock).toHaveTextContent(
+      'the version identity, the method, the method inputs and the fair value',
+    );
+    // This version holds no method inputs, and says so.
+    expect(
+      within(screen.getByTestId('valuation-inputs')).getByText('No method inputs'),
+    ).toBeInTheDocument();
+    // A Locked version is not edited in place: the correction is a reopen.
+    expect(screen.queryByRole('button', { name: 'Edit draft' })).not.toBeInTheDocument();
 
     const open = screen.getByTestId('valuation-open-changes');
     expect(open).toHaveTextContent('1 open request');
@@ -262,6 +326,330 @@ describe('valuation version screen', () => {
     );
     expect(steps.every((s) => s.textContent?.endsWith('Done'))).toBe(true);
   });
+
+  it('shows the method inputs the lock covers, by name, whatever they hold', async () => {
+    mockApi(
+      routes(['approver'], {
+        [detailPath(VAL_ID.locked)]: ok(
+          valuationDetailFixture({
+            inputs: { multiple: 11.5, basis: 'LTM EBITDA', comps: { set: 'peers', count: 6 } },
+          }),
+        ),
+      }),
+    );
+    renderWithQuery(<ValuationDetailPage />);
+    const card = await screen.findByTestId('valuation-inputs');
+    expect(card).toHaveTextContent('3 inputs');
+    const rows = within(within(card).getByRole('table', { name: 'Method inputs' }))
+      .getAllByRole('row')
+      .slice(1);
+    expect(rows.map((r) => r.textContent)).toEqual([
+      'basisLTM EBITDA',
+      'comps{"count":6,"set":"peers"}',
+      'multiple11.5',
+    ]);
+    expect(screen.getByTestId('valuation-lock-text')).toHaveTextContent(
+      '"inputs":{"basis":"LTM EBITDA","comps":{"count":6,"set":"peers"},"multiple":11.5}',
+    );
+  });
+
+  it('names who signed a Locked version that holds no decision rows, from the version itself (WEB-5)', async () => {
+    // A seeded Locked version: the people and the lock time are on the row, the trail is empty.
+    mockApi(
+      routes(['viewer'], {
+        [detailPath(VAL_ID.locked)]: ok(
+          valuationDetailFixture({
+            preparedBy: 'Avery Mbeki',
+            dealTeamApprovedBy: 'Blake Okafor',
+            approvedBy: 'Morgan Lindqvist',
+            approvals: [],
+            openChangeRequests: [],
+          }),
+        ),
+      }),
+    );
+    renderWithQuery(<ValuationDetailPage />);
+    await screen.findByTestId('valuation-detail');
+    expect(within(tile('Locked')).getByText('Aug 9, 2025')).toBeInTheDocument();
+    expect(within(tile('Locked')).getByText('By Morgan Lindqvist')).toBeInTheDocument();
+    expect(within(tile('Locked')).queryByText('Not locked')).not.toBeInTheDocument();
+    const card = screen.getByTestId('valuation-approvals');
+    expect(card).toHaveTextContent('3 sign-offs');
+    const rows = within(within(card).getByRole('table', { name: 'Approvals' }))
+      .getAllByRole('row')
+      .slice(1);
+    expect(rows.map((r) => r.textContent)).toEqual([
+      'Ops preparedApprovedAvery Mbeki--',
+      'Deal teamApprovedBlake Okafor--',
+      'Final approvalApprovedMorgan LindqvistAug 9, 2025 15:00:00 UTC-',
+    ]);
+    expect(card).toHaveTextContent(
+      'These names are on the version itself; it holds no step by step decisions.',
+    );
+    expect(within(card).queryByText('No decisions yet')).not.toBeInTheDocument();
+    // The viewer is not a change request reader: the panel shows its empty state (CR-5).
+    expect(screen.getByText('No open change requests')).toBeInTheDocument();
+  });
+
+  it('shows the hash a Reopened version was locked with, in place of "Not locked"', async () => {
+    mockApi(
+      routes(['viewer'], {
+        [detailPath(VAL_ID.locked)]: ok(
+          valuationDetailFixture({
+            state: 'Reopened',
+            reopenReason: 'Quarterly financials restated',
+            lockText: null,
+          }),
+        ),
+      }),
+    );
+    renderWithQuery(<ValuationDetailPage />);
+    const lock = await screen.findByTestId('valuation-lock');
+    expect(within(lock).getByText('Reopened after its lock')).toBeInTheDocument();
+    expect(within(lock).getByText('h-00000104')).toHaveClass('pb-val-hash');
+    expect(within(lock).queryByText('Not locked')).not.toBeInTheDocument();
+  });
+
+  it(
+    'lets operations edit a Draft: the form starts from the stored method, value and inputs and sends only what changed, with If-Match (VAL-1)',
+    TIMEOUT,
+    async () => {
+      mockApi(
+        draftRoutes(['operations'], {
+          [detailPath(VAL_ID.draft)]: (url) => {
+            void url;
+            return ok(draftDetail());
+          },
+        }),
+      );
+      renderWithQuery(<ValuationDetailPage />);
+      const edit = await screen.findByRole('button', { name: 'Edit draft' });
+      expect(edit).toBeEnabled();
+      expect(screen.getByTestId('valuation-inputs')).toHaveTextContent('2 inputs');
+      await userEvent.click(edit);
+      const dialog = await screen.findByRole('dialog');
+      expect(dialog).toHaveTextContent('Edit draft');
+      expect(dialog).toHaveTextContent('Meridian Data Partners, Jun 30, 2025 v2');
+      const method = within(dialog).getByRole('combobox', { name: /Method/ });
+      expect(method).toHaveTextContent('Sponsor mark');
+      const value = within(dialog).getByRole('textbox', { name: /Fair value/ });
+      expect(value).toHaveValue('27400000.00');
+      // The stored inputs, by name; the number reads as it was stored.
+      expect(within(dialog).getByRole('textbox', { name: 'Input 1 name' })).toHaveValue('basis');
+      expect(within(dialog).getByRole('textbox', { name: 'Input 1 value' })).toHaveValue(
+        'LTM EBITDA',
+      );
+      expect(within(dialog).getByRole('textbox', { name: 'Input 2 name' })).toHaveValue('multiple');
+      const multiple = within(dialog).getByRole('textbox', { name: 'Input 2 value' });
+      expect(multiple).toHaveValue('11.5');
+      const save = within(dialog).getByRole('button', { name: 'Save changes' });
+      // Nothing changed yet, so there is nothing to send.
+      expect(save).toBeDisabled();
+
+      // The fair value is checked with the contract (positiveMoney) and refused in its words.
+      await userEvent.clear(value);
+      await userEvent.type(value, '28000000.505');
+      expect(within(dialog).getByText(MONEY_SHAPE)).toBeInTheDocument();
+      expect(save).toBeDisabled();
+      await userEvent.clear(value);
+      await userEvent.type(value, '0');
+      expect(within(dialog).getByText('Must be above zero')).toBeInTheDocument();
+      expect(save).toBeDisabled();
+      await userEvent.clear(value);
+      await userEvent.type(value, '28000000.5');
+      expect(within(dialog).getByText('Reads as $28.0M.')).toBeInTheDocument();
+      expect(save).toBeEnabled();
+
+      // An input retyped as a number is sent as a number; a new one is added by name.
+      await userEvent.clear(multiple);
+      await userEvent.type(multiple, '12');
+      await userEvent.click(within(dialog).getByRole('button', { name: 'Add input' }));
+      await userEvent.type(within(dialog).getByRole('textbox', { name: 'Input 3 name' }), 'source');
+      await userEvent.type(
+        within(dialog).getByRole('textbox', { name: 'Input 3 value' }),
+        'sponsor letter',
+      );
+      vi.mocked(globalThis.fetch).mockClear();
+      mockApi(
+        draftRoutes(['operations'], {
+          [detailPath(VAL_ID.draft)]: (url) => {
+            void url;
+            return ok(
+              draftDetail({
+                fairValue: '28000000.50',
+                rowVersion: 5,
+                inputs: { basis: 'LTM EBITDA', multiple: 12, source: 'sponsor letter' },
+              }),
+            );
+          },
+        }),
+      );
+      await userEvent.click(save);
+      await dialogClosed();
+      expect(sentEdits()).toEqual([
+        [
+          detailPath(VAL_ID.draft),
+          {
+            fairValue: '28000000.5',
+            inputs: { basis: 'LTM EBITDA', multiple: 12, source: 'sponsor letter' },
+          },
+          '"4"',
+        ],
+      ]);
+      expect(
+        await within(status()).findByText(
+          'Meridian Data Partners, Jun 30, 2025 v2 corrected: the fair value and the inputs (audited)',
+        ),
+      ).toHaveClass('pb-notice-good');
+      // The screen reads the version again and shows what was saved.
+      await waitFor(() =>
+        expect(screen.getByTestId('valuation-inputs')).toHaveTextContent('3 inputs'),
+      );
+      // By test id, not by role: the closed modal may still mark the page hidden for a moment in jsdom.
+      expect(
+        within(screen.getByTestId('valuation-detail-tiles')).getByText('$28.0M'),
+      ).toBeInTheDocument();
+      expect(sentRequests().filter(([, m]) => m === 'POST')).toEqual([]);
+    },
+  );
+
+  it(
+    'keeps a refused edit open with the reason, and offers the edit to operations on a Draft only',
+    TIMEOUT,
+    async () => {
+      mockApi(
+        draftRoutes(['operations'], {
+          [detailPath(VAL_ID.draft)]: (url) => {
+            void url;
+            return ok(draftDetail());
+          },
+        }),
+      );
+      const first = renderWithQuery(<ValuationDetailPage />);
+      await userEvent.click(await screen.findByRole('button', { name: 'Edit draft' }));
+      const dialog = await screen.findByRole('dialog');
+      const value = within(dialog).getByRole('textbox', { name: /Fair value/ });
+      await userEvent.clear(value);
+      await userEvent.type(value, '28000000.00');
+      // The version was prepared by someone else in the meantime: the API answers 409.
+      vi.restoreAllMocks();
+      mockApi(
+        draftRoutes(['operations'], {
+          [detailPath(VAL_ID.draft)]: {
+            status: 409,
+            body: {
+              ...refusalFixture(
+                409,
+                'valuation: edit is not allowed from OpsPrepared; only a Draft can be edited',
+              ),
+              type: 'https://portfolio-beach.example/problems/workflow-transition',
+            },
+          },
+        }),
+      );
+      await userEvent.click(within(dialog).getByRole('button', { name: 'Save changes' }));
+      expect(
+        await within(dialog).findByText(
+          'Not allowed from the current state. Edit is not allowed from Ops prepared; only a Draft can be edited',
+        ),
+      ).toHaveClass('pb-notice-bad');
+      // What was typed is still there, and the refusal is in the session list too.
+      expect(value).toHaveValue('28000000.00');
+      expect(sentEdits()).toEqual([
+        [detailPath(VAL_ID.draft), { fairValue: '28000000.00' }, '"4"'],
+      ]);
+      first.unmount();
+      vi.restoreAllMocks();
+
+      // The deal team sees the action and the role it needs; nobody edits a prepared version.
+      mockApi(draftRoutes(['deal_team']));
+      const second = renderWithQuery(<ValuationDetailPage />);
+      const blocked = await screen.findByRole('button', { name: 'Edit draft' });
+      expect(blocked).toBeDisabled();
+      expect(blocked).toHaveAttribute('title', 'Needs operations');
+      second.unmount();
+      vi.restoreAllMocks();
+      mockApi(
+        draftRoutes(['operations'], {
+          [detailPath(VAL_ID.draft)]: ok(draftDetail({ state: 'OpsPrepared', preparedBy: 'x' })),
+        }),
+      );
+      renderWithQuery(<ValuationDetailPage />);
+      await screen.findByRole('button', { name: 'Send back' });
+      expect(screen.queryByRole('button', { name: 'Edit draft' })).not.toBeInTheDocument();
+    },
+  );
+
+  it(
+    'leaves inputs it cannot carry as they are: the method and the value are still edited',
+    TIMEOUT,
+    async () => {
+      mockApi(
+        draftRoutes(['operations'], {
+          [detailPath(VAL_ID.draft)]: ok(
+            draftDetail({ inputs: { comps: { set: 'peers', count: 6 }, basis: 'LTM EBITDA' } }),
+          ),
+          // The PATCH answers the row; the page then reads the detail again.
+        }),
+      );
+      renderWithQuery(<ValuationDetailPage />);
+      await userEvent.click(await screen.findByRole('button', { name: 'Edit draft' }));
+      const dialog = await screen.findByRole('dialog');
+      expect(
+        within(dialog).getByText(
+          'These inputs hold a value that is not text or a number, so they cannot be edited here and stay as they are.',
+        ),
+      ).toBeInTheDocument();
+      expect(within(dialog).queryByRole('button', { name: 'Add input' })).not.toBeInTheDocument();
+      await userEvent.click(within(dialog).getByRole('combobox', { name: /Method/ }));
+      // The active methods of the taxonomy, by label; a retired one is not offered.
+      expect((await screen.findAllByRole('option')).map((o) => o.textContent)).toEqual([
+        'Sponsor mark',
+        'Market multiple',
+        'Discounted cash flow',
+        'Par plus accrued',
+      ]);
+      await userEvent.click(screen.getByRole('option', { name: 'Market multiple' }));
+      await userEvent.click(within(dialog).getByRole('button', { name: 'Save changes' }));
+      await waitFor(() =>
+        expect(sentEdits()).toEqual([
+          [detailPath(VAL_ID.draft), { method: 'valuation_method.market_multiple' }, '"4"'],
+        ]),
+      );
+    },
+  );
+
+  it(
+    'words the 409 of a lost race for a version number so the person knows what to do',
+    TIMEOUT,
+    async () => {
+      mockApi(
+        routes(['approver'], {
+          [commandsPath(VAL_ID.locked)]: {
+            status: 409,
+            body: {
+              ...refusalFixture(
+                409,
+                'valuation: another version was created first; open the list again',
+              ),
+              type: 'https://portfolio-beach.example/problems/workflow-transition',
+            },
+          },
+        }),
+      );
+      renderWithQuery(<ValuationDetailPage />);
+      await userEvent.click(await screen.findByRole('button', { name: 'Reopen' }));
+      const dialog = await screen.findByRole('dialog');
+      await userEvent.type(within(dialog).getByRole('textbox', { name: /Reason/ }), 'Restated');
+      await userEvent.click(within(dialog).getByRole('button', { name: 'Reopen' }));
+      await dialogClosed();
+      expect(
+        await within(status()).findByText(
+          'Reopen for Meridian Data Partners, Jun 30, 2025 v1: Another version was created for this position and period first, so nothing was saved. The list is refreshed: continue with the version it shows.',
+        ),
+      ).toHaveClass('pb-notice-bad');
+    },
+  );
 
   it.each([404, 403] as const)('says not found or not visible on a %s', async (status) => {
     mockApi(routes(['operations'], { [detailPath(VAL_ID.locked)]: failing(status, 'x') }));

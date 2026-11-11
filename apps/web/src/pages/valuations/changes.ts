@@ -140,14 +140,18 @@ export function recentQuarterEnds(today: string, count: number): string[] {
 }
 
 /**
- * The quarter ends a request may be applied in: the API refuses one before the effective date,
- * so the recent quarter ends from the effective date's own quarter onward, latest first. A
- * request effective after the latest quarter end offers that quarter alone.
+ * The quarter ends a request may be applied in. The API refuses one before the effective date
+ * and one after the quarter the day is in (a change is applied in a quarter that has started),
+ * so: the recent quarter ends from the effective date's own quarter onward, latest first; a
+ * request effective in the current quarter offers that quarter alone; one effective after it
+ * offers nothing, since it cannot be applied yet. `today` is the API's day where the page knows
+ * it (the record's as-of day), so the offer follows the clock the API judges by.
  */
 export function applicablePeriods(effectiveDate: string, today: string): string[] {
   const floor = containingQuarterEnd(effectiveDate);
   const recent = recentQuarterEnds(today, 8).filter((q) => q >= floor);
-  return recent.length === 0 ? [floor] : recent;
+  if (recent.length > 0) return recent;
+  return floor <= containingQuarterEnd(today) ? [floor] : [];
 }
 
 export interface DetailEntry {

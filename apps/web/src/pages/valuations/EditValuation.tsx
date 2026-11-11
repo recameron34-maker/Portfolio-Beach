@@ -1,0 +1,221 @@
+import { useState } from 'react';
+import type { ReactNode } from 'react';
+import {
+  Button,
+  Dialog,
+  DialogActions,
+  DialogBody,
+  DialogContent,
+  DialogSurface,
+  DialogTitle,
+  Dropdown,
+  Field as FluentField,
+  Input,
+  Option,
+} from '@fluentui/react-components';
+import { Add16Regular, Dismiss16Regular } from '@fluentui/react-icons';
+import { useQuery } from '@tanstack/react-query';
+import { valuationEditBody } from '@pb/contracts';
+import type { ValuationDetail, ValuationEditBody } from '@pb/contracts';
+import { taxonomyQuery } from '../../app/queries.js';
+import { formatMoneyM, labelOf } from '../../lib/format.js';
+import {
+  fairValueProblem,
+  inputEntries,
+  inputEntriesProblem,
+  inputsFromEntries,
+  sameInputs,
+  versionLabel,
+} from './board.js';
+import type { InputEntry } from './board.js';
+import './valuations.css';
+
+/** The active valuation methods of the taxonomy, in its order, with the version's own method always among them. */
+function methodChoices(
+  domains: readonly { domain: string; terms: readonly { code: string; active: boolean }[] }[],
+  current: string,
+): string[] {
+  const active = domains
+    .filter((d) => d.domain === 'valuation_method')
+    .flatMap((d) => d.terms.filter((t) => t.active).map((t) => t.code));
+  return active.includes(current) ? active : [current, ...active];
+}
+
+/** A fair value without the zeros that say nothing: 27400000.00 and 27400000 are one value. */
+const plainMoney = (value: string): string =>
+  value.includes('.') ? value.replace(/0+$/, '').replace(/\.$/, '') : value;
+
+/**
+ * The edit of a Draft (docs/18 section 1): operations corrects the method, the fair value and
+ * the method inputs before preparing the version. The form starts from what the version holds
+ * and sends only what changed (inputs go whole: the API replaces them). The fair value and the
+ * inputs are checked against the contract before anything is sent. A refusal stays in the
+ * dialog, so nothing typed is lost.
+ */
+export function EditValuationDialog({
+  detail,
+  busy,
+  error,
+  onCancel,
+  onSubmit,
+}: {
+  detail: ValuationDetail;
+  busy: boolean;
+  /** Why the last attempt was refused, in the page's words; null before one is made. */
+  error: string | null;
+  onCancel: () => void;
+  onSubmit: (body: ValuationEditBody) => void;
+}): ReactNode {
+  const taxonomy = useQuery(taxonomyQuery);
+  const [method, setMethod] = useState(detail.method);
+  const [fairValue, setFairValue] = useState(detail.fairValue);
+  // Null when the stored inputs hold something the form cannot carry: they are left as they are.
+  const [entries, setEntries] = useState<InputEntry[] | null>(() => inputEntries(detail.inputs));
+  const methods = methodChoices(taxonomy.data?.domains ?? [], detail.method);
+
+  const valueText = fairValue.trim();
+  const valueProblem = fairValueProblem(valueText);
+  const entriesProblem = entries === null ? null : inputEntriesProblem(entries);
+  const nextInputs =
+    entries === null || entriesProblem !== null ? null : inputsFromEntries(entries, detail.inputs);
+  const body: ValuationEditBody = {
+    ...(method !== detail.method ? { method } : {}),
+    ...(valueProblem === null && plainMoney(valueText) !== plainMoney(detail.fairValue)
+      ? { fairValue: valueText }
+      : {}),
+    ...(nextInputs !== null && !sameInputs(nextInputs, detail.inputs)
+      ? { inputs: nextInputs }
+      : {}),
+  };
+  const ready =
+    valueProblem === null && entriesProblem === null && valuationEditBody.safeParse(body).success;
+  const setEntry = (i: number, patch: Partial<InputEntry>): void =>
+    setEntries((prev) => prev?.map((e, j) => (j === i ? { ...e, ...patch } : e)) ?? null);
+
+  return (
+    <Dialog
+      open
+      onOpenChange={(_e, d) => {
+        if (!d.open) onCancel();
+      }}
+    >
+      <DialogSurface>
+        <form
+          // The contract decides what is valid, not the browser's own tooltips.
+          noValidate
+          onSubmit={(e) => {
+            e.preventDefault();
+            if (ready && !busy) onSubmit(body);
+          }}
+        >
+          <DialogBody>
+            <DialogTitle>Edit draft</DialogTitle>
+            <DialogContent className="pb-dialog-content">
+              <p className="pb-meta">{versionLabel(detail)}</p>
+              <p className="pb-meta">
+                Corrects the Draft before it is prepared. Only a Draft can be edited: a prepared
+                version is sent back first, and a Locked one is reopened into a new Draft.
+              </p>
+              <FluentField label="Method" required>
+                <Dropdown
+                  value={labelOf(method)}
+                  selectedOptions={[method]}
+                  onOptionSelect={(_e, d) => setMethod(d.optionValue ?? detail.method)}
+                >
+                  {methods.map((m) => (
+                    <Option key={m} value={m} text={labelOf(m)}>
+                      {labelOf(m)}
+                    </Option>
+                  ))}
+                </Dropdown>
+              </FluentField>
+              <FluentField
+                label="Fair value (dollars)"
+                required
+                {...(valueProblem === null
+                  ? { hint: `Reads as ${formatMoneyM(valueText)}.` }
+                  : { validationState: 'error' as const, validationMessage: valueProblem })}
+              >
+                <Input
+                  inputMode="decimal"
+                  value={fairValue}
+                  onChange={(_e, d) => setFairValue(d.value)}
+                />
+              </FluentField>
+              <fieldset className="pb-val-form">
+                <legend className="pb-meta">Method inputs (name and value)</legend>
+                {entries === null ? (
+                  <p className="pb-meta">
+                    These inputs hold a value that is not text or a number, so they cannot be edited
+                    here and stay as they are.
+                  </p>
+                ) : (
+                  <>
+                    <p className="pb-meta">
+                      What the value rests on, such as a multiple and its basis. A value written as
+                      a number is kept as a number, anything else as text. The lock covers them.
+                    </p>
+                    {entries.map((entry, i) => (
+                      <div key={i} className="pb-val-form-row">
+                        <FluentField label={`Input ${i + 1} name`} size="small">
+                          <Input
+                            value={entry.name}
+                            maxLength={100}
+                            onChange={(_e, d) => setEntry(i, { name: d.value })}
+                          />
+                        </FluentField>
+                        <FluentField label={`Input ${i + 1} value`} size="small">
+                          <Input
+                            value={entry.value}
+                            onChange={(_e, d) => setEntry(i, { value: d.value })}
+                          />
+                        </FluentField>
+                        <Button
+                          size="small"
+                          appearance="subtle"
+                          icon={<Dismiss16Regular />}
+                          aria-label={`Remove input ${i + 1}`}
+                          onClick={() =>
+                            setEntries((prev) => prev?.filter((_e, j) => j !== i) ?? null)
+                          }
+                        />
+                      </div>
+                    ))}
+                    <div>
+                      <Button
+                        size="small"
+                        appearance="secondary"
+                        icon={<Add16Regular />}
+                        onClick={() =>
+                          setEntries((prev) => [...(prev ?? []), { name: '', value: '' }])
+                        }
+                      >
+                        Add input
+                      </Button>
+                    </div>
+                    {entriesProblem === null ? null : (
+                      <p className="pb-notice pb-notice-bad">{entriesProblem}</p>
+                    )}
+                  </>
+                )}
+              </fieldset>
+              {error === null ? null : (
+                <p className="pb-notice pb-notice-bad" role="alert">
+                  {error}
+                </p>
+              )}
+            </DialogContent>
+            <DialogActions>
+              <Button appearance="secondary" onClick={onCancel}>
+                Cancel
+              </Button>
+              <Button appearance="primary" type="submit" disabled={!ready || busy}>
+                Save changes
+              </Button>
+            </DialogActions>
+          </DialogBody>
+        </form>
+      </DialogSurface>
+    </Dialog>
+  );
+}

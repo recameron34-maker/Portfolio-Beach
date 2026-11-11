@@ -363,10 +363,14 @@ describe('the simulated change request queue', () => {
       (await send(f, OWNER.externalId, 'POST', CHECK, { periodEnd: '2025-06-30' })).json,
     );
     expect(first.periodEnd).toBe('2025-06-30');
-    expect(first.unapplied.map((r) => r.id).sort()).toEqual(
-      [IDS.changeRequest.submitted, IDS.changeRequest.inProgress].sort(),
-    );
-    expect(first.exceptionsOpened).toBe(2);
+    // The requests the runner may see, the earliest effective date first (the API's order).
+    expect(first.unapplied.map((r) => r.id)).toEqual([
+      IDS.changeRequest.inProgress,
+      IDS.changeRequest.submitted,
+    ]);
+    // The walled position's request is covered like the rest and counted, never listed (CR-2).
+    expect(first.hidden).toBe(1);
+    expect(first.exceptionsOpened).toBe(3);
     const queue = dataExceptionPage.parse(
       (
         await send(
@@ -387,6 +391,16 @@ describe('the simulated change request queue', () => {
       actual: 'InProgress',
       severity: 'exception_severity.medium',
       entity: 'mon.deal_change_request',
+      // As the API serves it: an exception about a request is about no staged row, so it
+      // names no file and no position.
+      context: {
+        intakeFileId: null,
+        intakeFileName: null,
+        rowNo: null,
+        investmentId: null,
+        investmentNumber: null,
+        companyName: null,
+      },
     });
     // A second run for the same period lists the same requests and opens nothing more.
     const again = quarterEndCheckResult.parse(
@@ -425,7 +439,190 @@ describe('the simulated change request queue', () => {
       (await send(f, OWNER.externalId, 'POST', CHECK, { periodEnd: '2025-03-31' })).json,
     );
     expect(earlier.unapplied).toEqual([]);
+    // An earlier period end hides nothing that was not effective by then.
+    expect(earlier.hidden).toBe(0);
     expect(window.__pbPreviewMisses).toEqual([]);
+  });
+
+  it('the quarter-end check opens an exception for a request its runner cannot see and counts it as hidden; the exception stays inside the wall (CR-2, CR-1)', async () => {
+    const { f, state } = setup();
+    const QUEUE = '/api/v1/data-exceptions?limit=200&source=change_request';
+    const queueOf = async (who: string) =>
+      dataExceptionPage.parse((await send(f, who, 'GET', QUEUE)).json).items;
+    // Operations outside the wall runs the check: the walled request is not listed, only counted.
+    const run = await send(f, OWNER.externalId, 'POST', CHECK, { periodEnd: '2025-06-30' });
+    const result = quarterEndCheckResult.parse(run.json);
+    expect(result.unapplied.map((r) => r.id)).not.toContain(IDS.changeRequest.walled);
+    expect(result.hidden).toBe(1);
+    expect(result.exceptionsOpened).toBe(result.unapplied.length + result.hidden);
+    expect(run.text).not.toContain(IDS.changeRequest.walled);
+    expect(run.text).not.toContain(IDS.walled);
+    // The activity record carries the counts only: the total, the hidden ones, what was opened.
+    expect(state.audit.at(-1)).toMatchObject({
+      action: 'change_request.quarter_end_check',
+      details: { unapplied: 3, hidden: 1, exceptionsOpened: 3 },
+    });
+    // The walled request has its exception all the same, and Data Health counts it for everyone.
+    const walledException = [...state.exceptions.values()].find(
+      (x) => x.entityId === IDS.changeRequest.walled,
+    );
+    expect(walledException).toMatchObject({
+      entity: 'mon.deal_change_request',
+      ruleId: 'CR-QE-01',
+      expected: 'Applied by 2025-06-30',
+      actual: 'Routed',
+      state: 'open',
+    });
+    const hiddenId = walledException?.id ?? '';
+    // Outside the wall it is not on the queue, not found by id and not found for a command.
+    for (const who of [OWNER, USERS.deal, USERS.ops2]) {
+      const seen = await queueOf(who.externalId);
+      expect(seen.map((x) => x.entityId).sort(), who.externalId).toEqual(
+        [IDS.changeRequest.inProgress, IDS.changeRequest.submitted].sort(),
+      );
+      expect(JSON.stringify(seen), who.externalId).not.toContain(IDS.changeRequest.walled);
+      expect(
+        (await send(f, who.externalId, 'GET', `/api/v1/data-exceptions/${hiddenId}`)).status,
+        who.externalId,
+      ).toBe(404);
+    }
+    const refused = await send(
+      f,
+      OWNER.externalId,
+      'POST',
+      `/api/v1/data-exceptions/${hiddenId}/commands`,
+      { command: 'acknowledge' },
+    );
+    expect(refused.status).toBe(404);
+    expect(state.exceptions.get(hiddenId)?.state).toBe('open');
+    // Inside the wall it is on the queue, and a member who works the queue may work it.
+    for (const who of [USERS.dealWall, USERS.head, USERS.all])
+      expect(
+        (await queueOf(who.externalId)).map((x) => x.entityId),
+        who.externalId,
+      ).toContain(IDS.changeRequest.walled);
+    const worked = await send(
+      f,
+      USERS.all.externalId,
+      'POST',
+      `/api/v1/data-exceptions/${hiddenId}/commands`,
+      { command: 'acknowledge' },
+    );
+    expect(worked.status).toBe(200);
+    expect(state.exceptions.get(hiddenId)?.state).toBe('acknowledged');
+    // A repeat opens nothing more, for the hidden request as for the others; a member who runs
+    // the check has nothing hidden from them.
+    const again = quarterEndCheckResult.parse(
+      (await send(f, OWNER.externalId, 'POST', CHECK, { periodEnd: '2025-06-30' })).json,
+    );
+    expect([again.hidden, again.exceptionsOpened]).toEqual([1, 0]);
+    const inside = quarterEndCheckResult.parse(
+      (await send(f, USERS.all.externalId, 'POST', CHECK, { periodEnd: '2025-06-30' })).json,
+    );
+    expect(inside.hidden).toBe(0);
+    expect(inside.unapplied.map((r) => r.id)).toContain(IDS.changeRequest.walled);
+    expect(window.__pbPreviewMisses).toEqual([]);
+  });
+
+  it('route refuses an owner outside the wall of the position (422, nothing written) and accepts a member (CR-3)', async () => {
+    const { f, state } = setup();
+    const made = changeRequestRow.parse(
+      (
+        await send(
+          f,
+          USERS.dealWall.externalId,
+          'POST',
+          '/api/v1/change-requests',
+          form(IDS.walled),
+        )
+      ).json,
+    );
+    const events = state.audit.length;
+    const outside = await send(f, USERS.dealWall.externalId, 'POST', commands(made.id), {
+      command: 'route',
+      ownerId: OWNER.userId,
+    });
+    expect(outside.status).toBe(422);
+    expect(problemOf(outside)).toEqual({
+      code: 'workflow-precondition',
+      detail:
+        'deal_change_request: the owner is outside the wall of this position and could not open the request; name an owner inside the wall',
+    });
+    expect(
+      changeRequestRow.parse((await send(f, USERS.dealWall.externalId, 'GET', path(made.id))).json),
+    ).toMatchObject({ state: 'Submitted', owner: null, rowVersion: 1 });
+    expect(state.audit.length).toBe(events);
+    const routed = await command(f, USERS.dealWall.externalId, made.id, {
+      command: 'route',
+      ownerId: USERS.head.userId,
+    });
+    expect(routed).toMatchObject({
+      state: 'Routed',
+      owner: { id: USERS.head.userId, name: USERS.head.displayName },
+    });
+    // A position no wall covers takes any known active user as its owner, whatever they read.
+    const open = await create(f);
+    expect(
+      (
+        await command(f, USERS.deal.externalId, open.id, {
+          command: 'route',
+          ownerId: USERS.admin.userId,
+        })
+      ).owner,
+    ).toEqual({ id: USERS.admin.userId, name: USERS.admin.displayName });
+  });
+
+  it('apply refuses a quarter end after the one the clock is in, and accepts the current one (CR-6)', async () => {
+    const { f, state } = setup();
+    // The preview's clock is the as-of date of the recordings, 2025-06-30: its own quarter end.
+    const working = await inState(f, 'InProgress');
+    const events = state.audit.length;
+    const future = await send(f, OWNER.externalId, 'POST', commands(working.id), {
+      command: 'apply',
+      appliedPeriod: '2025-09-30',
+    });
+    expect(future.status).toBe(422);
+    expect(problemOf(future)).toEqual({
+      code: 'workflow-precondition',
+      detail:
+        'deal_change_request: the applied-in period 2025-09-30 is after the current quarter end 2025-06-30',
+    });
+    expect(
+      changeRequestRow.parse((await send(f, OWNER.externalId, 'GET', path(working.id))).json),
+    ).toMatchObject({ state: 'InProgress', appliedPeriod: null, rowVersion: working.rowVersion });
+    expect(state.audit.length).toBe(events);
+    // A request that takes effect after the current quarter cannot be applied yet either.
+    const later = changeRequestRow.parse(
+      (
+        await send(
+          f,
+          USERS.deal.externalId,
+          'POST',
+          '/api/v1/change-requests',
+          form(IDS.open, { effectiveDate: '2025-07-10' }),
+        )
+      ).json,
+    );
+    await command(f, USERS.deal.externalId, later.id, { command: 'route', ownerId: OWNER.userId });
+    await command(f, OWNER.externalId, later.id, { command: 'start' });
+    for (const appliedPeriod of ['2025-09-30', '2025-06-30'])
+      expect(
+        (
+          await send(f, OWNER.externalId, 'POST', commands(later.id), {
+            command: 'apply',
+            appliedPeriod,
+          })
+        ).status,
+        appliedPeriod,
+      ).toBe(422);
+    expect(
+      (
+        await command(f, OWNER.externalId, working.id, {
+          command: 'apply',
+          appliedPeriod: '2025-06-30',
+        })
+      ).appliedPeriod,
+    ).toBe('2025-06-30');
   });
 
   it('If-Match: a stale row version is 412 and changes nothing; the current one goes through with the new ETag', async () => {

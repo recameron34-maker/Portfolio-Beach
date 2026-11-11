@@ -3,11 +3,12 @@
 // the simulated workflow journeys at the API level inside the page. One line per check, a summary,
 // and a non-zero exit on any failure. Checks that need recordings an endpoint has not produced yet
 // (it answered 501 when the preview was built) are skipped with a line that says so.
+import { createHash } from 'node:crypto';
 import { createReadStream, existsSync, readFileSync, statSync } from 'node:fs';
 import { createServer, request } from 'node:http';
 import { extname, join, resolve, sep } from 'node:path';
 import { chromium } from '@playwright/test';
-import { addDays, latestQuarterEndOnOrBefore, toDollars } from '@pb/calc';
+import { D, addDays, latestQuarterEndOnOrBefore, nextQuarterEnd, toDollars } from '@pb/calc';
 import { accountingExports, generateDataset } from '@pb/synthetic';
 import { readsRegister } from '@pb/workflows';
 import { keyFor } from './preview-plan.mjs';
@@ -88,6 +89,8 @@ const check = (name, ok, detail = '') =>
   results.push({ status: ok ? 'PASS' : 'FAIL', name, detail });
 const skip = (name, reason) => results.push({ status: 'SKIP', name, detail: reason });
 const NOT_RECORDED = 'skipped: endpoint not recorded';
+/** SHA-256 as the API takes it, to verify a lock text the simulation hashed in the page. */
+const sha256 = (text) => createHash('sha256').update(text).digest('hex');
 
 const browser = await chromium.launch(
   process.env.PW_CHROMIUM_PATH ? { executablePath: process.env.PW_CHROMIUM_PATH } : {},
@@ -875,11 +878,12 @@ if (staleDetail === undefined) {
   const run = (credential, body, headers) =>
     api(credential, 'POST', `/api/v1/valuations/${id}/commands`, body, headers);
   const prepared = await run('ops.one', { command: 'prepare' });
+  // The hash is taken at the lock, over what the version holds then; none before, as the API.
   expectStatus(
-    'valuation: ops.one prepares (200, lock hash computed)',
+    'valuation: ops.one prepares (200, no lock hash before the lock)',
     prepared,
     200,
-    prepared.json?.state === 'OpsPrepared' && /^[0-9a-f]{64}$/.test(prepared.json?.lockHash ?? ''),
+    prepared.json?.state === 'OpsPrepared' && prepared.json?.lockHash === null,
   );
   expectStatus(
     'valuation: ops.one cannot approve as deal team (403)',
@@ -900,10 +904,18 @@ if (staleDetail === undefined) {
   );
   const locked = await run('head.one', { command: 'lock' });
   expectStatus(
-    'valuation: head.one locks (200)',
+    'valuation: head.one locks (200, the lock hash computed)',
     locked,
     200,
-    locked.json?.state === 'Locked' && locked.json?.approvedBy === by('head.one').displayName,
+    locked.json?.state === 'Locked' &&
+      locked.json?.approvedBy === by('head.one').displayName &&
+      /^[0-9a-f]{64}$/.test(locked.json?.lockHash ?? ''),
+  );
+  const lockedDetail = (await api('viewer.one', 'GET', `/api/v1/valuations/${id}`)).json;
+  check(
+    'valuation detail: the lock text names the inputs (none) and hashes to the lock hash',
+    lockedDetail?.lockText?.includes('"inputs":{}') === true &&
+      sha256(lockedDetail.lockText) === locked.json?.lockHash,
   );
   const viewerVersions = await versionsAt('viewer.one');
   check(
@@ -945,6 +957,58 @@ if (staleDetail === undefined) {
     'valuation: reopen created version 2 in Draft',
     afterReopen.some((v) => v.version === 1 && v.state === 'Reopened') &&
       afterReopen.some((v) => v.version === 2 && v.state === 'Draft'),
+  );
+
+  // The edit of a Draft (VAL-1): operations corrects the reopened version before preparing it.
+  const draftId = reopened.json?.id;
+  const edit = (credential, body, headers) =>
+    api(credential, 'PATCH', `/api/v1/valuations/${draftId}`, body, headers);
+  expectStatus(
+    'valuation edit: the deal team cannot edit a Draft (403)',
+    await edit('deal.one', { fairValue: '5.00' }),
+    403,
+  );
+  const thirdDecimal = await edit('ops.one', { fairValue: '5.005' });
+  expectStatus(
+    'valuation edit: a value the column could not store is refused, naming the field (400)',
+    thirdDecimal,
+    400,
+    thirdDecimal.json?.errors?.[0]?.path === 'fairValue' && !thirdDecimal.text.includes('5.005'),
+  );
+  expectStatus(
+    'valuation edit: a stale If-Match is refused (412)',
+    await edit('ops.one', { fairValue: '5.00' }, { 'if-match': '"99"' }),
+    412,
+  );
+  const notADraft = await api('ops.one', 'PATCH', `/api/v1/valuations/${id}`, {
+    fairValue: '5.00',
+  });
+  expectStatus(
+    'valuation edit: the Reopened version is not edited (409, only a Draft can be edited)',
+    notADraft,
+    409,
+    notADraft.json?.detail ===
+      'valuation: edit is not allowed from Reopened; only a Draft can be edited',
+  );
+  const corrected = D(mark.fairValue).times('1.1').toFixed(2);
+  const inputs = { multiple: 11.5, source: 'restated sponsor letter' };
+  const edited = await edit('ops.one', { fairValue: corrected, inputs }, { 'if-match': '"1"' });
+  expectStatus(
+    'valuation edit: ops.one corrects the Draft (200): the value, the row version up, still a Draft',
+    edited,
+    200,
+    edited.simulated &&
+      edited.json?.state === 'Draft' &&
+      edited.json?.fairValue === corrected &&
+      edited.json?.rowVersion === 2,
+  );
+  const editedDetail = (await api('deal.one', 'GET', `/api/v1/valuations/${draftId}`)).json;
+  check(
+    'valuation detail: the edited Draft shows its inputs, with no approval and no lock',
+    JSON.stringify(editedDetail?.inputs) === JSON.stringify(inputs) &&
+      editedDetail?.approvals?.length === 0 &&
+      editedDetail?.lockText === null &&
+      editedDetail?.lockHash === null,
   );
 }
 
@@ -1305,6 +1369,49 @@ if (draftVersion === undefined) {
     'valuation detail: the trail carries the prepare and the deal team approval',
     trail?.approvals?.map((a) => a.step).join(',') === 'ops_prepared,deal_team',
   );
+  expectStatus(
+    'valuation edit: an approved version is not edited (409)',
+    await api('ops.one', 'PATCH', `/api/v1/valuations/${draftVersion.id}`, { fairValue: '5.00' }),
+    409,
+  );
+  // The corrected version locks: the hash covers the value and the inputs the edit gave it.
+  const relocked = await api('head.one', 'POST', `/api/v1/valuations/${draftVersion.id}/commands`, {
+    command: 'lock',
+  });
+  const relockedDetail = (await api('viewer.one', 'GET', `/api/v1/valuations/${draftVersion.id}`))
+    .json;
+  expectStatus(
+    'valuation: the corrected version locks; its lock text names the inputs and hashes to the lock hash',
+    relocked,
+    200,
+    relockedDetail?.lockText?.includes(
+      '"inputs":{"multiple":11.5,"source":"restated sponsor letter"}',
+    ) === true && sha256(relockedDetail.lockText) === relocked.json?.lockHash,
+  );
+}
+
+// A recorded Locked version the build recorded no detail for (scripts/preview-plan.mjs records
+// the first positions only): the simulation builds it from the list row, which carries the
+// people and the real hash, so the lock text verifies as it does against the API (VAL-6).
+const undetailed = (
+  (await api('viewer.one', 'GET', '/api/v1/valuations?limit=200')).json?.items ?? []
+).find(
+  (r) =>
+    r.state === 'Locked' &&
+    r.investmentId !== staleId &&
+    recorded('viewer.one', `/api/v1/valuations/${r.id}`).status === undefined,
+);
+if (undetailed === undefined) {
+  skip('valuation detail: a recorded Locked version without a recorded detail', NOT_RECORDED);
+} else {
+  const built = (await api('viewer.one', 'GET', `/api/v1/valuations/${undetailed.id}`)).json;
+  check(
+    'valuation detail: a recorded Locked version without a recorded detail names its approver and verifies its lock',
+    built?.approvedBy === by('head.one').displayName &&
+      built?.approvedAt !== null &&
+      JSON.stringify(built?.inputs) === '{}' &&
+      sha256(built?.lockText ?? '') === built?.lockHash,
+  );
 }
 
 const changeRequest = await api('deal.one', 'POST', '/api/v1/change-requests', {
@@ -1344,6 +1451,53 @@ expectStatus(
   200,
 );
 
+// The valuation screen lists a position's open requests for the roles the change request
+// routes serve, and for nobody else (CR-5).
+const staleLocked = (
+  (await api('ops.one', 'GET', `/api/v1/valuations?investmentId=${staleId}&limit=200`)).json
+    ?.items ?? []
+).find((r) => r.state === 'Locked');
+if (staleLocked === undefined) {
+  skip('valuation detail: open change requests by role', 'skipped: no Locked version to open');
+} else {
+  const forOps = (await api('ops.one', 'GET', `/api/v1/valuations/${staleLocked.id}`)).json;
+  const forViewer = (await api('viewer.one', 'GET', `/api/v1/valuations/${staleLocked.id}`)).json;
+  check(
+    'valuation detail: operations reads the open change request of the position, a viewer reads none',
+    forOps?.openChangeRequests?.some((r) => r.id === changeRequestId) === true &&
+      forViewer?.openChangeRequests?.length === 0,
+  );
+}
+
+// A request on the walled position, by a member of the wall: the owner must be inside the wall
+// (CR-3), and operations outside it never sees the request or its exception (CR-1, CR-2).
+const walledRequest = await api('deal.three', 'POST', '/api/v1/change-requests', {
+  investmentId: walledId,
+  changeType: 'change_type.add_on_acquisition',
+  effectiveDate: asOf,
+  summary: 'Add-on acquisition behind the wall',
+  details: {},
+});
+expectStatus(
+  'change request: a wall member submits one on the walled position (201)',
+  walledRequest,
+  201,
+);
+const walledRequestId = walledRequest.json?.id;
+const outsideOwner = await api(
+  'deal.three',
+  'POST',
+  `/api/v1/change-requests/${walledRequestId}/commands`,
+  { command: 'route', ownerId: by('ops.one').id },
+);
+expectStatus(
+  'change request: an owner outside the wall is refused (422) in the API words',
+  outsideOwner,
+  422,
+  outsideOwner.json?.detail ===
+    'deal_change_request: the owner is outside the wall of this position and could not open the request; name an owner inside the wall',
+);
+
 const checked = await api('ops.one', 'POST', '/api/v1/change-requests/quarter-end-check', {
   periodEnd: quarterEnd,
 });
@@ -1353,6 +1507,39 @@ expectStatus(
   200,
   checked.json?.unapplied?.some((r) => r.id === changeRequestId) === true &&
     checked.json?.exceptionsOpened >= 1,
+);
+const opsQueue = (
+  await api('ops.one', 'GET', '/api/v1/data-exceptions?limit=200&source=change_request')
+).json;
+const memberQueue = (
+  await api('head.one', 'GET', '/api/v1/data-exceptions?limit=200&source=change_request')
+).json;
+check(
+  'change request: the walled request is counted as hidden, never listed, and its exception stays inside the wall',
+  checked.json?.hidden === 1 &&
+    checked.json?.unapplied?.every((r) => r.id !== walledRequestId) === true &&
+    !checked.text.includes(walledRequestId) &&
+    opsQueue?.items?.every((x) => x.entityId !== walledRequestId) === true &&
+    memberQueue?.items?.some((x) => x.entityId === walledRequestId) === true,
+);
+const hiddenException = memberQueue?.items?.find((x) => x.entityId === walledRequestId);
+expectStatus(
+  'change request: the exception about the walled request is not found outside the wall (404)',
+  await api('ops.one', 'GET', `/api/v1/data-exceptions/${hiddenException?.id}`),
+  404,
+);
+// A change is applied in a quarter that has started: never one after the current quarter (CR-6).
+const tooLate = await api(
+  'ops.one',
+  'POST',
+  `/api/v1/change-requests/${changeRequestId}/commands`,
+  { command: 'apply', appliedPeriod: nextQuarterEnd(asOf) },
+);
+expectStatus(
+  'change request: applying in a quarter after the current one is refused (422)',
+  tooLate,
+  422,
+  tooLate.json?.detail?.includes('is after the current quarter end') === true,
 );
 
 // ---- The pipeline (M5) and the closing (M8, M22) at the API level -----------------------------

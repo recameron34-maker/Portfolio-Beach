@@ -257,10 +257,14 @@ describe('lock text', () => {
         inputs: { multiple: 11.5, basis: 'LTM EBITDA', comps: { set: 'peers', count: 7 } },
       }),
     ).not.toBe(text);
-    // No inputs is an empty object, whether the field is absent or null.
-    expect(valuationLockText(base)).toBe(valuationLockText({ ...base, inputs: {} }));
-    expect(valuationLockText({ ...base, inputs: null })).toBe(valuationLockText(base));
-    expect(valuationLockText(base)).not.toBe(text);
+    // No inputs is an empty record in the text, whether the version holds one or null. A caller
+    // always says which inputs it means: the field is required, so none is never an oversight.
+    const none = valuationLockText({ ...base, inputs: {} });
+    expect(none).toContain('"inputs":{}');
+    expect(valuationLockText({ ...base, inputs: null })).toBe(none);
+    expect(none).not.toBe(text);
+    // @ts-expect-error the inputs are required: a board row alone does not say what was locked
+    expect(valuationLockText(base)).toBe(none);
     // Pinned with inputs too: the API and the preview must both produce this digest.
     expect(createHash('sha256').update(text).digest('hex')).toBe(
       'baaad81ac39ae0b9e8985df94333a747188726d460e2bacb886238d1b2479599',
@@ -274,6 +278,7 @@ describe('lock text', () => {
       version: 2,
       method: 'Last round',
       fairValue: '1250000.00',
+      inputs: {},
     });
     expect(text).toBe(
       `{"fairValue":"1250000.00","inputs":{},"investmentId":"${INV}","method":"Last round","periodEnd":"2025-06-30","version":2}`,
@@ -301,14 +306,14 @@ describe('lock text', () => {
       reopenReason: null,
       rowVersion: 3,
     });
-    expect(valuationLockText(row)).toBe(text);
+    expect(valuationLockText({ ...row, inputs: {} })).toBe(text);
     // The digest the API (node:crypto) and the preview (SubtleCrypto) must both produce: pinned,
     // so a change to the text or the field set is a deliberate one.
     expect(createHash('sha256').update(text).digest('hex')).toBe(
       '6fd3860e1478d9d2c4d9a474158c6be92302c71d68d882ab32db28e93191a28d',
     );
     // A changed value changes the text, so the hash no longer verifies.
-    expect(valuationLockText({ ...row, fairValue: '1250000.01' })).not.toBe(text);
+    expect(valuationLockText({ ...row, inputs: {}, fairValue: '1250000.01' })).not.toBe(text);
   });
 });
 
@@ -421,7 +426,7 @@ describe('valuation bodies', () => {
     ).toBe(true);
   });
 
-  it('reads the detail with the approval trail, open change requests and the lock text', () => {
+  it('reads the detail with the method inputs, the approval trail, open change requests and the lock text', () => {
     const row = {
       id: ID,
       investmentId: INV,
@@ -445,8 +450,10 @@ describe('valuation bodies', () => {
       reopenReason: null,
       rowVersion: 2,
     };
+    const inputs = { multiple: 11.5, basis: 'LTM EBITDA' };
     const detail = {
       ...row,
+      inputs,
       approvals: [
         {
           id: USER_B,
@@ -459,13 +466,24 @@ describe('valuation bodies', () => {
         },
       ],
       openChangeRequests: [],
-      lockText: valuationLockText(row),
+      lockText: valuationLockText({ ...row, inputs }),
     };
     expect(parses(valuationDetail, detail)).toBe(true);
     expect(
       parses(valuationDetail, { ...detail, approvals: [{ ...detail.approvals[0], step: 'x' }] }),
     ).not.toBe(true);
     expect(parses(valuationDetail, row)).not.toBe(true);
+    // The method inputs travel with the version, so the edit form can start from them and an
+    // approver sees what the lock will cover: a record always, empty when the version has none,
+    // of whatever the column stores (a version loaded another way may hold a nested value).
+    expect(parses(valuationDetail, { ...detail, inputs: {} })).toBe(true);
+    expect(parses(valuationDetail, { ...detail, inputs: { comps: { count: 6 } } })).toBe(true);
+    const { inputs: _inputs, ...withoutInputs } = detail;
+    expect(parses(valuationDetail, withoutInputs)).toEqual([expect.stringMatching(/^inputs: /)]);
+    for (const bad of [null, 'LTM', 11.5, ['LTM']])
+      expect(parses(valuationDetail, { ...detail, inputs: bad }), JSON.stringify(bad)).toEqual([
+        expect.stringMatching(/^inputs: /),
+      ]);
   });
 });
 
