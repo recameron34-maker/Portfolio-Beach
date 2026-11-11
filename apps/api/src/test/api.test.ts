@@ -11,10 +11,58 @@ import {
   vehicleList,
   featureFlagList,
 } from '@pb/contracts';
+import { RequestMethod } from '@nestjs/common';
+import { METHOD_METADATA, PATH_METADATA } from '@nestjs/common/constants.js';
 import { CONTROLLERS } from '../app.module.js';
+import { IS_PUBLIC, ROLES } from '../auth/principal.js';
 import { listImplementedRoutes } from '../routes.js';
 import { startHarness } from './harness.js';
 import type { Harness } from './harness.js';
+
+interface HandlerGuard {
+  /** "METHOD /path/{param}", the contract's notation. */
+  key: string;
+  /** Where the guard is written, for a failure message a person can act on. */
+  handler: string;
+  /** What AuthGuard reads: the handler's metadata, else the controller's. */
+  roles: string[];
+  isPublic: boolean;
+}
+
+/**
+ * The guard metadata of every handler, read the way AuthGuard reads it (the handler first, then
+ * its controller; no @Roles means any authenticated user). The route key is built as
+ * listImplementedRoutes builds it, and the parity test below holds the two together.
+ */
+function handlerGuards(
+  controllers: readonly (abstract new (...args: never[]) => unknown)[],
+): HandlerGuard[] {
+  const out: HandlerGuard[] = [];
+  for (const controller of controllers) {
+    const base = (Reflect.getMetadata(PATH_METADATA, controller) as string | undefined) ?? '';
+    const proto = controller.prototype as Record<string, unknown>;
+    for (const name of Object.getOwnPropertyNames(proto)) {
+      const handler = proto[name];
+      if (name === 'constructor' || typeof handler !== 'function') continue;
+      const path = Reflect.getMetadata(PATH_METADATA, handler) as string | undefined;
+      const method = Reflect.getMetadata(METHOD_METADATA, handler) as number | undefined;
+      if (path === undefined || method === undefined) continue;
+      const full = `/${[base, path].filter((p) => p.length > 0 && p !== '/').join('/')}`
+        .replace(/\/+/g, '/')
+        .replace(/:(\w+)/g, '{$1}');
+      const read = <T>(key: string): T | undefined =>
+        (Reflect.getMetadata(key, handler) ?? Reflect.getMetadata(key, controller)) as
+          T | undefined;
+      out.push({
+        key: `${RequestMethod[method] ?? String(method)} ${full}`,
+        handler: `${controller.name}.${name}`,
+        roles: [...(read<string[]>(ROLES) ?? [])].sort(),
+        isPublic: read<boolean>(IS_PUBLIC) ?? false,
+      });
+    }
+  }
+  return out;
+}
 
 describe('Portfolio Beach API', () => {
   let h: Harness;
@@ -32,6 +80,34 @@ describe('Portfolio Beach API', () => {
         .sort();
       const contracted = ROUTES.map((r) => `${r.method} ${r.path}`).sort();
       expect(implemented).toEqual(contracted);
+    });
+
+    it('guards every handler with exactly the roles and the sign-in its contract route names (D7-5)', () => {
+      const guards = handlerGuards(CONTROLLERS);
+      expect(guards.map((g) => g.key).sort()).toEqual(
+        listImplementedRoutes(CONTROLLERS)
+          .map((r) => `${r.method} ${r.path}`)
+          .sort(),
+      );
+      const mismatches: string[] = [];
+      for (const route of ROUTES) {
+        const key = `${route.method} ${route.path}`;
+        const guard = guards.find((g) => g.key === key);
+        if (guard === undefined) {
+          mismatches.push(`${key}: no handler`);
+          continue;
+        }
+        const contracted = [...route.roles].sort();
+        if (JSON.stringify(guard.roles) !== JSON.stringify(contracted))
+          mismatches.push(
+            `${key} (${guard.handler}): @Roles [${guard.roles.join(', ')}], contract [${contracted.join(', ')}]`,
+          );
+        if (guard.isPublic === route.auth)
+          mismatches.push(
+            `${key} (${guard.handler}): ${guard.isPublic ? '@Public' : 'signed in'}, contract auth ${String(route.auth)}`,
+          );
+      }
+      expect(mismatches).toEqual([]);
     });
   });
 

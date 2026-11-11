@@ -115,6 +115,10 @@ export const READ_MATRIX: Record<string, Row> = {
   'deal.closing': row(1, 1, 1, 1, 1, 1, 1, 2, 2),
   'deal.closing_item': row(1, 1, 1, 1, 1, 1, 1, 2, 2),
   'deal.legal_term': row(1, 1, 1, 1, 1, 1, 1, 2, 2),
+  // The Idempotency-Key store (migration 0015): a row is its owner's and nobody else's, the
+  // system actor, the auditor and the platform admin included. The fixture holds one completed
+  // key of operations and one pending key of the deal team.
+  'ops.idempotency_key': row(0, 1, 1, 0, 0, 0, 0, 0, 0),
 };
 
 export interface WriteCase {
@@ -140,6 +144,45 @@ export const WRITE_MATRIX: WriteCase[] = [
     sql: "update ops.feature_flag set enabled = true where key = 'ai.extraction'",
     // Kill switches: an administrator, or the system actor on behalf of Beach Ops (docs/15).
     allowed: ['platform_admin', 'service'],
+  },
+  // The Idempotency-Key store (migration 0015): each case names one owner, so only that actor may.
+  {
+    name: 'reserve an idempotency key that names the viewer as its owner',
+    sql: "insert into ops.idempotency_key (user_id, method, path, key, request_hash) values ('10000000-0000-4000-8000-000000000001', 'POST', '/api/v1/valuations', 'matrix-key-viewer', 'sealed')",
+    allowed: ['viewer'],
+  },
+  {
+    name: 'insert an idempotency key that already carries an answer',
+    sql: `insert into ops.idempotency_key (user_id, method, path, key, request_hash, response_status, response_body) values (pb.current_user_id(), 'POST', '/api/v1/valuations', 'matrix-key-forged', 'sealed', 201, '{}')`,
+    // A key is reserved first and completed by the request that ran: nobody writes an answer outright.
+    allowed: [],
+  },
+  {
+    name: "complete the deal team's pending idempotency key",
+    sql: `update ops.idempotency_key set response_status = 200, response_body = '{"ok": true}' where key = 'fixture-key-pending'`,
+    allowed: ['deal_team'],
+  },
+  {
+    name: "release the deal team's pending idempotency key",
+    sql: "delete from ops.idempotency_key where key = 'fixture-key-pending'",
+    allowed: ['deal_team'],
+  },
+  {
+    name: 'rewrite the answer of the completed idempotency key of operations',
+    sql: `update ops.idempotency_key set response_body = '{"rewritten": true}' where key = 'fixture-key-completed'`,
+    // A stored answer never changes, not even for its owner.
+    allowed: [],
+  },
+  {
+    name: 'delete the completed idempotency key of operations',
+    sql: "delete from ops.idempotency_key where key = 'fixture-key-completed'",
+    allowed: [],
+  },
+  {
+    name: 'change the request an idempotency key was reserved for',
+    sql: "update ops.idempotency_key set request_hash = 'another' where key = 'fixture-key-pending'",
+    // Only the answer columns are granted for update (column grant).
+    allowed: [],
   },
   {
     name: 'insert a taxonomy term',

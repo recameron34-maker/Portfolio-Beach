@@ -235,6 +235,21 @@ export const CLASSIFICATION: Record<string, TableClassification> = {
     },
   },
   'ops.job': { default: 'internal', retention: 'operational_2y' },
+  // The API's Idempotency-Key store (migration 0015, docs/17 section 3). The stored answer is a
+  // copy of what a command returned: deal, valuation and notice figures and, on a notice, its
+  // ticket and the masked instruction, so it takes the payment class (the stricter handling); bank
+  // details in clear never reach it. The request is kept only as a digest sealed with the field
+  // key, and a wire proposal's body carries bank details, so the digest is payment data too. The
+  // key, the route and the status are bookkeeping; the owner is personal.
+  'ops.idempotency_key': {
+    default: 'internal',
+    retention: 'operational_2y',
+    columns: {
+      user_id: 'confidential_personal',
+      request_hash: 'restricted_payment',
+      response_body: 'restricted_payment',
+    },
+  },
   'ops.systems_issue': { default: 'internal', retention: 'operational_2y' },
   'ops.outbox': {
     default: 'internal',
