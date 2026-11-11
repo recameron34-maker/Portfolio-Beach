@@ -6,7 +6,7 @@ import type { Response } from 'express';
 import { catchError, from, mergeMap, of, throwError } from 'rxjs';
 import type { Observable } from 'rxjs';
 import type { Principal } from '@pb/adapters';
-import { ROUTES } from '@pb/contracts';
+import { canonicalJson, ROUTES } from '@pb/contracts';
 import { schema } from '@pb/db';
 import type { FieldCipher } from '@pb/db';
 import type { RequestWithPrincipal } from '../auth/principal.js';
@@ -90,22 +90,18 @@ export function idempotencyKeyOf(header: string | string[] | undefined): string 
   return header;
 }
 
-/** JSON with the keys of every object sorted and no spaces, so a body reads the same in whatever order its keys were sent. */
-export function canonicalJson(value: unknown): string {
-  if (value === null || typeof value !== 'object') return JSON.stringify(value) ?? 'null';
-  if (Array.isArray(value)) return `[${value.map(canonicalJson).join(',')}]`;
-  const record = value as Record<string, unknown>;
-  return `{${Object.keys(record)
-    .filter((key) => record[key] !== undefined)
-    .sort()
-    .map((key) => `${JSON.stringify(key)}:${canonicalJson(record[key])}`)
-    .join(',')}}`;
-}
+/** A body as the JSON it travels as: an absent body is null, and an entry with no value is no entry. */
+const jsonValueOf = (body: unknown): unknown =>
+  body === undefined ? null : (JSON.parse(JSON.stringify(body)) as unknown);
 
-/** The fingerprint of a request body: SHA-256, lowercase hex, over its canonical JSON. It is sealed before it is stored. */
+/**
+ * The fingerprint of a request body: SHA-256, lowercase hex, over its canonical JSON (the one
+ * canonical form of the contracts, shared with the valuation lock text), so a body reads the same
+ * in whatever order its keys were sent. It is sealed before it is stored.
+ */
 export function requestFingerprint(body: unknown): string {
   return createHash('sha256')
-    .update(canonicalJson(body ?? null), 'utf8')
+    .update(canonicalJson(jsonValueOf(body)), 'utf8')
     .digest('hex');
 }
 

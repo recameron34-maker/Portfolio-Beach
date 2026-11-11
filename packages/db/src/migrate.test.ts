@@ -475,6 +475,31 @@ describe('migrations', () => {
     ]);
   });
 
+  it('0016: a member reads the wall rows of their own walls, and the service role carries a wall to a position only', async () => {
+    const policies = await handle.query<{
+      name: string;
+      cmd: string;
+      qual: string | null;
+      check: string | null;
+    }>(
+      `select policyname as name, cmd, qual, with_check as "check" from pg_policies
+       where schemaname = 'core' and tablename = 'walled_record' and policyname in ('read_member', 'carry_read', 'carry_write')
+       order by policyname`,
+    );
+    expect(policies.map((p) => `${p.name}:${p.cmd}`)).toEqual([
+      'carry_read:SELECT',
+      'carry_write:INSERT',
+      'read_member:SELECT',
+    ]);
+    const byName = new Map(policies.map((p) => [p.name, p]));
+    // The membership is compared with the wall of the row read, not with the member row itself
+    // (the defect of migration 0006: an unqualified wall_id bound to core.wall_member).
+    expect(byName.get('read_member')?.qual).toContain('m.wall_id = walled_record.wall_id');
+    expect(byName.get('carry_read')?.qual).toContain("'service'");
+    expect(byName.get('carry_write')?.check).toContain("'service'");
+    expect(byName.get('carry_write')?.check).toContain("'investment'");
+  });
+
   it('never grant DELETE on financial tables or UPDATE/DELETE on the audit trail to the application role', async () => {
     const grants = await handle.query<{ table: string; privilege: string }>(`
       select table_schema || '.' || table_name as "table", privilege_type as privilege

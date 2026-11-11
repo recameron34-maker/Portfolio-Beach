@@ -765,49 +765,7 @@ describe('pipeline and closing controls (docs/18 sections 4 and 12): reopened de
       return id;
     };
 
-    /*
-     * OPEN ITEM (migrations are outside this group's file scope). The walls are carried as the
-     * system actor, and at migration 0013 the policies on core.walled_record admit approvers and
-     * platform admins only: the service role reads no wall row and may insert none. Until a
-     * migration adds the two policies of grantWallCarry below, a walled deal does not convert:
-     * the conversion is refused whole rather than leave a position outside its wall. The test
-     * below pins that on the schema as migrated, so it runs before the one that adds the
-     * policies; once the migration lands it no longer holds: delete it, and delete
-     * grantWallCarry with its call in the test after it.
-     */
-    it('refuses to convert a walled deal, writing nothing, while the system actor may not carry its walls', async () => {
-      const id = await walledDealConfirmed('Revetment');
-      const before = await h.runtime.db.query<{ n: number }>(
-        'select count(*)::int as n from core.investment',
-      );
-      expect(
-        expectProblem(
-          await command(WALLED_CAST.ops, id, { command: 'advance' }, 'req-pc-walled-refused'),
-          500,
-          'internal',
-        ),
-      ).toMatch(/the walls of the deal could not be carried to the position; nothing was written/);
-      expect(await h.runtime.db.query('select count(*)::int as n from core.investment')).toEqual(
-        before,
-      );
-      expect(await audits('investment.create', 'req-pc-walled-refused')).toHaveLength(0);
-      const still = await detail(WALLED_CAST.team, id);
-      expect(still.stage).toBe('Closing');
-      expect(still.investmentId).toBeNull();
-    });
-
-    /** The two policies the system actor needs to carry a wall: read every wall row, write a position's. */
-    const grantWallCarry = async (): Promise<void> => {
-      await h.runtime.db.query(
-        "create policy carry_read on core.walled_record for select to pb_app using (pb.has_role('service'))",
-      );
-      await h.runtime.db.query(
-        "create policy carry_write on core.walled_record for insert to pb_app with check (pb.has_role('service') and entity = 'investment')",
-      );
-    };
-
     it('carries every wall of the opportunity to the position: a non-member gets 404 on it and a member of any of its walls sees it', async () => {
-      await grantWallCarry();
       const wall = h.dataset.walls[0]!;
       const secondWall = SECOND_WALL;
       const cast = WALLED_CAST;

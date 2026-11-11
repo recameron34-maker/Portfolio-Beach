@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import {
   ROUTES,
+  canonicalJson,
   capitalNoticeControlDetail,
   changeRequestRow,
   opportunityDetail,
@@ -12,7 +13,6 @@ import {
 import type { RouteDefinition } from '@pb/contracts';
 import type { AppRole } from '@pb/db';
 import {
-  canonicalJson,
   idempotencyKeyOf,
   isIdempotentRoute,
   requestFingerprint,
@@ -755,6 +755,9 @@ describe('Idempotency-Key helpers', () => {
       '{"amount":"10.00","command":"draftTicket","nested":{"x":1,"y":[1,{"a":1,"b":2}]}}',
     );
     expect(requestFingerprint(a)).toBe(requestFingerprint(b));
+    // An absent body is null, and an entry with no value is no entry, as on the wire.
+    expect(requestFingerprint(undefined)).toBe(requestFingerprint(null));
+    expect(requestFingerprint({ a: 1, b: undefined })).toBe(requestFingerprint({ a: 1 }));
     expect(requestFingerprint(a)).toMatch(/^[0-9a-f]{64}$/);
     // Array order and values are content.
     expect(requestFingerprint({ ids: [1, 2] })).not.toBe(requestFingerprint({ ids: [2, 1] }));

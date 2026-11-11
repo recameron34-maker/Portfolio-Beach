@@ -64,10 +64,15 @@ export const READ_MATRIX: Record<string, Row> = {
   'core.client': row(0, 0, 2, 2, 1, 0, 2, 0, 0),
   'core.lp_commitment': row(0, 0, 2, 2, 1, 0, 2, 0, 0),
   'core.commitment': row(1, 1, 2, 2, 1, 1, 2, 1, 1),
-  'core.wall': row(0, 0, 0, 1, 0, 1, 0, 1, 0),
+  // Two walls: the fixture wall with its one member, and a second wall nobody in the fixture
+  // belongs to (migration 0016).
+  'core.wall': row(0, 0, 0, 2, 0, 2, 0, 1, 0),
   'core.wall_member': row(0, 0, 0, 1, 0, 1, 0, 1, 0),
-  // The walled investment and the walled opportunity (migration 0013) share the fixture wall.
-  'core.walled_record': row(0, 0, 0, 2, 0, 2, 0, 2, 0),
+  // The walled investment and the walled opportunity (migration 0013) share the fixture wall, and
+  // the second wall covers the walled investment too. A member reads the rows of their own walls
+  // only (two of the three), and the service role reads them all to carry the walls of a deal to
+  // the position it becomes (migration 0016).
+  'core.walled_record': row(0, 0, 0, 3, 0, 3, 0, 2, 3),
   'mon.quarterly_performance': row(1, 1, 1, 1, 1, 1, 1, 2, 2),
   'mon.valuation': row(1, 1, 1, 1, 1, 1, 1, 2, 2),
   'mon.cash_flow': row(2, 2, 2, 2, 2, 2, 2, 3, 3),
@@ -490,6 +495,22 @@ export const WRITE_MATRIX: WriteCase[] = [
     name: 'confirm the legal term of the walled closing',
     sql: "update deal.legal_term set status = 'confirmed', confirmed_by = '10000000-0000-4000-8000-000000000008', confirmed_at = now() where id = 'b0000000-0000-4000-8000-000000000011'",
     allowed: ['wall_member(deal_team)', 'service'],
+  },
+  // The walls (migration 0016): the system step carries a wall to a position and to nothing else.
+  {
+    name: 'put the open investment behind the second wall',
+    sql: "insert into core.walled_record (wall_id, entity, entity_id) values ('60000000-0000-4000-8000-000000000002', 'investment', '30000000-0000-4000-8000-000000000001')",
+    allowed: ['approver', 'platform_admin', 'service'],
+  },
+  {
+    name: 'put the open opportunity behind the second wall',
+    sql: "insert into core.walled_record (wall_id, entity, entity_id) values ('60000000-0000-4000-8000-000000000002', 'opportunity', 'b0000000-0000-4000-8000-000000000001')",
+    allowed: ['approver', 'platform_admin'],
+  },
+  {
+    name: 'take the walled investment out from behind the second wall',
+    sql: "delete from core.walled_record where wall_id = '60000000-0000-4000-8000-000000000002' and entity = 'investment' and entity_id = '30000000-0000-4000-8000-000000000002'",
+    allowed: ['approver', 'platform_admin'],
   },
   // The review fixes (migration 0014).
   {

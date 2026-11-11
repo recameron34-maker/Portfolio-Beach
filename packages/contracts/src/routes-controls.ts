@@ -347,7 +347,7 @@ export const CONTROL_ROUTES: readonly RouteDefinition[] = [
     method: 'POST',
     path: `${API_PREFIX}/closings/{id}/commands`,
     summary:
-      'Operations confirmation once the required items are in and allocations tie out; a close-date change after it needs a reason and re-confirmation (audited)',
+      'Operations confirmation once the required items are in and the received allocations tie out; a close-date change or a reopen after it needs a reason and re-confirmation (audited); neither is allowed once the position exists',
     tags: ['closings'],
     roles: ['operations'],
     auth: true,

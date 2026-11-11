@@ -45,6 +45,9 @@ export const ids = {
   commitmentPooled: '50000000-0000-4000-8000-000000000001',
   commitmentSmaB: '50000000-0000-4000-8000-000000000002',
   wall: '60000000-0000-4000-8000-000000000001',
+  // A second wall with no member (migration 0016): it also covers the walled investment, so a
+  // member of the first wall has a wall row they must not read.
+  wallOther: '60000000-0000-4000-8000-000000000002',
   valuationLocked: '70000000-0000-4000-8000-000000000001',
   valuationWalledDraft: '70000000-0000-4000-8000-000000000002',
   intakeFile: '80000000-0000-4000-8000-000000000001',
@@ -193,6 +196,8 @@ export async function loadFixture(handle: DbHandle): Promise<void> {
     insert into core.wall (id, name, description) values ('${ids.wall}', 'Project Tidewater', 'Restricted deal');
     insert into core.wall_member (wall_id, user_id) values ('${ids.wall}', '${u.wallMember}');
     insert into core.walled_record (wall_id, entity, entity_id) values ('${ids.wall}', 'investment', '${ids.investmentWalled}');
+    insert into core.wall (id, name, description) values ('${ids.wallOther}', 'Project Breakwater', 'Restricted deal, no member in the fixture');
+    insert into core.walled_record (wall_id, entity, entity_id) values ('${ids.wallOther}', 'investment', '${ids.investmentWalled}');
     insert into mon.quarterly_performance (investment_id, period_end, revenue_ltm, ebitda_ltm, ev, net_debt, status) values
       ('${ids.investment1}', '2024-06-30', 120000000, 30000000, 360000000, 90000000, 'record_status.approved'),
       ('${ids.investmentWalled}', '2024-06-30', 80000000, 16000000, 200000000, 60000000, 'record_status.approved');
