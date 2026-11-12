@@ -13,7 +13,7 @@ import {
   TOUR,
   VIDEOS,
 } from '../content/site.js';
-import type { Feature } from '../content/site.js';
+import type { Feature, RoadmapStatus } from '../content/site.js';
 import { html } from './html.js';
 import type { Markup } from './html.js';
 import { icon, isIconName } from './icons.js';
@@ -33,6 +33,25 @@ function unbroken(text: string, term: string): Markup {
   return html`${text.slice(0, at)}<span class="nowrap">${term}</span>${text.slice(
       at + term.length,
     )}`;
+}
+
+/** What a build may change about the page. */
+export interface PageOptions {
+  /**
+   * Where "Open the demo" goes. The site's own build copies the demo in and links to it
+   * (SITE.demoHref); a build without the demo passes the address it was given, or null to leave
+   * the action out.
+   */
+  demoHref?: string | null;
+}
+
+/** "Open the demo": always in a new tab, so the site stays open behind it. */
+function demoLink(href: string, label: string, classes: string, withArrow: boolean): Markup {
+  return html`<a class="${classes}" href="${href}" target="_blank" rel="noopener"
+    >${label}${withArrow ? icon('arrow', 18) : null}<span class="visually-hidden">
+      ${SITE.newTab}</span
+    ></a
+  >`;
 }
 
 function eyebrow(text: string): Markup {
@@ -71,7 +90,7 @@ function screenshot(
   </a>`;
 }
 
-function header(): Markup {
+function header(demoHref: string | null): Markup {
   return html`<header class="site-header" data-header>
     <div class="container site-header-inner">
       <a class="wordmark" href="#top">${SITE.name}</a>
@@ -97,13 +116,13 @@ function header(): Markup {
           <span class="theme-sun">${icon('sun', 20)}</span>
           <span class="theme-moon">${icon('moon', 20)}</span>
         </button>
-        <a class="button button-small" href="${SITE.demoHref}">${HERO.primary}</a>
+        ${demoHref === null ? null : demoLink(demoHref, HERO.primary, 'button button-small', false)}
       </div>
     </div>
   </header>`;
 }
 
-function hero(): Markup {
+function hero(demoHref: string | null): Markup {
   return html`<section class="hero" id="top" aria-labelledby="hero-title">
     ${scene()}
     <div class="container hero-inner">
@@ -114,7 +133,7 @@ function hero(): Markup {
       <h1 id="hero-title">${HERO.title}</h1>
       <p class="hero-lead">${unbroken(HERO.lead, 'co-investment')}</p>
       <div class="actions">
-        <a class="button" href="${SITE.demoHref}">${HERO.primary}${icon('arrow', 18)}</a>
+        ${demoHref === null ? null : demoLink(demoHref, HERO.primary, 'button', true)}
         <a class="button button-quiet" href="#videos">${icon('play', 18)}${HERO.secondary}</a>
       </div>
       <p class="hero-note">${HERO.note}</p>
@@ -211,15 +230,35 @@ function feature(media: Media, item: Feature, index: number): Markup {
         ${item.points.map((point) => html`<li>${point}</li>`)}
       </ul>
     </div>
-    <figure class="feature-shot">
-      ${screenshot(media, item.shot, item.alt, { sizes: '(min-width: 1000px) 680px, 94vw' })}
-      <figcaption>${item.caption}</figcaption>
-    </figure>
+    <div class="feature-media">
+      <figure class="feature-shot">
+        ${screenshot(media, item.shot, item.alt, { sizes: '(min-width: 1000px) 680px, 94vw' })}
+        <figcaption>${item.caption}</figcaption>
+      </figure>
+      ${
+        item.more === undefined
+          ? null
+          : html`<div class="feature-more">
+              ${item.more.map(
+                (extra) =>
+                  html`<figure class="feature-shot">
+                    ${screenshot(media, extra.shot, extra.alt, {
+                      sizes: '(min-width: 1000px) 330px, 46vw',
+                    })}
+                    <figcaption>${extra.caption}</figcaption>
+                  </figure>`,
+              )}
+            </div>`
+      }
+    </div>
   </article>`;
 }
 
+const inProgress = (status: RoadmapStatus): boolean => status === 'In progress';
+
 function tour(media: Media): Markup {
   const { roadmap } = TOUR;
+  const features: readonly Feature[] = TOUR.features;
   return html`<section class="band band-sand tour" id="tour" aria-labelledby="tour-title">
     ${crest()}
     <div class="container">
@@ -229,7 +268,7 @@ function tour(media: Media): Markup {
         <p class="lead">${TOUR.lead}</p>
         <nav class="tour-nav" aria-label="${TOUR.jumpLabel}">
           <ol>
-            ${TOUR.features.map(
+            ${features.map(
               (item, i) =>
                 html`<li>
                   <a href="#tour-${item.id}"
@@ -241,7 +280,7 @@ function tour(media: Media): Markup {
           </ol>
         </nav>
       </div>
-      <div class="features">${TOUR.features.map((item, i) => feature(media, item, i))}</div>
+      <div class="features">${features.map((item, i) => feature(media, item, i))}</div>
 
       <div class="roadmap" data-reveal>
         <div class="roadmap-head">
@@ -252,7 +291,7 @@ function tour(media: Media): Markup {
           ${roadmap.items.map(
             (item) =>
               html`<li>
-                <span class="status ${item.status === 'In progress' ? 'status-progress' : ''}"
+                <span class="status ${inProgress(item.status) ? 'status-progress' : ''}"
                   >${item.status}</span
                 >
                 <h4>${item.name}</h4>
@@ -388,7 +427,7 @@ function brochures(media: Media): Markup {
   </section>`;
 }
 
-function demo(): Markup {
+function demo(demoHref: string | null): Markup {
   return html`<section class="band band-shore demo" id="demo" aria-labelledby="demo-title">
     ${crest()}
     <div class="container demo-inner" data-reveal>
@@ -396,7 +435,11 @@ function demo(): Markup {
         ${eyebrow(DEMO.eyebrow)}
         <h2 id="demo-title">${DEMO.title}</h2>
         <p class="lead">${DEMO.lead}</p>
-        <a class="button" href="${SITE.demoHref}">${DEMO.action}${icon('arrow', 18)}</a>
+        ${
+          demoHref === null
+            ? html`<p class="fine">${DEMO.unlinked}</p>`
+            : demoLink(demoHref, DEMO.action, 'button', true)
+        }
       </div>
       <div class="demo-card">
         <ul class="ticks">
@@ -430,12 +473,13 @@ function lightbox(): Markup {
   </dialog>`;
 }
 
-export function renderPage(media: Media): string {
+export function renderPage(media: Media, options: PageOptions = {}): string {
+  const demoHref = options.demoHref === undefined ? SITE.demoHref : options.demoHref;
   return html`<a class="skip-link" href="#main">Skip to the content</a>
-    ${header()}
+    ${header(demoHref)}
     <main id="main">
-      ${hero()} ${overview(media)} ${tour(media)} ${controls()} ${videos(media)} ${brochures(media)}
-      ${demo()}
+      ${hero(demoHref)} ${overview(media)} ${tour(media)} ${controls()} ${videos(media)}
+      ${brochures(media)} ${demo(demoHref)}
     </main>
     ${footer()} ${lightbox()}`.value;
 }

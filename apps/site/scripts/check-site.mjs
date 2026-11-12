@@ -1,8 +1,10 @@
 // Checks the built site (apps/site/dist) the way a visitor on a static host meets it: served from
 // a sub-path, in headless Chromium. Every internal link and asset must resolve, nothing may be
-// requested from another origin, the demo must open and sign in, every video must play and have
-// a poster, every brochure link must return a PDF, axe must find no serious or critical issue on
-// each page in the light and the dark theme, and nothing may scroll sideways on a phone.
+// requested from another origin, the demo must open in a new tab and sign in, every video must
+// play and have a poster, every brochure link must return a PDF, every page must ask search
+// engines not to list it unless the site is switched to findable, axe must find no serious or
+// critical issue on each page in the light and the dark theme, and nothing may scroll sideways on
+// a phone.
 // One line per check, a summary, and a non-zero exit on any failure.
 //
 //   node scripts/check-site.mjs [--base /portfolio-beach/]
@@ -45,25 +47,28 @@ async function open(options = {}) {
     reducedMotion: 'reduce',
     ...options,
   });
-  const page = await context.newPage();
   const seen = { foreign: [], failed: [], errors: [] };
-  page.on('request', (request) => {
-    const url = request.url();
-    if (!url.startsWith(server.origin) && !url.startsWith('data:') && !url.startsWith('blob:'))
-      seen.foreign.push(url);
+  // Every page of the context is watched: the demo opens in a tab of its own.
+  context.on('page', (opened) => {
+    opened.on('request', (request) => {
+      const url = request.url();
+      if (!url.startsWith(server.origin) && !url.startsWith('data:') && !url.startsWith('blob:'))
+        seen.foreign.push(url);
+    });
+    opened.on('response', (response) => {
+      if (response.status() >= 400) seen.failed.push(`${response.status()} ${response.url()}`);
+    });
+    opened.on('requestfailed', (request) => {
+      // A video the browser stops loading once it has what it needs is not a failure.
+      if (request.failure()?.errorText !== 'net::ERR_ABORTED')
+        seen.failed.push(`${request.failure()?.errorText ?? 'failed'} ${request.url()}`);
+    });
+    opened.on('pageerror', (error) => seen.errors.push(error.message));
+    opened.on('console', (message) => {
+      if (message.type() === 'error') seen.errors.push(message.text());
+    });
   });
-  page.on('response', (response) => {
-    if (response.status() >= 400) seen.failed.push(`${response.status()} ${response.url()}`);
-  });
-  page.on('requestfailed', (request) => {
-    // A video the browser stops loading once it has what it needs is not a failure.
-    if (request.failure()?.errorText !== 'net::ERR_ABORTED')
-      seen.failed.push(`${request.failure()?.errorText ?? 'failed'} ${request.url()}`);
-  });
-  page.on('pageerror', (error) => seen.errors.push(error.message));
-  page.on('console', (message) => {
-    if (message.type() === 'error') seen.errors.push(message.text());
-  });
+  const page = await context.newPage();
   return { context, page, seen };
 }
 
@@ -241,18 +246,20 @@ for (const id of ['top', 'overview', 'tour', 'controls', 'videos', 'brochures', 
     `landing page: section #${id} is present with a heading`,
     (await main.page.locator(`#${id}`).locator('h1, h2').count()) >= 1,
   );
+const featureShots = await main.page
+  .locator('.feature')
+  .evaluateAll((blocks) => blocks.map((block) => block.querySelectorAll('img').length));
 check(
-  'landing page: eight feature blocks, each with a screenshot',
-  (await main.page.locator('.feature').count()) === 8 &&
-    (await main.page.locator('.feature img').count()) === 8,
-  `${await main.page.locator('.feature').count()} blocks`,
+  'landing page: nine feature blocks, each with at least one screenshot',
+  featureShots.length === 9 && featureShots.every((count) => count >= 1),
+  `${featureShots.length} blocks with ${featureShots.join(', ')} screenshots`,
 );
 
 // ---- Videos: a poster, a playable WebM source, no autoplay ----------------------------------------
 
 const videos = main.page.locator('video[data-video]');
 const videoCount = await videos.count();
-check('videos: four or five recordings', videoCount >= 4 && videoCount <= 5, `${videoCount}`);
+check('videos: six recordings', videoCount === 6, `${videoCount}`);
 for (let i = 0; i < videoCount; i += 1) {
   const video = videos.nth(i);
   const label = (await video.getAttribute('aria-label')) ?? `video ${i + 1}`;
@@ -510,13 +517,32 @@ await plain.context.close();
 
 const demo = await open();
 await demo.page.goto(home);
-await demo.page.locator('.hero .actions a').first().click();
-await demo.page.waitForURL(/\/demo\/index\.html/);
+const demoLinks = await demo.page
+  .locator('a[href^="demo/"]')
+  .evaluateAll((links) =>
+    links.map((a) => ({ target: a.getAttribute('target'), rel: a.getAttribute('rel') })),
+  );
 check(
-  'demo: "Open the demo" goes to demo/index.html under the sub-path',
-  demo.page.url().startsWith(`${home}demo/`),
-  demo.page.url(),
+  'demo: all three "Open the demo" links open a new tab without handing it the site (target="_blank" rel="noopener")',
+  demoLinks.length === 3 &&
+    demoLinks.every(
+      (a) => a.target === '_blank' && (a.rel ?? '').split(/\s+/).includes('noopener'),
+    ),
+  JSON.stringify(demoLinks),
 );
+const [demoTab] = await Promise.all([
+  demo.context.waitForEvent('page'),
+  demo.page.locator('.hero .actions a').first().click(),
+]);
+await demoTab.waitForURL(/\/demo\/index\.html/);
+check(
+  'demo: "Open the demo" opens demo/index.html under the sub-path in a new tab, and the site stays open behind it',
+  demoTab.url().startsWith(`${home}demo/`) &&
+    demo.page.url() === home &&
+    (await demoTab.opener()) === null,
+  `${demoTab.url()} with the site at ${demo.page.url()}`,
+);
+demo.page = demoTab;
 const picker = demo.page.getByTestId('mock-user-list');
 await picker.waitFor({ timeout: 30_000 }).catch(() => undefined);
 check('demo: the sign-in picker loads', await picker.isVisible());
@@ -540,6 +566,29 @@ check(
     .join(' | '),
 );
 await demo.context.close();
+
+// ---- Search engines: every page asks not to be listed, unless the site is switched to findable ---------------
+
+// The switch is SITE.findable in src/content/site.ts; this file reads it as text.
+const findable = /\bfindable:\s*true\b/.test(
+  readFileSync(join(SITE_DIR, 'src', 'content', 'site.ts'), 'utf8'),
+);
+const noindex = (file) =>
+  /<meta\s+name="robots"\s+content="noindex"\s*\/?>/.test(readFileSync(join(DIST, file), 'utf8'));
+const listed = {
+  'index.html': noindex('index.html'),
+  '404.html': noindex('404.html'),
+  'demo/index.html': noindex(join('demo', 'index.html')),
+};
+check(
+  findable
+    ? 'search engines: the site is switched to findable, so only the 404 page carries noindex'
+    : 'search engines: the landing page, the 404 page and the demo all carry noindex',
+  findable
+    ? !listed['index.html'] && listed['404.html'] && !listed['demo/index.html']
+    : Object.values(listed).every(Boolean),
+  JSON.stringify(listed),
+);
 
 await browser.close();
 await server.close();

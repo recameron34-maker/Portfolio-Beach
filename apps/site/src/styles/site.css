@@ -897,6 +897,25 @@ figcaption {
 .feature-text > p:not(.feature-kicker) {
   color: var(--pb-muted);
 }
+.feature-media {
+  display: grid;
+  gap: clamp(20px, 2.4vw, 28px);
+  min-width: 0;
+}
+/* Further screenshots of the same area: two smaller ones side by side under the first. */
+.feature-more {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: clamp(14px, 2vw, 24px);
+}
+.feature-more .shot {
+  border-radius: var(--radius-sm);
+}
+.feature-more figcaption {
+  margin-top: 10px;
+  font-size: 13.5px;
+  line-height: 1.45;
+}
 .points {
   display: grid;
   gap: 10px;

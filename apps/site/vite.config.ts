@@ -1,9 +1,10 @@
-import { cpSync, existsSync, mkdirSync, readdirSync } from 'node:fs';
+import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import { dirname, extname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { defineConfig } from 'vite';
 import type { Plugin } from 'vite';
 import { tokensCss } from './scripts/lib/tokens.mjs';
+import { SITE } from './src/content/site.js';
 import { renderFavicon } from './src/render/favicon.js';
 import { readMedia } from './src/render/media.js';
 import { renderNotFound } from './src/render/not-found.js';
@@ -20,6 +21,21 @@ const PUBLISHED: Record<string, string[]> = {
 };
 /** Files of the preview that are for publishing it as an artifact, not for a static host. */
 const PREVIEW_ONLY = new Set(['artifact.html', 'publish.json']);
+/**
+ * Asks search engines not to list a page. Every page carries it unless SITE.findable is set
+ * (src/content/site.ts); the 404 page carries it always.
+ */
+const NOINDEX = '<meta name="robots" content="noindex" />';
+
+/** The demo's entry page is the preview's own file: it gets the same tag as the site's pages. */
+function noindexDemo(file: string): void {
+  const document = readFileSync(file, 'utf8');
+  if (/<meta\s+name="robots"/i.test(document)) return;
+  const at = document.search(/<meta\s+charset=[^>]*>/i);
+  if (at === -1) throw new Error(`${file}: no <meta charset> to put the robots tag after`);
+  const end = document.indexOf('>', at) + 1;
+  writeFileSync(file, `${document.slice(0, end)}\n    ${NOINDEX}${document.slice(end)}`);
+}
 
 /**
  * Renders the page into index.html when Vite builds or serves (static markup, no rendering in
@@ -38,6 +54,7 @@ function site(): Plugin {
       order: 'post',
       handler(document) {
         return document
+          .replace('<!--pb:robots-->', SITE.findable ? '' : NOINDEX)
           .replace(
             '<!--pb:head-->',
             `<link rel="icon" href="favicon.svg" type="image/svg+xml" /><style>${tokensCss()}</style>`,
@@ -69,6 +86,7 @@ function site(): Plugin {
         recursive: true,
         filter: (source) => !PREVIEW_ONLY.has(source.slice(PREVIEW_DIR.length + 1)),
       });
+      if (!SITE.findable) noindexDemo(join(outDir, 'demo', 'index.html'));
     },
   };
 }

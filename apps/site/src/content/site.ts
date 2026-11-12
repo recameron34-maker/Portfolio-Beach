@@ -3,7 +3,8 @@
  * say only what the repository shows is built and mark the rest as planned or in progress; no
  * number, customer, quote or benchmark that is not in the repository; no real firm, fund, company,
  * person, brand or system name; no em dashes; plain language.
- * Sources: CLAUDE.md section 1, docs/01, docs/04, docs/05, docs/09, docs/11 and docs/SESSION_LOG.md.
+ * Sources: CLAUDE.md section 1, docs/01, docs/04, docs/05, docs/08, docs/09, docs/11,
+ * docs/SESSION_LOG.md and the pages of the interactive preview themselves.
  */
 
 export const SITE = {
@@ -14,6 +15,15 @@ export const SITE = {
   noticeDetail: 'Synthetic data only',
   footer: 'Prototype. Synthetic data only: no real firm, fund, company or person appears.',
   demoHref: 'demo/index.html',
+  /**
+   * The one switch that makes the site findable. While it is false, every page the build writes
+   * (the landing page, the 404 page and the demo's entry page) carries
+   * <meta name="robots" content="noindex">, which asks search engines not to list it. Set it to
+   * true to leave the tag off the landing page and the demo; the 404 page keeps it either way.
+   */
+  findable: false as boolean,
+  /** Said to a screen reader after the name of a link that opens another tab. */
+  newTab: '(opens in a new tab)',
 } as const;
 
 export const NAV = [
@@ -60,7 +70,7 @@ export const OVERVIEW = {
       'Quarterly monitoring of every position',
       'Valuations with approvals and a lock',
       'Capital calls, trade tickets and the wire register',
-      'Analytics over approved records',
+      'Analytics over approved records, from exposure to value creation',
     ],
     boundary:
       'It is not a general ledger, an investor onboarding system or a fund administrator. A separate fund accounting system stays the official book of record. Portfolio Beach is the workflow, data and analytics layer on top of it.',
@@ -105,7 +115,7 @@ export const OVERVIEW = {
       },
       {
         name: 'Closing',
-        text: 'One close date, a required-document checklist and allocations that tie. On close the deal becomes a position.',
+        text: 'One close date, a required-document checklist and allocations that tie to the commitment. On close the deal becomes a position.',
       },
       {
         name: 'Monitoring',
@@ -121,11 +131,19 @@ export const OVERVIEW = {
       },
       {
         name: 'Analytics',
-        text: 'Exposure, performance, credit and client views read approved records. Reporting packages are planned.',
+        text: 'Exposure, performance, value creation, entry metrics, credit and client views read approved records. Reporting packages are planned.',
       },
     ],
   },
 } as const;
+
+export type RoadmapStatus = 'In progress' | 'Planned';
+
+export interface RoadmapItem {
+  status: RoadmapStatus;
+  name: string;
+  text: string;
+}
 
 export interface Feature {
   id: string;
@@ -138,12 +156,14 @@ export interface Feature {
   shot: string;
   alt: string;
   caption: string;
+  /** Further screenshots of the same area, shown smaller under the first. */
+  more?: readonly { shot: string; alt: string; caption: string }[];
 }
 
 export const TOUR = {
   eyebrow: 'Feature tour',
   title: 'What is built today.',
-  lead: 'Eight areas of the tool, each with a screenshot taken by script from the interactive demo. The demo is the same web app, running on synthetic data.',
+  lead: 'Nine areas of the tool, each with screenshots taken by script from the interactive demo. The demo is the same web app, running on synthetic data.',
   jumpLabel: 'Areas of the tour',
   features: [
     {
@@ -244,12 +264,27 @@ export const TOUR = {
       body: 'The pipeline board shows every deal by stage. Entering diligence creates the task list for the deal type. A deal cannot go to the investment committee while a required task is open, and cannot be approved without a recorded decision. The closing has one close date, a required-document checklist and allocations that must tie to the commitment exactly before operations can confirm it.',
       points: [
         'Passing on a deal needs a reason code.',
+        'Allocations lead with the commitment and the received total. Client lines sit under their vehicle in a client breakdown, shown to readers entitled to those clients.',
         'A confirmed closing is frozen until operations reopen it with a reason.',
         'On close the deal converts into a position. A walled deal becomes a walled position.',
       ],
       shot: 'pipeline',
       alt: 'The pipeline board: tiles counting deals in the pipeline, aging, at closing and passed; and one column per stage from Sourced to Approved, each holding cards with the deal name, company, sponsor, deal type, size, owner and days in stage.',
       caption: 'The pipeline board, one column per stage.',
+      more: [
+        {
+          shot: 'closing',
+          alt: 'The closing page of a synthetic deal, signed in as operations: the closing record with its close date, commitment and state; the allocation tie-out with tiles for commitment, allocated and difference, marked Tied out; one vehicle line with its client breakdown opened to three client lines; and the start of the checklist of closing items.',
+          caption:
+            'A closing: the commitment first, the client breakdown opened beneath its vehicle.',
+        },
+        {
+          shot: 'allocations-viewer',
+          alt: 'The same deal as a read-only viewer sees it: the diligence tasks, the investment committee decision, and an allocations card with tiles for the commitment and the received total, marked Tied out, above a note that three client lines are not shown and which roles may read them.',
+          caption:
+            'The same deal for a read-only viewer: the totals, and a count of the client lines not shown.',
+        },
+      ],
     },
     {
       id: 'analytics',
@@ -260,22 +295,45 @@ export const TOUR = {
       points: [
         'Figures cover only the positions the signed-in user may see.',
         'NAV reads Locked valuations only.',
-        'Portfolio-level value creation and entry metric analytics are in progress.',
+        'Value creation and entry metrics have tabs of their own, shown next.',
       ],
       shot: 'analytics',
       alt: 'The exposure tab of analytics: two horizontal bar charts, NAV by sector and invested capital by sector, above a table of sectors with positions, invested capital, NAV and share of NAV.',
       caption: 'Exposure by sector, with the table behind the charts.',
+    },
+    {
+      id: 'value-creation',
+      short: 'Value creation',
+      kicker: 'Value creation and entry metrics',
+      title: 'Where the gain came from, and how entry terms played out.',
+      body: 'The Value creation tab splits the gain on equity and continuation vehicle positions (NAV plus distributions less invested capital) into EBITDA growth, multiple expansion, debt paydown and a remainder it calls mark and timing. A bridge chart walks from invested capital to value now, and a switch opens EBITDA growth into revenue growth and margin change. A second chart plots each company’s valuation growth against its EBITDA growth, measured on the mark, the company equity value or the enterprise value. The Entry metrics tab pools gross MOIC, gross IRR and EBITDA growth by entry purchase multiple band and by entry net leverage band, and plots entry multiple against MOIC.',
+      points: [
+        'One row of filters serves both tabs: vehicle, sponsor, sector, deal type, entry year and status. Every figure is rolled up again over the positions that pass.',
+        'A sortable table of positions with entry and current multiples, the entry stake and each part of the gain, and a CSV export.',
+        'A position that cannot be split is counted and listed with the reason. Private credit positions are outside these two tabs.',
+        'On each equity or continuation vehicle deal’s Performance tab, a value creation card shows the bridge for that one company, from equity value at entry to equity value now.',
+      ],
+      shot: 'value-creation',
+      alt: 'The Value creation tab of analytics: tiles for the gain and its four parts, EBITDA growth, multiple expansion, debt paydown and mark and timing; a row of filters for vehicle, sponsor, sector, deal type, entry year and status; and a bridge chart from invested capital through each driver to value now.',
+      caption: 'Value creation: the gain by driver, as tiles and as a bridge.',
+      more: [
+        {
+          shot: 'entry-metrics',
+          alt: 'The Entry metrics tab of analytics: the same row of filters; a bar chart of gross MOIC by entry purchase multiple band above a table of the bands with positions, invested capital, NAV, distributions, gross MOIC, gross IRR and EBITDA growth; and the start of the same view by entry net leverage band.',
+          caption: 'Entry metrics: performance by entry purchase multiple band.',
+        },
+        {
+          shot: 'deal-value-creation',
+          alt: 'The value creation card on the Performance tab of a synthetic co-investment: tiles for the change in the company equity value and for EBITDA growth, multiple expansion and debt paydown with each one’s share of the change; a bridge chart from equity value at entry to equity value now; a sentence on the gain on the position at the entry stake; and a chart of EBITDA, enterprise value, equity value and the mark indexed since entry.',
+          caption: 'One deal: the company’s bridge, and the indexed lines since entry.',
+        },
+      ],
     },
   ] satisfies Feature[],
   roadmap: {
     title: 'On the roadmap',
     lead: 'Planned work, in the order of the prototype roadmap. None of it is claimed as built.',
     items: [
-      {
-        status: 'In progress',
-        name: 'Value creation and entry metrics',
-        text: 'Portfolio-level attribution of value to revenue, margin, multiple and leverage, and entry metric analytics. Today each deal shows its growth and multiple change since entry.',
-      },
       {
         status: 'Planned',
         name: 'Reporting packages',
@@ -301,7 +359,7 @@ export const TOUR = {
         name: 'Data access',
         text: 'A documented read interface, a spreadsheet add-in and a governed extract for a data warehouse.',
       },
-    ],
+    ] satisfies RoadmapItem[] as readonly RoadmapItem[],
   },
 } as const;
 
@@ -313,7 +371,7 @@ export const CONTROLS = {
     {
       icon: 'key',
       name: 'Roles and entitlements',
-      text: 'Seven roles, from viewer to auditor. Client data is visible only to users entitled to that client. Each role reads what its access matrix allows and nothing else.',
+      text: 'Seven roles, from viewer to auditor, each reading what its access matrix allows and nothing else. Client data is visible only to users entitled to that client: operations, the deal team and approvers read every client, investor relations its named clients, an auditor all of them for review. A viewer or a platform admin reads none. On a deal they see the commitment, the received total and a count of the client lines not shown.',
     },
     {
       icon: 'wall',
@@ -386,6 +444,8 @@ export const DEMO = {
     'Your changes are simulated in the page and are gone when you reload it.',
   ],
   action: 'Open the demo',
+  /** Shown in place of the action by a build that carries no demo and was given no address for one. */
+  unlinked: 'This copy of the site does not carry the demo.',
   note: 'The demo opens with a guide to short walkthroughs: walls, valuation approval, capital controls, intake, documents and more. It replays the answers the application gave to each synthetic user, so it shows the access rules at work; it does not enforce them itself.',
 } as const;
 

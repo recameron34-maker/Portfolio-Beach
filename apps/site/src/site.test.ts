@@ -13,9 +13,15 @@ import { renderPage } from './render/page.js';
 const here = dirname(fileURLToPath(import.meta.url));
 const site = join(here, '..');
 
+/** Every screenshot of the tour: each area's first one and the smaller ones under it. */
+function tourShots(): { shot: string; alt: string }[] {
+  const features: readonly content.Feature[] = content.TOUR.features;
+  return features.flatMap((f) => [{ shot: f.shot, alt: f.alt }, ...(f.more ?? [])]);
+}
+
 /** A stand-in for the generated media: the names the page asks for, with made-up sizes. */
 function media(): Media {
-  const shots = [content.OVERVIEW.heroShot.name, ...content.TOUR.features.map((f) => f.shot)];
+  const shots = [content.OVERVIEW.heroShot.name, ...tourShots().map((s) => s.shot)];
   return {
     screens: new Map(
       shots.map((name) => [
@@ -152,7 +158,19 @@ describe('the words', () => {
 
   it('mark what is not built as planned or in progress', () => {
     const statuses = content.TOUR.roadmap.items.map((item) => item.status);
-    expect(new Set(statuses)).toEqual(new Set(['In progress', 'Planned']));
+    expect(statuses.length).toBeGreaterThan(0);
+    for (const status of statuses) expect(['In progress', 'Planned']).toContain(status);
+  });
+
+  it('no longer list value creation or entry metrics as unbuilt: they are in the tour', () => {
+    for (const item of content.TOUR.roadmap.items)
+      expect(`${item.name} ${item.text}`).not.toMatch(/value creation|entry metric/i);
+    expect(content.TOUR.features.map((f) => f.id)).toContain('value-creation');
+    for (const text of strings(content)) expect(text).not.toMatch(/in progress/i);
+  });
+
+  it('keep the site unlisted by search engines until the one switch is turned', () => {
+    expect(content.SITE.findable).toBe(false);
   });
 });
 
@@ -171,8 +189,31 @@ describe('the page', () => {
     for (const url of urls) expect(url, url).toMatch(/^(#|media\/|demo\/)/);
   });
 
+  it('opens the demo in a new tab from all three places, and says so to a screen reader', () => {
+    const links = [...page.matchAll(/<a\b[^>]*href="demo\/index\.html"[^>]*>/g)].map((m) => m[0]);
+    expect(links).toHaveLength(3);
+    for (const link of links) {
+      expect(link).toContain('target="_blank"');
+      expect(link).toContain('rel="noopener"');
+    }
+    expect(page.split(content.SITE.newTab).length - 1).toBe(3);
+    // No other link leaves the page it is on.
+    expect(page.split('target="_blank"').length - 1).toBe(3);
+  });
+
+  it('links the demo to the address a build without the demo was given, or leaves the action out', () => {
+    const elsewhere = renderPage(media(), { demoHref: 'https://demo.example/preview' });
+    expect(elsewhere.split('href="https://demo.example/preview"').length - 1).toBe(3);
+    expect(elsewhere).not.toContain('demo/index.html');
+    const without = renderPage(media(), { demoHref: null });
+    expect(without).not.toContain('target="_blank"');
+    expect(without).not.toContain('demo/index.html');
+    expect(without).toContain(content.DEMO.unlinked);
+  });
+
   it('gives every screenshot its alt text and both widths', () => {
-    for (const feature of content.TOUR.features) {
+    expect(tourShots().length).toBeGreaterThan(content.TOUR.features.length);
+    for (const feature of tourShots()) {
       expect(page).toContain(`alt="${escapeHtml(feature.alt)}"`);
       expect(page).toContain(`media/screens/${feature.shot}-2x.webp 2880w`);
     }

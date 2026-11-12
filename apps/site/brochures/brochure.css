@@ -387,6 +387,10 @@ p + p {
 .shot.crop.tall {
   aspect-ratio: 16 / 7.9;
 }
+/* Nearly the whole screen: for a page whose chart sits below its tiles. */
+.shot.crop.deep {
+  aspect-ratio: 16 / 11;
+}
 /* A crop that leaves the navigation out and shows the page itself, a quarter larger. */
 .shot.crop.focus img {
   width: 127%;

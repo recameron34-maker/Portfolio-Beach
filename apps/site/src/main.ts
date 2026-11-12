@@ -5,6 +5,9 @@
  * the mark on the current section's link and a note when the browser cannot play WebM.
  */
 const root = document.documentElement;
+// The mark that script runs. The document sets it before first paint; a host that wraps the
+// page in its own document (the artifact build) has no such script, so it is set here too.
+root.classList.add('js');
 const THEME_KEY = 'pb-site-theme';
 type Theme = 'light' | 'dark';
 

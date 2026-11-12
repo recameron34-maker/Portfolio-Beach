@@ -36,7 +36,7 @@ const BROCHURES = [
     file: 'portfolio-beach-product-overview.pdf',
     title: 'Product overview',
     description:
-      'What Portfolio Beach is, who uses it, how the work flows and the eight areas built today, with the roadmap.',
+      'What Portfolio Beach is, who uses it, how the work flows and the areas built today, with the roadmap.',
     pages: 3,
   },
   {
@@ -54,8 +54,8 @@ const BROCHURES = [
     file: 'portfolio-beach-analytics-and-monitoring.pdf',
     title: 'Analytics and monitoring',
     description:
-      'The monitoring board, each deal quarter by quarter, the watchlist and the five analytics views. Value creation analytics are in progress.',
-    pages: 2,
+      'The monitoring board, each deal quarter by quarter, the watchlist and the analytics tabs, with a page on value creation and entry metrics.',
+    pages: 3,
   },
 ];
 
