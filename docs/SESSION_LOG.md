@@ -338,4 +338,14 @@ Phase 1 (M1, M2) as planned in Session 1, now with every read screen in place to
 - **Motion rules** are now written down (`docs/06` section 5): decoration only, off under the reduced motion setting.
 - The outline's numbers are separated by commas, not spaces: the bundler joins the lines with a dot, and three numbers set apart by dots and spaces read as a telephone number to the employer-data guard, which stopped the preview build once.
 
-**Verified:** see the table at the end of this entry once the session closes.
+**Verified (command output summarized)**
+
+- `pnpm typecheck` and `pnpm lint` clean; `pnpm exec vitest run`: 243 files, 4,464 tests passed; `pnpm test:rls`: 1,388 passed; `check:classification: OK (904 columns classified)`; `check-style: OK (1051 files)`; `check-employer-data: OK (1052 files)`.
+- Playwright, the map's spec against the local stack: 2 passed (counts and tables against the API, a marker to its deal, the wall, and the accessibility scan with a marker chosen, zoomed in and with nothing left). The whole suite runs in the pull request's CI.
+- Static preview rebuilt (the recordings now carry head offices); `probe-preview.mjs`: 194 passed, 0 failed. Frames of the opening and the tour were captured and looked at: the coast draws, the land washes in, the markers drop, the tour flies to the first city with its marker rippling.
+
+**Open items**
+
+- The deal fit radar chart on the pipeline (the owner said to use best judgement for a draft set of measures) is next.
+- The site's screenshots, recordings and brochures do not show the map; regenerating them is a media pass for a later session (the recordings need a video encoder this sandbox lacks).
+- The demo artifact is republished once this work is merged or the owner asks for it sooner.
