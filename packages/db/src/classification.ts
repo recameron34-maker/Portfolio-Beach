@@ -62,7 +62,15 @@ export const CLASSIFICATION: Record<string, TableClassification> = {
   'core.portfolio_company': {
     default: 'restricted_mnpi',
     retention: 'books_and_records',
-    columns: { name: 'internal', canonical_name: 'internal' },
+    // Where a company has its head office is as widely known as its name.
+    columns: {
+      name: 'internal',
+      canonical_name: 'internal',
+      hq_city: 'internal',
+      hq_country: 'internal',
+      hq_latitude: 'internal',
+      hq_longitude: 'internal',
+    },
   },
   'core.fund_holding': { default: 'restricted_mnpi', retention: 'books_and_records' },
   'core.vehicle': { default: 'internal', retention: 'books_and_records' },

@@ -326,3 +326,16 @@ Phase 1 (M1, M2) as planned in Session 1, now with every read screen in place to
 - **Publishing:** the host's build log of 15:18 UTC reads "The project is linked to a repository that no longer exists": after the change of visibility the host's GitHub App no longer sees the repository. That is the owner's to reconnect (the App's repository access on GitHub, then the project's Git settings on the host); nothing in the repository can do it.
 - **Owner's ideas, recorded in `docs/09`, not built:** a UI pass with professional animations, a co-investment map of company headquarters, and a deal fit radar chart on the pipeline.
 - **The browser suite's first run in CI:** 64 passed in 38.1 minutes (the accessibility spec alone took 21.6), then the job ran the accessibility tests a second time and was cancelled at its 40 minute limit. The job now runs the suite once (it already includes the tests tagged `@a11y`) with a 60 minute limit. On a private repository each such run uses about 50 of the account's monthly Actions minutes, so the accessibility spec is the place to look if that becomes a cost.
+
+### Session 10 (2026-11-12): the co-investment map
+
+**Asked by the owner:** "go ahead and use your best judgement for the draft radar chart measures, for the map, I want it to be drawn and animated, pleasing to the eye and fun to interact with".
+
+**What changed (decision 0017)**
+
+- **Data:** migration 0018 adds a head office to `core.portfolio_company` (city, country, latitude, longitude; whole or not at all). The synthetic generator gives each company a real city of its region from its own stream; one in ten has none. The portfolio row of the API carries `hq` or null.
+- **The map:** Analytics, Map. The world is drawn in the app's own SVG from public domain outlines generated at build time (`world-atlas`, a development dependency), projected with Equal Earth written out in the app. The coast draws itself, markers drop in, nearby cities share a marker and part as the map comes closer, a marker opens its positions beside the map with a link to each deal, and the reader moves by dragging, buttons, double click, keyboard or Ctrl with the wheel. Region buttons and a tour fly the view. A table under the map lists the same positions, and a second table lists the positions with no head office recorded, which are never placed.
+- **Motion rules** are now written down (`docs/06` section 5): decoration only, off under the reduced motion setting.
+- The outline's numbers are separated by commas, not spaces: the bundler joins the lines with a dot, and three numbers set apart by dots and spaces read as a telephone number to the employer-data guard, which stopped the preview build once.
+
+**Verified:** see the table at the end of this entry once the session closes.

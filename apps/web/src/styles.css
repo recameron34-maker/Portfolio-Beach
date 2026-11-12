@@ -1412,7 +1412,9 @@ p:last-child {
   }
 }
 
-/* ---- Motion policy: the only animated selectors in the app, parked at composed static offsets ---- */
+/* ---- Motion policy: the animated selectors of the shell and the sign-in scene, parked at composed
+   static offsets. The co-investment map keeps its own list at the foot of its stylesheet
+   (pages/analytics/map/map.css; docs/06 section 5). ---- */
 @media (prefers-reduced-motion: reduce), (update: slow) {
   .pb-scene-glow,
   .pb-scene-wave,

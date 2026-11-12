@@ -11,6 +11,7 @@ import {
   filterText,
   investmentDetail,
   investmentListQuery,
+  companyHq,
   investmentSummary,
   isoDate,
   pageQuery,
@@ -99,6 +100,7 @@ describe('contracts', () => {
       dealType: 'deal_type.co_invest_equity',
       sector: 'sector.software',
       geography: 'geography.north_america',
+      hq: { city: 'Austin', country: 'US', latitude: 30.2672, longitude: -97.7431 },
       vintage: 2022,
       entryDate: '2022-01-01',
       exitDate: null,
@@ -115,6 +117,23 @@ describe('contracts', () => {
     });
     expect(ok.success).toBe(true);
     expect(investmentSummary.safeParse({ ...ok.data, invested: 1000 }).success).toBe(false);
+  });
+
+  it('carries a head office whole or as null, on the globe, with a two-letter country', () => {
+    const hq = { city: 'Austin', country: 'US', latitude: 30.2672, longitude: -97.7431 };
+    expect(companyHq.safeParse(hq).success).toBe(true);
+    expect(investmentSummary.shape.hq.safeParse(null).success).toBe(true);
+    for (const bad of [
+      { ...hq, city: '' },
+      { ...hq, country: 'usa' },
+      { ...hq, country: 'us' },
+      { ...hq, latitude: 90.5 },
+      { ...hq, longitude: -180.5 },
+      { ...hq, latitude: '30.2672' },
+      { city: 'Austin', country: 'US' },
+    ])
+      expect(companyHq.safeParse(bad).success, JSON.stringify(bad)).toBe(false);
+    expect(investmentSummary.shape.hq.safeParse(undefined).success).toBe(false);
   });
 
   it('gives every position row its vehicle and sponsor ids, which the detail inherits', () => {

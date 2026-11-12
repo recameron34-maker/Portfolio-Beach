@@ -450,6 +450,8 @@ function convert(
     dealType: sim.row.dealType,
     sector: sim.row.sector,
     geography: sim.row.geography,
+    // An opportunity records no head office; the new position has none until someone records it.
+    hq: null,
     vintage: Number(closing.closeDate.slice(0, 4)),
     entryDate: closing.closeDate,
     exitDate: null,

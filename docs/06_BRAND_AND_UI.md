@@ -35,3 +35,9 @@ Derived tokens (`apps/web/src/app/theme.ts`, decision 0007) are formulas over th
 
 ## 4. Generated documents
 Template-driven (pptx, docx, xlsx) with stable chart sizes and positions between periods; change logs stored outside the output; disclosures inserted from a disclosure library.
+
+## 5. Motion, and the co-investment map
+- Motion is decoration: nothing a reader needs is said only by an animation, and nothing moves under the reduced motion setting (`prefers-reduced-motion`, or a slow display). Every animated selector is listed again in a reduced motion block where it is switched off: the app's in `styles.css` ("Motion policy"), the map's at the foot of `pages/analytics/map/map.css`.
+- Durations and easing come from the tokens (`--pb-dur-fast`, `--pb-dur`, `--pb-ease`, `--pb-ease-inout`). An entrance plays once; only a marker under the pointer, in focus or selected keeps moving (its ripple).
+- The co-investment map (decision 0017) uses the sign-in scene's colours the way the scene does: sky and sea for water, sand for land, the brand primary for the coast line. Markers take the chart series by deal type; a marker holding more than one type takes the brand primary. No other colour is introduced.
+- A map is never the only way to the information: the same positions are in a table under it, and positions it cannot place are listed with the reason.

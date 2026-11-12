@@ -39,7 +39,7 @@ doc.document 1-N doc.extraction_run 1-N stg.extracted_value
 | sponsor | name, canonical_name (unique), tier (taxonomy), hq | |
 | sponsor_fund | sponsor_id, canonical_name (unique), vintage, size_target, size_hard_cap, size_final, strategy | |
 | fund_alias | sponsor_fund_id, alias (unique) | name matching |
-| portfolio_company | canonical_name, sector, geography, description | |
+| portfolio_company | canonical_name, sector, geography, description, hq_city, hq_country (ISO 3166-1 alpha-2), hq_latitude, hq_longitude | The head office (migration 0018, decision 0017) is recorded whole or not at all; the co-investment map draws from it and never places a company that has none |
 | company_alias | portfolio_company_id, alias (unique across companies) | name matching, exact only (section 5); history; readable by every authenticated user, maintained by operations and platform admins (migration 0010) |
 | fund_holding | sponsor_fund_id, portfolio_company_id | |
 | vehicle | name (unique), type (co_invest, cv, primary_program (fund of funds), private_credit, client_sma), vintage, currency, closing_count | |

@@ -7,6 +7,7 @@ import type { CompanyAlias } from './aliases.js';
 import { controlsConfig, generateControls } from './controls.js';
 import type { ControlledCapitalNotice, ControlsConfig, ControlsDataset } from './controls.js';
 import { NameFactory, canonical } from './names.js';
+import { NO_HEADQUARTERS, assignHeadquarters } from './places.js';
 import { Rng } from './prng.js';
 import { PROFILES } from './profiles.js';
 import type { Profile } from './profiles.js';
@@ -478,6 +479,7 @@ export function generateDataset(options: GenerateOptions = {}): GeneratedDataset
       sector,
       geography: rng.weighted(GEOS),
       description: 'Synthetic portfolio company.',
+      ...NO_HEADQUARTERS,
     };
     company.canonicalName = canonical(company.name);
     portfolioCompanies.push(company);
@@ -923,6 +925,7 @@ export function generateDataset(options: GenerateOptions = {}): GeneratedDataset
       sector: company.sector,
       geography: company.geography,
       description: 'Unrelated company with a similar name.',
+      ...NO_HEADQUARTERS,
     };
     twin.canonicalName = canonical(twin.name);
     portfolioCompanies.push(twin);
@@ -1202,6 +1205,9 @@ export function generateDataset(options: GenerateOptions = {}): GeneratedDataset
       !walledIds.has(i.id) &&
       !guardedNames.has(portfolioCompanies.find((c) => c.id === i.portfolioCompanyId)?.name ?? ''),
   );
+  // Head offices come from a stream of their own, after every company exists (places.ts).
+  assignHeadquarters(portfolioCompanies, seed);
+
   const companyAliases = companyAliasesFor(
     portfolioCompanies,
     matchGuards,

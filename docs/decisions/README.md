@@ -13,3 +13,4 @@ Status values: Proposed, Accepted, Superseded (link the replacement).
 - 0014: Value creation and entry metric analytics
 - 0015: A public website for the prototype, and how it is published
 - 0016: Security checks on a private repository (free equivalents of code scanning and dependency review)
+- 0017: The co-investment map (a drawn, animated world with company head offices)

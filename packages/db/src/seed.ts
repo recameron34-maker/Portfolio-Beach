@@ -18,6 +18,8 @@ import * as schema from './schema/index.js';
  */
 const money = z.string().regex(/^-?\d+(\.\d+)?$/);
 const isoDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
+/** Degrees as the numeric(8, 5) columns of a head office hold them: "-97.74310". */
+const coordinate = z.string().regex(/^-?\d{1,3}\.\d{1,5}$/);
 /** A UTC instant such as 2025-03-31T12:00:00Z; the generator derives it, the loader writes it. */
 const isoTimestamp = z.iso.datetime();
 /** An instant, or a business date the loader reads as UTC midnight (never a local time zone). */
@@ -108,6 +110,16 @@ export const syntheticDatasetSchema = z.object({
       sector: z.string().nullable(),
       geography: z.string().nullable(),
       description: z.string().nullable(),
+      // Head office (migration 0018): all four or none, as the table requires. A file made
+      // before them loads with none.
+      hqCity: z.string().min(1).nullable().default(null),
+      hqCountry: z
+        .string()
+        .regex(/^[A-Z]{2}$/)
+        .nullable()
+        .default(null),
+      hqLatitude: coordinate.nullable().default(null),
+      hqLongitude: coordinate.nullable().default(null),
     }),
   ),
   fundHoldings: z.array(z.object({ id: uuid, sponsorFundId: uuid, portfolioCompanyId: uuid })),

@@ -18,6 +18,7 @@ import {
   CreditTab,
   EntryMetricsTab,
   ExposureTab,
+  MapTab,
   PerformanceAnalyticsTab,
   RealizationsTab,
   ValueCreationTab,
@@ -183,6 +184,7 @@ const filteredAnalyticsTab = <P extends string>(path: P, component: () => ReactN
   });
 const analyticsValueCreationRoute = filteredAnalyticsTab('/value-creation', ValueCreationTab);
 const analyticsEntryMetricsRoute = filteredAnalyticsTab('/entry-metrics', EntryMetricsTab);
+const analyticsMapRoute = analyticsTab('/map', MapTab);
 const analyticsCreditRoute = analyticsTab('/credit', CreditTab);
 const analyticsRealizationsRoute = analyticsTab('/realizations', RealizationsTab);
 const analyticsClientsRoute = analyticsTab('/clients', ClientAnalyticsTab);
@@ -287,6 +289,7 @@ const routeTree = rootRoute.addChildren([
       analyticsPerformanceRoute,
       analyticsValueCreationRoute,
       analyticsEntryMetricsRoute,
+      analyticsMapRoute,
       analyticsCreditRoute,
       analyticsRealizationsRoute,
       analyticsClientsRoute,

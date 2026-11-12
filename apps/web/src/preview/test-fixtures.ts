@@ -407,6 +407,7 @@ export function investmentFixture(
     dealType: 'deal_type.co_invest_equity',
     sector: null,
     geography: null,
+    hq: null,
     vintage: 2023,
     entryDate: '2023-01-15',
     closeDate: '2023-01-15',

@@ -584,4 +584,46 @@ describe('database guards', () => {
       ).rejects.toThrow(/only inside a user transaction/);
     });
   });
+
+  describe('Company headquarters (migration 0018, the co-investment map)', () => {
+    const setHq = (assignments: string): Promise<void> =>
+      asOps((tx) =>
+        tx.execute(
+          sql.raw(`update core.portfolio_company set ${assignments} where id = '${ids.company1}'`),
+        ),
+      );
+
+    it('is recorded whole: city, country and both coordinates', async () => {
+      await setHq(
+        "hq_city = 'Austin', hq_country = 'US', hq_latitude = 30.26715, hq_longitude = -97.74306",
+      );
+      const rows = await handle.query<{ hq_city: string; hq_latitude: string }>(
+        `select hq_city, hq_latitude::text from core.portfolio_company where id = '${ids.company1}'`,
+      );
+      expect(rows).toEqual([{ hq_city: 'Austin', hq_latitude: '30.26715' }]);
+      // And it can be taken off again, whole.
+      await setHq('hq_city = null, hq_country = null, hq_latitude = null, hq_longitude = null');
+    });
+    it('is refused in part: a city with no coordinates would be a guess on the map', async () => {
+      await expectDbRejection(setHq("hq_city = 'Austin'"), /portfolio_company_hq_whole/);
+      await expectDbRejection(
+        setHq('hq_latitude = 30.26715, hq_longitude = -97.74306'),
+        /portfolio_company_hq_whole/,
+      );
+    });
+    it('is refused off the globe or with a country that is not a two-letter code', async () => {
+      const whole = (lat: string, lon: string, country: string): Promise<void> =>
+        setHq(
+          `hq_city = 'Austin', hq_country = '${country}', hq_latitude = ${lat}, hq_longitude = ${lon}`,
+        );
+      // The constraint's name, which the statement itself does not carry.
+      await expectDbRejection(whole('90.5', '0', 'US'), /portfolio_company_hq_latitude_range/);
+      await expectDbRejection(whole('0', '180.5', 'US'), /portfolio_company_hq_longitude_range/);
+      await expectDbRejection(whole('0', '0', 'us'), /portfolio_company_hq_country_code/);
+      await expectDbRejection(
+        whole('0', '0', 'US').then(() => setHq("hq_city = ' '")),
+        /portfolio_company_hq_city_filled/,
+      );
+    });
+  });
 });

@@ -14,6 +14,7 @@ import {
   diligenceTemplateFor,
 } from './controls.js';
 import { generateDataset } from './generate.js';
+import { PLACES } from './places.js';
 import { DATA_SCENARIOS } from './profiles.js';
 import { verifyDataset } from './verify.js';
 
@@ -25,6 +26,39 @@ describe('synthetic generator', () => {
     expect(JSON.stringify(again)).toBe(JSON.stringify(small));
     const other = generateDataset({ profile: 'small', seed: 43 });
     expect(JSON.stringify(other)).not.toBe(JSON.stringify(small));
+  });
+
+  it('gives companies a head office in their own geography, whole or not at all', () => {
+    const cities = new Map(
+      Object.entries(PLACES).flatMap(([geography, places]) =>
+        places.map((p) => [`${p.city}|${p.country}`, { geography, ...p }] as const),
+      ),
+    );
+    let placed = 0;
+    for (const c of small.portfolioCompanies) {
+      const parts = [c.hqCity, c.hqCountry, c.hqLatitude, c.hqLongitude];
+      if (parts.every((p) => p === null)) continue;
+      expect(
+        parts.every((p) => p !== null),
+        c.name,
+      ).toBe(true);
+      const known = cities.get(`${c.hqCity}|${c.hqCountry}`);
+      // A real city of the list, at its own coordinates, in the company's geography.
+      expect(known, c.name).toBeDefined();
+      expect(known?.geography, c.name).toBe(c.geography);
+      expect([c.hqLatitude, c.hqLongitude], c.name).toEqual([known?.latitude, known?.longitude]);
+      placed += 1;
+    }
+    // Most are placed, and the case with nothing recorded is in the data for the map to show.
+    expect(placed).toBeGreaterThan(small.portfolioCompanies.length / 2);
+    expect(placed).toBeLessThan(small.portfolioCompanies.length);
+    // The list itself: coordinates on the globe to five places, two-letter countries.
+    for (const p of cities.values()) {
+      expect(p.country, p.city).toMatch(/^[A-Z]{2}$/);
+      expect(Math.abs(Number(p.latitude)), p.city).toBeLessThanOrEqual(90);
+      expect(Math.abs(Number(p.longitude)), p.city).toBeLessThanOrEqual(180);
+      expect(p.latitude, p.city).toMatch(/^-?\d{1,2}\.\d{5}$/);
+    }
   });
 
   it('passes its own consistency checks and carries every data-level scenario', () => {
@@ -91,6 +125,18 @@ describe('synthetic generator', () => {
         'select count(*)::int as n from core.investment',
       );
       expect(total[0]?.n).toBe(20);
+
+      // Head offices arrive whole, to the fifth place, and the companies without one stay without.
+      const placed = small.portfolioCompanies.filter((c) => c.hqCity !== null);
+      const stored = await handle.query<{ name: string; lat: string; lon: string }>(
+        `select name, hq_latitude::text as lat, hq_longitude::text as lon
+           from core.portfolio_company where hq_city is not null order by name`,
+      );
+      expect(stored).toEqual(
+        placed
+          .map((c) => ({ name: c.name, lat: c.hqLatitude, lon: c.hqLongitude }))
+          .sort((a, b) => (a.name < b.name ? -1 : 1)),
+      );
 
       // M1 acceptance: every active investment resolves Investment > Vehicle > Sponsor Fund > Sponsor.
       const orphans = await handle.query<{ n: number }>(`

@@ -227,7 +227,7 @@ Global rules in `CLAUDE.md` apply to every module. Workflow states are defined i
 
 ## M20. Advanced Analytics
 **Features:** look-through exposures at cost and NAV; benchmarking with quartiles and PME (Kaplan-Schoar, Direct Alpha); liquidity forecasting (Takahashi-Alexander with tunable parameters); value creation attribution (revenue, margin, multiple, leverage); exit analytics; credit analytics (maturity ladder, weighted average yield and spread, exposure by seniority and base rate, PIK share of income); manager diligence pack.
-**Prototype scope:** synthetic benchmark and index series.
+**Prototype scope:** synthetic benchmark and index series. Built ahead of the phase at the owner's request: value creation and entry metric analytics (decision 0014) and the co-investment map of company head offices (decision 0017).
 **Depends on:** M9, M16. **AC:** PME and attribution results match the worked examples in `docs/08`.
 
 ## M21. Data Access: Excel Add-in, API and Warehouse Feed
