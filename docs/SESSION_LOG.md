@@ -282,3 +282,33 @@ Phase 1 (M1, M2) as planned in Session 1, now with every read screen in place to
 - Small follow-ups: exceptions about change requests show the raw entity name on the exceptions page (a label and a link to the queue); two valuation creates inside one quarter's tolerance can both start a chain (the second is refused at lock).
 - Out of the prototype by decision 0013: Teams approval cards, the monthly new-deal confirmation, AI-assisted legal term extraction, consent requests (M19), look-alike domain alerts, alert dispatch, a tasks route for the reopen alerts (the task rows exist).
 - The look-through spec restates the two tie tolerances (LT-TIE-01, LT-TIE-02) to derive its expectation from the API's figures; if the rules change shape, the spec follows `packages/validation/src/rules/lookthrough.ts`.
+
+## Session 9 (2026-11-11 to 2026-11-12): the owner's decisions, client allocation lines, value creation analytics, the website and how it is published (decisions 0013 last section, 0014, 0015)
+
+**Branch:** `claude/gifted-tesla-eg7s85` (about 385 commits over `main`). Synthetic data only; no employer information anywhere.
+
+**What changed**
+
+- **The owner's decisions on the review's open items** are recorded in their own words, with the reading taken, in the last section of decision 0013. General guidance for later sessions: no safeguards beyond those the build guide names; lead with totals and the headline figure, keep detail beneath.
+- **Client allocation lines (finding D1-06, migration 0017).** The investment team (the deal team and approvers) is entitled to every client, as operations is (`pb.sees_all_clients()` gains `deal_team`); a viewer and a platform admin read no client data and investor relations its own clients (SEC-5.2, SEC-5.4). A client-level allocation line is read by whoever reads its client. The tie-out and a new `opportunityDetail.allocationTotals` are built from totals read as the system actor, so every reader gets the same figures and is told how many lines are not shown. Every allocation surface leads with the commitment and the received total; client lines sit under their vehicle in a quiet "Client breakdown" disclosure. Decision 0013 lists each surface that opened for the deal team.
+- **Value creation and entry metric analytics (decision 0014).** `@pb/calc` gains the EBITDA bridge (EBITDA growth, multiple expansion, debt paydown; EBITDA opens into revenue and margin), our gain by driver at our entry stake with a shown "Mark and timing" remainder, entry bands and one roll-up function the API and the page share. Three audited read routes; two Analytics tabs (Value creation, Entry metrics) with exact filters by vehicle, sponsor, sector, deal type, entry year and status; a value creation card on each deal. The first roll-up rule (our gain split by the company's driver shares) was replaced after it distorted the headline on a company whose equity value barely moved. A realized position's bridge stops at its exit; a forward-dated entry snapshot has its own reason.
+- **The website (`apps/site`, decision 0015).** A static site: an overview of the tool, a feature tour from real screenshots, captioned screen recordings, PDF brochures and the interactive preview at `demo/`, all generated from the preview by script. The copy says only what is built and carries the prototype notice.
+- **Publishing.** The owner connected the repository to the host's own build, so a push to `main` publishes: `wrangler.toml` at the repository root serves `apps/site/dist`, runs the site's build itself and carries the domain in one line. The generated media is committed because that build cannot run a browser. `.github/workflows/site.yml` only builds and checks. The owner's other repository, which holds the domain today, has a pull request that stops it claiming the domain, to merge after this site has published.
+
+**Verified (command output summarized, merged tree)**
+
+- `pnpm typecheck` clean; `pnpm lint` clean; `check-style: OK (970 files)`; `check-employer-data: OK (971 files)`; `check:classification: OK (900 columns classified)`; `pnpm openapi:generate` wrote 85 paths.
+- `pnpm exec vitest run`: 238 files, 4,400 tests passed. `pnpm test:calc`: 100 calc tests, 36 Python tests and the cross-check of 400 cases with 0 mismatches. `pnpm test:rls`: 1,388 passed. `pnpm test:evals`: 12 passed.
+- Playwright against the local stack, the whole suite in one run: 64 passed (18.3 minutes), including the value creation spec and the accessibility entries for the new pages.
+- Preview: `build-preview.mjs` built 97 files (7,494 recorded answers); `probe-preview.mjs`: 194 passed, 0 failed, 0 skipped. The artifact was republished at the same URL (version 11).
+- The host's build could not be run from a session. Verified from the deploy tool itself (wrangler 4.146.0: help, config schema, source and dry runs): an assets-only configuration runs its build command before reading the folder; inside the host's build the connected Worker's name overrides the file's; outside a terminal a custom domain held by another Worker is taken over without a prompt.
+
+**Owner items**
+
+- **Publishing order:** merge this branch's pull request (the host then builds and publishes to the domain in `wrangler.toml`); once the domain shows the site, merge the pull request in the other repository. The first host build after the merge is the real test; paste its log if it fails.
+- The repository is public; the build guide (SEC-17.5) asks for private visibility on a personal repo. Nothing in it is real data. Confirm the setting.
+- Client data: the investment team reading every client is my reading of the owner's words, reversible by one migration (decision 0013).
+- Analytics: on the synthetic book "Mark and timing" is the largest part and nearly every mark sits above the EBITDA line, because the generator marks most positions at our stake of company equity. Varying the seed would make the views more telling but moves golden figures across the repo.
+- For a reader who is shown fewer allocation lines, a vehicle's own total is the missing-value placeholder, not a partial sum; the API could answer per-vehicle totals if wanted.
+- Media: when the tool changes, regenerate the site's media in a session and commit it, or the site shows old pictures. Each regeneration adds tens of megabytes to the repository's history.
+- Still open from Session 8: the idempotency store's purge and key, the seed gaps (no operations member on the seeded wall; no decision rows on seeded Locked valuations), `If-Match` optional on the API, the small follow-ups listed there.
