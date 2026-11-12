@@ -423,7 +423,12 @@ export const CONTROLS = {
 export const VIDEOS = {
   eyebrow: 'Demo videos',
   title: 'Watch it work.',
-  lead: 'Short screen recordings made by script from the demo. A caption bar says what is happening at each step. There is no sound.',
+  lead: 'Short screen recordings made by script from the demo. A caption bar says what is happening at each step.',
+  /** Added to the lead when every recording has a voice track, and when none has. */
+  narrated: 'A computer-generated voice reads each caption aloud.',
+  silent: 'There is no sound.',
+  narratedMeta: 'narrated',
+  silentMeta: 'no sound',
   unsupported:
     'This browser cannot play WebM video. The frame above is from the recording, and the steps are listed below.',
   stepsLabel: 'Steps in this video',

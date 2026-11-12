@@ -360,7 +360,10 @@ function video(item: DemoVideo, wide: boolean, mirrored: boolean): Markup {
     <div class="video-text">
       <h3>${item.title}</h3>
       <p>${item.summary}</p>
-      <p class="meta">${lengthText(item.seconds)} · ${sizeText(item.bytes)} · no sound</p>
+      <p class="meta">
+        ${lengthText(item.seconds)} · ${sizeText(item.bytes)} ·
+        ${item.narrated === true ? VIDEOS.narratedMeta : VIDEOS.silentMeta}
+      </p>
       <p class="video-unsupported" data-video-unsupported hidden>${VIDEOS.unsupported}</p>
       <details class="steps">
         <summary>${VIDEOS.stepsLabel}</summary>
@@ -372,6 +375,17 @@ function video(item: DemoVideo, wide: boolean, mirrored: boolean): Markup {
   </article>`;
 }
 
+/**
+ * What the lead says about sound: that a voice reads the captions when every recording has a
+ * voice track, that there is none when no recording has one, and nothing when they differ (each
+ * recording says which it is beside its length).
+ */
+function soundNote(items: readonly DemoVideo[]): string {
+  if (items.length > 0 && items.every((item) => item.narrated === true)) return VIDEOS.narrated;
+  if (items.every((item) => item.narrated !== true)) return VIDEOS.silent;
+  return '';
+}
+
 function videos(media: Media): Markup {
   return html`<section class="band band-plain videos" id="videos" aria-labelledby="videos-title">
     ${crest()}
@@ -379,7 +393,7 @@ function videos(media: Media): Markup {
       <div class="section-head" data-reveal>
         ${eyebrow(VIDEOS.eyebrow)}
         <h2 id="videos-title">${VIDEOS.title}</h2>
-        <p class="lead">${VIDEOS.lead}</p>
+        <p class="lead">${VIDEOS.lead} ${soundNote(media.videos)}</p>
       </div>
       <div class="video-grid">
         ${media.videos.map((item, i) => {

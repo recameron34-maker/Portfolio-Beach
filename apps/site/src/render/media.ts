@@ -23,6 +23,8 @@ export interface DemoVideo {
   height: number;
   seconds: number;
   bytes: number;
+  /** The recording has a voice track that reads its captions (absent in older manifests). */
+  narrated?: boolean;
   steps: { at: number; text: string }[];
 }
 

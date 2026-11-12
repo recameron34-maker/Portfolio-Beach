@@ -228,6 +228,36 @@ describe('the page', () => {
     expect(page).not.toContain('autoplay');
   });
 
+  it('says whether the recordings have sound: a voice track is named, and so is its absence', () => {
+    // The fixture's recording has no voice track.
+    expect(page).toContain(content.VIDEOS.silent);
+    expect(page).toMatch(/58 seconds · 4\.9 MB ·\s+no sound/);
+    expect(page).not.toContain(content.VIDEOS.narrated);
+
+    const narrated = media();
+    narrated.videos = narrated.videos.map((video) => ({ ...video, narrated: true }));
+    const spoken = renderPage(narrated);
+    expect(spoken).toContain(content.VIDEOS.narrated);
+    expect(spoken).toMatch(/58 seconds · 4\.9 MB ·\s+narrated/);
+    expect(spoken).not.toContain(content.VIDEOS.silent);
+    // Sound never starts by itself: the viewer presses play.
+    expect(spoken).not.toContain('autoplay');
+
+    // When the recordings differ, the lead says nothing and each one says which it is.
+    const mixed = media();
+    const first = mixed.videos[0];
+    if (first === undefined) throw new Error('the fixture has a recording');
+    mixed.videos = [
+      { ...first, narrated: true },
+      { ...first, name: 'second', narrated: false },
+    ];
+    const both = renderPage(mixed);
+    expect(both).not.toContain(content.VIDEOS.narrated);
+    expect(both).not.toContain(content.VIDEOS.silent);
+    expect(both).toMatch(/·\s+narrated/);
+    expect(both).toMatch(/·\s+no sound/);
+  });
+
   it('links a brochure to its PDF with its page count', () => {
     expect(page).toContain('href="media/brochures/portfolio-beach-product-overview.pdf"');
     expect(page).toContain('3 pages');

@@ -35,11 +35,20 @@ Keep the folder lean: every regeneration adds its size to the repository's histo
 | Script | Makes |
 |---|---|
 | `scripts/capture-screens.mjs` | Screenshots at 1440 by 900 with a device scale factor of 2, light theme, each taken as the mock user who holds the role for that screen. WebP at two widths, plus `media/screens/manifest.json`. `--only name,name` retakes some. |
-| `scripts/record-demos.mjs` | Six recordings at 1280 by 720 with Playwright `recordVideo`, each a minute at most: a title card, a caption bar that says what is happening, a visible pointer and pauses long enough to read each caption. WebM (VP8), a poster frame each, and a manifest with every recording's length, size and captions (the page prints the captions as a text list). Each file is then encoded again as VP8 at a constant quality under 480 kbit/s, by the ffmpeg that Playwright installs beside its browsers (`PB_FFMPEG` points at another; without one the file is kept as Chromium wrote it, about twice the size). `--only name` records one; `--frames <dir>` writes a still per caption to look at; `--no-compress` skips the second encoding. |
+| `scripts/record-demos.mjs` | Six recordings at 1280 by 720 with Playwright `recordVideo`: a title card, a caption bar that says what is happening, a visible pointer and pauses long enough to read each caption. Each caption is also spoken by an open-source voice that runs on the machine (see "Narration"), which makes a recording up to a minute and a half long. WebM (VP8), a poster frame each, and a manifest with every recording's length, size and captions (the page prints the captions as a text list). Each file is then encoded again as VP8 at a constant quality under 480 kbit/s, by the ffmpeg that Playwright installs beside its browsers (`PB_FFMPEG` points at another; without one the file is kept as Chromium wrote it, about twice the size). `--only name` records one; `--frames <dir>` writes a still per caption to look at; `--no-compress` skips the second encoding. |
 | `scripts/make-brochures.mjs` | The HTML templates in `brochures/` rendered to Letter-size PDFs with `page.pdf()`, a cover thumbnail each, and a manifest with the page counts. It fails when a sheet's content would run past its footer. `--pages <dir>` writes every sheet as a PNG; `--ui-font "DejaVu Sans"` renders with another font to see that the sheets still fit. |
 | `scripts/shoot-site.mjs` | Screenshots of the built site itself (desktop and phone, light and dark, whole page and each section), for looking at the design. They go to `--out <dir>`, or to the system's temporary folder: never into `media/`. |
 
 `scripts/build.mjs` runs them in order: the preview when it is missing (`apps/web/scripts/build-preview.mjs`, after `tsc -b`), the screenshots, the recordings, the brochures, `vite build`, the copy of the demo, and the employer-data guard over the built folder. Pass `--fresh-preview` after the web app changed, so the media is taken from a new preview.
+
+### Narration
+
+`record-demos.mjs` gives each recording a voice track that reads its captions (decision 0020). The voice, the pace, the spoken form of a few terms and the model files with their SHA-256 values are in `narration.config.json`; `scripts/narrate.py` speaks the captions and `scripts/lib/narration.mjs` lays the clips under the picture at the times the captions appear. Nothing is sent to a service.
+
+- It needs `uv` (the script lists its own dependency, `kokoro-onnx`) and an `ffmpeg` on the PATH that can write Opus (`PB_FFMPEG_AUDIO` names another). The one Playwright installs has no audio.
+- The first run downloads the model files (about 350 MB) into `apps/site/.cache`, which is ignored, with the clips. `PB_VOICE_MODELS` and `PB_NARRATION_CACHE` move them; `PB_NARRATE_PYTHON` names an interpreter that already has the engine.
+- `--no-narration` records without sound, as before.
+- To change the voice, edit `voice` and `lang` in `narration.config.json` and record again.
 
 The scripts need Chromium. `PW_CHROMIUM_PATH` points at one; otherwise Playwright's own is used (`pnpm --filter @pb/site exec playwright install chromium`), or the preinstalled build of a cloud sandbox.
 
