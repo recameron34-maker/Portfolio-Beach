@@ -247,6 +247,11 @@ describe('change request queue', () => {
         ),
       ).toBeInTheDocument();
 
+      // The row actions are disabled while a command is still settling (the list is read again),
+      // so wait for the next one to be offered before clicking it.
+      await waitFor(() =>
+        expect(button('Apply, New security for Cobalt Energy Group')).toBeEnabled(),
+      );
       await userEvent.click(button('Apply, New security for Cobalt Energy Group'));
       const apply = await screen.findByRole('dialog');
       expect(
@@ -267,6 +272,9 @@ describe('change request queue', () => {
         ),
       ).toBeInTheDocument();
 
+      await waitFor(() =>
+        expect(button('Reject, Recapitalization for Silverline Staffing Holdings')).toBeEnabled(),
+      );
       await userEvent.click(button('Reject, Recapitalization for Silverline Staffing Holdings'));
       const reject = await screen.findByRole('dialog');
       await userEvent.type(
