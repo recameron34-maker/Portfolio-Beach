@@ -2,6 +2,11 @@
   "generatedFrom": "apps/web/dist-preview",
   "asOf": "2025-06-30",
   "format": "video/webm",
+  "narration": {
+    "engine": "kokoro-onnx 0.6.1",
+    "voice": "bf_emma",
+    "lang": "en-gb"
+  },
   "videos": [
     {
       "name": "tour",
@@ -11,55 +16,56 @@
       "poster": "tour.webp",
       "width": 1280,
       "height": 720,
-      "seconds": 57.7,
-      "bytes": 2110685,
+      "seconds": 61.8,
+      "bytes": 2256692,
+      "narrated": true,
       "steps": [
         {
           "at": 3.5,
           "text": "The prototype signs in with a picker of synthetic users. Each one holds a role."
         },
         {
-          "at": 9.3,
+          "at": 9.8,
           "text": "Home: invested capital, NAV and returns for the positions this user may see."
         },
         {
-          "at": 13.9,
+          "at": 15.7,
           "text": "What needs attention comes first: watchlist flags and capital notices that are due."
         },
         {
-          "at": 18.5,
+          "at": 21.6,
           "text": "Exposure and the NAV trend, from Locked valuations only."
         },
         {
-          "at": 22.2,
+          "at": 26.2,
           "text": "The portfolio: every position in one grid."
         },
         {
-          "at": 25.7,
+          "at": 29.6,
           "text": "Search, filter by deal type, or export the grid to CSV."
         },
         {
-          "at": 29,
+          "at": 33.6,
           "text": "Opening a row shows the one-pager for that deal."
         },
         {
-          "at": 31.8,
+          "at": 36.6,
           "text": "The one-pager: invested capital, current NAV, gross MOIC and gross IRR."
         },
         {
-          "at": 36.3,
+          "at": 42.5,
           "text": "Financial performance for the latest quarter, with the prior year beside it when it is on record."
         },
         {
-          "at": 42,
+          "at": 48.6,
           "text": "Back to the portfolio, and on to the monitoring board."
         },
         {
-          "at": 45,
+          "at": 51.7,
           "text": "Monitoring: for each active position, whether the quarterly report is in, read and approved."
         },
         {
-          "at": 50.1,
+          "at": 57.7,
           "text": "Each row links to the report, the extraction run and the approval."
         }
       ]
@@ -72,43 +78,44 @@
       "poster": "valuation.webp",
       "width": 1280,
       "height": 720,
-      "seconds": 58.6,
-      "bytes": 2605030,
+      "seconds": 54,
+      "bytes": 2436598,
+      "narrated": true,
       "steps": [
         {
           "at": 4.3,
           "text": "The valuation board. One active position has no mark for this quarter yet."
         },
         {
-          "at": 8.5,
+          "at": 9,
           "text": "Operations starts a draft: the position, the method and the fair value."
         },
         {
-          "at": 17.9,
+          "at": 18.4,
           "text": "Operations prepares it."
         },
         {
-          "at": 20.3,
+          "at": 20.9,
           "text": "Next, the deal team. The person who prepared a valuation can never approve it."
         },
         {
-          "at": 27.4,
+          "at": 27.8,
           "text": "Last, an approver selects the version and locks it from the batch bar."
         },
         {
-          "at": 36.6,
+          "at": 37,
           "text": "The version screen shows what the lock covers."
         },
         {
-          "at": 39.2,
+          "at": 39.6,
           "text": "The lock is a SHA-256 hash over the version, the method, its inputs and the fair value."
         },
         {
-          "at": 44.6,
+          "at": 45.6,
           "text": "Three decisions by three different people."
         },
         {
-          "at": 47.5,
+          "at": 48.5,
           "text": "Reports read Locked valuations only. A correction reopens one into a new version."
         }
       ]
@@ -121,47 +128,48 @@
       "poster": "capital-call.webp",
       "width": 1280,
       "height": 720,
-      "seconds": 58.4,
-      "bytes": 2428957,
+      "seconds": 59.4,
+      "bytes": 2186421,
+      "narrated": true,
       "steps": [
         {
           "at": 3.5,
           "text": "Capital activity: calls, distributions and payments, with alerts as due dates approach."
         },
         {
-          "at": 7.2,
+          "at": 9,
           "text": "This capital call is due in two days and is marked Wire change."
         },
         {
-          "at": 11.2,
+          "at": 13.2,
           "text": "Two alerts: the wire instructions changed, and the notice presses for a quick payment."
         },
         {
-          "at": 15.8,
+          "at": 18.2,
           "text": "Operations reviews the call and drafts the trade ticket."
         },
         {
-          "at": 20.9,
+          "at": 23.2,
           "text": "The release is blocked. The wire changed inside the hold window, and a preparer cannot approve their own ticket."
         },
         {
-          "at": 26.6,
+          "at": 29.6,
           "text": "A second operations person opens the proposed instruction in the wire register."
         },
         {
-          "at": 31.8,
+          "at": 34.7,
           "text": "They call back on a number sourced independently, and record the result."
         },
         {
-          "at": 36.5,
+          "at": 39.3,
           "text": "The new version is verified and active. The earlier one is superseded."
         },
         {
-          "at": 40.1,
+          "at": 43.8,
           "text": "Inside the hold window the release needs a third person: an approver who touched neither step."
         },
         {
-          "at": 47.4,
+          "at": 51.7,
           "text": "The ticket is approved against the verified instruction. Bank details stay masked outside the wire register."
         }
       ]
@@ -174,43 +182,44 @@
       "poster": "deal.webp",
       "width": 1280,
       "height": 720,
-      "seconds": 54.1,
-      "bytes": 2395038,
+      "seconds": 55.2,
+      "bytes": 2441193,
+      "narrated": true,
       "steps": [
         {
           "at": 4.1,
           "text": "The pipeline: every deal by stage. This one is in diligence."
         },
         {
-          "at": 7.7,
+          "at": 8.2,
           "text": "The gate: no investment committee while a required task is open."
         },
         {
-          "at": 11,
+          "at": 12.2,
           "text": "The deal team completes the required tasks."
         },
         {
-          "at": 13.5,
+          "at": 15,
           "text": "An approver takes it to committee and records the decision."
         },
         {
-          "at": 24.5,
+          "at": 26.1,
           "text": "Operations opens the closing with one close date."
         },
         {
-          "at": 32.9,
+          "at": 34.5,
           "text": "The allocation leads with the commitment and the amount received against it."
         },
         {
-          "at": 36.5,
+          "at": 38.9,
           "text": "Client lines sit beneath their vehicle, in a breakdown that opens on request."
         },
         {
-          "at": 40.5,
+          "at": 43.8,
           "text": "Documents received, allocations tied: operations confirms the closing."
         },
         {
-          "at": 42.9,
+          "at": 48.6,
           "text": "The deal closes and becomes a position. It carries no figure yet: nothing is invented."
         }
       ]
@@ -223,51 +232,52 @@
       "poster": "documents.webp",
       "width": 1280,
       "height": 720,
-      "seconds": 58.1,
-      "bytes": 2605024,
+      "seconds": 56.5,
+      "bytes": 2379736,
+      "narrated": true,
       "steps": [
         {
           "at": 3.5,
           "text": "The document hub starts empty. Operations indexes the document store."
         },
         {
-          "at": 6.8,
+          "at": 8.1,
           "text": "Each file is hashed, tagged by a classifier and linked to its deal or fund."
         },
         {
-          "at": 11.4,
+          "at": 12.7,
           "text": "A tag below the confidence threshold waits in the review queue for a person."
         },
         {
-          "at": 15.6,
+          "at": 16.9,
           "text": "Extraction: a batch reads the financial reports of the quarter."
         },
         {
-          "at": 19.9,
+          "at": 21.1,
           "text": "In the prototype a mock model answers. Each run waits for a reviewer."
         },
         {
-          "at": 25.8,
+          "at": 27.6,
           "text": "Every value in a run carries its page, a short quote and a confidence."
         },
         {
-          "at": 30.1,
+          "at": 32.2,
           "text": "Click a value to see where it was read: the page, with the quote highlighted."
         },
         {
-          "at": 35.4,
+          "at": 37.4,
           "text": "Clean values are accepted in one go. Flagged ones are decided one by one."
         },
         {
-          "at": 39.6,
+          "at": 42.4,
           "text": "The reviewer approves with a reason. Nothing reaches the record before this."
         },
         {
-          "at": 44,
+          "at": 47,
           "text": "The deal team now reads the quarter on the position."
         },
         {
-          "at": 48.2,
+          "at": 51.2,
           "text": "The approved figures link back to the document and the page they came from."
         }
       ]
@@ -280,47 +290,48 @@
       "poster": "value-creation.webp",
       "width": 1280,
       "height": 720,
-      "seconds": 50,
-      "bytes": 2155994,
+      "seconds": 54.8,
+      "bytes": 2186947,
+      "narrated": true,
       "steps": [
         {
           "at": 3.5,
           "text": "Analytics, Value creation: the gain on equity and continuation vehicle positions."
         },
         {
-          "at": 7.1,
+          "at": 9.3,
           "text": "The tiles split it by driver: EBITDA growth, multiple expansion, debt paydown, and mark and timing."
         },
         {
-          "at": 11.9,
+          "at": 15.6,
           "text": "A bridge walks from invested capital to value now."
         },
         {
-          "at": 14.6,
+          "at": 18.8,
           "text": "A switch opens EBITDA growth into revenue growth and margin change."
         },
         {
-          "at": 18,
+          "at": 23.4,
           "text": "Each company: valuation growth against its EBITDA growth since entry."
         },
         {
-          "at": 21,
+          "at": 27.8,
           "text": "Measured here on enterprise value, the like-for-like view."
         },
         {
-          "at": 25.1,
+          "at": 31.8,
           "text": "A filter to one vehicle. Every figure is rolled up again over its positions."
         },
         {
-          "at": 29.3,
+          "at": 36.5,
           "text": "Entry metrics keeps the filter: performance by entry purchase multiple band and by entry net leverage band."
         },
         {
-          "at": 35.5,
+          "at": 43.3,
           "text": "Back on Value creation, a company in the table opens its deal."
         },
         {
-          "at": 40.3,
+          "at": 48.4,
           "text": "On the deal’s Performance tab, the value creation card shows the bridge for that one company."
         }
       ]
