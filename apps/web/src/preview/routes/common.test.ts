@@ -71,6 +71,7 @@ describe('staleIfMatch (docs/17 section 3)', () => {
       'POST /api/v1/change-requests/{id}/commands',
       'POST /api/v1/closings/{id}/commands',
       'POST /api/v1/opportunities/{id}/commands',
+      'POST /api/v1/report-packages/{id}/commands',
       'POST /api/v1/valuations/{id}/commands',
       'POST /api/v1/wire-instructions/{id}/commands',
     ]);
