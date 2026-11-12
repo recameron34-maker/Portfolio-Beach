@@ -718,6 +718,11 @@ export const opportunityFit = z.object({
     /** Held positions of the deal's type with invested capital, and the median of it. */
     comparablePositions: z.number().int(),
     medianPosition: s.decimalString.nullable(),
+    /**
+     * The target as a multiple of that median, the figure the size score reads; null with no
+     * target, no median, or a target in another currency than the positions (never converted).
+     */
+    sizeRatio: s.decimalString.nullable(),
   }),
   thresholds: fitThresholds,
   calcVersion: z.string(),

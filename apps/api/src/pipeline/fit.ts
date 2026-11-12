@@ -167,7 +167,13 @@ export async function loadOpportunityFit(
   const sizes = held
     .filter((p) => p.row.dealType === deal.dealType && p.summary.invested !== null)
     .map((p) => p.summary.invested ?? '0');
-  const medianPosition = toDecimalString(median(sizes));
+  const typical = median(sizes);
+  const medianPosition = toDecimalString(typical);
+  const comparable = deal.currency === BOOK_CURRENCY ? deal.targetCommitment : null;
+  const sizeRatio =
+    comparable === null || typical === null || typical.lte(ZERO)
+      ? null
+      : toDecimalString(D(comparable).div(typical));
 
   const inputs: OpportunityFit['inputs'] = {
     sponsorTier: sponsor?.tier ?? null,
@@ -184,6 +190,7 @@ export async function loadOpportunityFit(
     currency: deal.currency,
     comparablePositions: sizes.length,
     medianPosition,
+    sizeRatio,
   };
 
   const measures = dealFit(
@@ -194,7 +201,7 @@ export async function loadOpportunityFit(
       sectorShare: inputs.sectorShare,
       sponsorShare: inputs.sponsorShare,
       geographyShare: inputs.geographyShare,
-      targetCommitment: deal.currency === BOOK_CURRENCY ? deal.targetCommitment : null,
+      targetCommitment: comparable,
       medianPosition,
     },
     thresholds,

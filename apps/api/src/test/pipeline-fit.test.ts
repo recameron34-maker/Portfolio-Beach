@@ -149,6 +149,12 @@ describe('deal fit: how an opportunity sits against the portfolio', () => {
         .map((p) => p.invested!);
       expect(inputs.comparablePositions).toBe(sizes.length);
       expect(inputs.medianPosition).toBe(toDecimalString(median(sizes)));
+      const typical = median(sizes);
+      expect(inputs.sizeRatio).toBe(
+        deal.targetCommitment === null || deal.currency !== 'USD' || typical === null
+          ? null
+          : toDecimalString(D(deal.targetCommitment).div(typical)),
+      );
       checked += 1;
     }
     expect(checked).toBeGreaterThan(0);
