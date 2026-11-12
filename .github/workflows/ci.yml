@@ -68,6 +68,6 @@ jobs:
       - uses: github/codeql-action/init@v3 # pin to SHA
         with: { languages: 'javascript-typescript,python' }
       - uses: github/codeql-action/analyze@v3 # pin to SHA
-      - uses: actions/dependency-review-action@v4 # pin to SHA
+      - uses: actions/dependency-review-action@v5 # pin to SHA
         if: github.event_name == 'pull_request'
         with: { fail-on-severity: moderate, deny-licenses: 'GPL-2.0, GPL-3.0, AGPL-3.0' }
