@@ -94,7 +94,7 @@ describe('the OpenAPI document and the request headers', () => {
 
   it('describes If-Match and the 412 on the routes that read it, and on no other', () => {
     const guarded = ROUTES.filter((r) => r.ifMatch !== undefined);
-    expect(guarded).toHaveLength(7);
+    expect(guarded).toHaveLength(8);
     for (const route of ROUTES) {
       const what = `${route.method} ${route.path}`;
       const operation = operationOf(route.method, route.path);

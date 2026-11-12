@@ -64,6 +64,8 @@ import { PipelineController } from './pipeline/pipeline.controller.js';
 import { PipelineService } from './pipeline/pipeline.service.js';
 import { PortfolioController } from './portfolio/portfolio.controller.js';
 import { PortfolioService } from './portfolio/portfolio.service.js';
+import { PackagesController } from './packages/packages.controller.js';
+import { PackagesService } from './packages/packages.service.js';
 import { ReportsController } from './reports/reports.controller.js';
 import { ReportsService } from './reports/reports.service.js';
 import { SponsorsController } from './sponsors/sponsors.controller.js';
@@ -90,6 +92,7 @@ export const CONTROLLERS = [
   ChangeRequestsController,
   AnalyticsController,
   ReportsController,
+  PackagesController,
   AuditController,
   IntakeController,
   OpsDropController,
@@ -136,6 +139,7 @@ export class AppModule implements NestModule {
         ChangeRequestsService,
         AnalyticsService,
         ReportsService,
+        PackagesService,
         AuditService,
         IntakeService,
         OpsDropService,

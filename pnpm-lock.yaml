@@ -83,6 +83,9 @@ importers:
       '@pb/pdf':
         specifier: workspace:*
         version: link:../../packages/pdf
+      '@pb/report-engine':
+        specifier: workspace:*
+        version: link:../../packages/report-engine
       '@pb/validation':
         specifier: workspace:*
         version: link:../../packages/validation

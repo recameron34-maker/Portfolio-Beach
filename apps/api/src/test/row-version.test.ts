@@ -2,6 +2,7 @@ import { readdirSync, readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import type { Response } from 'express';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { latestQuarterEndOnOrBefore } from '@pb/calc';
 import { IF_MATCH_CASES, ROUTES, problemDetails, rowVersionEtag } from '@pb/contracts';
 import type { RouteDefinition } from '@pb/contracts';
 import type { AppRole } from '@pb/db';
@@ -85,6 +86,7 @@ const VALID_BODY: Readonly<Record<string, object>> = {
   'POST /api/v1/change-requests/{id}/commands': { command: 'start' },
   'POST /api/v1/opportunities/{id}/commands': { command: 'advance' },
   'POST /api/v1/closings/{id}/commands': { command: 'confirm' },
+  'POST /api/v1/report-packages/{id}/commands': { command: 'generate' },
 };
 
 /**
@@ -96,6 +98,21 @@ describe('the routes the contract marks ifMatch', () => {
   let h: Harness;
   beforeAll(async () => {
     h = await startHarness();
+    // The synthetic book seeds no reporting package: one is started here so that its read can
+    // be checked with the others below.
+    const clientId = h.dataset.users.find((u) => u.externalId === 'ir.one')?.clientIds[0];
+    await h
+      .http()
+      .post('/api/v1/report-packages')
+      .set('authorization', h.as('ir.one'))
+      .set('idempotency-key', 'row-version-test-package')
+      .send({
+        clientId,
+        periodEnd: latestQuarterEndOnOrBefore(h.dataset.asOf),
+        basis: 'gross',
+        label: 'preliminary',
+      })
+      .expect(201);
   });
   afterAll(async () => {
     await h.close();
@@ -145,6 +162,7 @@ describe('the routes the contract marks ifMatch', () => {
     change_request: { path: '/api/v1/change-requests/{id}', table: 'mon.deal_change_request' },
     opportunity: { path: '/api/v1/opportunities/{id}', table: 'deal.opportunity' },
     closing: { path: '/api/v1/closings/{id}', table: 'deal.closing' },
+    reporting_package: { path: '/api/v1/report-packages/{id}', table: 'rpt.package' },
   };
 
   it('tag the record they guard: its read answers the row version as the ETag a command may carry back', async () => {
@@ -190,7 +208,7 @@ describe('the routes the contract marks ifMatch', () => {
       const text = readFileSync(`${src}/${file}`, 'utf8');
       if (!text.includes('ifMatchVersions(')) continue;
       const answers = text.match(
-        /\): Promise<(ValuationRow|ValuationDetail|CapitalNoticeControlDetail|TradeTicketRow|WireInstructionDetail|ChangeRequestRow|ChangeRequestDetail|OpportunityDetail|ClosingDetail)> \{/g,
+        /\): Promise<(ValuationRow|ValuationDetail|CapitalNoticeControlDetail|TradeTicketRow|WireInstructionDetail|ChangeRequestRow|ChangeRequestDetail|OpportunityDetail|ClosingDetail|ReportPackageDetail)> \{/g,
       );
       expect(text.split('withEtag(').length - 1, file).toBe(answers?.length ?? 0);
     }

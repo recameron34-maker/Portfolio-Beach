@@ -17,6 +17,7 @@
     { "path": "../../packages/ai" },
     { "path": "../../packages/contracts" },
     { "path": "../../packages/pdf" },
+    { "path": "../../packages/report-engine" },
     { "path": "../../packages/workflows" },
     { "path": "../../packages/validation" },
     { "path": "../../packages/xlsx" },
