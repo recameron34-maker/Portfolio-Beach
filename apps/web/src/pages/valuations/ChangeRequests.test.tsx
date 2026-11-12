@@ -43,6 +43,8 @@ const HEALTH = '/api/v1/data-health';
 const commandsPath = (id: string): string => `/api/v1/change-requests/${id}/commands`;
 /** Dialog and dropdown journeys drive Fluent popovers; give them room on a loaded test runner. */
 const TIMEOUT = { timeout: 15_000 };
+/** Shorter than a test's own limit, so a dialog that never opens fails on its line with the page. */
+const OPEN_TIMEOUT = { timeout: 6_000 };
 
 /**
  * The record's day is the API's day (data health carries it): 2025-06-30 here, whatever the
@@ -80,6 +82,16 @@ const button = (name: string): HTMLElement => screen.getByRole('button', { name 
 async function pick(combobox: HTMLElement, option: string): Promise<void> {
   await userEvent.click(combobox);
   await userEvent.click(await screen.findByRole('option', { name: option }));
+}
+
+/**
+ * Opens a row action's dialog after another command. The row actions are disabled while a command
+ * is still settling (the list is read again), so the action is clicked once it is offered.
+ */
+async function openAfterCommand(name: string): Promise<HTMLElement> {
+  await waitFor(() => expect(button(name)).toBeEnabled());
+  await userEvent.click(button(name));
+  return screen.findByRole('dialog', {}, OPEN_TIMEOUT);
 }
 
 async function dialogClosed(): Promise<void> {
@@ -247,13 +259,7 @@ describe('change request queue', () => {
         ),
       ).toBeInTheDocument();
 
-      // The row actions are disabled while a command is still settling (the list is read again),
-      // so wait for the next one to be offered before clicking it.
-      await waitFor(() =>
-        expect(button('Apply, New security for Cobalt Energy Group')).toBeEnabled(),
-      );
-      await userEvent.click(button('Apply, New security for Cobalt Energy Group'));
-      const apply = await screen.findByRole('dialog');
+      const apply = await openAfterCommand('Apply, New security for Cobalt Energy Group');
       expect(
         within(apply).getByText(/on or after the effective date, Mar 31, 2025/),
       ).toBeInTheDocument();
@@ -272,13 +278,11 @@ describe('change request queue', () => {
         ),
       ).toBeInTheDocument();
 
-      await waitFor(() =>
-        expect(button('Reject, Recapitalization for Silverline Staffing Holdings')).toBeEnabled(),
+      const reject = await openAfterCommand(
+        'Reject, Recapitalization for Silverline Staffing Holdings',
       );
-      await userEvent.click(button('Reject, Recapitalization for Silverline Staffing Holdings'));
-      const reject = await screen.findByRole('dialog');
       await userEvent.type(
-        within(reject).getByRole('textbox', { name: /Reason/ }),
+        await within(reject).findByRole('textbox', { name: /Reason/ }),
         'Already recorded',
       );
       await userEvent.click(within(reject).getByRole('button', { name: 'Reject' }));

@@ -3,6 +3,7 @@ import {
   formatDate,
   formatMoic,
   formatMoneyM,
+  formatMoneyMIn,
   formatMonthYear,
   formatMonthYearShort,
   formatMultiple,
@@ -24,6 +25,11 @@ describe('number and date display (docs/06 section 3)', () => {
     expect(formatMoneyM('-2500000')).toBe('-$2.5M');
     expect(formatMoneyM('1250000000')).toBe('$1,250.0M');
     expect(formatMoneyM(null)).toBe(MISSING);
+    // In its own currency: dollars as they are, another currency by its code, never converted.
+    expect(formatMoneyMIn('2500000', 'USD')).toBe('$2.5M');
+    expect(formatMoneyMIn('2500000', 'EUR')).toBe('EUR 2.5M');
+    expect(formatMoneyMIn('-2500000', 'GBP')).toBe('-GBP 2.5M');
+    expect(formatMoneyMIn(null, 'EUR')).toBe(MISSING);
     expect(formatMoneyM('abc')).toBe(MISSING);
   });
   it('formats MOIC, multiples and rates', () => {

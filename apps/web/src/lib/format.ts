@@ -31,6 +31,15 @@ export function formatMoneyM(value: string | null | undefined): string {
 }
 
 /**
+ * formatMoneyM for an amount in its own currency: dollars as they are, any other currency with
+ * its code in place of the dollar sign ("EUR 2.5M"). The figure is never converted.
+ */
+export function formatMoneyMIn(value: string | null | undefined, currency: string): string {
+  const text = formatMoneyM(value);
+  return currency === 'USD' || text === MISSING ? text : text.replaceAll('$', `${currency} `);
+}
+
+/**
  * $M label for a number the chart kit hands back (axis tooltips and table twins). The number is
  * the API's decimal string passed through Number for geometry, never the result of arithmetic.
  */

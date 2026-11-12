@@ -233,7 +233,8 @@ describe('intake file', () => {
     expect(await screen.findByText('2 rows promoted (audited)')).toBeInTheDocument();
     expect(screen.getByTestId('intake-action-status')).toHaveClass('pb-action-status');
     expect(sentPosts()).toEqual([[commandsPath(FILE_ID.update), { command: 'approve' }]]);
-    expect(within(rowOf('Meridian Data Partners')).getByText('Promoted')).toHaveClass(
+    // The message is the page's own; the rows follow the file, which lands a moment later.
+    expect(await within(rowOf('Meridian Data Partners')).findByText('Promoted')).toHaveClass(
       'pb-badge-good',
     );
     expect(within(tile('Promoted')).getByText('3')).toBeInTheDocument();
@@ -266,7 +267,7 @@ describe('intake file', () => {
     await dialogClosed();
     expect(await screen.findByText('3 rows rejected (audited)')).toBeInTheDocument();
     expect(sentPosts()).toEqual([[commandsPath(FILE_ID.update), { command: 'reject', reason }]]);
-    expect(within(rowOf('Meridian Data Partner')).getByText('Rejected')).toHaveClass(
+    expect(await within(rowOf('Meridian Data Partner')).findByText('Rejected')).toHaveClass(
       'pb-badge-bad',
     );
     expect(within(rowOf('Meridian Data Partner')).getByText(reason)).toBeInTheDocument();

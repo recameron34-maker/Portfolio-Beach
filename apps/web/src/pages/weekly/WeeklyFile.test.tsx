@@ -252,7 +252,8 @@ describe('weekly values file', () => {
     expect(screen.getByTestId('weekly-action-status')).toHaveClass('pb-action-status');
     expect(sentPosts()).toEqual([[commandsPath(WEEKLY_FILE_ID.update), { command: 'approve' }]]);
     const promoted = rowOf('Meridian Data Partners');
-    expect(within(promoted).getByText('Promoted')).toHaveClass('pb-badge-good');
+    // The message is the page's own; the rows follow the file, which lands a moment later.
+    expect(await within(promoted).findByText('Promoted')).toHaveClass('pb-badge-good');
     expect(within(promoted).getByRole('link', { name: 'Draft valuation' })).toHaveAttribute(
       'href',
       '/valuations',
@@ -290,7 +291,9 @@ describe('weekly values file', () => {
     expect(sentPosts()).toEqual([
       [commandsPath(WEEKLY_FILE_ID.update), { command: 'reject', reason }],
     ]);
-    expect(within(rowOf('Cobalt Energy Group')).getByText('Rejected')).toHaveClass('pb-badge-bad');
+    expect(await within(rowOf('Cobalt Energy Group')).findByText('Rejected')).toHaveClass(
+      'pb-badge-bad',
+    );
     expect(within(rowOf('Cobalt Energy Group')).getByText(reason)).toBeInTheDocument();
     expect(within(tile('Rejected')).getByText('4')).toBeInTheDocument();
     expect(reject).toHaveAttribute('aria-disabled', 'true');

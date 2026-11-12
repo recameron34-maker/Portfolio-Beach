@@ -65,8 +65,15 @@ function open(
 }
 
 const button = (name: string): HTMLElement => screen.getByRole('button', { name });
-/** After a dialog closes Fluent lifts aria-hidden from the page a moment later; wait for the button. */
-const find = (name: string): Promise<HTMLElement> => screen.findByRole('button', { name }, TIMEOUT);
+/**
+ * After a dialog closes Fluent lifts aria-hidden from the page a moment later, and the actions stay
+ * disabled until the command before has settled: wait for the button to be offered.
+ */
+async function find(name: string): Promise<HTMLElement> {
+  const found = await screen.findByRole('button', { name }, TIMEOUT);
+  await waitFor(() => expect(found).toBeEnabled(), TIMEOUT);
+  return found;
+}
 
 async function dialogClosed(): Promise<void> {
   await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
@@ -203,7 +210,7 @@ describe('closing page', () => {
       'Wire confirmation is now Received',
     );
     // Every required item is in: the confirmation is live.
-    expect(screen.getByTestId('closing-confirm')).toBeEnabled();
+    await waitFor(() => expect(screen.getByTestId('closing-confirm')).toBeEnabled());
 
     await userEvent.click(await find('Waive, Side letter'));
     dialog = await screen.findByRole('dialog');
@@ -256,7 +263,8 @@ describe('closing page', () => {
       [PIPE_PATHS.closingCommands(PIPE_ID.closing), { command: 'confirm' }],
     ]);
     const record = screen.getByTestId('closing-record');
-    expect(within(record).getByText('Ops confirmed')).toHaveClass('pb-badge-good');
+    // The message is the page's own; the record it reports lands a moment later.
+    expect(await within(record).findByText('Ops confirmed')).toHaveClass('pb-badge-good');
     expect(record).toHaveTextContent('Rowan Castellanos');
     expect(record).toHaveTextContent('Aug 16, 2025 10:00:00 UTC');
     expect(screen.queryByTestId('closing-confirm')).toBeNull();
@@ -515,7 +523,9 @@ describe('closing page', () => {
         { command: 'changeCloseDate', closeDate: '2025-08-22', reason: 'Signing slipped a week' },
       ],
     ]);
-    expect(screen.getByTestId('closing-close-date')).toHaveTextContent('Aug 22, 2025');
+    await waitFor(() =>
+      expect(screen.getByTestId('closing-close-date')).toHaveTextContent('Aug 22, 2025'),
+    );
     expect(screen.getByTestId('closing-confirm')).toBeInTheDocument();
   }, 30_000);
 
@@ -540,7 +550,7 @@ describe('closing page', () => {
     await screen.findByTestId('closing-panel');
     await userEvent.click(button('Confirm, Mfn'));
     expect(await screen.findByTestId('closing-action-status')).toHaveTextContent('Mfn confirmed');
-    expect(screen.queryByRole('button', { name: 'Confirm, Mfn' })).toBeNull();
+    await waitFor(() => expect(screen.queryByRole('button', { name: 'Confirm, Mfn' })).toBeNull());
 
     const form = screen.getByTestId('legal-term-form');
     const add = within(form).getByRole('button', { name: 'Add term' });

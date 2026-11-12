@@ -81,7 +81,8 @@ describe('valuation board (preview)', () => {
         'Simulated changes do not recalculate NAV, MOIC or IRR; portfolio figures stay as recorded.',
       ),
     ).toBeInTheDocument();
-    expect(button('New valuation')).toBeEnabled();
+    // What a role may do follows the signed-in user, who is read on their own.
+    await waitFor(() => expect(button('New valuation')).toBeEnabled());
     expect(button('Reset preview')).toBeEnabled();
     expect(button('Prepare, Cobalt Energy Group, Jun 30, 2025 v1')).toBeEnabled();
     expect(button('Send back, Silverline Staffing Holdings, Jun 30, 2025 v1')).toBeEnabled();
@@ -102,9 +103,11 @@ describe('valuation board (preview)', () => {
     renderWithQuery(<ValuationsPage />);
     await screen.findByRole('table', { name: 'Valuations' });
     await screen.findByTestId('missing-marks');
-    expect(
-      button('Deal team approve, Silverline Staffing Holdings, Jun 30, 2025 v1'),
-    ).toBeEnabled();
+    await waitFor(() =>
+      expect(
+        button('Deal team approve, Silverline Staffing Holdings, Jun 30, 2025 v1'),
+      ).toBeEnabled(),
+    );
     const prepare = button('Prepare, Cobalt Energy Group, Jun 30, 2025 v1');
     expect(prepare).toBeDisabled();
     expect(prepare).toHaveAttribute('title', 'Needs operations');
@@ -310,7 +313,10 @@ describe('valuation board (preview)', () => {
     );
     renderWithQuery(<ValuationsPage />);
     await screen.findByRole('table', { name: 'Valuations' });
-    await userEvent.click(await screen.findByRole('button', { name: 'New valuation' }));
+    // The button is offered once the page knows who is signed in and what may be valued.
+    const start = await screen.findByRole('button', { name: 'New valuation' });
+    await waitFor(() => expect(start).toBeEnabled());
+    await userEvent.click(start);
     const dialog = await screen.findByRole('dialog');
     const create = within(dialog).getByRole('button', { name: 'Create draft' });
     expect(create).toBeDisabled();

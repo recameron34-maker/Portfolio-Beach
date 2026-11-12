@@ -676,6 +676,11 @@ describe('options and helpers', () => {
     expect(sanitizeFileName('Fund I: a/b\\c*d?e"f<g>h|i')).toBe('Fund I a b c d e f g h i');
     expect(sanitizeFileName('  two   spaces  ')).toBe('two spaces');
     expect(sanitizeFileName('trailing dots...')).toBe('trailing dots');
+    // A long run of dots that does not end the name: kept, and cut in linear time.
+    const dots = '.'.repeat(60_000);
+    const started = performance.now();
+    expect(sanitizeFileName(`a${dots}b...`)).toBe(`a${dots}b`);
+    expect(performance.now() - started).toBeLessThan(500);
     expect(sanitizeFileName('tab\tand\u0007bell')).toBe('tabandbell');
     expect(sanitizeFileName('Marram Fund III (A)')).toBe('Marram Fund III (A)');
     expect(documentFileName('2025-06-30', 'Marram Fund I', 'doc_type.capital_call', 'A/B Co')).toBe(

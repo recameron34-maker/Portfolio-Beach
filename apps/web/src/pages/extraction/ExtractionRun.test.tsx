@@ -233,7 +233,8 @@ describe('extraction run review', () => {
     expect(sentPosts()).toEqual([
       [commandsPath(RUN_ID.succeeded), { command: 'accept', field: 'revenue_ltm' }],
     ]);
-    expect(within(rowOf('Revenue LTM')).getByText('Accepted')).toHaveClass('pb-badge-good');
+    // The message is the page's own; the row follows the run, which lands a moment later.
+    expect(await within(rowOf('Revenue LTM')).findByText('Accepted')).toHaveClass('pb-badge-good');
     expect(within(rowOf('Revenue LTM')).getByText('By Blake Mbeki')).toBeInTheDocument();
     expect(within(tile('Decided')).getByText('1')).toBeInTheDocument();
   });
@@ -245,7 +246,7 @@ describe('extraction run review', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Accept clean values' }));
     expect(await screen.findByText('12 clean values accepted (audited)')).toBeInTheDocument();
     expect(sentPosts()).toEqual([[commandsPath(RUN_ID.succeeded), { command: 'acceptClean' }]]);
-    expect(within(tile('Decided')).getByText('12')).toBeInTheDocument();
+    expect(await within(tile('Decided')).findByText('12')).toBeInTheDocument();
     expect(within(rowOf('Net debt')).getByText('-')).toBeInTheDocument();
     // The flagged values still wait, so the approval still does.
     expect(screen.getByRole('button', { name: 'Approve and promote' })).toHaveAttribute(
@@ -300,7 +301,7 @@ describe('extraction run review', () => {
         ],
       ]);
       const row = rowOf('Headcount');
-      expect(within(row).getByText('118')).toBeInTheDocument();
+      expect(await within(row).findByText('118')).toBeInTheDocument();
       expect(within(row).getByText('was 120')).toHaveClass('pb-extraction-was');
       expect(within(row).getByText('Edited')).toHaveClass('pb-badge-brand');
       // Focus returns to the button that opened the dialog.
@@ -362,7 +363,7 @@ describe('extraction run review', () => {
         { command: 'reject', field: 'cash', reason: 'Not on the page' },
       ],
     ]);
-    expect(within(rowOf('Cash')).getByText('Rejected')).toHaveClass('pb-badge-bad');
+    expect(await within(rowOf('Cash')).findByText('Rejected')).toHaveClass('pb-badge-bad');
   });
 
   it('approves once every value is decided and reports the promotion', TIMEOUT, async () => {
@@ -389,7 +390,8 @@ describe('extraction run review', () => {
     ).toBeInTheDocument();
     expect(sentPosts()).toEqual([[commandsPath(RUN_ID.succeeded), { command: 'approve' }]]);
     const banner = screen.getByTestId('run-banner');
-    expect(within(banner).getByText('Approved by Blake Mbeki')).toHaveClass('pb-badge-good');
+    // The message is the page's own; the banner follows the record, which lands a moment later.
+    expect(await within(banner).findByText('Approved by Blake Mbeki')).toHaveClass('pb-badge-good');
     const again = screen.getByRole('button', { name: 'Approve and promote' });
     expect(again).toHaveAttribute('aria-disabled', 'true');
     expect(again).toHaveAttribute('title', 'This run is approved and its figures are promoted');

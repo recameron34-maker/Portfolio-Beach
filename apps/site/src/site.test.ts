@@ -296,6 +296,24 @@ describe('the artifact fragment', () => {
     expect(() => toFragment('<p>no document</p>', 'A page')).toThrow(/<head>/);
   });
 
+  it('leaves no inline script in the markup, however the page spells or nests one', () => {
+    const page = (body: string): string =>
+      `<html><head><link rel="stylesheet" href="./a.css"><style>b{}</style></head><body>${body}<script type="module" src="./a.js"></script ></body></html>`;
+    // An end tag with a space, in capitals, and one script cut into another: taking the inner
+    // one out leaves the outer one's pieces side by side, so one pass is not enough.
+    const nested = toFragment(
+      page('<p>kept</p><SCRIPT>one()</SCRIPT ><scr<script>two()</script>ipt>three()</script>'),
+      'A page',
+    );
+    expect(nested).toContain('<p>kept</p>');
+    expect(nested).not.toMatch(/one\(\)|two\(\)|three\(\)/);
+    expect(nested.match(/<script\b/gi)).toHaveLength(1);
+    expect(nested).toContain('src="a.js"');
+    // A script that never ends cannot be taken out: the page is refused, not passed on.
+    const unended = page('<p>x</p>').replace('</body>', '<script>open()</body>');
+    expect(() => toFragment(unended, 'A page')).toThrow(/script element/);
+  });
+
   it('names every relative file that must sit beside it, and no address elsewhere', () => {
     expect(fragmentFiles(fragment)).toEqual([
       'assets/index-abc.css',

@@ -206,7 +206,7 @@ describe('opportunity page', () => {
     ]);
     // The answer is the new detail: the strip moves without a second read.
     const strip = await screen.findByRole('list', { name: 'Deal stages' }, TIMEOUT);
-    expect(strip.children[4]).toHaveAttribute('aria-current', 'step');
+    await waitFor(() => expect(strip.children[4]).toHaveAttribute('aria-current', 'step'));
   }, 30_000);
 
   it('passes with a reason code from the taxonomy and a note', async () => {
@@ -240,7 +240,10 @@ describe('opportunity page', () => {
         { command: 'pass', passReasonCode: 'pass_reason.valuation', note: 'Price above our range' },
       ],
     ]);
-    expect(screen.getByTestId('opportunity-workflow')).toHaveTextContent('Price above our range');
+    // The message is the page's own; the record it reports lands a moment later.
+    await waitFor(() =>
+      expect(screen.getByTestId('opportunity-workflow')).toHaveTextContent('Price above our range'),
+    );
   }, 30_000);
 
   it('opens the closing with a close date and commitment when advancing from Approved', async () => {
@@ -296,8 +299,8 @@ describe('opportunity page', () => {
     expect(await screen.findByTestId('opportunity-action-status')).toHaveTextContent(
       'Project Cove is now Closing',
     );
-    const closing = screen.getByTestId('opportunity-closing');
-    expect(closing).toHaveTextContent('Aug 15, 2025');
+    const closing = await screen.findByTestId('opportunity-closing');
+    await waitFor(() => expect(closing).toHaveTextContent('Aug 15, 2025'));
     expect(closing).toHaveTextContent('Tied out');
     expect(
       await within(closing).findByRole('link', { name: 'Open the closing page' }, TIMEOUT),
@@ -468,9 +471,11 @@ describe('opportunity page', () => {
         },
       ],
     ]);
-    const table = screen.getByRole('table', { name: 'IC decisions' });
-    expect(within(table).getAllByRole('row')[1]).toHaveTextContent(
-      'Jun 20, 2025Approved$12.0MKey person clause confirmedHarper Lindqvist',
+    const table = await screen.findByRole('table', { name: 'IC decisions' });
+    await waitFor(() =>
+      expect(within(table).getAllByRole('row')[1]).toHaveTextContent(
+        'Jun 20, 2025Approved$12.0MKey person clause confirmedHarper Lindqvist',
+      ),
     );
     expect(button('Advance, Project Dune')).toBeEnabled();
   }, 30_000);

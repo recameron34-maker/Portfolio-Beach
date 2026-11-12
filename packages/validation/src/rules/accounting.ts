@@ -86,10 +86,12 @@ function figure(row: AccountingRow, field: FigureField): Decimal | null {
 /** The digits a well-formed decimal string carries, leading and trailing zeros aside (TYPE-05 and WK-TYPE-05). */
 export function digitsOf(value: string): { integerDigits: number; decimalPlaces: number } {
   const [whole = '', fraction = ''] = value.replace(/^-/, '').split('.');
-  return {
-    integerDigits: whole.replace(/^0+(?=\d)/, '').length,
-    decimalPlaces: fraction.replace(/0+$/, '').length,
-  };
+  // Counted by hand, not with /0+$/: on a long run of zeros that does not end the text that
+  // pattern tries every zero as a start and scans the run each time (quadratic on a cell of an
+  // imported file, which is untrusted text).
+  let decimalPlaces = fraction.length;
+  while (decimalPlaces > 0 && fraction.charCodeAt(decimalPlaces - 1) === 48) decimalPlaces -= 1;
+  return { integerDigits: whole.replace(/^0+(?=\d)/, '').length, decimalPlaces };
 }
 
 /**

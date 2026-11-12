@@ -3,7 +3,7 @@ import { linkInvestment } from '../linking.js';
 import type { InvestmentDirectoryEntry } from '../linking.js';
 import type { AccountingRow } from '../layout.js';
 import { runRules, statusFromFindings } from '../types.js';
-import { ACCOUNTING_RULES } from './accounting.js';
+import { ACCOUNTING_RULES, digitsOf } from './accounting.js';
 import type { AccountingRuleConfig, AccountingRuleContext } from './accounting.js';
 
 /** Thresholds as config/definitions.json carries them (the API reads them strictly; tests state them). */
@@ -573,5 +573,21 @@ describe('the accounting import rules (docs/04 M2)', () => {
     const warned = context({}, { current: noMark });
     expect(ids(warned)).toEqual(['TIE-03']);
     expect(messageOf(warned, 'TIE-03')).toContain('2025-06-30');
+  });
+});
+
+describe('digitsOf', () => {
+  it('counts the digits a decimal carries, leading and trailing zeros aside', () => {
+    expect(digitsOf('0012.3400')).toEqual({ integerDigits: 2, decimalPlaces: 2 });
+    expect(digitsOf('-0.50')).toEqual({ integerDigits: 1, decimalPlaces: 1 });
+    expect(digitsOf('7')).toEqual({ integerDigits: 1, decimalPlaces: 0 });
+    expect(digitsOf('1.000')).toEqual({ integerDigits: 1, decimalPlaces: 0 });
+  });
+
+  it('stays linear on a long run of zeros that does not end the text (CodeQL js/polynomial-redos)', () => {
+    const zeros = '0'.repeat(60_000);
+    const started = performance.now();
+    expect(digitsOf(`1.${zeros}1`).decimalPlaces).toBe(60_001);
+    expect(performance.now() - started).toBeLessThan(500);
   });
 });

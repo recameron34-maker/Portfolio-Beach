@@ -276,7 +276,12 @@ export function sanitizeFileName(name: string): string {
       return code >= 0x20 && code !== 0x7f;
     })
     .join('');
-  return printable.replace(/\s+/g, ' ').trim().replace(/\.+$/, '');
+  const spaced = printable.replace(/\s+/g, ' ').trim();
+  // Trailing dots are cut by hand, not with /\.+$/, which is quadratic on a long run of dots
+  // that does not end the name.
+  let end = spaced.length;
+  while (end > 0 && spaced.charCodeAt(end - 1) === 46) end -= 1;
+  return spaced.slice(0, end);
 }
 
 /**

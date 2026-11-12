@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { cleanup, render, screen, within } from '@testing-library/react';
+import { cleanup, render, screen, waitFor, within } from '@testing-library/react';
 import { auditPage, healthReady, wallList } from '@pb/contracts';
 import { AccessPage, AuditPage, HealthPage } from './Admin.js';
 import { ROLE_ROWS } from './roles.js';
@@ -101,7 +101,8 @@ describe('access and walls page', () => {
     }
     const ops = rows.find((row) => row.textContent?.includes('operations'))!;
     expect(await within(ops).findByText('Your role')).toBeVisible();
-    expect(ops).toHaveTextContent('Prototype users: Ops One, Ops Two');
+    // The users arrive from their own read, so the names may land a moment after the role.
+    await waitFor(() => expect(ops).toHaveTextContent('Prototype users: Ops One, Ops Two'));
     expect(screen.getByTestId('role-source')).toHaveTextContent('matrix.test.ts');
   });
 
