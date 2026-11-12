@@ -4,11 +4,13 @@ import { join } from 'node:path';
 import {
   CalcError,
   D,
+  FIT_MEASURES,
   allInCoupon,
   bandIndexOf,
   capitalizePik,
   cashOnCash,
   currentYield,
+  dealFit,
   directAlpha,
   dscr,
   ebitdaMargin,
@@ -21,6 +23,7 @@ import {
   interestCoverage,
   ksPme,
   latestPeriod,
+  median,
   leverageThroughTranche,
   loanToValue,
   navRollForward,
@@ -405,6 +408,27 @@ describe('golden fixtures', () => {
           const wanted = fx.expected.weightedAverages as (string | null)[];
           expect(wanted.length).toBe(averages.length);
           averages.forEach((items, i) => expectClose(weightedAverage(items), wanted[i], tol));
+          break;
+        }
+        case 'deal_fit': {
+          type Inputs = Parameters<typeof dealFit>[0];
+          const thresholds = fx.input.thresholds as Parameters<typeof dealFit>[1];
+          const cases = fx.input.cases as Inputs[];
+          const wanted = fx.expected.cases as Record<string, string | null>[];
+          expect(wanted.length).toBe(cases.length);
+          cases.forEach((inputs, i) => {
+            const measures = dealFit(inputs, thresholds);
+            expect(measures.map((m) => m.key)).toEqual(FIT_MEASURES);
+            for (const m of measures) {
+              expectClose(m.score, wanted[i]![m.key], tol);
+              // A measure has a score or a reason it has none, never both and never neither.
+              expect(m.score === null, `case ${i + 1} ${m.key}`).toBe(m.missing !== null);
+            }
+          });
+          const lists = fx.input.medians as string[][];
+          const medians = fx.expected.medians as (string | null)[];
+          expect(medians.length).toBe(lists.length);
+          lists.forEach((values, i) => expectClose(median(values), medians[i], tol));
           break;
         }
         case 'credit_yield': {

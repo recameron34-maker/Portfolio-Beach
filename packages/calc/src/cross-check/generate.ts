@@ -19,6 +19,8 @@ import { valueCreationAttribution } from '../attribution.js';
 import { gainByDriver, indexedLevel, sinceEntryMeasures, valueCreationBridge } from '../bridge.js';
 import type { BridgePoint } from '../bridge.js';
 import { bandIndexOf, entryCohortBands, turnBands, weightedAverage } from '../cohorts.js';
+import { dealFit, median } from '../fit.js';
+import type { FitInputs, FitThresholds } from '../fit.js';
 import { valueCreationRollup } from '../rollup.js';
 import type { RollupPosition } from '../rollup.js';
 import { VALUE_CREATION_REASONS } from '../terms.js';
@@ -409,6 +411,58 @@ function run(seed: number, perKind: number): Case[] {
       tolerance: '1e-9',
       input: { asOf, edges, positions },
       result: valueCreationRollup(positions, bands, asOf),
+    });
+  }
+
+  // Deal fit measures, last again: scores at and around every threshold, and missing inputs.
+  const fitThresholds: FitThresholds = {
+    tierScores: {
+      'sponsor_tier.core': '100',
+      'sponsor_tier.active': '70',
+      'sponsor_tier.new': '40',
+      'sponsor_tier.watch': '15',
+    },
+    trackRecord: { zeroAtMoic: '1.0', fullAtMoic: '2.5' },
+    fundRelationship: { fund: '100', otherFund: '60', none: '0' },
+    caps: { sector: '0.25', sponsor: '0.2', geography: '0.7' },
+    size: { low: '0.5', high: '1.5', limit: '3' },
+  };
+  const tiers = [...Object.keys(fitThresholds.tierScores), 'sponsor_tier.unscored', null];
+  const share = (cap: number): string | null =>
+    rnd() < 0.12
+      ? null
+      : D(String(int(0, Math.round(cap * 14_000))))
+          .div(10_000)
+          .toString();
+  for (let i = 0; i < perKind; i++) {
+    const positions = Array.from({ length: int(0, 7) }, () => amount(250_000, 60_000_000));
+    const typical = median(positions);
+    const inputs: FitInputs = {
+      sponsorTier: pick(tiers),
+      sponsorMoic:
+        rnd() < 0.12
+          ? null
+          : D(String(int(0, 4000)))
+              .div(1000)
+              .toString(),
+      commitment: pick(['fund', 'otherFund', 'none'] as const),
+      sectorShare: share(0.25),
+      sponsorShare: share(0.2),
+      geographyShare: share(0.7),
+      targetCommitment: rnd() < 0.12 ? null : amount(0, 150_000_000),
+      medianPosition: typical === null ? null : typical.toString(),
+    };
+    cases.push({
+      id: id++,
+      kind: 'fit',
+      tolerance: '1e-10',
+      input: { thresholds: fitThresholds, inputs, positions },
+      result: {
+        scores: Object.fromEntries(
+          dealFit(inputs, fitThresholds).map((m) => [m.key, str(m.score)]),
+        ),
+        median: str(typical),
+      },
     });
   }
   return cases;

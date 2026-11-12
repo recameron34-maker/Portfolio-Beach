@@ -14,6 +14,7 @@ from calc_check import attribution as attr
 from calc_check import bridge as vc
 from calc_check import (
     credit,
+    fit,
     liquidity,
     multiples,
     operating,
@@ -293,6 +294,16 @@ def _bands(inp: dict[str, Any], exp: dict[str, Any], tol: str) -> None:
         close(vc.weighted_average(pairs), want, tol, "weightedAverage")
 
 
+def _deal_fit(inp: dict[str, Any], exp: dict[str, Any], tol: str) -> None:
+    for case, want in zip(inp["cases"], exp["cases"], strict=True):
+        scores = fit.deal_fit(case, inp["thresholds"])
+        assert tuple(scores) == fit.MEASURES
+        for key in fit.MEASURES:
+            close(scores[key], want[key], tol, key)
+    for values, want in zip(inp["medians"], exp["medians"], strict=True):
+        close(fit.median([Decimal(v) for v in values]), want, tol, "median")
+
+
 def _credit_yield(inp: dict[str, Any], exp: dict[str, Any], tol: str) -> None:
     t = inp["terms"]
     close(
@@ -414,6 +425,7 @@ HANDLERS: dict[str, Callable[[dict[str, Any], dict[str, Any], str], None]] = {
     "gain_by_driver": _gain,
     "value_creation_rollup": _rollup,
     "entry_bands": _bands,
+    "deal_fit": _deal_fit,
     "credit_yield": _credit_yield,
     "pik_roll": _pik,
     "credit_ratios": _credit_ratios,

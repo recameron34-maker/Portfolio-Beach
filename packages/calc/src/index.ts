@@ -28,3 +28,12 @@ export * from './pooled.js';
 export * from './rollup.js';
 export * from './liquidity.js';
 export * from './credit.js';
+export { FIT_MEASURES, dealFit, linearScore, median, sizeScore } from './fit.js';
+export type {
+  FitInputs,
+  FitMeasure,
+  FitMeasureKey,
+  FitMissing,
+  FitThresholds,
+  FundCommitment,
+} from './fit.js';

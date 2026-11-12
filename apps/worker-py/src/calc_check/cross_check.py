@@ -13,7 +13,7 @@ from fractions import Fraction
 from pathlib import Path
 from typing import Any, cast
 
-from calc_check import CTX, credit, multiples, pme, rollup
+from calc_check import CTX, credit, fit, multiples, pme, rollup
 from calc_check import attribution as attr
 from calc_check import bridge as vc
 from calc_check.irr import xirr
@@ -131,6 +131,14 @@ def check_case(case: dict[str, Any]) -> list[str]:
             summed = sum((Fraction(book["gainByDriver"][k]) for k in rollup.PARTS), Fraction(0))
             if summed != Fraction(book["gain"]):
                 problems.append("ts portfolio parts do not sum to the gain")
+    elif kind == "fit":
+        scores = fit.deal_fit(inp["inputs"], inp["thresholds"])
+        for key in fit.MEASURES:
+            if not _agree(scores[key], _dec(ts["scores"][key]), tol):
+                problems.append(f"{key} {scores[key]} vs ts {ts['scores'][key]}")
+        typical = fit.median([Decimal(v) for v in inp["positions"]])
+        if not _agree(typical, _dec(ts["median"]), tol):
+            problems.append(f"median {typical} vs ts {ts['median']}")
     else:
         problems.append(f"unknown kind {kind}")
     return problems

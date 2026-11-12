@@ -1,0 +1,142 @@
+{
+  "id": "24_deal_fit",
+  "function": "deal_fit",
+  "note": "Deal fit measures, by hand (docs/08 section 8). Thresholds: tiers core 100, active 70, new 40, watch 15; track record 1.0x scores 0 and 2.5x scores 100; a commitment to the deal's own fund 100, to another fund of the sponsor 60, to none 0; caps of 25% for a sector, 20% for a sponsor and 70% for a geography; size 100 between 0.5 and 1.5 times the median held position, 0 at nothing and at 3 times. Case 1: active 70; MOIC 1.75 is (1.75 - 1) / 1.5 = 0.5, 50; own fund 100; sector share 10% of a 25% cap leaves 1 - 0.4 = 0.6, 60; sponsor share 5% of 20% leaves 0.75, 75; geography 35% of 70% leaves 0.5, 50; target 20,000,000 against a median of 16,000,000 is 1.25 times, inside the band, 100. Case 2: watch 15; MOIC 0.8 is below 1.0x, 0; no commitment 0; sector share 30% is over the cap, 0; nothing held with the sponsor, 100; no geography on the deal, no score; target 4,000,000 is 0.25 times, half way up to 0.5, 50. Case 3: a tier config does not score has none; no position with the sponsor, no score; another fund of the sponsor 60; no sector, no score; sponsor share at its cap exactly, 0; geography at its cap, 0; target 36,000,000 is 2.25 times, (3 - 2.25) / 1.5 = 0.5, 50. Case 4: core 100; MOIC 2.0 is 1 / 1.5 = 0.666..., 66.6666666667 at the ten places a result travels with; MOIC of 3.0 would be over the top and is held at 100 in case 5; no target, no score. Case 5: target 56,000,000 is 3.5 times, beyond the limit, 0; no held position to compare with in case 6, no score. Medians: one value is itself; two give their mean; an odd count the middle; an even count the mean of the two middle; none has no median.",
+  "tolerance": "1e-10",
+  "input": {
+    "thresholds": {
+      "tierScores": {
+        "sponsor_tier.core": "100",
+        "sponsor_tier.active": "70",
+        "sponsor_tier.new": "40",
+        "sponsor_tier.watch": "15"
+      },
+      "trackRecord": { "zeroAtMoic": "1.0", "fullAtMoic": "2.5" },
+      "fundRelationship": { "fund": "100", "otherFund": "60", "none": "0" },
+      "caps": { "sector": "0.25", "sponsor": "0.20", "geography": "0.70" },
+      "size": { "low": "0.5", "high": "1.5", "limit": "3" }
+    },
+    "cases": [
+      {
+        "sponsorTier": "sponsor_tier.active",
+        "sponsorMoic": "1.75",
+        "commitment": "fund",
+        "sectorShare": "0.10",
+        "sponsorShare": "0.05",
+        "geographyShare": "0.35",
+        "targetCommitment": "20000000",
+        "medianPosition": "16000000"
+      },
+      {
+        "sponsorTier": "sponsor_tier.watch",
+        "sponsorMoic": "0.8",
+        "commitment": "none",
+        "sectorShare": "0.30",
+        "sponsorShare": "0",
+        "geographyShare": null,
+        "targetCommitment": "4000000",
+        "medianPosition": "16000000"
+      },
+      {
+        "sponsorTier": "sponsor_tier.other",
+        "sponsorMoic": null,
+        "commitment": "otherFund",
+        "sectorShare": null,
+        "sponsorShare": "0.20",
+        "geographyShare": "0.70",
+        "targetCommitment": "36000000",
+        "medianPosition": "16000000"
+      },
+      {
+        "sponsorTier": "sponsor_tier.core",
+        "sponsorMoic": "2.0",
+        "commitment": "fund",
+        "sectorShare": "0",
+        "sponsorShare": "0.10",
+        "geographyShare": "0.07",
+        "targetCommitment": null,
+        "medianPosition": "16000000"
+      },
+      {
+        "sponsorTier": "sponsor_tier.new",
+        "sponsorMoic": "3.0",
+        "commitment": "fund",
+        "sectorShare": "0.125",
+        "sponsorShare": "0.15",
+        "geographyShare": "1",
+        "targetCommitment": "56000000",
+        "medianPosition": "16000000"
+      },
+      {
+        "sponsorTier": null,
+        "sponsorMoic": "1.0",
+        "commitment": "none",
+        "sectorShare": "0.05",
+        "sponsorShare": "0.02",
+        "geographyShare": "0.14",
+        "targetCommitment": "8000000",
+        "medianPosition": null
+      }
+    ],
+    "medians": [["5"], ["1", "3"], ["3", "1", "2"], ["4", "1", "3", "2"], []]
+  },
+  "expected": {
+    "cases": [
+      {
+        "sponsor_relationship": "70",
+        "track_record": "50",
+        "fund_relationship": "100",
+        "sector_room": "60",
+        "sponsor_room": "75",
+        "geography_room": "50",
+        "size_fit": "100"
+      },
+      {
+        "sponsor_relationship": "15",
+        "track_record": "0",
+        "fund_relationship": "0",
+        "sector_room": "0",
+        "sponsor_room": "100",
+        "geography_room": null,
+        "size_fit": "50"
+      },
+      {
+        "sponsor_relationship": null,
+        "track_record": null,
+        "fund_relationship": "60",
+        "sector_room": null,
+        "sponsor_room": "0",
+        "geography_room": "0",
+        "size_fit": "50"
+      },
+      {
+        "sponsor_relationship": "100",
+        "track_record": "66.6666666667",
+        "fund_relationship": "100",
+        "sector_room": "100",
+        "sponsor_room": "50",
+        "geography_room": "90",
+        "size_fit": null
+      },
+      {
+        "sponsor_relationship": "40",
+        "track_record": "100",
+        "fund_relationship": "100",
+        "sector_room": "50",
+        "sponsor_room": "25",
+        "geography_room": "0",
+        "size_fit": "0"
+      },
+      {
+        "sponsor_relationship": null,
+        "track_record": "0",
+        "fund_relationship": "0",
+        "sector_room": "80",
+        "sponsor_room": "90",
+        "geography_room": "80",
+        "size_fit": null
+      }
+    ],
+    "medians": ["5", "2", "2", "2.5", null]
+  }
+}
