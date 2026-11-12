@@ -349,3 +349,37 @@ Phase 1 (M1, M2) as planned in Session 1, now with every read screen in place to
 - The deal fit radar chart on the pipeline (the owner said to use best judgement for a draft set of measures) is next.
 - The site's screenshots, recordings and brochures do not show the map; regenerating them is a media pass for a later session (the recordings need a video encoder this sandbox lacks).
 - The demo artifact is republished once this work is merged or the owner asks for it sooner.
+
+### Session 11 (2026-11-12): the deal fit radar chart, and the Microsoft 365 request
+
+**Asked by the owner:** "on the new deal pipeline, if we have detail recorded on specific sponsors, it would be cool to illustrate the deals fit for the portfolio by different metrics in a radar chart", then "go ahead and use your best judgement for the draft radar chart measures". Later the same day: "It will also be very important that the application can API into M365 as the login, as well as be able to connect to co-pilot studio agents and powerapps. The AI tools on the site will likely need to be created within our companies own M365 ecosystem".
+
+**What changed (decision 0018)**
+
+- **The measures (`docs/08` section 8, tests first):** `dealFit` in `@pb/calc` works out seven scores from 0 to 100 for an opportunity: sponsor relationship (tier), track record (pooled MOIC with the sponsor), fund relationship (a commitment to the deal's fund, another fund, or none), room in the sector, with the sponsor and in the geography (shares of held NAV against caps), and deal size (target against the median held position of the deal's type). Golden fixture 24 and the Python cross-check came before any use. Every threshold is in `config/definitions.json` (`dealFit`); a measure with a missing input has no score and a reason.
+- **The API:** `GET /api/v1/opportunities/{id}/fit` answers the scores, the figures each was worked out from and the thresholds, from the book the caller may see. The read is audited; a walled deal is 404.
+- **The page:** a "Portfolio fit" card on the opportunity, marked "Draft measures": a radar chart drawn in the app's own SVG and, beside it, each measure with its score, its figure and its rule in words. A measure with no score is a dashed spoke and a gap in the shape, never a zero. The shape opens from the centre once; pointing at a measure in the list brings its spoke forward. Nothing moves under the reduced motion setting.
+- **The static preview** records the fit of every deal for every user and replays it; a deal created in the preview has none and the card says so.
+- No table, no migration, no dependency.
+
+**The Microsoft 365 request (decision 0019, proposed, nothing built)**
+
+- Sign-in through Microsoft 365 is already the design (`docs/05` SEC-4, the `IdentityProvider` adapter). Copilot Studio agents and Power Apps are new to the build guide.
+- The proposal: an Entra adapter tested against locally signed tokens; one connector document (read endpoints first, acting as the signed-in user so walls and row-level security hold) for Power Apps, Power Automate and Copilot Studio; an `AgentRuntime` adapter for a Copilot Studio agent inside the app, with a mock; and three shapes for where the AI runs, for the firm to choose.
+- Microsoft Learn could be searched but not opened from the sandbox (the host is outside its allowed network), so the record is drawn from search summaries of named pages and says so. Each point is to be re-read on the page before an adapter is built.
+- Four questions are the owner's (which AI work must be in Copilot Studio; whether a model in the firm's Azure tenant counts; what Power Apps should do and whether the licences exist; whether a development tenant will exist). Nothing is built until they are answered.
+
+**Verified (command output summarized)**
+
+- `pnpm typecheck` and `pnpm lint` clean; `pnpm exec vitest run`: 249 files, 4,508 tests passed; `pnpm test:rls`: 1,388 passed; `pnpm test:calc`: 108 calc tests, 37 Python tests, cross-check 440 cases (40 of them `fit`) with 0 mismatches; `check:classification: OK (904 columns classified)`; `check-style: OK`; `check-employer-data: OK`.
+- Playwright against the local stack: `deal-fit.spec.ts` (spokes, points and scores against the API, list and chart tied together, the table twin, the accessibility scan) and `journey6.spec.ts` (the pipeline journey over the page that now carries the card): 2 passed. The whole suite runs in the pull request's CI.
+- Static preview rebuilt with the fit recorded; `probe-preview.mjs`: 194 passed, 0 failed. The card was looked at in the preview at desktop and phone widths, at rest, mid-entrance and with a measure pointed at.
+- The scores of all 32 synthetic deals were printed once and read: they vary by sponsor, sector and size as the rules say. The synthetic book is concentrated (one sponsor holds about two fifths of held NAV), so deals with that sponsor score 0 on sponsor room; that is the data, and the caps are configuration.
+
+**Open items**
+
+- The measures are a first draft: the owner may change thresholds (configuration) or the rules (`docs/08`, fixture 24, decision 0018).
+- Decision 0019 waits on the owner's four answers. Allowing `learn.microsoft.com` in the session's network settings lets the pages be read in full before anything is built.
+- The owner asked for a look over the UI so that it does not read as machine-made; that pass follows this push.
+- The site's screenshots, recordings and brochures show neither the map nor the fit card; regenerating them is a media pass (the recordings need a video encoder this sandbox lacks).
+
