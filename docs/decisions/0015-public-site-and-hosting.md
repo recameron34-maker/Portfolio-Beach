@@ -57,7 +57,8 @@ While the site was being built, the owner connected this repository to the host'
 ## Amendment, 2026-11-12: the first publish
 
 - After the repository went private the host's build could no longer see it ("The project is linked to a repository that no longer exists"). The owner reconnected it the same day.
-- The host then built the open pull request's branch before anything had been published and reported "Preview creation failed: This Worker does not exist on your account": a preview of a branch can only be added to a Worker that already exists. Nothing in the repository was at fault; the site's build passed when run by hand at the same commit.
 - The owner ran the production build from `main`. It published, and cameroncastle.com serves the Portfolio Beach site (read from the session once the owner allowed the host: the page's title and opening lines are the site's).
-- For next time: on a new host project, publish once from `main` before opening a pull request, or switch off builds for other branches until then.
+- **The host's builds of other branches fail, and the cause is not known yet.** On every push to the open pull request's branch the host reports two failed checks: one within seconds ("Preview creation failed: This Worker does not exist on your account") and one after the build has run for about two minutes, with no message on GitHub. This happened before the first publish and still happens after it, so "the Worker did not exist yet" does not explain it. The site's own build passes when run by hand at the same commit, production publishes, and the log of the failed build is only in the host's dashboard, which the session cannot read.
+- Until the log is read, the choice is the owner's: paste the log of a failed branch build so the cause can be found, or switch off builds for branches other than `main` in the host's settings. Branch previews are not needed for anything: the site publishes from `main` only.
+- These checks are the host's and are not part of the repository's gate (guard, security, ci, e2e).
 
