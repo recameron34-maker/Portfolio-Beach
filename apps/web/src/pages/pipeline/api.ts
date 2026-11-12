@@ -1,7 +1,7 @@
 import { queryOptions, useMutation, useQueryClient } from '@tanstack/react-query';
 import type { QueryClient, QueryKey, UseMutationResult } from '@tanstack/react-query';
 import type { z } from 'zod';
-import { closingDetail, opportunityDetail, opportunityPage } from '@pb/contracts';
+import { closingDetail, opportunityDetail, opportunityFit, opportunityPage } from '@pb/contracts';
 import type {
   AllocationsPutBody,
   ClosingCommandBody,
@@ -57,6 +57,18 @@ export function opportunityQuery(id: string) {
   });
 }
 
+/**
+ * How the opportunity sits against the portfolio the caller may see (docs/08 section 8): seven
+ * scores with the figures and thresholds behind them, as of the API's own date.
+ */
+export function opportunityFitQuery(id: string) {
+  return queryOptions({
+    queryKey: ['opportunity-fit', id],
+    queryFn: () => api(`${opportunityPath(id)}/fit`, opportunityFit),
+    retry: retryUnlessUnavailable,
+  });
+}
+
 /** One closing record with its checklist, allocations, tie-out and legal terms. */
 export function closingQuery(id: string) {
   return queryOptions({
@@ -79,7 +91,13 @@ function send<T>(
  * The reads a pipeline write can change: the board and the detail, the closing the detail
  * summarizes, and the audit trail every command writes to.
  */
-const PIPELINE_KEYS: QueryKey[] = [['opportunities'], ['opportunity'], ['closing'], ['audit']];
+const PIPELINE_KEYS: QueryKey[] = [
+  ['opportunities'],
+  ['opportunity'],
+  ['opportunity-fit'],
+  ['closing'],
+  ['audit'],
+];
 
 /**
  * A stage command may convert the deal into a position (Closing to Closed), and a closing

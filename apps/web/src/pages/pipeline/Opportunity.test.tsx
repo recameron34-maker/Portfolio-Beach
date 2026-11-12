@@ -12,6 +12,7 @@ import {
   confirmedOpportunityFixture,
   OPP_ID,
   opportunityDetailFixture,
+  opportunityFitFixture,
   PIPE_ID,
   PIPE_PATHS,
   taxonomyFixture,
@@ -62,6 +63,7 @@ function open(
   mockApi({
     [PIPE_PATHS.me]: ok(rolePrincipal(roles)),
     [PIPE_PATHS.opportunity(detail.id)]: ok(detail),
+    [PIPE_PATHS.fit(detail.id)]: ok(opportunityFitFixture({ opportunityId: detail.id })),
     [PIPE_PATHS.taxonomy]: ok(taxonomyFixture()),
     [PIPE_PATHS.vehicles]: ok(vehicleListFixture()),
     [PIPE_PATHS.clients]: ok(clientListFixture()),

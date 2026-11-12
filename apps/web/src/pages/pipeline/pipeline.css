@@ -295,6 +295,104 @@
   overflow-wrap: anywhere;
 }
 
+/* ---- Portfolio fit (DealFit.tsx): the radar chart beside the reading of each measure ---- */
+.pb-fit-lead {
+  margin: 0 0 12px;
+  max-width: 84ch;
+}
+.pb-fit {
+  display: grid;
+  grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr);
+  gap: 8px 28px;
+  align-items: start;
+}
+.pb-fit .pb-chart {
+  margin: 0;
+}
+.pb-fit-list {
+  display: grid;
+  gap: 2px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.pb-fit-measure {
+  padding: 8px 10px;
+  border-left: 2px solid transparent;
+  border-radius: var(--pb-radius-sm);
+  transition:
+    background-color var(--pb-dur-fast) var(--pb-ease),
+    border-color var(--pb-dur-fast) var(--pb-ease);
+}
+.pb-fit-measure.is-active {
+  background: var(--pb-primary-tint-8);
+  border-left-color: var(--pb-brand-primary);
+}
+.pb-fit-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 12px;
+}
+.pb-fit-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--pb-text);
+}
+.pb-fit-score {
+  font-weight: 600;
+  color: var(--pb-text);
+  font-variant-numeric: tabular-nums;
+}
+/* The score again as a length, so the list can be read down its edge; the number says the same. */
+.pb-fit-meter {
+  height: 4px;
+  margin: 4px 0 6px;
+  border-radius: 2px;
+  background: var(--pb-border);
+  overflow: hidden;
+}
+.pb-fit-meter > span {
+  display: block;
+  height: 100%;
+  border-radius: 2px;
+  background: var(--pb-chart-1);
+  transform-origin: left center;
+  animation: pb-fit-fill 620ms var(--pb-ease) 160ms both;
+}
+@keyframes pb-fit-fill {
+  from {
+    transform: scaleX(0);
+  }
+  to {
+    transform: scaleX(1);
+  }
+}
+.pb-fit-basis {
+  margin: 0;
+  font-size: 13px;
+  line-height: 19px;
+  color: var(--pb-text);
+}
+.pb-fit-rule {
+  margin: 2px 0 0;
+  font-size: 12px;
+  line-height: 17px;
+  color: var(--pb-muted);
+}
+.pb-fit-chart {
+  min-width: 0;
+}
+.pb-fit-note {
+  margin: 4px 0 0;
+  max-width: 60ch;
+}
+@media (max-width: 900px) {
+  .pb-fit {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
 @media (max-width: 1240px) {
   .pb-pipe-stages {
     grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -316,5 +414,15 @@
 @media (max-width: 560px) {
   .pb-pipe-stages {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+/* ---- Reduced motion: the animated selectors of the pipeline pages, switched off (docs/06 section 5) ---- */
+@media (prefers-reduced-motion: reduce), (update: slow) {
+  .pb-fit-meter > span {
+    animation: none;
+  }
+  .pb-fit-measure {
+    transition: none;
   }
 }

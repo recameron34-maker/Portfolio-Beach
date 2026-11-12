@@ -26,6 +26,7 @@ import { useActionLog } from '../../lib/workflow.js';
 import type { ActionLog } from '../../lib/workflow.js';
 import { AllocationsEditor } from './AllocationsEditor.js';
 import { opportunityQuery } from './api.js';
+import { DealFitCard } from './DealFit.js';
 import { DiligenceTasksCard } from './DiligenceTasks.js';
 import { IcDecisionsCard } from './IcDecisions.js';
 import {
@@ -281,6 +282,7 @@ function Body({
         <WorkflowCard detail={detail} roles={roles} log={log} />
         <GatesCard detail={detail} />
       </div>
+      <DealFitCard detail={detail} />
       <DiligenceTasksCard
         opportunityId={detail.id}
         tasks={detail.diligenceTasks}

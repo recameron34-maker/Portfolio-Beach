@@ -8,6 +8,7 @@ import type {
   IcDecision,
   LegalTerm,
   OpportunityDetail,
+  OpportunityFit,
   OpportunityPage,
   OpportunityRow,
   Taxonomy,
@@ -64,6 +65,7 @@ export const PIPE_PATHS = {
   clients: '/api/v1/clients',
   create: '/api/v1/opportunities',
   opportunity: (id: string): string => `/api/v1/opportunities/${id}`,
+  fit: (id: string): string => `/api/v1/opportunities/${id}/fit`,
   commands: (id: string): string => `/api/v1/opportunities/${id}/commands`,
   tasks: (id: string): string => `/api/v1/opportunities/${id}/diligence-tasks`,
   taskCommands: (id: string, taskId: string): string =>
@@ -648,5 +650,64 @@ export function clientListFixture(): ClientList {
       client(VS_ID.clientBeta, 'Beta Endowment'),
     ],
     calcVersion: '0.1.0',
+  };
+}
+
+/**
+ * The fit of Project Dune against the book (docs/08 section 8): every score is the rule over the
+ * figures and thresholds beside it, worked by hand. Active tier is 70; a pooled MOIC of 1.60x on
+ * a line from 1.00x to 2.50x is 40; a commitment to the deal's own fund is 100; 20.0% of held NAV
+ * against a cap of 25.0% leaves 20; 5.0% against 20.0% leaves 75; 35.0% against 70.0% leaves 50;
+ * a target of 1.25 times the median position sits in the band that scores 100.
+ */
+export function opportunityFitFixture(
+  overrides: Partial<Omit<OpportunityFit, 'inputs'>> & {
+    inputs?: Partial<OpportunityFit['inputs']>;
+  } = {},
+): OpportunityFit {
+  const { inputs, ...rest } = overrides;
+  return {
+    opportunityId: OPP_ID.diligence,
+    asOf: AS_OF,
+    measures: [
+      { key: 'sponsor_relationship', score: '70', missing: null },
+      { key: 'track_record', score: '40', missing: null },
+      { key: 'fund_relationship', score: '100', missing: null },
+      { key: 'sector_room', score: '20', missing: null },
+      { key: 'sponsor_room', score: '75', missing: null },
+      { key: 'geography_room', score: '50', missing: null },
+      { key: 'size_fit', score: '100', missing: null },
+    ],
+    inputs: {
+      sponsorTier: 'sponsor_tier.active',
+      sponsorPositions: 3,
+      sponsorMoic: '1.6',
+      commitment: 'fund',
+      sector: 'sector.industrials',
+      sectorShare: '0.2',
+      sponsorShare: '0.05',
+      geography: 'geography.north_america',
+      geographyShare: '0.35',
+      targetCommitment: '15000000.00',
+      currency: 'USD',
+      comparablePositions: 12,
+      medianPosition: '12000000',
+      sizeRatio: '1.25',
+      ...inputs,
+    },
+    thresholds: {
+      tierScores: {
+        'sponsor_tier.core': '100',
+        'sponsor_tier.active': '70',
+        'sponsor_tier.new': '40',
+        'sponsor_tier.watch': '15',
+      },
+      trackRecord: { zeroAtMoic: '1', fullAtMoic: '2.5' },
+      fundRelationship: { fund: '100', otherFund: '60', none: '0' },
+      caps: { sector: '0.25', sponsor: '0.2', geography: '0.7' },
+      size: { low: '0.5', high: '1.5', limit: '3' },
+    },
+    calcVersion: 'test',
+    ...rest,
   };
 }
