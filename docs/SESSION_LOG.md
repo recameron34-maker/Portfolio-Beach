@@ -428,3 +428,21 @@ Phase 1 (M1, M2) as planned in Session 1, now with every read screen in place to
 - The synthetic generator does not produce `qtd_ytd_basis` and `sign_flip` yet; the engine's tests build them by hand until it does.
 - The exit of Phase 4 (journey 5, layout snapshots) needs the template engine, which is several slices away.
 
+### Session 11, continued (2026-11-12): Phase 4, the package record
+
+Pull request 18 went green on every check for the head with the UI pass and the QA engine (the browser suite included), so the next slice of Phase 4 followed.
+
+**What changed (migration 0019)**
+
+- `rpt.package`: one client report for one period and basis, with its version, state, preparer, reviewer, content hash and change log. Constraints: the reviewer is never the preparer (SEC-5.6); Approved and Released need a reviewer, a time and a content hash (SEC-9.3); a later version needs a reason; a period never ends after its as-of date. A trigger makes a Released package immutable.
+- `rpt.qa_result`: what the QA engine found, per run, rule and entity. A finding is fixed once recorded; an approver may add an override, whole and with a reason, to one that failed (SEC-9.5). Nothing is deleted, and nothing is written under a Released package.
+- Access (SEC-5.2): a package is client data. The roles that read every client read it, investor relations read their entitled clients' packages, and the system actor reads it to run the QA step. Entitled investor relations prepare a package; approvers and operations move it on within what they read; only the system actor records a finding.
+- Typed schema (`packages/db/src/schema/rpt.ts`), classification for every column, history tables, `docs/03`.
+
+**Verified:** tests first. `pnpm exec vitest run --project db`: 1,631 passed, with 8 new constraint tests and 72 new cells in the access matrix (two tables read by nine actors, six writes tried by nine actors). `check:classification: OK (954 columns classified)`. `pnpm typecheck` and `pnpm lint` clean.
+
+**Open items**
+
+- Nothing writes these tables yet. Next: the snapshot builder (a package's lines from Locked marks and approved flows), then the API commands through `reportingPackageMachine`, then the Reporting, Packages pages.
+- No synthetic packages are seeded; they will be made through the API once it exists.
+

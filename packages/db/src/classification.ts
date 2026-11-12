@@ -192,6 +192,34 @@ export const CLASSIFICATION: Record<string, TableClassification> = {
     retention: 'books_and_records',
     columns: { confirmed_by: 'confidential_personal', confirmed_at: 'internal' },
   },
+  // A reporting package is client data (migration 0019): which client, which period and what the
+  // QA engine found on its positions. Who prepared, reviewed and released it is personal; the
+  // workflow columns say nothing about a client.
+  'rpt.package': {
+    default: 'restricted_mnpi',
+    retention: 'books_and_records',
+    columns: {
+      prepared_by: 'confidential_personal',
+      reviewer_id: 'confidential_personal',
+      released_by: 'confidential_personal',
+      approved_at: 'internal',
+      released_at: 'internal',
+      state: 'internal',
+      version: 'internal',
+      content_hash: 'internal',
+    },
+  },
+  'rpt.qa_result': {
+    default: 'restricted_mnpi',
+    retention: 'books_and_records',
+    columns: {
+      approver_id: 'confidential_personal',
+      overridden_at: 'internal',
+      run_no: 'internal',
+      rule: 'internal',
+      passed: 'internal',
+    },
+  },
   // The document index (migration 0011): what a document is about is MNPI (its title, links,
   // period, text excerpt and search vector); where it sits in the store and how it was handled are
   // operational metadata. Who classified it is personal.

@@ -321,6 +321,124 @@ describe('database guards', () => {
     });
   });
 
+  describe('reporting packages and their QA findings (migration 0019, SEC-5.6, SEC-9.3, SEC-9.5)', () => {
+    const u = ids.users;
+    const pkg = (columns: string, values: string): Promise<unknown> =>
+      handle.exec(
+        `insert into rpt.package (client_id, period_end, as_of, basis, label, prepared_by${columns}) values ('${ids.clientC}', '2024-06-30', '2024-08-09', 'gross', 'final', '${u.investorRelationsA}'${values})`,
+      );
+
+    it('rejects a package reviewed by its preparer', async () => {
+      await expectDbRejection(
+        pkg(', reviewer_id', `, '${u.investorRelationsA}'`),
+        /check constraint/,
+      );
+    });
+    it('rejects Approved without a reviewer, a time and a content hash, and Released without who and when', async () => {
+      await expectDbRejection(pkg(', state', `, 'Approved'`), /check constraint/);
+      await expectDbRejection(
+        pkg(', state, reviewer_id, approved_at', `, 'Approved', '${u.approver}', now()`),
+        /check constraint/,
+      );
+      await expectDbRejection(
+        pkg(
+          ', state, reviewer_id, approved_at, content_hash',
+          `, 'Released', '${u.approver}', now(), '${'a'.repeat(64)}'`,
+        ),
+        /check constraint/,
+      );
+    });
+    it('rejects a period that ends after the as-of date, and a later version with no reason', async () => {
+      await expectDbRejection(
+        handle.exec(
+          `insert into rpt.package (client_id, period_end, as_of, basis, label, prepared_by) values ('${ids.clientC}', '2024-09-30', '2024-08-09', 'gross', 'final', '${u.investorRelationsA}')`,
+        ),
+        /check constraint/,
+      );
+      await expectDbRejection(pkg(', version', ', 2'), /check constraint/);
+      await expectDbRejection(pkg(', version, correction_reason', `, 2, '  '`), /check constraint/);
+    });
+    it('keeps one package per client, period, basis and version', async () => {
+      await expectDbRejection(
+        handle.exec(
+          `insert into rpt.package (client_id, period_end, as_of, basis, label, prepared_by) values ('${ids.clientA}', '2024-06-30', '2024-08-09', 'gross', 'final', '${u.investorRelationsA}')`,
+        ),
+        /unique/,
+      );
+    });
+    it('makes a Released package immutable: no update, no delete, no new finding', async () => {
+      await pkg(
+        ', id, state, reviewer_id, approved_at, content_hash, released_at, released_by',
+        `, 'c0000000-0000-4000-8000-0000000000aa', 'Released', '${u.approver}', now(), '${'b'.repeat(64)}', now(), '${u.investorRelationsA}'`,
+      );
+      await expectDbRejection(
+        handle.exec(
+          `update rpt.package set label = 'preliminary' where id = 'c0000000-0000-4000-8000-0000000000aa'`,
+        ),
+        /Released and cannot change/,
+      );
+      await expectDbRejection(
+        handle.exec(`delete from rpt.package where id = 'c0000000-0000-4000-8000-0000000000aa'`),
+        /immutable/,
+      );
+      await expectDbRejection(
+        handle.exec(
+          `insert into rpt.qa_result (package_id, run_no, rule, entity_ref, passed, detail) values ('c0000000-0000-4000-8000-0000000000aa', 1, 'QA-RF-01', 'INV-0001', true, 'Rolls forward.')`,
+        ),
+        /Released and cannot change/,
+      );
+    });
+    it('rejects a finding with a malformed rule, a second finding for the same run, rule and entity, and a deleted finding', async () => {
+      const finding = (rule: string, extra = '', values = ''): Promise<unknown> =>
+        handle.exec(
+          `insert into rpt.qa_result (package_id, run_no, rule, entity_ref, passed, detail${extra}) values ('${ids.packageA}', 1, '${rule}', 'INV-0001', false, 'Does not roll forward.'${values})`,
+        );
+      await expectDbRejection(finding('roll-forward'), /check constraint/);
+      await expectDbRejection(finding('QA-RF-01'), /unique/);
+      await expectDbRejection(
+        handle.exec(`delete from rpt.qa_result where package_id = '${ids.packageA}'`),
+        /immutable/,
+      );
+    });
+    it('rejects an override with no approver or no reason, and an override of a finding that passed', async () => {
+      const override = (set: string, where: string): Promise<unknown> =>
+        handle.exec(`update rpt.qa_result set ${set} where id = '${where}'`);
+      await expectDbRejection(
+        override(
+          `override_reason = 'Timing difference agreed with the client'`,
+          ids.qaResultFailedA,
+        ),
+        /check constraint/,
+      );
+      await expectDbRejection(
+        override(
+          `override_reason = ' ', approver_id = '${u.approver}', overridden_at = now()`,
+          ids.qaResultFailedA,
+        ),
+        /check constraint/,
+      );
+      await expectDbRejection(
+        override(
+          `override_reason = 'Not needed', approver_id = '${u.approver}', overridden_at = now()`,
+          ids.qaResultPassedA,
+        ),
+        /check constraint/,
+      );
+      // What the engine found is fixed: only the override may be added to a finding.
+      await expectDbRejection(override(`passed = true`, ids.qaResultFailedA), /finding is fixed/);
+      await override(
+        `override_reason = 'Timing difference agreed with the client', approver_id = '${u.approver}', overridden_at = now()`,
+        ids.qaResultFailedA,
+      );
+    });
+    it('keeps a full history image of a package', async () => {
+      const rows = await handle.query<{ n: number }>(
+        `select count(*)::int as n from rpt.package_history where row_id = '${ids.packageA}'`,
+      );
+      expect(rows[0]?.n).toBeGreaterThanOrEqual(1);
+    });
+  });
+
   describe('audit trail (SEC-11.1)', () => {
     it('rejects UPDATE and DELETE even for the owner', async () => {
       await expectDbRejection(handle.exec(`update audit.event set action = 'x'`), /immutable/);

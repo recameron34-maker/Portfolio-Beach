@@ -110,6 +110,14 @@ export const ids = {
   tradeTicketWalled: 'b0000000-0000-4000-8000-000000000017',
   changeRequestOpen: 'b0000000-0000-4000-8000-000000000018',
   changeRequestWalled: 'b0000000-0000-4000-8000-000000000019',
+  // Reporting packages (migration 0019): one for client Alpha that failed QA, with a failed and a
+  // passed finding, and one for client Beta with one finding. Investor relations (A) is entitled
+  // to Alpha only.
+  packageA: 'c0000000-0000-4000-8000-000000000001',
+  packageB: 'c0000000-0000-4000-8000-000000000002',
+  qaResultFailedA: 'c0000000-0000-4000-8000-000000000003',
+  qaResultPassedA: 'c0000000-0000-4000-8000-000000000004',
+  qaResultB: 'c0000000-0000-4000-8000-000000000005',
   /** A second notice on the open investment with no ticket yet, so a ticket can be drafted on it. */
   capitalNoticeOpenDistribution: 'b0000000-0000-4000-8000-00000000001a',
   // The review fixes (migration 0014): a quarter-end exception about each change request (CR-QE-01),
@@ -314,6 +322,13 @@ export async function loadFixture(handle: DbHandle): Promise<void> {
     insert into mon.deal_change_request (id, investment_id, change_type, effective_date, summary, owner_id, submitted_by, state) values
       ('${ids.changeRequestOpen}', '${ids.investment1}', 'change_type.add_on_acquisition', '2024-08-15', 'Add-on acquisition of a regional competitor closed', null, '${u.dealTeam}', 'Submitted'),
       ('${ids.changeRequestWalled}', '${ids.investmentWalled}', 'change_type.recapitalization', '2024-08-20', 'Dividend recapitalization completed', '${u.operations}', '${u.wallMember}', 'Routed');
+    insert into rpt.package (id, client_id, period_end, as_of, basis, label, state, prepared_by) values
+      ('${ids.packageA}', '${ids.clientA}', '2024-06-30', '2024-08-09', 'gross', 'final', 'QAFailed', '${u.investorRelationsA}'),
+      ('${ids.packageB}', '${ids.clientB}', '2024-06-30', '2024-08-09', 'gross', 'final', 'Generated', '${u.operations}');
+    insert into rpt.qa_result (id, package_id, run_no, rule, entity_ref, expected, actual, passed, detail) values
+      ('${ids.qaResultFailedA}', '${ids.packageA}', 1, 'QA-RF-01', 'INV-0001', '120', '121.01', false, 'Begin NAV, flows and the gain or loss do not roll forward to the end NAV.'),
+      ('${ids.qaResultPassedA}', '${ids.packageA}', 1, 'QA-RDY-01', 'INV-0001', null, '121.01', true, 'The position has an end NAV.'),
+      ('${ids.qaResultB}', '${ids.packageB}', 1, 'QA-RDY-01', 'INV-0001', null, '80.5', true, 'The position has an end NAV.');
     insert into ops.data_exception (id, source, entity, entity_id, rule_id, expected, actual, severity, state) values
       ('${ids.exceptionOpenChangeRequest}', 'change_request', 'mon.deal_change_request', '${ids.changeRequestOpen}', 'CR-QE-01', 'Applied by 2024-09-30', 'Submitted', 'exception_severity.medium', 'open'),
       ('${ids.exceptionWalledChangeRequest}', 'change_request', 'mon.deal_change_request', '${ids.changeRequestWalled}', 'CR-QE-01', 'Applied by 2024-09-30', 'Routed', 'exception_severity.medium', 'open');

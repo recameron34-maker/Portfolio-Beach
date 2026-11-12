@@ -135,6 +135,12 @@ export const READ_MATRIX: Record<string, Row> = {
   // system actor, the auditor and the platform admin included. The fixture holds one completed
   // key of operations and one pending key of the deal team.
   'ops.idempotency_key': row(0, 1, 1, 0, 0, 0, 0, 0, 0),
+  // Reporting packages and their QA findings (migration 0019, SEC-5.2): client data. The roles
+  // that read every client read both packages; investor relations (A) reads client Alpha's and
+  // its two findings; a viewer and a platform admin read none; the system actor reads both,
+  // because it runs the QA step.
+  'rpt.package': row(0, 2, 2, 2, 1, 0, 2, 2, 2),
+  'rpt.qa_result': row(0, 3, 3, 3, 2, 0, 3, 3, 3),
 };
 
 export interface WriteCase {
@@ -548,5 +554,40 @@ export const WRITE_MATRIX: WriteCase[] = [
     // Hidden from everyone outside the wall (migration 0014); the wall member is deal team and may
     // not work the queue, so nobody in the fixture can.
     allowed: [],
+  },
+  // Reporting packages (migration 0019, docs/18 section 5).
+  {
+    name: 'prepare a reporting package for client Alpha',
+    sql: "insert into rpt.package (client_id, period_end, as_of, basis, label, prepared_by) values ('40000000-0000-4000-8000-000000000001', '2024-09-30', '2024-11-08', 'net', 'preliminary', '10000000-0000-4000-8000-000000000005')",
+    // Investor relations entitled to the client, or the system actor.
+    allowed: ['investor_relations(A)', 'service'],
+  },
+  {
+    name: 'prepare a reporting package for client Beta',
+    sql: "insert into rpt.package (client_id, period_end, as_of, basis, label, prepared_by) values ('40000000-0000-4000-8000-000000000002', '2024-09-30', '2024-11-08', 'net', 'preliminary', '10000000-0000-4000-8000-000000000005')",
+    // Investor relations (A) is not entitled to Beta.
+    allowed: ['service'],
+  },
+  {
+    name: 'move the reporting package of client Alpha on',
+    sql: "update rpt.package set label = 'preliminary' where id = 'c0000000-0000-4000-8000-000000000001'",
+    // The roles the state machine names, each within the clients it reads.
+    allowed: ['operations', 'approver', 'investor_relations(A)', 'service'],
+  },
+  {
+    name: 'move the reporting package of client Beta on',
+    sql: "update rpt.package set label = 'preliminary' where id = 'c0000000-0000-4000-8000-000000000002'",
+    allowed: ['operations', 'approver', 'service'],
+  },
+  {
+    name: 'record a QA finding on the package of client Alpha',
+    sql: "insert into rpt.qa_result (package_id, run_no, rule, entity_ref, passed, detail) values ('c0000000-0000-4000-8000-000000000001', 2, 'QA-LBL-01', 'status', true, 'The package is labelled final.')",
+    // The QA step is the system actor's; no person types a finding.
+    allowed: ['service'],
+  },
+  {
+    name: 'override a failed QA finding on the package of client Alpha',
+    sql: "update rpt.qa_result set override_reason = 'Agreed with the client', approver_id = '10000000-0000-4000-8000-000000000004', overridden_at = now() where id = 'c0000000-0000-4000-8000-000000000003'",
+    allowed: ['approver', 'service'],
   },
 ];
