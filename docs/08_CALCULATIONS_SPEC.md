@@ -59,6 +59,24 @@ All financial math lives in `packages/calc` (TypeScript) and is cross-checked by
 - QTD gain/loss = `end_nav - begin_nav_of_quarter - contributions_qtd + distributions_qtd`.
 - Prior-report tie-out: this report's `begin_nav` equals last released report's `end_nav` for the same position, or a recorded explanation exists.
 
+**The report QA rules** (`runReportQa` in `packages/report-engine`, the release gate of M14). The engine reads one snapshot of a reporting package: a line per position (the NAV the quarter starts from, contributions and distributions in the quarter, the gain or loss and the end NAV as the package shows them, beside the figures on record) and what the package says about itself (preliminary or final, gross or net, its movers, commentary, footnotes and client lines). It answers one finding per rule and entity, with what was expected, what was found and whether it passed. It changes nothing and writes nothing; a failed finding blocks release unless an approver overrides it with a reason (`docs/18` section 5). Money is compared within `rollForwardToleranceUsd`; nothing is rounded before it is compared.
+
+| Rule | Checks | Fails when | Scenario it catches (`docs/14`) |
+|---|---|---|---|
+| `QA-RDY-01` data readiness | every position has an end NAV to report | a position has none | |
+| `QA-STALE-01` stale mark | a position whose end NAV is a mark for an earlier period carries the stale-valuation footnote | the mark is older than the period and the footnote is missing | `stale_valuation` |
+| `QA-ASOF-01` as-of date | no figure in the package is dated after the package's as-of date | a line's latest figure is dated later | `forward_entry_snapshot` |
+| `QA-QTD-01` quarter basis | the NAV a line starts from is the Locked mark at the end of the prior quarter | it is any other figure (the start of the year, say), or the record has no such mark for a position held before the quarter | `qtd_ytd_basis`, `roll_forward_break` |
+| `QA-RF-01` roll-forward | `begin_nav + contributions - distributions + gain_loss = end_nav` | the difference is over the tolerance, or a term is missing | `roll_forward_break` |
+| `QA-SIGN-01` sign sanity | the gain or loss shown has the sign of `end_nav - begin_nav - contributions + distributions`; contributions and distributions are not negative | a gain is shown as a loss or the reverse (beyond the tolerance), or a flow total is negative | `sign_flip` |
+| `QA-TIE-01` prior report | a line's begin NAV equals the end NAV of the same position in the last released package | they differ over the tolerance and no explanation is recorded | `restatement` |
+| `QA-MOV-01` movers | the movers shown are the movers worked out from the lines as they now stand (largest value change by size first, ties by position number, `reporting.weeklyMoversCount` of them), and every commentary blurb was written against that list | the list differs, or a blurb names a list that has since changed | |
+| `QA-LBL-01` labels | the package says preliminary or final, and gross or net | either label is missing, or it says final while a position's mark is stale | |
+| `QA-CLI-01` client lines | a client line's NAV is its position's end NAV times the client's ownership share | it differs over the tolerance, or names a position the package does not carry | `two_clients_one_fund` |
+
+- A position entered during the quarter has no begin NAV by design: its line starts from zero, `QA-QTD-01` and `QA-TIE-01` pass it over, and the roll-forward runs from zero.
+- A rule that cannot be checked for want of a figure fails and says which figure is missing. It never passes by default and never substitutes another period (rule 10).
+
 ## 8. Analytics (M20)
 - **KS-PME:** (sum of distributions compounded to the end date with the index + NAV) / (sum of contributions compounded the same way). Index levels come from the benchmark adapter.
 - **Direct Alpha:** IRR of the index-adjusted cash flows (each flow multiplied by index_end / index_t), expressed as a continuously compounded rate: `ln(1 + irr)`.
@@ -123,6 +141,7 @@ All financial math lives in `packages/calc` (TypeScript) and is cross-checked by
 22. Entry bands and the cohort average: the labels, a value on an edge, below the first and above the last edge, refused edges, and the weighted average with its null cases.
 23. Roll-up of the value creation views: the portfolio sums and the cohorts by two entry metrics over five positions (a realized one, one with no bridge and a fee, one with no Locked valuation), each pooled IRR a closed form; a filter that leaves two positions; a filter that leaves none.
 24. Deal fit measures: six opportunities by hand (a score at each end of its line and between, a share over its cap, a tier config does not score, every missing input with no score), a score that does not terminate (66.6666666667), and the median of one, two, three, four and no values.
+25. Report QA: one package snapshot per rule, passing and failing, each scenario of the table above (a stale mark with and without its footnote, a figure after the as-of date, a quarter table started from the year, a missing starting NAV, a gain shown as a loss, a restated prior mark with and without an explanation, a superseded movers list, final with a stale mark, a client line off its share).
 Property-based tests (fast-check / Hypothesis): IRR of flows scaled by k is unchanged; TVPI = DPI + RVPI; NPV at the solved IRR is within tolerance; par after PIK capitalization is never below par before it; prior x (1 + value change) gives back the current value, the change has the sign of current - prior, and scaling both values leaves it unchanged. The bridge drivers sum to the equity value change exactly and their shares sum to one; the EBITDA step equals the revenue step plus the margin step of the four-driver attribution, and the multiple and net debt steps equal its own; the parts of our gain by driver, other included, sum to the gain exactly for any stake, and scaling the stake scales the driver parts linearly; the roll-up's parts sum to its gain, every row sits in exactly one cohort of each entry metric, and the roll-up adds up over any split of the rows (which is what makes a filtered view exact); the bands hold every value exactly once; a weighted average lies between its smallest and largest value. The random cross-check also recomputes value changes, the bridge with the gain split at our stake, the measures since entry, the bands and the roll-up in Python.
 
 ## 10. Private credit metrics

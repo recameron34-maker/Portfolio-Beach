@@ -191,7 +191,7 @@ Global rules in `CLAUDE.md` apply to every module. Workflow states are defined i
 - Client configurations: per-vehicle documents, summary deck, multiple reporting bases per client.
 - Mover commentary per `docs/07`.
 - Request routing for ad hoc client and DDQ requests with templated drafts.
-- **Report QA engine (release gate):** NAV roll-forward per position; QTD tables start from beginning-of-quarter values; prior-report tie-out with recorded explanations; sign sanity; movers recalculated after any correction (commentary against a superseded list is flagged); preliminary vs. final and gross vs. net labeling; per-vehicle data readiness; client-only fields validated separately.
+- **Report QA engine (release gate):** (the rules are specified in `docs/08` section 7 and built as `runReportQa` in `packages/report-engine`) NAV roll-forward per position; QTD tables start from beginning-of-quarter values; prior-report tie-out with recorded explanations; sign sanity; movers recalculated after any correction (commentary against a superseded list is flagged); preliminary vs. final and gross vs. net labeling; per-vehicle data readiness; client-only fields validated separately.
 **Depends on:** M10, M19.
 **AC**
 - Regenerating a package with unchanged data produces identical shape geometry (snapshot test).

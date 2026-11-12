@@ -306,6 +306,12 @@ importers:
 
   packages/pdf: {}
 
+  packages/report-engine:
+    dependencies:
+      '@pb/calc':
+        specifier: workspace:*
+        version: link:../calc
+
   packages/validation:
     dependencies:
       '@pb/calc':

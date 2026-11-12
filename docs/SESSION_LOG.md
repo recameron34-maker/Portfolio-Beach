@@ -408,3 +408,23 @@ Phase 1 (M1, M2) as planned in Session 1, now with every read screen in place to
 
 **Not done in this pass, for a later one:** the explanatory hint under most stat tiles (some earn their place, some do not); the long how-it-works sentences in a few empty states; the greeting on Home; a wider look at spacing and density on the deal workspace.
 
+### Session 11, continued (2026-11-12): Phase 4 begins with the report QA engine
+
+**Asked by the owner:** "Once done with these tasks start the next phase". The next phase is Phase 4, Reporting (`docs/09`), and its first line is "Report QA engine first".
+
+**The plan for Phase 4** is now the checklist under Phase 4 in `docs/09`: the QA rules as a pure engine, then the package record and its state machine, the snapshot builder on real rows, the API and pages, then the template engine with layout locks. Disclosures, approved statistics, the distribution log, mover commentary and the reporting views follow.
+
+**What changed in this slice**
+
+- `docs/08` section 7 specifies the ten report QA rules (data readiness, stale mark, as-of date, quarter basis, roll-forward, sign sanity, prior report tie-out, movers, labels, client lines), what each fails on and which `docs/14` scenario it catches.
+- `packages/report-engine` (new): `runReportQa(snapshot, settings)` answers one finding per rule and entity (expected, found, passed, a sentence). It is pure: it reads a snapshot and writes nothing. The arithmetic is `@pb/calc`'s (`navRollForward`, `valueChange`). A rule that cannot be checked for want of a figure fails and says which figure is missing.
+- Tests first: 14 tests, one per rule passing and failing, and one per scenario (`stale_valuation`, `forward_entry_snapshot`, `qtd_ytd_basis`, `roll_forward_break`, `sign_flip`, `restatement`, `two_clients_one_fund`), every amount worked by hand in the test.
+
+**Verified:** `pnpm exec vitest run --project report-engine`: 14 passed; `pnpm typecheck` clean; the package lints clean.
+
+**Open items**
+
+- Nothing reads the engine yet: the package record, the snapshot builder, the API and the pages are the next slices, in that order.
+- The synthetic generator does not produce `qtd_ytd_basis` and `sign_flip` yet; the engine's tests build them by hand until it does.
+- The exit of Phase 4 (journey 5, layout snapshots) needs the template engine, which is several slices away.
+
