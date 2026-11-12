@@ -12,6 +12,7 @@ import type {
   OpportunityCommandBody,
   OpportunityCreateBody,
   OpportunityDetail,
+  OpportunityFit,
   OpportunityGates,
   OpportunityPage,
   opportunityListQuery,
@@ -34,7 +35,7 @@ import { decodeCursor, encodeCursor } from '../common/cursor.js';
 import { ProblemError, workflowProblem } from '../common/problem.js';
 import { requireFreshRow } from '../common/row-version.js';
 import { systemStep } from '../common/system-step.js';
-import { ADAPTERS, CLOSING_CHECKLIST, DILIGENCE_TEMPLATES } from '../common/tokens.js';
+import { ADAPTERS, CLOSING_CHECKLIST, DEFINITIONS, DILIGENCE_TEMPLATES } from '../common/tokens.js';
 import { requireUuid } from '../common/validate.js';
 import { DbService } from '../db/db.service.js';
 import type { AuditEntry } from '../db/db.service.js';
@@ -45,6 +46,7 @@ import {
   replaceAllocations,
 } from './allocations.js';
 import { convertToInvestment } from './convert.js';
+import { fitThresholdsOf, loadOpportunityFit } from './fit.js';
 import type { Conversion } from './convert.js';
 import { createTask, createTemplateTasks, diligenceGate, taskCommand } from './diligence.js';
 import { latestDecisionApproved, recordDecision } from './ic.js';
@@ -100,6 +102,7 @@ export class PipelineService {
     @Inject(ADAPTERS) private readonly adapters: AdapterSet,
     @Inject(DILIGENCE_TEMPLATES) private readonly templates: DiligenceTemplates,
     @Inject(CLOSING_CHECKLIST) private readonly checklist: ClosingChecklist,
+    @Inject(DEFINITIONS) private readonly definitions: { dealFit?: unknown },
   ) {}
 
   /** The board's rows, newest received first, paged on (receivedDate, id), filtered by stage and deal lead. */
@@ -147,6 +150,28 @@ export class PipelineService {
       const detail = await this.loadDetail(tx, id);
       await audit({ action: 'opportunity.read', entity: ENTITY, entityId: id });
       return detail;
+    });
+  }
+
+  /**
+   * How a deal the caller can see sits against the portfolio they can see, as of a date (today
+   * when none is asked for): the fit measures of docs/08 section 8 with the figures behind them.
+   */
+  async fit(
+    principal: Principal,
+    requestId: string,
+    id: string,
+    asOf: string | undefined,
+  ): Promise<OpportunityFit> {
+    requireUuid(id, NOT_FOUND);
+    const thresholds = fitThresholdsOf(this.definitions);
+    const at = asOf ?? this.adapters.clock.today();
+    return this.db.run(principal, requestId, async (tx, audit) => {
+      const row = (await loadOpportunities(tx, { where: eq(opp.id, id), limit: 1 }))[0];
+      if (row === undefined) throw new ProblemError(404, 'not-found', NOT_FOUND);
+      const fit = await loadOpportunityFit(tx, row, at, thresholds);
+      await audit({ action: 'opportunity.fit.read', entity: ENTITY, entityId: id });
+      return fit;
     });
   }
 

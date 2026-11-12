@@ -44,6 +44,19 @@
     ],
     "dueSoonBusinessDays": 2
   },
+  "dealFit": {
+    "_note": "Deal fit measures on an opportunity (docs/08 section 8, decision 0018): a draft set, with every threshold here and none in code. tierScores is the score, 0 to 100, of each sponsor tier; a tier left out has no score. trackRecord is the pooled MOIC of our positions with the sponsor that scores 0 and the one that scores 100. fundRelationship is the score when the firm has a commitment to the deal's own sponsor fund, only to another fund of the sponsor, or to none. caps are the shares of held NAV at which a sector, a sponsor or a geography has no room left. size: a target commitment from low to high times the median held position of the deal's type scores 100, and 0 at nothing and at limit.",
+    "tierScores": {
+      "sponsor_tier.core": 100,
+      "sponsor_tier.active": 70,
+      "sponsor_tier.new": 40,
+      "sponsor_tier.watch": 15
+    },
+    "trackRecord": { "zeroAtMoic": 1.0, "fullAtMoic": 2.5 },
+    "fundRelationship": { "fund": 100, "otherFund": 60, "none": 0 },
+    "caps": { "sector": 0.25, "sponsor": 0.2, "geography": 0.7 },
+    "size": { "low": 0.5, "high": 1.5, "limit": 3 }
+  },
   "pipeline": {
     "_note": "Deal pipeline (docs/04 M5, docs/18 section 4). stageAgingDays is how many days an opportunity may sit in a stage before it is flagged as aging; one entry per live stage (Closed and Passed never age).",
     "stageAgingDays": {

@@ -639,6 +639,91 @@ export const opportunityDetail = opportunityRow.extend({
 });
 export type OpportunityDetail = z.infer<typeof opportunityDetail>;
 
+/* ---- Deal fit (docs/08 section 8, decision 0018): a draft set of measures for the radar chart ---- */
+
+/** The measures, in the order they are answered and drawn (FIT_MEASURES of @pb/calc). */
+export const FIT_MEASURE_KEYS = [
+  'sponsor_relationship',
+  'track_record',
+  'fund_relationship',
+  'sector_room',
+  'sponsor_room',
+  'geography_room',
+  'size_fit',
+] as const;
+export const fitMeasureKey = z.enum(FIT_MEASURE_KEYS);
+export type FitMeasureKey = z.infer<typeof fitMeasureKey>;
+
+/** Why a measure has no score (FitMissing of @pb/calc). */
+export const fitMissing = z.enum([
+  'tier_not_scored',
+  'no_track_record',
+  'no_exposure_figure',
+  'no_target_commitment',
+  'no_comparable_position',
+]);
+export type FitMissing = z.infer<typeof fitMissing>;
+
+export const fundCommitmentKind = z.enum(['fund', 'otherFund', 'none']);
+
+export const fitMeasure = z.object({
+  key: fitMeasureKey,
+  /** 0 to 100, higher a better fit; null with the reason in `missing`, never a guess. */
+  score: s.decimalString.nullable(),
+  missing: fitMissing.nullable(),
+});
+export type FitMeasure = z.infer<typeof fitMeasure>;
+
+/** The thresholds the scores were worked out with, as config/definitions.json `dealFit` has them. */
+export const fitThresholds = z.object({
+  tierScores: z.record(z.string(), s.decimalString),
+  trackRecord: z.object({ zeroAtMoic: s.decimalString, fullAtMoic: s.decimalString }),
+  fundRelationship: z.object({
+    fund: s.decimalString,
+    otherFund: s.decimalString,
+    none: s.decimalString,
+  }),
+  caps: z.object({
+    sector: s.decimalString,
+    sponsor: s.decimalString,
+    geography: s.decimalString,
+  }),
+  size: z.object({ low: s.decimalString, high: s.decimalString, limit: s.decimalString }),
+});
+export type FitThresholds = z.infer<typeof fitThresholds>;
+
+/**
+ * How an opportunity sits against the portfolio the caller may see, as of a date: the seven
+ * scores, the recorded figures each was worked out from and the thresholds, so a reader can
+ * check any score by hand. Shares are of held NAV, rates between 0 and 1.
+ */
+export const opportunityFit = z.object({
+  opportunityId: s.uuid,
+  asOf: s.isoDate,
+  measures: z.array(fitMeasure),
+  inputs: z.object({
+    sponsorTier: z.string().nullable(),
+    /** Our positions with the sponsor, held and realized, and their pooled gross MOIC. */
+    sponsorPositions: z.number().int(),
+    sponsorMoic: s.decimalString.nullable(),
+    commitment: fundCommitmentKind,
+    sector: z.string().nullable(),
+    sectorShare: s.decimalString.nullable(),
+    sponsorShare: s.decimalString.nullable(),
+    geography: z.string().nullable(),
+    geographyShare: s.decimalString.nullable(),
+    /** As recorded on the deal, in its own currency. */
+    targetCommitment: s.decimalString.nullable(),
+    currency: z.string(),
+    /** Held positions of the deal's type with invested capital, and the median of it. */
+    comparablePositions: z.number().int(),
+    medianPosition: s.decimalString.nullable(),
+  }),
+  thresholds: fitThresholds,
+  calcVersion: z.string(),
+});
+export type OpportunityFit = z.infer<typeof opportunityFit>;
+
 export const opportunityCreateBody = z
   .object({
     name: s.plainText(200).min(1),

@@ -258,6 +258,17 @@ export const CONTROL_ROUTES: readonly RouteDefinition[] = [
     response: c.opportunityDetail,
   },
   {
+    method: 'GET',
+    path: `${API_PREFIX}/opportunities/{id}/fit`,
+    summary:
+      'How an opportunity fits the portfolio the caller may see: seven scores with the figures and thresholds behind them (404 when walled)',
+    tags: ['pipeline'],
+    roles: READ_ROLES,
+    auth: true,
+    query: s.asOfQuery,
+    response: c.opportunityFit,
+  },
+  {
     method: 'POST',
     path: `${API_PREFIX}/opportunities`,
     summary: 'Create an opportunity at Sourced with the diligence template of its deal type',

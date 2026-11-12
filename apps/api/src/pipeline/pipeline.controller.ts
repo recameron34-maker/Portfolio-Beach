@@ -15,6 +15,7 @@ import type { Response } from 'express';
 import type { Principal } from '@pb/adapters';
 import {
   allocationsPutBody,
+  asOfQuery,
   diligenceTaskCommandBody,
   diligenceTaskCreateBody,
   icDecisionBody,
@@ -22,7 +23,7 @@ import {
   opportunityCreateBody,
   opportunityListQuery,
 } from '@pb/contracts';
-import type { OpportunityDetail, OpportunityPage } from '@pb/contracts';
+import type { OpportunityDetail, OpportunityFit, OpportunityPage } from '@pb/contracts';
 import { CurrentPrincipal, Roles } from '../auth/principal.js';
 import type { RequestWithPrincipal } from '../auth/principal.js';
 import { ifMatchVersions, withEtag } from '../common/row-version.js';
@@ -67,6 +68,19 @@ export class PipelineController {
     @Res({ passthrough: true }) res: Response,
   ): Promise<OpportunityDetail> {
     return withEtag(res, await this.service.detail(principal, req.id ?? 'unknown', id));
+  }
+
+  /** How the deal sits against the portfolio the caller may see (docs/08 section 8). */
+  @Get('opportunities/:id/fit')
+  @Roles(...READ_ROLES)
+  fit(
+    @Param('id') id: string,
+    @Query() query: unknown,
+    @CurrentPrincipal() principal: Principal,
+    @Req() req: RequestWithPrincipal,
+  ): Promise<OpportunityFit> {
+    const q = parseOrProblem(asOfQuery, query, 'query');
+    return this.service.fit(principal, req.id ?? 'unknown', id, q.asOf);
   }
 
   @Post('opportunities')
