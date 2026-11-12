@@ -1,0 +1,172 @@
+{
+  "generatedFrom": "apps/web/dist-preview",
+  "asOf": "2025-06-30",
+  "viewport": {
+    "width": 1440,
+    "height": 900
+  },
+  "shots": [
+    {
+      "name": "home",
+      "width": 1440,
+      "height": 900,
+      "file": "home.webp",
+      "file2x": "home-2x.webp",
+      "bytes": 96984,
+      "bytes2x": 183012
+    },
+    {
+      "name": "one-pager",
+      "width": 1440,
+      "height": 900,
+      "file": "one-pager.webp",
+      "file2x": "one-pager-2x.webp",
+      "bytes": 66310,
+      "bytes2x": 125166
+    },
+    {
+      "name": "performance",
+      "width": 1440,
+      "height": 900,
+      "file": "performance.webp",
+      "file2x": "performance-2x.webp",
+      "bytes": 86662,
+      "bytes2x": 159164
+    },
+    {
+      "name": "deal-value-creation",
+      "width": 1440,
+      "height": 900,
+      "file": "deal-value-creation.webp",
+      "file2x": "deal-value-creation-2x.webp",
+      "bytes": 79038,
+      "bytes2x": 150300
+    },
+    {
+      "name": "analytics",
+      "width": 1440,
+      "height": 900,
+      "file": "analytics.webp",
+      "file2x": "analytics-2x.webp",
+      "bytes": 71752,
+      "bytes2x": 139650
+    },
+    {
+      "name": "analytics-performance",
+      "width": 1440,
+      "height": 900,
+      "file": "analytics-performance.webp",
+      "file2x": "analytics-performance-2x.webp",
+      "bytes": 70336,
+      "bytes2x": 132924
+    },
+    {
+      "name": "analytics-credit",
+      "width": 1440,
+      "height": 900,
+      "file": "analytics-credit.webp",
+      "file2x": "analytics-credit-2x.webp",
+      "bytes": 91738,
+      "bytes2x": 172046
+    },
+    {
+      "name": "analytics-realizations",
+      "width": 1440,
+      "height": 900,
+      "file": "analytics-realizations.webp",
+      "file2x": "analytics-realizations-2x.webp",
+      "bytes": 84182,
+      "bytes2x": 160742
+    },
+    {
+      "name": "value-creation",
+      "width": 1440,
+      "height": 900,
+      "file": "value-creation.webp",
+      "file2x": "value-creation-2x.webp",
+      "bytes": 90474,
+      "bytes2x": 172398
+    },
+    {
+      "name": "entry-metrics",
+      "width": 1440,
+      "height": 900,
+      "file": "entry-metrics.webp",
+      "file2x": "entry-metrics-2x.webp",
+      "bytes": 75044,
+      "bytes2x": 150182
+    },
+    {
+      "name": "intake",
+      "width": 1440,
+      "height": 900,
+      "file": "intake.webp",
+      "file2x": "intake-2x.webp",
+      "bytes": 81388,
+      "bytes2x": 155512
+    },
+    {
+      "name": "extraction",
+      "width": 1440,
+      "height": 900,
+      "file": "extraction.webp",
+      "file2x": "extraction-2x.webp",
+      "bytes": 59654,
+      "bytes2x": 118730
+    },
+    {
+      "name": "monitoring",
+      "width": 1440,
+      "height": 900,
+      "file": "monitoring.webp",
+      "file2x": "monitoring-2x.webp",
+      "bytes": 94494,
+      "bytes2x": 182582
+    },
+    {
+      "name": "valuation-lock",
+      "width": 1440,
+      "height": 900,
+      "file": "valuation-lock.webp",
+      "file2x": "valuation-lock-2x.webp",
+      "bytes": 99016,
+      "bytes2x": 179452
+    },
+    {
+      "name": "capital-notice",
+      "width": 1440,
+      "height": 900,
+      "file": "capital-notice.webp",
+      "file2x": "capital-notice-2x.webp",
+      "bytes": 106116,
+      "bytes2x": 198364
+    },
+    {
+      "name": "closing",
+      "width": 1440,
+      "height": 900,
+      "file": "closing.webp",
+      "file2x": "closing-2x.webp",
+      "bytes": 82154,
+      "bytes2x": 154466
+    },
+    {
+      "name": "pipeline",
+      "width": 1440,
+      "height": 900,
+      "file": "pipeline.webp",
+      "file2x": "pipeline-2x.webp",
+      "bytes": 90930,
+      "bytes2x": 172418
+    },
+    {
+      "name": "allocations-viewer",
+      "width": 1440,
+      "height": 900,
+      "file": "allocations-viewer.webp",
+      "file2x": "allocations-viewer-2x.webp",
+      "bytes": 82824,
+      "bytes2x": 159138
+    }
+  ]
+}
