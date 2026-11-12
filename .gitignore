@@ -40,8 +40,9 @@ apps/web/dist-types/
 apps/web/.e2e/
 # static preview build
 apps/web/dist-preview/
-# the site's generated media (screenshots, recordings, brochures) and wrangler's working folder
-apps/site/media/
+# wrangler's working folders. The site's generated media (apps/site/media: screenshots,
+# recordings, brochures) is committed on purpose: Cloudflare's build cannot run a browser.
 apps/site/.wrangler/
+.wrangler/
 # agent worktrees (never committed)
 .claude/worktrees/

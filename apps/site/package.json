@@ -16,7 +16,7 @@
     "serve": "node scripts/serve-dist.mjs",
     "typecheck": "tsc -b",
     "test": "vitest run",
-    "deploy:dry-run": "wrangler deploy --dry-run"
+    "deploy:dry-run": "wrangler deploy --dry-run --config ../../wrangler.toml"
   },
   "devDependencies": {
     "@axe-core/playwright": "4.13.0",

@@ -43,3 +43,13 @@ SEC-6.6 (no real data outside approved environments: the site and its demo hold 
 - `wrangler deploy --dry-run` reads the built folder with this configuration. No real deploy was run and nothing was authenticated.
 - The site's own check serves the built folder from a sub-path and verifies every link and asset, that no request leaves the origin, the demo opening and signing in, the videos and brochures, accessibility in light and dark, and a phone width.
 - The workflow file parses but has never run: its first run is the owner's.
+
+## Amendment, 2026-11-12: the owner connected Cloudflare's own build
+
+While the site was being built, the owner connected this repository to the host's own build (it installs the workspace, runs the repository's build and then `npx wrangler deploy` from the repository root on every push to `main`). Its first run failed, as expected: `main` had no site yet and the repository root had no wrangler configuration. The owner asked for the simplest path, so that connection is now the one way to publish, and the manual workflow with repository secrets is gone:
+
+- `wrangler.toml` moved to the repository root. It names the folder (`apps/site/dist`), runs the site's build itself before reading it (`[build] command`, verified with a dry run on wrangler 4.146.0: an assets-only configuration runs its build command first), and carries the domain in one `routes` line. Inside the host's build wrangler uses the connected Worker's name whatever the file says (read in its source: the name is overridden, with a warning).
+- The host's build cannot run a browser, so the generated screenshots, recordings and brochures are committed under `apps/site/media` (tens of megabytes) and regenerated in a development session when the tool changes. The interactive preview needs no browser and is built there.
+- `.github/workflows/site.yml` now only builds and checks the site by hand; it holds no secret and publishes nothing.
+- This departs from the letter of CLAUDE.md ("deployment happens only in GitHub Actions after human approval") by the owner's own choice for this static site: the human approval is the merge to `main`. The application is still deployed nowhere.
+- The first build after the merge to `main` is the real test: nothing here could run the host's build. The owner pastes its log if it fails.

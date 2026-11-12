@@ -1,0 +1,33 @@
+# Publishes the Portfolio Beach website (apps/site) as static files on a Cloudflare Worker.
+# Cloudflare's own build, connected to this repository by the owner, runs "npx wrangler deploy"
+# from the repository root on every push to main and reads this file. Nothing else publishes.
+# Checked against wrangler 4.146.0 (its config schema, "deploy --help" and a dry run), not written
+# from memory. See apps/site/README.md, "Publishing", and docs/decisions/0015.
+#
+# The name is the Worker's name in Cloudflare. Inside Cloudflare's build wrangler uses the name
+# of the connected Worker whatever this says, so a different name there is not an error.
+name = "portfolio-beach"
+compatibility_date = "2026-10-01"
+# No usage metrics from this project, on any machine.
+send_metrics = false
+
+# The one place the site's domain is written. A deploy from Cloudflare's build moves this domain
+# to this Worker from whichever Worker holds it, without asking. To change domains, change this
+# line; to publish to the Worker's own workers.dev address only, set routes = [].
+routes = [
+  { pattern = "cameroncastle.com", custom_domain = true },
+]
+
+[assets]
+directory = "./apps/site/dist"
+# /demo/index.html is served at /demo/, so the demo's relative asset paths keep resolving.
+html_handling = "auto-trailing-slash"
+# apps/site/dist/404.html, with status 404, for an address that matches no file.
+not_found_handling = "404-page"
+
+# wrangler runs this before it reads the folder above: the interactive preview (recorded from the
+# synthetic dataset, no browser needed), then the pages with the committed screenshots, recordings
+# and brochures of apps/site/media. Cloudflare's build cannot run a browser, so that media is
+# generated in a development session ("pnpm --filter @pb/site build") and committed.
+[build]
+command = "pnpm --filter @pb/site build:site-only"

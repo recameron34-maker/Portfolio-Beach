@@ -1,25 +1,18 @@
-# The Portfolio Beach site (apps/site): build it, check it, keep the built folder as a workflow
-# artifact and, when the Cloudflare credentials are configured, publish it. A person starts every
-# run by hand: this workflow has no other trigger, and must never get one, because a production
-# run attaches the custom domain and takes it over from whichever Worker holds it.
-#   target = preview     deploys the Worker "portfolio-beach-site-preview" (a workers.dev address only)
-#   target = production  deploys "portfolio-beach-site" to the domain in the repository variable SITE_DOMAIN
-# Steps for the owner: apps/site/README.md, "Publishing".
+# The Portfolio Beach site (apps/site): build it from scratch, media included, and check it
+# (links, media, accessibility, no request to another origin). The built folder is kept as a
+# workflow artifact. A person starts every run by hand.
+# This workflow publishes NOTHING. Publishing is Cloudflare's own build, which the owner connected
+# to this repository: a push to main runs "npx wrangler deploy" with the wrangler.toml at the
+# repository root. See apps/site/README.md, "Publishing".
 # Actions are referenced by tag here; run `bash scripts/pin-actions.sh` on a signed-in machine to
 # rewrite every `uses:` to a full commit SHA before enabling branch protection (P0-3, SEC-17.5).
 name: site
 on:
   workflow_dispatch:
-    inputs:
-      target:
-        description: Where to publish once the build and its checks pass
-        type: choice
-        options: [preview, production]
-        default: preview
 permissions:
   contents: read
 concurrency:
-  group: site-${{ inputs.target }}
+  group: site-check
   cancel-in-progress: false
 env:
   PNPM_VERSION: 10.28.0
@@ -67,47 +60,3 @@ jobs:
           path: apps/site/dist
           if-no-files-found: error
           retention-days: 14
-  deploy:
-    name: publish (${{ inputs.target }})
-    needs: build
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    # The owner can require an approval on site-production in the repository's environment settings.
-    environment: ${{ inputs.target == 'production' && 'site-production' || 'site-preview' }}
-    steps:
-      - uses: actions/checkout@v4 # pin to SHA
-      - uses: pnpm/action-setup@v4 # pin to SHA
-        with: { version: '${{ env.PNPM_VERSION }}' }
-      - uses: actions/setup-node@v4 # pin to SHA
-        with: { node-version-file: .nvmrc, cache: pnpm }
-      - run: pnpm install --frozen-lockfile
-      - uses: actions/download-artifact@v4 # pin to SHA
-        with:
-          name: portfolio-beach-site
-          path: apps/site/dist
-      - run: test -f apps/site/dist/index.html
-      # The credentials reach this one step only, through its environment, and are never printed.
-      # Without them the run stops here, green, with a notice: the built folder is the artifact.
-      - name: Deploy with wrangler
-        working-directory: apps/site
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          SITE_DOMAIN: ${{ vars.SITE_DOMAIN }}
-          TARGET: ${{ inputs.target }}
-          WRANGLER_SEND_METRICS: 'false'
-        run: |
-          if [ -z "$CLOUDFLARE_API_TOKEN" ] || [ -z "$CLOUDFLARE_ACCOUNT_ID" ]; then
-            echo "::notice title=Nothing was deployed::CLOUDFLARE_API_TOKEN or CLOUDFLARE_ACCOUNT_ID is not set for this repository. The site was built and checked, and the built folder is the workflow artifact portfolio-beach-site."
-            exit 0
-          fi
-          if [ "$TARGET" = "production" ]; then
-            if [ -z "$SITE_DOMAIN" ]; then
-              echo "::error title=SITE_DOMAIN is not set::A production run publishes to the domain in the repository variable SITE_DOMAIN, and that variable is empty. Set it under Settings > Secrets and variables > Actions > Variables, then run this workflow again."
-              exit 1
-            fi
-            # Takes the domain over from whichever Worker holds it (wrangler does not ask when it is not run in a terminal).
-            pnpm exec wrangler deploy --domain "$SITE_DOMAIN"
-          else
-            pnpm exec wrangler deploy --name portfolio-beach-site-preview
-          fi

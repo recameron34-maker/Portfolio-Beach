@@ -61,23 +61,21 @@ The repository's own gates cover the source: `pnpm typecheck`, `pnpm lint`, `bas
 
 ## Publishing
 
-The repository carries one way to publish: `.github/workflows/site.yml` builds the site, checks it and deploys it as static assets on a Cloudflare Worker with wrangler (`wrangler.toml`). It runs only when a person starts it. Nothing in this repository deploys on a push, and no domain, account or secret is written in any file.
+The owner connected this repository to Cloudflare's own build, so publishing is one thing: **a push to `main` publishes the site.** Cloudflare installs the workspace, runs the repository's build and then `npx wrangler deploy` from the repository root, which reads the `wrangler.toml` there. No token, secret or variable is needed in this repository.
 
-Steps for the owner:
+What `wrangler.toml` at the repository root says:
 
-1. **Secrets.** In this repository, under Settings > Secrets and variables > Actions, add the secrets `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` (the same token and account the repository that serves the domain today uses).
-2. **The domain.** On the Variables tab of the same page, add the variable `SITE_DOMAIN` with the domain the site should answer on, for example `www.example.com`. It lives only there, so it can be changed later without a code change.
-3. **An approval, if you want one.** Under Settings > Environments, open `site-production` (it appears after the first production run, or create it first) and add yourself as a required reviewer. A production run then waits for your approval.
-4. **Preview first.** Actions > site > Run workflow, with `target` left at `preview`. It deploys a Worker named `portfolio-beach-site-preview` to its workers.dev address, which the run's log prints. Look at it there.
-5. **Then production.** Run the workflow again with `target` set to `production`. It deploys the Worker `portfolio-beach-site` to `SITE_DOMAIN`.
+- **The folder:** `apps/site/dist`, served as static files.
+- **The build:** before it reads that folder, wrangler runs `pnpm --filter @pb/site build:site-only`: the interactive preview (recorded from the synthetic dataset, no browser needed), then the pages with the media that is committed under `apps/site/media`.
+- **The domain:** one `routes` line. A publish moves that domain to this site's Worker from whichever Worker holds it, without asking. To change domains, change that line. To publish to the Worker's own workers.dev address only, set `routes = []`.
+- **The name:** inside Cloudflare's build, wrangler uses the name of the connected Worker whatever the file says.
 
 What to expect:
 
-- **A production run takes the domain over** from whichever Worker holds it now. Wrangler does not ask when it is not run in a terminal. The site answers on the domain within a minute or so of the run.
-- **The other repository will take the domain back on its next deploy** for as long as its configuration names the domain (the `routes` line of its wrangler file). Removing that line is a change to that repository, and yours to approve there.
-- **Without the two secrets nothing is deployed.** The run still builds and checks the site, says so in a notice, and ends green; the built folder is the workflow artifact `portfolio-beach-site`, kept for 14 days.
-- **A production run with `SITE_DOMAIN` empty fails** with a message that says which variable to set.
-- **The workflow appears in the Actions tab only once its file is on the default branch.** A manually triggered workflow on another branch cannot be started from the web page.
-- The page carries `<meta name="robots" content="noindex">`, so search engines are asked not to list it. Remove that line from `index.html` if the site should be found.
+- **The media is committed.** Cloudflare's build cannot run a browser, so the screenshots, recordings and brochures are generated in a development session (`pnpm --filter @pb/site build`) and committed under `apps/site/media` (tens of megabytes). When the tool changes, regenerate and commit them, or the site shows the old pictures.
+- **The repository that held the domain before will take it back on its next deploy** for as long as its configuration names the domain. Its change to stop that is a pull request in that repository, to merge after this site has published.
+- **Other branches do not publish.** Cloudflare builds them as previews at their own addresses; a preview never takes the domain.
+- The pages carry `<meta name="robots" content="noindex">` unless the site's configuration says otherwise, so search engines are asked not to list them.
+- `.github/workflows/site.yml` only builds and checks the site (links, media, accessibility, no request to another origin) when a person starts it; it publishes nothing.
 
-To check the wrangler configuration on a machine without credentials: `pnpm --filter @pb/site deploy:dry-run` (after a build). It reads `dist`, uploads nothing and needs no account.
+To check the configuration on a machine without credentials: `pnpm --filter @pb/site deploy:dry-run` (after a full build). It builds the pages, reads `dist`, uploads nothing and needs no account.
