@@ -723,7 +723,8 @@ if (!ARTIFACT) {
     'demo: "Open the demo" opens demo/index.html under the sub-path in a new tab, and the site stays open behind it',
     demoTab.url().startsWith(`${home}demo/`) &&
       demo.page.url() === home &&
-      (await demoTab.opener()) === null,
+      // What rel="noopener" means inside the new tab: it holds no handle on the site's window.
+      (await demoTab.evaluate(() => globalThis.opener)) === null,
     `${demoTab.url()} with the site at ${demo.page.url()}`,
   );
   demo.page = demoTab;

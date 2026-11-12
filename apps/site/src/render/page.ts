@@ -332,9 +332,16 @@ function controls(): Markup {
   </section>`;
 }
 
-function video(item: DemoVideo, featured: boolean): Markup {
+/**
+ * One recording. `wide` gives it the full row with its text beside it: the first one, and the
+ * last one when it would otherwise sit alone in a row of two (then mirrored, text first).
+ */
+function video(item: DemoVideo, wide: boolean, mirrored: boolean): Markup {
   const base = 'media/videos';
-  return html`<article class="video ${featured ? 'video-featured' : ''}" data-reveal>
+  return html`<article
+    class="video ${wide ? 'video-featured' : ''} ${mirrored ? 'video-flip' : ''}"
+    data-reveal
+  >
     <div class="video-frame">
       <video
         controls
@@ -374,7 +381,13 @@ function videos(media: Media): Markup {
         <h2 id="videos-title">${VIDEOS.title}</h2>
         <p class="lead">${VIDEOS.lead}</p>
       </div>
-      <div class="video-grid">${media.videos.map((item, i) => video(item, i === 0))}</div>
+      <div class="video-grid">
+        ${media.videos.map((item, i) => {
+          // After the first, the recordings pair up; an odd one out closes the section at full width.
+          const alone = i > 0 && i === media.videos.length - 1 && i % 2 === 1;
+          return video(item, i === 0 || alone, alone);
+        })}
+      </div>
     </div>
   </section>`;
 }

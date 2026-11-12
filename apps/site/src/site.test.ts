@@ -283,6 +283,12 @@ describe('the artifact fragment', () => {
     expect(fragment.split('<script').length - 1).toBe(1);
   });
 
+  it('names the stylesheet and the script by the path they are published at, with no "./"', () => {
+    expect(fragment).toContain('href="assets/index-abc.css"');
+    expect(fragment).toContain('src="assets/index-abc.js"');
+    expect(fragment).not.toContain('"./');
+  });
+
   it('refuses a page it cannot make a fragment from', () => {
     expect(() => toFragment('<html><head></head><body><p>x</p></body></html>', 'A page')).toThrow(
       /stylesheet/,

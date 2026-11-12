@@ -308,7 +308,7 @@ export const TOUR = {
       short: 'Value creation',
       kicker: 'Value creation and entry metrics',
       title: 'Where the gain came from, and how entry terms played out.',
-      body: 'The Value creation tab splits the gain on equity and continuation vehicle positions (NAV plus distributions less invested capital) into EBITDA growth, multiple expansion, debt paydown and a remainder it calls mark and timing. A bridge chart walks from invested capital to value now, and a switch opens EBITDA growth into revenue growth and margin change. A second chart plots each company’s valuation growth against its EBITDA growth, measured on the mark, the company equity value or the enterprise value. The Entry metrics tab pools gross MOIC, gross IRR and EBITDA growth by entry purchase multiple band and by entry net leverage band, and plots entry multiple against MOIC.',
+      body: 'The Value creation tab splits the gain on equity and continuation vehicle positions (NAV plus distributions less invested capital) into EBITDA growth, multiple expansion, debt paydown and a remainder it calls mark and timing. A bridge chart walks from invested capital to value now, and a switch opens EBITDA growth into revenue growth and margin change. A second chart plots each company’s valuation growth against its EBITDA growth, measured on the mark, the company equity value or the enterprise value. The Entry metrics tab shows gross MOIC, gross IRR and EBITDA growth by entry purchase multiple band and by entry net leverage band, and plots entry multiple against MOIC.',
       points: [
         'One row of filters serves both tabs: vehicle, sponsor, sector, deal type, entry year and status. Every figure is rolled up again over the positions that pass.',
         'A sortable table of positions with entry and current multiples, the entry stake and each part of the gain, and a CSV export.',
@@ -321,7 +321,7 @@ export const TOUR = {
       more: [
         {
           shot: 'entry-metrics',
-          alt: 'The Entry metrics tab of analytics: the same row of filters; a bar chart of gross MOIC by entry purchase multiple band above a table of the bands with positions, invested capital, NAV, distributions, gross MOIC, gross IRR and EBITDA growth; and the start of the same view by entry net leverage band.',
+          alt: 'The Entry metrics tab of analytics: the same row of filters; a bar chart of gross MOIC by entry purchase multiple band above a table of the bands with positions, invested capital, NAV, distributions, gross MOIC, gross IRR and EBITDA growth; and a note that MOIC and IRR are pooled over each band’s positions.',
           caption: 'Entry metrics: performance by entry purchase multiple band.',
         },
         {
@@ -373,7 +373,7 @@ export const CONTROLS = {
     {
       icon: 'key',
       name: 'Roles and entitlements',
-      text: 'Seven roles, from viewer to auditor, each reading what its access matrix allows and nothing else. Client data is visible only to users entitled to that client: operations, the deal team and approvers read every client, investor relations its named clients, an auditor all of them for review. A viewer or a platform admin reads none. On a deal they see the commitment, the received total and a count of the client lines not shown.',
+      text: 'Seven roles, from viewer to auditor, each reading what its access matrix allows and nothing else. Client data is visible only to users entitled to that client: operations, the deal team and approvers read every client, investor relations its named clients, an auditor all of them for review. A viewer or a platform admin is entitled to none: a viewer who opens a deal sees its commitment, the received total and a count of the client lines not shown.',
     },
     {
       icon: 'wall',

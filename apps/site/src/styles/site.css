@@ -1058,6 +1058,12 @@ figcaption {
   gap: clamp(24px, 3.4vw, 48px);
   align-items: center;
 }
+.video-flip {
+  grid-template-columns: minmax(0, 4fr) minmax(0, 7fr);
+}
+.video-flip .video-frame {
+  order: 2;
+}
 .video-frame {
   border-radius: var(--radius);
   overflow: hidden;
@@ -1396,7 +1402,8 @@ figcaption {
   .demo-inner {
     grid-template-columns: minmax(0, 1fr);
   }
-  .feature-flip .feature-text {
+  .feature-flip .feature-text,
+  .video-flip .video-frame {
     order: 0;
   }
   .together {

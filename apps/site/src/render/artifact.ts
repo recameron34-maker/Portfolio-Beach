@@ -36,12 +36,15 @@ export function toFragment(document: string, title: string): string {
     throw new Error(
       `the built page is not what the fragment is made from: ${links.length} stylesheet links, ${styles.length} inline styles, ${scripts.length} scripts`,
     );
+  // Vite writes "./assets/..."; the fragment names each file by the very path it is published
+  // at, as publish.json lists it.
+  const plain = (tag: string): string => tag.replace(/\b(href|src)="\.\//g, '$1="');
   const fragment = [
     `<title>${escapeHtml(title)}</title>`,
-    ...links,
+    ...links.map(plain),
     ...styles,
     markup,
-    ...scripts,
+    ...scripts.map(plain),
   ].join('\n');
   if (DOCUMENT_TAGS.test(fragment))
     throw new Error('the fragment holds a doctype or an <html>, <head> or <body> tag');
