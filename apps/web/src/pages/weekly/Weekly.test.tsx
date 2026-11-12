@@ -57,7 +57,7 @@ describe('weekly values list', () => {
     expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('Weekly values');
     expect(
       screen.getByText(
-        'Weekly report values to valuation staging: prior, variance, threshold flag, then a Draft valuation (SEC-9.1)',
+        'Weekly report values to valuation staging: prior, variance, threshold flag, then a Draft valuation',
       ),
     ).toBeInTheDocument();
     expect(screen.getByTestId('weekly-files')).toBe(table);

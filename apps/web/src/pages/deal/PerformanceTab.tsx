@@ -523,8 +523,7 @@ function OutlookCard({ id }: { id: string }): ReactNode {
       <SectionHeader aside={<SimulatedBadge />}>Realization outlook</SectionHeader>
       {body}
       <p className="pb-meta pb-deal-note">
-        Changes only by explicit edit, with a reason on the audit trail (docs/04 M9); nothing
-        automated sets it.
+        Changes only by explicit edit, with a reason on the audit trail; nothing automated sets it.
       </p>
     </Card>
   );
@@ -705,8 +704,8 @@ function CreditQuartersCard({
           </TableWrap>
           <p className="pb-meta pb-deal-note">
             Coverage is EBITDA over cash interest, leverage is net debt through the tranche over
-            EBITDA, and LTV is net debt through the tranche over enterprise value (docs/08 section
-            10). PIK counts as income only once capitalized into par.
+            EBITDA, and LTV is net debt through the tranche over enterprise value. PIK counts as
+            income only once capitalized into par.
           </p>
         </>
       )}

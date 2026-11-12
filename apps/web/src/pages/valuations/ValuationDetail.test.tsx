@@ -280,10 +280,7 @@ describe('valuation version screen', () => {
       ),
       [commandsPath(VAL_ID.prepared)]: {
         status: 422,
-        body: refusalFixture(
-          422,
-          'valuation: the preparer cannot approve their own valuation (SEC-5.6)',
-        ),
+        body: refusalFixture(422, 'valuation: the preparer cannot approve their own valuation'),
       },
     });
     renderWithQuery(<ValuationDetailPage />);
@@ -299,7 +296,7 @@ describe('valuation version screen', () => {
     await userEvent.click(approve);
     expect(
       await within(screen.getByRole('status')).findByText(
-        'Deal team approve for Meridian Data Partners, Jun 30, 2025 v1: Blocked by a rule. The preparer cannot approve their own valuation (SEC-5.6)',
+        'Deal team approve for Meridian Data Partners, Jun 30, 2025 v1: Blocked by a rule. The preparer cannot approve their own valuation',
       ),
     ).toHaveClass('pb-notice-bad');
     expect(sentPosts()).toEqual([[commandsPath(VAL_ID.prepared), { command: 'dealTeamApprove' }]]);

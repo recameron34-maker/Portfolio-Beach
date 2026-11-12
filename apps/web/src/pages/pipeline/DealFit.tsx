@@ -15,7 +15,7 @@ import type { FitRow } from './deal-fit.js';
 const PREVIEW_ONLY = {
   title: 'Portfolio fit: not worked out in this preview',
   detail:
-    'The scores are worked out by the API from the portfolio. A deal created in this preview has none recorded.',
+    'The scores are worked out on the server from the portfolio. A deal created in this preview has none.',
 };
 
 function Measure({

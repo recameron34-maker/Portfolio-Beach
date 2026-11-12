@@ -63,11 +63,13 @@ function StageStrip({ stage }: { stage: DealStage }): ReactNode {
         >
           <span>{humanizeState(step.stage)}</span>
           {step.status === 'done' ? (
-            <Badge tone="good">Done</Badge>
+            <span className="pb-pipe-stage-state">
+              <span aria-hidden="true">{'\u2713'}</span> Done
+            </span>
           ) : step.status === 'current' ? (
-            <Badge tone="brand">Current</Badge>
+            <span className="pb-pipe-stage-state">Current</span>
           ) : (
-            <Badge plain>Upcoming</Badge>
+            <span className="pb-visually-hidden">Upcoming</span>
           )}
         </li>
       ))}
@@ -179,7 +181,7 @@ function ClosingSummaryCard({ detail }: { detail: OpportunityDetail }): ReactNod
       {c === null ? (
         <EmptyState
           title="No closing record yet"
-          detail="The closing opens when the deal advances from Approved with a close date and a commitment (docs/04 M8)."
+          detail="The closing opens when the deal advances from Approved with a close date and a commitment."
           testId="opportunity-closing-empty"
         />
       ) : (

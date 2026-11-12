@@ -66,9 +66,7 @@ describe('intake list', () => {
     renderWithQuery(<IntakePage />);
     const table = await screen.findByRole('table', { name: 'Intake files' });
     expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('Intake');
-    expect(
-      screen.getByText('Staging, validation, approval, then production (SEC-9.1)'),
-    ).toBeInTheDocument();
+    expect(screen.getByText('Staging, validation, approval, then production')).toBeInTheDocument();
     expect(screen.getByTestId('intake-files')).toBe(table);
     const rows = within(table).getAllByRole('row');
     expect(rows).toHaveLength(4);

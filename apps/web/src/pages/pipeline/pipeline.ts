@@ -31,6 +31,7 @@ import type { Tone } from '../../components/ui.js';
 import { formatMoneyM, labelOf, MISSING, plural } from '../../lib/format.js';
 import { WHO_READS_EVERY_CLIENT } from '../../lib/roles.js';
 import { isFairValue } from '../valuations/board.js';
+import { withoutReferences } from '../../lib/references.js';
 
 /*
  * Pure helpers for the pipeline pages (docs/04 M5, M8, M22; docs/18 sections 4 and 12). No
@@ -73,7 +74,7 @@ export function daysInStageLabel(daysInStage: number): string {
 export function agingHint(stage: DealStage, daysInStage: number): string | null {
   const limit = STAGE_AGING_DAYS[stage];
   if (limit === undefined || daysInStage <= limit) return null;
-  return `Over the ${limit}-day guide for ${stage} (config pipeline.stageAgingDays)`;
+  return `Over the ${limit}-day guide for ${stage}`;
 }
 
 export interface PipelineFilters {
@@ -180,7 +181,7 @@ export function gateLines(gates: OpportunityGates, hasClosing: boolean): GateLin
         ? 'No closing record yet: it opens when the deal advances from Approved with a close date and a commitment.'
         : gates.closing.checklistComplete
           ? 'Every required closing item is received or waived.'
-          : 'A required closing item is still open (M8).',
+          : 'A required closing item is still open.',
     },
     {
       key: 'tieOut',
@@ -189,7 +190,7 @@ export function gateLines(gates: OpportunityGates, hasClosing: boolean): GateLin
         ? 'The allocation tie-out starts once the closing record exists.'
         : gates.closing.allocationTiedOut
           ? 'The received amounts tie to the closing commitment.'
-          : 'The received amounts do not tie to the closing commitment (M22).',
+          : 'The received amounts do not tie to the closing commitment.',
     },
     {
       key: 'confirmed',
@@ -198,7 +199,7 @@ export function gateLines(gates: OpportunityGates, hasClosing: boolean): GateLin
         ? 'Operations confirm the closing once the closing record exists.'
         : gates.closing.confirmed
           ? 'Operations confirmed the closing.'
-          : 'Operations have not confirmed the closing; the advance to Closed waits for the confirmation (M8).',
+          : 'Operations have not confirmed the closing; the advance to Closed waits for the confirmation.',
     },
   ];
 }
@@ -224,7 +225,7 @@ export function advanceBlocker(
       const reasons: string[] = [];
       if (!gates.closing.checklistComplete) reasons.push('the closing checklist is incomplete');
       if (!gates.closing.allocationTiedOut)
-        reasons.push('allocations do not tie to the closing commitment (M22)');
+        reasons.push('allocations do not tie to the closing commitment');
       // The API refuses Closing to Closed until operations confirmed, in these words.
       if (!gates.closing.confirmed) reasons.push(CLOSING_NOT_CONFIRMED_REFUSAL);
       return reasons.length === 0 ? null : capitalize(reasons.join('; '));
@@ -239,8 +240,13 @@ export function advanceBlocker(
   }
 }
 
+/**
+ * A rule of the shared control functions as the page words it: a capital first, and without the
+ * reference to the control or module the rule cites for the audit trail (lib/references.ts).
+ */
 function capitalize(text: string): string {
-  return text.charAt(0).toUpperCase() + text.slice(1);
+  const plain = withoutReferences(text);
+  return plain.charAt(0).toUpperCase() + plain.slice(1);
 }
 
 /** "Short by $0.5M" inside a sentence: only the first letter changes, the unit keeps its case. */
@@ -475,14 +481,14 @@ export function closingBlockers(
   const out: string[] = [];
   if (closing.itemsRequiredOpen > 0)
     out.push(
-      `${plural(closing.itemsRequiredOpen, 'required closing item')} still open: a required closing document is missing (M8)`,
+      `${plural(closing.itemsRequiredOpen, 'required closing item')} still open: a required closing document is missing`,
     );
   if (!closing.allocationTieOut.tiedOut) {
     const missing =
       closing.allocationTieOut.hiddenLines > 0 ? null : missingReceivedRefusal(closing.allocations);
     out.push(
       missing === null
-        ? `Allocations do not tie to the closing commitment, ${lowerFirst(tieOutLabel(closing.allocationTieOut))} (M22)`
+        ? `Allocations do not tie to the closing commitment, ${lowerFirst(tieOutLabel(closing.allocationTieOut))}`
         : capitalize(missing),
     );
   }

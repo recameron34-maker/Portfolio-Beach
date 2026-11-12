@@ -149,10 +149,7 @@ describe('valuation board (preview)', () => {
       routes(['deal_team'], {
         [`/api/v1/valuations/${VAL_ID.prepared}/commands`]: {
           status: 422,
-          body: refusalFixture(
-            422,
-            'valuation: the preparer cannot approve their own valuation (SEC-5.6)',
-          ),
+          body: refusalFixture(422, 'valuation: the preparer cannot approve their own valuation'),
         },
       }),
     );
@@ -162,7 +159,7 @@ describe('valuation board (preview)', () => {
       button('Deal team approve, Silverline Staffing Holdings, Jun 30, 2025 v1'),
     );
     const notice = await within(screen.getByRole('status')).findByText(
-      'Deal team approve for Silverline Staffing Holdings, Jun 30, 2025 v1: Blocked by a rule. The preparer cannot approve their own valuation (SEC-5.6)',
+      'Deal team approve for Silverline Staffing Holdings, Jun 30, 2025 v1: Blocked by a rule. The preparer cannot approve their own valuation',
     );
     expect(notice).toHaveClass('pb-notice', 'pb-notice-bad');
     expect(

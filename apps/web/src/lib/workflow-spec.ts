@@ -1,4 +1,5 @@
 import type { Machine, Transition, TransitionContext } from '@pb/workflows';
+import { withoutReferences } from './references.js';
 import { commandLabel, humanizeState, rolesLabel } from './states.js';
 
 /* The rows of a workflow specification card (components/WorkflowSpec.tsx), from a transition table. */
@@ -6,7 +7,11 @@ import { commandLabel, humanizeState, rolesLabel } from './states.js';
 /** Nothing done yet: run against this, a step's precondition answers with its rule in the code's own words. */
 const NOTHING_DONE: TransitionContext = { actorId: '', actorRoles: [], record: {} };
 
-const capitalize = (text: string): string => text.charAt(0).toUpperCase() + text.slice(1);
+/** A rule in the code's own words, as the page shows it: a capital first, no reference to the control it cites. */
+const capitalize = (text: string): string => {
+  const plain = withoutReferences(text);
+  return plain.charAt(0).toUpperCase() + plain.slice(1);
+};
 
 const sentence = (text: string): string => {
   const capital = capitalize(text);

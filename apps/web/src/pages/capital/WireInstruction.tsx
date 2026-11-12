@@ -51,8 +51,7 @@ import type { CallbackForm } from './wires.js';
 import './capital.css';
 
 /** The sentence every clear read carries (SEC-11.1). */
-export const AUDITED_READ_NOTE =
-  'Each read of the clear details is recorded in the audit trail (SEC-11.1).';
+export const AUDITED_READ_NOTE = 'Each read of the clear details is recorded in the audit trail.';
 
 function BackLink(): ReactNode {
   return (
@@ -67,7 +66,7 @@ function BackLink(): ReactNode {
  * form of a recorded version only, never a full account number, routing code or reference.
  */
 export const PREVIEW_DETAILS_NOTE =
-  'Full bank details are not part of this preview: it carries the bank name and the last four digits of the account number only. In the product, operations and approvers read the full details here and each read is recorded in the audit trail (SEC-11.1).';
+  'Full bank details are not part of this preview: it carries the bank name and the last four digits of the account number only. In the product, operations and approvers read the full details here and each read is recorded in the audit trail.';
 
 /** What stands beside details a person typed in the preview session itself. */
 const PREVIEW_TYPED_NOTE =
@@ -118,8 +117,8 @@ function DetailsCard({
       </p>
       {clear === null && !maskedOnly ? (
         <p className="pb-meta" data-testid="wire-details-note">
-          Bank details in clear are shown to operations and approvers only (SEC-12.2); every other
-          role sees the masked form.
+          Bank details in clear are shown to operations and approvers only; every other role sees
+          the masked form.
         </p>
       ) : (
         <>
@@ -222,9 +221,8 @@ function CallbackFormCard({
       >
         <p className="pb-meta">
           Call a number sourced independently of the notice: the instruction already on file, the
-          sponsor&apos;s website, a known contact or the fund administrator (SEC-12.2). A confirmed
-          callback verifies this version and makes it the active one; one that does not confirm
-          rejects it.
+          sponsor&apos;s website, a known contact or the fund administrator. A confirmed callback
+          verifies this version and makes it the active one; one that does not confirm rejects it.
         </p>
         {older ? (
           <p className="pb-notice pb-notice-bad" data-testid="wire-older-version">
@@ -465,7 +463,7 @@ export function WireInstructionPage(): ReactNode {
             forbidden={{
               title: 'This wire instruction: not visible to your role',
               detail:
-                'Operations, approvers, auditors and platform admins read the register (SEC-12.2). Ask a platform administrator if you need access.',
+                'Operations, approvers, auditors and platform admins read the register. Ask a platform administrator if you need access.',
             }}
             errorTitle="Wire instruction unavailable"
             testId="wire-unavailable"

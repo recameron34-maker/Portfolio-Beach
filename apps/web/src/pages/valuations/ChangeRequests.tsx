@@ -83,8 +83,7 @@ import './valuations.css';
 
 type RequestOption = CommandOption<ChangeRequestState, ChangeRequestCommand>;
 
-const META =
-  'Changes to a position, routed to operations and applied in a quarter (docs/18 section 8)';
+const META = 'Changes to a position, routed to operations and applied in a quarter';
 
 /** What a role the queue refuses is told (the API answers 403). */
 const FORBIDDEN = {
@@ -402,7 +401,7 @@ function QuarterEndCard({
       </SectionHeader>
       <p className="pb-meta">
         Lists every request not applied by the quarter end and opens a data exception for each one
-        still missing from the exceptions list (docs/04 M11). Running it again opens nothing more.
+        still missing from the exceptions list. Running it again opens nothing more.
       </p>
       <Toolbar
         end={

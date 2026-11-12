@@ -75,7 +75,7 @@ function AuditCard({ id }: { id: string }): ReactNode {
         subject="The audit trail"
         forbidden={{
           title: AUDIT_AUDIENCE,
-          detail: 'Row-level security and the API both enforce it (SEC-5.1).',
+          detail: 'Ask a platform administrator if you need access.',
         }}
         notReady={{ title: 'The audit trail is not available yet' }}
         testId="deal-audit-unavailable"

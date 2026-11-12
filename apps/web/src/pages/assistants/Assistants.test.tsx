@@ -41,7 +41,7 @@ describe('Ask Portfolio Beach (mock assistant)', () => {
     mockApi(routes(false));
     render(withQueries(<AssistantsPage />));
     expect(await screen.findByTestId('assistant-disabled')).toHaveTextContent(
-      'The ai.assistant flag is off. Platform admins can turn it on under Admin, Flags; in the prototype the assistant answers from the figures on this page, not from a model.',
+      'The assistant is switched off. A platform admin can turn it on under Admin, Flags. In this prototype it answers from the figures on this page, not from a model.',
     );
     const buttons = within(screen.getByTestId('assistant-questions')).getAllByRole('button');
     expect(buttons).toHaveLength(8);
@@ -53,7 +53,7 @@ describe('Ask Portfolio Beach (mock assistant)', () => {
   it('answers a fixed question with the badge, sources and the mock line', async () => {
     mockApi(routes(true));
     render(withQueries(<AssistantsPage />));
-    await screen.findByText('ai.assistant on');
+    await screen.findByText('Assistant on');
     await userEvent.click(screen.getByRole('button', { name: 'Which valuations are stale?' }));
     const answer = await screen.findByTestId('assistant-answer');
     expect(await within(answer).findByTestId('assistant-paragraphs')).toHaveTextContent(
@@ -79,7 +79,7 @@ describe('Ask Portfolio Beach (mock assistant)', () => {
   it('maps a typed question to the nearest fixed one and says so', async () => {
     mockApi(routes(true));
     render(withQueries(<AssistantsPage />));
-    await screen.findByText('ai.assistant on');
+    await screen.findByText('Assistant on');
     await userEvent.type(screen.getByLabelText('Or type a question'), 'who can see project dune');
     await userEvent.click(screen.getByRole('button', { name: 'Ask' }));
     const answer = await screen.findByTestId('assistant-answer');
@@ -95,7 +95,7 @@ describe('Ask Portfolio Beach (mock assistant)', () => {
   it('says when no fixed question matches', async () => {
     mockApi(routes(true));
     render(withQueries(<AssistantsPage />));
-    await screen.findByText('ai.assistant on');
+    await screen.findByText('Assistant on');
     await userEvent.type(screen.getByLabelText('Or type a question'), 'zzz qqq');
     await userEvent.click(screen.getByRole('button', { name: 'Ask' }));
     expect(await screen.findByTestId('assistant-unmatched')).toHaveTextContent(
@@ -112,7 +112,7 @@ describe('Ask Portfolio Beach (mock assistant)', () => {
       }),
     );
     render(withQueries(<AssistantsPage />));
-    await screen.findByText('ai.assistant on');
+    await screen.findByText('Assistant on');
     await userEvent.click(screen.getByRole('button', { name: 'What capital activity is due?' }));
     const answer = await screen.findByTestId('assistant-answer');
     expect(await within(answer).findByTestId('assistant-paragraphs')).toHaveTextContent(

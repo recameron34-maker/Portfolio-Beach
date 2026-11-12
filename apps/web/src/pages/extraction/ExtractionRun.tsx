@@ -597,7 +597,7 @@ function RunBody({
             <p className="pb-meta">
               Accept, edit or reject each flagged or invalid value, accept the clean ones in one go,
               then approve: the accepted and edited values are promoted into the quarter on record
-              with their source (SEC-9.1).
+              with their source.
             </p>
           </Toolbar>
         )}

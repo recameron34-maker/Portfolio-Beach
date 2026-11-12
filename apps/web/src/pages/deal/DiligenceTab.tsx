@@ -77,7 +77,7 @@ export function DiligenceTab(): ReactNode {
         <SectionHeader>Diligence</SectionHeader>
         <EmptyState
           title={NO_RECORD}
-          detail="Diligence tasks and IC decisions are recorded on the pipeline from Phase 3 on; deals logged there carry them into the workspace on close."
+          detail="Diligence tasks and IC decisions are recorded on the pipeline; deals logged there carry them into the workspace on close."
           testId="deal-diligence-empty"
         />
       </Card>

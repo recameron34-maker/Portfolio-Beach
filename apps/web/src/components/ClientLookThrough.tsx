@@ -25,7 +25,7 @@ import {
 import { WHO_READS_EVERY_CLIENT } from '../lib/roles.js';
 import { balanceTiles } from '../lib/tiles.js';
 
-const ENTITLED = `Client data is visible to ${WHO_READS_EVERY_CLIENT}, and to the investor relations users entitled to each client (SEC-5.2, SEC-5.4).`;
+const ENTITLED = `Client data is visible to ${WHO_READS_EVERY_CLIENT}, and to the investor relations users entitled to each client.`;
 
 function ClientCard({ client }: { client: ClientSummary }): ReactNode {
   const t = client.totals;
@@ -130,8 +130,7 @@ export function ClientLookThrough(): ReactNode {
         forbidden={{ title: 'No entitled clients', detail: ENTITLED }}
         notReady={{
           title: 'Client look-through is not available yet',
-          detail:
-            'The clients endpoint is still being built; this view follows its contract and fills in when it lands.',
+          detail: 'Client views are not available in this version.',
         }}
         errorTitle="Client look-through unavailable"
         testId="clients-unavailable"

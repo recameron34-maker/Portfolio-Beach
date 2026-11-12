@@ -67,7 +67,7 @@ describe('sponsor and contacts tab', () => {
     expect(items[1]).toHaveTextContent('Beach CV Opportunities I, Cv single asset');
 
     expect(screen.getByTestId('deal-contacts')).toHaveTextContent(
-      'Contacts and interactions arrive with M6 in Phase 5',
+      'Contacts and interactions are not built yet',
     );
     expect(screen.getByTestId('deal-contacts')).toHaveTextContent(
       'Relationship score, warm paths and coverage',

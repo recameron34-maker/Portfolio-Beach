@@ -333,7 +333,7 @@ test('a deal moves from Sourced to Closed through the diligence gate and the clo
   );
   await expect(advanceButton(page)).toHaveAttribute(
     'title',
-    'The closing is not confirmed by operations (M8)',
+    'The closing is not confirmed by operations',
   );
   await expect(advanceButton(page)).toBeDisabled();
   const unconfirmed = await refusal(

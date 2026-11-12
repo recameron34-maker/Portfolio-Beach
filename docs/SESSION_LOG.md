@@ -383,3 +383,28 @@ Phase 1 (M1, M2) as planned in Session 1, now with every read screen in place to
 - The owner asked for a look over the UI so that it does not read as machine-made; that pass follows this push.
 - The site's screenshots, recordings and brochures show neither the map nor the fit card; regenerating them is a media pass (the recordings need a video encoder this sandbox lacks).
 
+### Session 11, continued (2026-11-12): a pass over the UI
+
+**Asked by the owner:** "take another look at the UI and make sure it doesnt come across as AI generated".
+
+**What was found** (from screenshots of the main screens, read as a reviewer would)
+
+- The data pages (the portfolio grid, analytics, valuations) held up. The wording did not: about 125 places where a page quoted the build guide ("docs/18 section 4", "(SEC-12.3)", "(M22)", "arrive with M6 in Phase 5", "config pipeline.stageAgingDays", source file paths on the access page).
+- Things said twice or three times: the valuations page said "Reports read Locked valuations only" in its subtitle and again in the notice under it; the analytics subtitle listed the tabs beneath it.
+- A layout fault: cards on the pipeline board were wider than their columns and were cut off.
+- Home opened on twelve walkthroughs, with the portfolio's figures below the fold.
+- The opportunity page stacked five framed "nothing yet" boxes with the same mark, and its stage strip put a badge on every step, seven of them reading "Upcoming".
+
+**What changed** (`docs/06` section 6 is the rule; `lib/copy-guard.test.ts` holds it)
+
+- Page copy cites nothing from the build guide. The API keeps its citations in refusals, as its tests require; the page removes the reference where it shows the sentence (`lib/references.ts`, applied in `ApiError`, `plainRule` and the two helpers that word shared rules). The preview's simulated API still repeats the API word for word.
+- Planned pages say "Not built yet" and what they will hold, with no phase or module number.
+- Pipeline board: cards stay inside their columns, a deal's type is a line of text, columns are a little wider.
+- Home: the dashboard first, the preview's walkthroughs after it.
+- Opportunity: the stage strip names the current step and the ones done; an empty state beside other content in a card is a quiet note.
+- Subtitles that repeated a tab row or a notice are gone.
+
+**Verified:** `pnpm typecheck` and `pnpm lint` clean; `pnpm exec vitest run` all passing (250 files); Playwright locally: journeys 1, 2, 3, 4 and 6, the deal tabs, vehicles and sponsors, and the fit card (21 tests passed across the runs); preview rebuilt, probe 194 passed; the screens were looked at again after the changes.
+
+**Not done in this pass, for a later one:** the explanatory hint under most stat tiles (some earn their place, some do not); the long how-it-works sentences in a few empty states; the greeting on Home; a wider look at spacing and density on the deal workspace.
+

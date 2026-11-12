@@ -131,15 +131,6 @@ export function AiDraftBadge(): ReactNode {
   );
 }
 
-/** Kept for router.tsx; the phase pages are the single implementation. */
-export function PlaceholderPage(props: {
-  title: string;
-  phase: string;
-  modules: string;
-}): ReactNode {
-  return <PhasePage {...props} />;
-}
-
 export function ErrorState({
   title,
   detail,
@@ -361,26 +352,25 @@ export function SimulatedBadge(): ReactNode {
   );
 }
 
-/** A page that will arrive in a later phase: says which, and what the data would show. */
+/**
+ * A page that is planned and not built: says so, and what it will show. Which phase of the build
+ * brings it is the roadmap's business (docs/09), not the reader's, so the page does not say.
+ */
 export function PhasePage({
   title,
-  phase,
-  modules,
+  summary,
   children,
 }: {
   title: string;
-  phase: string;
-  modules: string;
+  /** What the page will hold, in a few words. */
+  summary: string;
   children?: ReactNode;
 }): ReactNode {
   return (
     <>
-      <PageHeader title={title} meta={`${phase}: ${modules}`} />
+      <PageHeader title={title} meta={summary} />
       <Card>
-        <EmptyState
-          title={`${title} arrives in ${phase}`}
-          detail="The data model and workflow for this area are specified (docs/04, docs/18); the screens are built once the earlier phases pass their exit criteria."
-        />
+        <EmptyState title="Not built yet" detail={`${title} is planned for a later release.`} />
         {children}
       </Card>
     </>

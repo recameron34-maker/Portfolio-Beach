@@ -117,9 +117,9 @@ function ProposeForm({ onLog, onDone }: { onLog: ActionLog; onDone: () => void }
       <SectionHeader aside={<SimulatedBadge />}>Propose a new instruction</SectionHeader>
       <p className="pb-meta">
         Type the details from a verified source: a signed closing or subscription document, the fund
-        administrator or a known contact. Never from the notice or from an email asking for a change
-        (SEC-12.1). A second person verifies the version by callback before any ticket releases
-        against it (SEC-12.2).
+        administrator or a known contact. Never from the notice or from an email asking for a
+        change. A second person verifies the version by callback before any ticket releases against
+        it.
       </p>
       <form
         onSubmit={(e) => {
@@ -251,7 +251,7 @@ export function WireRegisterPage(): ReactNode {
     <>
       <PageHeader
         title="Wire instruction register"
-        meta="Bank details are typed from a verified source and verified by a second person's callback (SEC-12.1, SEC-12.2). Every role sees the masked form."
+        meta="Bank details are typed from a verified source and verified by a second person's callback. Every role sees the masked form."
       />
       <TabNav label="Capital activity" items={CAPITAL_TABS} />
     </>
@@ -268,7 +268,7 @@ export function WireRegisterPage(): ReactNode {
           forbidden={{
             title: 'The wire register: not visible to your role',
             detail:
-              'Operations, approvers, auditors and platform admins read the register (SEC-12.2). Ask a platform administrator if you need access.',
+              'Operations, approvers, auditors and platform admins read the register. Ask a platform administrator if you need access.',
           }}
           errorTitle="Wire register unavailable"
           testId="wires-unavailable"

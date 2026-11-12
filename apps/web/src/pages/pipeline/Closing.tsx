@@ -78,7 +78,7 @@ export function ClosingPage(): ReactNode {
         <Card>
           <EmptyState
             title="No closing record yet"
-            detail="The closing opens when the deal advances from Approved with a close date and a commitment (docs/04 M8)."
+            detail="The closing opens when the deal advances from Approved with a close date and a commitment."
             testId="closing-page-empty"
           />
         </Card>

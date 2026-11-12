@@ -39,18 +39,17 @@ if (v1 === undefined || v2 === undefined)
 
 const HOLD_DAYS = 30;
 /** The second-person rule as the page words it on the disabled button (wires.ts, SEC-12.2). */
-const SECOND_PERSON_RULE =
-  'The callback must be made by a person other than the proposer (SEC-12.2)';
+const SECOND_PERSON_RULE = 'The callback must be made by a person other than the proposer';
 const CHANGED_WITHIN_HOLD =
-  "The wire instructions changed within the hold window and wait for a second person's callback (SEC-12.3).";
-const SAME_PERSON = 'You prepared this ticket; a different person must approve it (SEC-12.3).';
+  "The wire instructions changed within the hold window and wait for a second person's callback.";
+const SAME_PERSON = 'You prepared this ticket; a different person must approve it.';
 const THIRD_PERSON =
-  'The wire instructions changed recently and you proposed or verified that change; a third person must approve this ticket (SEC-12.3).';
+  'The wire instructions changed recently and you proposed or verified that change; a third person must approve this ticket.';
 /** What a reader outside the wire register sees where a register row would stand (SEC-12.2). */
 const REGISTER_RESTRICTED = 'Restricted to the wire register';
 /** The older-version rule as the page words it on the disabled button (wires.ts, SEC-12.2). */
 const OLDER_VERSION_RULE =
-  'A newer version of this counterparty is already Verified; reject this older version instead (SEC-12.2)';
+  'A newer version of this counterparty is already Verified; reject this older version instead';
 const FUNDED_DIFFERS = 'Funded amount differs from the notice amount.';
 /** The ticket is drafted for 100,000.00 less than the notice asks, so the two figures read apart. */
 const fundedAmount = D(notice.amount).minus(100_000).toFixed(2);
@@ -133,7 +132,7 @@ test('a viewer reads the notice without the register; operations reviews the cal
   await expect(release).toContainText(CHANGED_WITHIN_HOLD);
   await expect(wireCard).toContainText('A Verified instruction is on file');
   await expect(wireCard).toContainText(
-    'Its details are kept in the wire register, which operations, approvers, auditors and platform admins read (SEC-12.2).',
+    'Its details are kept in the wire register, which operations, approvers, auditors and platform admins read.',
   );
   await expect(wireCard).not.toContainText('No Verified instruction on file');
   await expect(wireCard).not.toContainText(masked(v1));
@@ -150,7 +149,7 @@ test('a viewer reads the notice without the register; operations reviews the cal
   await expect(alerts).toContainText('Urgency language');
   await expect(alerts.getByRole('listitem')).toHaveCount(2);
   await expect(hold).toContainText(
-    `Ticket approval is held until ${shownDate(addDays(d.asOf, HOLD_DAYS))} (${HOLD_DAYS} days, SEC-12.3)`,
+    `Ticket approval is held until ${shownDate(addDays(d.asOf, HOLD_DAYS))} (${HOLD_DAYS} days)`,
   );
   await expect(ticketPanel).toContainText('Drafted');
   await expect(ticketPanel).toContainText(moneyM(notice.amount));
@@ -195,7 +194,7 @@ test('a viewer reads the notice without the register; operations reviews the cal
   // Dual control (SEC-12.3): the preparer's own approval is refused by the rule, in the status region.
   await issue(page, 'Approve ticket');
   await expect(noticeStatus(page)).toContainText('Approve ticket: Blocked by a rule.');
-  await expect(noticeStatus(page)).toContainText('preparer cannot approve it (SEC-12.3)');
+  await expect(noticeStatus(page)).toContainText('preparer cannot approve it');
   await expect(banner).toContainText('Ticket drafted');
 
   // The approver is held by the changed instruction until a second person's callback.
@@ -205,7 +204,7 @@ test('a viewer reads the notice without the register; operations reviews the cal
   await expect(release).toContainText(CHANGED_WITHIN_HOLD);
   await issue(page, 'Approve ticket');
   await expect(noticeStatus(page)).toContainText(
-    'Approve ticket: Blocked by a rule. The wire instruction changed recently and needs a second approval (SEC-12.3)',
+    'Approve ticket: Blocked by a rule. The wire instruction changed recently and needs a second approval',
   );
   await expect(banner).toContainText('Ticket drafted');
 
@@ -267,7 +266,9 @@ test('a viewer reads the notice without the register; operations reviews the cal
   const details = page.getByTestId('wire-instruction');
   await expect(details).toContainText(v2.bankDetails.accountNumber);
   await expect(details).toContainText(v2.bankDetails.routingCode);
-  await expect(page.getByTestId('wire-details-note')).toContainText('SEC-11.1');
+  await expect(page.getByTestId('wire-details-note')).toContainText(
+    'Each read of the clear details is recorded in the audit trail',
+  );
   await pick(page, 'Number source', 'Prior instruction on file');
   await pick(page, 'Result', 'Confirmed');
   await callback.getByRole('button', { name: 'Record callback and verify', exact: true }).click();
@@ -297,7 +298,7 @@ test('a viewer reads the notice without the register; operations reviews the cal
   await expect(release).toContainText(THIRD_PERSON);
   await issue(page, 'Approve ticket');
   await expect(noticeStatus(page)).toContainText(
-    'Approve ticket: Blocked by a rule. The wire instruction changed recently: the person who verified the change cannot approve the release, a third person must (SEC-12.3)',
+    'Approve ticket: Blocked by a rule. The wire instruction changed recently: the person who verified the change cannot approve the release, a third person must',
   );
   await expect(banner).toContainText('Ticket drafted');
 
@@ -429,7 +430,8 @@ test('a viewer reads the notice without the register; operations reviews the cal
   });
   expect(overNewer.status()).toBe(422);
   expect(problemDetails.parse(await overNewer.json()).detail).toBe(
-    `wire_instruction: ${OLDER_VERSION_RULE.charAt(0).toLowerCase()}${OLDER_VERSION_RULE.slice(1)}`,
+    // The API cites the control behind the rule; the page shows the sentence without it.
+    `wire_instruction: ${OLDER_VERSION_RULE.charAt(0).toLowerCase()}${OLDER_VERSION_RULE.slice(1)} (SEC-12.2)`,
   );
   // A callback that did not confirm rejects it: the result and the number source are logged
   // together, and the failed callback stands out on the register row.

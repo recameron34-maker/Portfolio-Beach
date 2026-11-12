@@ -765,6 +765,22 @@ p:last-child {
   background: var(--pb-surface-2);
   text-align: center;
 }
+/* Beside other content in a card an empty state is a quiet note; the mark and the dashed frame
+   are kept for a card that holds nothing else. */
+.pb-card > .pb-empty:not(:only-child) {
+  justify-items: start;
+  gap: 2px;
+  padding: 12px 14px;
+  border-style: solid;
+  border-color: var(--pb-hairline);
+  text-align: left;
+}
+.pb-card > .pb-empty:not(:only-child) > .pb-empty-mark {
+  display: none;
+}
+.pb-card > .pb-empty:not(:only-child) > .pb-empty-detail {
+  max-width: 72ch;
+}
 .pb-empty-mark {
   width: 56px;
   height: 20px;

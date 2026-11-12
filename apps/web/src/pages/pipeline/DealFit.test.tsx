@@ -119,7 +119,7 @@ describe('portfolio fit card', () => {
     open(failing(501, PIPE_PATHS.fit(detail.id)));
     const empty = await screen.findByTestId('opportunity-fit-unavailable');
     expect(empty).toHaveTextContent('Portfolio fit: not worked out in this preview');
-    expect(empty).toHaveTextContent('A deal created in this preview has none recorded.');
+    expect(empty).toHaveTextContent('A deal created in this preview has none.');
     expect(screen.queryByTestId('opportunity-fit-chart')).not.toBeInTheDocument();
   });
 

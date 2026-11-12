@@ -57,7 +57,7 @@ describe('trade tickets', () => {
     expect(blockers.map((b) => b.textContent)).toEqual(['Changed within hold', 'Same person']);
     expect(blockers[0]!.closest('span[title]')).toHaveAttribute(
       'title',
-      "The wire instructions changed within the hold window and wait for a second person's callback (SEC-12.3).",
+      "The wire instructions changed within the hold window and wait for a second person's callback.",
     );
 
     const approved = rows[1]!;

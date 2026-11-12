@@ -81,12 +81,11 @@ export const PROPOSE_ROLES: readonly string[] = ['operations'];
 export const CLEAR_ROLES: readonly string[] = ['operations', 'approver'];
 
 /** The second-person rule as the machine words it (SEC-12.2). */
-export const SECOND_PERSON_RULE =
-  'The callback must be made by a person other than the proposer (SEC-12.2)';
+export const SECOND_PERSON_RULE = 'The callback must be made by a person other than the proposer';
 
 /** Why an older Proposed version cannot be verified, as the machine words it (SEC-12.2). */
 export const OLDER_VERSION_RULE =
-  'A newer version of this counterparty is already Verified; reject this older version instead (SEC-12.2)';
+  'A newer version of this counterparty is already Verified; reject this older version instead';
 
 /**
  * The two parts of the masked form ("<bank name> ****<last four digits>", what every role

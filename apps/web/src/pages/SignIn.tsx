@@ -33,8 +33,8 @@ export function SignInPage(): ReactNode {
       <Card>
         <SectionHeader>Sign in (prototype)</SectionHeader>
         <p>
-          Choose a synthetic user. Each one holds a role from docs/05; what you can see is enforced
-          by the API and by row-level security in the database.
+          Choose a synthetic user. Each one holds a role, and each role sees only what it is
+          entitled to.
         </p>
         <div className="pb-signin-list" data-testid="mock-user-list">
           {users.data.users.map((u) => (
@@ -52,7 +52,7 @@ export function SignInPage(): ReactNode {
           ))}
         </div>
         <p className="pb-signin-foot">
-          Entra ID single sign-on replaces this picker after merge (SEC-4.1).
+          In production, Microsoft Entra ID single sign-on replaces this picker.
         </p>
       </Card>
     );

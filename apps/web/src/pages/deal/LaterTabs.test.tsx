@@ -12,15 +12,17 @@ const EM_DASH = String.fromCharCode(0x2014);
 describe('tabs that arrive in later phases', () => {
   afterEach(() => cleanup());
 
-  it.each<[string, () => ReactNode, string, string, RegExp]>([
-    ['Tasks', TasksTab, 'Phase 6', 'M15 tasks and approvals', /task tool.*Approvals waiting/],
+  it.each<[string, () => ReactNode, string, RegExp]>([
+    ['Tasks', TasksTab, 'Tasks and approvals for this position', /task tool.*Approvals waiting/],
   ])(
-    '%s says which phase and module bring it, and what they bring',
-    (title, Tab, phase, modules, says) => {
+    '%s says it is not built yet and what it will bring, without naming a build phase',
+    (title, Tab, summary, says) => {
       render(<Tab />);
       expect(screen.getByRole('heading', { level: 1, name: title })).toBeInTheDocument();
-      expect(screen.getByText(`${phase}: ${modules}`)).toBeInTheDocument();
-      expect(screen.getByText(`${title} arrives in ${phase}`)).toBeInTheDocument();
+      expect(screen.getByText(summary)).toBeInTheDocument();
+      expect(screen.getByText('Not built yet')).toBeInTheDocument();
+      expect(screen.getByText(`${title} is planned for a later release.`)).toBeInTheDocument();
+      expect(document.body.textContent).not.toMatch(/Phase \d|\bM\d{1,2}\b/);
       const prose = document.querySelector('.pb-prose');
       expect(prose?.textContent).toMatch(says);
       // Two sentences on what arrives.

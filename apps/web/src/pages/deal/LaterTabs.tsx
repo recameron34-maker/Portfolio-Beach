@@ -14,11 +14,11 @@ function Arrives({ children }: { children: ReactNode }): ReactNode {
 
 export function TasksTab(): ReactNode {
   return (
-    <PhasePage title="Tasks" phase="Phase 6" modules="M15 tasks and approvals">
+    <PhasePage title="Tasks" summary="Tasks and approvals for this position">
       <Arrives>
-        M15 brings the tasks for this position from the task tool, with owners, due dates and
-        reminders. Approvals waiting on you, such as valuation sign-offs and trade tickets, appear
-        alongside them.
+        This tab will bring the tasks for this position from the task tool, with owners, due dates
+        and reminders. Approvals waiting on you, such as valuation sign-offs and trade tickets,
+        appear alongside them.
       </Arrives>
     </PhasePage>
   );

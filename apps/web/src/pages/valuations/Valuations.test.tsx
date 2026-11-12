@@ -59,9 +59,7 @@ describe('valuation board', () => {
     mockApi(routes());
     renderWithQuery(<ValuationsPage />);
     const table = await screen.findByRole('table', { name: 'Valuations' });
-    expect(
-      screen.getByText('As of Jun 30, 2025. Reports read Locked valuations only.'),
-    ).toBeInTheDocument();
+    expect(screen.getByText('As of Jun 30, 2025')).toBeInTheDocument();
     expect(screen.getByTestId('valuation-gate')).toHaveTextContent(
       'Reports read Locked valuations only. Draft, Ops prepared and Deal team approved versions never reach a report.',
     );
@@ -215,7 +213,7 @@ describe('valuation board', () => {
                 problem: {
                   status: 422,
                   code: 'workflow-precondition',
-                  detail: 'valuation: the preparer cannot approve their own valuation (SEC-5.6)',
+                  detail: 'valuation: the preparer cannot approve their own valuation',
                 },
               },
             ],
@@ -241,7 +239,7 @@ describe('valuation board', () => {
       );
       expect(
         within(screen.getByRole('list', { name: 'Actions this session' })).getByText(
-          'Lock for Summit Services Co, Jun 30, 2025 v1: Blocked by a rule. The preparer cannot approve their own valuation (SEC-5.6)',
+          'Lock for Summit Services Co, Jun 30, 2025 v1: Blocked by a rule. The preparer cannot approve their own valuation',
         ),
       ).toBeInTheDocument();
       expect(sentPosts()).toEqual([[BATCH, { command: 'lock', ids: [VAL_ID.approved] }]]);

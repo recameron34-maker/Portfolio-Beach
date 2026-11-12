@@ -38,7 +38,7 @@ interface Asked {
 }
 
 const FLAG_OFF =
-  'The ai.assistant flag is off. Platform admins can turn it on under Admin, Flags; in the prototype the assistant answers from the figures on this page, not from a model.';
+  'The assistant is switched off. A platform admin can turn it on under Admin, Flags. In this prototype it answers from the figures on this page, not from a model.';
 
 /**
  * Ask Portfolio Beach, honest by construction: eight fixed questions answered by templates in
@@ -91,12 +91,12 @@ export function AssistantsPage(): ReactNode {
     <>
       <PageHeader
         title="Ask Portfolio Beach"
-        meta="Answers are assembled from figures you can already see; nothing is sent to a model in the prototype (docs/07)."
+        meta="Answers are assembled from figures you can already see; nothing is sent to a model in the prototype."
         actions={
           enabled ? (
-            <Badge tone="good">ai.assistant on</Badge>
+            <Badge tone="good">Assistant on</Badge>
           ) : (
-            <Badge tone="watch">ai.assistant off</Badge>
+            <Badge tone="watch">Assistant off</Badge>
           )
         }
       />

@@ -77,7 +77,7 @@ function PassDialog({
               <FluentField
                 label="Reason code"
                 required
-                hint="A pass needs a reason code; the pass history is searchable by it (docs/04 M5)."
+                hint="A pass needs a reason code; the pass history is searchable by it."
               >
                 <Dropdown
                   placeholder={reasons.length === 0 ? 'No reason codes loaded' : 'Choose a reason'}
@@ -163,8 +163,8 @@ function ClosingDialog({
                 </p>
               ) : (
                 <p className="pb-meta">
-                  The close date is the single source for every report (docs/04 M8); the checklist
-                  from config/closing_checklist.json opens with it.
+                  The close date is the single source for every report; the checklist from
+                  config/closing_checklist.json opens with it.
                 </p>
               )}
               <FluentField
@@ -187,7 +187,7 @@ function ClosingDialog({
                     }
                   : {
                       hint: isPositiveAmount(amount)
-                        ? `Reads as ${formatMoneyM(amount)}. Allocations must tie to it before the deal closes (M22).`
+                        ? `Reads as ${formatMoneyM(amount)}. Allocations must tie to it before the deal closes.`
                         : 'Digits with an optional decimal point, for example 15000000.00.',
                     })}
               >
@@ -343,7 +343,7 @@ export function StageActions({
       {pending?.kind === 'override' ? (
         <ReasonDialog
           title="Advance"
-          subject={`${subject}. Diligence tasks required for IC are still open: your reason is recorded with the override (docs/18 section 4).`}
+          subject={`${subject}. Diligence tasks required for IC are still open: your reason is recorded with the override.`}
           onCancel={close}
           onSubmit={(reason) => {
             issue(pending.option, { command: 'advance', reason });

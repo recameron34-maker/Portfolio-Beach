@@ -47,7 +47,11 @@ describe('audit trail page', () => {
     const id = within(rows[2]!).getByTitle('10000000-0000-4000-8000-000000000031');
     expect(id).toHaveTextContent('10000000');
     expect(id.textContent).not.toContain('000000000031');
-    expect(screen.getByTestId('audit-note')).toHaveTextContent('SEC-11.4');
+    expect(screen.getByTestId('audit-note')).toHaveTextContent(
+      'The details payload and the before and after hashes are never shown here',
+    );
+    // The page cites no control number: that is for the build guide, not the reader.
+    expect(screen.getByTestId('audit-note').textContent).not.toMatch(/SEC-\d/);
     expect(screen.getByRole('navigation', { name: 'Admin' })).toHaveTextContent('Audit trail');
   });
 
@@ -85,7 +89,7 @@ describe('access and walls page', () => {
     render(withQueries(<AccessPage />));
     const wall = await screen.findByTestId('wall-10000000-0000-4000-8000-000000000081');
     expect(wall).toHaveTextContent('Project Dune');
-    expect(wall).toHaveTextContent('Restricted: named members only (SEC-5.3).');
+    expect(wall).toHaveTextContent('Restricted: named members only.');
     expect(within(wall).getByText('Deal Three')).toBeVisible();
     expect(within(wall).getByText('Head One')).toBeVisible();
     expect(within(wall).getByText('Dune Logistics')).toBeVisible();
@@ -103,7 +107,9 @@ describe('access and walls page', () => {
     expect(await within(ops).findByText('Your role')).toBeVisible();
     // The users arrive from their own read, so the names may land a moment after the role.
     await waitFor(() => expect(ops).toHaveTextContent('Prototype users: Ops One, Ops Two'));
-    expect(screen.getByTestId('role-source')).toHaveTextContent('matrix.test.ts');
+    expect(screen.getByTestId('role-source')).toHaveTextContent(
+      'every role is tested against every table',
+    );
   });
 
   it('says when no wall is visible', async () => {

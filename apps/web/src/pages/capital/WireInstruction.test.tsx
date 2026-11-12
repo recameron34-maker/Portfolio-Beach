@@ -130,7 +130,7 @@ describe('wire instruction page', () => {
     open(WIRE_ID.verified, rolePrincipal(['auditor']), false);
     const card = await screen.findByTestId('wire-instruction');
     expect(within(card).getByTestId('wire-details-note')).toHaveTextContent(
-      'Bank details in clear are shown to operations and approvers only (SEC-12.2); every other role sees the masked form.',
+      'Bank details in clear are shown to operations and approvers only; every other role sees the masked form.',
     );
     expect(within(card).queryByTestId('wire-details-reveal')).not.toBeInTheDocument();
     expect(card.textContent).not.toContain(CLEAR_DETAILS.accountNumber);
@@ -248,7 +248,7 @@ describe('wire instruction page', () => {
       });
       const form = await screen.findByTestId('wire-callback-form');
       const rule =
-        'A newer version of this counterparty is already Verified; reject this older version instead (SEC-12.2)';
+        'A newer version of this counterparty is already Verified; reject this older version instead';
       expect(await within(form).findByTestId('wire-older-version')).toHaveTextContent(rule);
       await pick('Number source', 'Sponsor website');
       await pick('Result', 'Confirmed');
@@ -336,7 +336,7 @@ describe('wire instruction page', () => {
           status: 422,
           body: refusalFixture(
             422,
-            'wire_instruction: the callback did not confirm the instruction (SEC-12.2)',
+            'wire_instruction: the callback did not confirm the instruction',
           ),
         },
       });
@@ -346,7 +346,7 @@ describe('wire instruction page', () => {
       await userEvent.click(screen.getByRole('button', { name: 'Record callback and verify' }));
       expect(
         await within(screen.getByRole('status')).findByText(
-          'Record callback: Blocked by a rule. The callback did not confirm the instruction (SEC-12.2)',
+          'Record callback: Blocked by a rule. The callback did not confirm the instruction',
         ),
       ).toHaveClass('pb-notice-bad');
     },

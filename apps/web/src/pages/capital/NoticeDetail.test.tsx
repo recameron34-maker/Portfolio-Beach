@@ -58,13 +58,13 @@ describe('capital notice detail', () => {
     expect(within(progress).getAllByText('Done')).toHaveLength(1);
 
     expect(screen.getByTestId('wire-hold')).toHaveTextContent(
-      'Wire instructions changed within the hold window. Ticket approval is held until Jul 30, 2025 (30 days, SEC-12.3).',
+      'Wire instructions changed within the hold window. Ticket approval is held until Jul 30, 2025 (30 days).',
     );
     // The SEC-12.4 alerts: a badge and a plain sentence each, in the contract's order.
     const alerts = within(screen.getByTestId('notice-alerts')).getAllByRole('listitem');
     expect(alerts).toHaveLength(3);
     expect(alerts[0]).toHaveTextContent(
-      "Wire changedThe counterparty's wire instructions changed; the ticket releases only after a second person's callback verifies the new version (SEC-12.3).",
+      "Wire changedThe counterparty's wire instructions changed; the ticket releases only after a second person's callback verifies the new version.",
     );
     expect(within(alerts[0]!).getByText('Wire changed')).toHaveClass('pb-badge-bad');
     expect(alerts[1]).toHaveTextContent('Urgency languageThe notice presses for a quick payment');
@@ -72,7 +72,7 @@ describe('capital notice detail', () => {
     expect(alerts[2]).toHaveTextContent('Due soonThe due date is under two business days away.');
 
     expect(screen.getByTestId('bank-details-note')).toHaveTextContent(
-      'Bank details are never extracted from documents (SEC-12.1); tickets release only against a Verified instruction (SEC-12.2, SEC-12.3).',
+      'Bank details are never extracted from documents; tickets release only against a Verified instruction.',
     );
     expect(
       within(tile('notice-tiles', 'Days to due')).getByText('Due in 12 days'),
@@ -114,8 +114,8 @@ describe('capital notice detail', () => {
     expect(release).toHaveClass('pb-notice-bad');
     const blockers = within(release).getAllByRole('listitem');
     expect(blockers.map((b) => b.textContent)).toEqual([
-      "The wire instructions changed within the hold window and wait for a second person's callback (SEC-12.3).",
-      'You prepared this ticket; a different person must approve it (SEC-12.3).',
+      "The wire instructions changed within the hold window and wait for a second person's callback.",
+      'You prepared this ticket; a different person must approve it.',
     ]);
 
     const wire = screen.getByTestId('notice-wire');
@@ -214,7 +214,7 @@ describe('capital notice detail', () => {
     const alerts = within(screen.getByTestId('notice-alerts')).getAllByRole('listitem');
     expect(alerts).toHaveLength(1);
     expect(alerts[0]).toHaveTextContent(
-      'No verified instructionThe counterparty has no Verified wire instruction on file (SEC-12.2).',
+      'No verified instructionThe counterparty has no Verified wire instruction on file.',
     );
   });
 
@@ -240,7 +240,7 @@ describe('capital notice detail', () => {
     const wire = await screen.findByTestId('notice-wire');
     expect(within(wire).getByText('A Verified instruction is on file')).toBeInTheDocument();
     expect(wire).toHaveTextContent(
-      'Its details are kept in the wire register, which operations, approvers, auditors and platform admins read (SEC-12.2).',
+      'Its details are kept in the wire register, which operations, approvers, auditors and platform admins read.',
     );
     expect(within(wire).queryByText('No Verified instruction on file')).not.toBeInTheDocument();
     expect(wire).not.toHaveTextContent('Operations propose one');
@@ -304,7 +304,7 @@ describe('capital notice detail', () => {
         .getAllByRole('listitem')
         .map((b) => b.textContent),
     ).toEqual([
-      'The wire instructions changed recently and you proposed or verified that change; a third person must approve this ticket (SEC-12.3).',
+      'The wire instructions changed recently and you proposed or verified that change; a third person must approve this ticket.',
     ]);
     // The sentence for an allowed release names the same rule.
     expect(RELEASE_ALLOWED).toContain(

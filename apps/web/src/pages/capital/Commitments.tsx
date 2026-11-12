@@ -251,7 +251,7 @@ export function CommitmentsPage(): ReactNode {
         )}
         <p className="pb-meta" data-testid="commitments-note">
           Totals sum the commitments whose figures are known; a commitment with no recorded cash
-          flow shows the missing placeholder. Calc version {list.calcVersion} (docs/08).
+          flow shows {MISSING}. Calc version {list.calcVersion}.
         </p>
       </Card>
     </>

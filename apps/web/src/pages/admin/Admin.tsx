@@ -84,7 +84,7 @@ export function AuditPage(): ReactNode {
     <>
       <PageHeader
         title="Audit trail"
-        meta="Who did what and when, newest first (SEC-11.1). Appended on every business change; never edited or deleted."
+        meta="Who did what and when, newest first. Appended on every business change; never edited or deleted."
       />
       <TabNav label="Admin" items={ADMIN_TABS} />
       {q.isPending ? <PageSkeleton rows={8} /> : null}
@@ -96,7 +96,7 @@ export function AuditPage(): ReactNode {
           forbidden={{
             title:
               'The audit trail is available to operations, approvers, auditors and platform admins',
-            detail: 'Row-level security and the API both enforce it (SEC-5.1).',
+            detail: 'Ask a platform administrator if you need access.',
           }}
           notReady={{ title: 'The audit trail is not available yet' }}
           errorTitle="Audit trail unavailable"
@@ -124,8 +124,8 @@ export function AuditPage(): ReactNode {
             <AuditTable items={q.data.items} />
           )}
           <p className="pb-meta" data-testid="audit-note">
-            The details payload and the before and after hashes are never shown here (SEC-11.4);
-            they stay in the database for auditors with direct access.
+            The details payload and the before and after hashes are never shown here; they stay in
+            the database for auditors with direct access.
           </p>
         </Card>
       ) : null}
@@ -186,7 +186,7 @@ export function AccessPage(): ReactNode {
     <>
       <PageHeader
         title="Access and walls"
-        meta="Roles, client entitlements and information walls, enforced in the UI, the API and row-level security (SEC-5.1)"
+        meta="Roles, client entitlements and information walls"
       />
       <TabNav label="Admin" items={ADMIN_TABS} />
       {walls.isPending ? <PageSkeleton rows={3} /> : null}
@@ -206,7 +206,7 @@ export function AccessPage(): ReactNode {
           <Card>
             <EmptyState
               title="No walls are visible to you"
-              detail="A wall is listed for its members, approvers and platform admins (SEC-5.3)."
+              detail="A wall is listed for its members, approvers and platform admins."
               testId="walls-empty"
             />
           </Card>
@@ -265,7 +265,7 @@ export function HealthPage(): ReactNode {
     <>
       <PageHeader
         title="Integration health"
-        meta="Readiness of the database and every adapter, with the kill switch for each integration (docs/15, docs/17 section 7)"
+        meta="Readiness of the database and every adapter, with the kill switch for each integration"
         actions={
           ready.data !== undefined ? (
             <Badge tone={ready.data.status === 'ok' ? 'good' : 'bad'}>
@@ -358,8 +358,8 @@ export function HealthPage(): ReactNode {
           )
         ) : null}
         <p className="pb-meta">
-          Off stops the integration at once (docs/17 section 5). Platform admins change these under
-          Flags, with a reason; the AI kill switches (ai.*) are there as well.
+          Off stops the integration at once. Platform admins change these under Flags, with a
+          reason; the AI kill switches (ai.*) are there as well.
         </p>
       </Card>
     </>

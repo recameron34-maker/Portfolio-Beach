@@ -633,7 +633,7 @@ function Board({ page, roles }: { page: ValuationPage; roles: readonly string[] 
   const header = (
     <PageHeader
       title="Valuations"
-      meta={`As of ${formatDate(page.asOf)}. Reports read Locked valuations only.`}
+      meta={`As of ${formatDate(page.asOf)}`}
       actions={
         isOps || previewMode ? (
           <>
@@ -903,7 +903,7 @@ export function ValuationsPage(): ReactNode {
   if (board.isError) {
     return (
       <>
-        <PageHeader title="Valuations" meta="Reports read Locked valuations only." />
+        <PageHeader title="Valuations" />
         <TabNav label="Valuations" items={VALUATION_TABS} />
         <Gate />
         <UnavailableState

@@ -45,7 +45,7 @@ function TypedTotalLine({
     return (
       <span className="pb-meta">
         Received {total === null ? MISSING : formatMoneyM(total)}. The tie-out starts once the
-        closing record exists (M22).
+        closing record exists.
       </span>
     );
   }
@@ -220,7 +220,7 @@ function Editor({
       {missing === 0 ? null : (
         <p className="pb-meta pb-deal-note" data-testid="allocations-missing-received">
           {plural(missing, 'line')} {missing === 1 ? 'has' : 'have'} no received amount yet. The
-          tie-out counts received amounts only: a requested amount never stands in for one (M22).
+          tie-out counts received amounts only: a requested amount never stands in for one.
         </p>
       )}
       <div className="pb-pipe-allocation-foot">

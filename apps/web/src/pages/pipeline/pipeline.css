@@ -13,7 +13,7 @@
 .pb-pipe-board {
   display: grid;
   grid-auto-flow: column;
-  grid-auto-columns: minmax(196px, 1fr);
+  grid-auto-columns: minmax(212px, 1fr);
   gap: 10px;
   margin: 0 0 8px;
   padding: 0 0 8px;
@@ -50,6 +50,8 @@
 }
 .pb-pipe-cards {
   display: grid;
+  /* One track that never grows past its column, so a long name wraps and is not cut off. */
+  grid-template-columns: minmax(0, 1fr);
   gap: 8px;
   margin: 0;
   padding: 0;
@@ -57,7 +59,10 @@
 }
 .pb-pipe-card {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: 4px;
+  min-width: 0;
+  overflow-wrap: anywhere;
   padding: 10px 12px;
   background: var(--pb-bg);
   border: 1px solid var(--pb-border);
@@ -74,6 +79,13 @@
 .pb-pipe-card > .pb-meta {
   font-size: 12px;
   line-height: 16px;
+}
+.pb-pipe-card-type {
+  min-width: 0;
+  color: var(--pb-muted-strong);
+}
+.pb-pipe-card-foot > :last-child {
+  flex: none;
 }
 .pb-pipe-card-foot {
   display: flex;
@@ -135,6 +147,21 @@
 .pb-pipe-stages > li[data-status='upcoming'] {
   font-weight: 500;
   color: var(--pb-muted-strong);
+  background: var(--pb-surface-2);
+}
+.pb-pipe-stages > li[data-status='done'] {
+  box-shadow: inset 0 3px 0 var(--pb-border-strong);
+}
+/* The state of a step in words under its name: quiet for done, the brand colour for current. */
+.pb-pipe-stage-state {
+  font-size: 11px;
+  line-height: 14px;
+  font-weight: 500;
+  color: var(--pb-muted-strong);
+}
+.pb-pipe-stages > li[aria-current='step'] > .pb-pipe-stage-state {
+  font-weight: 600;
+  color: var(--pb-brand-primary);
 }
 
 /* Gates: a dot and a sentence per gate (docs/06: never colour alone, the badge carries the word). */

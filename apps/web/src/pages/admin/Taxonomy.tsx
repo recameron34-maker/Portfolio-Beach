@@ -97,8 +97,8 @@ export function TaxonomyPage(): ReactNode {
         title="Taxonomy"
         meta={
           q.data !== undefined
-            ? `${domains.length} domains, ${termCount} terms. Codes are stable; labels are what the screens show (docs/03).`
-            : 'Codes are stable; labels are what the screens show (docs/03).'
+            ? `${domains.length} domains, ${termCount} terms. Codes are stable; labels are what the screens show.`
+            : 'Codes are stable; labels are what the screens show.'
         }
       />
       <TabNav label="Admin" items={ADMIN_TABS} />

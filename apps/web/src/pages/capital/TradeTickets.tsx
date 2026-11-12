@@ -129,7 +129,7 @@ export function TradeTicketsPage(): ReactNode {
     <>
       <PageHeader
         title="Trade tickets"
-        meta="One ticket per notice. The preparer and the approver must differ, and a ticket releases only against a Verified wire instruction that did not change within the hold window (SEC-12.3)."
+        meta="One ticket per notice. The preparer and the approver must differ, and a ticket releases only against a Verified wire instruction that did not change within the hold window."
       />
       <TabNav label="Capital activity" items={CAPITAL_TABS} />
     </>
@@ -146,7 +146,7 @@ export function TradeTicketsPage(): ReactNode {
           forbidden={{
             title: 'Trade tickets: not visible to your role',
             detail:
-              'Operations, approvers, auditors and the deal team read trade tickets (SEC-12.3). Ask a platform administrator if you need access.',
+              'Operations, approvers, auditors and the deal team read trade tickets. Ask a platform administrator if you need access.',
           }}
           errorTitle="Trade tickets unavailable"
           testId="tickets-unavailable"

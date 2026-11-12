@@ -61,10 +61,7 @@ export function AnalyticsLayout(): ReactNode {
   );
   return (
     <>
-      <PageHeader
-        title="Analytics"
-        meta="Exposure, performance, value creation, entry metrics, the co-investment map, credit, realizations and client views"
-      />
+      <PageHeader title="Analytics" />
       <TabNav label="Analytics" items={items} />
       <Outlet />
     </>

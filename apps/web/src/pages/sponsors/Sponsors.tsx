@@ -137,7 +137,7 @@ export function SponsorsPage(): ReactNode {
     <>
       <PageHeader
         title="Sponsors"
-        meta="Firm-side data only in the prototype. Contacts, interactions and the relationship score arrive with M6 in Phase 5."
+        meta="Funds, positions and commitments by sponsor. Contacts and interactions are not built yet."
       />
       {q.isError ? (
         <UnavailableState card error={q.error} subject="Sponsors" testId="sponsors-unavailable" />
@@ -466,8 +466,7 @@ function CommitmentsCard({ sponsor }: { sponsor: SponsorDetail }): ReactNode {
           </TableWrap>
           {noFlows ? (
             <p className="pb-meta pb-sponsors-note">
-              A commitment with no recorded cash flow yet shows the missing placeholder ({MISSING})
-              for called and unfunded.
+              A commitment with no recorded cash flow yet shows {MISSING} for called and unfunded.
             </p>
           ) : null}
         </>
@@ -536,7 +535,7 @@ export function SponsorDetailPage(): ReactNode {
       <Card testId="sponsor-relationship">
         <SectionHeader>Contacts and interactions</SectionHeader>
         <EmptyState
-          title="Contacts and interactions arrive with M6 in Phase 5"
+          title="Contacts and interactions are not built yet"
           detail="That release adds the relationship score, warm paths, coverage and AGM notes."
         />
       </Card>

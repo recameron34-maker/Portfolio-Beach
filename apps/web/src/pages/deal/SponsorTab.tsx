@@ -179,7 +179,7 @@ function ContactsCard(): ReactNode {
     <Card testId="deal-contacts">
       <SectionHeader>Contacts and interactions</SectionHeader>
       <EmptyState
-        title="Contacts and interactions arrive with M6 in Phase 5"
+        title="Contacts and interactions are not built yet"
         detail="Relationship score, warm paths and coverage for this sponsor will show here."
       />
     </Card>

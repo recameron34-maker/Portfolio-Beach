@@ -42,3 +42,14 @@ Template-driven (pptx, docx, xlsx) with stable chart sizes and positions between
 - The co-investment map (decision 0017) uses the sign-in scene's colours the way the scene does: sky and sea for water, sand for land, the brand primary for the coast line. Markers take the chart series by deal type; a marker holding more than one type takes the brand primary. No other colour is introduced.
 - The radar chart (decision 0018) takes the first chart series. Its web fades in, its shape opens from the centre and its points land in turn, once. A measure with no score is a dashed spoke with the missing-value placeholder and a gap in the shape, never a point at the centre. The score is printed at every label.
 - A map is never the only way to the information: the same positions are in a table under it, and positions it cannot place are listed with the reason.
+
+## 6. Words on the page
+The owner asked on 2026-11-12 that the product not "come across as AI generated". What gave it away was mostly its wording, so these are rules:
+- **A page never cites the build guide.** No document path ("docs/18 section 4"), control number ("SEC-12.3"), module or phase number ("M8", "Phase 4"), configuration key or file path in anything a person reads. Those belong in comments, test names, documents and pull requests. `apps/web/src/lib/copy-guard.test.ts` reads the page source and fails on one.
+- **The API keeps its citations.** A refusal from the API still names the control behind the rule, for the audit trail and the engineer, and tests pin that. The page removes the reference when it shows the sentence (`lib/references.ts`).
+- **Say a thing once.** A subtitle does not repeat the tabs under it or a notice beside it. A page title needs a subtitle only when the subtitle tells the reader something the title does not: the as-of date, whose view it is.
+- **Not built is "Not built yet".** A planned page says what it will hold. Which phase of the build brings it is the roadmap's business.
+- **Quiet beside content.** An empty state inside a card that holds other things is one muted note, with no frame and no mark. The framed version with the horizon mark is for a card that holds nothing else.
+- **A badge is for a state that matters.** A step that is simply still ahead gets no badge (the stage strip names only the current step and the ones done). On the pipeline board a deal's type is a line of text, and only an aging deal carries a badge.
+- **The work comes first.** Home opens on the portfolio's figures and what needs attention. The preview's walkthroughs sit after it.
+

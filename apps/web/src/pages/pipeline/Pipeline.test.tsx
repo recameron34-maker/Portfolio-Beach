@@ -76,10 +76,7 @@ describe('pipeline board', () => {
     expect(sourced).toHaveAttribute('data-tone', 'watch');
     const aging = within(sourced).getByText('45 days in stage');
     expect(aging.closest('.pb-badge')).toHaveClass('pb-badge-watch');
-    expect(aging.closest('[title]')).toHaveAttribute(
-      'title',
-      'Over the 30-day guide for Sourced (config pipeline.stageAgingDays)',
-    );
+    expect(aging.closest('[title]')).toHaveAttribute('title', 'Over the 30-day guide for Sourced');
     // A missing target commitment and a missing deal lead read as such, never as zero.
     expect(sourced).toHaveTextContent('No deal lead');
     expect(sourced).toHaveTextContent('-');

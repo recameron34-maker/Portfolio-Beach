@@ -103,10 +103,10 @@ describe('closing page', () => {
     expect(confirm).toBeDisabled();
     expect(confirm).toHaveAttribute(
       'title',
-      '1 required closing item still open: a required closing document is missing (M8)',
+      '1 required closing item still open: a required closing document is missing',
     );
     expect(within(record).getByTestId('closing-blockers')).toHaveTextContent(
-      'a required closing document is missing (M8)',
+      'a required closing document is missing',
     );
 
     const items = within(panel).getByTestId('closing-items');
@@ -269,7 +269,7 @@ describe('closing page', () => {
     expect(record).toHaveTextContent('Aug 16, 2025 10:00:00 UTC');
     expect(screen.queryByTestId('closing-confirm')).toBeNull();
     expect(record).toHaveTextContent(
-      'Confirmed by operations: the checklist and the allocations stay as confirmed. A close date change or a reopen returns the record to Open and needs confirmation again (docs/04 M8).',
+      'Confirmed by operations: the checklist and the allocations stay as confirmed. A close date change or a reopen returns the record to Open and needs confirmation again.',
     );
     cleanup();
     vi.restoreAllMocks();
@@ -305,11 +305,9 @@ describe('closing page', () => {
     const panel = await screen.findByTestId('closing-panel');
     const confirm = within(panel).getByTestId('closing-confirm');
     expect(confirm).toBeDisabled();
-    expect(confirm).toHaveAttribute('title', 'Received amounts are missing on 1 line (M22)');
+    expect(confirm).toHaveAttribute('title', 'Received amounts are missing on 1 line');
     const blockers = within(within(panel).getByTestId('closing-blockers')).getAllByRole('listitem');
-    expect(blockers.map((b) => b.textContent)).toEqual([
-      'Received amounts are missing on 1 line (M22)',
-    ]);
+    expect(blockers.map((b) => b.textContent)).toEqual(['Received amounts are missing on 1 line']);
     const tieOut = within(panel).getByTestId('closing-tie-out');
     expect(within(tieOut).getByRole('group', { name: 'Allocated' })).toHaveTextContent('$12.0M');
     expect(within(tieOut).getByText('Short by $8.0M')).toHaveClass('pb-badge-bad');
@@ -330,7 +328,7 @@ describe('closing page', () => {
     );
     expect(within(tieOut).queryByTestId('allocations-hidden-lines')).toBeNull();
     expect(tieOut).toHaveTextContent(
-      'The closing cannot complete until the received amounts equal the commitment (M22).',
+      'The closing cannot complete until the received amounts equal the commitment.',
     );
   });
 
@@ -363,7 +361,7 @@ describe('closing page', () => {
       within(within(panel).getByTestId('closing-blockers'))
         .getAllByRole('listitem')
         .map((b) => b.textContent),
-    ).toEqual(['Allocations do not tie to the closing commitment, short by $8.0M (M22)']);
+    ).toEqual(['Allocations do not tie to the closing commitment, short by $8.0M']);
   });
 
   it('gives a reader shown no line the tie-out and the count of lines not shown, not an empty state', async () => {

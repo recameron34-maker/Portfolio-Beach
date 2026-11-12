@@ -130,10 +130,7 @@ export function DataDictionaryPage(): ReactNode {
         );
   return (
     <>
-      <PageHeader
-        title="Data Dictionary"
-        meta={<>Single source of truth: {q.data.source} (docs/03 section 4)</>}
-      />
+      <PageHeader title="Data Dictionary" meta={<>Single source of truth: {q.data.source}</>} />
       <Card>
         <SectionHeader aside={`${shown.length} of ${entries.length} terms`}>
           Definitions

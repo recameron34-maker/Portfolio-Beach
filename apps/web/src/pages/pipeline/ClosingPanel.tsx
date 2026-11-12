@@ -80,7 +80,7 @@ import { closingTone } from '../../lib/states.js';
 import './pipeline.css';
 
 const CLOSE_DATE_RULE =
-  'The close date is the single source for every report (docs/04 M8). A change after confirmation returns the closing to Open and needs confirmation again.';
+  'The close date is the single source for every report. A change after confirmation returns the closing to Open and needs confirmation again.';
 
 const REOPEN_RULE =
   'Reopening returns the record to Open so the checklist and the allocations can change; operations confirm again.';
@@ -558,7 +558,7 @@ function RecordCard({
             </Button>
             <p className="pb-meta pb-deal-note">
               {moveLock === null
-                ? 'Confirmed by operations: the checklist and the allocations stay as confirmed. A close date change or a reopen returns the record to Open and needs confirmation again (docs/04 M8).'
+                ? 'Confirmed by operations: the checklist and the allocations stay as confirmed. A close date change or a reopen returns the record to Open and needs confirmation again.'
                 : `Confirmed by operations. ${moveLock}.`}
             </p>
           </>
@@ -632,7 +632,7 @@ function TieOutCard({ closing }: { closing: ClosingDetail }): ReactNode {
       {closing.allocations.length === 0 && t.hiddenLines === 0 ? (
         <EmptyState
           title="No allocation lines"
-          detail="Allocations are edited on the opportunity page; the closing cannot complete until the received amounts equal the commitment (M22)."
+          detail="Allocations are edited on the opportunity page; the closing cannot complete until the received amounts equal the commitment."
         />
       ) : (
         <AllocationLinesTable rows={closing.allocations} hiddenLines={t.hiddenLines} />
@@ -642,7 +642,7 @@ function TieOutCard({ closing }: { closing: ClosingDetail }): ReactNode {
           <Link to="/pipeline/$id" params={{ id: closing.opportunityId }}>
             Edit the allocations on the opportunity page
           </Link>
-          . The closing cannot complete until the received amounts equal the commitment (M22).
+          . The closing cannot complete until the received amounts equal the commitment.
         </p>
       ) : (
         <p className="pb-meta pb-deal-note">
@@ -817,7 +817,7 @@ function LegalTermsCard({
       {closing.legalTerms.length === 0 ? (
         <EmptyState
           title="No legal terms captured"
-          detail="Structured terms (fees, carry, key person, MFN, consents) are captured in draft and confirmed against their source document (M22)."
+          detail="Structured terms (fees, carry, key person, MFN, consents) are captured in draft and confirmed against their source document."
           testId="legal-terms-empty"
         />
       ) : (

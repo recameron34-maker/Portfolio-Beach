@@ -118,7 +118,7 @@ export function RealizationsTab(): ReactNode {
         <SectionHeader
           aside={
             realized.data !== undefined
-              ? `As of ${formatDate(realized.data.asOf)}. Holding period runs from the first contribution to the exit, in 365-day years (docs/08).`
+              ? `As of ${formatDate(realized.data.asOf)}. Holding period runs from the first contribution to the exit, in 365-day years.`
               : undefined
           }
         >

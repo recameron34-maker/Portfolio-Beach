@@ -40,7 +40,7 @@ import type { DocTypeOption } from '../documents/documents.js';
  */
 
 export const EXTRACTION_META =
-  'AI extraction of quarterly figures, reviewed by exception before anything is promoted (SEC-8.4, SEC-9.1)';
+  'AI extraction of quarterly figures, reviewed by exception before anything is promoted';
 
 /* ---- Roles, from the contract's route table (config over code) ---- */
 

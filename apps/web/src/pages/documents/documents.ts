@@ -22,7 +22,7 @@ import { humanizeState } from '../../lib/states.js';
 
 /** The page headers' context lines. */
 export const DOCUMENTS_META =
-  'Indexed from the document store, tagged by the classifier, reviewed by a person (docs/04 M3)';
+  'Indexed from the document store, tagged by the classifier, reviewed by a person';
 export const REVIEW_QUEUE_META =
   'Documents the classifier was not sure about: a person names the type and the links';
 export const EXPECTED_META =

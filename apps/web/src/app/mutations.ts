@@ -44,6 +44,7 @@ import type {
 import type { z as zod } from 'zod';
 import { api, ApiError } from '../api/client.js';
 import { commandLabel, humanizeState } from '../lib/states.js';
+import { withoutReferences } from '../lib/references.js';
 
 /**
  * Workflow writes (docs/18). The API serves them (packages/contracts/src/routes-controls.ts); the
@@ -139,12 +140,15 @@ const NOT_SERVED = 'This build does not serve that action yet.';
 
 /**
  * The transition tables word their refusals for engineers ("valuation: lock from DealTeamApproved
- * requires one of: approver"). The user needs the rule only: drop the machine name, spell out state
- * and command names and start with a capital ("Lock from Deal team approved requires one of:
- * approver", "Confirm funding is not allowed from Ticket drafted").
+ * requires one of: approver"). The user needs the rule only: drop the machine name and the
+ * reference to the control behind the rule, spell out state and command names and start with a
+ * capital ("Lock from Deal team approved requires one of: approver", "Confirm funding is not
+ * allowed from Ticket drafted").
  */
+export { withoutReferences };
+
 export function plainRule(detail: string): string {
-  const rule = detail
+  const rule = withoutReferences(detail)
     .replace(/^[a-z_]+: /, '')
     .replace(/\b[A-Z][a-z]+(?:[A-Z][a-z]+)+\b/g, (state) => humanizeState(state))
     .replace(/\b[a-z]+(?:[A-Z][a-z]+)+\b/g, (command) => commandLabel(command).toLowerCase());

@@ -218,7 +218,7 @@ describe('commitments and unfunded', () => {
     expect(within(total).getByText('$120.0M')).toBeInTheDocument();
     expect(within(total).getByText('$6.1M')).toBeInTheDocument();
     expect(screen.getByTestId('commitments-note')).toHaveTextContent(
-      'Totals sum the commitments whose figures are known; a commitment with no recorded cash flow shows the missing placeholder. Calc version 0.1.0 (docs/08).',
+      'Totals sum the commitments whose figures are known; a commitment with no recorded cash flow shows -. Calc version 0.1.0.',
     );
   });
 

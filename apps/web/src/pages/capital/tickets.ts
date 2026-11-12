@@ -25,13 +25,13 @@ export function isTicketState(value: string): value is TradeTicketState {
 
 /** Why a ticket cannot be released, one sentence each (SEC-12.2, SEC-12.3). */
 export const BLOCKER_WORDS: Readonly<Record<ReleaseBlocker, string>> = {
-  no_instruction: 'No wire instruction is on file for the counterparty (SEC-12.2).',
-  unverified_instruction: 'The counterparty has no Verified wire instruction (SEC-12.2).',
+  no_instruction: 'No wire instruction is on file for the counterparty.',
+  unverified_instruction: 'The counterparty has no Verified wire instruction.',
   changed_within_hold:
-    "The wire instructions changed within the hold window and wait for a second person's callback (SEC-12.3).",
-  same_person: 'You prepared this ticket; a different person must approve it (SEC-12.3).',
+    "The wire instructions changed within the hold window and wait for a second person's callback.",
+  same_person: 'You prepared this ticket; a different person must approve it.',
   verifier_within_hold:
-    'The wire instructions changed recently and you proposed or verified that change; a third person must approve this ticket (SEC-12.3).',
+    'The wire instructions changed recently and you proposed or verified that change; a third person must approve this ticket.',
 };
 
 /** "Changed within hold": the blocker as a short label for a table cell. */
@@ -44,7 +44,7 @@ export function blockerLabel(blocker: ReleaseBlocker): string {
  * check of SEC-12.3, the third-person rule after a recent change included.
  */
 export const RELEASE_ALLOWED =
-  'Release allowed: a Verified instruction is on file, no change to it waits for a callback, a different person prepared the ticket, and you neither proposed nor verified a change inside the hold window (SEC-12.3).';
+  'Release allowed: a Verified instruction is on file, no change to it waits for a callback, a different person prepared the ticket, and you neither proposed nor verified a change inside the hold window.';
 
 /** A Funded or Withdrawn ticket has nothing left to release. */
 export function nothingToRelease(state: TradeTicketState): boolean {
@@ -81,13 +81,13 @@ export const ALERT_WORDS: Readonly<Record<CapitalNoticeAlert, AlertWords>> = {
   wire_changed: {
     label: 'Wire changed',
     sentence:
-      "The counterparty's wire instructions changed; the ticket releases only after a second person's callback verifies the new version (SEC-12.3).",
+      "The counterparty's wire instructions changed; the ticket releases only after a second person's callback verifies the new version.",
     tone: 'bad',
   },
   urgency_language: {
     label: 'Urgency language',
     sentence:
-      'The notice presses for a quick payment; pressure to pay fast is a warning sign, so check the instructions with extra care (SEC-12.4).',
+      'The notice presses for a quick payment; pressure to pay fast is a warning sign, so check the instructions with extra care.',
     tone: 'watch',
   },
   due_within_two_business_days: {
@@ -97,7 +97,7 @@ export const ALERT_WORDS: Readonly<Record<CapitalNoticeAlert, AlertWords>> = {
   },
   unverified_instruction: {
     label: 'No verified instruction',
-    sentence: 'The counterparty has no Verified wire instruction on file (SEC-12.2).',
+    sentence: 'The counterparty has no Verified wire instruction on file.',
     tone: 'bad',
   },
 };

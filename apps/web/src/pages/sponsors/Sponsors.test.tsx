@@ -208,12 +208,10 @@ describe('sponsor 360', () => {
     expect(
       within(commitments).getByRole('rowheader', { name: 'Total' }).closest('tr'),
     ).toHaveTextContent('$33.0M');
-    expect(
-      screen.getByText(/no recorded cash flow yet shows the missing placeholder/),
-    ).toBeInTheDocument();
+    expect(screen.getByText(/no recorded cash flow yet shows -/)).toBeInTheDocument();
 
     expect(screen.getByTestId('sponsor-relationship')).toHaveTextContent(
-      'Contacts and interactions arrive with M6 in Phase 5',
+      'Contacts and interactions are not built yet',
     );
     expect(screen.getByTestId('sponsor-calc-version')).toHaveTextContent('Calc version 0.1.0.');
     expect(screen.queryByRole('status')).not.toBeInTheDocument();
@@ -264,9 +262,7 @@ describe('sponsor 360', () => {
     expect(
       within(commitments).queryByRole('columnheader', { name: 'Client' }),
     ).not.toBeInTheDocument();
-    expect(
-      screen.queryByText(/no recorded cash flow yet shows the missing placeholder/),
-    ).not.toBeInTheDocument();
+    expect(screen.queryByText(/no recorded cash flow yet shows -/)).not.toBeInTheDocument();
   });
 
   it('says when no active position has a NAV yet', async () => {

@@ -34,7 +34,7 @@ function isOutcome(value: string): value is Outcome {
   return (OUTCOMES as readonly string[]).includes(value);
 }
 
-const NOT_AT_IC = 'IC decisions are recorded while the deal is at IC (docs/18 section 4)';
+const NOT_AT_IC = 'IC decisions are recorded while the deal is at IC';
 
 function DecisionForm({
   opportunityId,

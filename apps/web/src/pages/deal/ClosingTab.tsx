@@ -22,7 +22,7 @@ export function ClosingTab(): ReactNode {
         <SectionHeader>Closing</SectionHeader>
         <EmptyState
           title="No closing record: this position predates the pipeline"
-          detail="The close date, checklist and legal terms are recorded on the closing from Phase 3 on; deals closed through the pipeline carry them here."
+          detail="The close date, checklist and legal terms are recorded on the closing; deals closed through the pipeline carry them here."
           testId="deal-closing-empty"
         />
       </Card>

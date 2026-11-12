@@ -35,7 +35,7 @@ describe('weekly report page', () => {
       'Period Jun 30, 2025, as of Jun 30, 2025, prepared for Viewer One',
     );
     expect(screen.getByRole('button', { name: 'Print' })).toBeVisible();
-    expect(header).toHaveTextContent('PowerPoint, Word and Excel output arrives in Phase 4');
+    expect(header).toHaveTextContent('PowerPoint, Word and Excel output is not built yet');
 
     const tiles = screen.getByTestId('weekly-tiles');
     expect(within(tiles).getByRole('group', { name: 'NAV' })).toHaveTextContent('$40.0M');
@@ -121,7 +121,7 @@ describe('clients page and client look-through', () => {
     render(withQueries(<ClientsPage />));
     expect(
       await screen.findByText(
-        "Shares are the vehicle's pooled figures times the client's ownership percentage (docs/03 section 4).",
+        "Shares are the vehicle's pooled figures times the client's ownership percentage.",
       ),
     ).toBeVisible();
     expect(screen.getByRole('navigation', { name: 'Reporting' })).toHaveTextContent('Clients');
@@ -154,7 +154,7 @@ describe('clients page and client look-through', () => {
     const empty = await screen.findByTestId('clients-empty');
     expect(empty).toHaveTextContent('No entitled clients');
     expect(empty).toHaveTextContent(
-      'Client data is visible to operations, the investment team (the deal team and approvers) and auditors, and to the investor relations users entitled to each client (SEC-5.2, SEC-5.4)',
+      'Client data is visible to operations, the investment team (the deal team and approvers) and auditors, and to the investor relations users entitled to each client',
     );
   });
 
@@ -173,10 +173,10 @@ describe('clients page and client look-through', () => {
 describe('disclosures page', () => {
   afterEach(cleanup);
 
-  it('keeps the phase placeholder and says what M19 will hold', () => {
+  it('says the page is not built yet and what it will hold', () => {
     render(withQueries(<DisclosuresPage />));
-    expect(screen.getByText('Disclosures and statistics arrives in Phase 4')).toBeVisible();
-    expect(screen.getByText(/M19 will hold the versioned disclosure library/)).toBeVisible();
+    expect(screen.getByText('Not built yet')).toBeVisible();
+    expect(screen.getByText(/This page will hold the versioned disclosure library/)).toBeVisible();
     expect(screen.getByText(/distribution log of every issued report/)).toBeVisible();
     expect(screen.getByRole('navigation', { name: 'Reporting' })).toBeVisible();
   });

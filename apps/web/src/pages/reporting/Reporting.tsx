@@ -322,9 +322,7 @@ export function WeeklyReportPage(): ReactNode {
         }
         actions={
           <span className="pb-report-actions pb-no-print">
-            <span className="pb-meta">
-              PowerPoint, Word and Excel output arrives in Phase 4 (M12, M14)
-            </span>
+            <span className="pb-meta">PowerPoint, Word and Excel output is not built yet</span>
             <Button size="small" icon={<Print20Regular />} onClick={() => window.print()}>
               Print
             </Button>
@@ -351,7 +349,7 @@ export function ClientsPage(): ReactNode {
     <>
       <PageHeader
         title="Clients"
-        meta="Shares are the vehicle's pooled figures times the client's ownership percentage (docs/03 section 4)."
+        meta="Shares are the vehicle's pooled figures times the client's ownership percentage."
       />
       <TabNav label="Reporting" items={REPORTING_TABS} />
       <ClientLookThrough />
@@ -365,21 +363,21 @@ export function DisclosuresPage(): ReactNode {
     <>
       <PageHeader
         title="Disclosures and statistics"
-        meta="Phase 4: M19 disclosures and approved statistics"
+        meta="The disclosure library and the register of approved statistics"
       />
       <TabNav label="Reporting" items={REPORTING_TABS} />
       <Card>
         <EmptyState
-          title="Disclosures and statistics arrives in Phase 4"
-          detail="The data model and workflow for this area are specified (docs/04, docs/18); the screens are built once the earlier phases pass their exit criteria."
+          title="Not built yet"
+          detail="Disclosures and statistics is planned for a later release."
         />
         <div className="pb-prose">
           <p>
-            M19 will hold the versioned disclosure library that report templates reference by id,
-            the approved statistics register (value, as-of date, source query, approver and expiry)
-            and the automatic stale-valuation footnotes. It will also record affiliated-party
-            consents, which block a closing until recorded, and the distribution log of every issued
-            report.
+            This page will hold the versioned disclosure library that report templates reference by
+            id, the approved statistics register (value, as-of date, source query, approver and
+            expiry) and the automatic stale-valuation footnotes. It will also record
+            affiliated-party consents, which block a closing until recorded, and the distribution
+            log of every issued report.
           </p>
         </div>
       </Card>

@@ -75,7 +75,7 @@ import { balanceTiles } from '../../lib/tiles.js';
 type NoticeOption = CommandOption<CapitalNoticeState, CapitalNoticeCommand>;
 
 const BANK_DETAILS =
-  'Bank details are never extracted from documents (SEC-12.1); tickets release only against a Verified instruction (SEC-12.2, SEC-12.3).';
+  'Bank details are never extracted from documents; tickets release only against a Verified instruction.';
 
 function BackLink(): ReactNode {
   return (
@@ -249,7 +249,7 @@ function TicketCard({ notice }: { notice: CapitalNoticeDetail }): ReactNode {
       {ticket === null ? (
         <EmptyState
           title="No trade ticket yet"
-          detail="Draft ticket creates one from the notice's amount and due date. The preparer and the approver must differ (SEC-12.3)."
+          detail="Draft ticket creates one from the notice's amount and due date. The preparer and the approver must differ."
         />
       ) : (
         <>
@@ -314,12 +314,12 @@ function WireCard({
       {restricted ? (
         <EmptyState
           title="A Verified instruction is on file"
-          detail="Its details are kept in the wire register, which operations, approvers, auditors and platform admins read (SEC-12.2). The alerts and the release check on this page already take it into account."
+          detail="Its details are kept in the wire register, which operations, approvers, auditors and platform admins read. The alerts and the release check on this page already take it into account."
         />
       ) : wire === null ? (
         <EmptyState
           title="No Verified instruction on file"
-          detail="The ticket can be approved only against a Verified instruction (SEC-12.2). Operations propose one in the wire register and a second person verifies it by callback."
+          detail="The ticket can be approved only against a Verified instruction. Operations propose one in the wire register and a second person verifies it by callback."
         />
       ) : (
         <KeyValueTable
@@ -495,7 +495,7 @@ function NoticeBody({
       {hold === null ? null : (
         <p className="pb-notice pb-notice-bad pb-cap-hold" data-testid="wire-hold">
           Wire instructions changed within the hold window. Ticket approval is held until{' '}
-          {formatDate(hold.until)} ({hold.holdDays} days, SEC-12.3).
+          {formatDate(hold.until)} ({hold.holdDays} days).
         </p>
       )}
       <AlertsStrip alerts={notice.alerts} />

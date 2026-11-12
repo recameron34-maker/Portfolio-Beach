@@ -343,7 +343,7 @@ function StartHereCard(): ReactNode {
         </li>
         <li>
           <Link to="/data/dictionary">Data Dictionary</Link>
-          <span className="pb-meta">Field definitions and display rules (docs/03 section 4)</span>
+          <span className="pb-meta">Field definitions and display rules</span>
         </li>
       </ul>
     </Card>
@@ -381,9 +381,6 @@ export function HomePage(): ReactNode {
           ) : undefined
         }
       />
-      {guide.open ? (
-        <PreviewGuide variant="home" onHide={guide.hide} focusHide={guide.focus === 'hide'} />
-      ) : null}
       {summary !== undefined ? (
         <Tiles summary={summary} />
       ) : (
@@ -398,6 +395,10 @@ export function HomePage(): ReactNode {
         <DataHealthCard />
         <StartHereCard />
       </div>
+      {/* The preview's walkthroughs come after the dashboard: a reader sees the portfolio first. */}
+      {guide.open ? (
+        <PreviewGuide variant="home" onHide={guide.hide} focusHide={guide.focus === 'hide'} />
+      ) : null}
     </>
   );
 }

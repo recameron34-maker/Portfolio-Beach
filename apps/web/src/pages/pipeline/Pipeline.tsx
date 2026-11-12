@@ -42,7 +42,7 @@ import type { PipelineFilters } from './pipeline.js';
 import './pipeline.css';
 
 const META =
-  'Every deal from first look to close, one column per stage (docs/18 section 4). Passed deals keep their reason code.';
+  'Every deal from first look to close, one column per stage. Passed deals keep their reason code.';
 
 /** How many days a card has sat in its stage; aging reads as a watch badge with the guide in its title. */
 function DaysInStage({ row }: { row: OpportunityRow }): ReactNode {
@@ -71,7 +71,7 @@ function OpportunityCard({ row }: { row: OpportunityRow }): ReactNode {
         {row.sponsorFund === null ? '' : `, ${row.sponsorFund.name}`}
       </span>
       <span className="pb-pipe-card-foot">
-        <Badge plain>{labelOf(row.dealType)}</Badge>
+        <span className="pb-pipe-card-type">{labelOf(row.dealType)}</span>
         <span>{formatMoneyM(row.targetCommitment)}</span>
       </span>
       <span className="pb-pipe-card-foot">
@@ -161,7 +161,7 @@ function Board({ page, roles }: { page: OpportunityPage; roles: readonly string[
         <CountTile
           label="Aging"
           count={c.aging}
-          hint="Past the stage guide (config pipeline.stageAgingDays)"
+          hint="Longer in a stage than its guide"
           tone={c.aging > 0 ? 'watch' : undefined}
           partial={partial}
         />

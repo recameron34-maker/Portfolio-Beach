@@ -98,7 +98,7 @@ export function ReasonDialog({
               <FluentField
                 label="Reason"
                 required
-                hint={`At least ${MIN_REASON_LENGTH} characters. The transition table asks for a reason at this step (docs/18).`}
+                hint={`At least ${MIN_REASON_LENGTH} characters. A reason is required at this step.`}
                 {...(touched && !valid
                   ? {
                       validationState: 'error' as const,

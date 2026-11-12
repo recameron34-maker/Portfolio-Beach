@@ -67,8 +67,7 @@ export function DraftTicketDialog({
               <p className="pb-meta">
                 Prefilled from the notice: due {formatDate(notice.dueDate)},{' '}
                 {noticeAmount(notice.amount, notice.currency)} {notice.currency}. A different person
-                approves the ticket, against the counterparty&apos;s Verified wire instruction
-                (SEC-12.3).
+                approves the ticket, against the counterparty&apos;s Verified wire instruction.
               </p>
               <FluentField
                 label="Funding date"

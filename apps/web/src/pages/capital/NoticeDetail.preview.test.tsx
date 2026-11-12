@@ -198,16 +198,13 @@ describe('capital notice detail (preview)', () => {
     open(NOTICE_ID.drafted, ['approver'], detailOf(NOTICE_ID.drafted), {
       [commandsPath(NOTICE_ID.drafted)]: {
         status: 422,
-        body: refusalFixture(
-          422,
-          'capital_notice: the wire instruction is not verified (SEC-12.2)',
-        ),
+        body: refusalFixture(422, 'capital_notice: the wire instruction is not verified'),
       },
     });
     await userEvent.click(await screen.findByRole('button', { name: 'Approve ticket' }));
     expect(
       await within(screen.getByRole('status')).findByText(
-        'Approve ticket: Blocked by a rule. The wire instruction is not verified (SEC-12.2)',
+        'Approve ticket: Blocked by a rule. The wire instruction is not verified',
       ),
     ).toHaveClass('pb-notice-bad');
     expect(sentPosts()).toEqual([[commandsPath(NOTICE_ID.drafted), { command: 'approveTicket' }]]);

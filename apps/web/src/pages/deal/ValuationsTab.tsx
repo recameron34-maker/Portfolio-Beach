@@ -53,7 +53,7 @@ function LockedChart({ rows }: { rows: readonly VersionPoint[] }): ReactNode {
     return (
       <EmptyState
         title="No Locked valuations yet"
-        detail="The chart plots Locked versions only, the ones reports read (docs/18 section 1)."
+        detail="The chart plots Locked versions only, the ones reports read."
       />
     );
   }

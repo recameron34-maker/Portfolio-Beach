@@ -546,7 +546,7 @@ describe('opportunity page', () => {
     await userEvent.clear(received);
     expect(editor).toHaveTextContent('Received $12.0M against a commitment of $20.0M.');
     expect(within(editor).getByTestId('allocations-missing-received')).toHaveTextContent(
-      '1 line has no received amount yet. The tie-out counts received amounts only: a requested amount never stands in for one (M22).',
+      '1 line has no received amount yet. The tie-out counts received amounts only: a requested amount never stands in for one.',
     );
     await userEvent.type(received, '7500000.00');
     expect(editor).toHaveTextContent('Received $19.5M against a commitment of $20.0M.');
@@ -629,10 +629,10 @@ describe('opportunity page', () => {
       'Needs deal team or approver',
     );
     const gates = screen.getByTestId('opportunity-gates');
-    expect(gates).toHaveTextContent('A required closing item is still open (M8).');
+    expect(gates).toHaveTextContent('A required closing item is still open.');
     expect(gates).toHaveTextContent('The received amounts tie to the closing commitment.');
     expect(gates).toHaveTextContent(
-      'Operations have not confirmed the closing; the advance to Closed waits for the confirmation (M8).',
+      'Operations have not confirmed the closing; the advance to Closed waits for the confirmation.',
     );
     expect(screen.getByTestId('opportunity-tiles')).toHaveTextContent('Tied out');
   });
@@ -719,7 +719,7 @@ describe('opportunity page', () => {
     // The tile and the gate read the deal's tie-out, as every reader's do.
     expect(screen.getByTestId('opportunity-tiles')).toHaveTextContent('Short by $8.0M');
     expect(screen.getByTestId('opportunity-gates')).toHaveTextContent(
-      'The received amounts do not tie to the closing commitment (M22).',
+      'The received amounts do not tie to the closing commitment.',
     );
   });
 
@@ -749,7 +749,7 @@ describe('opportunity page', () => {
       '$20.0MAcross all allocation lines',
     );
     expect(within(lead).getByRole('group', { name: 'Target' })).toHaveTextContent(
-      '$20.0MTarget commitment; the tie-out starts once the closing record exists (M22)',
+      '$20.0MTarget commitment; the tie-out starts once the closing record exists',
     );
     expect(within(lead).queryByRole('group', { name: 'Commitment' })).toBeNull();
     expect(within(editor).getByTestId('allocations-hidden-lines')).toHaveTextContent(
@@ -765,7 +765,7 @@ describe('opportunity page', () => {
     expect(advance).toBeDisabled();
     expect(advance).toHaveAttribute(
       'title',
-      'The closing checklist is incomplete; the closing is not confirmed by operations (M8)',
+      'The closing checklist is incomplete; the closing is not confirmed by operations',
     );
     cleanup();
     vi.restoreAllMocks();
@@ -791,7 +791,7 @@ describe('opportunity page', () => {
     expect(button('Advance, Project Cove')).toBeDisabled();
     expect(button('Advance, Project Cove')).toHaveAttribute(
       'title',
-      'The closing is not confirmed by operations (M8)',
+      'The closing is not confirmed by operations',
     );
     const waiting = within(screen.getByTestId('opportunity-gates')).getAllByRole('listitem');
     expect(waiting.map((l) => l.textContent)).toEqual([
@@ -799,7 +799,7 @@ describe('opportunity page', () => {
       'ClearAn IC decision is recorded.',
       'ClearEvery required closing item is received or waived.',
       'ClearThe received amounts tie to the closing commitment.',
-      'WaitingOperations have not confirmed the closing; the advance to Closed waits for the confirmation (M8).',
+      'WaitingOperations have not confirmed the closing; the advance to Closed waits for the confirmation.',
     ]);
     cleanup();
     vi.restoreAllMocks();
@@ -861,7 +861,7 @@ describe('opportunity page', () => {
     const closed = screen.getByTestId('allocations-editor');
     expect(within(closed).queryByRole('button', { name: 'Save allocations' })).toBeNull();
     expect(within(closed).getByTestId('allocations-lock')).toHaveTextContent(
-      'Allocations are fixed once the deal is closed (M22); raise a change request instead.',
+      'Allocations are fixed once the deal is closed; raise a change request instead.',
     );
     expect(document.body.textContent).not.toContain(String.fromCharCode(0x2014));
   });
