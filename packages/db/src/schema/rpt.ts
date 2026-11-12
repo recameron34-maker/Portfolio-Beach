@@ -50,6 +50,10 @@ export const reportingPackage = rpt.table('package', {
   correctionReason: text('correction_reason'),
   /** What changed between generations; never written into an output file. */
   changeLog: jsonb('change_log').notNull().default([]),
+  /** The snapshot the package shows (docs/08 section 7): null while Draft, an object after. */
+  content: jsonb('content'),
+  /** Why a begin NAV differs from the last released package, by position number. */
+  tieOutExplanations: jsonb('tie_out_explanations').notNull().default({}),
   ...standardColumns,
 });
 

@@ -368,8 +368,8 @@ describe('database guards', () => {
     });
     it('makes a Released package immutable: no update, no delete, no new finding', async () => {
       await pkg(
-        ', id, state, reviewer_id, approved_at, content_hash, released_at, released_by',
-        `, 'c0000000-0000-4000-8000-0000000000aa', 'Released', '${u.approver}', now(), '${'b'.repeat(64)}', now(), '${u.investorRelationsA}'`,
+        ', id, state, reviewer_id, approved_at, content_hash, released_at, released_by, content',
+        `, 'c0000000-0000-4000-8000-0000000000aa', 'Released', '${u.approver}', now(), '${'b'.repeat(64)}', now(), '${u.investorRelationsA}', '{"lines": []}'`,
       );
       await expectDbRejection(
         handle.exec(
@@ -429,6 +429,28 @@ describe('database guards', () => {
       await override(
         `override_reason = 'Timing difference agreed with the client', approver_id = '${u.approver}', overridden_at = now()`,
         ids.qaResultFailedA,
+      );
+    });
+    it('keeps the content a package shows: an object once generated, and explanations by position (migration 0020)', async () => {
+      // Past Draft a package carries the lines it shows.
+      await expectDbRejection(
+        handle.exec(
+          `insert into rpt.package (client_id, period_end, as_of, basis, label, prepared_by, state) values ('${ids.clientC}', '2024-03-31', '2024-05-10', 'net', 'final', '${u.investorRelationsA}', 'Generated')`,
+        ),
+        /check constraint/,
+      );
+      await expectDbRejection(
+        handle.exec(`update rpt.package set content = '[]'::jsonb where id = '${ids.packageA}'`),
+        /check constraint/,
+      );
+      await expectDbRejection(
+        handle.exec(
+          `update rpt.package set tie_out_explanations = '"restated"'::jsonb where id = '${ids.packageA}'`,
+        ),
+        /check constraint/,
+      );
+      await handle.exec(
+        `update rpt.package set tie_out_explanations = '{"INV-0001": "Sponsor restated the March mark."}'::jsonb where id = '${ids.packageA}'`,
       );
     });
     it('keeps a full history image of a package', async () => {

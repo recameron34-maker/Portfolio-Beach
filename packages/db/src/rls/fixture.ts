@@ -322,9 +322,9 @@ export async function loadFixture(handle: DbHandle): Promise<void> {
     insert into mon.deal_change_request (id, investment_id, change_type, effective_date, summary, owner_id, submitted_by, state) values
       ('${ids.changeRequestOpen}', '${ids.investment1}', 'change_type.add_on_acquisition', '2024-08-15', 'Add-on acquisition of a regional competitor closed', null, '${u.dealTeam}', 'Submitted'),
       ('${ids.changeRequestWalled}', '${ids.investmentWalled}', 'change_type.recapitalization', '2024-08-20', 'Dividend recapitalization completed', '${u.operations}', '${u.wallMember}', 'Routed');
-    insert into rpt.package (id, client_id, period_end, as_of, basis, label, state, prepared_by) values
-      ('${ids.packageA}', '${ids.clientA}', '2024-06-30', '2024-08-09', 'gross', 'final', 'QAFailed', '${u.investorRelationsA}'),
-      ('${ids.packageB}', '${ids.clientB}', '2024-06-30', '2024-08-09', 'gross', 'final', 'Generated', '${u.operations}');
+    insert into rpt.package (id, client_id, period_end, as_of, basis, label, state, prepared_by, content) values
+      ('${ids.packageA}', '${ids.clientA}', '2024-06-30', '2024-08-09', 'gross', 'final', 'QAFailed', '${u.investorRelationsA}', '{"lines": []}'),
+      ('${ids.packageB}', '${ids.clientB}', '2024-06-30', '2024-08-09', 'gross', 'final', 'Generated', '${u.operations}', '{"lines": []}');
     insert into rpt.qa_result (id, package_id, run_no, rule, entity_ref, expected, actual, passed, detail) values
       ('${ids.qaResultFailedA}', '${ids.packageA}', 1, 'QA-RF-01', 'INV-0001', '120', '121.01', false, 'Begin NAV, flows and the gain or loss do not roll forward to the end NAV.'),
       ('${ids.qaResultPassedA}', '${ids.packageA}', 1, 'QA-RDY-01', 'INV-0001', null, '121.01', true, 'The position has an end NAV.'),
