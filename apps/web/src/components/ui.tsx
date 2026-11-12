@@ -3,6 +3,8 @@ import type { ReactNode } from 'react';
 import { Link } from '@tanstack/react-router';
 import { previewMode } from '../app/env.js';
 import { MISSING } from '../lib/format.js';
+import { tabsFor } from '../lib/role-focus.js';
+import { useRoleFocus } from '../lib/role-focus-context.js';
 
 /** Section header: small uppercase label with an accent underline (docs/06 section 2), optional aside on the right. */
 export function SectionHeader({
@@ -170,7 +172,7 @@ export function PageHeader({
 /**
  * Secondary navigation inside an area (tabs). Paths are absolute so hash and browser history both
  * work. A tab may carry a search (the filters two tabs share); it does not decide which tab is
- * the current one.
+ * the current one. The tabs a role works in most come first for that role; none is left out.
  */
 export function TabNav({
   items,
@@ -184,9 +186,11 @@ export function TabNav({
   }[];
   label: string;
 }): ReactNode {
+  // The role's order for this row, when its configuration gives one (config/role_focus.json).
+  const ordered = tabsFor(items, useRoleFocus());
   return (
     <nav className="pb-tabs" aria-label={label}>
-      {items.map((t) => (
+      {ordered.map((t) => (
         <Link
           key={t.to}
           to={t.to}

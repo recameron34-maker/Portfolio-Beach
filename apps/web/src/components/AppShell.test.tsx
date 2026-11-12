@@ -81,6 +81,102 @@ describe('the main navigation', () => {
   });
 });
 
+describe('the main navigation for a role (config/role_focus.json)', () => {
+  const signInAs = (role: string): void => {
+    setCredential('someone.one');
+    vi.spyOn(globalThis, 'fetch').mockImplementation((input) => {
+      const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
+      return Promise.resolve(
+        url.includes('/api/v1/auth/me')
+          ? new Response(
+              JSON.stringify({
+                userId: '00000000-0000-4000-8000-000000000001',
+                externalId: 'someone.one',
+                displayName: 'Someone One',
+                roles: [role],
+                clientIds: [],
+                mockIdentity: true,
+              }),
+              { status: 200, headers: { 'content-type': 'application/json' } },
+            )
+          : new Response('{}', { status: 404, headers: { 'content-type': 'application/json' } }),
+      );
+    });
+  };
+  const shell = () =>
+    render(
+      <QueryClientProvider
+        client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}
+      >
+        <AppShell />
+      </QueryClientProvider>,
+    );
+  const labelsOf = (group: HTMLElement): string[] =>
+    [...group.querySelectorAll('.pb-nav-label')].map((el) => el.textContent ?? '');
+  afterEach(() => {
+    cleanup();
+    vi.restoreAllMocks();
+    clearCredential();
+    navigate.mockReset();
+  });
+
+  it('puts the areas operations works in first, under its name, and keeps every other link', async () => {
+    signInAs('operations');
+    shell();
+    const own = await screen.findByRole('group', { name: 'Operations' });
+    expect(labelsOf(own)).toEqual([
+      'Home',
+      'Capital Activity',
+      'Valuations',
+      'Documents',
+      'Portfolio',
+      'Intake',
+      'Exceptions',
+      'Reporting',
+    ]);
+    expect(labelsOf(screen.getByRole('group', { name: 'More' }))).toEqual([
+      'Pipeline',
+      'Sponsors',
+      'Analytics',
+      'Assistants',
+      'Admin',
+    ]);
+    const data = labelsOf(screen.getByRole('group', { name: 'Data' }));
+    expect(data).not.toContain('Intake');
+    expect(data).toContain('Data Dictionary');
+    // Nothing is left out, and every link keeps its icon.
+    const nav = screen.getByRole('navigation', { name: 'Main' });
+    for (const link of [...NAV_GROUPS, ...DATA_LINKS]) {
+      const item = within(nav).getByText(link.label).closest('a');
+      expect(item?.querySelector('.pb-nav-icon svg'), link.to).not.toBeNull();
+    }
+  });
+
+  it('gives the deal team and investor relations their own order', async () => {
+    signInAs('deal_team');
+    const first = shell();
+    expect(labelsOf(await screen.findByRole('group', { name: 'Deal team' }))).toEqual([
+      'Home',
+      'Pipeline',
+      'Portfolio',
+      'Sponsors',
+      'Analytics',
+      'Documents',
+    ]);
+    first.unmount();
+    vi.restoreAllMocks();
+    signInAs('investor_relations');
+    shell();
+    expect(labelsOf(await screen.findByRole('group', { name: 'Investor relations' }))).toEqual([
+      'Home',
+      'Reporting',
+      'Portfolio',
+      'Analytics',
+      'Sponsors',
+    ]);
+  });
+});
+
 describe('switching the mock user', () => {
   const users = [
     {

@@ -22,12 +22,14 @@ import {
   TagMultiple20Regular,
   Warning20Regular,
 } from '@fluentui/react-icons';
-import { DATA_LINKS, NAV_GROUPS } from '../app/nav.js';
 import { meQuery, mockUsersQuery } from '../app/queries.js';
 import { clearCredential, setCredential } from '../app/session.js';
 import { ApiError } from '../api/client.js';
 import { useSignOutOnRejectedCredential } from '../app/useSignOutOnRejectedCredential.js';
 import { useTaxonomyLabels } from '../app/useTaxonomyLabels.js';
+import { focusOf, navFor } from '../lib/role-focus.js';
+import type { NavLink } from '../lib/role-focus.js';
+import { RoleFocusContext } from '../lib/role-focus-context.js';
 import { userLabel } from '../lib/roles.js';
 import { PageSkeleton } from './ui.js';
 
@@ -53,19 +55,47 @@ const NAV_ICONS: Record<string, ReactNode> = {
   '/data/exceptions': <Warning20Regular />,
 };
 
-function NavItem({ to, label, exact }: { to: string; label: string; exact: boolean }): ReactNode {
+function NavItem({ link }: { link: NavLink }): ReactNode {
   return (
     <Link
-      to={to}
+      to={link.href}
       className="pb-nav-item"
-      activeOptions={{ exact }}
+      activeOptions={{ exact: link.to === '/' }}
       activeProps={{ 'aria-current': 'page' }}
     >
       <span className="pb-nav-icon" aria-hidden="true">
-        {NAV_ICONS[to]}
+        {NAV_ICONS[link.to]}
       </span>
-      <span className="pb-nav-label">{label}</span>
+      <span className="pb-nav-label">{link.label}</span>
     </Link>
+  );
+}
+
+/** One group of the main navigation, under its name when it has one. */
+function NavGroup({
+  id,
+  label,
+  links,
+}: {
+  id: string;
+  label: string | null;
+  links: readonly NavLink[];
+}): ReactNode {
+  if (links.length === 0) return null;
+  return (
+    <div
+      className="pb-nav-group"
+      {...(label === null ? {} : { role: 'group', 'aria-labelledby': id })}
+    >
+      {label === null ? null : (
+        <span id={id} className="pb-nav-group-label">
+          {label}
+        </span>
+      )}
+      {links.map((link) => (
+        <NavItem key={link.to} link={link} />
+      ))}
+    </div>
   );
 }
 
@@ -111,6 +141,9 @@ export function AppShell(): ReactNode {
   const queryClient = useQueryClient();
   const rejected = me.isError && me.error instanceof ApiError && me.error.status === 401;
   const labelsReady = useTaxonomyLabels();
+  // The role's own areas come first, under its name; every other area stays, after them.
+  const focus = focusOf(me.data?.roles);
+  const nav = navFor(focus);
   useSignOutOnRejectedCredential(rejected, () => {
     clearCredential();
     queryClient.clear();
@@ -156,21 +189,15 @@ export function AppShell(): ReactNode {
         </div>
       ) : null}
       <nav className="pb-nav" aria-label="Main">
-        <div className="pb-nav-group">
-          {NAV_GROUPS.map((g) => (
-            <NavItem key={g.to} to={g.to} label={g.label} exact={g.to === '/'} />
-          ))}
-        </div>
-        <div className="pb-nav-group" aria-labelledby="pb-nav-data">
-          <span id="pb-nav-data" className="pb-nav-group-label">
-            Data
-          </span>
-          {DATA_LINKS.map((g) => (
-            <NavItem key={g.to} to={g.to} label={g.label} exact={false} />
-          ))}
-        </div>
+        <NavGroup id="pb-nav-focus" label={nav.area} links={nav.focus} />
+        <NavGroup id="pb-nav-more" label="More" links={nav.more} />
+        <NavGroup id="pb-nav-data" label="Data" links={nav.data} />
       </nav>
-      <main className="pb-main">{labelsReady ? <Outlet /> : <PageSkeleton />}</main>
+      <main className="pb-main">
+        <RoleFocusContext.Provider value={focus}>
+          {labelsReady ? <Outlet /> : <PageSkeleton />}
+        </RoleFocusContext.Provider>
+      </main>
     </div>
   );
 }

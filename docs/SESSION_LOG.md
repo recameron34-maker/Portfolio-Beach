@@ -469,3 +469,29 @@ The owner said "continue the build", so Phase 4 went on from the package record.
 - No page shows a package yet: Reporting, Packages and the preview's simulated routes are next.
 - A question for the owner, not yet decided: a package is built from what its preparer can read, so a position behind an information wall the preparer is not on is absent from the client's package without a word. Should the package say that positions were left out, refuse to generate, or be built by the system from the whole book?
 - The synthetic generator still does not produce `qtd_ytd_basis` and `sign_flip`.
+
+### Session 11, continued (2026-11-12): narration for the demo videos, and a focus for each role
+
+The owner asked for four things while Phase 4 was under way: voice-overs on the demo videos (then a British voice), a home page and tab order for each role, deal performance against the sponsor's underwritten base case, and valuation suggestions from capital account and financial statements. The first two are built. The last two were not in the build and are designed next, with the Reporting, Packages pages.
+
+**Narration (decision 0020)**
+
+- `apps/site/scripts/narrate.py` speaks each caption with an open-source voice that runs on the machine (kokoro-onnx 0.6.1, voice `bf_emma`, British English); `narration.config.json` holds the voice, the pace, the spoken form of two terms and the model files pinned by SHA-256. Nothing is sent to a service, and no paid connector is used.
+- The recorder holds a caption until it has been said, and lays the clips under the picture as one Opus track. A narrated recording may run to a minute and a half. `--no-narration` records as before.
+- The site says that a computer-generated voice reads the captions, and each video says "narrated".
+- **Verified:** all six recordings have a VP8 picture and an Opus track; every line starts within 0.07 seconds of its caption and none runs into the next; a speech recogniser heard every caption word (differences were spellings only). Site tests 32 passed; site check 75 passed. Nobody has listened to the voice in this session: the owner was sent the tour to hear.
+- **The sandbox:** the pinned Playwright (1.65) asks for a newer ffmpeg than the sandbox carries, so recording needed a browsers folder outside the repository that points at the system ffmpeg. On a machine with Playwright's own browsers installed this does not arise.
+
+**A focus for each role (decision 0021)**
+
+- `config/role_focus.json` holds, for each role: the name of its area, a sentence on what it does, its areas in order, its tab order, the home sections it uses and its work list. `apps/web/src/lib/role-focus.ts` reads it.
+- The navigation leads with the role's own group under its name, then "More" and "Data"; no link is left out. Tabs follow the role's order. The home page leads with "Your work" and shows the sections that role uses, in its order.
+- The lines were written from the transition tables and the contract's role lists, so none names an action the role cannot take (the first draft had approvers approving change requests; the tables say operations apply them).
+- **Verified:** web tests (1,251 passed, with 18 new tests for the configuration and its ordering, 4 for the home page and 2 for the navigation); typecheck and lint clean; looked at in a browser as operations, approver, deal team, investor relations and auditor, at desktop and phone width.
+
+**Open items**
+
+- The work list has links, not counts; counts need one small read per list.
+- The tour recording shows the home page as it was before the role focus; it is recorded again with the next media run.
+- The owner should listen to the narration and say if the voice, pace or a pronunciation should change.
+

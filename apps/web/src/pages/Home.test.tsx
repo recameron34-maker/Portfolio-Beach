@@ -13,6 +13,7 @@ import {
   watchlistFixture,
 } from '../test/fixtures.js';
 import { renderWithQuery } from '../test/render.js';
+import { homeRows, ROLE_FOCUS } from '../lib/role-focus.js';
 import { HomePage } from './Home.js';
 
 vi.mock('@tanstack/react-router', async () =>
@@ -69,12 +70,90 @@ describe('home dashboard', () => {
     expect(screen.getAllByText('Locked marks only').length).toBeGreaterThan(0);
 
     expect(await screen.findByText('1 stale positions')).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: 'Analytics' })).toHaveAttribute('href', '/analytics');
-    expect(screen.getByRole('link', { name: 'Capital Activity' })).toHaveAttribute(
-      'href',
-      '/capital-activity',
-    );
     expect(screen.queryByRole('status')).not.toBeInTheDocument();
+  });
+
+  it('leads with the work of the signed-in role: what it does, and a link to each place it does it', async () => {
+    mockApi(routes());
+    renderWithQuery(<HomePage />);
+    const work = await screen.findByTestId('home-work');
+    const focus = ROLE_FOCUS.roles.deal_team;
+    if (focus === undefined) throw new Error('the deal team has a focus');
+    expect(within(work).getByText('Your work')).toBeInTheDocument();
+    expect(within(work).getByText('Deal team')).toBeInTheDocument();
+    expect(screen.getByTestId('home-work-does')).toHaveTextContent(focus.does);
+    const links = within(within(work).getByRole('list', { name: 'Your work' })).getAllByRole(
+      'link',
+    );
+    expect(links.map((a) => [a.textContent, a.getAttribute('href')])).toEqual(
+      focus.work.map((link) => [link.label, link.to]),
+    );
+    expect(links[0]).toHaveTextContent('Pipeline');
+    for (const link of focus.work) expect(within(work).getByText(link.what)).toBeInTheDocument();
+    // The work comes before the figures on the page.
+    const tiles = screen.getByTestId('home-tiles');
+    expect(work.compareDocumentPosition(tiles) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it.each([
+    ['operations', ['home-work', 'home-capital', 'home-tiles', 'home-attention', 'home-exposure']],
+    ['approver', ['home-work', 'home-tiles', 'home-attention', 'home-capital', 'home-exposure']],
+  ] as const)('orders the page for %s as its focus says', async (role, order) => {
+    mockApi({
+      ...routes(),
+      '/api/v1/auth/me': ok({ ...principalFixture(), roles: [role] }),
+      '/api/v1/capital-notices?limit=200': ok(capitalNoticePageFixture([])),
+    });
+    renderWithQuery(<HomePage />);
+    await screen.findByTestId('home-tiles');
+    await screen.findByTestId('home-exposure');
+    const found = order.map((id) => screen.getByTestId(id));
+    for (let i = 1; i < found.length; i += 1) {
+      const before = found[i - 1];
+      const after = found[i];
+      if (before === undefined || after === undefined) throw new Error('a section is missing');
+      expect(
+        before.compareDocumentPosition(after) & Node.DOCUMENT_POSITION_FOLLOWING,
+        `${order[i - 1]} before ${order[i]}`,
+      ).toBeTruthy();
+    }
+    expect(screen.getByTestId('home-work-does')).toHaveTextContent(
+      ROLE_FOCUS.roles[role]?.does ?? 'no focus',
+    );
+  });
+
+  it('shows a role only the sections it uses: investor relations has no capital activity or data health card', async () => {
+    mockApi({
+      ...routes(),
+      '/api/v1/auth/me': ok({ ...principalFixture(), roles: ['investor_relations'] }),
+    });
+    renderWithQuery(<HomePage />);
+    await screen.findByTestId('home-tiles');
+    expect(screen.getByTestId('home-work')).toHaveTextContent('Investor relations');
+    expect(screen.getByTestId('home-attention')).toBeInTheDocument();
+    expect(screen.queryByTestId('home-capital')).not.toBeInTheDocument();
+    expect(screen.queryByText(/stale positions/)).not.toBeInTheDocument();
+  });
+
+  it('pairs half-width cards that follow each other, and gives every other section its own row', () => {
+    expect(homeRows(['work', 'tiles', 'attention', 'capital', 'charts', 'dataHealth'])).toEqual([
+      ['work'],
+      ['tiles'],
+      ['attention', 'capital'],
+      ['charts'],
+      ['dataHealth'],
+    ]);
+    expect(homeRows(['work', 'capital', 'dataHealth', 'tiles', 'attention', 'charts'])).toEqual([
+      ['work'],
+      ['capital', 'dataHealth'],
+      ['tiles'],
+      ['attention'],
+      ['charts'],
+    ]);
+    expect(homeRows(['attention', 'capital', 'dataHealth'])).toEqual([
+      ['attention', 'capital'],
+      ['dataHealth'],
+    ]);
   });
 
   it('degrades the capital activity card to an empty state when the endpoint is not implemented', async () => {

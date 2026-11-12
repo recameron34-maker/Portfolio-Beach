@@ -890,6 +890,38 @@ p:last-child {
   text-align: right;
 }
 
+/* The work of the signed-in role: the sentence that says what the role does, then one link for
+   each place it does it, in columns when there is room. Each link leads; its description sits
+   under it, so a narrow column still reads as a list of places and not as a table. */
+.pb-home-work-does {
+  margin: 0 0 12px;
+  max-width: 76ch;
+  font-size: 15px;
+  line-height: 22px;
+  color: var(--pb-text);
+}
+.pb-home-work {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(232px, 1fr));
+  gap: 0 28px;
+}
+.pb-home-work li,
+.pb-home-work li:first-child,
+.pb-home-work li:last-child {
+  display: block;
+  padding: 10px 0;
+  border-top: 1px solid var(--pb-hairline);
+}
+.pb-home-work li a {
+  display: inline-block;
+  font-weight: 600;
+}
+.pb-home-work .pb-meta {
+  display: block;
+  margin-top: 2px;
+  text-align: left;
+}
+
 /* ---- Stat tile figure: a sparkline beside the key number ---- */
 .pb-stat-row {
   display: flex;

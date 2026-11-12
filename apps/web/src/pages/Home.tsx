@@ -35,6 +35,8 @@ import {
 } from '../lib/format.js';
 import { irrFlagHint, watchFlagLabel } from '../lib/labels.js';
 import { usePreviewGuide } from '../lib/preview-guide.js';
+import { DEFAULT_HOME, focusOf, homeRows } from '../lib/role-focus.js';
+import type { HomeSection, RoleFocus } from '../lib/role-focus.js';
 import { humanizeState, noticeTone } from '../lib/states.js';
 
 /** Rows the dashboard shows before pointing at the full list. */
@@ -312,6 +314,30 @@ function DataHealthCard(): ReactNode {
   );
 }
 
+/**
+ * The work of the signed-in role, first on the page: what the role does here in a sentence, and
+ * a link to each place it does it (config/role_focus.json). It orders and describes; what a
+ * person may open or change is the API's to decide.
+ */
+function WorkCard({ focus }: { focus: RoleFocus }): ReactNode {
+  return (
+    <Card testId="home-work">
+      <SectionHeader aside={focus.area}>Your work</SectionHeader>
+      <p className="pb-home-work-does" data-testid="home-work-does">
+        {focus.does}
+      </p>
+      <ul className="pb-linklist pb-home-work" aria-label="Your work">
+        {focus.work.map((link) => (
+          <li key={link.to}>
+            <Link to={link.to}>{link.label}</Link>
+            <span className="pb-meta">{link.what}</span>
+          </li>
+        ))}
+      </ul>
+    </Card>
+  );
+}
+
 function StartHereCard(): ReactNode {
   return (
     <Card>
@@ -350,7 +376,11 @@ function StartHereCard(): ReactNode {
   );
 }
 
-/** The dashboard a partner opens every morning: pooled figures, what needs attention, exposure and trend. */
+/**
+ * The page a person opens every morning. It leads with the work of their role, then shows the
+ * sections that role uses, in its order: pooled figures, what needs attention, capital activity,
+ * exposure and trend, data health.
+ */
 export function HomePage(): ReactNode {
   const me = useQuery(meQuery);
   const analytics = useQuery({ ...analyticsQuery, placeholderData: keepPreviousData });
@@ -358,6 +388,27 @@ export function HomePage(): ReactNode {
   if (me.isPending || analytics.isPending) return <PageSkeleton tiles={7} rows={3} />;
   const summary = analytics.data;
   const name = me.data?.displayName;
+  const focus = focusOf(me.data?.roles);
+  const section = (key: HomeSection): ReactNode => {
+    switch (key) {
+      case 'work':
+        return focus === null ? <StartHereCard key={key} /> : <WorkCard key={key} focus={focus} />;
+      case 'tiles':
+        return summary !== undefined ? (
+          <Tiles key={key} summary={summary} />
+        ) : (
+          <UnavailableState key={key} error={analytics.error} subject="Portfolio analytics" />
+        );
+      case 'attention':
+        return <AttentionCard key={key} />;
+      case 'capital':
+        return <CapitalActivityCard key={key} />;
+      case 'charts':
+        return summary !== undefined ? <ChartsRow key={key} summary={summary} /> : null;
+      case 'dataHealth':
+        return <DataHealthCard key={key} />;
+    }
+  };
   return (
     <>
       <PageHeader
@@ -381,20 +432,15 @@ export function HomePage(): ReactNode {
           ) : undefined
         }
       />
-      {summary !== undefined ? (
-        <Tiles summary={summary} />
-      ) : (
-        <UnavailableState error={analytics.error} subject="Portfolio analytics" />
+      {homeRows(focus?.home ?? DEFAULT_HOME).map((row) =>
+        row.length === 2 ? (
+          <div className="pb-two-col" key={row.join('+')}>
+            {row.map(section)}
+          </div>
+        ) : (
+          row.map(section)
+        ),
       )}
-      <div className="pb-two-col">
-        <AttentionCard />
-        <CapitalActivityCard />
-      </div>
-      {summary !== undefined ? <ChartsRow summary={summary} /> : null}
-      <div className="pb-two-col">
-        <DataHealthCard />
-        <StartHereCard />
-      </div>
       {/* The preview's walkthroughs come after the dashboard: a reader sees the portfolio first. */}
       {guide.open ? (
         <PreviewGuide variant="home" onHide={guide.hide} focusHide={guide.focus === 'hide'} />
