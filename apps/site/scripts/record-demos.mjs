@@ -1,23 +1,26 @@
-// Records the demo videos from the interactive preview with Playwright: five scripted walks at
+// Records the demo videos from the interactive preview with Playwright: six scripted walks at
 // 1280 by 720, each with a title card, a caption bar that says what is happening, a visible pointer
 // and unhurried pauses. The steps follow apps/web/scripts/probe-preview.mjs and the journeys in
 // apps/web/e2e/journey*.spec.ts. Chromium records WebM (VP8); that is the format the site ships.
+// Each recording is then encoded again at a lower bitrate, because the output is committed
+// (the host's build cannot run a browser) and every regeneration adds its size to the history.
 // Output: media/videos/<name>.webm, <name>.webp (the poster frame) and manifest.json, which also
 // carries each recording's captions with their times (the site prints them as a transcript).
 //
-//   node scripts/record-demos.mjs [--only name,name] [--frames <dir>]
+//   node scripts/record-demos.mjs [--only name,name] [--frames <dir>] [--no-compress]
+import { spawnSync } from 'node:child_process';
 import {
+  copyFileSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
-  renameSync,
   rmSync,
   statSync,
   writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { launchChromium } from './lib/browser.mjs';
+import { ffmpegPath, launchChromium } from './lib/browser.mjs';
 import { CAPTION_HEIGHT, director, installOverlay } from './lib/demo-overlay.mjs';
 import {
   MEDIA_DIR,
@@ -33,6 +36,17 @@ import { lightTokensCss } from './lib/tokens.mjs';
 const OUT = join(MEDIA_DIR, 'videos');
 const SIZE = { width: 1280, height: 720 };
 const MAX_BYTES = 12 * 1024 * 1024;
+/** A recording is made to be watched in one sitting: a minute at most. */
+const MAX_SECONDS = 60;
+/**
+ * The second encoding: VP8 again (what every browser that plays WebM plays), at a constant
+ * quality under a ceiling of 480 kilobits a second, which keeps a one-minute recording under
+ * about 4 MB while the text of the pages and the caption bar stay sharp. Screen recordings are
+ * mostly still frames, so most of them come out well below the ceiling.
+ */
+const ENCODE = ['-c:v', 'libvpx', '-b:v', '480k', '-crf', '12', '-qmin', '4', '-qmax', '46'];
+const ENCODE_PACE = ['-deadline', 'good', '-cpu-used', '1', '-g', '125', '-auto-alt-ref', '1'];
+const compress = !process.argv.includes('--no-compress');
 const arg = (name) => {
   const at = process.argv.indexOf(name);
   return at === -1 ? null : (process.argv[at + 1] ?? '');
@@ -393,9 +407,9 @@ const DEMOS = [
     name: 'deal',
     title: 'A deal, from pipeline to position',
     subtitle:
-      'The stage board, the diligence gate, the committee decision and the closing checklist.',
+      'The stage board, the diligence gate, the committee decision, the closing and its allocations.',
     summary:
-      'A deal passes the diligence gate, the investment committee and the closing checklist, and becomes a position in the portfolio.',
+      'A deal passes the diligence gate and the investment committee, its closing shows the commitment and the client breakdown, and it becomes a position in the portfolio.',
     /** @param {Stage} stage */
     async setup({ p }) {
       await p.signIn('deal.one');
@@ -409,9 +423,9 @@ const DEMOS = [
       );
       if (sourced === undefined)
         throw new Error('the preview has no sourced deal owned by the deal team user');
-      // Screening and prescreen are two plain advances with no gate; the recording starts where
-      // the gates do, with the deal at prescreen.
-      for (const stage of ['Screening', 'Prescreen']) {
+      // Screening, prescreen and the step into diligence are plain advances; the recording starts
+      // where the gates do, with the deal in diligence and its task list open.
+      for (const stage of ['Screening', 'Prescreen', 'Diligence']) {
         const moved = await p.send(
           'deal.one',
           'POST',
@@ -428,11 +442,9 @@ const DEMOS = [
     },
     /** @param {Stage} stage */
     async run({ page, d, p }) {
-      const deal = (await p.read('deal.one', '/api/v1/opportunities?limit=200')).items.find(
-        (o) => o.id === stagedDealId,
-      );
+      const path = `/api/v1/opportunities/${stagedDealId}`;
+      const deal = await p.read('deal.one', path);
       const documentId = (await p.read('ops.one', '/api/v1/documents?limit=200')).items[0].id;
-      const path = `/api/v1/opportunities/${deal.id}`;
       const status = page.getByTestId('opportunity-action-status');
       const advance = page.getByRole('button', { name: `Advance, ${deal.name}`, exact: true });
       const gates = page.getByTestId('opportunity-gates');
@@ -445,28 +457,24 @@ const DEMOS = [
         await d.click(advance, 250);
         await status.filter({ hasText: `${deal.name} is now ${stage}` }).waitFor();
         await p.settle();
-        await d.wait(300);
+        await d.wait(250);
       };
 
       const cardLink = page
         .getByTestId(`opportunity-card-${deal.id}`)
         .getByRole('link', { name: deal.name });
       await d.bring(cardLink);
-      await d.caption('The pipeline: every deal by stage. The deal team opens one at prescreen.');
-      await d.wait(1700);
+      await d.caption('The pipeline: every deal by stage. This one is in diligence.');
+      await d.wait(1300);
       await d.click(cardLink);
       await page.getByTestId('opportunity-banner').waitFor();
       await p.settle();
-      await d.finishCaption();
-      await d.caption('It advances into diligence, which opens the task list for the deal type.');
-      await advanceTo('Diligence');
-      const tasks = (await p.read('deal.one', path)).diligenceTasks;
-      const required = tasks.filter((t) => t.requiredForIc);
       await d.ring(gates);
       await d.say('The gate: no investment committee while a required task is open.');
       await d.unring();
 
-      await d.caption('The team completes each required task.');
+      await d.caption('The deal team completes the required tasks.');
+      const required = deal.diligenceTasks.filter((t) => t.requiredForIc);
       const first = required[0];
       await d.click(page.getByRole('button', { name: `Complete, ${first.title}`, exact: true }));
       await d.click(
@@ -480,14 +488,9 @@ const DEMOS = [
         });
       await d.finishCaption();
 
-      await d.caption(
-        'With the gate clear, an approver takes it to committee and records the decision.',
-      );
+      await d.caption('An approver takes it to committee and records the decision.');
       await switchOnCamera({ page, d, p }, 'head.one');
       await openDeal();
-      await d.ring(gates);
-      await d.wait(700);
-      await d.unring();
       await advanceTo('IC');
       const form = page.getByTestId('ic-decision-form');
       await d.fill(form.getByLabel('Decision date'), asOf, 250);
@@ -498,25 +501,20 @@ const DEMOS = [
       await p.settle();
       await advanceTo('Approved');
 
-      await d.caption('Operations opens the closing: one close date, read by every report.');
+      await d.caption('Operations opens the closing with one close date.');
       await switchOnCamera({ page, d, p }, 'ops.one');
       await openDeal();
       await d.click(advance, 420);
       const closingDialog = page.getByRole('dialog');
-      await d.fill(closingDialog.getByLabel('Close date'), asOf, 600);
+      await d.fill(closingDialog.getByLabel('Close date'), asOf, 500);
       await d.click(closingDialog.getByRole('button', { name: 'Open closing', exact: true }));
       await status.filter({ hasText: `${deal.name} is now Closing` }).waitFor();
       await p.settle();
 
+      // The checklist items and the allocation lines are recorded through the same commands the
+      // pages send: every required item received against a document in the hub, and the
+      // commitment allocated to one vehicle for three clients, in cents so the lines tie exactly.
       const closing = (await p.read('ops.one', path)).closing;
-      await p.go(`/pipeline/${deal.id}/closing`);
-      await page.getByTestId('closing-panel').waitFor();
-      await p.settle();
-      await d.ring(page.getByTestId('closing-blockers'));
-      await d.poster();
-      await d.say('Confirmation waits for every required document, and for allocations that tie.');
-      await d.unring();
-      // The items and the allocation line are recorded through the same commands the page sends.
       const detail = await p.read('ops.one', `/api/v1/closings/${closing.id}`);
       for (const item of detail.items.filter((i) => i.required && i.status === 'open'))
         await p.send(
@@ -528,26 +526,38 @@ const DEMOS = [
             documentId,
           },
         );
-      const vehicles = (await p.read('ops.one', '/api/v1/vehicles')).items;
+      const vehicle = (await p.read('ops.one', '/api/v1/vehicles')).items[0];
+      const clients = (await p.read('ops.one', '/api/v1/clients')).items.slice(0, 3);
+      if (clients.length < 3) throw new Error('the preview has fewer than three clients');
+      const cents = BigInt(closing.commitmentAmount.replace('.', ''));
+      const parts = [(cents * 45n) / 100n, (cents * 30n) / 100n];
+      parts.push(cents - parts[0] - parts[1]);
+      const money = (value) => `${value / 100n}.${String(value % 100n).padStart(2, '0')}`;
       await p.send('ops.one', 'PUT', `${path}/allocations`, {
-        allocations: [
-          {
-            vehicleId: vehicles[0].id,
-            requested: deal.targetCommitment,
-            received: deal.targetCommitment,
-          },
-        ],
+        allocations: clients.map((client, i) => ({
+          vehicleId: vehicle.id,
+          clientId: client.id,
+          requested: money(parts[i]),
+          received: money(parts[i]),
+        })),
       });
-      await d.caption(
-        'The documents are received and the allocation ties to the commitment exactly.',
-      );
-      await p.go(`/pipeline/${deal.id}`, { settle: false });
+
       await p.go(`/pipeline/${deal.id}/closing`);
       await page.getByTestId('closing-panel').waitFor();
       await p.settle();
-      await d.ring(page.getByTestId('closing-items'));
-      await d.wait(900);
+      const tieOut = page.getByTestId('closing-tie-out');
+      await d.ring(tieOut);
+      await d.say('The allocation leads with the commitment and the amount received against it.');
+      await d.caption(
+        'Client lines sit beneath their vehicle, in a breakdown that opens on request.',
+      );
+      await d.click(tieOut.getByRole('button', { name: /^Client breakdown/ }), 300);
+      await d.ring(tieOut);
+      await d.poster();
+      await d.finishCaption();
       await d.unring();
+
+      await d.caption('Documents received, allocations tied: operations confirms the closing.');
       await d.click(page.getByTestId('closing-confirm'));
       await page
         .getByTestId('closing-action-status')
@@ -556,7 +566,9 @@ const DEMOS = [
       await p.settle();
       await d.finishCaption();
 
-      await d.caption('Confirmed, the deal closes and becomes a position.');
+      await d.caption(
+        'The deal closes and becomes a position. It carries no figure yet: nothing is invented.',
+      );
       await openDeal();
       await advanceTo('Closed and converted into a position');
       await d.click(
@@ -567,10 +579,7 @@ const DEMOS = [
       await page.getByTestId('detail-banner').waitFor();
       await p.settle();
       await d.ring(page.getByTestId('detail-banner'));
-      await d.say(
-        'The new position sits in the portfolio. It carries no figure yet: nothing is invented.',
-        4400,
-      );
+      await d.finishCaption();
       await d.unring();
     },
   },
@@ -691,9 +700,157 @@ const DEMOS = [
       await d.unring();
     },
   },
+  {
+    name: 'value-creation',
+    title: 'Value creation and entry metrics',
+    subtitle:
+      'The gain by driver, valuation against earnings, a filter to one vehicle, the entry bands and one deal.',
+    summary:
+      'The gain on the equity and continuation vehicle positions split by driver, the bridge opened into revenue and margin, valuation growth against EBITDA growth on enterprise value, a filter to one vehicle, the entry metric bands, and one company’s value creation card.',
+    /** @param {Stage} stage */
+    async setup({ p }) {
+      await p.signIn('head.one');
+      await p.go('/analytics/value-creation');
+      await p.page.getByTestId('value-creation-bridge').waitFor();
+    },
+    /** @param {Stage} stage */
+    async run({ page, d, p }) {
+      const view = await p.read('head.one', '/api/v1/analytics/value-creation');
+      // The vehicle the filter narrows to: the one holding the most positions with a split; and
+      // the company opened at the end: its active position with the largest gain. Number orders
+      // rows here; no figure is derived from it.
+      const byVehicle = new Map();
+      for (const position of view.positions.filter((x) => x.gainByDriver !== null))
+        byVehicle.set(position.vehicleName, [
+          ...(byVehicle.get(position.vehicleName) ?? []),
+          position,
+        ]);
+      const [vehicle, held] = [...byVehicle.entries()].sort(
+        (a, b) => b[1].length - a[1].length || a[0].localeCompare(b[0]),
+      )[0] ?? ['', []];
+      const company = held
+        .filter((x) => x.isActive && x.bridge !== null)
+        .sort((a, b) => Number(b.gain) - Number(a.gain))[0];
+      if (company === undefined)
+        throw new Error('the preview has no active position with a value creation bridge');
+      /** Picks an option of a dropdown by its exact name: one vehicle's name starts another's. */
+      const choose = async (scope, combobox, option) => {
+        await d.click(scope.getByRole('combobox', { name: combobox }), 300);
+        await d.click(page.getByRole('option', { name: option, exact: true }), 300);
+      };
+      /** Rests the pointer on the heading of a card, so it hovers no mark of the chart below. */
+      const park = async (locator) => {
+        await locator.hover({ position: { x: 56, y: 14 } });
+        await d.wait(260);
+      };
+
+      const tiles = page.getByTestId('value-creation-tiles');
+      const bridge = page.getByTestId('value-creation-bridge');
+      await d.say(
+        'Analytics, Value creation: the gain on equity and continuation vehicle positions.',
+      );
+      await d.ring(tiles);
+      await d.say(
+        'The tiles split it by driver: EBITDA growth, multiple expansion, debt paydown, and mark and timing.',
+      );
+
+      await d.caption('A bridge walks from invested capital to value now.');
+      await d.scrollTo(page.getByTestId('value-creation-bridge-card'), 'start');
+      await d.ring(bridge);
+      await d.finishCaption();
+      await d.unring();
+      await d.caption('A switch opens EBITDA growth into revenue growth and margin change.');
+      await d.click(page.getByRole('switch', { name: /^Open EBITDA growth/ }), 300);
+      await d.ring(bridge);
+      await d.poster();
+      await d.finishCaption();
+
+      const growth = page.getByTestId('value-creation-growth-card');
+      await d.caption('Each company: valuation growth against its EBITDA growth since entry.');
+      await d.scrollTo(growth, 'start');
+      await d.finishCaption();
+      await d.caption('Measured here on enterprise value, the like-for-like view.');
+      await choose(growth, 'Valuation measure', 'Enterprise value');
+      await park(growth);
+      await d.ring(page.getByTestId('value-creation-scatter'));
+      await d.wait(1700);
+      await d.finishCaption();
+
+      await d.caption(
+        'A filter to one vehicle. Every figure is rolled up again over its positions.',
+      );
+      await d.scrollTop();
+      await choose(page.getByTestId('value-creation-filters'), 'Vehicle', vehicle);
+      await p.settle();
+      await d.ring(tiles);
+      await d.finishCaption();
+      await d.unring();
+
+      await d.caption(
+        'Entry metrics keeps the filter: performance by entry purchase multiple band and by entry net leverage band.',
+      );
+      await d.click(tab(page, 'Entry metrics'));
+      await page.getByTestId('entry-multiple-bars').waitFor();
+      await p.settle();
+      await d.ring(page.getByTestId('entry-multiple-bars'));
+      await d.wait(1900);
+      await d.scrollTo(page.getByTestId('entry-leverage'), 'start');
+      await park(page.getByTestId('entry-leverage'));
+      await d.ring(page.getByTestId('entry-leverage-bars'));
+      await d.wait(1500);
+      await d.finishCaption();
+
+      await d.caption('Back on Value creation, a company in the table opens its deal.');
+      await d.scrollTop();
+      await d.click(tab(page, 'Value creation'));
+      await tiles.waitFor();
+      await p.settle();
+      await d.click(
+        page
+          .getByRole('table', { name: 'Value creation by position' })
+          .getByRole('link', { name: company.companyName, exact: true }),
+      );
+      await page.getByTestId('deal-value-creation-bridge').waitFor();
+      await p.settle();
+      await d.finishCaption();
+      await d.scrollTo(page.getByTestId('deal-value-creation-tiles'), 'start');
+      await park(page.getByTestId('deal-value-creation-tiles'));
+      await d.ring(page.getByTestId('deal-value-creation-bridge'));
+      await d.say(
+        'On the deal’s Performance tab, the value creation card shows the bridge for that one company.',
+      );
+      await d.unring();
+    },
+  },
 ];
 
 // ---- Recording ---------------------------------------------------------------------------------
+
+const ffmpeg = compress ? ffmpegPath() : null;
+if (compress && ffmpeg === null)
+  log(
+    'record-demos: no ffmpeg found (PB_FFMPEG, the one Playwright installs, or one on the PATH): the recordings are kept as Chromium wrote them, which is larger',
+  );
+
+/** Writes a recording to its place: encoded again at the lower bitrate when an ffmpeg is at hand. */
+function writeRecording(from, to, name) {
+  if (ffmpeg !== null) {
+    const result = spawnSync(
+      ffmpeg,
+      ['-y', '-loglevel', 'error', '-i', from, ...ENCODE, ...ENCODE_PACE, '-an', '-f', 'webm', to],
+      { encoding: 'utf8' },
+    );
+    if (result.status === 0 && statSync(to).size > 0) {
+      const megabytes = (bytes) => (bytes / 1024 / 1024).toFixed(1);
+      log(
+        `  ${name}: ${megabytes(statSync(from).size)} MB as recorded, ${megabytes(statSync(to).size)} MB encoded again`,
+      );
+      return;
+    }
+    log(`  ${name}: the second encoding failed, the recording is kept as it is: ${result.stderr}`);
+  }
+  copyFileSync(from, to);
+}
 
 const preview = await servePreview();
 const browser = await launchChromium();
@@ -763,7 +920,7 @@ for (const demo of DEMOS) {
   const video = page.video();
   await context.close();
   if (video === null) throw new Error(`${demo.name}: no recording was made`);
-  renameSync(await video.path(), join(OUT, `${demo.name}.webm`));
+  writeRecording(await video.path(), join(OUT, `${demo.name}.webm`), demo.name);
   recorded.push({
     name: demo.name,
     title: demo.title,
@@ -856,6 +1013,10 @@ for (const item of recorded) {
   log(`${item.name}: ${seconds}s, ${megabytes} MB, ${item.steps.length} captions`);
   if (bytes > MAX_BYTES) {
     log(`FAIL ${item.name}: ${megabytes} MB is over the 12 MB limit`);
+    failed = true;
+  }
+  if (seconds > MAX_SECONDS) {
+    log(`FAIL ${item.name}: ${seconds}s is over the ${MAX_SECONDS} second limit`);
     failed = true;
   }
 }

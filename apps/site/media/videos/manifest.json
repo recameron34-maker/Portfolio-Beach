@@ -1,0 +1,329 @@
+{
+  "generatedFrom": "apps/web/dist-preview",
+  "asOf": "2025-06-30",
+  "format": "video/webm",
+  "videos": [
+    {
+      "name": "tour",
+      "title": "A first look",
+      "summary": "A walk from the sign-in picker through the home page, the position grid, one deal and the quarterly monitoring board.",
+      "file": "tour.webm",
+      "poster": "tour.webp",
+      "width": 1280,
+      "height": 720,
+      "seconds": 57.7,
+      "bytes": 2110685,
+      "steps": [
+        {
+          "at": 3.5,
+          "text": "The prototype signs in with a picker of synthetic users. Each one holds a role."
+        },
+        {
+          "at": 9.3,
+          "text": "Home: invested capital, NAV and returns for the positions this user may see."
+        },
+        {
+          "at": 13.9,
+          "text": "What needs attention comes first: watchlist flags and capital notices that are due."
+        },
+        {
+          "at": 18.5,
+          "text": "Exposure and the NAV trend, from Locked valuations only."
+        },
+        {
+          "at": 22.2,
+          "text": "The portfolio: every position in one grid."
+        },
+        {
+          "at": 25.7,
+          "text": "Search, filter by deal type, or export the grid to CSV."
+        },
+        {
+          "at": 29,
+          "text": "Opening a row shows the one-pager for that deal."
+        },
+        {
+          "at": 31.8,
+          "text": "The one-pager: invested capital, current NAV, gross MOIC and gross IRR."
+        },
+        {
+          "at": 36.3,
+          "text": "Financial performance for the latest quarter, with the prior year beside it when it is on record."
+        },
+        {
+          "at": 42,
+          "text": "Back to the portfolio, and on to the monitoring board."
+        },
+        {
+          "at": 45,
+          "text": "Monitoring: for each active position, whether the quarterly report is in, read and approved."
+        },
+        {
+          "at": 50.1,
+          "text": "Each row links to the report, the extraction run and the approval."
+        }
+      ]
+    },
+    {
+      "name": "valuation",
+      "title": "A valuation, from draft to lock",
+      "summary": "Operations starts and prepares a valuation, the deal team approves it, an approver locks it, and the version screen shows the lock text and its hash.",
+      "file": "valuation.webm",
+      "poster": "valuation.webp",
+      "width": 1280,
+      "height": 720,
+      "seconds": 58.6,
+      "bytes": 2605030,
+      "steps": [
+        {
+          "at": 4.3,
+          "text": "The valuation board. One active position has no mark for this quarter yet."
+        },
+        {
+          "at": 8.5,
+          "text": "Operations starts a draft: the position, the method and the fair value."
+        },
+        {
+          "at": 17.9,
+          "text": "Operations prepares it."
+        },
+        {
+          "at": 20.3,
+          "text": "Next, the deal team. The person who prepared a valuation can never approve it."
+        },
+        {
+          "at": 27.4,
+          "text": "Last, an approver selects the version and locks it from the batch bar."
+        },
+        {
+          "at": 36.6,
+          "text": "The version screen shows what the lock covers."
+        },
+        {
+          "at": 39.2,
+          "text": "The lock is a SHA-256 hash over the version, the method, its inputs and the fair value."
+        },
+        {
+          "at": 44.6,
+          "text": "Three decisions by three different people."
+        },
+        {
+          "at": 47.5,
+          "text": "Reports read Locked valuations only. A correction reopens one into a new version."
+        }
+      ]
+    },
+    {
+      "name": "capital-call",
+      "title": "A capital call with a changed wire",
+      "summary": "A capital call arrives with new wire instructions: operations reviews it and drafts the ticket, the release stays blocked until a second person verifies the change by callback, and a third person approves.",
+      "file": "capital-call.webm",
+      "poster": "capital-call.webp",
+      "width": 1280,
+      "height": 720,
+      "seconds": 58.4,
+      "bytes": 2428957,
+      "steps": [
+        {
+          "at": 3.5,
+          "text": "Capital activity: calls, distributions and payments, with alerts as due dates approach."
+        },
+        {
+          "at": 7.2,
+          "text": "This capital call is due in two days and is marked Wire change."
+        },
+        {
+          "at": 11.2,
+          "text": "Two alerts: the wire instructions changed, and the notice presses for a quick payment."
+        },
+        {
+          "at": 15.8,
+          "text": "Operations reviews the call and drafts the trade ticket."
+        },
+        {
+          "at": 20.9,
+          "text": "The release is blocked. The wire changed inside the hold window, and a preparer cannot approve their own ticket."
+        },
+        {
+          "at": 26.6,
+          "text": "A second operations person opens the proposed instruction in the wire register."
+        },
+        {
+          "at": 31.8,
+          "text": "They call back on a number sourced independently, and record the result."
+        },
+        {
+          "at": 36.5,
+          "text": "The new version is verified and active. The earlier one is superseded."
+        },
+        {
+          "at": 40.1,
+          "text": "Inside the hold window the release needs a third person: an approver who touched neither step."
+        },
+        {
+          "at": 47.4,
+          "text": "The ticket is approved against the verified instruction. Bank details stay masked outside the wire register."
+        }
+      ]
+    },
+    {
+      "name": "deal",
+      "title": "A deal, from pipeline to position",
+      "summary": "A deal passes the diligence gate and the investment committee, its closing shows the commitment and the client breakdown, and it becomes a position in the portfolio.",
+      "file": "deal.webm",
+      "poster": "deal.webp",
+      "width": 1280,
+      "height": 720,
+      "seconds": 54.1,
+      "bytes": 2395038,
+      "steps": [
+        {
+          "at": 4.1,
+          "text": "The pipeline: every deal by stage. This one is in diligence."
+        },
+        {
+          "at": 7.7,
+          "text": "The gate: no investment committee while a required task is open."
+        },
+        {
+          "at": 11,
+          "text": "The deal team completes the required tasks."
+        },
+        {
+          "at": 13.5,
+          "text": "An approver takes it to committee and records the decision."
+        },
+        {
+          "at": 24.5,
+          "text": "Operations opens the closing with one close date."
+        },
+        {
+          "at": 32.9,
+          "text": "The allocation leads with the commitment and the amount received against it."
+        },
+        {
+          "at": 36.5,
+          "text": "Client lines sit beneath their vehicle, in a breakdown that opens on request."
+        },
+        {
+          "at": 40.5,
+          "text": "Documents received, allocations tied: operations confirms the closing."
+        },
+        {
+          "at": 42.9,
+          "text": "The deal closes and becomes a position. It carries no figure yet: nothing is invented."
+        }
+      ]
+    },
+    {
+      "name": "documents",
+      "title": "From a sponsor report to the record",
+      "summary": "Operations indexes the document store, a batch reads the quarterly reports, a reviewer checks a value against its page and approves, and the figures appear on the position with their source.",
+      "file": "documents.webm",
+      "poster": "documents.webp",
+      "width": 1280,
+      "height": 720,
+      "seconds": 58.1,
+      "bytes": 2605024,
+      "steps": [
+        {
+          "at": 3.5,
+          "text": "The document hub starts empty. Operations indexes the document store."
+        },
+        {
+          "at": 6.8,
+          "text": "Each file is hashed, tagged by a classifier and linked to its deal or fund."
+        },
+        {
+          "at": 11.4,
+          "text": "A tag below the confidence threshold waits in the review queue for a person."
+        },
+        {
+          "at": 15.6,
+          "text": "Extraction: a batch reads the financial reports of the quarter."
+        },
+        {
+          "at": 19.9,
+          "text": "In the prototype a mock model answers. Each run waits for a reviewer."
+        },
+        {
+          "at": 25.8,
+          "text": "Every value in a run carries its page, a short quote and a confidence."
+        },
+        {
+          "at": 30.1,
+          "text": "Click a value to see where it was read: the page, with the quote highlighted."
+        },
+        {
+          "at": 35.4,
+          "text": "Clean values are accepted in one go. Flagged ones are decided one by one."
+        },
+        {
+          "at": 39.6,
+          "text": "The reviewer approves with a reason. Nothing reaches the record before this."
+        },
+        {
+          "at": 44,
+          "text": "The deal team now reads the quarter on the position."
+        },
+        {
+          "at": 48.2,
+          "text": "The approved figures link back to the document and the page they came from."
+        }
+      ]
+    },
+    {
+      "name": "value-creation",
+      "title": "Value creation and entry metrics",
+      "summary": "The gain on the equity and continuation vehicle positions split by driver, the bridge opened into revenue and margin, valuation growth against EBITDA growth on enterprise value, a filter to one vehicle, the entry metric bands, and one company’s value creation card.",
+      "file": "value-creation.webm",
+      "poster": "value-creation.webp",
+      "width": 1280,
+      "height": 720,
+      "seconds": 50,
+      "bytes": 2155994,
+      "steps": [
+        {
+          "at": 3.5,
+          "text": "Analytics, Value creation: the gain on equity and continuation vehicle positions."
+        },
+        {
+          "at": 7.1,
+          "text": "The tiles split it by driver: EBITDA growth, multiple expansion, debt paydown, and mark and timing."
+        },
+        {
+          "at": 11.9,
+          "text": "A bridge walks from invested capital to value now."
+        },
+        {
+          "at": 14.6,
+          "text": "A switch opens EBITDA growth into revenue growth and margin change."
+        },
+        {
+          "at": 18,
+          "text": "Each company: valuation growth against its EBITDA growth since entry."
+        },
+        {
+          "at": 21,
+          "text": "Measured here on enterprise value, the like-for-like view."
+        },
+        {
+          "at": 25.1,
+          "text": "A filter to one vehicle. Every figure is rolled up again over its positions."
+        },
+        {
+          "at": 29.3,
+          "text": "Entry metrics keeps the filter: performance by entry purchase multiple band and by entry net leverage band."
+        },
+        {
+          "at": 35.5,
+          "text": "Back on Value creation, a company in the table opens its deal."
+        },
+        {
+          "at": 40.3,
+          "text": "On the deal’s Performance tab, the value creation card shows the bridge for that one company."
+        }
+      ]
+    }
+  ]
+}
