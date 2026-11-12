@@ -452,3 +452,20 @@ Pull request 18 went green on every check for the head with the UI pass and the 
 - **Microsoft 365 (decision 0019, still Proposed):** the owner allowed Microsoft Learn in the session's network and the seven pages behind the proposal were read in full. Every point held. Three were sharpened: the REST API tool route for agents is preview documentation, so the custom connector is the route to build on; a connector can sign in with a managed identity, so no client secret is stored; and Microsoft documents interactive user sign-in for the in-app agent client, not service-to-service.
 - The built-in page reader could not resolve the two newly allowed hosts in this running session; the pages were read through the session's network proxy with a small script kept outside the repository. Nothing was sent but the page requests.
 
+### Session 11, continued (2026-11-12): Phase 4, the snapshot builder and the package API
+
+The owner said "continue the build", so Phase 4 went on from the package record.
+
+**What changed**
+
+- `packages/report-engine`: `buildPackageSnapshot` makes a package's lines for one quarter from Locked marks and approved flows (`docs/08` section 7, fixture 26). A position with no Locked mark for the quarter end is carried at its last mark rolled forward by the flows since, and footnoted as stale; a figure that cannot be worked out stays empty (rule 10). The client's lines are its share of each position by commitment.
+- Migration 0020: a package stores what it shows (`content`) and the written explanations for lines that do not tie to the last release (`tie_out_explanations`). Anything past Draft has content.
+- Contract and API (`/api/v1/report-packages`): list, read, start, and one command route. Generate builds the snapshot as the caller reads the book, runs the ten QA rules, and a system step records every finding and settles the package at QAPassed or QAFailed. The approver overrides a failed gate with a reason (SEC-9.5); the review is refused to the preparer (SEC-5.6); approval stamps a hash of the content (SEC-9.3); release makes the package immutable, and a correction is a new version with a reason. Every step is audited. The command route reads If-Match and is in the row-version and OpenAPI conformance tests.
+
+**Verified:** `pnpm exec vitest run --project contracts --project api`: 46 files, 678 tests passed, with 6 new API scenarios over the synthetic book (the `stale_valuation` and `roll_forward_break` positions are caught and fail the gate; a package ties line by line to the one released before it). `--project report-engine`: 25 passed. `pnpm typecheck` and `pnpm lint` clean; `check-style: OK`; `check-employer-data: OK`.
+
+**Open items**
+
+- No page shows a package yet: Reporting, Packages and the preview's simulated routes are next.
+- A question for the owner, not yet decided: a package is built from what its preparer can read, so a position behind an information wall the preparer is not on is absent from the client's package without a word. Should the package say that positions were left out, refuse to generate, or be built by the system from the whole book?
+- The synthetic generator still does not produce `qtd_ytd_basis` and `sign_flip`.
