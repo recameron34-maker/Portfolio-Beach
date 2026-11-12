@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { contrast, tokenSets, tokensCss } from '../scripts/lib/tokens.mjs';
 import * as content from './content/site.js';
+import { demoAddress, fragmentFiles, toFragment } from './render/artifact.js';
 import { escapeHtml, html, trusted } from './render/html.js';
 import { lengthText, sizeText } from './render/media.js';
 import type { Media } from './render/media.js';
@@ -236,6 +237,82 @@ describe('the page', () => {
     const without = media();
     without.screens.delete('analytics');
     expect(() => renderPage(without)).toThrow(/capture-screens/);
+  });
+});
+
+describe('the artifact fragment', () => {
+  const built = `<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Portfolio Beach</title>
+    <meta name="robots" content="noindex" />
+    <style>:root{--pb-bg:#ffffff}</style>
+    <script>document.documentElement.classList.add('js');</script>
+    <script type="module" crossorigin src="./assets/index-abc.js"></script>
+    <link rel="stylesheet" crossorigin href="./assets/index-abc.css">
+  </head>
+  <body>
+    <a class="skip-link" href="#main">Skip to the content</a>
+    <header class="site-header"><a href="https://demo.example/x" target="_blank">Open</a></header>
+    <main id="main"><img src="media/screens/home.webp" srcset="media/screens/home.webp 1440w, media/screens/home-2x.webp 2880w" /><video poster="media/videos/tour.webp"><source src="media/videos/tour.webm" /></video></main>
+  </body>
+</html>`;
+  const fragment = toFragment(built, 'Portfolio Beach website');
+
+  it('is no document: no doctype, no html, head or body tag, no meta and no inline script', () => {
+    expect(fragment).not.toMatch(/<!doctype|<html[\s>]|<head[\s>]|<body[\s>]|<meta\b/i);
+    expect(fragment).not.toContain("classList.add('js')");
+    // The page's own <header> is markup, not the document's head.
+    expect(fragment).toContain('<header class="site-header">');
+  });
+
+  it('holds the title, then the stylesheet and the inline style, then the markup, then the script', () => {
+    expect(fragment.startsWith('<title>Portfolio Beach website</title>\n')).toBe(true);
+    const order = [
+      '<title>',
+      '<link rel="stylesheet"',
+      '<style>',
+      '<a class="skip-link"',
+      '</main>',
+      '<script type="module"',
+    ].map((part) => fragment.indexOf(part));
+    expect(order.every((at) => at >= 0)).toBe(true);
+    expect([...order].sort((a, b) => a - b)).toEqual(order);
+    expect(fragment.trimEnd().endsWith('</script>')).toBe(true);
+    expect(fragment.split('<script').length - 1).toBe(1);
+  });
+
+  it('refuses a page it cannot make a fragment from', () => {
+    expect(() => toFragment('<html><head></head><body><p>x</p></body></html>', 'A page')).toThrow(
+      /stylesheet/,
+    );
+    expect(() => toFragment('<p>no document</p>', 'A page')).toThrow(/<head>/);
+  });
+
+  it('names every relative file that must sit beside it, and no address elsewhere', () => {
+    expect(fragmentFiles(fragment)).toEqual([
+      'assets/index-abc.css',
+      'assets/index-abc.js',
+      'media/screens/home-2x.webp',
+      'media/screens/home.webp',
+      'media/videos/tour.webm',
+      'media/videos/tour.webp',
+    ]);
+  });
+
+  it('takes the address of the demo from the environment: http or https, or none', () => {
+    expect(demoAddress(undefined)).toBeNull();
+    expect(demoAddress('  ')).toBeNull();
+    expect(demoAddress(' https://demo.example/preview ')).toBe('https://demo.example/preview');
+    expect(() => demoAddress('demo/index.html')).toThrow(/absolute/);
+    expect(() => demoAddress('javascript:alert(1)')).toThrow(/http/);
+  });
+
+  it('has a title of two to four words', () => {
+    const words = content.SITE.artifactTitle.split(/\s+/).length;
+    expect(words).toBeGreaterThanOrEqual(2);
+    expect(words).toBeLessThanOrEqual(4);
   });
 });
 

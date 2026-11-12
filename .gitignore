@@ -43,6 +43,8 @@ apps/web/dist-preview/
 # wrangler's working folders. The site's generated media (apps/site/media: screenshots,
 # recordings, brochures) is committed on purpose: Cloudflare's build cannot run a browser.
 apps/site/.wrangler/
+# the site's private preview build (pnpm --filter @pb/site build:artifact)
+apps/site/dist-artifact/
 .wrangler/
 # agent worktrees (never committed)
 .claude/worktrees/

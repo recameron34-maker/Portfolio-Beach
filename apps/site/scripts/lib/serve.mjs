@@ -27,7 +27,9 @@ const TYPES = {
 
 /**
  * @param {string} directory the folder to serve
- * @param {{ base?: string, port?: number }} [options] base is the path prefix the folder is served under
+ * @param {{ base?: string, port?: number, pages?: Record<string, string> }} [options] base is the
+ *   path prefix the folder is served under; pages are HTML documents answered at paths under it
+ *   that are not files of the folder ('' is the base path itself)
  * @returns {Promise<{ origin: string, url: string, hits: Map<string, number>, close: () => Promise<void> }>}
  */
 export async function serveStatic(directory, options = {}) {
@@ -81,6 +83,13 @@ export async function serveStatic(directory, options = {}) {
     }
     if (!path.startsWith(base)) {
       send(404);
+      return;
+    }
+    const page = options.pages?.[path.slice(base.length)];
+    if (page !== undefined) {
+      hits.set(req.url ?? '', 200);
+      res.writeHead(200, { 'content-type': TYPES['.html'] });
+      res.end(page);
       return;
     }
     let file = resolve(root, `.${sep}${path.slice(base.length)}`);

@@ -12,4 +12,5 @@ apps/worker-py/.venv
 apps/web/src/routeTree.gen.ts
 apps/site/media
 apps/site/.wrangler
+apps/site/dist-artifact
 .claude/worktrees

@@ -2,18 +2,22 @@
 // desktop and a phone, in the light and the dark theme, served from a sub-path as the check
 // serves it. Motion is parked (as for a reader who prefers less of it) so every block is in place.
 //
+// They are for looking at, not for the site: without --out they go to the system's temporary
+// folder, never into media/, which is committed.
+//
 //   node scripts/shoot-site.mjs [--out <dir>] [--only desktop-light,phone-dark]
 import { existsSync, mkdirSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { launchChromium } from './lib/browser.mjs';
-import { MEDIA_DIR, SITE_DIR } from './lib/preview.mjs';
+import { SITE_DIR } from './lib/preview.mjs';
 import { serveStatic } from './lib/serve.mjs';
 
 const arg = (name) => {
   const at = process.argv.indexOf(name);
   return at === -1 ? null : (process.argv[at + 1] ?? null);
 };
-const out = arg('--out') ?? join(MEDIA_DIR, 'site-shots');
+const out = arg('--out') ?? join(tmpdir(), 'pb-site-shots');
 const only = arg('--only') === null ? null : new Set(arg('--only').split(','));
 const DIST = join(SITE_DIR, 'dist');
 if (!existsSync(join(DIST, 'index.html')))

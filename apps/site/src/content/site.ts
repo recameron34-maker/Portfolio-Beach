@@ -22,6 +22,8 @@ export const SITE = {
    * true to leave the tag off the landing page and the demo; the 404 page keeps it either way.
    */
   findable: false as boolean,
+  /** The <title> the private preview build opens its fragment with: two to four words. */
+  artifactTitle: 'Portfolio Beach website',
   /** Said to a screen reader after the name of a link that opens another tab. */
   newTab: '(opens in a new tab)',
 } as const;

@@ -39,6 +39,7 @@ export default tseslint.config(
       'apps/web/test-results/**',
       'apps/site/media/**',
       'apps/site/.wrangler/**',
+      'apps/site/dist-artifact/**',
     ],
   },
   js.configs.recommended,
