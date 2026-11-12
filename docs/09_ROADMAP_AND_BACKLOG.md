@@ -41,7 +41,7 @@ Synthetic data and mock adapters throughout. Every phase ends with: all CI gates
 ## Phase 4: Reporting (M12, M14, M19, M13)
 - [ ] Report QA engine first; then template engine with layout locks and external change log
   - [x] The QA rules as a pure engine (`packages/report-engine`, `runReportQa`; `docs/08` section 7, fixture 25): ten rules, each with a passing and a failing case, and the reporting scenarios of `docs/14` each caught by a rule. Started 2026-11-12 at the owner's word ("start the next phase").
-  - [ ] The package record: `rpt.package`, `rpt.qa_result` and `rpt.override` (migration, row-level security, classification, history), and the package state machine of `docs/18` section 5 with a rejection test for every forbidden pair
+  - [ ] The package record: `rpt.package`, `rpt.qa_result` and `rpt.override` (migration, row-level security, classification, history). The package state machine of `docs/18` section 5 is already in `@pb/workflows` (`reportingPackageMachine`) with its rejection tests; the record's commands run through it
   - [ ] The snapshot builder: a package's lines from Locked marks and approved flows, the prior released package and the client shares, so the engine runs on real rows; `qtd_ytd_basis` and `sign_flip` produced by the synthetic generator (they are listed in `docs/14` and not produced yet)
   - [ ] The API (create, generate and run QA, override with a reason by an approver, review, approve, release) and the Reporting, Packages pages: the findings with expected and found, and the release gate
   - [ ] The template engine (pptx, docx, xlsx) with layout locks and geometry snapshots; the change log on the package, never in the file
