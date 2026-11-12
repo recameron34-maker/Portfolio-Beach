@@ -8,7 +8,14 @@ import { createReadStream, existsSync, readFileSync, statSync } from 'node:fs';
 import { createServer, request } from 'node:http';
 import { extname, join, resolve, sep } from 'node:path';
 import { chromium } from '@playwright/test';
-import { D, addDays, latestQuarterEndOnOrBefore, nextQuarterEnd, toDollars } from '@pb/calc';
+import {
+  D,
+  addDays,
+  latestQuarterEndOnOrBefore,
+  nextQuarterEnd,
+  toDollars,
+  valueCreationRollup,
+} from '@pb/calc';
 import { accountingExports, generateDataset } from '@pb/synthetic';
 import { readsRegister } from '@pb/workflows';
 import { keyFor } from './preview-plan.mjs';
@@ -256,7 +263,12 @@ check(
 /** Route paths from src/app/router.tsx: the helper calls and the explicit createRoute paths. */
 function routerPaths() {
   const source = readFileSync(new URL('../src/app/router.tsx', import.meta.url), 'utf8');
-  const parents = { child: '', dealTab: '/portfolio/$id', analyticsTab: '/analytics' };
+  const parents = {
+    child: '',
+    dealTab: '/portfolio/$id',
+    analyticsTab: '/analytics',
+    filteredAnalyticsTab: '/analytics',
+  };
   const paths = new Set();
   for (const m of source.matchAll(/\b([A-Za-z]+)\(\s*'(\/[^']*)'/g)) {
     const [, helper, path] = m;
@@ -2171,21 +2183,65 @@ check(
     !JSON.stringify(vcViewer).includes(walledId),
   `viewer ${vcViewer.positions.length}, member ${vcMember.positions.length}`,
 );
-/** The drivers of a recorded roll-up are its gain, and invested plus the gain is the value now. */
+/**
+ * The four parts of a recorded roll-up (the three drivers and mark and timing) are its gain
+ * exactly, no driver outweighs the gain, and invested plus the gain is the value now.
+ */
+const partsOf = (g) => [g.ebitdaGrowth, g.multipleExpansion, g.debtPaydown, g.other];
 const rollUpTies = (portfolio) =>
   portfolio.gainByDriver !== null &&
-  D(portfolio.gainByDriver.ebitdaGrowth)
-    .plus(portfolio.gainByDriver.multipleExpansion)
-    .plus(portfolio.gainByDriver.debtPaydown)
-    .minus(portfolio.gain)
-    .abs()
-    .lte('3e-10') &&
+  partsOf(portfolio.gainByDriver)
+    .reduce((acc, part) => acc.plus(part), D('0'))
+    .eq(portfolio.gain) &&
+  partsOf(portfolio.gainByDriver)
+    .slice(0, 3)
+    .every((part) => D(part).abs().lt(D(portfolio.gain).abs())) &&
   D(portfolio.invested).plus(portfolio.gain).eq(portfolio.totalValue) &&
   portfolio.positions + portfolio.notCalculable.reduce((n, r) => n + r.count, 0) > 0;
 check(
-  'value creation: the bridge sums to the headline for a viewer and for the wall member (recorded)',
+  'value creation: the bridge with mark and timing sums to the headline exactly for a viewer and for the wall member (recorded)',
   rollUpTies(vcViewer.portfolio) && rollUpTies(vcMember.portfolio),
   `viewer gain ${vcViewer.portfolio.gain}, member gain ${vcMember.portfolio.gain}`,
+);
+/** A split row: each driver part is our entry stake times the company's driver, and the four parts are the gain. */
+const rowTies = (p) =>
+  p.gainByDriver === null ||
+  (partsOf(p.gainByDriver)
+    .reduce((acc, part) => acc.plus(part), D('0'))
+    .eq(p.gain) &&
+    ['ebitdaGrowth', 'multipleExpansion', 'debtPaydown'].every((key) =>
+      D(p.invested)
+        .times(p.bridge[key])
+        .div(p.bridge.equityAtEntry)
+        .minus(p.gainByDriver[key])
+        .abs()
+        .lte('1e-9'),
+    ) &&
+    D(p.invested).div(p.bridge.equityAtEntry).minus(p.stake).abs().lte('1e-9'));
+check(
+  'value creation: every split row is our entry stake times the company drivers plus the remainder (recorded)',
+  vcMember.positions.every(rowTies) && vcMember.positions.some((p) => p.gainByDriver !== null),
+);
+const sameJson = (a, b) => JSON.stringify(a) === JSON.stringify(b);
+const rolledFor = (view, rows = view.positions) =>
+  valueCreationRollup(rows, view.cohorts, view.asOf);
+check(
+  'value creation: the roll-up of the recorded rows is the recorded portfolio and cohorts, field for field (the one rule a page filters by)',
+  [vcViewer, vcMember].every(
+    (view) =>
+      sameJson(rolledFor(view).portfolio, view.portfolio) &&
+      sameJson(rolledFor(view).cohorts, view.cohorts),
+  ),
+);
+check(
+  'value creation: a realized position stops at its exit, and a forward-dated entry snapshot has its own reason (recorded)',
+  vcMember.positions
+    .filter((p) => p.status === 'realized')
+    .every((p) => p.current === null || p.current.periodEnd <= p.exitDate) &&
+    vcMember.positions.some((p) => p.status === 'realized' && p.current !== null) &&
+    vcMember.positions.find((p) => p.id === d.scenarios.forward_entry_snapshot[0])
+      ?.notCalculable === 'entry_snapshot_forward_dated' &&
+    !JSON.stringify(vcMember).includes('no_equity_change'),
 );
 await signIn('viewer.one');
 await page.goto(`${origin}/#/analytics/value-creation`);
@@ -2209,10 +2265,47 @@ check(
         `EBITDA growth: ${signedM(vcPortfolio.gainByDriver.ebitdaGrowth)}`,
         `Multiple expansion: ${signedM(vcPortfolio.gainByDriver.multipleExpansion)}`,
         `Debt paydown: ${signedM(vcPortfolio.gainByDriver.debtPaydown)}`,
+        `Mark and timing: ${signedM(vcPortfolio.gainByDriver.other)}`,
         `Value now: ${moneyM(vcPortfolio.totalValue)}`,
-      ]),
+      ]) &&
+    (
+      await page
+        .getByTestId('value-creation-tiles')
+        .getByRole('group', { name: 'Mark and timing' })
+        .innerText()
+    ).includes(signedM(vcPortfolio.gainByDriver.other)),
   bridgeMarks.join(' | '),
 );
+const pickOption = async (combobox, option) => {
+  await page.getByRole('combobox', { name: combobox, exact: true }).click();
+  await page.getByRole('option', { name: option, exact: true }).click();
+};
+const growthMarks = () =>
+  page
+    .getByRole('group', { name: 'Valuation growth against EBITDA growth' })
+    .getByRole('img')
+    .evaluateAll((marks) => marks.map((m) => m.getAttribute('aria-label')));
+const onMark = await growthMarks();
+await pickOption('Valuation measure', 'Enterprise value');
+const onEv = await growthMarks();
+const evPlotted = vcViewer.positions.filter(
+  (p) => p.growth.evGrowth !== null && p.growth.ebitdaGrowth !== null,
+);
+const evAhead = evPlotted.filter((p) => D(p.growth.evGrowth).gt(p.growth.ebitdaGrowth)).length;
+check(
+  'value creation tab: the valuation chart compares our mark by default and the enterprise value on demand, where the companies fall on both sides of the line',
+  onMark.length > 0 &&
+    onMark.every((label) => label.includes('Growth in our mark')) &&
+    onEv.length === evPlotted.length &&
+    onEv.every((label) => label.includes('Enterprise value growth')) &&
+    evAhead > 0 &&
+    evAhead < evPlotted.length &&
+    (await page.getByTestId('value-creation-growth-card').innerText()).includes(
+      `${evAhead} of ${evPlotted.length} marks sit above the line`,
+    ),
+  `${evAhead} of ${evPlotted.length} above the line on enterprise value`,
+);
+await pickOption('Valuation measure', 'Our mark');
 const vcRows = page.getByRole('table', { name: 'Value creation by position' }).locator('tbody tr');
 check(
   'value creation tab: one row per recorded position, the valuation chart with its reference line, and no walled name for a viewer',
@@ -2239,6 +2332,100 @@ check(
     vcCsv.split('\n').length === vcViewer.positions.length + 2 &&
     !vcCsv.includes(walledName),
   vcDownload.suggestedFilename(),
+);
+// The filters: one vehicle, in the page over the one recorded answer, with no new recording.
+const vcCounts = new Map();
+for (const p of vcViewer.positions) vcCounts.set(p.vehicleId, (vcCounts.get(p.vehicleId) ?? 0) + 1);
+const vcVehicleId = [...vcCounts.entries()].sort((a, b) => b[1] - a[1])[0][0];
+const vcVehicleRows = vcViewer.positions.filter((p) => p.vehicleId === vcVehicleId);
+const vcVehicleRoll = rolledFor(vcViewer, vcVehicleRows);
+// The gain of the vehicle summed here row by row, apart from the roll-up the page uses.
+const vcVehicleGain = vcVehicleRows
+  .filter((p) => p.gainByDriver !== null)
+  .reduce((acc, p) => acc.plus(p.gain), D('0'));
+const missesBeforeFilter = (await misses()).length;
+await pickOption('Vehicle', vcVehicleRows[0].vehicleName);
+await page
+  .getByTestId('value-creation-filter-count')
+  .filter({ hasText: `${vcVehicleRows.length} of ${vcViewer.positions.length} positions` })
+  .waitFor();
+const filteredMarks = await vcBridge
+  .getByRole('img')
+  .evaluateAll((marks) => marks.map((m) => m.getAttribute('aria-label')));
+check(
+  'value creation tab: a filter to one vehicle recomputes the headline and the bridge exactly, keeps the filter in the address and records nothing new',
+  vcVehicleRows.length > 1 &&
+    vcVehicleRows.length < vcViewer.positions.length &&
+    D(vcVehicleRoll.portfolio.gain).eq(vcVehicleGain) &&
+    (
+      await page
+        .getByTestId('value-creation-tiles')
+        .getByRole('group', { name: 'Our gain' })
+        .innerText()
+    ).includes(moneyM(vcVehicleRoll.portfolio.gain)) &&
+    JSON.stringify(filteredMarks) ===
+      JSON.stringify([
+        `Invested: ${moneyM(vcVehicleRoll.portfolio.invested)}`,
+        `EBITDA growth: ${signedM(vcVehicleRoll.portfolio.gainByDriver.ebitdaGrowth)}`,
+        `Multiple expansion: ${signedM(vcVehicleRoll.portfolio.gainByDriver.multipleExpansion)}`,
+        `Debt paydown: ${signedM(vcVehicleRoll.portfolio.gainByDriver.debtPaydown)}`,
+        `Mark and timing: ${signedM(vcVehicleRoll.portfolio.gainByDriver.other)}`,
+        `Value now: ${moneyM(vcVehicleRoll.portfolio.totalValue)}`,
+      ]) &&
+    (await vcRows.count()) === vcVehicleRows.length &&
+    page.url().includes(`vehicleId=${vcVehicleId}`) &&
+    (await misses()).length === missesBeforeFilter,
+  filteredMarks.join(' | '),
+);
+const [vcFilteredDownload] = await Promise.all([
+  page.waitForEvent('download'),
+  page.getByTestId('value-creation-export').click(),
+]);
+await page
+  .getByTestId('value-creation-action-status')
+  .filter({ hasText: `Exported ${vcVehicleRows.length} rows` })
+  .waitFor();
+const vcFilteredCsv = readFileSync(await vcFilteredDownload.path(), 'utf8')
+  .trimEnd()
+  .split('\n');
+check(
+  'value creation tab: the export follows the filter (the recorded file narrowed to the rows the view shows)',
+  vcFilteredCsv.length === vcVehicleRows.length + 1 &&
+    vcFilteredCsv[0] === vcCsv.split('\n')[0] &&
+    vcVehicleRows.every((p) => vcFilteredCsv.some((line) => line.endsWith(`,${p.id}`))) &&
+    vcFilteredCsv.slice(1).every((line) => vcCsv.split('\n').includes(line)) &&
+    (await misses()).length === missesBeforeFilter,
+  `${vcFilteredCsv.length - 1} lines`,
+);
+// The filter carries to the Entry metrics tab, where each cohort is pooled over the vehicle's rows.
+await page.getByRole('navigation', { name: 'Analytics' }).getByText('Entry metrics').click();
+await page.getByRole('table', { name: 'Performance by entry purchase multiple' }).waitFor();
+const filteredBars = await page
+  .getByRole('group', { name: 'Gross MOIC by entry purchase multiple' })
+  .getByRole('img')
+  .evaluateAll((marks) => marks.map((m) => m.getAttribute('aria-label')));
+check(
+  'entry metrics tab: under the filter each band is pooled again over the rows that pass (MOIC bars as rolled up), and the filter came with the tab',
+  page.url().includes(`vehicleId=${vcVehicleId}`) &&
+    JSON.stringify(filteredBars) ===
+      JSON.stringify(
+        vcVehicleRoll.cohorts.byEntryMultiple
+          .filter((c) => c.key !== 'not_calculable' && c.grossMoic !== null)
+          .map((c) => `${c.label}: ${D(c.grossMoic).toFixed(2)}x`),
+      ) &&
+    !sameJson(vcVehicleRoll.cohorts.byEntryMultiple, vcViewer.cohorts.byEntryMultiple),
+  filteredBars.join(' | '),
+);
+// A filter that leaves no position: the empty state, never zeros.
+await page.goto(`${origin}/#/analytics/value-creation?entryYear=1999`);
+await page.getByText('No position matches these filters').waitFor();
+check(
+  'value creation tab: a filter that leaves no position shows the empty state, not zeros',
+  (await page.getByTestId('value-creation-tiles').count()) === 0 &&
+    (await page.getByText('$0.0M').count()) === 0 &&
+    (await page.getByTestId('value-creation-filter-count').innerText()).includes(
+      `0 of ${vcViewer.positions.length} positions`,
+    ),
 );
 await page.goto(`${origin}/#/analytics/entry-metrics`);
 await page.getByRole('table', { name: 'Performance by entry net leverage' }).waitFor();

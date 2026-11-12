@@ -44,7 +44,7 @@ describe('deal workspace: value creation card', () => {
     expect(tile('EBITDA growth')).toHaveTextContent('+$250.0M72.5% of the change');
     expect(tile('Multiple expansion')).toHaveTextContent('+$65.0M18.8% of the change');
     expect(tile('Debt paydown')).toHaveTextContent('+$30.0M8.7% of the change');
-    expect(card()).toHaveTextContent('Entry snapshot Dec 31, 2018 to Jun 30, 2025');
+    expect(card()).toHaveTextContent('Entry snapshot Mar 31, 2021 to Jun 30, 2025');
     // The headline comes before the charts and the table.
     const groups = within(card())
       .getAllByRole('group')
@@ -80,9 +80,10 @@ describe('deal workspace: value creation card', () => {
     expect(
       within(figure).getByRole('table', { name: 'Value creation bridge, as a table' }),
     ).toHaveTextContent('Equity value now$595.0M');
-    // Our own gain on the position, split by the company's shares, in one sentence.
+    // Our own gain on the position in one sentence: the company's drivers at our entry stake,
+    // and mark and timing, the rest of the gain, named for what it is.
     expect(screen.getByTestId('deal-value-creation-ours')).toHaveTextContent(
-      'Our gain on this position is $6.9M: +$5.0M from EBITDA growth, +$1.3M from multiple expansion and +$0.6M from debt paydown, split by the company shares above.',
+      "Our gain on this position is $14.5M: at our entry stake of 4.0%, +$10.0M from EBITDA growth, +$2.6M from multiple expansion and +$1.2M from debt paydown, and +$0.7M from mark and timing (our mark against the company's value, fees, the timing of cash flows, follow-on investments and realizations).",
     );
   });
 
@@ -108,7 +109,7 @@ describe('deal workspace: value creation card', () => {
       'Entry100.0100.0100.0-',
       'Dec 2024150.0160.0200.0140.0',
       'Mar 2025-170.0220.0145.0',
-      'Jun 2025162.5178.8238.0149.0',
+      'Jun 2025162.5178.8238.0225.0',
     ]);
   });
 
@@ -120,7 +121,7 @@ describe('deal workspace: value creation card', () => {
       within(table)
         .getAllByRole('columnheader')
         .map((h) => h.textContent),
-    ).toEqual(['Metric', 'Entry, Dec 31, 2018', 'Current, Jun 30, 2025', 'Change since entry']);
+    ).toEqual(['Metric', 'Entry, Mar 31, 2021', 'Current, Jun 30, 2025', 'Change since entry']);
     expect(rowOf(table, 'EBITDA, LTM')).toHaveTextContent('EBITDA, LTM$40.0M$65.0M62.5%');
     expect(rowOf(table, 'Enterprise value')).toHaveTextContent('$400.0M$715.0M78.8%');
     expect(rowOf(table, 'Net debt')).toHaveTextContent('Net debt$150.0M$120.0M-$30.0M');
@@ -147,6 +148,10 @@ describe('deal workspace: value creation card', () => {
         name: 'Multiple expansion',
       }),
     ).toHaveTextContent('-$35.0M-36.8% of the change');
+    // Our mark trails the company's value here, and the sentence says so with a negative figure.
+    expect(screen.getByTestId('deal-value-creation-ours')).toHaveTextContent(
+      'Our gain on this position is $1.0M: at our entry stake of 6.7%, +$6.0M from EBITDA growth, -$2.3M from multiple expansion and +$2.7M from debt paydown, and -$5.3M from mark and timing',
+    );
   });
 
   it('shows the placeholder with the reason when the bridge is not calculable, never zeros', async () => {
@@ -180,8 +185,9 @@ describe('deal workspace: value creation card', () => {
     expect(
       await screen.findByText('The value creation bridge is not calculable'),
     ).toBeInTheDocument();
+    // A forward-dated entry snapshot is named as that, in the words of the Since entry card.
     expect(
-      screen.getByText('No approved entry snapshot on or before the as-of date.'),
+      screen.getByText('The entry snapshot is dated after the as-of date.'),
     ).toBeInTheDocument();
     expect(screen.queryByRole('group', { name: 'Value creation bridge' })).not.toBeInTheDocument();
     expect(screen.queryByTestId('deal-value-creation-tiles')).not.toBeInTheDocument();
@@ -194,7 +200,7 @@ describe('deal workspace: value creation card', () => {
     expect(card()).not.toHaveTextContent('$0.0M');
     expect(screen.getByRole('group', { name: 'Indexed since entry' })).toBeInTheDocument();
     expect(screen.getByTestId('deal-value-creation-ours')).toHaveTextContent(
-      'Our gain on this position is $1.0M. It is not split by driver: No approved entry snapshot on or before the as-of date.',
+      'Our gain on this position is $1.0M. It is not split by driver: The entry snapshot is dated after the as-of date.',
     );
   });
 
@@ -219,7 +225,8 @@ describe('deal workspace: value creation card', () => {
     expect(screen.queryByRole('group', { name: 'Indexed since entry' })).not.toBeInTheDocument();
   });
 
-  it('says the company equity value did not change instead of dividing by zero', async () => {
+  it('splits our gain when the company equity value did not change: mark and timing carries it', async () => {
+    // 4% of drivers that cancel (50 - 30 - 20 million) is nothing, so the whole gain is the rest.
     const flat = saltmarsh({
       bridge: {
         ...saltmarsh().bridge!,
@@ -230,8 +237,14 @@ describe('deal workspace: value creation card', () => {
         total: '0',
         shares: null,
       },
-      gainByDriver: null,
-      gainNotCalculable: 'no_equity_change',
+      gainByDriver: {
+        ebitdaGrowth: '2000000',
+        multipleExpansion: '-1200000',
+        debtPaydown: '-800000',
+        other: '14500000',
+        revenueGrowth: null,
+        marginChange: null,
+      },
     });
     mockApi({ [PATH]: ok(investmentValueCreationFixture({ position: flat })) });
     renderWithQuery(<ValueCreationCard id={VC_ID.saltmarsh} company="Saltmarsh Holdings" />);
@@ -239,11 +252,26 @@ describe('deal workspace: value creation card', () => {
     expect(within(tiles).getByRole('group', { name: 'Equity value change' })).toHaveTextContent(
       '$0.0M',
     );
+    // The company's own shares of a total of zero are still not a figure.
     expect(within(tiles).getByRole('group', { name: 'EBITDA growth' })).toHaveTextContent(
       '+$50.0MNo share: the total is zero',
     );
     expect(screen.getByTestId('deal-value-creation-ours')).toHaveTextContent(
-      'It is not split by driver: The company equity value did not change, so there are no shares to split by.',
+      'Our gain on this position is $14.5M: at our entry stake of 4.0%, +$2.0M from EBITDA growth, -$1.2M from multiple expansion and -$0.8M from debt paydown, and +$14.5M from mark and timing',
+    );
+  });
+
+  it('says why our gain is not split when the entry equity value is not positive', async () => {
+    const under = saltmarsh({
+      stake: null,
+      gainByDriver: null,
+      gainNotCalculable: 'non_positive_entry_equity',
+    });
+    mockApi({ [PATH]: ok(investmentValueCreationFixture({ position: under })) });
+    renderWithQuery(<ValueCreationCard id={VC_ID.saltmarsh} company="Saltmarsh Holdings" />);
+    await screen.findByTestId('deal-value-creation-tiles');
+    expect(screen.getByTestId('deal-value-creation-ours')).toHaveTextContent(
+      'Our gain on this position is $14.5M. It is not split by driver: The company equity value at entry is not positive, so our stake has no size.',
     );
   });
 

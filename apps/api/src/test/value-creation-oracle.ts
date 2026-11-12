@@ -3,6 +3,7 @@ import {
   ZERO,
   alignedQuarterEnd,
   bandIndexOf,
+  entryStake,
   evToEbitda,
   gainByDriver,
   indexedLevel,
@@ -54,11 +55,19 @@ export interface ExpectedPosition {
   nav: Decimal | null;
   moic: Decimal | null;
   gain: Decimal | null;
+  /** Invested capital over the company's equity value at entry. */
+  stake: Decimal | null;
   split: GainByDriver | null;
   gainReason: string | null;
+  /** The approved flows on or before the date, signed from our side, by date then amount. */
+  flows: { date: string; amount: string }[];
   entryMultiple: Decimal | null;
   entryLeverage: Decimal | null;
 }
+
+/** The day a position's company figures stop counting: the as-of date, or its exit when that came first. */
+export const cutoffOf = (investment: Investment, asOf: string): string =>
+  investment.exitDate !== null && investment.exitDate < asOf ? investment.exitDate : asOf;
 
 const approved = (q: Quarter): boolean => q.status === 'record_status.approved';
 
@@ -69,17 +78,20 @@ export function expectedPosition(
   asOf: string,
 ): ExpectedPosition {
   const quarters = dataset.quarterlyPerformance.filter((q) => q.investmentId === investment.id);
-  const snapshot = quarters.find((q) => q.isEntrySnapshot) ?? null;
-  const entry =
-    snapshot !== null && approved(snapshot) && snapshot.periodEnd <= asOf ? snapshot : null;
+  const flagged = quarters.find((q) => q.isEntrySnapshot) ?? null;
+  const snapshot = flagged !== null && approved(flagged) ? flagged : null;
+  const entry = snapshot !== null && snapshot.periodEnd <= asOf ? snapshot : null;
+  // A realized position's company figures stop at its exit.
+  const cutoff = cutoffOf(investment, asOf);
   const current =
     quarters
-      .filter((q) => !q.isEntrySnapshot && approved(q) && q.periodEnd <= asOf)
+      .filter((q) => !q.isEntrySnapshot && approved(q) && q.periodEnd <= cutoff)
       .sort((a, b) => (a.periodEnd < b.periodEnd ? 1 : -1))[0] ?? null;
 
   let reason: string | null;
   let bridge: ValueCreationBridge | null = null;
-  if (entry === null) reason = 'no_entry_snapshot';
+  if (entry === null)
+    reason = snapshot === null ? 'no_entry_snapshot' : 'entry_snapshot_forward_dated';
   else if (current === null) reason = 'no_current_quarter';
   else if (
     [entry, current].some((q) => q.ebitdaLtm === null || q.ev === null || q.netDebt === null)
@@ -122,15 +134,15 @@ export function expectedPosition(
   const entryEv = entry?.ev ?? null;
   const entryNetDebt = entry?.netDebt ?? null;
   const gain = calculable ? totalGain(distributions, nav, invested) : null;
-  const split = gainByDriver(gain, bridge);
-  const gainReason =
-    split !== null
-      ? null
-      : bridge === null
-        ? reason
-        : gain === null
-          ? 'no_gain'
-          : 'no_equity_change';
+  const ours = bridge === null ? null : gainByDriver(gain, invested, bridge);
+  const split = ours?.value ?? null;
+  const gainReason = ours === null ? reason : (ours.reason ?? null);
+  const signed = flows
+    .map((f) => ({
+      date: f.flowDate,
+      amount: INFLOWS.has(f.flowType) ? D(f.amount).abs() : D(f.amount).abs().neg(),
+    }))
+    .sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : a.amount.comparedTo(b.amount)));
   return {
     investment,
     isActive,
@@ -147,8 +159,13 @@ export function expectedPosition(
     nav,
     moic: calculable ? moic(distributions, nav, invested) : null,
     gain,
+    stake: entryStake(
+      invested,
+      entryEv === null || entryNetDebt === null ? null : D(entryEv).minus(entryNetDebt),
+    ),
     split,
     gainReason,
+    flows: signed.map((f) => ({ date: f.date, amount: toDecimalString(f.amount)! })),
     entryMultiple: entryEv === null ? null : evToEbitda(entryEv, entry?.ebitdaLtm ?? null),
     entryLeverage:
       entryNetDebt === null ? null : netDebtToEbitda(entryNetDebt, entry?.ebitdaLtm ?? null),
@@ -174,7 +191,7 @@ export interface ExpectedPoint {
   markIndex: string | null;
 }
 
-/** The indexed series of a position as of a date: the entry snapshot, then each approved quarter. */
+/** The indexed series of a position as of a date: the entry snapshot, then each approved quarter up to its exit. */
 export function expectedSeries(
   dataset: SyntheticDataset,
   investment: Investment,
@@ -182,6 +199,7 @@ export function expectedSeries(
   toleranceDays: number,
 ): ExpectedPoint[] {
   const { entry } = expectedPosition(dataset, investment, asOf);
+  const cutoff = cutoffOf(investment, asOf);
   const equity = (q: Quarter): Decimal | null =>
     q.ev === null || q.netDebt === null ? null : D(q.ev).minus(q.netDebt);
   const company = (
@@ -202,7 +220,7 @@ export function expectedSeries(
         q.investmentId === investment.id &&
         !q.isEntrySnapshot &&
         approved(q) &&
-        q.periodEnd <= asOf &&
+        q.periodEnd <= cutoff &&
         (entry === null || q.periodEnd > entry.periodEnd),
     )
     .sort((a, b) => (a.periodEnd < b.periodEnd ? -1 : 1));
@@ -286,8 +304,10 @@ export function expectedPool(
   }));
   if (nav !== null && !nav.isZero()) signed.push({ date: asOf, amount: D(nav.toFixed(2)) });
   const irr = nav === null || signed.length < 2 ? null : xirr(signed);
+  // The cohort weighs the growth as the row carries it (ten places), which is what a page that
+  // rolls a filtered set up has to weigh too.
   const weighted = positions.flatMap((p) => {
-    const growth = p.measures?.ebitdaGrowth ?? null;
+    const growth = toDecimalString(p.measures?.ebitdaGrowth ?? null);
     return p.invested === null || growth === null ? [] : [{ weight: p.invested, value: growth }];
   });
   return {

@@ -21,6 +21,7 @@ import type {
   InvestmentSummary,
   InvestmentValueCreation,
   ValueCreation,
+  ValueCreationFilters,
   Watchlist,
   WatchlistItem,
 } from '@pb/contracts';
@@ -50,12 +51,12 @@ import { fmtDate } from '../common/dates.js';
 import { fmtMoneyM } from '../common/format.js';
 import {
   VALUE_CREATION_DEAL_TYPES,
-  cohortsOf,
   computePosition,
   coversDealType,
   entryBandsOf,
+  filteredPositions,
   leftOutOf,
-  portfolioOf,
+  rollupOf,
   seriesOf,
   valueCreationCsv,
 } from './value-creation.js';
@@ -635,17 +636,13 @@ export class AnalyticsService {
         notInArray(schema.investment.dealType, [...VALUE_CREATION_DEAL_TYPES]),
       ),
     });
-    const computed = positions.map((p) =>
+    const rows = positions.map((p) =>
       computePosition({ ...p, operating: operating.get(p.row.id) ?? [] }, asOf, bands),
     );
     return {
       asOf,
-      positions: computed.map((c) => c.position),
-      portfolio: portfolioOf(computed),
-      cohorts: {
-        byEntryMultiple: cohortsOf(computed, bands.multiple, (p) => p.entryMultipleBand, asOf),
-        byEntryLeverage: cohortsOf(computed, bands.leverage, (p) => p.entryLeverageBand, asOf),
-      },
+      positions: rows,
+      ...rollupOf(rows, bands, asOf),
       leftOut: leftOutOf(others, await loadLabels(tx)),
       calcVersion: CALC_VERSION,
     };
@@ -654,10 +651,11 @@ export class AnalyticsService {
   /**
    * Value creation and entry metric analytics (docs/04 M13 and M20, docs/08 section 8) over every
    * equity and continuation vehicle position the caller can see (SEC-5.1, SEC-5.3): per position
-   * the company's EBITDA bridge from the entry snapshot to the latest approved quarter and our
-   * gain split by its drivers, the roll-up of our gain by driver, and performance pooled by entry
-   * multiple band and entry net leverage band. The band edges come from config; without usable
-   * ones the read is a 500 'configuration' problem before the database is touched.
+   * the company's EBITDA bridge from the entry snapshot to the latest approved quarter (or to its
+   * exit) and our gain set against its drivers at our entry stake, the roll-up of our gain by
+   * driver, and performance pooled by entry multiple band and entry net leverage band. The band
+   * edges come from config; without usable ones the read is a 500 'configuration' problem before
+   * the database is touched.
    */
   async valueCreation(
     principal: Principal,
@@ -672,11 +670,17 @@ export class AnalyticsService {
     });
   }
 
-  /** The same positions as the view shows the caller, as CSV text with a header line. */
+  /**
+   * The positions the view shows the caller, narrowed by the view's filters, as CSV text with a
+   * header line. The filters are the rule a page filters its own rows by, applied after row-level
+   * security, so a filter never widens what a caller sees. Every export is audited with the
+   * number of rows it carried (SEC-11.1).
+   */
   async valueCreationExport(
     principal: Principal,
     requestId: string,
     asOf: string,
+    filters: ValueCreationFilters,
   ): Promise<{ asOf: string; csv: string }> {
     const bands = entryBandsOf(this.definitions);
     return this.db.run(principal, requestId, async (tx, audit) => {
@@ -684,9 +688,9 @@ export class AnalyticsService {
       await audit({
         action: 'analytics.value_creation.export',
         entity: 'core.investment',
-        details: { asOf, rows: view.positions.length },
+        details: { asOf, rows: filteredPositions(view, filters).length },
       });
-      return { asOf, csv: valueCreationCsv(view) };
+      return { asOf, csv: valueCreationCsv(view, filters) };
     });
   }
 
@@ -722,7 +726,7 @@ export class AnalyticsService {
       const inputs = { ...found, operating };
       return {
         ...base,
-        position: computePosition(inputs, asOf, bands).position,
+        position: computePosition(inputs, asOf, bands),
         series: seriesOf(inputs, asOf, tolerance),
         calcVersion: CALC_VERSION,
       };

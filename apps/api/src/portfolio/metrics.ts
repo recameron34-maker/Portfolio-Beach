@@ -5,11 +5,9 @@ import {
   alignedQuarterEnd,
   containingQuarterEnd,
   currentYield,
-  dpi,
-  rvpi,
-  tvpi,
   ebitdaMargin,
   evToEbitda,
+  flaggedIrr,
   holdingPeriodYears,
   interestCoverage,
   latestPeriod,
@@ -19,14 +17,15 @@ import {
   moic,
   netDebtToEbitda,
   nextQuarterEnd,
+  pooledFigures,
+  pooledReturns,
   sameQuarterPriorYear,
   summarizeFlows,
   toDecimalString,
   toSignedFlows,
-  xirr,
   yoyGrowth,
 } from '@pb/calc';
-import type { CashFlow, Decimal, FlowKind, IrrReason, IrrResult, TypedCashFlow } from '@pb/calc';
+import type { CashFlow, FlowKind, IrrFlag, TypedCashFlow } from '@pb/calc';
 import type { PooledMetrics, SeriesPoint } from '@pb/contracts';
 
 export interface FlowRow {
@@ -51,7 +50,7 @@ export interface PositionMetrics {
   grossMoic: string | null;
   grossIrr: string | null;
   /** no_valuation: something still held has no Locked mark, so there is no terminal value. */
-  irrFlag: 'short_period' | 'no_valuation' | IrrReason | null;
+  irrFlag: IrrFlag;
   /** First contribution to the exit (realized) or the as-of date (held), in 365-day years (docs/08 section 2). */
   holdingPeriodYears: string | null;
   calcVersion: string;
@@ -78,28 +77,17 @@ export function latestLockedValuation(
   return best;
 }
 
-/** Why a position's or a pool's IRR is missing, or that its period is short (docs/08 section 3). */
-function irrFlagOf(irr: IrrResult | null): PositionMetrics['irrFlag'] {
-  if (irr === null) return 'insufficient_flows';
-  if (irr.value === null) return irr.reason;
-  return irr.shortPeriod ? 'short_period' : null;
-}
-
 /**
- * The gross IRR over signed flows that already end in the NAV, and its flag. While something
- * still held has no Locked mark the NAV is not calculable, and an IRR without it would be an
- * invented number (CLAUDE.md rule 10), so there is none.
+ * The gross IRR over signed flows that already end in the NAV, and its flag, by the one rule of
+ * @pb/calc (flaggedIrr): while something still held has no Locked mark the NAV is not calculable,
+ * and an IRR without it would be an invented number (CLAUDE.md rule 10), so there is none.
  */
 function grossIrrOf(
   signed: readonly CashFlow[],
   navCalculable: boolean,
 ): Pick<PositionMetrics, 'grossIrr' | 'irrFlag'> {
-  if (!navCalculable) return { grossIrr: null, irrFlag: 'no_valuation' };
-  const irr = signed.length >= 2 ? xirr(signed) : null;
-  return {
-    grossIrr: str(irr?.value ?? null),
-    irrFlag: irrFlagOf(irr),
-  };
+  const { grossIrr, irrFlag } = flaggedIrr(signed, navCalculable);
+  return { grossIrr: str(grossIrr), irrFlag };
 }
 
 /** Gross deal-level metrics from approved cash flows and the latest Locked valuation (docs/08). */
@@ -276,26 +264,14 @@ export interface PositionInput {
  *
  * A set with no position at all (the primary program, a sponsor the caller holds nothing with, a
  * reader behind every wall) has nothing to pool: every figure is null, never 0, and the IRR flag
- * says why (docs/06 section 3). Every view that pools gets that answer from here alone.
+ * says why (docs/06 section 3). This sums the typed flows and the Locked marks; the multiples,
+ * the terminal flow and the IRR are pooledReturns of @pb/calc, the rule the value creation
+ * cohorts pool by too, so every view that pools gets its answer from that one function.
  */
 export function pooledPositionMetrics(
   positions: readonly PositionInput[],
   asOf: string,
 ): PooledMetrics {
-  if (positions.length === 0) {
-    return {
-      count: 0,
-      invested: null,
-      distributions: null,
-      nav: null,
-      dpi: null,
-      rvpi: null,
-      tvpi: null,
-      grossMoic: null,
-      grossIrr: null,
-      irrFlag: 'insufficient_flows',
-    };
-  }
   const typed: TypedCashFlow[] = [];
   let navSum = ZERO;
   let unmarked = false;
@@ -311,25 +287,18 @@ export function pooledPositionMetrics(
     }
   }
   const summary = summarizeFlows(typed);
-  const invested = summary.contributions.isZero() ? null : summary.contributions;
-  // Realized positions hold nothing (0). One active position with no Locked mark leaves the
-  // pool's NAV unknown: counting it as 0 would understate NAV and invent MOIC and IRR (rule 10).
-  const nav: Decimal | null = unmarked ? null : navSum;
-  const signed = toSignedFlows(typed);
-  if (nav !== null && !nav.isZero()) signed.push({ date: asOf, amount: nav.toFixed(2) });
-  return {
-    count: positions.length,
-    invested: str(invested),
-    distributions: invested === null ? null : str(summary.distributions),
-    nav: str(nav),
-    dpi: invested === null ? null : str(dpi(summary.distributions, invested)),
-    rvpi: invested === null || nav === null ? null : str(rvpi(nav, invested)),
-    tvpi:
-      invested === null || nav === null ? null : str(tvpi(summary.distributions, nav, invested)),
-    grossMoic:
-      invested === null || nav === null ? null : str(moic(summary.distributions, nav, invested)),
-    ...grossIrrOf(signed, nav !== null),
-  };
+  return pooledFigures(
+    pooledReturns({
+      count: positions.length,
+      contributions: summary.contributions,
+      distributions: summary.distributions,
+      // Realized positions hold nothing (0). One active position with no Locked mark leaves the
+      // pool's NAV unknown: counting it as 0 would understate NAV and invent MOIC and IRR (rule 10).
+      nav: unmarked ? null : navSum,
+      flows: toSignedFlows(typed),
+      asOf,
+    }),
+  );
 }
 
 export interface NavSeriesOptions {

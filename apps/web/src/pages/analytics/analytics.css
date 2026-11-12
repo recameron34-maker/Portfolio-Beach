@@ -6,6 +6,18 @@
   margin: 10px 0 0;
 }
 
+/* The filter row of the value creation tabs: six dropdowns that fit one line on a laptop and
+   stack on a phone (the toolbar's own fields go full width there). */
+.pb-toolbar .pb-analytics-filter {
+  min-width: 0;
+  width: 172px;
+}
+@media (max-width: 720px) {
+  .pb-toolbar .pb-analytics-filter {
+    width: 100%;
+  }
+}
+
 /* A quiet count with its detail on demand (the positions a view leaves out, and why). */
 .pb-analytics-details {
   margin-top: 10px;

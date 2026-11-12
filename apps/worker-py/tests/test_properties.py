@@ -1,12 +1,12 @@
 from datetime import date, timedelta
 from decimal import Decimal
 from fractions import Fraction
-from typing import cast
+from typing import Any, cast
 
 from hypothesis import assume, given, settings
 from hypothesis import strategies as st
 
-from calc_check import attribution, bridge, credit, multiples
+from calc_check import attribution, bridge, credit, multiples, rollup
 from calc_check.irr import Flow, npv, xirr
 
 
@@ -145,30 +145,74 @@ def test_ebitda_step_is_the_revenue_step_plus_the_margin_step(
     assert whole(revenue, margin) == Fraction(cast(Decimal, b["ebitdaGrowth"]))
 
 
+def split_of(
+    b: dict[str, Decimal | dict[str, Decimal] | None], gain: Decimal, invested: Decimal
+) -> dict[str, Decimal | None] | str:
+    return bridge.gain_by_driver(
+        gain,
+        invested,
+        cast(Decimal, b["equityAtEntry"]),
+        cast(Decimal, b["ebitdaGrowth"]),
+        cast(Decimal, b["multipleExpansion"]),
+        cast(Decimal, b["debtPaydown"]),
+        cast(Decimal | None, b["revenueGrowth"]),
+    )
+
+
 @settings(max_examples=150, deadline=None)
-@given(company(), company(), cents(-2_000_000_000, 2_000_000_000))
-def test_gain_split_sums_exactly_to_the_gain(
-    entry: dict[str, Decimal | None], current: dict[str, Decimal | None], gain: Decimal
+@given(company(), company(), cents(1, 2_000_000_000), cents(-2_000_000_000, 2_000_000_000))
+def test_gain_parts_with_the_remainder_sum_exactly_to_the_gain(
+    entry: dict[str, Decimal | None],
+    current: dict[str, Decimal | None],
+    invested: Decimal,
+    gain: Decimal,
 ) -> None:
     b = bridge.bridge(entry, current)
     assert b is not None
-    split = bridge.gain_by_driver(
-        gain,
-        cast(Decimal, b["ebitdaGrowth"]),
-        cast(Decimal, b["multipleExpansion"]),
-        cast(Decimal, b["total"]),
-        cast(Decimal | None, b["revenueGrowth"]),
-    )
-    if b["total"] == 0:
-        assert split is None
+    equity = cast(Decimal, b["equityAtEntry"])
+    split = split_of(b, gain, invested)
+    if equity <= 0:
+        assert split == "non_positive_entry_equity"
         return
-    assert split is not None
+    assert not isinstance(split, str)
     parts = [cast(Decimal, split[k]) for k in DRIVERS]
-    # Exact while every part stays below ten trillion (docs/08 section 8).
-    assume(all(abs(part) < Decimal("1e13") for part in parts))
-    assert whole(*parts) == Fraction(gain)
+    other = cast(Decimal, split["other"])
+    # Any stake, any gain, any company total (zero included).
+    assert whole(*parts, other) == Fraction(gain)
+    stake = Fraction(invested) / Fraction(equity)
+    for key, part in zip(DRIVERS, parts, strict=True):
+        exact = stake * Fraction(cast(Decimal, b[key]))
+        assert abs(Fraction(part) - exact) <= Fraction(1, 2 * 10**10)
     revenue, margin = cast(Decimal, split["revenueGrowth"]), cast(Decimal, split["marginChange"])
     assert whole(revenue, margin) == Fraction(parts[0])
+
+
+@settings(max_examples=150, deadline=None)
+@given(
+    company(),
+    company(),
+    cents(1, 20_000_000),
+    cents(-2_000_000_000, 2_000_000_000),
+    st.integers(2, 100),
+)
+def test_driver_parts_scale_linearly_with_the_stake(
+    entry: dict[str, Decimal | None],
+    current: dict[str, Decimal | None],
+    invested: Decimal,
+    gain: Decimal,
+    k: int,
+) -> None:
+    b = bridge.bridge(entry, current)
+    assert b is not None
+    assume(cast(Decimal, b["equityAtEntry"]) > 0)
+    one = split_of(b, gain, invested)
+    many = split_of(b, gain, invested * k)
+    assert not isinstance(one, str) and not isinstance(many, str)
+    # One rounding at the tenth place on each side: k halves and one more.
+    tol = Fraction(k + 1, 2 * 10**10)
+    for key in DRIVERS:
+        scaled = Fraction(cast(Decimal, one[key])) * k
+        assert abs(Fraction(cast(Decimal, many[key])) - scaled) <= tol
 
 
 @given(
@@ -190,3 +234,66 @@ def test_bands_hold_every_value_exactly_once(tenths: list[int], hundredths: int)
     assert len(labels) == len(edges) + 1 and len(set(labels)) == len(labels)
     for i, edge in enumerate(edges):
         assert bridge.band_index(edge, edges) == i + 1
+
+
+@st.composite
+def rollup_row(draw: st.DrawFn) -> dict[str, Any]:
+    """A position row as it travels: our figures, the parts of its gain and its signed flows."""
+    invested = draw(cents(1, 60_000_000))
+    received = draw(st.one_of(st.none(), cents(1, 80_000_000)))
+    nav = draw(st.one_of(st.none(), cents(0, 90_000_000)))
+    distributions = received or Decimal(0)
+    gain = None if nav is None else distributions + nav - invested
+    parts = [draw(cents(-40_000_000, 40_000_000)) for _ in range(3)]
+    split = None
+    if gain is not None and draw(st.booleans()):
+        split = {
+            "ebitdaGrowth": str(parts[0]),
+            "multipleExpansion": str(parts[1]),
+            "debtPaydown": str(parts[2]),
+            "other": str(gain - parts[0] - parts[1] - parts[2]),
+            "revenueGrowth": None,
+            "marginChange": None,
+        }
+    flows = [{"date": "2020-03-31", "amount": str(-invested)}]
+    if received is not None:
+        flows.append({"date": "2023-09-30", "amount": str(received)})
+    reason = "no_gain" if gain is None else "missing_figures"
+    return {
+        "isActive": True,
+        "invested": str(invested),
+        "nav": None if nav is None else str(nav),
+        "distributions": str(distributions),
+        "gain": None if gain is None else str(gain),
+        "gainByDriver": split,
+        "gainNotCalculable": None if split is not None else reason,
+        "growth": {"ebitdaGrowth": None},
+        "flows": flows,
+        "entryMultipleBand": "band_0",
+        "entryLeverageBand": "band_0",
+    }
+
+
+@settings(max_examples=100, deadline=None)
+@given(st.lists(rollup_row(), max_size=8), st.lists(st.booleans(), min_size=8, max_size=8))
+def test_rollup_parts_are_the_gain_and_add_over_any_split_of_the_rows(
+    rows: list[dict[str, Any]], side: list[bool]
+) -> None:
+    def total(p: dict[str, Any], key: str) -> Fraction:
+        return Fraction(0) if p[key] is None else Fraction(p[key])
+
+    def part(p: dict[str, Any], key: str) -> Fraction:
+        return Fraction(0) if p["gainByDriver"] is None else Fraction(p["gainByDriver"][key])
+
+    everything = rollup.portfolio(rows)
+    parts = sum((part(everything, k) for k in rollup.PARTS), Fraction(0))
+    assert parts == total(everything, "gain")
+    assert total(everything, "invested") + parts == total(everything, "totalValue")
+    counted = sum(r["count"] for r in everything["notCalculable"])
+    assert everything["positions"] + counted == len(rows)
+    one = rollup.portfolio([r for r, s in zip(rows, side, strict=False) if s])
+    other = rollup.portfolio([r for r, s in zip(rows, side, strict=False) if not s])
+    for key in ("invested", "nav", "distributions", "totalValue", "gain"):
+        assert total(everything, key) == total(one, key) + total(other, key)
+    for key in rollup.PARTS:
+        assert part(everything, key) == part(one, key) + part(other, key)

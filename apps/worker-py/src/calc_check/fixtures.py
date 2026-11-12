@@ -5,13 +5,24 @@ from __future__ import annotations
 import json
 from collections.abc import Callable
 from decimal import Decimal
+from fractions import Fraction
 from functools import partial
 from pathlib import Path
 from typing import Any, cast
 
 from calc_check import attribution as attr
 from calc_check import bridge as vc
-from calc_check import credit, liquidity, multiples, operating, periods, pme, rollforward, units
+from calc_check import (
+    credit,
+    liquidity,
+    multiples,
+    operating,
+    periods,
+    pme,
+    rollforward,
+    rollup,
+    units,
+)
 from calc_check.irr import Flow, xirr
 from calc_check.periods import PeriodRow
 
@@ -218,23 +229,44 @@ def _gain(inp: dict[str, Any], exp: dict[str, Any], tol: str) -> None:
         points = inp["bridges"][c["bridge"]]
         b = vc.bridge(_point(points["entry"]), _point(points["current"]))
         assert b is not None
-        gain = vc.total_gain(Decimal(c["distributions"]), Decimal(c["nav"]), Decimal(c["invested"]))
+        invested = Decimal(c["invested"])
+        gain = vc.total_gain(Decimal(c["distributions"]), Decimal(c["nav"]), invested)
         close(gain, e["gain"], tol, "gain")
+        equity = cast(Decimal, b["equityAtEntry"])
         split = vc.gain_by_driver(
             gain,
+            invested,
+            equity,
             cast(Decimal, b["ebitdaGrowth"]),
             cast(Decimal, b["multipleExpansion"]),
-            cast(Decimal, b["total"]),
+            cast(Decimal, b["debtPaydown"]),
             cast(Decimal | None, b["revenueGrowth"]),
         )
         if "split" in e:
-            assert split is None
+            assert split == e["reason"], (split, e["reason"])
             continue
-        assert split is not None and gain is not None
-        for key in (*DRIVER_KEYS, "revenueGrowth", "marginChange"):
+        assert not isinstance(split, str) and gain is not None
+        for key in ("stake", *DRIVER_KEYS, "other", "revenueGrowth", "marginChange"):
             close(split[key], e[key], tol, key)
-        parts = [cast(Decimal, split[key]) for key in DRIVER_KEYS]
-        assert parts[0] + parts[1] + parts[2] == gain, "the parts are not the gain"
+        close(vc.entry_stake(invested, equity), e["stake"], tol, "entry stake")
+        parts = [Fraction(cast(Decimal, split[key])) for key in (*DRIVER_KEYS, "other")]
+        assert sum(parts, Fraction(0)) == Fraction(gain), "the parts are not the gain"
+
+
+def _rollup(inp: dict[str, Any], exp: dict[str, Any], tol: str) -> None:
+    bands = {
+        name: rollup.cohort_bands(edges, vc.band_labels(edges))
+        for name, edges in (
+            ("byEntryMultiple", [Decimal(e) for e in inp["edges"]["multiple"]]),
+            ("byEntryLeverage", [Decimal(e) for e in inp["edges"]["leverage"]]),
+        )
+    }
+    for ids, want in zip(inp["cases"], exp["results"], strict=True):
+        rows = [p for p in inp["positions"] if p["id"] in ids]
+        assert len(rows) == len(ids)
+        found = rollup.differences(rollup.rollup(rows, bands, inp["asOf"]), want, Decimal(tol))
+        if found:
+            raise MismatchError("; ".join(found))
 
 
 def _refused(run: Callable[[], object], code: str, what: str) -> None:
@@ -380,6 +412,7 @@ HANDLERS: dict[str, Callable[[dict[str, Any], dict[str, Any], str], None]] = {
     "value_creation_bridge": _bridge,
     "since_entry_measures": _since_entry,
     "gain_by_driver": _gain,
+    "value_creation_rollup": _rollup,
     "entry_bands": _bands,
     "credit_yield": _credit_yield,
     "pik_roll": _pik,

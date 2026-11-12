@@ -1,14 +1,16 @@
 import { queryOptions } from '@tanstack/react-query';
 import { investmentValueCreation, problemDetails, valueCreation } from '@pb/contracts';
-import type { ProblemDetails } from '@pb/contracts';
+import type { ProblemDetails, ValueCreationFilters } from '@pb/contracts';
 import { api, ApiError } from '../../api/client.js';
 import { getCredential } from '../../app/session.js';
 import { retryUnlessUnavailable } from '../../lib/unavailable.js';
+import { filterQueryString } from './value-creation-filters.js';
 
 /*
  * The value creation reads (docs/04 M13 and M20). Each sends a fixed path with no parameters, so
- * scripts/preview-plan.mjs records exactly these keys; the tabs sort and open detail in the page
- * over the one answer, as the other analytics tabs do.
+ * scripts/preview-plan.mjs records exactly these keys; the tabs filter, roll up, sort and open
+ * detail in the page over the one answer. Only the export carries the filters, so the file holds
+ * the rows the view shows.
  */
 
 export const VALUE_CREATION_PATH = '/api/v1/analytics/value-creation';
@@ -43,16 +45,22 @@ export function investmentValueCreationQuery(id: string) {
 }
 
 /**
- * GET /api/v1/analytics/value-creation/export: the same positions as text/csv. The body is not
- * JSON, so it bypasses the typed client and parses nothing; the credential travels in the header
- * as on every other call (SEC-4.5), which is why the page fetches the text and offers it as a
- * download instead of linking the URL. A failure is the API's problem, as an ApiError.
+ * GET /api/v1/analytics/value-creation/export: the positions of the view as text/csv, narrowed by
+ * the filters the view is under (the API applies them by the rule the page filters its rows
+ * with, and audits the export). The body is not JSON, so it bypasses the typed client and parses
+ * nothing; the credential travels in the header as on every other call (SEC-4.5), which is why
+ * the page fetches the text and offers it as a download instead of linking the URL. A failure is
+ * the API's problem, as an ApiError.
  */
-export async function fetchValueCreationExport(): Promise<string> {
+export async function fetchValueCreationExport(
+  filters: ValueCreationFilters = {},
+): Promise<string> {
   const headers = new Headers({ accept: 'text/csv' });
   const credential = getCredential();
   if (credential !== null) headers.set('authorization', `Bearer ${credential}`);
-  const res = await fetch(VALUE_CREATION_EXPORT_PATH, { headers });
+  const res = await fetch(`${VALUE_CREATION_EXPORT_PATH}${filterQueryString(filters)}`, {
+    headers,
+  });
   if (!res.ok) {
     let problem: ProblemDetails;
     try {

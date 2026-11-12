@@ -73,14 +73,17 @@ function BridgeTiles({ bridge }: { bridge: ValueCreationBridge }): ReactNode {
   );
 }
 
-/** Our own gain on the position and how the company's shares split it, in one sentence. */
+/**
+ * Our own gain on the position in one sentence: our share of each company driver at our entry
+ * stake, and mark and timing, the rest of the gain.
+ */
 function OursLine({ p }: { p: ValueCreationPosition }): ReactNode {
   const g = p.gainByDriver;
   const reason = p.gainNotCalculable === null ? null : REASON_TEXT[p.gainNotCalculable];
   return (
     <p className="pb-meta pb-deal-note" data-testid="deal-value-creation-ours">
       {g !== null
-        ? `Our gain on this position is ${formatMoneyM(p.gain)}: ${formatSignedMoneyM(g.ebitdaGrowth)} from EBITDA growth, ${formatSignedMoneyM(g.multipleExpansion)} from multiple expansion and ${formatSignedMoneyM(g.debtPaydown)} from debt paydown, split by the company shares above.`
+        ? `Our gain on this position is ${formatMoneyM(p.gain)}: at our entry stake of ${formatPct(p.stake)}, ${formatSignedMoneyM(g.ebitdaGrowth)} from EBITDA growth, ${formatSignedMoneyM(g.multipleExpansion)} from multiple expansion and ${formatSignedMoneyM(g.debtPaydown)} from debt paydown, and ${formatSignedMoneyM(g.other)} from mark and timing (our mark against the company's value, fees, the timing of cash flows, follow-on investments and realizations).`
         : p.gain === null
           ? `Our gain on this position is not calculable${reason === null ? '.' : `: ${reason}.`}`
           : `Our gain on this position is ${formatMoneyM(p.gain)}. It is not split by driver${reason === null ? '.' : `: ${reason}.`}`}
@@ -237,8 +240,8 @@ function EntryCurrentTable({ p }: { p: ValueCreationPosition }): ReactNode {
 
 /**
  * Value creation of one position (docs/04 M13 and M20, docs/08 section 8): the company's bridge
- * from the entry snapshot to the latest approved quarter, the indexed lines by quarter and entry
- * against current metrics. Equity and continuation vehicle positions only: for any other deal
+ * from the entry snapshot to the latest approved quarter (or to the exit of a realized position),
+ * the indexed lines by quarter and entry against current metrics. Equity and continuation vehicle positions only: for any other deal
  * type the API answers no row and the card shows nothing. A figure that is not calculable is the
  * missing placeholder with its reason, never a zero.
  */

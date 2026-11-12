@@ -1,12 +1,21 @@
 import { describe, expect, it } from 'vitest';
+import {
+  NOT_CALCULABLE_BAND as CALC_NOT_CALCULABLE_BAND,
+  VALUE_CREATION_REASONS,
+  valueCreationRollup,
+} from '@pb/calc';
 import { buildOpenApi } from './openapi.js';
 import { ROUTES } from './routes.js';
 import {
+  NOT_CALCULABLE_BAND,
   asOfQuery,
   csvText,
   entryCohort,
   investmentValueCreation,
+  matchesValueCreationFilters,
   valueCreation,
+  valueCreationExportQuery,
+  valueCreationFilters,
   valueCreationPosition,
   valueCreationReason,
 } from './schemas.js';
@@ -21,7 +30,7 @@ const INV = '30000000-0000-4000-8000-000000000001';
 const VEHICLE = '30000000-0000-4000-8000-0000000000b1';
 const SPONSOR = '30000000-0000-4000-8000-0000000000c1';
 
-/** The worked example of docs/08 section 8 as one position row. */
+/** The worked example of docs/08 section 8 as one position row: a 4% entry stake in the company. */
 const position = {
   id: INV,
   investmentNumber: 'INV-0001',
@@ -33,25 +42,27 @@ const position = {
   sector: 'sector.software',
   dealType: 'deal_type.co_invest_equity',
   entryDate: '2019-02-15',
+  entryYear: 2019,
   exitDate: null,
   isActive: true,
+  status: 'active',
   entry: {
     periodEnd: '2018-12-31',
-    revenueLtm: '200',
-    ebitdaLtm: '40',
-    ev: '400',
-    netDebt: '150',
-    equityValue: '250',
+    revenueLtm: '200000000',
+    ebitdaLtm: '40000000',
+    ev: '400000000',
+    netDebt: '150000000',
+    equityValue: '250000000',
     evToEbitda: '10',
     netDebtToEbitda: '3.75',
   },
   current: {
     periodEnd: '2025-06-30',
-    revenueLtm: '260',
-    ebitdaLtm: '65',
-    ev: '715',
-    netDebt: '120',
-    equityValue: '595',
+    revenueLtm: '260000000',
+    ebitdaLtm: '65000000',
+    ev: '715000000',
+    netDebt: '120000000',
+    equityValue: '595000000',
     evToEbitda: '11',
     netDebtToEbitda: '1.8461538462',
   },
@@ -61,41 +72,47 @@ const position = {
     equityValueGrowth: '1.38',
     multipleChange: '1',
     netLeverageChange: '-1.9038461538',
-    netDebtChange: '-30',
+    netDebtChange: '-30000000',
   },
   bridge: {
-    equityAtEntry: '250',
-    equityCurrent: '595',
-    ebitdaGrowth: '250',
-    multipleExpansion: '65',
-    debtPaydown: '30',
-    total: '345',
+    equityAtEntry: '250000000',
+    equityCurrent: '595000000',
+    ebitdaGrowth: '250000000',
+    multipleExpansion: '65000000',
+    debtPaydown: '30000000',
+    total: '345000000',
     shares: {
       ebitdaGrowth: '0.7246376812',
       multipleExpansion: '0.1884057971',
       debtPaydown: '0.0869565217',
     },
-    revenueGrowth: '120',
-    marginChange: '130',
+    revenueGrowth: '120000000',
+    marginChange: '130000000',
   },
   notCalculable: null,
   invested: '10000000',
-  nav: '14900000',
+  nav: '22500000',
   distributions: '2000000',
-  grossMoic: '1.69',
-  grossIrr: '0.0912',
+  grossMoic: '2.45',
+  grossIrr: '0.1512',
   irrFlag: null,
-  valuationGrowth: '0.69',
-  valuationGrowthGap: '0.065',
-  gain: '6900000',
+  valuationGrowth: '1.45',
+  valuationGrowthGap: '0.825',
+  stake: '0.04',
+  gain: '14500000',
   gainByDriver: {
-    ebitdaGrowth: '5000000',
-    multipleExpansion: '1300000',
-    debtPaydown: '600000',
-    revenueGrowth: '2400000',
-    marginChange: '2600000',
+    ebitdaGrowth: '10000000',
+    multipleExpansion: '2600000',
+    debtPaydown: '1200000',
+    other: '700000',
+    revenueGrowth: '4800000',
+    marginChange: '5200000',
   },
   gainNotCalculable: null,
+  flows: [
+    { date: '2019-02-15', amount: '-10000000' },
+    { date: '2023-05-31', amount: '2000000' },
+  ],
   entryMultipleBand: 'band_1',
   entryLeverageBand: 'band_0',
 };
@@ -117,6 +134,7 @@ const withoutBridge = {
   bridge: null,
   notCalculable: 'no_entry_snapshot',
   valuationGrowthGap: null,
+  stake: null,
   gainByDriver: null,
   gainNotCalculable: 'no_entry_snapshot',
   entryMultipleBand: 'not_calculable',
@@ -131,12 +149,12 @@ const cohort = {
   count: 1,
   invested: '10000000',
   distributions: '2000000',
-  nav: '14900000',
+  nav: '22500000',
   dpi: '0.2',
-  rvpi: '1.49',
-  tvpi: '1.69',
-  grossMoic: '1.69',
-  grossIrr: '0.0912',
+  rvpi: '2.25',
+  tvpi: '2.45',
+  grossMoic: '2.45',
+  grossIrr: '0.1512',
   irrFlag: null,
   ebitdaGrowth: '0.625',
   ebitdaGrowthPositions: 1,
@@ -167,10 +185,10 @@ const response = {
   portfolio: {
     positions: 1,
     invested: '10000000',
-    nav: '14900000',
+    nav: '22500000',
     distributions: '2000000',
-    totalValue: '16900000',
-    gain: '6900000',
+    totalValue: '24500000',
+    gain: '14500000',
     gainByDriver: position.gainByDriver,
     notCalculable: [{ reason: 'no_entry_snapshot', count: 1 }],
   },
@@ -208,7 +226,9 @@ describe('value creation contracts', () => {
   it('reads the portfolio answer: positions, the roll-up, the cohorts and what was left out', () => {
     const parsed = valueCreation.parse(response);
     expect(parsed.positions.map((p) => p.notCalculable)).toEqual([null, 'no_entry_snapshot']);
-    expect(parsed.portfolio.gainByDriver?.debtPaydown).toBe('600000');
+    expect(parsed.portfolio.gainByDriver?.debtPaydown).toBe('1200000');
+    expect(parsed.portfolio.gainByDriver?.other).toBe('700000');
+    expect(parsed.positions[0]?.stake).toBe('0.04');
     expect(parsed.cohorts.byEntryMultiple.map((c) => c.key)).toEqual(['band_1', 'not_calculable']);
     expect(parsed.leftOut[0]?.count).toBe(2);
   });
@@ -219,6 +239,9 @@ describe('value creation contracts', () => {
       { ...position, bridge: { ...position.bridge, total: 345 } },
       { ...position, growth: { ...position.growth, ebitdaGrowth: 0.625 } },
       { ...position, gainByDriver: { ...position.gainByDriver, ebitdaGrowth: 5e6 } },
+      { ...position, gainByDriver: { ...position.gainByDriver, other: 700000 } },
+      { ...position, stake: 0.04 },
+      { ...position, flows: [{ date: '2019-02-15', amount: -10000000 }] },
       { ...position, entry: { ...position.entry, evToEbitda: 10 } },
       { ...position, valuationGrowth: '6.9e-1' },
     ]) {
@@ -236,15 +259,45 @@ describe('value creation contracts', () => {
     }
     const { shares: _shares, ...noShares } = position.bridge;
     expect(valueCreationPosition.safeParse({ ...position, bridge: noShares }).success).toBe(false);
-    // A company whose equity value did not move has a bridge with no shares.
+    // A company whose equity value did not move has a bridge with no shares; our gain is still
+    // set against it, so the remainder is never left out.
     expect(
       valueCreationPosition.safeParse({
         ...position,
         bridge: { ...position.bridge, shares: null },
-        gainByDriver: null,
-        gainNotCalculable: 'no_equity_change',
       }).success,
     ).toBe(true);
+    const { other: _other, ...threeParts } = position.gainByDriver;
+    expect(valueCreationPosition.safeParse({ ...position, gainByDriver: threeParts }).success).toBe(
+      false,
+    );
+  });
+
+  it('carries what a filter and the roll-up read: entry year, status and the signed dated flows', () => {
+    const parsed = valueCreationPosition.parse(position);
+    expect(parsed.entryYear).toBe(2019);
+    expect(parsed.status).toBe('active');
+    expect(parsed.flows).toEqual(position.flows);
+    for (const broken of [
+      { ...position, entryYear: '2019' },
+      { ...position, status: 'held' },
+      { ...position, flows: [{ date: '2019-02-15' }] },
+      { ...position, flows: [{ date: 'Feb 2019', amount: '-1' }] },
+      { ...position, flows: [{ date: '2019-02-15', amount: '-1', flowType: 'fee' }] },
+    ])
+      expect(valueCreationPosition.safeParse(broken).success).toBe(false);
+    expect(valueCreationPosition.safeParse({ ...position, flows: [] }).success).toBe(true);
+  });
+
+  it('has the shape the roll-up of the calculation library reads and answers', () => {
+    const parsed = valueCreation.parse(response);
+    // The contract's rows go into the library as they are, and what comes back is the contract's.
+    const rolled = valueCreationRollup(parsed.positions, parsed.cohorts, parsed.asOf);
+    const again = valueCreation.parse({ ...response, ...rolled });
+    expect(again.portfolio).toEqual(rolled.portfolio);
+    expect(again.cohorts).toEqual(rolled.cohorts);
+    expect(rolled.portfolio.gain).toBe('14500000');
+    expect(rolled.portfolio.notCalculable).toEqual([{ reason: 'no_entry_snapshot', count: 1 }]);
   });
 
   it('accepts nothing beyond the fields it names (strict)', () => {
@@ -253,6 +306,12 @@ describe('value creation contracts', () => {
     expect(
       valueCreationPosition.safeParse({ ...position, bridge: { ...position.bridge, other: '1' } })
         .success,
+    ).toBe(false);
+    expect(
+      valueCreationPosition.safeParse({
+        ...position,
+        gainByDriver: { ...position.gainByDriver, stake: '0.04' },
+      }).success,
     ).toBe(false);
     expect(entryCohort.safeParse({ ...cohort, positions: [] }).success).toBe(false);
     expect(
@@ -268,19 +327,46 @@ describe('value creation contracts', () => {
   it('names the reasons a bridge or a gain split is not calculable', () => {
     expect(valueCreationReason.options).toEqual([
       'no_entry_snapshot',
+      'entry_snapshot_forward_dated',
       'no_current_quarter',
       'missing_figures',
       'non_positive_ebitda',
-      'no_equity_change',
+      'non_positive_entry_equity',
       'no_gain',
     ]);
+    // The one list the calculation library orders its roll-up by.
+    expect(valueCreationReason.options).toEqual([...VALUE_CREATION_REASONS]);
+    expect(NOT_CALCULABLE_BAND).toBe(CALC_NOT_CALCULABLE_BAND);
     expect(
       valueCreationPosition.safeParse({ ...withoutBridge, notCalculable: 'other' }).success,
     ).toBe(false);
-    // The bridge itself is only ever missing for the first four.
+    // A forward-dated entry snapshot has its own reason, on the bridge and on the gain.
     expect(
-      valueCreationPosition.safeParse({ ...withoutBridge, notCalculable: 'no_gain' }).success,
+      valueCreationPosition.safeParse({
+        ...withoutBridge,
+        notCalculable: 'entry_snapshot_forward_dated',
+        gainNotCalculable: 'entry_snapshot_forward_dated',
+      }).success,
+    ).toBe(true);
+    // The bridge itself is only ever missing for the first five.
+    for (const reason of ['no_gain', 'non_positive_entry_equity'])
+      expect(
+        valueCreationPosition.safeParse({ ...withoutBridge, notCalculable: reason }).success,
+        reason,
+      ).toBe(false);
+    // A company equity value that did not change is no longer a reason.
+    expect(
+      valueCreationPosition.safeParse({ ...position, gainNotCalculable: 'no_equity_change' })
+        .success,
     ).toBe(false);
+    expect(
+      valueCreationPosition.safeParse({
+        ...position,
+        stake: null,
+        gainByDriver: null,
+        gainNotCalculable: 'non_positive_entry_equity',
+      }).success,
+    ).toBe(true);
   });
 
   it('reads one position with its indexed series, or says the deal type has no such view', () => {
@@ -300,6 +386,69 @@ describe('value creation contracts', () => {
   });
 });
 
+describe('value creation filters', () => {
+  const active = valueCreationPosition.parse(position);
+  const realized = valueCreationPosition.parse({
+    ...position,
+    vehicleId: '30000000-0000-4000-8000-0000000000b2',
+    sponsorId: '30000000-0000-4000-8000-0000000000c2',
+    sector: null,
+    dealType: 'deal_type.cv_single_asset',
+    entryYear: 2021,
+    status: 'realized',
+  });
+
+  it('matches a position on every filter that is set, and on none when none is', () => {
+    expect(matchesValueCreationFilters(active, {})).toBe(true);
+    expect(matchesValueCreationFilters(realized, {})).toBe(true);
+    for (const [filters, first, second] of [
+      [{ vehicleId: VEHICLE }, true, false],
+      [{ sponsorId: SPONSOR }, true, false],
+      [{ sector: 'sector.software' }, true, false],
+      [{ dealType: 'deal_type.cv_single_asset' }, false, true],
+      [{ entryYear: '2021' }, false, true],
+      [{ status: 'realized' }, false, true],
+      [{ status: 'active', entryYear: '2019', vehicleId: VEHICLE }, true, false],
+      // Every filter must hold: the right year in the wrong vehicle is no match.
+      [{ entryYear: '2021', vehicleId: VEHICLE }, false, false],
+    ] as const) {
+      expect(matchesValueCreationFilters(active, filters), JSON.stringify(filters)).toBe(first);
+      expect(matchesValueCreationFilters(realized, filters), JSON.stringify(filters)).toBe(second);
+    }
+  });
+
+  it('reads the filters as the export query does, and refuses what it does not name', () => {
+    expect(valueCreationFilters.parse({})).toEqual({});
+    const all = {
+      vehicleId: VEHICLE,
+      sponsorId: SPONSOR,
+      sector: 'sector.software',
+      dealType: 'deal_type.co_invest_equity',
+      entryYear: '2019',
+      status: 'active',
+    };
+    expect(valueCreationFilters.parse(all)).toEqual(all);
+    expect(valueCreationExportQuery.parse({ ...all, asOf: '2025-06-30' })).toEqual({
+      ...all,
+      asOf: '2025-06-30',
+    });
+    for (const broken of [
+      { vehicleId: 'not-a-uuid' },
+      { sponsorId: '' },
+      { sector: '' },
+      { entryYear: '19' },
+      { entryYear: 2019 },
+      { status: 'held' },
+      { company: 'Saltmarsh' },
+    ]) {
+      expect(valueCreationFilters.safeParse(broken).success, JSON.stringify(broken)).toBe(false);
+      expect(valueCreationExportQuery.safeParse(broken).success, JSON.stringify(broken)).toBe(
+        false,
+      );
+    }
+  });
+});
+
 describe('value creation routes', () => {
   const doc = buildOpenApi('0.1.0');
   const operation = (path: string): Record<string, unknown> => {
@@ -313,18 +462,23 @@ describe('value creation routes', () => {
     '/api/v1/investments/{id}/value-creation',
   ];
 
-  it('lists the three routes for any signed-in user, with the as-of date as the only query', () => {
+  it('lists the three routes for any signed-in user; the views take the as-of date, the export the filters too', () => {
     for (const path of PATHS) {
       const route = ROUTES.find((r) => r.method === 'GET' && r.path === path);
       expect(route, path).toBeDefined();
       expect(route?.auth).toBe(true);
       // Row-level security decides what comes back, as for /analytics/summary.
       expect(route?.roles).toEqual([]);
-      expect(route?.query).toBe(asOfQuery);
+      const exported = path === PATHS[1];
+      expect(route?.query).toBe(exported ? valueCreationExportQuery : asOfQuery);
       expect(operation(path)['x-roles']).toBeUndefined();
       expect(operation(path).security).toEqual([{ bearer: [] }]);
       const parameters = operation(path).parameters as { name: string; in: string }[];
-      expect(parameters.filter((p) => p.in === 'query').map((p) => p.name)).toEqual(['asOf']);
+      expect(parameters.filter((p) => p.in === 'query').map((p) => p.name)).toEqual(
+        exported
+          ? ['asOf', 'vehicleId', 'sponsorId', 'sector', 'dealType', 'entryYear', 'status']
+          : ['asOf'],
+      );
     }
     const summary = ROUTES.find((r) => r.path === '/api/v1/analytics/summary');
     expect(ROUTES.find((r) => r.path === PATHS[0])?.query).toBe(summary?.query);

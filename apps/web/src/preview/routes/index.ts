@@ -59,6 +59,7 @@ import {
 } from './intake.js';
 import { lookthroughReconcileRoute, lookthroughRunRoute } from './lookthrough.js';
 import { boardExportRoute, boardRoute, outlookRoute, setOutlookRoute } from './monitoring.js';
+import { valueCreationExportRoute } from './valueCreation.js';
 import { opsDropDropsRoute, opsDropImportRoute } from './opsDrop.js';
 import {
   createDiligenceTaskRoute,
@@ -172,6 +173,7 @@ export const SIM_ROUTES: readonly SimRoute[] = [
   boardExportRoute,
   outlookRoute,
   setOutlookRoute,
+  valueCreationExportRoute,
   resetRoute,
 ];
 

@@ -1,15 +1,13 @@
-import type {
-  EntryCohort,
-  InvestmentValueCreation,
-  ValueCreation,
-  ValueCreationPosition,
-} from '@pb/contracts';
+import { entryCohortBands, valueCreationRollup } from '@pb/calc';
+import type { InvestmentValueCreation, ValueCreation, ValueCreationPosition } from '@pb/contracts';
 
 /*
  * Contract-shaped synthetic fixtures for the value creation tabs and the deal card (docs/12
- * section 4: synthetic data only). Four positions: the worked example of docs/08 section 8 (in
- * millions), a company whose multiple contracted and whose mark trails its earnings, one with no
- * entry snapshot and a realized one whose EBITDA turned negative.
+ * section 4: synthetic data only). Four positions in two vehicles: the worked example of docs/08
+ * section 8 (a 4% entry stake), a company whose multiple contracted and whose mark trails its
+ * earnings, one whose entry snapshot is dated after the as-of date and a realized one whose
+ * EBITDA turned negative. `portfolio` and `cohorts` are the roll-up of the rows, as the API
+ * answers them; the tests state the figures they expect by hand.
  */
 
 export const VC_ID = {
@@ -19,8 +17,12 @@ export const VC_ID = {
   dune: '00000000-0000-4000-8000-000000000104',
   credit: '00000000-0000-4000-8000-000000000105',
   vehicle: '00000000-0000-4000-8000-0000000001b1',
+  cvVehicle: '00000000-0000-4000-8000-0000000001b2',
   sponsor: '00000000-0000-4000-8000-0000000001c1',
+  otherSponsor: '00000000-0000-4000-8000-0000000001c2',
 } as const;
+
+export const VC_AS_OF = '2025-06-30';
 
 const NO_GROWTH: ValueCreationPosition['growth'] = {
   ebitdaGrowth: null,
@@ -31,7 +33,12 @@ const NO_GROWTH: ValueCreationPosition['growth'] = {
   netDebtChange: null,
 };
 
-/** Fixture 19 case 1 of packages/calc, in millions: 250 + 65 + 30 = 345 of company equity value. */
+/**
+ * Fixture 21 case 1 of packages/calc: 10,000,000 invested in 250,000,000 of entry equity value
+ * is a stake of 4%, so the company's 250 + 65 + 30 (millions) is 10.0 + 2.6 + 1.2 of ours, and
+ * the rest of the 14,500,000 gain, 700,000, is mark and timing. Entered 1,461 days before the
+ * as-of date: (1 + IRR)^(1461/365) = 24,500,000 / 10,000,000.
+ */
 export function saltmarsh(overrides: Partial<ValueCreationPosition> = {}): ValueCreationPosition {
   return {
     id: VC_ID.saltmarsh,
@@ -43,11 +50,13 @@ export function saltmarsh(overrides: Partial<ValueCreationPosition> = {}): Value
     sponsorName: 'Harborlight Partners',
     sector: 'sector.software',
     dealType: 'deal_type.co_invest_equity',
-    entryDate: '2019-02-15',
+    entryDate: '2021-06-30',
+    entryYear: 2021,
     exitDate: null,
     isActive: true,
+    status: 'active',
     entry: {
-      periodEnd: '2018-12-31',
+      periodEnd: '2021-03-31',
       revenueLtm: '200000000',
       ebitdaLtm: '40000000',
       ev: '400000000',
@@ -91,38 +100,53 @@ export function saltmarsh(overrides: Partial<ValueCreationPosition> = {}): Value
     },
     notCalculable: null,
     invested: '10000000',
-    nav: '14900000',
+    nav: '22500000',
     distributions: '2000000',
-    grossMoic: '1.69',
-    grossIrr: '0.0912',
+    grossMoic: '2.45',
+    grossIrr: '0.2509067289',
     irrFlag: null,
-    valuationGrowth: '0.69',
-    valuationGrowthGap: '0.065',
-    gain: '6900000',
+    valuationGrowth: '1.45',
+    valuationGrowthGap: '0.825',
+    stake: '0.04',
+    gain: '14500000',
     gainByDriver: {
-      ebitdaGrowth: '5000000',
-      multipleExpansion: '1300000',
-      debtPaydown: '600000',
-      revenueGrowth: '2400000',
-      marginChange: '2600000',
+      ebitdaGrowth: '10000000',
+      multipleExpansion: '2600000',
+      debtPaydown: '1200000',
+      other: '700000',
+      revenueGrowth: '4800000',
+      marginChange: '5200000',
     },
     gainNotCalculable: null,
+    flows: [
+      { date: '2021-06-30', amount: '-10000000' },
+      { date: '2025-06-30', amount: '2000000' },
+    ],
     entryMultipleBand: 'band_1',
     entryLeverageBand: 'band_0',
     ...overrides,
   };
 }
 
-/** Fixture 19 case 3 in millions: 90 - 35 + 40 = 95; the mark grew 5% against EBITDA growth of 16.7%. */
-export function kelp(): ValueCreationPosition {
+/**
+ * Fixture 19 case 3 in millions (90 - 35 + 40 = 95 of company equity value) at a stake of
+ * 20 / 300: 6,000,000 - 2,333,333.33 + 2,666,666.67 of ours. Our mark grew 5% against EBITDA
+ * growth of 16.7% and equity value growth of 31.7%, so mark and timing is negative:
+ * 1,000,000 - 6,333,333.33 = -5,333,333.33.
+ */
+export function kelp(overrides: Partial<ValueCreationPosition> = {}): ValueCreationPosition {
   return saltmarsh({
     id: VC_ID.kelp,
     investmentNumber: 'INV-0002',
     companyName: 'Kelp Forest Foods',
+    vehicleId: VC_ID.cvVehicle,
+    vehicleName: 'Beach CV Opportunities I',
+    sponsorId: VC_ID.otherSponsor,
+    sponsorName: 'Tidewater Capital',
+    sector: 'sector.consumer',
     dealType: 'deal_type.cv_single_asset',
-    entryDate: '2021-03-10',
     entry: {
-      periodEnd: '2020-12-31',
+      periodEnd: '2021-03-31',
       revenueLtm: '300000000',
       ebitdaLtm: '60000000',
       ev: '540000000',
@@ -168,57 +192,71 @@ export function kelp(): ValueCreationPosition {
     nav: '21000000',
     distributions: '0',
     grossMoic: '1.05',
-    grossIrr: '0.0112',
+    grossIrr: '0.0122637832',
     valuationGrowth: '0.05',
     valuationGrowthGap: '-0.1166666667',
+    stake: '0.0666666667',
     gain: '1000000',
     gainByDriver: {
-      ebitdaGrowth: '947368.42',
-      multipleExpansion: '-368421.05',
-      debtPaydown: '421052.63',
-      revenueGrowth: '1705263.16',
-      marginChange: '-757894.74',
+      ebitdaGrowth: '6000000',
+      multipleExpansion: '-2333333.3333333333',
+      debtPaydown: '2666666.6666666667',
+      other: '-5333333.3333333334',
+      revenueGrowth: '10800000',
+      marginChange: '-4800000',
     },
+    flows: [{ date: '2021-06-30', amount: '-20000000' }],
     entryMultipleBand: 'band_1',
     entryLeverageBand: 'band_1',
+    ...overrides,
   });
 }
 
-/** No approved entry snapshot: nothing to compare against, and the reason says so. */
+/** An entry snapshot dated after the as-of date: nothing to compare against yet, and the reason says so. */
 export function tidepool(): ValueCreationPosition {
   return saltmarsh({
     id: VC_ID.tidepool,
     investmentNumber: 'INV-0003',
     companyName: 'Tidepool Analytics',
-    entryDate: '2022-06-01',
+    entryDate: '2022-06-30',
+    entryYear: 2022,
     entry: null,
     growth: NO_GROWTH,
     bridge: null,
-    notCalculable: 'no_entry_snapshot',
+    notCalculable: 'entry_snapshot_forward_dated',
     invested: '5000000',
     nav: '6000000',
     distributions: '0',
     grossMoic: '1.2',
-    grossIrr: '0.0618',
+    grossIrr: '0.0625996458',
     valuationGrowth: '0.2',
     valuationGrowthGap: null,
+    stake: null,
     gain: '1000000',
     gainByDriver: null,
-    gainNotCalculable: 'no_entry_snapshot',
+    gainNotCalculable: 'entry_snapshot_forward_dated',
+    flows: [{ date: '2022-06-30', amount: '-5000000' }],
     entryMultipleBand: 'not_calculable',
     entryLeverageBand: 'not_calculable',
   });
 }
 
-/** Realized at a loss with EBITDA below zero in its last quarter: growth is known, a multiple is not. */
+/** Realized at a loss with EBITDA below zero in its last quarter before the exit: growth is known, a multiple is not. */
 export function dune(): ValueCreationPosition {
   return saltmarsh({
     id: VC_ID.dune,
     investmentNumber: 'INV-0004',
     companyName: 'Dune Grass Logistics',
+    vehicleId: VC_ID.cvVehicle,
+    vehicleName: 'Beach CV Opportunities I',
+    sponsorId: VC_ID.otherSponsor,
+    sponsorName: 'Tidewater Capital',
+    sector: 'sector.industrials',
     entryDate: '2017-09-20',
+    entryYear: 2017,
     exitDate: '2023-11-30',
     isActive: false,
+    status: 'realized',
     entry: {
       periodEnd: '2017-06-30',
       revenueLtm: '160000000',
@@ -253,166 +291,35 @@ export function dune(): ValueCreationPosition {
     nav: '0',
     distributions: '6000000',
     grossMoic: '0.75',
-    grossIrr: '-0.0812',
+    grossIrr: '-0.04535988',
     valuationGrowth: '-0.25',
     valuationGrowthGap: '1',
+    stake: '0.0666666667',
     gain: '-2000000',
     gainByDriver: null,
     gainNotCalculable: 'non_positive_ebitda',
+    flows: [
+      { date: '2017-09-20', amount: '-8000000' },
+      { date: '2023-11-30', amount: '6000000' },
+    ],
     entryMultipleBand: 'band_2',
     entryLeverageBand: 'band_3',
   });
 }
 
-function cohort(overrides: Partial<EntryCohort> & Pick<EntryCohort, 'key' | 'label'>): EntryCohort {
-  return {
-    lower: null,
-    upper: null,
-    count: 0,
-    invested: null,
-    distributions: null,
-    nav: null,
-    dpi: null,
-    rvpi: null,
-    tvpi: null,
-    grossMoic: null,
-    grossIrr: null,
-    irrFlag: 'insufficient_flows',
-    ebitdaGrowth: null,
-    ebitdaGrowthPositions: 0,
-    ...overrides,
-  };
-}
+/** The bands of the fixture, as config would give them. */
+const BANDS = {
+  byEntryMultiple: entryCohortBands(['9', '11', '13']),
+  byEntryLeverage: entryCohortBands(['4', '5', '6']),
+};
 
-const POOLED = { irrFlag: null, dpi: '0.1', rvpi: '1.1', tvpi: '1.2' } as const;
-
+/** The answer over a set of rows: `portfolio` and `cohorts` are their roll-up, as the API's are. */
 export function valueCreationFixture(overrides: Partial<ValueCreation> = {}): ValueCreation {
+  const positions = overrides.positions ?? [saltmarsh(), kelp(), tidepool(), dune()];
   return {
-    asOf: '2025-06-30',
-    positions: [saltmarsh(), kelp(), tidepool(), dune()],
-    portfolio: {
-      positions: 2,
-      invested: '30000000',
-      nav: '35900000',
-      distributions: '2000000',
-      totalValue: '37900000',
-      gain: '7900000',
-      gainByDriver: {
-        ebitdaGrowth: '5947368.42',
-        multipleExpansion: '931578.95',
-        debtPaydown: '1021052.63',
-        revenueGrowth: '4105263.16',
-        marginChange: '1842105.26',
-      },
-      notCalculable: [
-        { reason: 'no_entry_snapshot', count: 1 },
-        { reason: 'non_positive_ebitda', count: 1 },
-      ],
-    },
-    cohorts: {
-      byEntryMultiple: [
-        cohort({ key: 'band_0', label: 'Under 9.0x', upper: '9' }),
-        cohort({
-          key: 'band_1',
-          label: '9.0x to 11.0x',
-          lower: '9',
-          upper: '11',
-          count: 2,
-          invested: '30000000',
-          distributions: '2000000',
-          nav: '35900000',
-          ...POOLED,
-          grossMoic: '1.2633333333',
-          grossIrr: '0.0712',
-          ebitdaGrowth: '0.3194444444',
-          ebitdaGrowthPositions: 2,
-        }),
-        cohort({
-          key: 'band_2',
-          label: '11.0x to 13.0x',
-          lower: '11',
-          upper: '13',
-          count: 1,
-          invested: '8000000',
-          distributions: '6000000',
-          nav: '0',
-          ...POOLED,
-          grossMoic: '0.75',
-          grossIrr: '-0.0812',
-          ebitdaGrowth: '-1.25',
-          ebitdaGrowthPositions: 1,
-        }),
-        cohort({ key: 'band_3', label: '13.0x and over', lower: '13' }),
-        cohort({
-          key: 'not_calculable',
-          label: 'Not calculable',
-          count: 1,
-          invested: '5000000',
-          distributions: '0',
-          nav: '6000000',
-          ...POOLED,
-          grossMoic: '1.2',
-          grossIrr: '0.0618',
-        }),
-      ],
-      byEntryLeverage: [
-        cohort({
-          key: 'band_0',
-          label: 'Under 4.0x',
-          upper: '4',
-          count: 1,
-          invested: '10000000',
-          distributions: '2000000',
-          nav: '14900000',
-          ...POOLED,
-          grossMoic: '1.69',
-          grossIrr: '0.0912',
-          ebitdaGrowth: '0.625',
-          ebitdaGrowthPositions: 1,
-        }),
-        cohort({
-          key: 'band_1',
-          label: '4.0x to 5.0x',
-          lower: '4',
-          upper: '5',
-          count: 1,
-          invested: '20000000',
-          distributions: '0',
-          nav: '21000000',
-          ...POOLED,
-          grossMoic: '1.05',
-          grossIrr: '0.0112',
-          ebitdaGrowth: '0.1666666667',
-          ebitdaGrowthPositions: 1,
-        }),
-        cohort({ key: 'band_2', label: '5.0x to 6.0x', lower: '5', upper: '6' }),
-        cohort({
-          key: 'band_3',
-          label: '6.0x and over',
-          lower: '6',
-          count: 1,
-          invested: '8000000',
-          distributions: '6000000',
-          nav: '0',
-          ...POOLED,
-          grossMoic: '0.75',
-          grossIrr: '-0.0812',
-          ebitdaGrowth: '-1.25',
-          ebitdaGrowthPositions: 1,
-        }),
-        cohort({
-          key: 'not_calculable',
-          label: 'Not calculable',
-          count: 1,
-          invested: '5000000',
-          distributions: '0',
-          nav: '6000000',
-          ...POOLED,
-          grossMoic: '1.2',
-          grossIrr: '0.0618',
-        }),
-      ],
-    },
+    asOf: VC_AS_OF,
+    positions,
+    ...valueCreationRollup(positions, BANDS, VC_AS_OF),
     leftOut: [{ dealType: 'deal_type.private_credit', label: 'Private credit', count: 2 }],
     calcVersion: '0.1.0',
     ...overrides,
@@ -424,13 +331,13 @@ export function investmentValueCreationFixture(
   overrides: Partial<InvestmentValueCreation> = {},
 ): InvestmentValueCreation {
   return {
-    asOf: '2025-06-30',
+    asOf: VC_AS_OF,
     investmentId: VC_ID.saltmarsh,
     dealType: 'deal_type.co_invest_equity',
     position: saltmarsh(),
     series: [
       {
-        periodEnd: '2018-12-31',
+        periodEnd: '2021-03-31',
         isEntry: true,
         ebitdaIndex: '100',
         evIndex: '100',
@@ -459,7 +366,7 @@ export function investmentValueCreationFixture(
         ebitdaIndex: '162.5',
         evIndex: '178.75',
         equityValueIndex: '238',
-        markIndex: '149',
+        markIndex: '225',
       },
     ],
     calcVersion: '0.1.0',
