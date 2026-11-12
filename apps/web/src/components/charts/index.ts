@@ -13,5 +13,7 @@ export type { BridgeStep } from './bridge.js';
 export { ScatterChart } from './ScatterChart.js';
 export type { ScatterPoint } from './ScatterChart.js';
 export { Sparkline } from './Sparkline.js';
+export { RadarChart } from './RadarChart.js';
+export type { RadarAxis } from './RadarChart.js';
 export { compactValue, knownRuns, niceTicks, seriesColor, truncateMiddle } from './scale.js';
 export type { ValueKind } from './scale.js';

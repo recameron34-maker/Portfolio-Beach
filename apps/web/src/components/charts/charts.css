@@ -170,9 +170,130 @@
 .pb-chart-tooltip-name {
   color: var(--pb-muted);
 }
+.pb-chart-tooltip-note {
+  max-width: 240px;
+  margin-top: 4px;
+  line-height: 16px;
+  color: var(--pb-muted);
+}
 .pb-chart-table {
   font-size: 13px;
 }
 .pb-sparkline {
   display: block;
+}
+
+/* ---- Radar chart (RadarChart.tsx): a web of rings and spokes, the scores joined into a shape ---- */
+.pb-radar-ring,
+.pb-radar-rim {
+  fill: none;
+  stroke: var(--pb-border);
+  stroke-width: 1;
+}
+.pb-radar-rim {
+  stroke: var(--pb-muted);
+}
+/* A ring's figure sits on the ring itself, on a halo of the page colour so the line passes behind it. */
+.pb-radar-ring-label {
+  font-size: 10px;
+  fill: var(--pb-muted);
+  font-variant-numeric: tabular-nums;
+  paint-order: stroke;
+  stroke: var(--pb-bg);
+  stroke-width: 4px;
+  stroke-linejoin: round;
+}
+.pb-radar-spoke {
+  stroke: var(--pb-border);
+  stroke-width: 1;
+  transition: stroke var(--pb-dur-fast) var(--pb-ease);
+}
+/* A wide, unseen line over the spoke, so the pointer finds a measure anywhere along it. */
+.pb-radar-reach {
+  stroke: transparent;
+  stroke-width: 18;
+}
+.pb-radar-axis.is-missing .pb-radar-spoke {
+  stroke-dasharray: 3 4;
+}
+.pb-radar-axis:hover .pb-radar-spoke,
+.pb-radar-axis:focus-visible .pb-radar-spoke,
+.pb-radar-axis.is-active .pb-radar-spoke {
+  stroke: var(--pb-brand-primary);
+  stroke-width: 1.5;
+}
+.pb-radar-axis:focus-visible .pb-radar-label {
+  text-decoration: underline;
+}
+.pb-radar-label {
+  font-size: 12px;
+  fill: var(--pb-muted);
+  cursor: default;
+}
+.pb-radar-score {
+  fill: var(--pb-text);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.pb-radar-axis:hover .pb-radar-label,
+.pb-radar-axis:focus-visible .pb-radar-label,
+.pb-radar-axis.is-active .pb-radar-label {
+  fill: var(--pb-text);
+}
+.pb-radar-area {
+  fill-opacity: 0.18;
+}
+.pb-radar-outline {
+  fill: none;
+  stroke-width: 2;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+}
+.pb-radar-point {
+  stroke: var(--pb-bg);
+  stroke-width: 2;
+  transition: r var(--pb-dur-fast) var(--pb-ease);
+}
+/* The entrance, played once: the web fades in, the shape opens out from the centre, then each
+   point lands in turn round the chart. */
+.pb-radar-web {
+  animation: pb-radar-fade 320ms var(--pb-ease) both;
+}
+.pb-radar-shape {
+  animation: pb-radar-open 620ms var(--pb-ease) 120ms both;
+}
+.pb-radar-point {
+  animation: pb-radar-fade 240ms var(--pb-ease) both;
+  animation-delay: calc(520ms + var(--pb-radar-i, 0) * 45ms);
+}
+@keyframes pb-radar-fade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+@keyframes pb-radar-open {
+  from {
+    opacity: 0;
+    transform: scale(0.2);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+/* ---- Reduced motion: every animated selector of the charts, switched off (docs/06 section 5) ---- */
+@media (prefers-reduced-motion: reduce), (update: slow) {
+  .pb-radar-web,
+  .pb-radar-shape,
+  .pb-radar-point {
+    animation: none;
+  }
+  .pb-radar-spoke,
+  .pb-radar-point {
+    transition: none;
+  }
 }

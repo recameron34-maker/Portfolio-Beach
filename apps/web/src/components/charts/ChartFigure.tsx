@@ -17,6 +17,8 @@ export interface TooltipState {
   top: number;
   title: string;
   rows: { name: string; value: string; color?: string | undefined }[];
+  /** A sentence under the rows: what a figure was worked out from, say. */
+  note?: string | undefined;
 }
 
 /**
@@ -128,6 +130,9 @@ export function ChartFigure({
                   <span className="pb-chart-tooltip-name">{r.name}</span>
                 </div>
               ))}
+              {tooltip.note !== undefined ? (
+                <div className="pb-chart-tooltip-note">{tooltip.note}</div>
+              ) : null}
             </div>
           ) : null}
         </div>
