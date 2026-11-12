@@ -22,6 +22,7 @@ import {
   RealizationsTab,
   ValueCreationTab,
 } from '../pages/analytics/Analytics.js';
+import { parseValueCreationSearch } from '../pages/analytics/value-creation-filters.js';
 import { AssistantsPage } from '../pages/assistants/Assistants.js';
 import {
   CapitalActivityPage,
@@ -169,8 +170,19 @@ const analyticsTab = <P extends string>(path: P, component: () => ReactNode) =>
   createRoute({ getParentRoute: () => analyticsRoute, path, component });
 const analyticsExposureRoute = analyticsTab('/', ExposureTab);
 const analyticsPerformanceRoute = analyticsTab('/performance', PerformanceAnalyticsTab);
-const analyticsValueCreationRoute = analyticsTab('/value-creation', ValueCreationTab);
-const analyticsEntryMetricsRoute = analyticsTab('/entry-metrics', EntryMetricsTab);
+/**
+ * The two tabs that filter the value creation rows; the search carries the filters, so a filtered
+ * view can be shared. A value the contract does not accept is dropped, never an error page.
+ */
+const filteredAnalyticsTab = <P extends string>(path: P, component: () => ReactNode) =>
+  createRoute({
+    getParentRoute: () => analyticsRoute,
+    path,
+    component,
+    validateSearch: parseValueCreationSearch,
+  });
+const analyticsValueCreationRoute = filteredAnalyticsTab('/value-creation', ValueCreationTab);
+const analyticsEntryMetricsRoute = filteredAnalyticsTab('/entry-metrics', EntryMetricsTab);
 const analyticsCreditRoute = analyticsTab('/credit', CreditTab);
 const analyticsRealizationsRoute = analyticsTab('/realizations', RealizationsTab);
 const analyticsClientsRoute = analyticsTab('/clients', ClientAnalyticsTab);

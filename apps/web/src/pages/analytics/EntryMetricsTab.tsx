@@ -1,6 +1,7 @@
+import { useMemo } from 'react';
 import type { ReactNode } from 'react';
 import { keepPreviousData, useQuery } from '@tanstack/react-query';
-import type { EntryCohort, ValueCreation } from '@pb/contracts';
+import type { EntryCohort } from '@pb/contracts';
 import { HorizontalBars, ScatterChart } from '../../components/charts/index.js';
 import { UnavailableState } from '../../components/UnavailableState.js';
 import {
@@ -20,6 +21,10 @@ import {
   plural,
 } from '../../lib/format.js';
 import { valueCreationQuery } from './value-creation-queries.js';
+import { hasFilters } from './value-creation-filters.js';
+import { shownView } from './value-creation-view.js';
+import type { ShownView } from './value-creation-view.js';
+import { useValueCreationFilters, ValueCreationFilterBar } from './ValueCreationFilterBar.js';
 import { entryMultiplePoints, leftOutText, listedCohorts, moicBars } from './value-creation.js';
 import './analytics.css';
 
@@ -99,7 +104,7 @@ function CohortCard({
   );
 }
 
-function EntryScatterCard({ view }: { view: ValueCreation }): ReactNode {
+function EntryScatterCard({ view }: { view: ShownView }): ReactNode {
   const { points, leftOut, seriesNames } = entryMultiplePoints(view);
   return (
     <Card testId="entry-scatter-card">
@@ -140,13 +145,22 @@ function EntryScatterCard({ view }: { view: ValueCreation }): ReactNode {
 /**
  * Analytics, Entry metrics (docs/04 M13, docs/08 section 8): performance by entry purchase
  * multiple band and by entry net leverage band, and each company's entry multiple against its
- * MOIC. The bands, their labels and every figure come from the response; the page restates none.
+ * MOIC. The bands and their labels come from the response; the page restates none. The filters
+ * narrow the positions, and each cohort is pooled again over the rows that pass (count, invested,
+ * NAV, MOIC, IRR and EBITDA growth) by the rule the API pools the whole book by
+ * (value-creation-view.ts).
  */
 export function EntryMetricsTab(): ReactNode {
   const q = useQuery({ ...valueCreationQuery, placeholderData: keepPreviousData });
+  const [filters, setFilters] = useValueCreationFilters();
+  const view = q.data;
+  const shown = useMemo(
+    () => (view === undefined ? null : shownView(view, filters)),
+    [view, filters],
+  );
   if (q.isPending) return <PageSkeleton rows={8} />;
   if (q.isError) return <UnavailableState card error={q.error} subject="Entry metrics" />;
-  const view = q.data;
+  if (view === undefined || shown === null) return null;
   const left = leftOutText(view.leftOut);
   if (view.positions.length === 0) {
     return (
@@ -158,27 +172,50 @@ export function EntryMetricsTab(): ReactNode {
       </Card>
     );
   }
+  const bar = (
+    <ValueCreationFilterBar
+      positions={view.positions}
+      shown={shown.positions.length}
+      filters={filters}
+      onChange={setFilters}
+    />
+  );
+  if (shown.positions.length === 0) {
+    return (
+      <>
+        {bar}
+        <Card testId="entry-metrics-no-match">
+          <EmptyState
+            title="No position matches these filters"
+            detail="Pick another vehicle, sponsor, sector, deal type, entry year or status, or clear the filters."
+          />
+        </Card>
+      </>
+    );
+  }
   return (
     <>
+      {bar}
       <CohortCard
         heading="By entry purchase multiple"
         metric="entry purchase multiple"
         measure="Entry EV / EBITDA"
-        cohorts={view.cohorts.byEntryMultiple}
+        cohorts={shown.cohorts.byEntryMultiple}
         testId="entry-multiple"
       />
       <CohortCard
         heading="By entry net leverage"
         metric="entry net leverage"
         measure="Entry net debt / EBITDA"
-        cohorts={view.cohorts.byEntryLeverage}
+        cohorts={shown.cohorts.byEntryLeverage}
         testId="entry-leverage"
       />
-      <EntryScatterCard view={view} />
+      <EntryScatterCard view={shown} />
       <p className="pb-meta">
         As of {formatDate(view.asOf)}, over the equity and continuation vehicle positions you are
-        entitled to see, active and realized; the entry figures are those of each position&apos;s
-        approved entry snapshot.{left === null ? '' : ` ${left}`}
+        entitled to see, active and realized
+        {hasFilters(filters) ? ', narrowed by the filters above' : ''}; the entry figures are those
+        of each position&apos;s approved entry snapshot.{left === null ? '' : ` ${left}`}
       </p>
     </>
   );

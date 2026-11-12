@@ -176,12 +176,21 @@ export function PageHeader({
   );
 }
 
-/** Secondary navigation inside an area (tabs). Paths are absolute so hash and browser history both work. */
+/**
+ * Secondary navigation inside an area (tabs). Paths are absolute so hash and browser history both
+ * work. A tab may carry a search (the filters two tabs share); it does not decide which tab is
+ * the current one.
+ */
 export function TabNav({
   items,
   label,
 }: {
-  items: { to: string; label: string; exact?: boolean | undefined }[];
+  items: {
+    to: string;
+    label: string;
+    exact?: boolean | undefined;
+    search?: Record<string, string | number> | undefined;
+  }[];
   label: string;
 }): ReactNode {
   return (
@@ -190,7 +199,9 @@ export function TabNav({
         <Link
           key={t.to}
           to={t.to}
-          activeOptions={{ exact: t.exact ?? false }}
+          // A tab names its route by a plain path, so its search has no single route type.
+          {...(t.search === undefined ? {} : { search: t.search as never })}
+          activeOptions={{ exact: t.exact ?? false, includeSearch: false }}
           activeProps={{ 'aria-current': 'page' }}
           resetScroll={false}
         >

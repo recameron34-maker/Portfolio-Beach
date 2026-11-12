@@ -25,13 +25,19 @@ import {
 
 /** Why a figure is missing, in plain words; the placeholder always travels with one of these. */
 export const REASON_TEXT: Record<ValueCreationReason, string> = {
-  no_entry_snapshot: 'No approved entry snapshot on or before the as-of date',
-  no_current_quarter: 'No approved quarter on or before the as-of date',
+  no_entry_snapshot: 'No approved entry snapshot',
+  // The wording of the deal's Since entry card for the same case.
+  entry_snapshot_forward_dated: 'The entry snapshot is dated after the as-of date',
+  no_current_quarter: 'No approved quarter on or before the as-of date, or the exit',
   missing_figures: 'EBITDA, EV or net debt is missing at entry or in the current quarter',
   non_positive_ebitda: 'EBITDA is at or below zero at entry or in the current quarter',
-  no_equity_change: 'The company equity value did not change, so there are no shares to split by',
+  non_positive_entry_equity:
+    'The company equity value at entry is not positive, so our stake has no size',
   no_gain: 'Our gain is not calculable: no Locked valuation, or nothing invested',
 };
+
+/** What the page calls `other`, the part of our gain the company's change at our stake does not explain. */
+export const MARK_AND_TIMING = 'Mark and timing';
 
 /** A change in $M with its sign: "+$5.0M", "-$1.3M"; an unchanged figure has none; null is the placeholder. */
 export function formatSignedMoneyM(value: string | null | undefined): string {
@@ -51,8 +57,8 @@ const numberOf = (value: string): number => Number(value);
 
 /**
  * The steps between the two totals of a bridge: EBITDA growth (or, opened, its revenue and margin
- * parts), multiple expansion and debt paydown. Opening needs both parts; without them the step
- * stays whole.
+ * parts), multiple expansion and debt paydown, and for our own gain the rest of it, mark and
+ * timing. Opening needs both parts; without them the step stays whole.
  */
 function driverSteps(
   drivers: GainByDriver | ValueCreationBridge,
@@ -70,6 +76,7 @@ function driverSteps(
     ...ebitda,
     { label: 'Multiple expansion', value: drivers.multipleExpansion },
     { label: 'Debt paydown', value: drivers.debtPaydown },
+    ...('other' in drivers ? [{ label: MARK_AND_TIMING, value: drivers.other }] : []),
   ];
 }
 
@@ -99,7 +106,8 @@ function bridgeSteps(
 
 /**
  * Our bridge over the positions the gain is split for: invested capital, the three drivers of our
- * gain, and the value now (NAV plus distributions). Null when no position can be split.
+ * gain, mark and timing, and the value now (NAV plus distributions). Null when no position can
+ * be split.
  */
 export function portfolioBridgeSteps(
   portfolio: ValueCreation['portfolio'],
@@ -137,9 +145,74 @@ export interface PlottedPositions {
   leftOut: number;
 }
 
-/** The two sides of the line where valuation growth equals EBITDA growth. */
-export const MARK_AHEAD = 'Mark ahead of EBITDA growth';
-export const MARK_BEHIND = 'Mark at or behind EBITDA growth';
+/** What valuation growth is measured on, against the company's EBITDA growth. */
+export type GrowthMeasure = 'mark' | 'equity' | 'ev';
+
+interface GrowthMeasureWords {
+  key: GrowthMeasure;
+  /** The option a reader picks. */
+  label: string;
+  /** The y axis and the table column. */
+  axis: string;
+  /** The two sides of the line where the measure equals EBITDA growth: the chart's series. */
+  ahead: string;
+  behind: string;
+  /** "our mark grew faster than the company EBITDA". */
+  subject: string;
+  /** How the chart's summary names the measure. */
+  summary: string;
+  /** "has no EBITDA growth or no mark growth". */
+  missing: string;
+  value: (p: ValueCreationPosition) => string | null;
+}
+
+/**
+ * The three measures, our mark first (the default). Levered equity usually grows faster than
+ * EBITDA; enterprise value is the like-for-like view.
+ */
+export const GROWTH_MEASURES: readonly GrowthMeasureWords[] = [
+  {
+    key: 'mark',
+    label: 'Our mark',
+    axis: 'Growth in our mark',
+    ahead: 'Mark ahead of EBITDA growth',
+    behind: 'Mark at or behind EBITDA growth',
+    subject: 'our mark',
+    summary: 'Growth in our mark (gross MOIC less one)',
+    missing: 'mark growth',
+    value: (p) => p.valuationGrowth,
+  },
+  {
+    key: 'equity',
+    label: 'Company equity value',
+    axis: 'Equity value growth',
+    ahead: 'Equity value ahead of EBITDA growth',
+    behind: 'Equity value at or behind EBITDA growth',
+    subject: 'the company equity value',
+    summary: 'Growth in the company equity value (EV less net debt)',
+    missing: 'equity value growth',
+    value: (p) => p.growth.equityValueGrowth,
+  },
+  {
+    key: 'ev',
+    label: 'Enterprise value',
+    axis: 'Enterprise value growth',
+    ahead: 'Enterprise value ahead of EBITDA growth',
+    behind: 'Enterprise value at or behind EBITDA growth',
+    subject: 'the enterprise value',
+    summary: 'Growth in the enterprise value',
+    missing: 'enterprise value growth',
+    value: (p) => p.growth.evGrowth,
+  },
+];
+
+export function growthMeasure(key: GrowthMeasure): GrowthMeasureWords {
+  return GROWTH_MEASURES.find((m) => m.key === key) ?? GROWTH_MEASURES[0]!;
+}
+
+/** The two sides of the line where growth in our mark equals EBITDA growth. */
+export const MARK_AHEAD = growthMeasure('mark').ahead;
+export const MARK_BEHIND = growthMeasure('mark').behind;
 
 export interface GrowthScatter extends PlottedPositions {
   /** The sides that hold a mark, ahead first: the chart's series. */
@@ -150,31 +223,36 @@ export interface GrowthScatter extends PlottedPositions {
 
 /**
  * Valuation growth against EBITDA growth, one mark per company: x is the company's EBITDA growth
- * since entry, y the growth in our mark (the gross MOIC less one). A mark above the line where
- * the two are equal ran ahead of earnings; the side is the mark's series, taken from the API's
- * own gap (valuation growth less EBITDA growth), so the two sides stand apart.
+ * since entry, y the growth in the measure picked (our mark by default: the gross MOIC less
+ * one). A mark above the line where the two are equal ran ahead of earnings; the side is the
+ * mark's series, so the two sides stand apart. A position without one of the two figures is not
+ * plotted, never drawn at zero.
  */
-export function growthPoints(positions: readonly ValueCreationPosition[]): GrowthScatter {
+export function growthPoints(
+  positions: readonly ValueCreationPosition[],
+  measure: GrowthMeasure = 'mark',
+): GrowthScatter {
+  const words = growthMeasure(measure);
   const points: ScatterPoint[] = [];
   for (const p of positions) {
     const { ebitdaGrowth } = p.growth;
-    if (ebitdaGrowth === null || p.valuationGrowth === null || p.valuationGrowthGap === null)
-      continue;
+    const growth = words.value(p);
+    if (ebitdaGrowth === null || growth === null) continue;
     points.push({
       label: p.companyName,
       x: numberOf(ebitdaGrowth),
-      y: numberOf(p.valuationGrowth),
+      y: numberOf(growth),
       xDisplay: formatPct(ebitdaGrowth),
-      yDisplay: formatPct(p.valuationGrowth),
-      series: numberOf(p.valuationGrowthGap) > 0 ? MARK_AHEAD : MARK_BEHIND,
+      yDisplay: formatPct(growth),
+      series: numberOf(growth) > numberOf(ebitdaGrowth) ? words.ahead : words.behind,
     });
   }
   const present = new Set(points.map((p) => p.series));
   return {
     points,
     leftOut: positions.length - points.length,
-    seriesNames: [MARK_AHEAD, MARK_BEHIND].filter((name) => present.has(name)),
-    ahead: points.filter((p) => p.series === MARK_AHEAD).length,
+    seriesNames: [words.ahead, words.behind].filter((name) => present.has(name)),
+    ahead: points.filter((p) => p.series === words.ahead).length,
   };
 }
 
@@ -206,7 +284,9 @@ export interface EntryScatter extends PlottedPositions {
  * Entry purchase multiple against gross MOIC, one mark per company, the entry net leverage band
  * as the series. The band labels come from the response's cohorts, never from the page.
  */
-export function entryMultiplePoints(view: ValueCreation): EntryScatter {
+export function entryMultiplePoints(
+  view: Pick<ValueCreation, 'positions' | 'cohorts'>,
+): EntryScatter {
   const points: ScatterPoint[] = [];
   for (const p of view.positions) {
     const multiple = p.entry?.evToEbitda ?? null;
@@ -232,6 +312,7 @@ export function entryMultiplePoints(view: ValueCreation): EntryScatter {
 export type SortKey =
   | 'investmentNumber'
   | 'companyName'
+  | 'stake'
   | 'entryMultiple'
   | 'currentMultiple'
   | 'entryLeverage'
@@ -242,6 +323,7 @@ export type SortKey =
   | 'gainEbitdaGrowth'
   | 'gainMultipleExpansion'
   | 'gainDebtPaydown'
+  | 'gainOther'
   | 'grossMoic'
   | 'grossIrr';
 
@@ -256,6 +338,7 @@ export const DEFAULT_SORT: SortState = { key: 'gain', direction: 'descending' };
 const SORT_VALUE: Record<SortKey, (p: ValueCreationPosition) => string | null> = {
   investmentNumber: (p) => p.investmentNumber,
   companyName: (p) => p.companyName,
+  stake: (p) => p.stake,
   entryMultiple: (p) => p.entry?.evToEbitda ?? null,
   currentMultiple: (p) => p.current?.evToEbitda ?? null,
   entryLeverage: (p) => p.entry?.netDebtToEbitda ?? null,
@@ -266,6 +349,7 @@ const SORT_VALUE: Record<SortKey, (p: ValueCreationPosition) => string | null> =
   gainEbitdaGrowth: (p) => p.gainByDriver?.ebitdaGrowth ?? null,
   gainMultipleExpansion: (p) => p.gainByDriver?.multipleExpansion ?? null,
   gainDebtPaydown: (p) => p.gainByDriver?.debtPaydown ?? null,
+  gainOther: (p) => p.gainByDriver?.other ?? null,
   grossMoic: (p) => p.grossMoic,
   grossIrr: (p) => p.grossIrr,
 };
