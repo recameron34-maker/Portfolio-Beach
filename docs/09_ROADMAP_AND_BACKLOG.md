@@ -52,7 +52,7 @@ Synthetic data and mock adapters throughout. Every phase ends with: all CI gates
 **Exit:** journey 6 passes end to end with diligence and closing; no raw email body persisted (scan test).
 
 ## Phase 6: Analytics, access and assistants (M20, M21, M15)
-- [ ] Exposures, benchmarking (KS-PME, Direct Alpha), liquidity forecast, attribution, exit analytics
+- [ ] Exposures, benchmarking (KS-PME, Direct Alpha), liquidity forecast, attribution, exit analytics (attribution built ahead of the phase at the owner's request, session 9: value creation and entry metric analytics, decision 0014)
 - [ ] Read API (OpenAPI), Excel add-in prototype, warehouse extract to files
 - [ ] Ask Portfolio Beach with permission-aware tools; Market Intelligence on a synthetic research library; missed-items digest
 **Exit:** journey 7 passes (no leakage of walled data); analytics match `docs/08` worked examples.

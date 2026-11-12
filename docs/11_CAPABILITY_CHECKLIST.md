@@ -13,7 +13,7 @@ Status: N = not started, P = partial, B = built. Phase 0 built the foundations (
 | A4 | Required pass reason + note, searchable history | M5 | P (a pass needs a `pass_reason.*` code and takes a note, both on the record and in the stage history; the searchable pass history is Phase 5) |
 | A5 | Allocation requested vs. received, split by vehicle and client | M5 | Y (the allocations editor on the opportunity page, lines by vehicle and client, requested and received, the exact tie-out against the closing commitment) |
 | A6 | Prescreen deck build guide (one pass, deal team from record) | M7 | N |
-| A7 | Deal analysis support: entry multiple, leverage, growth-to-margin bridge, key risks and "reasons to pass" checklist | M5, M9 | N |
+| A7 | Deal analysis support: entry multiple, leverage, growth-to-margin bridge, key risks and "reasons to pass" checklist | M5, M9 | P (on a held position: entry multiple and net leverage against current, and the value creation bridge with EBITDA growth opened into revenue and margin, on the deal's Performance tab; pass reasons on the pipeline; the pre-deal analysis skeleton and key risks pending) |
 | A8 | Duplicate / near-miss name guard on new records | M1 | P (match guards stored and seeded; enforcement on record creation arrives with M1 linking services) |
 
 ## B. Diligence, IC and closing
@@ -84,7 +84,7 @@ Status: N = not started, P = partial, B = built. Phase 0 built the foundations (
 | F8 | **New:** disclosure library and approved statistics register | M19 | N |
 | F9 | Reporting package tracker, distribution log | M14, M19 | N |
 | F10 | Ad hoc client / DDQ answer library | M14 | N |
-| F12 | Reporting views with row-level security; in-app analytics; Power BI model (post-merge) | M13 | P (in-app analytics under RLS; Power BI post-merge) |
+| F12 | Reporting views with row-level security; in-app analytics; Power BI model (post-merge) | M13 | P (in-app analytics under RLS, including the value creation and entry metric views of decision 0014; Power BI post-merge) |
 | F11 | IRR workbook reviewer agent | M15 | N (designed) |
 
 ## G. Relationships and market knowledge
@@ -122,7 +122,7 @@ Fund-accounting general ledger, investor onboarding / KYC, fixing the look-throu
 | I3 | Look-through exposures on our taxonomy | M20 | P (exposure buckets by sector, geography, deal type, vehicle, sponsor and vintage; client look-through by ownership) |
 | I4 | Benchmarking, PME, quartiles | M20 | N |
 | I5 | Liquidity and cash flow forecasting | M20 | N |
-| I6 | Value creation attribution; exit analytics | M20 | N |
+| I6 | Value creation attribution; exit analytics | M20 | P (value creation by EBITDA growth, multiple expansion, debt paydown and a mark-and-timing remainder at our entry stake, per deal and for the portfolio with exact filters; valuation growth against EBITDA growth; performance by entry multiple and entry leverage band; decision 0014. Exit analytics pending) |
 | I7 | Excel add-in with live approved data | M21 | N |
 | I8 | Read API and daily feed to the enterprise data warehouse | M21 | N |
 | I9 | Legal terms and allocation tracker (replaces the legal tracker updates) | M22 | P (legal terms captured in draft on the closing with a type from the taxonomy and a source document, confirmed once; allocations tie out against the closing commitment; AI-assisted extraction of terms is out of the prototype) |

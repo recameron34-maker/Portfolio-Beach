@@ -10,3 +10,5 @@ Status values: Proposed, Accepted, Superseded (link the replacement).
 - 0011: A dependency-free XLSX reader and writer (`packages/xlsx`)
 - 0012: Phase 2 plan: the document hub, AI extraction and the monitoring board
 - 0013: Phase 3 plan: the controls (valuation workflow, capital activity and wires, change requests, closing and legal terms)
+- 0014: Value creation and entry metric analytics
+- 0015: A public website for the prototype, and how it is published
