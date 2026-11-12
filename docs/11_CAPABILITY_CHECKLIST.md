@@ -8,7 +8,7 @@ Status: N = not started, P = partial, B = built. Phase 0 built the foundations (
 | # | Capability | Module | Status |
 |---|---|---|---|
 | A1 | Log an opportunity from email or a CIM (AI draft record) | M5, M4 | N |
-| A2 | Stage board (Sourced to Closed or Passed), owners, key dates | M5 | P (the Pipeline board by stage with owners, received dates and aging against `pipeline.stageAgingDays`, the opportunity page with stage actions through `dealStageMachine`, stage history and the conversion into a position on close; the pass log search, the fund-fit flag and the AI summary arrive with Phase 5; decision 0013) |
+| A2 | Stage board (Sourced to Closed or Passed), owners, key dates | M5 | P (the Pipeline board by stage with owners, received dates and aging against `pipeline.stageAgingDays`, the opportunity page with stage actions through `dealStageMachine`, stage history and the conversion into a position on close; a Portfolio fit card with seven draft measures and a radar chart, the fund relationship among them, decision 0018; the pass log search, the fund-fit flag on the board and the AI summary arrive with Phase 5; decision 0013) |
 | A3 | Fund-fit check: co-invest only alongside GPs we back | M5 | N |
 | A4 | Required pass reason + note, searchable history | M5 | P (a pass needs a `pass_reason.*` code and takes a note, both on the record and in the stage history; the searchable pass history is Phase 5) |
 | A5 | Allocation requested vs. received, split by vehicle and client | M5 | Y (the allocations editor on the opportunity page, lines by vehicle and client, requested and received, the exact tie-out against the closing commitment) |

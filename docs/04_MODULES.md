@@ -84,12 +84,14 @@ Global rules in `CLAUDE.md` apply to every module. Workflow states are defined i
 - Contact pickers limited to the deal's own sponsor contacts.
 - Diagnostic views available only to admins on an admin route.
 - AI summary and suggested next steps at the top of each deal (labeled AI draft).
+- Portfolio fit on each opportunity (asked by the owner, decision 0018): seven draft measures from 0 to 100, worked out from recorded figures by the rules of `docs/08` section 8, drawn as a radar chart with the figure and the rule behind each score beside it. A measure with no recorded input has no score.
 **Prototype scope:** fully built.
 **Depends on:** M1.
 **AC**
 - A deal moves Sourced to Closed with data captured once and converted into an Investment on close.
 - Moving to Passed without a reason code fails (API test).
 - Contact picker never returns another sponsor's contacts (test).
+- Every fit score equals its rule over the figures the API returns with it, and those figures equal what the Exposure tab and the sponsor page report (API test); a measure with a missing input is answered with no score and a reason, never a zero.
 
 ## M6. Relationship Intelligence
 **Purpose:** relationship history that builds itself.
