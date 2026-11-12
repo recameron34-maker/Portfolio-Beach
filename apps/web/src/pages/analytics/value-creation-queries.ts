@@ -52,7 +52,9 @@ export function investmentValueCreationQuery(id: string) {
  * the page fetches the text and offers it as a download instead of linking the URL. A failure is
  * the API's problem, as an ApiError.
  */
-export async function fetchValueCreationExport(filters: ValueCreationFilters = {}): Promise<string> {
+export async function fetchValueCreationExport(
+  filters: ValueCreationFilters = {},
+): Promise<string> {
   const headers = new Headers({ accept: 'text/csv' });
   const credential = getCredential();
   if (credential !== null) headers.set('authorization', `Bearer ${credential}`);

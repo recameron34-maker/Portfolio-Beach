@@ -40,9 +40,9 @@ import {
  * a navigation replaces it, as the real one does, so a filter picked in the bar reaches the page
  * through the URL and not through a side door.
  */
-const route = vi.hoisted(() => ({
-  search: {} as Record<string, unknown>,
-  listeners: new Set<() => void>(),
+const route = vi.hoisted((): { search: Record<string, unknown>; listeners: Set<() => void> } => ({
+  search: {},
+  listeners: new Set(),
 }));
 
 vi.mock('@tanstack/react-router', async () => {
@@ -189,7 +189,12 @@ describe('value creation fixtures and helpers', () => {
     expect(ev.ahead).toBe(2);
     // A position without the measure is left out, never plotted at zero.
     const noEv = kelp({ growth: { ...kelp().growth, evGrowth: null } });
-    expect(growthPoints([noEv], 'ev')).toEqual({ points: [], leftOut: 1, seriesNames: [], ahead: 0 });
+    expect(growthPoints([noEv], 'ev')).toEqual({
+      points: [],
+      leftOut: 1,
+      seriesNames: [],
+      ahead: 0,
+    });
     expect(growthPoints([noEv], 'mark').points).toHaveLength(1);
   });
 
@@ -405,7 +410,10 @@ describe('value creation filters and the roll-up of a filtered view', () => {
       Number(all.portfolio.gain),
     );
     // A filter that leaves nothing has no figure, never a zero.
-    const none = shownView(valueCreationFixture(), { vehicleId: VC_ID.vehicle, status: 'realized' });
+    const none = shownView(valueCreationFixture(), {
+      vehicleId: VC_ID.vehicle,
+      status: 'realized',
+    });
     expect(none.positions).toEqual([]);
     expect(none.portfolio.gain).toBeNull();
     expect(none.portfolio.gainByDriver).toBeNull();

@@ -1,39 +1,10 @@
-import { useMemo } from 'react';
 import type { ReactNode } from 'react';
-import { useNavigate, useSearch } from '@tanstack/react-router';
 import { Button, Dropdown, Label, Option } from '@fluentui/react-components';
 import type { ValueCreationFilters, ValueCreationPosition } from '@pb/contracts';
 import { Field, Toolbar } from '../../components/ui.js';
-import {
-  FILTERS,
-  filterOptions,
-  hasFilters,
-  parseValueCreationSearch,
-  valueCreationSearch,
-  withFilter,
-} from './value-creation-filters.js';
+import { FILTERS, filterOptions, hasFilters, withFilter } from './value-creation-filters.js';
 import { positionsText } from './value-creation.js';
 import './analytics.css';
-
-/**
- * The filters of the tab, read from and written to the URL search, so the address of a filtered
- * view can be shared and both tabs read the same state. A change replaces the history entry: a
- * reader goes back to the page they came from, not through every filter they tried.
- */
-export function useValueCreationFilters(): [
-  ValueCreationFilters,
-  (next: ValueCreationFilters) => void,
-] {
-  const search: Record<string, unknown> = useSearch({ strict: false });
-  const navigate = useNavigate();
-  const filters = useMemo(() => parseValueCreationSearch(search), [search]);
-  const setFilters = (next: ValueCreationFilters): void => {
-    // The two tabs' routes validate the same search (parseValueCreationSearch in the router); a
-    // navigation that is not tied to one of them has no single search type to name.
-    void navigate({ to: '.', search: valueCreationSearch(next) as never, replace: true });
-  };
-  return [filters, setFilters];
-}
 
 /**
  * The filter row of the Value creation and Entry metrics tabs: vehicle, sponsor, sector, deal

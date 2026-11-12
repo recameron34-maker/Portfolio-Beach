@@ -109,12 +109,12 @@ export function filterOptions(
   positions: readonly ValueCreationPosition[],
 ): Record<FilterKey, FilterOption[]> {
   return {
-    vehicleId: distinct(
-      positions.map((p) => ({ value: p.vehicleId, label: p.vehicleName })),
-    ).sort(byLabel),
-    sponsorId: distinct(
-      positions.map((p) => ({ value: p.sponsorId, label: p.sponsorName })),
-    ).sort(byLabel),
+    vehicleId: distinct(positions.map((p) => ({ value: p.vehicleId, label: p.vehicleName }))).sort(
+      byLabel,
+    ),
+    sponsorId: distinct(positions.map((p) => ({ value: p.sponsorId, label: p.sponsorName }))).sort(
+      byLabel,
+    ),
     sector: distinct(
       positions.flatMap((p) =>
         p.sector === null ? [] : [{ value: p.sector, label: labelOf(p.sector) }],

@@ -37,7 +37,8 @@ import { fetchValueCreationExport, valueCreationQuery } from './value-creation-q
 import { hasFilters } from './value-creation-filters.js';
 import { shownView } from './value-creation-view.js';
 import type { ShownView } from './value-creation-view.js';
-import { useValueCreationFilters, ValueCreationFilterBar } from './ValueCreationFilterBar.js';
+import { useValueCreationFilters } from './useValueCreationFilters.js';
+import { ValueCreationFilterBar } from './ValueCreationFilterBar.js';
 import {
   canOpenEbitda,
   DEFAULT_SORT,
@@ -99,7 +100,11 @@ function HeadlineTiles({ portfolio }: { portfolio: Portfolio }): ReactNode {
 }
 
 /** The positions the split leaves out: a quiet count, the positions and their reasons on demand. */
-function NotCalculableNote({ positions }: { positions: readonly ValueCreationPosition[] }): ReactNode {
+function NotCalculableNote({
+  positions,
+}: {
+  positions: readonly ValueCreationPosition[];
+}): ReactNode {
   const left = positions.filter((p) => p.gainNotCalculable !== null);
   if (left.length === 0) return null;
   return (

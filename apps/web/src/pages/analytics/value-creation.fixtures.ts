@@ -1,9 +1,5 @@
 import { entryCohortBands, valueCreationRollup } from '@pb/calc';
-import type {
-  InvestmentValueCreation,
-  ValueCreation,
-  ValueCreationPosition,
-} from '@pb/contracts';
+import type { InvestmentValueCreation, ValueCreation, ValueCreationPosition } from '@pb/contracts';
 
 /*
  * Contract-shaped synthetic fixtures for the value creation tabs and the deal card (docs/12

@@ -24,7 +24,8 @@ import { valueCreationQuery } from './value-creation-queries.js';
 import { hasFilters } from './value-creation-filters.js';
 import { shownView } from './value-creation-view.js';
 import type { ShownView } from './value-creation-view.js';
-import { useValueCreationFilters, ValueCreationFilterBar } from './ValueCreationFilterBar.js';
+import { useValueCreationFilters } from './useValueCreationFilters.js';
+import { ValueCreationFilterBar } from './ValueCreationFilterBar.js';
 import { entryMultiplePoints, leftOutText, listedCohorts, moicBars } from './value-creation.js';
 import './analytics.css';
 
