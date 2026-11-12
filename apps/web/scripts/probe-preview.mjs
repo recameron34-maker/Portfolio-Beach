@@ -263,7 +263,12 @@ check(
 /** Route paths from src/app/router.tsx: the helper calls and the explicit createRoute paths. */
 function routerPaths() {
   const source = readFileSync(new URL('../src/app/router.tsx', import.meta.url), 'utf8');
-  const parents = { child: '', dealTab: '/portfolio/$id', analyticsTab: '/analytics' };
+  const parents = {
+    child: '',
+    dealTab: '/portfolio/$id',
+    analyticsTab: '/analytics',
+    filteredAnalyticsTab: '/analytics',
+  };
   const paths = new Set();
   for (const m of source.matchAll(/\b([A-Za-z]+)\(\s*'(\/[^']*)'/g)) {
     const [, helper, path] = m;
