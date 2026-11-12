@@ -69,6 +69,7 @@ import {
   investmentDetailRoute,
   opportunitiesRoute,
   opportunityCommandRoute,
+  opportunityFitRoute,
   opportunityRoute,
   putAllocationsRoute,
 } from './pipeline.js';
@@ -129,6 +130,7 @@ export const SIM_ROUTES: readonly SimRoute[] = [
   opportunitiesRoute,
   createOpportunityRoute,
   opportunityRoute,
+  opportunityFitRoute,
   opportunityCommandRoute,
   createDiligenceTaskRoute,
   diligenceTaskCommandRoute,

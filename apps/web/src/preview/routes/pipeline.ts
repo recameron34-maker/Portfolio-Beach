@@ -13,6 +13,7 @@ import {
   investmentPage,
   opportunityCommandBody,
   opportunityCreateBody,
+  opportunityFit,
   opportunityListQuery,
   sponsorPage,
   vehicleList,
@@ -41,6 +42,7 @@ import {
   totalsForReader,
 } from '@pb/workflows';
 import type { StageMove } from '@pb/workflows';
+import { getKey } from '../keys.js';
 import { recordMiss } from '../monitor.js';
 import { overlayRecordedBody } from '../overlay.js';
 import { jsonResponse, problem, workflowProblem } from '../problems.js';
@@ -281,6 +283,46 @@ export const opportunityRoute = defineSimRoute({
   handle: (req, ctx) => {
     const sim = opportunityFor(ctx, req.credential, req.params.id ?? '', req.url.pathname);
     return sim instanceof Response ? sim : answer(ctx, req.actor, sim);
+  },
+});
+
+/** Why a deal made in the preview has no fit to show. */
+const FIT_NOT_RECORDED =
+  'Portfolio fit is worked out by the API; a deal created in this preview has none recorded';
+
+/**
+ * GET /api/v1/opportunities/{id}/fit: how the deal sits against the portfolio (docs/08 section 8,
+ * decision 0018). The scores are the API's and nothing here works one out. A recorded deal
+ * answers what the API answered this credential, as of the recorded date and whatever has moved
+ * in this session since; a deal created in the preview has no recording, and says so with a 501
+ * the card words for the reader. A deal the credential cannot see is 404, as its detail is.
+ */
+export const opportunityFitRoute = defineSimRoute({
+  method: 'GET',
+  path: '/api/v1/opportunities/{id}/fit',
+  what: 'opportunity',
+  body: null,
+  query: asOfQuery,
+  handle: (req, ctx) => {
+    const instance = req.url.pathname;
+    const sim = opportunityFor(ctx, req.credential, req.params.id ?? '', instance);
+    if (sim instanceof Response) return sim;
+    const recorded = ctx.recordings.byKey(getKey(req.credential, instance));
+    if (recorded === undefined)
+      return problem(501, 'not-implemented', FIT_NOT_RECORDED, { instance, simulated: true });
+    const fit =
+      recorded.status === 200
+        ? ctx.recordings.read(req.credential, instance, opportunityFit)
+        : undefined;
+    // One date was recorded: the fit as of any other is outside the preview.
+    if (fit !== undefined && req.query.asOf !== undefined && req.query.asOf !== fit.asOf)
+      return problem(404, 'not-found', 'This request is outside the recorded preview', {
+        instance,
+      });
+    return new Response(recorded.text, {
+      status: recorded.status,
+      headers: { 'content-type': recorded.contentType, 'x-request-id': 'preview' },
+    });
   },
 });
 

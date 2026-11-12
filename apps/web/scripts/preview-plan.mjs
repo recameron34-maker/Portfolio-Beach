@@ -255,6 +255,8 @@ export function buildPlan(dataset, { dealTypes }) {
         paths: [
           withQuery('/api/v1/opportunities', { limit: LIST_LIMIT }),
           ...idsOf(dataset.opportunities).map((id) => segment('/api/v1/opportunities', id)),
+          // How each deal sits against the portfolio (docs/08 section 8): the radar chart's figures.
+          ...idsOf(dataset.opportunities).map((id) => segment('/api/v1/opportunities', id, '/fit')),
         ],
       },
       {

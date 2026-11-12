@@ -13,6 +13,7 @@ import type {
   InvestmentPerformance,
   LegalTerm,
   OpportunityDetail,
+  OpportunityFit,
   OpportunityRow,
   Person,
   Principal,
@@ -1456,6 +1457,48 @@ export function buildWorld(
     return row;
   };
   const opportunityWalled = (id: string): boolean => id === o.walled;
+  /**
+   * The fit the API answered for a recorded deal (docs/08 section 8): the figures and scores of
+   * the page fixture's worked example, the same for every deal here since only the route is under
+   * test. No deal made in a test has one.
+   */
+  const fitOf = (d: OpportunityDetail): OpportunityFit => ({
+    opportunityId: d.id,
+    asOf: AS_OF,
+    measures: [
+      { key: 'sponsor_relationship', score: '70', missing: null },
+      { key: 'track_record', score: '40', missing: null },
+      { key: 'fund_relationship', score: '100', missing: null },
+      { key: 'sector_room', score: '20', missing: null },
+      { key: 'sponsor_room', score: '75', missing: null },
+      { key: 'geography_room', score: '50', missing: null },
+      { key: 'size_fit', score: null, missing: 'no_target_commitment' },
+    ],
+    inputs: {
+      sponsorTier: 'sponsor_tier.active',
+      sponsorPositions: 3,
+      sponsorMoic: '1.6',
+      commitment: 'fund',
+      sector: d.sector,
+      sectorShare: '0.2',
+      sponsorShare: '0.05',
+      geography: d.geography,
+      geographyShare: '0.35',
+      targetCommitment: null,
+      currency: d.currency,
+      comparablePositions: 12,
+      medianPosition: '12000000',
+      sizeRatio: null,
+    },
+    thresholds: {
+      tierScores: { 'sponsor_tier.core': '100', 'sponsor_tier.active': '70' },
+      trackRecord: { zeroAtMoic: '1', fullAtMoic: '2.5' },
+      fundRelationship: { fund: '100', otherFund: '60', none: '0' },
+      caps: { sector: '0.25', sponsor: '0.2', geography: '0.7' },
+      size: { low: '0.5', high: '1.5', limit: '3' },
+    },
+    calcVersion: 'test',
+  });
 
   const b = new FixtureBuilder(users);
   b.add('', '/api/v1/auth/mock-users', {
@@ -1728,13 +1771,21 @@ export function buildWorld(
       });
       for (const d of opportunities) {
         const path = `/api/v1/opportunities/${d.id}`;
-        if (opportunityWalled(d.id) && !member) b.notFound(c, path);
-        else b.add(c, path, d);
+        if (opportunityWalled(d.id) && !member) {
+          b.notFound(c, path);
+          b.notFound(c, `${path}/fit`);
+        } else {
+          b.add(c, path, d);
+          b.add(c, `${path}/fit`, fitOf(d));
+        }
       }
       for (const cl of closings) b.add(c, `/api/v1/closings/${cl.id}`, cl);
     } else {
       b.forbidden(c, OPPORTUNITIES_PATH);
-      for (const d of opportunities) b.forbidden(c, `/api/v1/opportunities/${d.id}`);
+      for (const d of opportunities) {
+        b.forbidden(c, `/api/v1/opportunities/${d.id}`);
+        b.forbidden(c, `/api/v1/opportunities/${d.id}/fit`);
+      }
       for (const cl of closings) b.forbidden(c, `/api/v1/closings/${cl.id}`);
     }
   }

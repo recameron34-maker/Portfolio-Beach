@@ -341,7 +341,11 @@ describe('the recording plan', () => {
       CHANGE_REQUESTS_PATH,
       `/api/v1/change-requests/${REQUEST}`,
     ]);
-    expect(paths('pipeline')).toEqual([OPPORTUNITIES_PATH, `/api/v1/opportunities/${OPP}`]);
+    expect(paths('pipeline')).toEqual([
+      OPPORTUNITIES_PATH,
+      `/api/v1/opportunities/${OPP}`,
+      `/api/v1/opportunities/${OPP}/fit`,
+    ]);
     expect(paths('closings')).toEqual([`/api/v1/closings/${CLOSING}`]);
     expect(plan.families.map((f) => f.name)).not.toContain('intake');
     expect(paths('investment lists')).toHaveLength(
