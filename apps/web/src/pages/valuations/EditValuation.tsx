@@ -15,6 +15,7 @@ import {
 } from '@fluentui/react-components';
 import { Add16Regular, Dismiss16Regular } from '@fluentui/react-icons';
 import { useQuery } from '@tanstack/react-query';
+import { trimFractionZeros } from '@pb/calc';
 import { valuationEditBody } from '@pb/contracts';
 import type { ValuationDetail, ValuationEditBody } from '@pb/contracts';
 import { taxonomyQuery } from '../../app/queries.js';
@@ -42,8 +43,7 @@ function methodChoices(
 }
 
 /** A fair value without the zeros that say nothing: 27400000.00 and 27400000 are one value. */
-const plainMoney = (value: string): string =>
-  value.includes('.') ? value.replace(/0+$/, '').replace(/\.$/, '') : value;
+const plainMoney = (value: string): string => trimFractionZeros(value);
 
 /**
  * The edit of a Draft (docs/18 section 1): operations corrects the method, the fair value and

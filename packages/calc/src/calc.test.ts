@@ -31,6 +31,7 @@ import {
   takahashiAlexander,
   toDayNumber,
   toDecimalString,
+  trimFractionZeros,
   toSignedFlows,
   tvpi,
   unfunded,
@@ -282,6 +283,20 @@ describe('multiples', () => {
   });
   it('renders results as the contract decimal string, ten places half up, no exponent', () => {
     expect(toDecimalString(null)).toBeNull();
+    // The zeros that end a fraction go, then a point left bare; a whole number keeps its zeros.
+    for (const [text, plain] of [
+      ['0.2000000000', '0.2'],
+      ['5.0000000000', '5'],
+      ['10.0000000000', '10'],
+      ['0.0000000000', '0'],
+      ['-0.0500', '-0.05'],
+      ['27400000.00', '27400000'],
+      ['27400000', '27400000'],
+      ['100', '100'],
+      ['1.5', '1.5'],
+      ['', ''],
+    ] as const)
+      expect(trimFractionZeros(text), text).toBe(plain);
     expect(toDecimalString(D('0'))).toBe('0');
     expect(toDecimalString(D('100'))).toBe('100');
     expect(toDecimalString(D('10.5000'))).toBe('10.5');

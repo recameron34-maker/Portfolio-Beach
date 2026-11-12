@@ -1519,6 +1519,7 @@ export type DataExceptionCommandBody = z.infer<typeof dataExceptionCommandBody>;
 
 /** A taxonomy code of one domain, such as sector.software: the domain, a dot, then the code. */
 export const taxonomyCodeOf = (domain: string): z.ZodString =>
+  // eslint-disable-next-line security/detect-non-literal-regexp -- the domain is a taxonomy name written in code
   z.string().regex(new RegExp(`^${domain}\\.[a-z0-9_]+$`));
 
 /**

@@ -26,7 +26,7 @@ function phrase(name: string): string {
   const spaced = name
     .replace(/_/g, ' ')
     .replace(/([a-z])([A-Z])/g, '$1 $2')
-    .replace(/([A-Z]+)([A-Z][a-z])/g, '$1 $2');
+    .replace(/(?<=[A-Z])(?=[A-Z][a-z])/g, ' ');
   const sentence = spaced.charAt(0).toUpperCase() + spaced.slice(1).toLowerCase();
   return sentence.replace(ACRONYMS, (a) => a.toUpperCase());
 }

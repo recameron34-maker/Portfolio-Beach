@@ -24,8 +24,17 @@ footer p{margin:0 auto;max-width:70ch;color:inherit}
 .crest path{fill:currentColor}
 `;
 
+/** The base path without the slashes at either end, cut in loops (no pattern to backtrack). */
+function withoutEdgeSlashes(path: string): string {
+  let start = 0;
+  let end = path.length;
+  while (start < end && path[start] === '/') start += 1;
+  while (end > start && path[end - 1] === '/') end -= 1;
+  return path.slice(start, end);
+}
+
 export function renderNotFound(tokens: string, base: string): string {
-  const home = `/${base.replace(/^\/+|\/+$/g, '')}/`.replace('//', '/');
+  const home = `/${withoutEdgeSlashes(base)}/`.replace('//', '/');
   const body = html`<main>
       <div>
         <p class="wordmark">${SITE.name}</p>

@@ -10,6 +10,7 @@ import {
   formatPct,
   formatQuarter,
   formatYears,
+  groupThousands,
   clearTaxonomyLabels,
   joinList,
   labelOf,
@@ -31,6 +32,21 @@ describe('number and date display (docs/06 section 3)', () => {
     expect(formatMoneyMIn('-2500000', 'GBP')).toBe('-GBP 2.5M');
     expect(formatMoneyMIn(null, 'EUR')).toBe(MISSING);
     expect(formatMoneyM('abc')).toBe(MISSING);
+  });
+  it('groups the digits of a whole number in threes and leaves anything else alone', () => {
+    for (const [whole, grouped] of [
+      ['0', '0'],
+      ['999', '999'],
+      ['1000', '1,000'],
+      ['12345', '12,345'],
+      ['123456', '123,456'],
+      ['1234567', '1,234,567'],
+      ['-1234567', '-1,234,567'],
+      ['-999', '-999'],
+      ['1e+21', '1e+21'],
+      ['', ''],
+    ] as const)
+      expect(groupThousands(whole), whole).toBe(grouped);
   });
   it('formats MOIC, multiples and rates', () => {
     expect(formatMoic('1.8349')).toBe('1.83x');

@@ -67,3 +67,9 @@ Synthetic data and mock adapters throughout. Every phase ends with: all CI gates
 - [ ] SBOM, license report, dependency audit, pen-test scope document
 - [ ] Demo package and walkthrough on synthetic data
 - [ ] Transfer approvals, then repo transfer into the employer's GitHub org; employer configuration starts there
+
+## Asked by the owner, not yet scheduled (2026-11-12)
+For a later UI pass, in the owner's words "at some point". None of it is built.
+- [ ] **A UI pass with motion:** polish across the app and "impressive but professional" animations. Motion follows `docs/06` and stops under the reduced-motion setting.
+- [ ] **A co-investment map:** an interactive map of the headquarters of every co-investment and single-asset CV position. Needs a location on the portfolio company (check `docs/03` first) and synthetic places in `docs/14`; the map is drawn in the app, with no tiles or requests to another origin, so the static preview keeps working.
+- [ ] **A deal fit radar chart on the pipeline:** where detail is recorded on the sponsor, show how a deal fits the portfolio across several measures. The measures and their scales need the owner's choice before anything is drawn; a measure with no input shows the missing-value placeholder, never a guess (rule 10).

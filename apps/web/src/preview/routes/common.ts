@@ -397,7 +397,10 @@ export interface SortKey {
 }
 
 export const encodeCursor = (key: SortKey): string =>
-  btoa(`${key.at}|${key.id}`).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+  btoa(`${key.at}|${key.id}`)
+    .replace(/\+/g, '-')
+    .replace(/\//g, '_')
+    .replace(/={1,2}$/, '');
 
 export function decodeCursor(cursor: string): SortKey | null {
   let text: string;

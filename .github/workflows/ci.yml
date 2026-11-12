@@ -65,11 +65,35 @@ jobs:
     # actions: read is what the CodeQL action needs on a private repository (it reads its own
     # workflow run); without it the analysis ends in "Resource not accessible by integration".
     permissions: { contents: read, security-events: write, actions: read }
+    env:
+      # GitHub's code scanning and dependency review are offered to a public repository, and to a
+      # private one only with GitHub's paid code security. Where they are not offered the upload
+      # is refused ("Code scanning is not enabled for this repository"), so those three steps run
+      # when the repository is public or the repository variable CODE_SCANNING is "on". The free
+      # checks after them run always; the static analysis runs in the ci job's lint (decision 0016).
+      HOSTED_SCANNING: ${{ github.event.repository.private == false || vars.CODE_SCANNING == 'on' }}
     steps:
       - uses: actions/checkout@v4 # pin to SHA
       - uses: github/codeql-action/init@v3 # pin to SHA
+        if: env.HOSTED_SCANNING == 'true'
         with: { languages: 'javascript-typescript,python' }
       - uses: github/codeql-action/analyze@v3 # pin to SHA
+        if: env.HOSTED_SCANNING == 'true'
       - uses: actions/dependency-review-action@v4 # pin to SHA
-        if: github.event_name == 'pull_request'
+        if: env.HOSTED_SCANNING == 'true' && github.event_name == 'pull_request'
         with: { fail-on-severity: moderate, deny-licenses: 'GPL-2.0, GPL-3.0, AGPL-3.0' }
+      - uses: pnpm/action-setup@v4 # pin to SHA
+        with: { version: '${{ env.PNPM_VERSION }}' }
+      - uses: actions/setup-node@v4 # pin to SHA
+        with: { node-version-file: .nvmrc, cache: pnpm }
+      - uses: astral-sh/setup-uv@v5 # pin to SHA
+        with: { enable-cache: true }
+      - run: pnpm install --frozen-lockfile
+      # The same deny list as the dependency review above (package.json, check:licenses).
+      - run: pnpm check:licenses
+      # Known vulnerabilities at moderate and above, in the pnpm lockfile and in uv.lock. They ask
+      # the advisory databases, so they run on pull requests, as the dependency review does.
+      - run: pnpm check:audit
+        if: github.event_name == 'pull_request'
+      - run: pnpm check:audit:py
+        if: github.event_name == 'pull_request'

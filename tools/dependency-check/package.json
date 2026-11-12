@@ -1,0 +1,11 @@
+{
+  "name": "@pb/dependency-check",
+  "version": "0.1.0",
+  "private": true,
+  "description": "The licence deny list for installed dependencies (decision 0016). Runs on a private repository; reads what pnpm reports.",
+  "type": "module",
+  "scripts": {
+    "test": "vitest run",
+    "licenses": "node src/cli.mjs"
+  }
+}

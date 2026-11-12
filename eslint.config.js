@@ -5,6 +5,9 @@ import prettier from 'eslint-config-prettier';
 import globals from 'globals';
 import reactHooks from 'eslint-plugin-react-hooks';
 import reactRefresh from 'eslint-plugin-react-refresh';
+import security from 'eslint-plugin-security';
+import * as regexp from 'eslint-plugin-regexp';
+import noUnsanitized from 'eslint-plugin-no-unsanitized';
 
 /**
  * Domain packages hold financial logic. They may not read the wall clock, use randomness or
@@ -121,6 +124,52 @@ export default tseslint.config(
   {
     files: ['**/*.js', '**/*.mjs', '**/*.cjs', '**/*.config.ts'],
     ...tseslint.configs.disableTypeChecked,
+  },
+  /*
+   * Static analysis for security (decision 0016): pattern rules that run in `pnpm lint`, on a
+   * private repository as on a public one. Curated from the plugins' own sets: the two rules of
+   * eslint-plugin-security that flag every computed property and every file path are left out
+   * (hundreds of findings, none a defect), and its star-height check gives way to the exact
+   * backtracking analysis of eslint-plugin-regexp.
+   */
+  {
+    plugins: { security, regexp, 'no-unsanitized': noUnsanitized },
+    rules: {
+      'security/detect-bidi-characters': 'error',
+      'security/detect-buffer-noassert': 'error',
+      'security/detect-child-process': 'error',
+      'security/detect-disable-mustache-escape': 'error',
+      'security/detect-eval-with-expression': 'error',
+      'security/detect-new-buffer': 'error',
+      'security/detect-no-csrf-before-method-override': 'error',
+      'security/detect-non-literal-regexp': 'error',
+      'security/detect-non-literal-require': 'error',
+      'security/detect-possible-timing-attacks': 'error',
+      'security/detect-pseudoRandomBytes': 'error',
+      'regexp/no-super-linear-backtracking': 'error',
+      'regexp/no-super-linear-move': 'error',
+      'no-unsanitized/method': 'error',
+      'no-unsanitized/property': 'error',
+    },
+  },
+  {
+    // Tests, browser journeys and build scripts read this repository's own pages and fixtures,
+    // never outside input: a slow pattern or a pattern built from a name is no risk there.
+    files: [
+      '**/*.test.ts',
+      '**/*.test.tsx',
+      '**/*.spec.ts',
+      '**/e2e/**',
+      '**/scripts/**',
+      '**/src/test/**',
+      '**/test-fixtures.ts',
+    ],
+    rules: {
+      'security/detect-non-literal-regexp': 'off',
+      'security/detect-possible-timing-attacks': 'off',
+      'regexp/no-super-linear-backtracking': 'off',
+      'regexp/no-super-linear-move': 'off',
+    },
   },
   prettier,
 );

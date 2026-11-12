@@ -96,7 +96,7 @@ export type Token =
   | { kind: 'keyword'; value: string }
   | { kind: 'eof' };
 
-const NUMBER = /^[+-]?(?:[0-9]+\.?[0-9]*|\.[0-9]+)$/;
+const NUMBER = /^[+-]?(?:[0-9]+(?:\.[0-9]*)?|\.[0-9]+)$/;
 /** A real with extra signs or dots, as some writers emit (`--5`, `3.4.5`); read as far as it makes sense. */
 const LOOSE_NUMBER = /^([+-]*)([0-9]*)(?:\.([0-9]*))?/;
 

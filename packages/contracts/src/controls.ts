@@ -309,6 +309,7 @@ export type ValuationDetail = z.infer<typeof valuationDetail>;
 /* ---- Wire instruction register (M16, SEC-12.2) ---- */
 
 const digits = (min: number, max: number): z.ZodString =>
+  // eslint-disable-next-line security/detect-non-literal-regexp -- two numbers written in this file
   z.string().regex(new RegExp(`^\\d{${min},${max}}$`), `${min} to ${max} digits`);
 
 /**

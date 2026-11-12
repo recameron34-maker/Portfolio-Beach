@@ -13,10 +13,27 @@ function roundHalfAwayFromZero(value: number, places: number): number {
   return value < 0 ? -rounded : rounded;
 }
 
+/**
+ * A whole number's digits in groups of three: "1234567" is "1,234,567", a minus sign stays in
+ * front. Text that is not a whole number (an exponent, say) is returned as it came. Built in one
+ * pass over the digits, so the time taken grows with their number and no faster.
+ */
+export function groupThousands(whole: string): string {
+  const sign = whole.startsWith('-') ? '-' : '';
+  const digits = whole.slice(sign.length);
+  if (!/^\d+$/.test(digits)) return whole;
+  let grouped = '';
+  for (let i = 0; i < digits.length; i += 1) {
+    if (i > 0 && (digits.length - i) % 3 === 0) grouped += ',';
+    grouped += digits.charAt(i);
+  }
+  return sign + grouped;
+}
+
 function withGrouping(value: number, places: number): string {
   const fixed = roundHalfAwayFromZero(value, places).toFixed(places);
   const [whole, frac] = fixed.split('.');
-  const grouped = (whole ?? '0').replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+  const grouped = groupThousands(whole ?? '0');
   return frac === undefined ? grouped : `${grouped}.${frac}`;
 }
 

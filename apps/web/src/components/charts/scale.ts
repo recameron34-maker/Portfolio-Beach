@@ -1,3 +1,5 @@
+import { groupThousands } from '../../lib/format.js';
+
 /** Scale and tick helpers for the hand-written SVG charts (no chart library, docs/13). */
 
 export type ValueKind = 'money' | 'pct' | 'multiple' | 'count';
@@ -75,7 +77,7 @@ export function compactValue(value: number, kind: ValueKind): string {
     case 'multiple':
       return `${sign}${abs.toFixed(1)}x`;
     case 'count':
-      return `${sign}${abs.toFixed(0).replace(/\B(?=(\d{3})+(?!\d))/g, ',')}`;
+      return `${sign}${groupThousands(abs.toFixed(0))}`;
   }
 }
 

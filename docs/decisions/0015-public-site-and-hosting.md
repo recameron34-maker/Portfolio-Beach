@@ -30,7 +30,7 @@ Option 1.
 - The static preview shows the access rules from per-user recordings; it does not enforce them (decision 0008). The site says so beside the demo.
 - A production publish takes the domain over from whichever Worker holds it, without a prompt, when run outside a terminal (see Verification). The other repository will take the domain back on its next deploy while its configuration still names it: removing that line is a change in that repository for its owner to approve.
 - A manually started workflow appears in the Actions tab only once the workflow file is on the default branch, so publishing needs this branch merged first.
-- `wrangler` is a devDependency of `@pb/site` (pinned 4.146.0), so every install downloads its runtime packages. No new paid service: the host is the one the owner already uses.
+- `wrangler` is a devDependency of `@pb/site` (pinned 4.146.0 when this was written; 4.161.0 since decision 0016, for the advisories in its runtime's dependencies, with the dry run repeated), so every install downloads its runtime packages. No new paid service: the host is the one the owner already uses.
 - Nothing here touches Azure, the employer or any employer system.
 
 ## SEC IDs affected

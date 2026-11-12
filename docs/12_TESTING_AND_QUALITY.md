@@ -38,4 +38,4 @@
 - A component test waits for what it asserts. A status message is the page's own state and can land before the data it reports, so the assertion after a command uses `findBy` or `waitFor`, and a row action is clicked once it is offered again.
 
 ## 5. CI gates (required to merge)
-typecheck, lint, unit, db + RLS matrix, calc golden + property + Python cross-check, workflow tests, mock evals, style check (em dash, banned phrases, employer-data patterns), CodeQL, dependency review, secret scan. E2E, accessibility and report snapshots are required on PRs that touch the web app or report engine.
+typecheck, lint, unit, db + RLS matrix, calc golden + property + Python cross-check, workflow tests, mock evals, style check (em dash, banned phrases, employer-data patterns), CodeQL, dependency review, secret scan. Where GitHub does not offer CodeQL and dependency review (a private repository without its paid code security), their free equivalents are the gate: the security rules in `pnpm lint` and `pnpm check:dependencies` (decision 0016). E2E, accessibility and report snapshots are required on PRs that touch the web app or report engine.

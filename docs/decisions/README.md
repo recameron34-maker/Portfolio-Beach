@@ -12,3 +12,4 @@ Status values: Proposed, Accepted, Superseded (link the replacement).
 - 0013: Phase 3 plan: the controls (valuation workflow, capital activity and wires, change requests, closing and legal terms)
 - 0014: Value creation and entry metric analytics
 - 0015: A public website for the prototype, and how it is published
+- 0016: Security checks on a private repository (free equivalents of code scanning and dependency review)

@@ -16,6 +16,7 @@ import { escapeHtml } from './html.js';
 const DOCUMENT_TAGS = /<!doctype\b|<html[\s>]|<head[\s>]|<body[\s>]/i;
 
 function between(document: string, tag: string): string {
+  // eslint-disable-next-line security/detect-non-literal-regexp -- the tag is 'head' or 'body', named by this file
   const open = new RegExp(`<${tag}(?:\\s[^>]*)?>`, 'i').exec(document);
   const close = document.toLowerCase().lastIndexOf(`</${tag}>`);
   if (open === null || close === -1) throw new Error(`the built page has no <${tag}> element`);
