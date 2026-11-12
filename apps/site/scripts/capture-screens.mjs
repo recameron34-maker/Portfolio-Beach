@@ -1,7 +1,8 @@
 // Takes the screenshots the site and the brochures show, from the interactive preview: one page
 // session walked as the mock user who holds the role for each screen, at 1440 by 900 with a device
 // scale factor of 2, light theme. Each shot is written as WebP at two widths (2880 and 1440 pixels)
-// with a manifest beside them. Output: media/screens/ (generated, never committed).
+// with a manifest beside them. Output: media/screens/, which is committed (the host's build cannot
+// run a browser), so only shots that the page or a brochure shows are taken.
 //
 //   node scripts/capture-screens.mjs [--only name,name]
 import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
@@ -69,10 +70,6 @@ const hideGuide = page.getByRole('button', { name: 'Hide guide' });
 if ((await hideGuide.count()) > 0) await hideGuide.click();
 await shoot('home');
 
-await p.go('/portfolio');
-await page.getByTestId('portfolio-count').waitFor();
-await shoot('portfolio');
-
 const investments = (await p.read('head.one', '/api/v1/investments?limit=200')).items;
 /** The one-pager shown: an active equity co-investment with a mark on the quarter end. */
 const featured =
@@ -85,9 +82,12 @@ await shoot('one-pager');
 await p.go(`/portfolio/${featured.id}/performance`);
 await page.getByRole('table', { name: 'Quarterly financials' }).waitFor();
 await shoot('performance');
-
-await p.go('/portfolio/watchlist');
-await shoot('watchlist');
+// The value creation card of the same deal, from its tiles down to the indexed lines.
+await page.getByTestId('deal-value-creation-bridge').waitFor();
+await shoot('deal-value-creation', {
+  top: page.getByTestId('deal-value-creation-tiles'),
+  offset: 115,
+});
 
 await p.go('/analytics');
 await page.getByRole('heading', { level: 1, name: 'Analytics' }).waitFor();
@@ -98,6 +98,13 @@ await p.go('/analytics/credit');
 await shoot('analytics-credit');
 await p.go('/analytics/realizations');
 await shoot('analytics-realizations');
+// Value creation and entry metrics, taken before any valuation below changes a figure.
+await p.go('/analytics/value-creation');
+await page.getByTestId('value-creation-bridge').waitFor();
+await shoot('value-creation', { top: page.getByTestId('value-creation-tiles'), offset: 132 });
+await p.go('/analytics/entry-metrics');
+await page.getByTestId('entry-multiple-bars').waitFor();
+await shoot('entry-metrics');
 
 // ---- Operations: intake, the document hub, extraction ------------------------------------------
 await p.switchUser('ops.one');
@@ -107,14 +114,6 @@ await page.waitForURL(/#\/data\/intake\/[0-9a-f-]{36}$/);
 await page.getByTestId('intake-tiles').waitFor();
 await shoot('intake');
 
-await p.go('/data/lookthrough');
-await page.getByTestId('lookthrough-run').waitFor();
-await page.getByRole('button', { name: 'Reconcile' }).click();
-await page.waitForURL(/#\/data\/lookthrough\/[0-9a-f-]{36}$/);
-await page.getByTestId('lookthrough-tiles').waitFor();
-await p.go('/data/exceptions');
-await shoot('exceptions');
-
 await p.go('/documents');
 await page.getByRole('button', { name: 'Index documents' }).click();
 await page
@@ -122,7 +121,6 @@ await page
   .filter({ hasText: 'Indexed' })
   .waitFor({ timeout: 60_000 });
 await page.getByRole('table', { name: 'Documents' }).waitFor();
-await shoot('documents');
 
 // The extraction switch is off by default; a platform admin turns it on (audited in the API).
 await p.send('admin.one', 'PATCH', '/api/v1/flags/ai.extraction', {
@@ -187,10 +185,6 @@ const draft = await p.send('ops.one', 'POST', '/api/v1/valuations', {
 const command = (who, name) =>
   p.send(who, 'POST', `/api/v1/valuations/${draft.id}/commands`, { command: name });
 await command('ops.one', 'prepare');
-await p.go('/valuations');
-await page.getByRole('table', { name: 'Valuations' }).waitFor();
-await page.getByLabel('Search').fill('Cobalt');
-await shoot('valuations');
 await command('deal.one', 'dealTeamApprove');
 await command('head.one', 'lock');
 await p.switchUser('head.one');
@@ -203,36 +197,33 @@ await p.switchUser('ops.one');
 const notices = (await p.read('ops.one', '/api/v1/capital-notices?limit=200')).items;
 const notice = notices.find((n) => n.scenarioTag === 'wire_change');
 if (notice === undefined) throw new Error('the preview has no capital call with a changed wire');
-await p.go('/capital-activity');
-await shoot('capital-activity');
 await p.go(`/capital-activity/${notice.id}`);
 await page.getByTestId('notice-banner').waitFor();
 await shoot('capital-notice');
-await p.go('/capital-activity/wires');
-await page.getByRole('table', { name: 'Wire instructions' }).waitFor();
-await shoot('wire-register');
 
-// ---- The deal team: the pipeline and a deal in diligence ---------------------------------------
+// ---- A closing: the commitment first, the client breakdown beneath its vehicle -------------------
+const opportunities = (await p.read('ops.one', '/api/v1/opportunities?limit=200')).items;
+const closingDeal = opportunities.find((o) => o.stage === 'Closing');
+if (closingDeal === undefined) throw new Error('the preview has no deal at the closing stage');
+await p.go(`/pipeline/${closingDeal.id}/closing`);
+await page.getByTestId('closing-panel').waitFor();
+const breakdown = page.getByRole('button', { name: /^Client breakdown/ }).first();
+await breakdown.waitFor();
+await breakdown.click();
+await shoot('closing');
+
+// ---- The deal team: the pipeline board -------------------------------------------------------------
 await p.switchUser('deal.one');
 await p.go('/pipeline');
 await page.getByTestId('pipeline-column-Sourced').waitFor();
 await shoot('pipeline');
-const opportunities = (await p.read('deal.one', '/api/v1/opportunities?limit=200')).items;
-const inDiligence = opportunities.find((o) => o.stage === 'Diligence');
-if (inDiligence !== undefined) {
-  await p.go(`/pipeline/${inDiligence.id}`);
-  await page.getByTestId('opportunity-banner').waitFor();
-  await shoot('opportunity');
-}
 
-// ---- The auditor and the platform admin: the audit trail, access and walls ----------------------
-await p.switchUser('audit.one');
-await p.go('/admin/audit');
-await page.getByTestId('audit-note').waitFor();
-await shoot('audit');
-await p.switchUser('admin.one');
-await p.go('/admin/access');
-await shoot('access');
+// ---- A viewer: the same deal's totals, and the count of the client lines not shown ----------------
+await p.switchUser('viewer.one');
+await p.go(`/pipeline/${closingDeal.id}`);
+await page.getByTestId('opportunity-banner').waitFor();
+await page.getByTestId('allocations-hidden-lines').waitFor();
+await shoot('allocations-viewer', { top: page.getByTestId('allocations-lead'), offset: 420 });
 
 if (pageErrors.length > 0)
   throw new Error(`page errors while capturing: ${pageErrors.join(' | ')}`);
@@ -266,7 +257,9 @@ if (only === null) rmSync(OUT, { recursive: true, force: true });
 mkdirSync(OUT, { recursive: true });
 const manifest = { generatedFrom: 'apps/web/dist-preview', asOf, viewport: VIEWPORT, shots: [] };
 for (const shot of shots) {
-  const large = await toWebp(shot.png, VIEWPORT.width * SCALE, 0.9);
+  // The large file is shown at half its size or in the lightbox: a lower quality still reads
+  // cleanly there and keeps the committed folder small.
+  const large = await toWebp(shot.png, VIEWPORT.width * SCALE, 0.82);
   const small = await toWebp(shot.png, VIEWPORT.width, 0.9);
   writeFileSync(join(OUT, `${shot.name}-2x.webp`), large);
   writeFileSync(join(OUT, `${shot.name}.webp`), small);
