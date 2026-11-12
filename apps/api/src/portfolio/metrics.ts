@@ -1,22 +1,32 @@
 import {
   CALC_VERSION,
   D,
+  ZERO,
+  alignedQuarterEnd,
+  containingQuarterEnd,
   currentYield,
   ebitdaMargin,
   evToEbitda,
+  flaggedIrr,
+  holdingPeriodYears,
   interestCoverage,
   latestPeriod,
+  latestQuarterEndOnOrBefore,
   leverageThroughTranche,
   loanToValue,
   moic,
   netDebtToEbitda,
+  nextQuarterEnd,
+  pooledFigures,
+  pooledReturns,
   sameQuarterPriorYear,
   summarizeFlows,
+  toDecimalString,
   toSignedFlows,
-  xirr,
   yoyGrowth,
 } from '@pb/calc';
-import type { Decimal, FlowKind, IrrReason, TypedCashFlow } from '@pb/calc';
+import type { CashFlow, FlowKind, IrrFlag, TypedCashFlow } from '@pb/calc';
+import type { PooledMetrics, SeriesPoint } from '@pb/contracts';
 
 export interface FlowRow {
   flowDate: string;
@@ -39,16 +49,19 @@ export interface PositionMetrics {
   navDate: string | null;
   grossMoic: string | null;
   grossIrr: string | null;
-  irrFlag: 'short_period' | IrrReason | null;
+  /** no_valuation: something still held has no Locked mark, so there is no terminal value. */
+  irrFlag: IrrFlag;
+  /** First contribution to the exit (realized) or the as-of date (held), in 365-day years (docs/08 section 2). */
+  holdingPeriodYears: string | null;
   calcVersion: string;
 }
 
-const str = (d: Decimal | null): string | null =>
-  d === null ? null : d.toFixed(10).replace(/\.?0+$/, '');
+/** Decimal to the contract's decimal string (@pb/calc toDecimalString); null stays null. */
+export const str = toDecimalString;
 
-function kindOf(flowType: string): FlowKind {
-  const k = flowType.replace('flow_type.', '');
-  return k as FlowKind;
+/** The flow kind packages/calc expects: the taxonomy code without its domain prefix. */
+export function kindOf(flowType: string): FlowKind {
+  return flowType.replace('flow_type.', '') as FlowKind;
 }
 
 /** Latest Locked valuation on or before the as-of date: the NAV date rule (docs/03 section 4). */
@@ -64,12 +77,26 @@ export function latestLockedValuation(
   return best;
 }
 
+/**
+ * The gross IRR over signed flows that already end in the NAV, and its flag, by the one rule of
+ * @pb/calc (flaggedIrr): while something still held has no Locked mark the NAV is not calculable,
+ * and an IRR without it would be an invented number (CLAUDE.md rule 10), so there is none.
+ */
+function grossIrrOf(
+  signed: readonly CashFlow[],
+  navCalculable: boolean,
+): Pick<PositionMetrics, 'grossIrr' | 'irrFlag'> {
+  const { grossIrr, irrFlag } = flaggedIrr(signed, navCalculable);
+  return { grossIrr: str(grossIrr), irrFlag };
+}
+
 /** Gross deal-level metrics from approved cash flows and the latest Locked valuation (docs/08). */
 export function positionMetrics(
   flows: readonly FlowRow[],
   valuations: readonly ValuationRow[],
   asOf: string,
   isActive: boolean,
+  exitDate: string | null,
 ): PositionMetrics {
   const typed: TypedCashFlow[] = flows
     .filter((f) => f.flowDate <= asOf)
@@ -77,24 +104,23 @@ export function positionMetrics(
   const summary = summarizeFlows(typed);
   const nav = isActive ? latestLockedValuation(valuations, asOf) : null;
   const invested = summary.contributions.isZero() ? null : summary.contributions;
+  // A realized position holds nothing, so its NAV is 0; an active one without a Locked mark has
+  // no NAV, and nothing that needs one (MOIC, IRR) is calculable either.
   const navValue = nav === null ? (isActive ? null : D('0')) : D(nav.fairValue);
   const grossMoic =
-    invested === null ? null : moic(summary.distributions, navValue ?? D('0'), invested);
+    invested === null || navValue === null ? null : moic(summary.distributions, navValue, invested);
   const signed = toSignedFlows(typed);
   if (nav !== null) signed.push({ date: asOf, amount: nav.fairValue });
-  const irr = signed.length >= 2 ? xirr(signed) : null;
-  let irrFlag: PositionMetrics['irrFlag'] = null;
-  if (irr === null) irrFlag = 'insufficient_flows';
-  else if (irr.value === null) irrFlag = irr.reason ?? 'no_root';
-  else if (irr.shortPeriod) irrFlag = 'short_period';
   return {
     invested: str(invested),
     distributions: invested === null ? null : str(summary.distributions),
     nav: str(navValue),
     navDate: nav?.periodEnd ?? null,
     grossMoic: str(grossMoic),
-    grossIrr: irr?.value === undefined || irr.value === null ? null : str(irr.value),
-    irrFlag,
+    ...grossIrrOf(signed, navValue !== null),
+    holdingPeriodYears: str(
+      holdingPeriodYears(summary.firstContributionDate, isActive ? asOf : (exitDate ?? asOf)),
+    ),
     calcVersion: CALC_VERSION,
   };
 }
@@ -109,7 +135,8 @@ export interface OperatingRow {
   netDebt: string | null;
 }
 
-export interface OperatingView {
+/** One quarter's approved figures and the ratios docs/08 section 4 derives from them. */
+export interface OperatingPeriod {
   periodEnd: string;
   revenueLtm: string | null;
   ebitdaLtm: string | null;
@@ -118,12 +145,34 @@ export interface OperatingView {
   evToEbitda: string | null;
   netDebtToEbitda: string | null;
   ebitdaMargin: string | null;
-  revenueYoy: string | null;
-  ebitdaYoy: string | null;
-  priorYearPeriodEnd: string | null;
 }
 
-/** Latest approved quarter with ratios and the exact prior-year comparison (docs/08 sections 4 and 5). */
+export interface OperatingView extends OperatingPeriod {
+  revenueYoy: string | null;
+  ebitdaYoy: string | null;
+  /** The same fiscal quarter one year earlier, exactly (docs/08 section 5); null when not on record. */
+  priorYear: OperatingPeriod | null;
+}
+
+function periodFigures(row: OperatingRow): OperatingPeriod {
+  const ev = row.ev === null ? null : D(row.ev);
+  return {
+    periodEnd: row.periodEnd,
+    revenueLtm: row.revenueLtm,
+    ebitdaLtm: row.ebitdaLtm,
+    ev: row.ev,
+    netDebt: row.netDebt,
+    evToEbitda: ev === null ? null : str(evToEbitda(ev, row.ebitdaLtm)),
+    netDebtToEbitda: row.netDebt === null ? null : str(netDebtToEbitda(row.netDebt, row.ebitdaLtm)),
+    ebitdaMargin: row.ebitdaLtm === null ? null : str(ebitdaMargin(row.ebitdaLtm, row.revenueLtm)),
+  };
+}
+
+/**
+ * Latest approved quarter with its ratios, the growth against the same quarter a year earlier
+ * and that quarter's own figures (docs/08 sections 4 and 5); the prior year is the exact match
+ * or nothing, never the nearest quarter.
+ */
 export function operatingView(
   rows: readonly OperatingRow[],
   asOf: string,
@@ -137,21 +186,11 @@ export function operatingView(
     latest.periodEnd,
     { toleranceDays: priorYearToleranceDays },
   );
-  const ev = latest.ev === null ? null : D(latest.ev);
   return {
-    periodEnd: latest.periodEnd,
-    revenueLtm: latest.revenueLtm,
-    ebitdaLtm: latest.ebitdaLtm,
-    ev: latest.ev,
-    netDebt: latest.netDebt,
-    evToEbitda: ev === null ? null : str(evToEbitda(ev, latest.ebitdaLtm)),
-    netDebtToEbitda:
-      latest.netDebt === null ? null : str(netDebtToEbitda(latest.netDebt, latest.ebitdaLtm)),
-    ebitdaMargin:
-      latest.ebitdaLtm === null ? null : str(ebitdaMargin(latest.ebitdaLtm, latest.revenueLtm)),
+    ...periodFigures(latest),
     revenueYoy: str(yoyGrowth(latest.revenueLtm, prior?.revenueLtm ?? null)),
     ebitdaYoy: str(yoyGrowth(latest.ebitdaLtm, prior?.ebitdaLtm ?? null)),
-    priorYearPeriodEnd: prior?.periodEnd ?? null,
+    priorYear: prior === null ? null : periodFigures(prior),
   };
 }
 
@@ -209,4 +248,119 @@ export function creditView(
     covenantStatus: latest.covenantStatus,
     paymentStatus: latest.paymentStatus,
   };
+}
+
+export interface PositionInput {
+  flows: readonly FlowRow[];
+  valuations: readonly ValuationRow[];
+  isActive: boolean;
+}
+
+/**
+ * Pooled gross metrics over a set of positions (vehicle, sponsor, client slice, whole portfolio):
+ * flows are pooled, NAV is the sum of each active position's latest Locked mark, and the IRR runs
+ * over the pooled flows plus the summed NAV as a terminal flow (docs/08 sections 2 and 3). Pooled
+ * flows can change sign more than once, so the IRR flag matters. Never a JS number for money.
+ *
+ * A set with no position at all (the primary program, a sponsor the caller holds nothing with, a
+ * reader behind every wall) has nothing to pool: every figure is null, never 0, and the IRR flag
+ * says why (docs/06 section 3). This sums the typed flows and the Locked marks; the multiples,
+ * the terminal flow and the IRR are pooledReturns of @pb/calc, the rule the value creation
+ * cohorts pool by too, so every view that pools gets its answer from that one function.
+ */
+export function pooledPositionMetrics(
+  positions: readonly PositionInput[],
+  asOf: string,
+): PooledMetrics {
+  const typed: TypedCashFlow[] = [];
+  let navSum = ZERO;
+  let unmarked = false;
+  for (const p of positions) {
+    for (const f of p.flows) {
+      if (f.flowDate <= asOf)
+        typed.push({ date: f.flowDate, kind: kindOf(f.flowType), amount: f.amount });
+    }
+    if (p.isActive) {
+      const nav = latestLockedValuation(p.valuations, asOf);
+      if (nav === null) unmarked = true;
+      else navSum = navSum.plus(nav.fairValue);
+    }
+  }
+  const summary = summarizeFlows(typed);
+  return pooledFigures(
+    pooledReturns({
+      count: positions.length,
+      contributions: summary.contributions,
+      distributions: summary.distributions,
+      // Realized positions hold nothing (0). One active position with no Locked mark leaves the
+      // pool's NAV unknown: counting it as 0 would understate NAV and invent MOIC and IRR (rule 10).
+      nav: unmarked ? null : navSum,
+      flows: toSignedFlows(typed),
+      asOf,
+    }),
+  );
+}
+
+export interface NavSeriesOptions {
+  /** How many of the latest points to keep (definitions.analytics.navSeriesQuarters). */
+  quarters: number;
+  /** How far a period end may sit from its calendar quarter end (definitions.priorYearPeriodEndToleranceDays). */
+  toleranceDays: number;
+}
+
+/** A position as the NAV series needs it: its valuation versions and the dates it was held between. */
+export interface NavSeriesPosition {
+  valuations: readonly ValuationRow[];
+  entryDate: string;
+  exitDate: string | null;
+}
+
+/**
+ * NAV at each calendar quarter end, oldest first, the latest `quarters` points: the NAV date rule
+ * (docs/03 section 4) applied at every quarter end, the one NAV series rule for every view that
+ * charts NAV by quarter (analytics, vehicle detail).
+ *
+ * Every position held on a quarter end (entered on or before it, not exited by it) counts at its
+ * latest Locked mark reporting for that quarter or an earlier one. A mark within `toleranceDays`
+ * of a calendar quarter end reports for it (alignedQuarterEnd, the prior-year tolerance of docs/08
+ * section 5), so a sponsor closing its books a few days early or late lands on the quarter; a mark
+ * further from any quarter end reports from the next one. A position whose sponsor missed a
+ * quarter is carried at its earlier mark, as the NAV tiles carry it, so a missing mark never shows
+ * as a fall. A quarter end at which a held position has no Locked mark at all is not calculable
+ * (null), never a partial sum (CLAUDE.md rule 10). Only marks dated on or before the as-of date
+ * count, and the series ends at the last quarter end on or before it.
+ */
+export function lockedNavSeries(
+  positions: readonly NavSeriesPosition[],
+  asOf: string,
+  options: NavSeriesOptions,
+): SeriesPoint[] {
+  if (options.quarters === 0) return [];
+  const last = latestQuarterEndOnOrBefore(asOf);
+  const marked = positions.map((p) => ({
+    p,
+    marks: p.valuations
+      .filter((v) => v.state === 'Locked' && v.periodEnd <= asOf)
+      .map((v) => ({ v, reportsFor: alignedQuarterEnd(v.periodEnd, options.toleranceDays) })),
+  }));
+  let first: string | null = null;
+  for (const { marks } of marked)
+    for (const { reportsFor } of marks)
+      if (first === null || reportsFor < first) first = reportsFor;
+  if (first === null) return [];
+  const quarterEnds: string[] = [];
+  for (let q = containingQuarterEnd(first); q <= last; q = nextQuarterEnd(q)) quarterEnds.push(q);
+  return quarterEnds.slice(-options.quarters).map((periodEnd) => {
+    let total = ZERO;
+    for (const { p, marks } of marked) {
+      if (p.entryDate > periodEnd || (p.exitDate !== null && p.exitDate <= periodEnd)) continue;
+      let latest: ValuationRow | null = null;
+      for (const { v, reportsFor } of marks)
+        if (reportsFor <= periodEnd && (latest === null || v.periodEnd > latest.periodEnd))
+          latest = v;
+      if (latest === null) return { periodEnd, value: null };
+      total = total.plus(latest.fairValue);
+    }
+    return { periodEnd, value: str(total) };
+  });
 }

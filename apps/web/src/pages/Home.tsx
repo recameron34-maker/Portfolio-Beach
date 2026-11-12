@@ -1,83 +1,403 @@
 import type { ReactNode } from 'react';
 import { Link } from '@tanstack/react-router';
-import { useQuery } from '@tanstack/react-query';
-import { Spinner } from '@fluentui/react-components';
-import { dataHealthQuery, investmentsQuery, meQuery } from '../app/queries.js';
-import { Card, ErrorState, SectionHeader, StatTile } from '../components/ui.js';
-import { formatDate, formatMoic, formatMoneyM } from '../lib/format.js';
+import { keepPreviousData, useQuery } from '@tanstack/react-query';
+import { Button, Spinner } from '@fluentui/react-components';
+import type { AnalyticsSummary, CapitalNoticePage, Watchlist, WatchlistItem } from '@pb/contracts';
+import {
+  analyticsQuery,
+  capitalNoticesQuery,
+  dataHealthQuery,
+  meQuery,
+  watchlistQuery,
+} from '../app/queries.js';
+import { HorizontalBars, knownRuns, Sparkline } from '../components/charts/index.js';
+import { NavTrendCard } from '../components/NavTrendCard.js';
+import { PreviewGuide } from '../components/PreviewGuide.js';
+import { UnavailableState } from '../components/UnavailableState.js';
+import {
+  Badge,
+  Card,
+  EmptyState,
+  NumCell,
+  PageHeader,
+  PageSkeleton,
+  SectionHeader,
+  StatTile,
+  TableWrap,
+} from '../components/ui.js';
+import {
+  formatDate,
+  formatMoic,
+  formatMoneyM,
+  irrDisplay,
+  labelOf,
+  plural,
+} from '../lib/format.js';
+import { irrFlagHint, watchFlagLabel } from '../lib/labels.js';
+import { usePreviewGuide } from '../lib/preview-guide.js';
+import { humanizeState, noticeTone } from '../lib/states.js';
 
-function sum(values: (string | null)[]): string | null {
-  let total = 0;
-  let any = false;
-  for (const v of values) {
-    if (v === null) continue;
-    total += Number(v);
-    any = true;
-  }
-  return any ? total.toFixed(2) : null;
+/** Rows the dashboard shows before pointing at the full list. */
+const ATTENTION_ROWS = 8;
+const NOTICE_ROWS = 6;
+
+/** Numbers feed chart geometry only; every displayed figure is formatted from the API's decimal string. */
+const toNumber = (value: string | null): number | null => (value === null ? null : Number(value));
+
+function Tiles({ summary }: { summary: AnalyticsSummary }): ReactNode {
+  const a = summary.active;
+  // The sparkline shows the latest unbroken run of calculable quarters only, so it never draws
+  // across a quarter whose NAV is not calculable and its label counts what it shows.
+  const series = summary.navSeries.map((p) => toNumber(p.value));
+  const latestRun = knownRuns(series).at(-1) ?? [];
+  const navPoints = latestRun.at(-1)?.i === series.length - 1 ? latestRun.map((p) => p.v) : [];
+  return (
+    <div className="pb-tiles pb-home-tiles" data-testid="home-tiles">
+      <StatTile label="Active positions" value={String(summary.activeInvestments)} />
+      <StatTile label="Invested capital" value={formatMoneyM(a.invested)} hint="Active positions" />
+      <StatTile
+        wide
+        label="Current NAV"
+        value={formatMoneyM(a.nav)}
+        hint="Latest Locked valuations"
+        figure={
+          navPoints.length >= 2 ? (
+            <Sparkline
+              values={navPoints}
+              label={`NAV trend over the last ${navPoints.length} quarters`}
+            />
+          ) : undefined
+        }
+      />
+      <StatTile
+        label="Gross MOIC"
+        value={formatMoic(a.grossMoic)}
+        hint="(distributions + NAV) / invested"
+      />
+      <StatTile label="DPI" value={formatMoic(a.dpi)} hint="Distributions / invested" />
+      <StatTile label="TVPI" value={formatMoic(a.tvpi)} hint="Total value / invested" />
+      <StatTile
+        label="Gross IRR"
+        value={irrDisplay(a)}
+        hint={irrFlagHint(a.irrFlag) ?? 'Pooled cash flows, XIRR'}
+      />
+    </div>
+  );
 }
 
-export function HomePage(): ReactNode {
-  const me = useQuery(meQuery);
-  const investments = useQuery(investmentsQuery({ active: 'true', limit: 200 }));
-  const health = useQuery(dataHealthQuery);
-  if (investments.isPending || me.isPending) return <Spinner label="Loading the portfolio" />;
-  if (investments.isError)
-    return <ErrorState title="Portfolio unavailable" detail={investments.error.message} />;
-  const items = investments.data.items;
-  const invested = sum(items.map((i) => i.invested));
-  const nav = sum(items.map((i) => i.nav));
-  const distributions = sum(items.map((i) => i.distributions));
-  const moic =
-    invested === null || Number(invested) === 0
-      ? null
-      : ((Number(nav ?? '0') + Number(distributions ?? '0')) / Number(invested)).toString();
+function AttentionRow({ item }: { item: WatchlistItem }): ReactNode {
+  return (
+    <li>
+      <span className="pb-attention-main">
+        <Link to="/portfolio/$id" params={{ id: item.investmentId }}>
+          {item.companyName}
+        </Link>
+        <span className="pb-meta">{item.vehicleName}</span>
+      </span>
+      <span className="pb-chips">
+        {item.flags.map((f) => (
+          <span key={f.code} title={f.message}>
+            <Badge tone={f.severity}>{watchFlagLabel(f.code)}</Badge>
+          </span>
+        ))}
+      </span>
+    </li>
+  );
+}
+
+function AttentionBody({ data }: { data: Watchlist }): ReactNode {
+  const shown = data.items.slice(0, ATTENTION_ROWS);
   return (
     <>
-      <div className="pb-banner">
-        <h1>Welcome, {me.data?.displayName}</h1>
-        <span className="pb-meta">
-          As of {formatDate(investments.data.asOf)}. Figures cover the positions you are entitled to
-          see.
-        </span>
-      </div>
-      <div className="pb-tiles" data-testid="home-tiles">
-        <StatTile label="Active positions" value={String(items.length)} />
-        <StatTile label="Invested capital" value={formatMoneyM(invested)} />
-        <StatTile label="Current NAV" value={formatMoneyM(nav)} hint="Latest Locked valuations" />
-        <StatTile
-          label="Gross MOIC"
-          value={formatMoic(moic)}
-          hint="(distributions + NAV) / invested"
+      <p className="pb-chips">
+        <Badge tone={data.counts.bad > 0 ? 'bad' : 'neutral'}>
+          Needs action: {data.counts.bad}
+        </Badge>
+        <Badge tone={data.counts.watch > 0 ? 'watch' : 'neutral'}>Watch: {data.counts.watch}</Badge>
+        <Badge tone="good">Clear: {data.counts.clear}</Badge>
+      </p>
+      {shown.length === 0 ? (
+        <EmptyState
+          title="Nothing flagged"
+          detail="No active position breaches a monitoring threshold."
         />
-      </div>
+      ) : (
+        <ul className="pb-attention" aria-label="Flagged positions">
+          {shown.map((item) => (
+            <AttentionRow key={item.investmentId} item={item} />
+          ))}
+        </ul>
+      )}
+      <p className="pb-meta">
+        <Link to="/portfolio/watchlist">Open the watchlist</Link>
+        {data.items.length > shown.length
+          ? ` for all ${data.items.length} flagged positions.`
+          : ' for the thresholds and every flag.'}
+      </p>
+    </>
+  );
+}
+
+function AttentionCard(): ReactNode {
+  const q = useQuery({ ...watchlistQuery, placeholderData: keepPreviousData });
+  return (
+    <Card testId="home-attention">
+      <SectionHeader aside={q.data !== undefined ? `As of ${formatDate(q.data.asOf)}` : undefined}>
+        Attention
+      </SectionHeader>
+      {q.isPending ? <Spinner size="tiny" label="Loading the watchlist" /> : null}
+      {q.isError ? <UnavailableState inline error={q.error} subject="The watchlist" /> : null}
+      {q.data !== undefined ? <AttentionBody data={q.data} /> : null}
+    </Card>
+  );
+}
+
+function NoticesBody({ page }: { page: CapitalNoticePage }): ReactNode {
+  const rows = page.attention.slice(0, NOTICE_ROWS);
+  if (rows.length === 0) {
+    return (
+      <EmptyState
+        title="Nothing due"
+        detail={`No notice is open or due within ${plural(page.alertDaysBeforeDue, 'day')} of ${formatDate(page.asOf)}.`}
+      />
+    );
+  }
+  return (
+    <>
+      <TableWrap label="Capital activity needing attention">
+        <table className="pb-table" aria-label="Capital activity needing attention">
+          <thead>
+            <tr>
+              <th>Notice</th>
+              <th>Due</th>
+              <th className="num">Amount</th>
+              <th>State</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((n) => (
+              <tr key={n.id}>
+                <td>
+                  <Link to="/capital-activity/$id" params={{ id: n.id }}>
+                    {labelOf(n.noticeType)}
+                  </Link>
+                  <span className="pb-cell-sub">
+                    {n.companyName ?? n.sponsorFundName ?? n.vehicleName}
+                  </span>
+                </td>
+                <td className="pb-nowrap">
+                  {formatDate(n.dueDate)}
+                  {n.daysToDue < 0 ? (
+                    <span className="pb-cell-sub">
+                      <Badge tone="bad">Overdue</Badge>
+                    </span>
+                  ) : null}
+                </td>
+                <NumCell>{formatMoneyM(n.amount)}</NumCell>
+                <td>
+                  <Badge tone={noticeTone(n.state)}>{humanizeState(n.state)}</Badge>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </TableWrap>
+      <p className="pb-meta">
+        <Link to="/capital-activity">Open capital activity</Link>
+        {page.attention.length > rows.length
+          ? ` for all ${page.attention.length} notices needing attention.`
+          : ' for every notice.'}
+      </p>
+    </>
+  );
+}
+
+function CapitalActivityCard(): ReactNode {
+  const q = useQuery({ ...capitalNoticesQuery({}), placeholderData: keepPreviousData });
+  return (
+    <Card testId="home-capital">
+      <SectionHeader
+        aside={
+          q.data !== undefined
+            ? `Alerts ${plural(q.data.alertDaysBeforeDue, 'day')} before due`
+            : undefined
+        }
+      >
+        Capital activity
+      </SectionHeader>
+      {q.isPending ? <Spinner size="tiny" label="Loading capital notices" /> : null}
+      {q.isError ? (
+        <UnavailableState
+          inline
+          error={q.error}
+          subject="Capital activity"
+          testId="home-capital-unavailable"
+        />
+      ) : null}
+      {q.data !== undefined ? <NoticesBody page={q.data} /> : null}
+    </Card>
+  );
+}
+
+function ChartsRow({ summary }: { summary: AnalyticsSummary }): ReactNode {
+  const vehicles = summary.exposures.vehicle.map((b) => ({
+    label: b.label,
+    value: Number(b.nav ?? '0'),
+    display: formatMoneyM(b.nav),
+  }));
+  const largest = vehicles[0];
+  return (
+    <div className="pb-two-col">
       <Card>
-        <SectionHeader>Data health</SectionHeader>
-        {health.isPending ? <Spinner size="tiny" /> : null}
-        {health.isError ? <p>Data health is unavailable for your role.</p> : null}
-        {health.data !== undefined ? (
-          <p>
-            {health.data.orphanInvestments === 0 ? (
-              <span className="pb-status-good">No orphan investments.</span>
-            ) : (
-              <span className="pb-status-bad">
-                {health.data.orphanInvestments} orphan investments.
-              </span>
-            )}{' '}
-            {health.data.openExceptions} open data exceptions. {health.data.staleInvestments}{' '}
-            positions without approved financials in the last {health.data.staleAfterDays} days.{' '}
+        <SectionHeader aside="Active positions">Exposure</SectionHeader>
+        {largest === undefined ? (
+          <EmptyState
+            title="No active positions"
+            detail="Exposure appears once positions are active."
+          />
+        ) : (
+          <HorizontalBars
+            title="Exposure by vehicle"
+            subtitle="Locked marks only"
+            data={vehicles}
+            kind="money"
+            valueColumn="NAV"
+            summary={`NAV by vehicle across ${plural(vehicles.length, 'vehicle')}; the largest is ${largest.label} at ${largest.display}.`}
+            testId="home-exposure"
+          />
+        )}
+      </Card>
+      <NavTrendCard points={summary.navSeries} heading="Trend" testId="home-nav-series" />
+    </div>
+  );
+}
+
+function DataHealthCard(): ReactNode {
+  const health = useQuery({ ...dataHealthQuery, placeholderData: keepPreviousData });
+  return (
+    <Card>
+      <SectionHeader
+        aside={
+          health.data !== undefined ? <>Stale after {health.data.staleAfterDays} days</> : undefined
+        }
+      >
+        Data health
+      </SectionHeader>
+      {health.isPending ? <Spinner size="tiny" label="Loading data health" /> : null}
+      {health.isError ? (
+        <UnavailableState inline error={health.error} subject="Data health" />
+      ) : null}
+      {health.data !== undefined ? (
+        <>
+          <p className="pb-chips">
+            <Badge tone={health.data.orphanInvestments === 0 ? 'good' : 'bad'}>
+              {health.data.orphanInvestments === 0
+                ? 'No orphan investments'
+                : `${health.data.orphanInvestments} orphan investments`}
+            </Badge>
+            <Badge tone={health.data.openExceptions === 0 ? 'neutral' : 'watch'}>
+              {health.data.openExceptions} open data exceptions
+            </Badge>
+            <Badge tone={health.data.staleInvestments === 0 ? 'neutral' : 'watch'}>
+              {health.data.staleInvestments} stale positions
+            </Badge>
+          </p>
+          <p className="pb-meta">
+            Stale means no approved financials in the last {health.data.staleAfterDays} days.{' '}
             <Link to="/data/health">Open Data Health</Link>.
           </p>
-        ) : null}
-      </Card>
-      <Card>
-        <SectionHeader>Start here</SectionHeader>
-        <p>
-          <Link to="/portfolio">Portfolio grid</Link> shows every position with invested capital,
-          NAV, MOIC and IRR from the calculation library. Open a row for the one-pager with
-          operating ratios, prior-year comparison, credit terms, valuations and cash flows.
-        </p>
-      </Card>
+        </>
+      ) : null}
+    </Card>
+  );
+}
+
+function StartHereCard(): ReactNode {
+  return (
+    <Card>
+      <SectionHeader>Start here</SectionHeader>
+      <ul className="pb-linklist">
+        <li>
+          <Link to="/portfolio">Portfolio grid</Link>
+          <span className="pb-meta">Every position with invested capital, NAV, MOIC and IRR</span>
+        </li>
+        <li>
+          <Link to="/analytics">Analytics</Link>
+          <span className="pb-meta">Exposure, performance, credit book and realizations</span>
+        </li>
+        <li>
+          <Link to="/valuations">Valuations</Link>
+          <span className="pb-meta">Versions and states across the portfolio</span>
+        </li>
+        <li>
+          <Link to="/capital-activity">Capital Activity</Link>
+          <span className="pb-meta">Calls, distributions and funding</span>
+        </li>
+        <li>
+          <Link to="/sponsors">Sponsors</Link>
+          <span className="pb-meta">Funds, positions and commitments by sponsor</span>
+        </li>
+        <li>
+          <Link to="/data/health">Data Health</Link>
+          <span className="pb-meta">Orphans, open exceptions and stale positions</span>
+        </li>
+        <li>
+          <Link to="/data/dictionary">Data Dictionary</Link>
+          <span className="pb-meta">Field definitions and display rules (docs/03 section 4)</span>
+        </li>
+      </ul>
+    </Card>
+  );
+}
+
+/** The dashboard a partner opens every morning: pooled figures, what needs attention, exposure and trend. */
+export function HomePage(): ReactNode {
+  const me = useQuery(meQuery);
+  const analytics = useQuery({ ...analyticsQuery, placeholderData: keepPreviousData });
+  const guide = usePreviewGuide();
+  if (me.isPending || analytics.isPending) return <PageSkeleton tiles={7} rows={3} />;
+  const summary = analytics.data;
+  const name = me.data?.displayName;
+  return (
+    <>
+      <PageHeader
+        title={name === undefined ? 'Welcome' : `Welcome, ${name}`}
+        meta={
+          <>
+            {summary !== undefined ? `As of ${formatDate(summary.asOf)}. ` : ''}
+            Figures cover the positions you are entitled to see.
+          </>
+        }
+        actions={
+          guide.hidden ? (
+            <Button
+              size="small"
+              appearance="secondary"
+              autoFocus={guide.focus === 'show'}
+              onClick={guide.show}
+            >
+              Show the preview guide
+            </Button>
+          ) : undefined
+        }
+      />
+      {guide.open ? (
+        <PreviewGuide variant="home" onHide={guide.hide} focusHide={guide.focus === 'hide'} />
+      ) : null}
+      {summary !== undefined ? (
+        <Tiles summary={summary} />
+      ) : (
+        <UnavailableState error={analytics.error} subject="Portfolio analytics" />
+      )}
+      <div className="pb-two-col">
+        <AttentionCard />
+        <CapitalActivityCard />
+      </div>
+      {summary !== undefined ? <ChartsRow summary={summary} /> : null}
+      <div className="pb-two-col">
+        <DataHealthCard />
+        <StartHereCard />
+      </div>
     </>
   );
 }

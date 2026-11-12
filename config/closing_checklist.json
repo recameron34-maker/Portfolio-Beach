@@ -1,0 +1,16 @@
+{
+  "_note": "The required-document checklist every closing starts with (docs/04 M8, docs/18 section 12). Operations cannot confirm a closing while a required item is open; an optional item is tracked but never blocks. Codes are stable identifiers (deal.closing_item.item_code); labels are what the checklist shows.",
+  "items": [
+    {
+      "code": "signed_documents",
+      "label": "Signed subscription and transaction documents",
+      "required": true
+    },
+    { "code": "cap_table", "label": "Closing capitalization table", "required": true },
+    { "code": "funds_flow", "label": "Funds flow memorandum", "required": true },
+    { "code": "wire_confirmation", "label": "Wire confirmation", "required": true },
+    { "code": "consents", "label": "Required consents recorded", "required": true },
+    { "code": "side_letter", "label": "Side letter", "required": false },
+    { "code": "closing_memo", "label": "Closing memo", "required": false }
+  ]
+}

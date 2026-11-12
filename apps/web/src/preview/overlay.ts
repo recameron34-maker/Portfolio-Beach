@@ -1,0 +1,548 @@
+import definitions from '../../../../config/definitions.json';
+import {
+  addDays,
+  ebitdaMargin,
+  evToEbitda,
+  growthSinceEntry,
+  latestPeriod,
+  latestQuarterEndOnOrBefore,
+  lockedNear,
+  multipleDelta,
+  netDebtToEbitda,
+  sameQuarterPriorYear,
+  toDecimalString,
+  valueChange,
+  yoyGrowth,
+} from '@pb/calc';
+import type { Decimal } from '@pb/calc';
+import {
+  capitalNoticePage,
+  dataHealth,
+  featureFlagList,
+  investmentDetail,
+  investmentPage,
+  investmentPerformance,
+  investmentSummary,
+  valuationPage,
+} from '@pb/contracts';
+import type {
+  CapitalNoticeControlDetail,
+  CapitalNoticePage,
+  DataHealth,
+  InvestmentDetail,
+  InvestmentPage,
+  InvestmentPerformance,
+  QuarterRow,
+  ValuationPage,
+  ValuationRow,
+} from '@pb/contracts';
+import type { z } from 'zod';
+import type { Recordings } from './fixtures.js';
+import { controlDetailOf, controlsTouched, recordedNoticeDetail } from './routes/register.js';
+import type { RecordedNoticeDetail } from './routes/register.js';
+import { QUARTERLY_FIGURE_KEYS, createdInvestmentVisible } from './state.js';
+import type {
+  PreviewState,
+  SimException,
+  SimInvestment,
+  SimNotice,
+  SimPromotedQuarter,
+  SimValuation,
+} from './state.js';
+
+/**
+ * Read overlays: recorded GET bodies with this session's simulated changes laid over them, so lists
+ * and the one-pager show what the simulated workflow did. Each overlay is a pure function that
+ * returns its input unchanged when nothing applies. Records are added to a list only when the
+ * credential's own recorded investment detail answered 200, so a wall still hides what it hid.
+ * Figures stay as recorded: nothing here recomputes NAV, MOIC or IRR. The one figure read again
+ * is a valuation row's prior Locked mark with the change against it, which the API reads when
+ * it answers and which a reopen or a lock of this session changes.
+ */
+
+type FeatureFlagList = z.infer<typeof featureFlagList>;
+
+export interface ValuationFilters {
+  investmentId?: string;
+  periodEnd?: string;
+  state?: string;
+  vehicleId?: string;
+}
+
+/** A version as the one-pager lists it: what the prior mark of a row is read from. */
+export type VersionEntry = InvestmentDetail['valuations'][number];
+
+/** The versions of one position as they stand in this session (versionsNow). */
+export type VersionsOf = (investmentId: string) => readonly VersionEntry[];
+
+/** `definitions.priorYearPeriodEndToleranceDays`, the tolerance every quarter match reads. */
+function priorYearTolerance(): number {
+  const value: unknown = (definitions as Record<string, unknown>).priorYearPeriodEndToleranceDays;
+  return typeof value === 'number' && Number.isInteger(value) ? value : 7;
+}
+
+/**
+ * A board row with its prior Locked mark and the change against it read from the versions of
+ * its position as they now stand, the way the API reads them each time it answers
+ * (apps/api/src/valuations/valuations.service.ts toRows): the Locked version that reports for
+ * the quarter before the row's. A version that was reopened is no longer Locked, so the quarter
+ * after it has no prior mark, and no change, until its new version locks; the value of a
+ * version that no longer stands is never shown in its place (rule 10). The row itself is
+ * returned when nothing differs.
+ */
+export function withPriorMark(
+  row: ValuationRow,
+  versions: readonly VersionEntry[],
+  toleranceDays: number,
+): ValuationRow {
+  // The highest version first, so the latest wins on one period end (lockedNear).
+  const prior = lockedNear(
+    [...versions].sort((a, b) => b.version - a.version),
+    latestQuarterEndOnOrBefore(addDays(row.quarterEnd, -1)),
+    toleranceDays,
+  );
+  const priorFairValue = prior?.fairValue ?? null;
+  // Null without a prior Locked mark or against a zero one (docs/08 section 2).
+  const changePct = toDecimalString(valueChange(row.fairValue, priorFairValue));
+  return priorFairValue === row.priorFairValue && changePct === row.changePct
+    ? row
+    : { ...row, priorFairValue, changePct };
+}
+
+/** Every filter the record satisfies; a vehicle filter needs the record's vehicle to be known. */
+function matchesAll(sim: SimValuation, filters: ValuationFilters): boolean {
+  return (
+    (filters.investmentId === undefined || sim.row.investmentId === filters.investmentId) &&
+    (filters.periodEnd === undefined || sim.row.periodEnd === filters.periodEnd) &&
+    (filters.state === undefined || sim.row.state === filters.state) &&
+    (filters.vehicleId === undefined || sim.vehicleId === filters.vehicleId)
+  );
+}
+
+export function overlayValuationPage(
+  page: ValuationPage,
+  sims: Iterable<SimValuation>,
+  filters: ValuationFilters,
+  canSee: (investmentId: string) => boolean,
+  versionsOf: VersionsOf,
+): ValuationPage {
+  const touched = new Map<string, SimValuation>();
+  for (const sim of sims) if (sim.changed) touched.set(sim.row.id, sim);
+  if (touched.size === 0) return page;
+  // Every row of a position whose versions changed this session, the recorded ones included,
+  // reads its prior mark from the versions as they now stand: a reopen takes the mark away from
+  // the next quarter's rows and a lock gives them the new one. Other positions stay as recorded.
+  const moved = new Set([...touched.values()].map((sim) => sim.row.investmentId));
+  const tolerance = priorYearTolerance();
+  const standing = new Map<string, readonly VersionEntry[]>();
+  const marked = (row: ValuationRow): ValuationRow => {
+    if (!moved.has(row.investmentId)) return row;
+    let versions = standing.get(row.investmentId);
+    if (versions === undefined) {
+      versions = versionsOf(row.investmentId);
+      standing.set(row.investmentId, versions);
+    }
+    return withPriorMark(row, versions, tolerance);
+  };
+  let changed = false;
+  const present = new Set<string>();
+  const items: ValuationPage['items'] = [];
+  for (const item of page.items) {
+    present.add(item.id);
+    const sim = touched.get(item.id);
+    if (sim === undefined) {
+      const row = marked(item);
+      if (row !== item) changed = true;
+      items.push(row);
+      continue;
+    }
+    changed = true;
+    // Only the state can move a listed record out of the filter: no list filters on the method
+    // or the value an edit changes.
+    if (filters.state === undefined || sim.row.state === filters.state) items.push(marked(sim.row));
+  }
+  const added: ValuationPage['items'] = [];
+  for (const sim of touched.values()) {
+    if (present.has(sim.row.id) || !matchesAll(sim, filters) || !canSee(sim.row.investmentId))
+      continue;
+    added.push(marked(sim.row));
+  }
+  if (!changed && added.length === 0) return page;
+  const periods = [...new Set([...page.periods, ...added.map((r) => r.quarterEnd)])].sort((a, b) =>
+    a < b ? 1 : a > b ? -1 : 0,
+  );
+  return { ...page, items: [...added, ...items], periods };
+}
+
+/** The one-pager's version list, keyed by period end and version, in the API's order. */
+export function overlayInvestmentDetail(
+  detail: InvestmentDetail,
+  sims: Iterable<SimValuation>,
+): InvestmentDetail {
+  const entries = new Map<string, InvestmentDetail['valuations'][number]>();
+  for (const v of detail.valuations) entries.set(`${v.periodEnd}#${v.version}`, v);
+  let changed = false;
+  for (const sim of sims) {
+    if (!sim.changed || sim.row.investmentId !== detail.id) continue;
+    const { periodEnd, version, state, fairValue, method } = sim.row;
+    entries.set(`${periodEnd}#${version}`, { periodEnd, version, state, fairValue, method });
+    changed = true;
+  }
+  if (!changed) return detail;
+  const valuations = [...entries.values()].sort((a, b) =>
+    a.periodEnd === b.periodEnd ? a.version - b.version : a.periodEnd < b.periodEnd ? -1 : 1,
+  );
+  return { ...detail, valuations };
+}
+
+export function overlayCapitalNoticePage(
+  page: CapitalNoticePage,
+  sims: Iterable<SimNotice>,
+  filters: { state?: string },
+): CapitalNoticePage {
+  const touched = new Map<string, SimNotice>();
+  for (const sim of sims) if (sim.changed) touched.set(sim.row.id, sim);
+  if (touched.size === 0) return page;
+  let changed = false;
+  const replace = (
+    rows: CapitalNoticePage['items'],
+    keep: (sim: SimNotice) => boolean,
+  ): CapitalNoticePage['items'] =>
+    rows.flatMap((row) => {
+      const sim = touched.get(row.id);
+      if (sim === undefined) return [row];
+      changed = true;
+      return keep(sim) ? [sim.row] : [];
+    });
+  const items = replace(
+    page.items,
+    (sim) => filters.state === undefined || sim.row.state === filters.state,
+  );
+  const attention = replace(page.attention, () => true);
+  return changed ? { ...page, items, attention } : page;
+}
+
+/**
+ * The recorded notice detail with this session's controls laid over it (decision 0013): the
+ * state and row version, the cash flow a reconcile wrote, the hold and its note from the
+ * simulated register, the ticket judged for the reader and the SEC-12.4 alerts. The recorded
+ * body is returned as it is until the notice, the register or a ticket changed this session.
+ */
+export function overlayCapitalNoticeDetail(
+  detail: RecordedNoticeDetail,
+  sim: SimNotice | undefined,
+  ctx: OverlayContext,
+): CapitalNoticeControlDetail | RecordedNoticeDetail {
+  if (sim === undefined || !controlsTouched(ctx, sim)) return detail;
+  return controlDetailOf(ctx, ctx.credential, detail, sim);
+}
+
+/* ---- The portfolio after a simulated close: the position the conversion created ---- */
+
+export interface InvestmentFilters {
+  dealType?: string;
+  active?: 'true' | 'false';
+}
+
+/**
+ * The portfolio grid with the positions a simulated close created this session laid on top:
+ * every created position the filters admit, first (it is the newest), its figures null since no
+ * flow or mark is on record for it (rule 10). The page is returned as it is when none applies.
+ */
+export function overlayInvestmentPage(
+  page: InvestmentPage,
+  sims: Iterable<SimInvestment>,
+  filters: InvestmentFilters,
+): InvestmentPage {
+  const present = new Set(page.items.map((i) => i.id));
+  const added: InvestmentPage['items'] = [];
+  for (const sim of sims) {
+    const { detail } = sim;
+    if (present.has(detail.id)) continue;
+    if (filters.dealType !== undefined && detail.dealType !== filters.dealType) continue;
+    if (filters.active === 'true' && !detail.isActive) continue;
+    if (filters.active === 'false' && detail.isActive) continue;
+    // The summary row is the detail's own columns; the grid schema strips the rest.
+    added.push(investmentSummary.parse(detail));
+  }
+  return added.length === 0 ? page : { ...page, items: [...added, ...page.items] };
+}
+
+export function overlayFlags(
+  list: FeatureFlagList,
+  overrides: ReadonlyMap<string, boolean>,
+): FeatureFlagList {
+  if (!list.flags.some((f) => overrides.has(f.key))) return list;
+  return {
+    flags: list.flags.map((f) => {
+      const enabled = overrides.get(f.key);
+      return enabled === undefined ? f : { ...f, enabled };
+    }),
+  };
+}
+
+/**
+ * Data Health's open exception count, as the API counts it (apps/api/src/data/data.controller.ts):
+ * every exception in open or acknowledged, whoever may see it, so the simulated intakes' exceptions
+ * add to the recorded count until they are resolved or closed.
+ */
+export function overlayDataHealth(health: DataHealth, sims: Iterable<SimException>): DataHealth {
+  let open = 0;
+  for (const sim of sims) if (sim.state === 'open' || sim.state === 'acknowledged') open += 1;
+  return open === 0 ? health : { ...health, openExceptions: health.openExceptions + open };
+}
+
+/* ---- The Performance tab: the quarters an approved extraction run promoted ---- */
+
+const str = toDecimalString;
+const APPROVED_STATUS = 'record_status.approved';
+const isApproved = (status: string): boolean =>
+  status.slice(status.indexOf('.') + 1) === 'approved';
+
+/** A quarter the record lacked, before the promoted figures are laid over it. */
+function blankQuarter(periodEnd: string): QuarterRow {
+  return {
+    periodEnd,
+    isEntrySnapshot: false,
+    status: APPROVED_STATUS,
+    revenueLtm: null,
+    ebitdaLtm: null,
+    ev: null,
+    netDebt: null,
+    cash: null,
+    totalEquity: null,
+    evToEbitda: null,
+    netDebtToEbitda: null,
+    ebitdaMargin: null,
+    revenueYoy: null,
+    ebitdaYoy: null,
+    highlights: [],
+    source: null,
+  };
+}
+
+const evMultiple = (row: Pick<QuarterRow, 'ev' | 'ebitdaLtm'>): Decimal | null =>
+  row.ev === null ? null : evToEbitda(row.ev, row.ebitdaLtm);
+const leverage = (row: Pick<QuarterRow, 'netDebt' | 'ebitdaLtm'>): Decimal | null =>
+  row.netDebt === null ? null : netDebtToEbitda(row.netDebt, row.ebitdaLtm);
+
+/** The quarter's own ratios from its figures, as apps/api/src/performance/performance.service.ts derives them. */
+function withRatios(row: QuarterRow, prior: QuarterRow | null): QuarterRow {
+  return {
+    ...row,
+    evToEbitda: str(evMultiple(row)),
+    netDebtToEbitda: str(leverage(row)),
+    ebitdaMargin: row.ebitdaLtm === null ? null : str(ebitdaMargin(row.ebitdaLtm, row.revenueLtm)),
+    revenueYoy: str(yoyGrowth(row.revenueLtm, prior?.revenueLtm ?? null)),
+    ebitdaYoy: str(yoyGrowth(row.ebitdaLtm, prior?.ebitdaLtm ?? null)),
+  };
+}
+
+/** The rows with the status word packages/calc reads ('approved'), for the latest-period rule. */
+const withCalcStatus = (rows: readonly QuarterRow[]): QuarterRow[] =>
+  rows.map((r) => (isApproved(r.status) ? { ...r, status: 'approved' } : r));
+
+/**
+ * The recorded performance with the promoted quarters laid over it: a promoted quarter replaces
+ * the recorded quarter of its period end (the figures written in dollars, the status approved,
+ * the source lineage, the narrative when accepted; every other column stays as recorded) or is
+ * added when the record lacked it. The ratios of the promoted quarters, the year-on-year columns
+ * and the since-entry block are derived again with the same @pb/calc functions the API uses, so
+ * no ratio is left standing next to a figure it no longer describes (rule 10). Nothing else is
+ * recomputed; a performance answer with no promoted quarter is returned as it is.
+ */
+export function overlayInvestmentPerformance(
+  perf: InvestmentPerformance,
+  promoted: Iterable<SimPromotedQuarter>,
+  toleranceDays: number,
+): InvestmentPerformance {
+  const own = [...promoted].filter((q) => q.investmentId === perf.investmentId);
+  if (own.length === 0) return perf;
+  const byPeriod = new Map(perf.quarters.map((q) => [q.periodEnd, q]));
+  for (const q of own) {
+    const base = byPeriod.get(q.periodEnd) ?? blankQuarter(q.periodEnd);
+    const row: QuarterRow = { ...base, status: APPROVED_STATUS, source: { ...q.source } };
+    for (const key of QUARTERLY_FIGURE_KEYS) {
+      const value = q.figures[key];
+      if (value !== undefined) row[key] = value;
+    }
+    if (q.highlights !== undefined) row.highlights = [...q.highlights];
+    byPeriod.set(q.periodEnd, row);
+  }
+  const ordered = [...byPeriod.values()].sort((a, b) =>
+    a.periodEnd < b.periodEnd ? -1 : a.periodEnd > b.periodEnd ? 1 : 0,
+  );
+  const approved = ordered.filter((r) => isApproved(r.status));
+  const promotedPeriods = new Set(own.map((q) => q.periodEnd));
+  const quarters = ordered.map((row) =>
+    withRatios(row, sameQuarterPriorYear(approved, row.periodEnd, { toleranceDays })),
+  );
+  // Only a promoted quarter's own ratios and every year-on-year column are derived again; an
+  // untouched quarter keeps the ratios the API answered.
+  const quartersKept = quarters.map((row, i) => {
+    const recorded = ordered[i];
+    if (recorded === undefined || promotedPeriods.has(row.periodEnd)) return row;
+    return {
+      ...row,
+      evToEbitda: recorded.evToEbitda,
+      netDebtToEbitda: recorded.netDebtToEbitda,
+      ebitdaMargin: recorded.ebitdaMargin,
+    };
+  });
+  const entry = perf.entry;
+  let sinceEntry = perf.sinceEntry;
+  if (entry !== null && entry.periodEnd <= perf.asOf) {
+    const latest = latestPeriod(withCalcStatus(quartersKept), perf.asOf);
+    sinceEntry =
+      latest === null
+        ? null
+        : {
+            periodEnd: latest.periodEnd,
+            revenueGrowth: str(growthSinceEntry(latest.revenueLtm, entry.revenueLtm)),
+            ebitdaGrowth: str(growthSinceEntry(latest.ebitdaLtm, entry.ebitdaLtm)),
+            multipleDelta: str(multipleDelta(evMultiple(latest), evMultiple(entry))),
+            evToEbitdaAtEntry: str(evMultiple(entry)),
+            netDebtToEbitdaAtEntry: str(leverage(entry)),
+          };
+  }
+  return { ...perf, quarters: quartersKept, sinceEntry };
+}
+
+/** Context the overlays read: the credential's own recordings decide what it may see. */
+export interface OverlayContext {
+  credential: string;
+  recordings: Recordings;
+  state: PreviewState;
+}
+
+/**
+ * The versions of a position as the credential sees them now: its recorded one-pager list (or
+ * the one-pager of a position a simulated close created) with this session's versions laid over
+ * it. Without either, the session's own versions of the position.
+ */
+export function versionsNow(
+  ctx: OverlayContext,
+  sims: ReadonlyMap<string, SimValuation>,
+  investmentId: string,
+): VersionEntry[] {
+  const detail =
+    ctx.state.investments.get(investmentId)?.detail ??
+    ctx.recordings.read(
+      ctx.credential,
+      `/api/v1/investments/${encodeURIComponent(investmentId)}`,
+      investmentDetail,
+    );
+  if (detail !== undefined) return overlayInvestmentDetail(detail, sims.values()).valuations;
+  return [...sims.values()]
+    .filter((sim) => sim.row.investmentId === investmentId)
+    .map(({ row: { periodEnd, version, state, fairValue, method } }) => ({
+      periodEnd,
+      version,
+      state,
+      fairValue,
+      method,
+    }));
+}
+
+const INVESTMENT = /^\/api\/v1\/investments\/([^/]+)$/;
+const PERFORMANCE = /^\/api\/v1\/investments\/([^/]+)\/performance$/;
+const NOTICE = /^\/api\/v1\/capital-notices\/([^/]+)$/;
+const ACTIVE_FILTERS = ['true', 'false'] as const;
+
+function param(url: URL, name: string): string | undefined {
+  const value = url.searchParams.get(name);
+  return value === null || value === '' ? undefined : value;
+}
+
+/**
+ * Applies the overlay for a recorded 200 GET body, if any. Returns the recorded text untouched
+ * when no overlay applies, nothing changed, or the body does not match its contract.
+ */
+export function overlayRecordedBody(url: URL, text: string, ctx: OverlayContext): string {
+  const { state } = ctx;
+  const path = url.pathname;
+  const parse = <T>(schema: z.ZodType<T>): T | undefined => {
+    try {
+      const parsed = schema.safeParse(JSON.parse(text));
+      return parsed.success ? parsed.data : undefined;
+    } catch {
+      return undefined;
+    }
+  };
+  const write = <T>(before: T | undefined, after: (value: T) => T): string => {
+    if (before === undefined) return text;
+    const next = after(before);
+    return next === before ? text : JSON.stringify(next);
+  };
+  const canSee = (investmentId: string): boolean =>
+    ctx.recordings.status(ctx.credential, `/api/v1/investments/${investmentId}`) === 200;
+
+  if (path === '/api/v1/flags' && state.flags.size > 0)
+    return write(parse(featureFlagList), (list) => overlayFlags(list, state.flags));
+
+  if (path === '/api/v1/data-health' && state.exceptions.size > 0)
+    return write(parse(dataHealth), (health) =>
+      overlayDataHealth(health, state.exceptions.values()),
+    );
+
+  if (state.promotedQuarters.size > 0 && PERFORMANCE.test(path))
+    return write(parse(investmentPerformance), (perf) =>
+      overlayInvestmentPerformance(perf, state.promotedQuarters.values(), priorYearTolerance()),
+    );
+
+  if (state.investments.size > 0 && path === '/api/v1/investments') {
+    const filters: InvestmentFilters = {};
+    const dealType = param(url, 'dealType');
+    if (dealType !== undefined) filters.dealType = dealType;
+    const active = param(url, 'active');
+    if (active !== undefined && (ACTIVE_FILTERS as readonly string[]).includes(active))
+      filters.active = active as (typeof ACTIVE_FILTERS)[number];
+    // A position a simulated close created sits behind the walls of its deal (SEC-5.3).
+    const visible = [...state.investments.values()].filter((sim) =>
+      createdInvestmentVisible(state, ctx.recordings, ctx.credential, sim),
+    );
+    return write(parse(investmentPage), (page) => overlayInvestmentPage(page, visible, filters));
+  }
+
+  if (state.valuations !== null) {
+    const sims = state.valuations;
+    if (path === '/api/v1/valuations') {
+      const filters: ValuationFilters = {};
+      for (const name of ['investmentId', 'periodEnd', 'state', 'vehicleId'] as const) {
+        const value = param(url, name);
+        if (value !== undefined) filters[name] = value;
+      }
+      return write(parse(valuationPage), (page) =>
+        overlayValuationPage(page, sims.values(), filters, canSee, (investmentId) =>
+          versionsNow(ctx, sims, investmentId),
+        ),
+      );
+    }
+    if (INVESTMENT.test(path))
+      return write(parse(investmentDetail), (detail) =>
+        overlayInvestmentDetail(detail, sims.values()),
+      );
+  }
+
+  if (state.notices !== null) {
+    const notices = state.notices;
+    if (path === '/api/v1/capital-notices') {
+      const noticeState = param(url, 'state');
+      return write(parse(capitalNoticePage), (page) =>
+        overlayCapitalNoticePage(
+          page,
+          notices.values(),
+          noticeState === undefined ? {} : { state: noticeState },
+        ),
+      );
+    }
+    const match = NOTICE.exec(path);
+    if (match !== null) {
+      const sim = notices.get(decodeURIComponent(match[1] ?? ''));
+      return write(parse(recordedNoticeDetail), (detail) =>
+        overlayCapitalNoticeDetail(detail, sim, ctx),
+      );
+    }
+  }
+  return text;
+}

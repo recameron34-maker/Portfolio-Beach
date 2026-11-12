@@ -1,0 +1,31 @@
+{
+  "brochures": [
+    {
+      "name": "product-overview",
+      "title": "Product overview",
+      "description": "What Portfolio Beach is, who uses it, how the work flows and the areas built today, with the roadmap.",
+      "file": "portfolio-beach-product-overview.pdf",
+      "cover": "product-overview.webp",
+      "pages": 3,
+      "bytes": 3181844
+    },
+    {
+      "name": "controls-and-security",
+      "title": "Controls and security",
+      "description": "What the prototype enforces: roles and walls, the preparer never approves, the valuation lock, wire controls and human review of AI output.",
+      "file": "portfolio-beach-controls-and-security.pdf",
+      "cover": "controls-and-security.webp",
+      "pages": 2,
+      "bytes": 1124248
+    },
+    {
+      "name": "analytics-and-monitoring",
+      "title": "Analytics and monitoring",
+      "description": "The monitoring board, each deal quarter by quarter, the watchlist and the analytics tabs, with a page on value creation and entry metrics.",
+      "file": "portfolio-beach-analytics-and-monitoring.pdf",
+      "cover": "analytics-and-monitoring.webp",
+      "pages": 3,
+      "bytes": 3027738
+    }
+  ]
+}

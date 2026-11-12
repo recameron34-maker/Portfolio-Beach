@@ -4,10 +4,18 @@ import {
   formatMoic,
   formatMoneyM,
   formatMonthYear,
+  formatMonthYearShort,
   formatMultiple,
   formatPct,
+  formatQuarter,
+  formatYears,
+  clearTaxonomyLabels,
+  joinList,
   labelOf,
+  registerTaxonomyLabels,
   MISSING,
+  moneyLabel,
+  plural,
 } from './format.js';
 
 describe('number and date display (docs/06 section 3)', () => {
@@ -33,8 +41,58 @@ describe('number and date display (docs/06 section 3)', () => {
     expect(formatDate(null)).toBe(MISSING);
     expect(formatDate('garbage')).toBe(MISSING);
   });
+  it('shortens month and year for chart axes and never guesses a month', () => {
+    expect(formatMonthYearShort('2025-06-30')).toBe('Jun 2025');
+    expect(formatMonthYearShort('2024-09-30')).toBe('Sep 2024');
+    expect(formatMonthYearShort('2026-01-15')).toBe('Jan 2026');
+    expect(formatMonthYearShort('2024-12-31')).toBe('Dec 2024');
+    for (const bad of [null, undefined, '', 'not a date', 'June 2025', '2024-13-31', '2024-00-31'])
+      expect(formatMonthYearShort(bad), String(bad)).toBe(MISSING);
+  });
+  it('shows a holding period to one decimal and never computes one', () => {
+    expect(formatYears('2.0027397260')).toBe('2.0 years');
+    expect(formatYears('3.7')).toBe('3.7 years');
+    expect(formatYears('0.0547945205')).toBe('0.1 years');
+    for (const bad of [null, undefined, '', 'soon'])
+      expect(formatYears(bad), String(bad)).toBe(MISSING);
+  });
+
+  it('counts with a plural noun and joins a list in plain words', () => {
+    expect(plural(1, 'quarter')).toBe('1 quarter');
+    expect(plural(0, 'quarter')).toBe('0 quarters');
+    expect(plural(3, 'quarter')).toBe('3 quarters');
+    expect(joinList([])).toBe('');
+    expect(joinList(['Q1 2024'])).toBe('Q1 2024');
+    expect(joinList(['Q1 2024', 'Q2 2024'])).toBe('Q1 2024 and Q2 2024');
+    expect(joinList(['A', 'B', 'C'])).toBe('A, B and C');
+  });
+  it('labels a quarter-end date by its calendar quarter', () => {
+    expect(formatQuarter('2025-06-30')).toBe('Q2 2025');
+    expect(formatQuarter('2023-09-30')).toBe('Q3 2023');
+    expect(formatQuarter('2023-12-28')).toBe('Q4 2023');
+    expect(formatQuarter('2024-03-31')).toBe('Q1 2024');
+    for (const bad of [null, undefined, '', 'June 2025', '2024-13-31', '2024-00-31'])
+      expect(formatQuarter(bad), String(bad)).toBe(MISSING);
+  });
+  it('labels chart numbers in $M from the API figure, never from arithmetic', () => {
+    expect(moneyLabel(346917161.92)).toBe('$346.9M');
+    expect(moneyLabel(-28891502.17)).toBe('-$28.9M');
+    expect(moneyLabel(0)).toBe('$0.0M');
+  });
   it('labels taxonomy codes', () => {
     expect(labelOf('deal_type.co_invest_equity')).toBe('Co invest equity');
     expect(labelOf(null)).toBe(MISSING);
+  });
+
+  it('prefers the taxonomy label once registered', () => {
+    registerTaxonomyLabels([
+      { code: 'base_rate.sofr', label: 'SOFR' },
+      { code: 'sector.financials', label: 'Financial services' },
+    ]);
+    expect(labelOf('base_rate.sofr')).toBe('SOFR');
+    expect(labelOf('sector.financials')).toBe('Financial services');
+    expect(labelOf('sector.software')).toBe('Software');
+    clearTaxonomyLabels();
+    expect(labelOf('base_rate.sofr')).toBe('Sofr');
   });
 });

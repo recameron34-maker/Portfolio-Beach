@@ -1,7 +1,8 @@
 from __future__ import annotations
 
-from decimal import Decimal
+from decimal import Decimal, localcontext
 
+from calc_check import CTX
 from calc_check.dates import days_between
 
 
@@ -28,6 +29,14 @@ def tvpi(distributions: Decimal, nav: Decimal, contributions: Decimal) -> Decima
 def moic(realized: Decimal, unrealized: Decimal, invested: Decimal) -> Decimal | None:
     inv = abs(invested)
     return None if inv == 0 else (realized + unrealized) / inv
+
+
+def value_change(current: Decimal | None, prior: Decimal | None) -> Decimal | None:
+    """Mark-to-mark change (current - prior) / prior; None when a value is missing or prior is 0."""
+    if current is None or prior is None or prior == 0:
+        return None
+    with localcontext(CTX):
+        return (current - prior) / prior
 
 
 def unfunded(

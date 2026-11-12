@@ -12,6 +12,8 @@ export const configSchema = z.object({
   PB_CONFIG_DIR: z.string().default('config'),
   PB_DOCUMENT_ROOT: z.string().default('.synthetic/documents'),
   PB_ACCOUNTING_ROOT: z.string().default('.synthetic/accounting'),
+  /** Drop folders: weekly values under <root>/weekly, ops workbooks under <root>/ops-drop, look-through extracts under <root>/lookthrough. */
+  PB_DROP_ROOT: z.string().default('.synthetic/drops'),
   PB_LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'silent']).default('info'),
   PB_VERSION: z.string().default('0.1.0'),
 });

@@ -1,0 +1,62 @@
+# The Portfolio Beach site (apps/site): build it from scratch, media included, and check it
+# (links, media, accessibility, no request to another origin). The built folder is kept as a
+# workflow artifact. A person starts every run by hand.
+# This workflow publishes NOTHING. Publishing is Cloudflare's own build, which the owner connected
+# to this repository: a push to main runs "npx wrangler deploy" with the wrangler.toml at the
+# repository root. See apps/site/README.md, "Publishing".
+# Actions are referenced by tag here; run `bash scripts/pin-actions.sh` on a signed-in machine to
+# rewrite every `uses:` to a full commit SHA before enabling branch protection (P0-3, SEC-17.5).
+name: site
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: site-check
+  cancel-in-progress: false
+env:
+  PNPM_VERSION: 10.28.0
+jobs:
+  build:
+    name: build and check the site
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4 # pin to SHA
+      - uses: pnpm/action-setup@v4 # pin to SHA
+        with: { version: '${{ env.PNPM_VERSION }}' }
+      - uses: actions/setup-node@v4 # pin to SHA
+        with: { node-version-file: .nvmrc, cache: pnpm }
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm typecheck
+      - run: bash scripts/check-style.sh
+      - run: bash scripts/check-employer-data.sh
+      - run: pnpm --filter @pb/site exec playwright install --with-deps chromium
+      # The screenshots, recordings and brochures use the system font stack. The cloud sandbox they
+      # were designed in resolves it to Inter; give the runner the same, where the package exists.
+      # The media scripts do not depend on it: the brochures are laid out to fit a wider font too.
+      - name: Inter as the system UI font
+        continue-on-error: true
+        run: |
+          sudo apt-get install -y --no-install-recommends fonts-inter
+          mkdir -p "$HOME/.config/fontconfig"
+          cat > "$HOME/.config/fontconfig/fonts.conf" <<'XML'
+          <?xml version="1.0"?>
+          <!DOCTYPE fontconfig SYSTEM "fonts.dtd">
+          <fontconfig>
+            <alias><family>system-ui</family><prefer><family>Inter</family></prefer></alias>
+            <alias><family>sans-serif</family><prefer><family>Inter</family></prefer></alias>
+          </fontconfig>
+          XML
+          fc-cache -f
+      # The preview, the screenshots, the recordings, the brochures, the pages, the demo copy and
+      # the employer-data guard over the built folder, in that order.
+      - run: pnpm --filter @pb/site build
+      # Links, assets, no request to another origin, the demo, the videos, the PDFs, accessibility.
+      - run: pnpm --filter @pb/site check
+      - uses: actions/upload-artifact@v4 # pin to SHA
+        with:
+          name: portfolio-beach-site
+          path: apps/site/dist
+          if-no-files-found: error
+          retention-days: 14

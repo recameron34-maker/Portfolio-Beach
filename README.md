@@ -29,6 +29,8 @@ pnpm test && pnpm test:calc && pnpm test:e2e     # unit, database, calc cross-ch
 ```
 What exists after Phase 0: the data layer with row-level security and audit (`packages/db`), the calculation library with a Python cross-check (`packages/calc`), workflow state machines (`packages/workflows`), adapter interfaces with mocks and the production guard (`packages/adapters`), the synthetic data generator (`tools/synthetic`), the API (`apps/api`) and the web shell (`apps/web`). Each has a README. The roadmap in `docs/09` records what is done and what is next.
 
+Since then, and ahead of their phases by decision 0006: read endpoints for analytics, the watchlist, the weekly report, vehicles and commitments, clients, sponsors, the performance series, the valuation board, capital notices, the audit trail, the taxonomy and walls, all under row-level security; and web pages for each of them, including the deal workspace tabs, a printable weekly report, a mock "Ask Portfolio Beach" assistant that answers from the figures without calling a model, and the Horizon Line design system (decision 0007). Writes stay out of the API until Phase 3. A static preview (`pnpm --filter @pb/web build:preview`, then `probe:preview`) replays the API's recorded answers for every mock user and simulates the valuation and capital notice workflows in the browser through the same transition tables, labelled as simulated (decision 0008). `docs/11` keeps every such capability at P until its acceptance tests exist.
+
 ## Docs
 Start with `CLAUDE.md` (doc map). Roadmap with exit criteria: `docs/09`. Completeness: `docs/11`.
 

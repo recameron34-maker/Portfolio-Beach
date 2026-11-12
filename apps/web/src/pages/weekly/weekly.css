@@ -1,0 +1,32 @@
+/* Weekly values pages (docs/04 M2 weekly-report-intake). Tokens only; the upload row, the drop
+   list, the row details and the filters reuse the intake page's classes (intake.css), which loads
+   with the shared cells; only what is the weekly table's own is here. */
+
+/* Nine columns: the value, the prior and the variance are figures, right-aligned and never wrapped. */
+.pb-weekly-rows td {
+  vertical-align: top;
+}
+.pb-weekly-rows .pb-weekly-figure {
+  text-align: right;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+.pb-weekly-rows .pb-weekly-figure .pb-cell-sub {
+  justify-content: flex-end;
+}
+.pb-weekly-variance {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 4px 6px;
+}
+.pb-weekly-files .pb-nowrap {
+  white-space: nowrap;
+}
+.pb-weekly-more {
+  margin: 12px 0 0;
+}
+.pb-weekly-board {
+  margin: 8px 0 0;
+}

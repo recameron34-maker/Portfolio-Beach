@@ -1,0 +1,140 @@
+{
+  "id": "19_value_creation_bridge",
+  "function": "value_creation_bridge",
+  "note": "EBITDA bridge by hand, order EBITDA, multiple, net debt; equity = EV - net debt. Case 1 is fixture 13's company (entry EBITDA 40, EV 400, net debt 150; now 65, 715, 120): EBITDA growth (65 - 40) x 400 / 40 = 250, multiple expansion (715 - 400) - 250 = 65 (65 x (11.0x - 10.0x)), debt paydown 150 - 120 = 30, total 595 - 250 = 345; shares 250/345, 65/345, 30/345 by long division; revenue growth (260 - 200) x 400 / 200 = 120 and margin change 250 - 120 = 130, the two revenue-side parts of fixture 13. Case 2 has no revenue and a multiple that does not terminate (250 / 30): EBITDA growth 7 x 250 / 30 = 58.33 recurring, held to 20 places; multiple expansion takes the remainder (330 - 250) - 58.33... = 21.66...67; net debt rose, so debt paydown is 100 - 110 = -10; total 220 - 150 = 70. Case 3: margin fell and the multiple contracted: 10 x 540 / 60 = 90; (595 - 540) - 90 = -35; 240 - 200 = 40; total 95; revenue (390 - 300) x 540 / 300 = 162, margin 90 - 162 = -72. Case 4: the parts cancel (50 - 30 - 20 = 0), so there are no shares. Cases 5 and 6: a revenue that is zero or absent leaves the split out. Cases 7 and 8: an EBITDA at or below zero has no multiple, so no bridge.",
+  "input": {
+    "cases": [
+      {
+        "entry": { "revenue": "200", "ebitda": "40", "ev": "400", "netDebt": "150" },
+        "current": { "revenue": "260", "ebitda": "65", "ev": "715", "netDebt": "120" }
+      },
+      {
+        "entry": { "ebitda": "30", "ev": "250", "netDebt": "100" },
+        "current": { "ebitda": "37", "ev": "330", "netDebt": "110" }
+      },
+      {
+        "entry": { "revenue": "300", "ebitda": "60", "ev": "540", "netDebt": "240" },
+        "current": { "revenue": "390", "ebitda": "70", "ev": "595", "netDebt": "200" }
+      },
+      {
+        "entry": { "ebitda": "50", "ev": "500", "netDebt": "200" },
+        "current": { "ebitda": "55", "ev": "520", "netDebt": "220" }
+      },
+      {
+        "entry": { "revenue": "0", "ebitda": "40", "ev": "400", "netDebt": "150" },
+        "current": { "revenue": "260", "ebitda": "65", "ev": "715", "netDebt": "120" }
+      },
+      {
+        "entry": { "revenue": "200", "ebitda": "40", "ev": "400", "netDebt": "150" },
+        "current": { "revenue": null, "ebitda": "65", "ev": "715", "netDebt": "120" }
+      },
+      {
+        "entry": { "revenue": "200", "ebitda": "0", "ev": "400", "netDebt": "150" },
+        "current": { "revenue": "260", "ebitda": "65", "ev": "715", "netDebt": "120" }
+      },
+      {
+        "entry": { "revenue": "200", "ebitda": "40", "ev": "400", "netDebt": "150" },
+        "current": { "revenue": "260", "ebitda": "-5", "ev": "715", "netDebt": "120" }
+      }
+    ]
+  },
+  "expected": {
+    "results": [
+      {
+        "reason": null,
+        "equityAtEntry": "250",
+        "equityCurrent": "595",
+        "ebitdaGrowth": "250",
+        "multipleExpansion": "65",
+        "debtPaydown": "30",
+        "total": "345",
+        "shares": {
+          "ebitdaGrowth": "0.7246376811594202898550724637681159",
+          "multipleExpansion": "0.1884057971014492753623188405797101",
+          "debtPaydown": "0.0869565217391304347826086956521739"
+        },
+        "revenueGrowth": "120",
+        "marginChange": "130"
+      },
+      {
+        "reason": null,
+        "equityAtEntry": "150",
+        "equityCurrent": "220",
+        "ebitdaGrowth": "58.33333333333333333333",
+        "multipleExpansion": "21.66666666666666666667",
+        "debtPaydown": "-10",
+        "total": "70",
+        "shares": {
+          "ebitdaGrowth": "0.8333333333333333333333333333333333",
+          "multipleExpansion": "0.3095238095238095238095238095238095",
+          "debtPaydown": "-0.1428571428571428571428571428571429"
+        },
+        "revenueGrowth": null,
+        "marginChange": null
+      },
+      {
+        "reason": null,
+        "equityAtEntry": "300",
+        "equityCurrent": "395",
+        "ebitdaGrowth": "90",
+        "multipleExpansion": "-35",
+        "debtPaydown": "40",
+        "total": "95",
+        "shares": {
+          "ebitdaGrowth": "0.9473684210526315789473684210526316",
+          "multipleExpansion": "-0.3684210526315789473684210526315789",
+          "debtPaydown": "0.4210526315789473684210526315789474"
+        },
+        "revenueGrowth": "162",
+        "marginChange": "-72"
+      },
+      {
+        "reason": null,
+        "equityAtEntry": "300",
+        "equityCurrent": "300",
+        "ebitdaGrowth": "50",
+        "multipleExpansion": "-30",
+        "debtPaydown": "-20",
+        "total": "0",
+        "shares": null,
+        "revenueGrowth": null,
+        "marginChange": null
+      },
+      {
+        "reason": null,
+        "equityAtEntry": "250",
+        "equityCurrent": "595",
+        "ebitdaGrowth": "250",
+        "multipleExpansion": "65",
+        "debtPaydown": "30",
+        "total": "345",
+        "shares": {
+          "ebitdaGrowth": "0.7246376811594202898550724637681159",
+          "multipleExpansion": "0.1884057971014492753623188405797101",
+          "debtPaydown": "0.0869565217391304347826086956521739"
+        },
+        "revenueGrowth": null,
+        "marginChange": null
+      },
+      {
+        "reason": null,
+        "equityAtEntry": "250",
+        "equityCurrent": "595",
+        "ebitdaGrowth": "250",
+        "multipleExpansion": "65",
+        "debtPaydown": "30",
+        "total": "345",
+        "shares": {
+          "ebitdaGrowth": "0.7246376811594202898550724637681159",
+          "multipleExpansion": "0.1884057971014492753623188405797101",
+          "debtPaydown": "0.0869565217391304347826086956521739"
+        },
+        "revenueGrowth": null,
+        "marginChange": null
+      },
+      { "reason": "non_positive_ebitda" },
+      { "reason": "non_positive_ebitda" }
+    ]
+  },
+  "tolerance": "1e-20"
+}

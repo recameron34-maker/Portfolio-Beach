@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react';
 import {
   createHashHistory,
   createRootRoute,
@@ -7,16 +8,83 @@ import {
   redirect,
 } from '@tanstack/react-router';
 import { AppShell } from '../components/AppShell.js';
-import { PlaceholderPage } from '../components/ui.js';
+import { ErrorState } from '../components/ui.js';
 import { AdminFlagsPage } from '../pages/AdminFlags.js';
+import { AccessPage, AuditPage, HealthPage } from '../pages/admin/Admin.js';
+import { TaxonomyPage } from '../pages/admin/Taxonomy.js';
+import {
+  AnalyticsLayout,
+  ClientAnalyticsTab,
+  CreditTab,
+  EntryMetricsTab,
+  ExposureTab,
+  PerformanceAnalyticsTab,
+  RealizationsTab,
+  ValueCreationTab,
+} from '../pages/analytics/Analytics.js';
+import { parseValueCreationSearch } from '../pages/analytics/value-creation-filters.js';
+import { AssistantsPage } from '../pages/assistants/Assistants.js';
+import {
+  CapitalActivityPage,
+  CapitalNoticePage,
+  CommitmentsPage,
+} from '../pages/capital/CapitalActivity.js';
 import { DataDictionaryPage, DataHealthPage } from '../pages/Data.js';
+import { IntakePage } from '../pages/intake/Intake.js';
+import { IntakeFilePage } from '../pages/intake/IntakeFile.js';
+import { WeeklyPage } from '../pages/weekly/Weekly.js';
+import { WeeklyFilePage } from '../pages/weekly/WeeklyFile.js';
+import { ExceptionDetailPage } from '../pages/exceptions/ExceptionDetail.js';
+import { ExceptionsPage } from '../pages/exceptions/Exceptions.js';
+import { parseExceptionsSearch } from '../pages/exceptions/exceptions.js';
+import { LookthroughPage } from '../pages/lookthrough/Lookthrough.js';
+import { LookthroughRunPage } from '../pages/lookthrough/LookthroughRun.js';
+import { MonitoringPage } from '../pages/monitoring/Monitoring.js';
+import { ActivityTab } from '../pages/deal/ActivityTab.js';
+import { CapitalTab } from '../pages/deal/CapitalTab.js';
+import { DealWorkspace } from '../pages/deal/DealWorkspace.js';
+import { DocumentsTab } from '../pages/deal/DocumentsTab.js';
+import { TasksTab } from '../pages/deal/LaterTabs.js';
+import { PerformanceTab } from '../pages/deal/PerformanceTab.js';
+import { SponsorTab } from '../pages/deal/SponsorTab.js';
+import { ValuationsTab } from '../pages/deal/ValuationsTab.js';
+import { DocumentDetailPage } from '../pages/documents/DocumentDetail.js';
+import { DocumentsPage } from '../pages/documents/Documents.js';
+import { ExpectedDocumentsPage } from '../pages/documents/ExpectedDocuments.js';
+import { ReviewQueuePage } from '../pages/documents/ReviewQueue.js';
+import { ExtractionPage } from '../pages/extraction/Extraction.js';
+import { ExtractionRunPage } from '../pages/extraction/ExtractionRun.js';
 import { HomePage } from '../pages/Home.js';
 import { InvestmentDetailPage } from '../pages/InvestmentDetail.js';
+import { PipelinePage } from '../pages/pipeline/Pipeline.js';
+// Phase 3: W3 pipeline (M5), diligence and closing (M8, M22)
+import { ClosingPage } from '../pages/pipeline/Closing.js';
+import { NewOpportunityPage } from '../pages/pipeline/NewOpportunity.js';
+import { OpportunityPage } from '../pages/pipeline/Opportunity.js';
+import { ClosingTab } from '../pages/deal/ClosingTab.js';
+import { DiligenceTab } from '../pages/deal/DiligenceTab.js';
 import { PortfolioPage } from '../pages/Portfolio.js';
+import { VehicleDetailPage, VehiclesPage } from '../pages/portfolio/Vehicles.js';
+import { WatchlistPage } from '../pages/portfolio/Watchlist.js';
+import { ClientsPage, DisclosuresPage, WeeklyReportPage } from '../pages/reporting/Reporting.js';
 import { SignInPage } from '../pages/SignIn.js';
+import { SponsorDetailPage, SponsorsPage } from '../pages/sponsors/Sponsors.js';
+import { ValuationsPage } from '../pages/valuations/Valuations.js';
+// Phase 3: W1 valuations (M10) and change requests (M11)
+import { ChangeRequestsPage } from '../pages/valuations/ChangeRequests.js';
+import { ValuationDetailPage } from '../pages/valuations/ValuationDetail.js';
+// Phase 3: W2 capital activity (M16), the wire register, one instruction and the trade tickets.
+import { TradeTicketsPage } from '../pages/capital/TradeTickets.js';
+import { WireInstructionPage } from '../pages/capital/WireInstruction.js';
+import { WireRegisterPage } from '../pages/capital/WireRegister.js';
 import { getCredential } from './session.js';
 
-const rootRoute = createRootRoute({ component: () => <Outlet /> });
+const rootRoute = createRootRoute({
+  component: () => <Outlet />,
+  notFoundComponent: () => (
+    <ErrorState title="Page not found" detail="There is no page at this address." />
+  ),
+});
 
 const signInRoute = createRoute({
   getParentRoute: () => rootRoute,
@@ -36,101 +104,209 @@ const appRoute = createRoute({
   },
 });
 
-const homeRoute = createRoute({ getParentRoute: () => appRoute, path: '/', component: HomePage });
-const portfolioRoute = createRoute({
-  getParentRoute: () => appRoute,
-  path: '/portfolio',
-  component: PortfolioPage,
-});
+const child = <P extends string>(path: P, component: () => ReactNode) =>
+  createRoute({ getParentRoute: () => appRoute, path, component });
+
+const homeRoute = child('/', HomePage);
+const portfolioRoute = child('/portfolio', PortfolioPage);
+const vehiclesRoute = child('/portfolio/vehicles', VehiclesPage);
+const vehicleRoute = child('/portfolio/vehicles/$id', VehicleDetailPage);
+const watchlistRoute = child('/portfolio/watchlist', WatchlistPage);
+const monitoringRoute = child('/portfolio/monitoring', MonitoringPage);
+
+/** Deal workspace: the one-pager is the Overview tab; the other tabs are children (docs/06 section 2). */
 const investmentRoute = createRoute({
   getParentRoute: () => appRoute,
   path: '/portfolio/$id',
-  component: InvestmentDetailPage,
+  component: DealWorkspace,
 });
-const dataHealthRoute = createRoute({
-  getParentRoute: () => appRoute,
-  path: '/data/health',
-  component: DataHealthPage,
-});
-const dataDictionaryRoute = createRoute({
-  getParentRoute: () => appRoute,
-  path: '/data/dictionary',
-  component: DataDictionaryPage,
-});
-const adminFlagsRoute = createRoute({
-  getParentRoute: () => appRoute,
-  path: '/admin/flags',
-  component: AdminFlagsPage,
-});
+const dealTab = <P extends string>(path: P, component: () => ReactNode) =>
+  createRoute({ getParentRoute: () => investmentRoute, path, component });
+const dealOverviewRoute = dealTab('/', InvestmentDetailPage);
+const dealPerformanceRoute = dealTab('/performance', PerformanceTab);
+const dealSponsorRoute = dealTab('/sponsor', SponsorTab);
+const dealDiligenceRoute = dealTab('/diligence', DiligenceTab);
+const dealClosingRoute = dealTab('/closing', ClosingTab);
+const dealValuationsRoute = dealTab('/valuations', ValuationsTab);
+const dealCapitalRoute = dealTab('/capital', CapitalTab);
+const dealDocumentsRoute = dealTab('/documents', DocumentsTab);
+const dealTasksRoute = dealTab('/tasks', TasksTab);
+const dealActivityRoute = dealTab('/activity', ActivityTab);
 
-const placeholders: { path: string; title: string; phase: string; modules: string }[] = [
-  {
-    path: '/pipeline',
-    title: 'Pipeline',
-    phase: 'Phase 5',
-    modules: 'M5 pipeline, M7 diligence and IC',
-  },
-  {
-    path: '/sponsors',
-    title: 'Sponsors',
-    phase: 'Phase 5',
-    modules: 'M6 relationship intelligence, M18 coverage and AGMs',
-  },
-  {
-    path: '/documents',
-    title: 'Documents',
-    phase: 'Phase 2',
-    modules: 'M3 document hub, M4 extraction',
-  },
-  {
-    path: '/valuations',
-    title: 'Valuations',
-    phase: 'Phase 3',
-    modules: 'M10 valuation workflow, M11 deal change requests',
-  },
-  {
-    path: '/capital-activity',
-    title: 'Capital Activity',
-    phase: 'Phase 3',
-    modules: 'M16 calls, distributions and funding',
-  },
-  {
-    path: '/reporting',
-    title: 'Reporting',
-    phase: 'Phase 4',
-    modules: 'M12 weekly report, M14 report automation and QA, M19 disclosures',
-  },
-  {
-    path: '/analytics',
-    title: 'Analytics',
-    phase: 'Phase 4 and 6',
-    modules: 'M13 in-app analytics, M20 advanced analytics',
-  },
-  {
-    path: '/assistants',
-    title: 'Assistants',
-    phase: 'Phase 6',
-    modules: 'M15 Ask Portfolio Beach and Market Intelligence',
-  },
-];
-const placeholderRoutes = placeholders.map((p) =>
+const pipelineRoute = child('/pipeline', PipelinePage);
+// Phase 3: W3 pipeline (M5), diligence and closing (M8, M22). The literal path sits before $id.
+const pipelineNewRoute = child('/pipeline/new', NewOpportunityPage);
+const opportunityRoute = child('/pipeline/$id', OpportunityPage);
+const opportunityClosingRoute = child('/pipeline/$id/closing', ClosingPage);
+const sponsorsRoute = child('/sponsors', SponsorsPage);
+const sponsorRoute = child('/sponsors/$id', SponsorDetailPage);
+const documentsRoute = child('/documents', DocumentsPage);
+const documentsReviewRoute = child('/documents/review', ReviewQueuePage);
+const documentsExpectedRoute = child('/documents/expected', ExpectedDocumentsPage);
+const documentRoute = child('/documents/$id', DocumentDetailPage);
+const documentsExtractionRoute = child('/documents/extraction', ExtractionPage);
+const documentsExtractionRunRoute = child('/documents/extraction/$id', ExtractionRunPage);
+const valuationsRoute = child('/valuations', ValuationsPage);
+// Phase 3: W1 valuations (M10) and change requests (M11): the queue is listed before the version
+const valuationChangesRoute = child('/valuations/changes', ChangeRequestsPage);
+const valuationDetailRoute = child('/valuations/$id', ValuationDetailPage);
+const capitalRoute = child('/capital-activity', CapitalActivityPage);
+const commitmentsRoute = child('/capital-activity/commitments', CommitmentsPage);
+const capitalNoticeRoute = child('/capital-activity/$id', CapitalNoticePage);
+// Phase 3: W2 capital activity (M16). Static segments outrank the notice's $id whatever the order.
+const capitalWiresRoute = child('/capital-activity/wires', WireRegisterPage);
+const capitalWireRoute = child('/capital-activity/wires/$id', WireInstructionPage);
+const capitalTicketsRoute = child('/capital-activity/tickets', TradeTicketsPage);
+const reportingRoute = child('/reporting', WeeklyReportPage);
+const clientsRoute = child('/reporting/clients', ClientsPage);
+const disclosuresRoute = child('/reporting/disclosures', DisclosuresPage);
+
+const analyticsRoute = createRoute({
+  getParentRoute: () => appRoute,
+  path: '/analytics',
+  component: AnalyticsLayout,
+});
+const analyticsTab = <P extends string>(path: P, component: () => ReactNode) =>
+  createRoute({ getParentRoute: () => analyticsRoute, path, component });
+const analyticsExposureRoute = analyticsTab('/', ExposureTab);
+const analyticsPerformanceRoute = analyticsTab('/performance', PerformanceAnalyticsTab);
+/**
+ * The two tabs that filter the value creation rows; the search carries the filters, so a filtered
+ * view can be shared. A value the contract does not accept is dropped, never an error page.
+ */
+const filteredAnalyticsTab = <P extends string>(path: P, component: () => ReactNode) =>
   createRoute({
-    getParentRoute: () => appRoute,
-    path: p.path,
-    component: () => <PlaceholderPage title={p.title} phase={p.phase} modules={p.modules} />,
-  }),
-);
+    getParentRoute: () => analyticsRoute,
+    path,
+    component,
+    validateSearch: parseValueCreationSearch,
+  });
+const analyticsValueCreationRoute = filteredAnalyticsTab('/value-creation', ValueCreationTab);
+const analyticsEntryMetricsRoute = filteredAnalyticsTab('/entry-metrics', EntryMetricsTab);
+const analyticsCreditRoute = analyticsTab('/credit', CreditTab);
+const analyticsRealizationsRoute = analyticsTab('/realizations', RealizationsTab);
+const analyticsClientsRoute = analyticsTab('/clients', ClientAnalyticsTab);
+
+const assistantsRoute = child('/assistants', AssistantsPage);
+const adminFlagsRoute = child('/admin/flags', AdminFlagsPage);
+const adminAuditRoute = child('/admin/audit', AuditPage);
+const adminAccessRoute = child('/admin/access', AccessPage);
+const adminHealthRoute = child('/admin/health', HealthPage);
+const dataHealthRoute = child('/data/health', DataHealthPage);
+const dataDictionaryRoute = child('/data/dictionary', DataDictionaryPage);
+const dataTaxonomyRoute = child('/data/taxonomy', TaxonomyPage);
+const dataIntakeRoute = child('/data/intake', IntakePage);
+/** The staged file; `duplicate` in the search says the import that led here staged nothing new. */
+const dataIntakeFileRoute = createRoute({
+  getParentRoute: () => appRoute,
+  path: '/data/intake/$id',
+  component: IntakeFilePage,
+  validateSearch: (search: Record<string, unknown>): { duplicate?: boolean } =>
+    search.duplicate === true || search.duplicate === 'true' ? { duplicate: true } : {},
+});
+const dataWeeklyRoute = child('/data/weekly', WeeklyPage);
+/** The staged weekly values file; `duplicate` in the search says the import that led here staged nothing new. */
+const dataWeeklyFileRoute = createRoute({
+  getParentRoute: () => appRoute,
+  path: '/data/weekly/$id',
+  component: WeeklyFilePage,
+  validateSearch: (search: Record<string, unknown>): { duplicate?: boolean } =>
+    search.duplicate === true || search.duplicate === 'true' ? { duplicate: true } : {},
+});
+const dataLookthroughRoute = child('/data/lookthrough', LookthroughPage);
+/** A reconcile run; `duplicate` in the search says the reconcile that led here staged nothing new. */
+const dataLookthroughRunRoute = createRoute({
+  getParentRoute: () => appRoute,
+  path: '/data/lookthrough/$id',
+  component: LookthroughRunPage,
+  validateSearch: (search: Record<string, unknown>): { duplicate?: boolean } =>
+    search.duplicate === true || search.duplicate === 'true' ? { duplicate: true } : {},
+});
+/**
+ * The exceptions queue; the search carries the API filters and, from a run or a file, that file's
+ * id. A state or a severity the queue does not know is dropped, never an error page.
+ */
+const dataExceptionsRoute = createRoute({
+  getParentRoute: () => appRoute,
+  path: '/data/exceptions',
+  component: ExceptionsPage,
+  validateSearch: parseExceptionsSearch,
+});
+const dataExceptionRoute = child('/data/exceptions/$id', ExceptionDetailPage);
 
 const routeTree = rootRoute.addChildren([
   signInRoute,
   appRoute.addChildren([
     homeRoute,
     portfolioRoute,
-    investmentRoute,
+    vehiclesRoute,
+    vehicleRoute,
+    watchlistRoute,
+    monitoringRoute,
+    investmentRoute.addChildren([
+      dealOverviewRoute,
+      dealPerformanceRoute,
+      dealSponsorRoute,
+      dealDiligenceRoute,
+      dealClosingRoute,
+      dealValuationsRoute,
+      dealCapitalRoute,
+      dealDocumentsRoute,
+      dealTasksRoute,
+      dealActivityRoute,
+    ]),
+    pipelineRoute,
+    // Phase 3: W3 pipeline (M5), diligence and closing (M8, M22)
+    pipelineNewRoute,
+    opportunityRoute,
+    opportunityClosingRoute,
+    sponsorsRoute,
+    sponsorRoute,
+    documentsRoute,
+    documentsReviewRoute,
+    documentsExpectedRoute,
+    documentRoute,
+    documentsExtractionRoute,
+    documentsExtractionRunRoute,
+    valuationsRoute,
+    // Phase 3: W1 valuations and change requests
+    valuationChangesRoute,
+    valuationDetailRoute,
+    capitalRoute,
+    commitmentsRoute,
+    capitalNoticeRoute,
+    // Phase 3: W2 capital activity (M16).
+    capitalWiresRoute,
+    capitalWireRoute,
+    capitalTicketsRoute,
+    reportingRoute,
+    clientsRoute,
+    disclosuresRoute,
+    analyticsRoute.addChildren([
+      analyticsExposureRoute,
+      analyticsPerformanceRoute,
+      analyticsValueCreationRoute,
+      analyticsEntryMetricsRoute,
+      analyticsCreditRoute,
+      analyticsRealizationsRoute,
+      analyticsClientsRoute,
+    ]),
+    assistantsRoute,
+    adminFlagsRoute,
+    adminAuditRoute,
+    adminAccessRoute,
+    adminHealthRoute,
     dataHealthRoute,
     dataDictionaryRoute,
-    adminFlagsRoute,
-    ...placeholderRoutes,
+    dataTaxonomyRoute,
+    dataIntakeRoute,
+    dataIntakeFileRoute,
+    dataWeeklyRoute,
+    dataWeeklyFileRoute,
+    dataLookthroughRoute,
+    dataLookthroughRunRoute,
+    dataExceptionsRoute,
+    dataExceptionRoute,
   ]),
 ]);
 

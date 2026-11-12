@@ -1,5 +1,11 @@
-import { D, addDays, addMonths, compareIso } from '@pb/calc';
+import { createHash } from 'node:crypto';
+import { D, addDays, addMonths, compareIso, containingQuarterEnd, nextQuarterEnd } from '@pb/calc';
+import { valuationLockText } from '@pb/contracts';
 import type { SyntheticDataset } from '@pb/db';
+import { companyAliasesFor } from './aliases.js';
+import type { CompanyAlias } from './aliases.js';
+import { controlsConfig, generateControls } from './controls.js';
+import type { ControlledCapitalNotice, ControlsConfig, ControlsDataset } from './controls.js';
 import { NameFactory, canonical } from './names.js';
 import { Rng } from './prng.js';
 import { PROFILES } from './profiles.js';
@@ -10,7 +16,20 @@ export interface GenerateOptions {
   seed?: number;
   /** The reporting date the dataset is built up to (quarter end). */
   asOf?: string;
+  /** The controls' lists (checklist, templates, aging); the config files or their defaults otherwise. */
+  controls?: Partial<ControlsConfig>;
 }
+
+/**
+ * The generator's output: the seed loader's contract plus the company aliases (core.company_alias)
+ * and the Phase 3 controls (controls.ts), each of which a seed schema from before its table strips
+ * on parse and a later one inserts; the capital notices carry the two SEC-12.4 alert flags.
+ */
+export type GeneratedDataset = Omit<SyntheticDataset, 'capitalNotices' | keyof ControlsDataset> &
+  ControlsDataset & {
+    companyAliases: CompanyAlias[];
+    capitalNotices: ControlledCapitalNotice[];
+  };
 
 type Users = SyntheticDataset['users'];
 type Investment = SyntheticDataset['investments'][number];
@@ -37,22 +56,6 @@ const TIERS = [
 ];
 
 /** Last day of the calendar quarter containing the date. */
-function quarterEnd(iso: string): string {
-  const [y, m] = iso.split('-').map(Number) as [number, number, number];
-  const qEndMonth = Math.ceil(m / 3) * 3;
-  const lastDay = new Map([
-    [3, 31],
-    [6, 30],
-    [9, 30],
-    [12, 31],
-  ]).get(qEndMonth);
-  return `${y}-${String(qEndMonth).padStart(2, '0')}-${String(lastDay)}`;
-}
-
-function nextQuarterEnd(iso: string): string {
-  return quarterEnd(addMonths(iso, 3));
-}
-
 function fixed(value: number): string {
   return (Math.round(value * 100) / 100).toFixed(2);
 }
@@ -61,11 +64,43 @@ function fixed(value: number): string {
  * Builds a complete, internally consistent synthetic dataset. Every number is derived from the
  * seed, so tests can rely on exact values, and every deliberate defect carries a scenario tag.
  */
-export function generateDataset(options: GenerateOptions = {}): SyntheticDataset {
+/**
+ * Three plain statements about a quarter, read from its own generated figures against the quarter
+ * before (or the entry snapshot), so a highlight never contradicts the numbers beside it. No random
+ * draws: adding or changing a sentence leaves every other seeded value as it was.
+ */
+function quarterHighlights(
+  before: { revenue: number; margin: number; netDebt: number },
+  now: { revenue: number; margin: number; netDebt: number },
+): string[] {
+  const money = (v: number): string => `$${(v / 1_000_000).toFixed(1)}M`;
+  const revenueChange = before.revenue === 0 ? 0 : now.revenue / before.revenue - 1;
+  const revenue =
+    Math.abs(revenueChange) < 0.0005
+      ? `LTM revenue was flat at ${money(now.revenue)}.`
+      : `LTM revenue ${revenueChange > 0 ? 'rose' : 'fell'} ${(Math.abs(revenueChange) * 100).toFixed(1)}% from the prior quarter to ${money(now.revenue)}.`;
+  const points = (now.margin - before.margin) * 100;
+  const margin =
+    Math.abs(points) < 0.05
+      ? `EBITDA margin was unchanged at ${(now.margin * 100).toFixed(1)}%.`
+      : `EBITDA margin was ${(now.margin * 100).toFixed(1)}%, ${points > 0 ? 'up' : 'down'} ${Math.abs(points).toFixed(1)} points.`;
+  const debtChange = now.netDebt - before.netDebt;
+  const debt =
+    Math.abs(debtChange) < 50_000
+      ? `Net debt was unchanged at ${money(now.netDebt)}.`
+      : `Net debt ${debtChange < 0 ? 'fell' : 'rose'} to ${money(now.netDebt)}.`;
+  return [revenue, margin, debt];
+}
+
+export function generateDataset(options: GenerateOptions = {}): GeneratedDataset {
   const profile: Profile = PROFILES[options.profile ?? 'default'] ?? PROFILES.default!;
   const seed = options.seed ?? 42;
   const asOf = options.asOf ?? '2025-06-30';
   const rng = new Rng(seed);
+  // Ids for the cost marks below come from their own stream, so adding them moved no other value.
+  const costMarkIds = new Rng(seed ^ 0x2545f491);
+  // The company aliases draw from their own stream for the same reason.
+  const aliasDraws = new Rng(seed ^ 0x3c6ef372);
   const names = new NameFactory(rng);
   const scenarioLog: Record<string, string[]> = {};
   const tag = (scenario: string, id: string): void => {
@@ -359,9 +394,12 @@ export function generateDataset(options: GenerateOptions = {}): SyntheticDataset
   const creditTerms: SyntheticDataset['creditTerms'] = [];
   const creditPerformance: SyntheticDataset['creditPerformance'] = [];
   const valuations: SyntheticDataset['valuations'] = [];
-  const capitalNotices: SyntheticDataset['capitalNotices'] = [];
+  const capitalNotices: ControlledCapitalNotice[] = [];
   const cashFlows: SyntheticDataset['cashFlows'] = [];
   const realizationOutlooks: SyntheticDataset['realizationOutlooks'] = [];
+  // Outlooks were set at the last quarterly review before the as-of date, at noon UTC: a timestamp
+  // derived from the dataset's own dates, never the wall clock, so every build is byte-identical.
+  const outlookSetAt = `${containingQuarterEnd(addMonths(asOf, -3))}T12:00:00Z`;
   const total = profile.activeInvestments + profile.realizedInvestments;
 
   const vehicleFor = (dealType: string, entryYear: number): string => {
@@ -374,12 +412,18 @@ export function generateDataset(options: GenerateOptions = {}): SyntheticDataset
   };
 
   const addNotice = (
-    n: Omit<SyntheticDataset['capitalNotices'][number], 'id' | 'split'> & {
+    n: Omit<ControlledCapitalNotice, 'id' | 'split' | 'urgencyFlag' | 'wireChangeFlag'> & {
       split?: Record<string, string>;
     },
   ): string => {
     const id = rng.uuid();
-    capitalNotices.push({ id, split: n.split ?? {}, ...n });
+    capitalNotices.push({
+      id,
+      split: n.split ?? {},
+      urgencyFlag: false,
+      wireChangeFlag: false,
+      ...n,
+    });
     return id;
   };
   const addFlow = (f: Omit<SyntheticDataset['cashFlows'][number], 'id' | 'status'>): void => {
@@ -391,8 +435,9 @@ export function generateDataset(options: GenerateOptions = {}): SyntheticDataset
     fairValue: string,
     method: string,
     version = 1,
+    ids: Rng = rng,
   ): string => {
-    const id = rng.uuid();
+    const id = ids.uuid();
     valuations.push({
       id,
       investmentId,
@@ -401,7 +446,9 @@ export function generateDataset(options: GenerateOptions = {}): SyntheticDataset
       method,
       fairValue,
       state: 'Locked',
-      lockHash: `h-${id.slice(0, 8)}`,
+      // Set once every scenario has shaped the row (a period end may still move): see the pass
+      // over the Locked and Reopened versions before the dataset is assembled.
+      lockHash: null,
       preparedBy: userBy('ops.one'),
       dealTeamApprovedBy: userBy('deal.one'),
       approvedBy: userBy('head.one'),
@@ -479,12 +526,22 @@ export function generateDataset(options: GenerateOptions = {}): SyntheticDataset
       sourceNoticeId: callId,
     });
 
-    const lastPeriod = realized ? quarterEnd(inv.exitDate ?? asOf) : asOf;
+    const lastPeriod = realized ? containingQuarterEnd(inv.exitDate ?? asOf) : asOf;
     const firstPeriod = nextQuarterEnd(entryDate);
     const periods: string[] = [];
     for (let p = firstPeriod; compareIso(p, lastPeriod) <= 0; p = nextQuarterEnd(p))
       periods.push(p);
     const keep = periods.slice(-profile.quartersPerInvestment);
+    // A deal is carried at cost until its sponsor's first mark, which comes a full quarter after
+    // entry here, so the quarter end it entered in gets a Locked mark at cost (valuation_method.cost)
+    // and every quarter end it is held at has a mark. A position whose early history is not kept
+    // gets none.
+    if (keep[0] === firstPeriod) {
+      const entryQuarter = containingQuarterEnd(entryDate);
+      const heldThen = inv.exitDate === null || compareIso(inv.exitDate, entryQuarter) > 0;
+      if (heldThen && compareIso(entryQuarter, asOf) <= 0)
+        lockValuation(inv.id, entryQuarter, fixed(cost), 'valuation_method.cost', 1, costMarkIds);
+    }
 
     if (isCredit) {
       const spread = rng.decimal(0.045, 0.075, 4);
@@ -617,7 +674,7 @@ export function generateDataset(options: GenerateOptions = {}): SyntheticDataset
     quarterlyPerformance.push({
       id: rng.uuid(),
       investmentId: inv.id,
-      periodEnd: quarterEnd(addMonths(entryDate, -3)),
+      periodEnd: containingQuarterEnd(addMonths(entryDate, -3)),
       revenueLtm: fixed(entryRevenue),
       ebitdaLtm: fixed(entryEbitda),
       ev: fixed(entryEv),
@@ -635,6 +692,7 @@ export function generateDataset(options: GenerateOptions = {}): SyntheticDataset
     let netDebt = entryNetDebt;
     const drift = Number(rng.decimal(-0.03, 0.09, 3));
     for (const [k, periodEnd] of keep.entries()) {
+      const before = { revenue, margin, netDebt };
       revenue *= 1 + drift / 4 + (rng.next() - 0.5) * 0.04;
       margin = Math.min(0.45, Math.max(-0.1, margin + (rng.next() - 0.5) * 0.01));
       netDebt = Math.max(0, netDebt * (0.985 + (rng.next() - 0.5) * 0.02));
@@ -652,11 +710,7 @@ export function generateDataset(options: GenerateOptions = {}): SyntheticDataset
         netDebt: fixed(netDebt),
         cash: fixed(ev * 0.03),
         totalEquity: fixed(ev - netDebt),
-        highlights: [
-          'LTM revenue grew with new customer wins.',
-          'Performance was driven by pricing and volume.',
-          'Management completed one add-on acquisition.',
-        ],
+        highlights: quarterHighlights(before, { revenue, margin, netDebt }),
         commentary: null,
         isEntrySnapshot: false,
         status: 'record_status.approved',
@@ -671,25 +725,32 @@ export function generateDataset(options: GenerateOptions = {}): SyntheticDataset
         );
       if (!realized && k === 3 && rng.chance(0.35)) {
         const dist = cost * Number(rng.decimal(0.1, 0.4, 2));
-        const nid = addNotice({
-          noticeType: 'notice_type.distribution',
-          vehicleId,
-          investmentId: inv.id,
-          commitmentId: null,
-          issueDate: addDays(periodEnd, 20),
-          dueDate: addDays(periodEnd, 30),
-          amount: fixed(dist),
-          state: 'Reconciled',
-          scenarioTag: null,
-        });
-        addFlow({
-          investmentId: inv.id,
-          commitmentId: null,
-          flowDate: addDays(periodEnd, 30),
-          flowType: 'flow_type.distribution',
-          amount: fixed(dist),
-          sourceNoticeId: nid,
-        });
+        if (compareIso(addDays(periodEnd, 30), asOf) <= 0) {
+          const nid = addNotice({
+            noticeType: 'notice_type.distribution',
+            vehicleId,
+            investmentId: inv.id,
+            commitmentId: null,
+            issueDate: addDays(periodEnd, 20),
+            dueDate: addDays(periodEnd, 30),
+            amount: fixed(dist),
+            state: 'Reconciled',
+            scenarioTag: null,
+          });
+          addFlow({
+            investmentId: inv.id,
+            commitmentId: null,
+            flowDate: addDays(periodEnd, 30),
+            flowType: 'flow_type.distribution',
+            amount: fixed(dist),
+            sourceNoticeId: nid,
+          });
+        } else {
+          // Paid after the as-of date, so not yet in the data; the two ids it would have drawn
+          // are drawn anyway, so every later seeded value stays where it was.
+          rng.uuid();
+          rng.uuid();
+        }
       }
     }
     if (realized && inv.exitDate !== null) {
@@ -720,6 +781,7 @@ export function generateDataset(options: GenerateOptions = {}): SyntheticDataset
         horizonMonths: 18,
         outlook: rng.pick(['realization_outlook.partial', 'realization_outlook.full']),
         note: 'Sponsor has engaged advisors.',
+        setAt: outlookSetAt,
       });
     }
   }
@@ -757,25 +819,31 @@ export function generateDataset(options: GenerateOptions = {}): SyntheticDataset
       });
       if (n > 8 && rng.chance(0.5)) {
         const dist = call * Number(rng.decimal(0.3, 1.5, 2));
-        const did = addNotice({
-          noticeType: 'notice_type.distribution',
-          vehicleId: primary.id,
-          investmentId: null,
-          commitmentId: c.id,
-          issueDate: addDays(q, 15),
-          dueDate: addDays(q, 25),
-          amount: fixed(dist),
-          state: 'Reconciled',
-          scenarioTag: null,
-        });
-        addFlow({
-          investmentId: null,
-          commitmentId: c.id,
-          flowDate: addDays(q, 25),
-          flowType: 'flow_type.distribution',
-          amount: fixed(dist),
-          sourceNoticeId: did,
-        });
+        if (compareIso(addDays(q, 25), asOf) <= 0) {
+          const did = addNotice({
+            noticeType: 'notice_type.distribution',
+            vehicleId: primary.id,
+            investmentId: null,
+            commitmentId: c.id,
+            issueDate: addDays(q, 15),
+            dueDate: addDays(q, 25),
+            amount: fixed(dist),
+            state: 'Reconciled',
+            scenarioTag: null,
+          });
+          addFlow({
+            investmentId: null,
+            commitmentId: c.id,
+            flowDate: addDays(q, 25),
+            flowType: 'flow_type.distribution',
+            amount: fixed(dist),
+            sourceNoticeId: did,
+          });
+        } else {
+          // Paid after the as-of date: drawn but not added, as for the position distributions.
+          rng.uuid();
+          rng.uuid();
+        }
       }
     }
   }
@@ -892,7 +960,7 @@ export function generateDataset(options: GenerateOptions = {}): SyntheticDataset
   // roll_forward_break: the quarter before the latest has no valuation at all (missing starting NAV).
   {
     const inv = pickFresh(activeEquity, 'roll_forward_break');
-    const prior = quarterEnd(addMonths(asOf, -3));
+    const prior = containingQuarterEnd(addMonths(asOf, -3));
     const idx = valuations.findIndex((v) => v.investmentId === inv.id && v.periodEnd === prior);
     if (idx >= 0) valuations.splice(idx, 1);
   }
@@ -978,7 +1046,8 @@ export function generateDataset(options: GenerateOptions = {}): SyntheticDataset
       sourceNoticeId: n2,
     });
   }
-  // wire_change: a pending call whose notice carries changed bank details and urgency language.
+  // wire_change: a pending call, issued on the as-of date and due two days later, whose notice
+  // carries changed bank details and urgency language.
   {
     const inv = pickFresh(activeEquity, 'wire_change');
     addNotice({
@@ -986,8 +1055,8 @@ export function generateDataset(options: GenerateOptions = {}): SyntheticDataset
       vehicleId: inv.vehicleId,
       investmentId: inv.id,
       commitmentId: null,
-      issueDate: addDays(asOf, 10),
-      dueDate: addDays(asOf, 12),
+      issueDate: asOf,
+      dueDate: addDays(asOf, 2),
       amount: '2500000.00',
       state: 'Extracted',
       scenarioTag: 'wire_change',
@@ -998,7 +1067,7 @@ export function generateDataset(options: GenerateOptions = {}): SyntheticDataset
   {
     const c = commitments.find((x) => x.vehicleId === primary.id) ?? commitments[0];
     if (c) {
-      const d = quarterEnd(addMonths(asOf, -6));
+      const d = containingQuarterEnd(addMonths(asOf, -6));
       const eq1 = addNotice({
         noticeType: 'notice_type.capital_call',
         vehicleId: coIII.id,
@@ -1122,7 +1191,85 @@ export function generateDataset(options: GenerateOptions = {}): SyntheticDataset
     }
   }
 
-  const dataset: SyntheticDataset = {
+  // ---- Company aliases (docs/03 section 5) ---------------------------------------------------
+  // About a third of the companies get one or two; the first active equity position outside the
+  // wall and off the match guard list always does, so every sample drop has a row that links by
+  // alias whatever the seed.
+  const walledIds = new Set(walls.flatMap((w) => w.records.map((r) => r.entityId)));
+  const guardedNames = new Set(matchGuards.flatMap((g) => [g.nameA, g.nameB]));
+  const anchor = activeEquity.find(
+    (i) =>
+      !walledIds.has(i.id) &&
+      !guardedNames.has(portfolioCompanies.find((c) => c.id === i.portfolioCompanyId)?.name ?? ''),
+  );
+  const companyAliases = companyAliasesFor(
+    portfolioCompanies,
+    matchGuards,
+    aliasDraws,
+    new Set(anchor === undefined ? [] : [anchor.portfolioCompanyId]),
+  );
+
+  // ---- The Phase 3 controls (docs/14 section 10) --------------------------------------------
+  // Their own stream and name factory (every existing name reserved), so adding them moved no
+  // other value; the flags on the wire_change notice and the walled opportunity are set in place.
+  const controlsRng = new Rng(seed ^ 0x6a09e667);
+  const controlNames = new NameFactory(controlsRng);
+  controlNames.reserve([
+    ...sponsors.map((s) => s.name),
+    ...sponsorFunds.map((f) => f.name),
+    ...portfolioCompanies.map((c) => c.name),
+    ...clients.map((c) => c.name),
+    ...users.map((u) => u.displayName),
+    ...walls.map((w) => w.name),
+  ]);
+  const controls = generateControls(
+    {
+      asOf,
+      users,
+      sponsors,
+      sponsorFunds,
+      portfolioCompanies,
+      vehicles,
+      lpCommitments,
+      commitments,
+      investments,
+      cashFlows,
+      capitalNotices,
+      walls,
+      scenarios: scenarioLog,
+    },
+    {
+      rng: controlsRng,
+      names: controlNames,
+      config: controlsConfig(options.controls),
+      sectors: SECTORS,
+      geographies: GEOS.map((g) => g.value),
+      tag,
+    },
+  );
+
+  // Lock hashes (docs/18 section 1, SEC-9.3): the SHA-256 the API computes when it locks, over
+  // the text @pb/contracts fixes (the identity, the method, the inputs and the value), taken
+  // from each row as it finally stands. No version is seeded with inputs, so the text carries
+  // an empty record there. A Reopened version keeps the hash it was locked with.
+  for (const v of valuations) {
+    if (v.state !== 'Locked' && v.state !== 'Reopened') continue;
+    v.lockHash = createHash('sha256')
+      .update(
+        valuationLockText({
+          investmentId: v.investmentId,
+          periodEnd: v.periodEnd,
+          version: v.version,
+          method: v.method,
+          fairValue: v.fairValue,
+          inputs: {},
+        }),
+        'utf8',
+      )
+      .digest('hex');
+  }
+
+  const dataset: GeneratedDataset = {
     version: 1,
     profile: profile.name,
     seed,
@@ -1132,6 +1279,7 @@ export function generateDataset(options: GenerateOptions = {}): SyntheticDataset
     sponsorFunds,
     fundAliases,
     portfolioCompanies,
+    companyAliases,
     fundHoldings,
     vehicles,
     investments,
@@ -1147,6 +1295,7 @@ export function generateDataset(options: GenerateOptions = {}): SyntheticDataset
     capitalNotices,
     cashFlows,
     realizationOutlooks,
+    ...controls,
     scenarios: scenarioLog,
   };
   void D;

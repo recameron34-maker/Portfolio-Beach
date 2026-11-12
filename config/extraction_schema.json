@@ -1,0 +1,134 @@
+{
+  "_note": "Extraction schemas per document type (docs/04 M4, packages/ai). Each field: key (the model output key and the stg.extracted_value field), label (plain words for the review page), kind (date, money, percent, count), required, target (the mon.quarterly_performance column it promotes to, or null when it stays on the run), bounds (which unitSanityBoundsUsd range the converted dollar value is checked against, or null). Money values carry a unit among USD, USD_K, USD_M and USD_B and are converted to dollars by packages/calc toDollars at promotion; percent values are decimal fractions (0.4250 for 42.5%) with unit PCT; count values carry COUNT; date values carry DATE. highlights.bullets is the number of business highlight bullets the model writes; the openings and banned phrases come from config/style.json.",
+  "schemas": {
+    "quarterly_financials": {
+      "label": "Quarterly financials",
+      "docType": "doc_type.quarterly_financials",
+      "promptId": "quarterly_extraction",
+      "fields": [
+        {
+          "key": "period_end",
+          "label": "Period end",
+          "kind": "date",
+          "required": true,
+          "target": null,
+          "bounds": null
+        },
+        {
+          "key": "revenue_ltm",
+          "label": "Revenue LTM",
+          "kind": "money",
+          "required": true,
+          "target": "revenue_ltm",
+          "bounds": "revenue"
+        },
+        {
+          "key": "ebitda_ltm",
+          "label": "EBITDA LTM",
+          "kind": "money",
+          "required": true,
+          "target": "ebitda_ltm",
+          "bounds": "ebitda"
+        },
+        {
+          "key": "revenue_ltm_prior_year",
+          "label": "Revenue LTM prior year",
+          "kind": "money",
+          "required": false,
+          "target": null,
+          "bounds": "revenue"
+        },
+        {
+          "key": "ebitda_ltm_prior_year",
+          "label": "EBITDA LTM prior year",
+          "kind": "money",
+          "required": false,
+          "target": null,
+          "bounds": "ebitda"
+        },
+        {
+          "key": "enterprise_value",
+          "label": "Enterprise value",
+          "kind": "money",
+          "required": false,
+          "target": "ev",
+          "bounds": null
+        },
+        {
+          "key": "net_debt",
+          "label": "Net debt",
+          "kind": "money",
+          "required": false,
+          "target": "net_debt",
+          "bounds": null
+        },
+        {
+          "key": "cash",
+          "label": "Cash",
+          "kind": "money",
+          "required": false,
+          "target": "cash",
+          "bounds": null
+        },
+        {
+          "key": "total_equity",
+          "label": "Total equity",
+          "kind": "money",
+          "required": false,
+          "target": "total_equity",
+          "bounds": null
+        },
+        {
+          "key": "gross_debt",
+          "label": "Gross debt",
+          "kind": "money",
+          "required": false,
+          "target": null,
+          "bounds": null
+        },
+        {
+          "key": "capex_ltm",
+          "label": "Capex LTM",
+          "kind": "money",
+          "required": false,
+          "target": null,
+          "bounds": null
+        },
+        {
+          "key": "sponsor_ownership_pct",
+          "label": "Sponsor ownership",
+          "kind": "percent",
+          "required": false,
+          "target": null,
+          "bounds": null
+        },
+        {
+          "key": "fund_fair_value",
+          "label": "Fund fair value",
+          "kind": "money",
+          "required": false,
+          "target": null,
+          "bounds": null
+        },
+        {
+          "key": "fund_cost",
+          "label": "Fund cost",
+          "kind": "money",
+          "required": false,
+          "target": null,
+          "bounds": null
+        },
+        {
+          "key": "headcount",
+          "label": "Headcount",
+          "kind": "count",
+          "required": false,
+          "target": null,
+          "bounds": null
+        }
+      ],
+      "highlights": { "bullets": 3 },
+      "commentary": true
+    }
+  }
+}

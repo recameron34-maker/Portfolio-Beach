@@ -1,0 +1,19 @@
+{
+  "_note": "Neutral sample mapping from the look-through data provider's plain labels onto the firm's taxonomy codes (core.taxonomy_term, migration 0002). Outside sources are mapped to the taxonomy and never override it (docs/04 M1). A provider label that is not listed here (for example Other) maps to nothing, and the reconcile opens a data exception for the row. Replace with the real provider's vocabulary only after merge.",
+  "sector": {
+    "Technology": "sector.software",
+    "Software": "sector.software",
+    "Healthcare": "sector.healthcare",
+    "Industrials": "sector.industrials",
+    "Consumer": "sector.consumer",
+    "Business Services": "sector.business_services",
+    "Financials": "sector.financials",
+    "Energy": "sector.energy_transition"
+  },
+  "geography": {
+    "North America": "geography.north_america",
+    "Europe": "geography.europe",
+    "Asia Pacific": "geography.asia_pacific",
+    "Rest of World": "geography.other"
+  }
+}

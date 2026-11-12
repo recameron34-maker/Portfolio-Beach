@@ -14,7 +14,19 @@
       "path": "packages/workflows"
     },
     {
+      "path": "packages/validation"
+    },
+    {
       "path": "packages/contracts"
+    },
+    {
+      "path": "packages/xlsx"
+    },
+    {
+      "path": "packages/pdf"
+    },
+    {
+      "path": "packages/ai"
     },
     {
       "path": "tools/synthetic"
@@ -24,6 +36,9 @@
     },
     {
       "path": "apps/web"
+    },
+    {
+      "path": "apps/site"
     }
   ]
 }

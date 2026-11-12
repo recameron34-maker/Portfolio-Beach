@@ -1,0 +1,57 @@
+/* Exceptions pages (docs/04 M1 Data Health, docs/18 section 9). Tokens only; shared table, badge
+   and toolbar styles live in styles.css, which loads first, so a page class wins over a shared class
+   of the same specificity. Filters keep .pb-toolbar in front to outrank Fluent's own classes. */
+
+.pb-toolbar .pb-exceptions-filter {
+  min-width: 0;
+  width: 190px;
+}
+
+/* Ten columns fit a laptop screen; the expected and actual texts wrap inside a bounded cell. */
+.pb-exceptions-table td {
+  vertical-align: top;
+}
+.pb-exceptions-context {
+  min-width: 180px;
+}
+.pb-exceptions-text {
+  max-width: 220px;
+  overflow-wrap: anywhere;
+}
+
+/* The detail page: two badges in the banner, the action buttons in a row, the ticket form beside them. */
+.pb-exceptions-badges {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.pb-exceptions-context-line {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 10px;
+}
+.pb-exceptions-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 12px;
+}
+.pb-exceptions-ticket {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: 10px 14px;
+  margin: 0 0 12px;
+}
+.pb-exceptions-ticket-input {
+  min-width: 0;
+  width: 260px;
+}
+@media (max-width: 760px) {
+  .pb-toolbar .pb-exceptions-filter,
+  .pb-exceptions-ticket-input {
+    width: 100%;
+  }
+}

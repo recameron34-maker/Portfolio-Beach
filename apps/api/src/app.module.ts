@@ -1,19 +1,78 @@
 import { MiddlewareConsumer, Module, NestModule } from '@nestjs/common';
 import type { DynamicModule } from '@nestjs/common';
-import { APP_FILTER, APP_GUARD } from '@nestjs/core';
+import { APP_FILTER, APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core';
+import { AnalyticsController } from './analytics/analytics.controller.js';
+import { AnalyticsService } from './analytics/analytics.service.js';
+import { AuditController } from './audit/audit.controller.js';
+import { AuditService } from './audit/audit.service.js';
 import { AuthController } from './auth/auth.controller.js';
+import { CapitalController } from './capital/capital.controller.js';
+import { CapitalService } from './capital/capital.service.js';
+import { WiresController } from './capital/wires.controller.js';
+import { WiresService } from './capital/wires.service.js';
+import { ChangeRequestsController } from './change-requests/change-requests.controller.js';
+import { ChangeRequestsService } from './change-requests/change-requests.service.js';
+import { ClosingController } from './closing/closing.controller.js';
+import { ClosingService } from './closing/closing.service.js';
 import { IdentityMiddleware } from './auth/identity.middleware.js';
 import { AuthGuard } from './auth/principal.js';
+import { FIELD_CIPHER } from './common/fieldCipher.js';
+import { IdempotencyInterceptor } from './common/idempotency.js';
 import { ProblemFilter } from './common/problem.js';
-import { ADAPTERS, CONFIG, DB_HANDLE, DEFINITIONS, LOGGER } from './common/tokens.js';
+import {
+  ACCOUNTING_LAYOUT,
+  CLOSING_CHECKLIST,
+  DILIGENCE_TEMPLATES,
+  LOOKTHROUGH_MAPPING,
+  OPS_DROP_TEMPLATES,
+  ADAPTERS,
+  CONFIG,
+  DB_HANDLE,
+  DEFINITIONS,
+  LOGGER,
+} from './common/tokens.js';
 import type { Runtime } from './composition.js';
 import { DataController } from './data/data.controller.js';
 import { DbService } from './db/db.service.js';
+import { DocumentsController } from './documents/documents.controller.js';
+import { DocumentsService } from './documents/documents.service.js';
+import { ExpectedDocumentsService } from './documents/expected.service.js';
+import { EXTRACTION_SCHEMAS } from './documents/settings.js';
+import { ExceptionsController } from './exceptions/exceptions.controller.js';
+import { ExtractionController } from './extraction/extraction.controller.js';
+import { ExtractionService } from './extraction/extraction.service.js';
+import { ExtractionReviewService } from './extraction/review.service.js';
+import { ExtractionRunner } from './extraction/runner.js';
+import { HIGHLIGHT_STYLE, loadHighlightStyle } from './extraction/settings.js';
+import { ExceptionsService } from './exceptions/exceptions.service.js';
 import { FlagsController } from './flags/flags.controller.js';
 import { FlagsService } from './flags/flags.service.js';
 import { HealthController } from './health/health.controller.js';
+import { IntakeController } from './intake/intake.controller.js';
+import { IntakeService } from './intake/intake.service.js';
+import { OpsDropController } from './intake/ops-drop/ops-drop.controller.js';
+import { OpsDropService } from './intake/ops-drop/ops-drop.service.js';
+import { WeeklyController } from './intake/weekly/weekly.controller.js';
+import { WeeklyService } from './intake/weekly/weekly.service.js';
+import { LookthroughController } from './intake/lookthrough/lookthrough.controller.js';
+import { LookthroughService } from './intake/lookthrough/lookthrough.service.js';
+import { MonitoringController } from './monitoring/monitoring.controller.js';
+import { MonitoringService } from './monitoring/monitoring.service.js';
+import { PerformanceController } from './performance/performance.controller.js';
+import { PerformanceService } from './performance/performance.service.js';
+import { PipelineController } from './pipeline/pipeline.controller.js';
+import { PipelineService } from './pipeline/pipeline.service.js';
 import { PortfolioController } from './portfolio/portfolio.controller.js';
 import { PortfolioService } from './portfolio/portfolio.service.js';
+import { ReportsController } from './reports/reports.controller.js';
+import { ReportsService } from './reports/reports.service.js';
+import { SponsorsController } from './sponsors/sponsors.controller.js';
+import { SponsorsService } from './sponsors/sponsors.service.js';
+import { ValuationsController } from './valuations/valuations.controller.js';
+import { ValuationsService } from './valuations/valuations.service.js';
+import { ValuationWorkflowService } from './valuations/workflow.service.js';
+import { VehiclesController } from './vehicles/vehicles.controller.js';
+import { VehiclesService } from './vehicles/vehicles.service.js';
 
 /** Every controller the API serves; the contract parity test reflects on this list. */
 export const CONTROLLERS = [
@@ -22,6 +81,26 @@ export const CONTROLLERS = [
   FlagsController,
   PortfolioController,
   DataController,
+  PerformanceController,
+  VehiclesController,
+  SponsorsController,
+  ValuationsController,
+  CapitalController,
+  WiresController,
+  ChangeRequestsController,
+  AnalyticsController,
+  ReportsController,
+  AuditController,
+  IntakeController,
+  OpsDropController,
+  WeeklyController,
+  LookthroughController,
+  ExceptionsController,
+  DocumentsController,
+  ExtractionController,
+  MonitoringController,
+  PipelineController,
+  ClosingController,
 ] as const;
 
 @Module({})
@@ -36,10 +115,44 @@ export class AppModule implements NestModule {
         { provide: ADAPTERS, useValue: runtime.adapters },
         { provide: LOGGER, useValue: runtime.logger },
         { provide: DEFINITIONS, useValue: runtime.definitions },
+        { provide: ACCOUNTING_LAYOUT, useValue: runtime.accountingLayout },
+        { provide: LOOKTHROUGH_MAPPING, useValue: runtime.lookthroughMapping },
+        { provide: OPS_DROP_TEMPLATES, useValue: runtime.opsDropTemplates },
+        { provide: CLOSING_CHECKLIST, useValue: runtime.closingChecklist },
+        { provide: DILIGENCE_TEMPLATES, useValue: runtime.diligenceTemplates },
+        { provide: EXTRACTION_SCHEMAS, useValue: runtime.extractionSchemas },
+        { provide: HIGHLIGHT_STYLE, useValue: loadHighlightStyle(runtime.config.PB_CONFIG_DIR) },
+        { provide: FIELD_CIPHER, useValue: runtime.fieldCipher },
         DbService,
         FlagsService,
         PortfolioService,
+        PerformanceService,
+        VehiclesService,
+        SponsorsService,
+        ValuationsService,
+        ValuationWorkflowService,
+        CapitalService,
+        WiresService,
+        ChangeRequestsService,
+        AnalyticsService,
+        ReportsService,
+        AuditService,
+        IntakeService,
+        OpsDropService,
+        WeeklyService,
+        LookthroughService,
+        ExceptionsService,
+        DocumentsService,
+        ExpectedDocumentsService,
+        ExtractionRunner,
+        ExtractionService,
+        ExtractionReviewService,
+        MonitoringService,
+        PipelineService,
+        ClosingService,
         { provide: APP_GUARD, useClass: AuthGuard },
+        // Idempotency-Key on the routes the contract marks idempotent (docs/17 section 3).
+        { provide: APP_INTERCEPTOR, useClass: IdempotencyInterceptor },
         { provide: APP_FILTER, useClass: ProblemFilter },
       ],
     };

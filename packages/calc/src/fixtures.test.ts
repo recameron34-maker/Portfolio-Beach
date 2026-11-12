@@ -5,14 +5,19 @@ import {
   CalcError,
   D,
   allInCoupon,
+  bandIndexOf,
   capitalizePik,
   cashOnCash,
   currentYield,
   directAlpha,
   dscr,
   ebitdaMargin,
+  entryCohortBands,
   entrySnapshot,
+  entryStake,
   evToEbitda,
+  gainByDriver,
+  indexedLevel,
   interestCoverage,
   ksPme,
   latestPeriod,
@@ -22,14 +27,30 @@ import {
   netDebtToEbitda,
   parRollForward,
   sameQuarterPriorYear,
+  sinceEntryMeasures,
   takahashiAlexander,
   toDollars,
+  totalGain,
+  turnBands,
   unfunded,
+  valueChange,
   valueCreationAttribution,
+  valueCreationBridge,
+  valueCreationRollup,
+  weightedAverage,
   xirr,
   yieldToMaturity,
 } from './index.js';
-import type { CashFlow, Decimal, IndexPoint, PaymentFrequency, PeriodRow } from './index.js';
+import type {
+  BridgePoint,
+  CashFlow,
+  Decimal,
+  IndexPoint,
+  OperatingFigures,
+  PaymentFrequency,
+  PeriodRow,
+  RollupPosition,
+} from './index.js';
 
 /**
  * Golden-file tests (docs/08 section 9). The same fixture files are run by the Python cross-check
@@ -90,6 +111,13 @@ describe('golden fixtures', () => {
             fx.input.recallableDistributions as string,
           );
           expectClose(u, fx.expected.unfunded, tol);
+          break;
+        }
+        case 'value_change': {
+          const cases = fx.input.cases as { current: string | null; prior: string | null }[];
+          const results = fx.expected.results as (string | null)[];
+          expect(results.length).toBe(cases.length);
+          cases.forEach((c, i) => expectClose(valueChange(c.current, c.prior), results[i], tol));
           break;
         }
         case 'operating_ratios': {
@@ -199,6 +227,184 @@ describe('golden fixtures', () => {
           ).toBe(true);
           const nc = fx.input.nullCase as { entry: P; current: P };
           expect(valueCreationAttribution(nc.entry, nc.current)).toBe(fx.expected.nullCase);
+          break;
+        }
+        case 'value_creation_bridge': {
+          const cases = fx.input.cases as { entry: BridgePoint; current: BridgePoint }[];
+          const results = fx.expected.results as Record<string, unknown>[];
+          expect(results.length).toBe(cases.length);
+          cases.forEach((c, i) => {
+            const e = results[i]!;
+            const r = valueCreationBridge(c.entry, c.current);
+            expect(r.reason ?? null).toBe(e.reason);
+            if (e.reason !== null) {
+              expect(r.value).toBeNull();
+              return;
+            }
+            const b = r.value!;
+            for (const key of [
+              'equityAtEntry',
+              'equityCurrent',
+              'ebitdaGrowth',
+              'multipleExpansion',
+              'debtPaydown',
+              'total',
+              'revenueGrowth',
+              'marginChange',
+            ] as const) {
+              expectClose(b[key], e[key], tol);
+            }
+            // The parts are the whole, to the last place: no tolerance here.
+            expect(b.ebitdaGrowth.plus(b.multipleExpansion).plus(b.debtPaydown).eq(b.total)).toBe(
+              true,
+            );
+            expect(b.equityCurrent.minus(b.equityAtEntry).eq(b.total)).toBe(true);
+            if (b.revenueGrowth !== null && b.marginChange !== null)
+              expect(b.revenueGrowth.plus(b.marginChange).eq(b.ebitdaGrowth)).toBe(true);
+            const shares = e.shares as Record<string, string> | null;
+            if (shares === null) expect(b.shares).toBeNull();
+            else {
+              expect(b.shares).not.toBeNull();
+              for (const key of ['ebitdaGrowth', 'multipleExpansion', 'debtPaydown'] as const)
+                expectClose(b.shares![key], shares[key], tol);
+            }
+          });
+          break;
+        }
+        case 'since_entry_measures': {
+          const cases = fx.input.cases as { entry: OperatingFigures; current: OperatingFigures }[];
+          const results = fx.expected.results as Record<string, string | null>[];
+          expect(results.length).toBe(cases.length);
+          const equityOf = (p: OperatingFigures): Decimal | null =>
+            p.ev === null || p.netDebt === null ? null : D(p.ev).minus(D(p.netDebt));
+          cases.forEach((c, i) => {
+            const e = results[i]!;
+            const m = sinceEntryMeasures(c.entry, c.current);
+            for (const key of [
+              'ebitdaGrowth',
+              'evGrowth',
+              'equityValueGrowth',
+              'multipleChange',
+              'netLeverageChange',
+              'netDebtChange',
+            ] as const) {
+              expectClose(m[key], e[key], tol);
+            }
+            expectClose(indexedLevel(c.current.ebitda, c.entry.ebitda), e.ebitdaIndex, tol);
+            expectClose(indexedLevel(c.current.ev, c.entry.ev), e.evIndex, tol);
+            expectClose(
+              indexedLevel(equityOf(c.current), equityOf(c.entry)),
+              e.equityValueIndex,
+              tol,
+            );
+          });
+          break;
+        }
+        case 'gain_by_driver': {
+          const bridges = fx.input.bridges as Record<
+            string,
+            { entry: BridgePoint; current: BridgePoint }
+          >;
+          const cases = fx.input.cases as {
+            bridge: string;
+            distributions: string;
+            nav: string;
+            invested: string;
+          }[];
+          const results = fx.expected.results as Record<string, string | null>[];
+          expect(results.length).toBe(cases.length);
+          cases.forEach((c, i) => {
+            const e = results[i]!;
+            const points = bridges[c.bridge]!;
+            const bridge = valueCreationBridge(points.entry, points.current).value!;
+            const gain = totalGain(c.distributions, c.nav, c.invested);
+            expectClose(gain, e.gain, tol);
+            const r = gainByDriver(gain, c.invested, bridge);
+            if ('split' in e) {
+              expect(r.value).toBeNull();
+              expect(r.reason).toBe(e.reason);
+              return;
+            }
+            expect(r.reason).toBeUndefined();
+            const split = r.value!;
+            for (const key of [
+              'stake',
+              'ebitdaGrowth',
+              'multipleExpansion',
+              'debtPaydown',
+              'other',
+              'revenueGrowth',
+              'marginChange',
+            ] as const) {
+              expectClose(split[key], e[key], tol);
+            }
+            expectClose(entryStake(c.invested, bridge.equityAtEntry), e.stake, tol);
+            // The four parts are the gain, to the last place: no tolerance here.
+            expect(
+              split.ebitdaGrowth
+                .plus(split.multipleExpansion)
+                .plus(split.debtPaydown)
+                .plus(split.other)
+                .eq(gain!),
+            ).toBe(true);
+          });
+          break;
+        }
+        case 'value_creation_rollup': {
+          const input = fx.input as {
+            asOf: string;
+            edges: { multiple: string[]; leverage: string[] };
+            positions: (RollupPosition & { id: string })[];
+            cases: string[][];
+          };
+          const results = fx.expected.results as unknown[];
+          expect(results.length).toBe(input.cases.length);
+          const bands = {
+            byEntryMultiple: entryCohortBands(input.edges.multiple),
+            byEntryLeverage: entryCohortBands(input.edges.leverage),
+          };
+          input.cases.forEach((ids, i) => {
+            const rows = input.positions.filter((p) => ids.includes(p.id));
+            expect(rows.length).toBe(ids.length);
+            // The figures as they travel: the golden strings, to the letter.
+            expect(valueCreationRollup(rows, bands, input.asOf), `case ${i + 1}`).toEqual(
+              results[i],
+            );
+          });
+          break;
+        }
+        case 'entry_bands': {
+          const sets = fx.input.bandSets as { edges: string[]; values: string[] }[];
+          const expected = fx.expected.bandSets as (
+            string | { labels: string[]; indexes: number[] }
+          )[];
+          expect(expected.length).toBe(sets.length);
+          sets.forEach((set, i) => {
+            const e = expected[i]!;
+            if (typeof e === 'string') {
+              const code = e.slice('THROWS:'.length);
+              for (const run of [
+                (): unknown => turnBands(set.edges),
+                (): unknown => bandIndexOf('9', set.edges),
+              ]) {
+                expect(run).toThrow(CalcError);
+                try {
+                  run();
+                } catch (err) {
+                  expect((err as CalcError).code).toBe(code);
+                }
+              }
+              return;
+            }
+            const bands = turnBands(set.edges);
+            expect(bands.map((b) => b.label)).toEqual(e.labels);
+            expect(bands.map((b) => b.index)).toEqual(e.labels.map((_, n) => n));
+            expect(set.values.map((v) => bandIndexOf(v, set.edges))).toEqual(e.indexes);
+          });
+          const averages = fx.input.weightedAverages as { weight: string; value: string }[][];
+          const wanted = fx.expected.weightedAverages as (string | null)[];
+          expect(wanted.length).toBe(averages.length);
+          averages.forEach((items, i) => expectClose(weightedAverage(items), wanted[i], tol));
           break;
         }
         case 'credit_yield': {

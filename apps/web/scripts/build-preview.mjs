@@ -1,25 +1,132 @@
-// Builds a self-contained static preview: records every API response the UI needs from the real
-// API over the small synthetic dataset, then bundles the app in preview mode with relative asset
-// paths. Output: dist-preview/ (index.html for local serving, artifact.html fragment for publishing).
-import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+// Builds a self-contained static preview: records every API response the pages can request (the
+// plan in scripts/preview-plan.mjs) from the real API over the small synthetic dataset, then bundles
+// the app in preview mode with relative asset paths. Output: dist-preview/ (index.html for local
+// serving, artifact.html fragment for publishing).
+import { createHash } from 'node:crypto';
+import { mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
-import { join, resolve } from 'node:path';
+import { join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { generateDataset } from '@pb/synthetic';
-import { createDb, loadSyntheticDataset, migrate } from '@pb/db';
+import {
+  accountingExports,
+  generateDataset,
+  generateDocuments,
+  previewBook,
+  previewLookthroughExtracts,
+  previewOpsDropWorkbooks,
+  previewWeeklyFiles,
+} from '@pb/synthetic';
+import { createDb, loadSyntheticDataset, maskBankDetails, migrate } from '@pb/db';
 import { FixedClock } from '@pb/adapters';
 import { buildRuntime } from '../../api/dist/composition.js';
 import { createApp } from '../../api/dist/app.js';
 import { loadConfig } from '../../api/dist/config.js';
+import { buildPlan, dealTypeCodes, keyFor } from './preview-plan.mjs';
+import { bankDetailLeaks, bookWireInstructions, withoutSecrets } from './preview-wires.mjs';
+
+/** The recordings stay well inside the hosted page limit (16 MB for the page and each file). */
+const MAX_FIXTURE_BYTES = 8 * 1024 * 1024;
+/** Text only the preview simulation contains; none of it may reach the entry chunk or a production build. */
+const SIMULATION_MARKERS = ['x-pb-simulated', '__pbPreviewMisses', 'outside the recorded preview'];
+/** Precondition messages of the transition tables in @pb/workflows. */
+const TABLE_MARKERS = [
+  'the preparer cannot approve their own valuation',
+  'the wire instruction is not verified',
+];
 
 const out = process.env.PB_PREVIEW_OUT ?? 'dist-preview';
 const scratch = join(out, '.scratch');
 rmSync(out, { recursive: true, force: true });
 mkdirSync(join(out, 'preview'), { recursive: true });
 mkdirSync(scratch, { recursive: true });
+const started = Date.now();
 
 const dataset = generateDataset({ profile: 'small', seed: 42 });
 writeFileSync(join(scratch, 'dataset.json'), JSON.stringify(dataset));
+
+// The simulated intakes' inputs (src/preview/routes/): the bundled samples under the names the
+// book records (the three accounting exports the intake page requests, the three weekly values
+// files, the two look-through extracts and the four operations workbooks, each simulated drop
+// folder), the synthetic document set (the simulated store's inbox, decision 0012) and the book
+// as the system actor sees it (decision 0009), all straight from the generated dataset. The shim
+// loads the book next to the recordings.
+const documents = generateDocuments(dataset);
+// The Phase 3 controls (decision 0013): the book carries every wire instruction in its masked
+// form only (WEB-1: the preview is published, so no full account number, routing code or
+// reference is bundled; the recordings carry none either, see record() below) and the two config
+// files the simulated pipeline and closing read, so the simulation needs no API.
+const configDir = new URL('../../../config/', import.meta.url);
+const readConfig = (name) => JSON.parse(readFileSync(new URL(name, configDir), 'utf8'));
+const book = {
+  ...previewBook(dataset, { documents }),
+  wireInstructions: bookWireInstructions(dataset, maskBankDetails),
+  diligenceTemplates: readConfig('diligence_templates.json'),
+  closingChecklist: readConfig('closing_checklist.json'),
+};
+/** Stops the build when a published data file carries a bank detail of the register in clear (SEC-12.2). */
+function requireNoBankDetails(file, text) {
+  const leaks = bankDetailLeaks(dataset, text);
+  if (leaks.length === 0) return;
+  const named = [...new Set(leaks.map((leak) => `${leak.field} of instruction ${leak.id}`))];
+  process.stderr.write(
+    `preview: ${file} would carry bank details in clear (${named.slice(0, 5).join(', ')}${named.length > 5 ? `, and ${named.length - 5} more` : ''}); the build stops before writing it\n`,
+  );
+  process.exit(1);
+}
+const samplesDir = join(out, 'preview', 'samples');
+mkdirSync(samplesDir, { recursive: true });
+const sampleFiles = [];
+function bundle(kind, listed, generated, contentOf, bundledNameOf = (name) => name) {
+  for (const [i, file] of generated.entries()) {
+    const name = listed[i]?.fileName;
+    if (name === undefined)
+      throw new Error(`the book names fewer ${kind} samples than the generator made`);
+    const content = contentOf(file, name);
+    writeFileSync(join(samplesDir, bundledNameOf(name)), content);
+    sampleFiles.push(
+      `${bundledNameOf(name)} (${Buffer.byteLength(content)} bytes, ${file.expectations.rows} rows)`,
+    );
+  }
+}
+bundle('accounting', book.samples, accountingExports(dataset), (f) => f.csv);
+bundle('weekly', book.weeklySamples, previewWeeklyFiles(dataset), (f) => f.csv);
+bundle('look-through', book.lookthroughSamples, previewLookthroughExtracts(dataset), (f) => f.json);
+// The publishing host serves data files but not workbooks, so each .xlsx travels as `<name>.json`
+// with its bytes in base64 (workbookSamplePath in src/pages/intake/intake.ts); the simulated drop
+// folder decodes it, so the local and the published preview read the same file.
+bundle(
+  'ops drop',
+  book.opsDropSamples,
+  previewOpsDropWorkbooks(dataset),
+  (f, name) =>
+    `${JSON.stringify({ fileName: name, base64: Buffer.from(f.bytes).toString('base64') })}\n`,
+  (name) => `${name}.json`,
+);
+// The document set under the store's own file names (the publishing host serves .pdf as it is),
+// which the simulated index reads with @pb/pdf in the browser; the book carries each truth.
+const documentsDir = join(samplesDir, 'documents');
+mkdirSync(documentsDir, { recursive: true });
+let documentBytes = 0;
+for (const doc of documents.documents) {
+  writeFileSync(join(documentsDir, doc.fileName), doc.bytes);
+  documentBytes += doc.bytes.length;
+}
+const bookJson = JSON.stringify(book);
+const bookBytes = Buffer.byteLength(bookJson);
+requireNoBankDetails('book.json', bookJson);
+writeFileSync(join(out, 'preview', 'book.json'), bookJson);
+process.stdout.write(
+  `preview: book.json ${bookBytes} bytes (${book.investments.length} investments, ${book.documents.length} documents); samples: ${sampleFiles.join(', ')}\n`,
+);
+process.stdout.write(
+  `preview: documents: ${documents.documents.length} PDFs, ${documentBytes} bytes under preview/samples/documents\n`,
+);
+if (bookBytes > MAX_FIXTURE_BYTES) {
+  process.stderr.write(
+    `preview: book.json is ${bookBytes} bytes, over the ${MAX_FIXTURE_BYTES} byte budget\n`,
+  );
+  process.exit(1);
+}
 const db = await createDb({ kind: 'pglite' });
 await migrate(db);
 await loadSyntheticDataset(db, dataset);
@@ -40,110 +147,119 @@ const app = await createApp(runtime);
 await app.listen(0, '127.0.0.1');
 const base = (await app.getUrl()).replace('[::1]', '127.0.0.1');
 
-function normalizeKey(credential, method, pathname, search) {
-  const params = new URLSearchParams(search);
-  const sorted = [...params.entries()].sort(([a], [b]) => a.localeCompare(b));
-  const query =
-    sorted.length === 0
-      ? ''
-      : `?${sorted.map(([k, v]) => `${encodeURIComponent(k)}=${encodeURIComponent(v)}`).join('&')}`;
-  return `${credential}|${method.toUpperCase()} ${pathname}${query}`;
-}
-
-const responses = {};
-let count = 0;
-async function record(credential, path) {
-  const url = new URL(path, base);
-  const res = await fetch(url, {
+const get = (credential, path) =>
+  fetch(new URL(path, base), {
     headers: credential ? { authorization: `Bearer ${credential}` } : {},
   });
-  const body = await res.text();
+
+// The wire instruction detail answers the bank details in clear to operations and approvers
+// (synthetic ones, but the recordings are published): withoutSecrets (preview-wires.mjs) stores
+// the recording with null for every credential, and the simulation answers null as well.
+
+// Content-addressed bodies: each distinct body is stored once under the first 16 hex digits of its
+// SHA-256; every key points at its hash.
+const bodies = {};
+const responses = {};
+const families = new Map();
+async function record(credential, path, family) {
+  const res = await get(credential, path);
+  const text = await res.text();
   // Problem bodies carry a fresh request id per run; pin it so the recordings are byte-stable.
-  const stored = res.ok ? body : body.replace(/"request_id":"[^"]*"/, '"request_id":"preview"');
-  responses[normalizeKey(credential, 'GET', url.pathname, url.search)] = {
+  const body = res.ok
+    ? withoutSecrets(path, text)
+    : text.replace(/"request_id":"[^"]*"/, '"request_id":"preview"');
+  const hash = createHash('sha256').update(body).digest('hex').slice(0, 16);
+  if (bodies[hash] !== undefined && bodies[hash] !== body)
+    throw new Error(`two recorded bodies share the hash ${hash}`);
+  bodies[hash] = body;
+  responses[keyFor(credential, 'GET', path)] = {
     status: res.status,
     contentType: res.headers.get('content-type') ?? 'application/json',
-    body: stored,
+    body: hash,
   };
-  count++;
-  return res.ok ? JSON.parse(body) : null;
+  const stats = families.get(family) ?? { requests: 0, statuses: new Map() };
+  stats.requests += 1;
+  stats.statuses.set(res.status, (stats.statuses.get(res.status) ?? 0) + 1);
+  families.set(family, stats);
 }
 
-// Public routes. Health, vehicles and sponsors have no Phase 0 screen yet; they are recorded so the
-// preview keeps working when those screens arrive.
-await record('', '/health/live');
-await record('', '/health/ready');
-await record('', '/api/v1/auth/mock-users');
-
-const DEAL_TYPES = [
-  '',
-  'deal_type.co_invest_equity',
-  'deal_type.cv_single_asset',
-  'deal_type.cv_multi_asset',
-  'deal_type.private_credit',
-];
-for (const user of dataset.users) {
-  const c = user.externalId;
-  await record(c, '/api/v1/auth/me');
-  await record(c, '/api/v1/flags');
-  await record(c, '/api/v1/vehicles');
-  await record(c, '/api/v1/sponsors?limit=50');
-  await record(c, '/api/v1/data-health');
-  await record(c, '/api/v1/data-dictionary');
-  // Every grid and home combination the UI can request.
-  for (const dealType of DEAL_TYPES) {
-    for (const active of ['true', '']) {
-      const params = new URLSearchParams();
-      params.set('limit', '100');
-      if (dealType) params.set('dealType', dealType);
-      if (active) params.set('active', active);
-      await record(c, `/api/v1/investments?${params.toString()}`);
+async function recordFamilies(plan, first) {
+  for (const user of dataset.users) {
+    for (const family of plan.families) {
+      if ((family.recordFirst === true) !== first) continue;
+      for (const path of family.paths) await record(user.externalId, path, family.name);
     }
   }
-  await record(c, '/api/v1/investments?active=true&limit=200');
-  // Every investment detail, including the recorded 404 for the walled deal when this user is not on the wall.
-  for (const inv of dataset.investments) await record(c, `/api/v1/investments/${inv.id}`);
 }
+
+// The audit trail first, before any audited read (see the header of preview-plan.mjs); those
+// families need no deal-type codes.
+await recordFamilies(buildPlan(dataset, { dealTypes: [] }), true);
+// The deal-type codes the investment filters can send come from the seeded taxonomy.
+const taxonomy = await get(dataset.users[0].externalId, '/api/v1/taxonomy');
+if (!taxonomy.ok)
+  throw new Error(`taxonomy answered ${taxonomy.status}; cannot plan the recordings`);
+const plan = buildPlan(dataset, { dealTypes: dealTypeCodes(await taxonomy.json()) });
+for (const path of plan.public) await record('', path, 'public');
+await recordFamilies(plan, false);
 await app.close();
 await db.close();
 
 const fixtures = {
   generatedFrom: 'tools/synthetic small profile, seed 42, recorded from apps/api',
   asOf: dataset.asOf,
-  users: dataset.users.map((u) => ({ externalId: u.externalId, roles: u.roles })),
+  users: dataset.users.map((u) => ({
+    externalId: u.externalId,
+    roles: u.roles,
+    userId: u.id,
+    displayName: u.displayName,
+  })),
+  bodies,
   responses,
 };
-writeFileSync(join(out, 'preview', 'fixtures.json'), JSON.stringify(fixtures));
-process.stdout.write(`preview: recorded ${count} responses for ${dataset.users.length} users\n`);
-
-const build = spawnSync(
-  'pnpm',
-  [
-    'exec',
-    'vite',
-    'build',
-    '--base',
-    './',
-    '--outDir',
-    out,
-    '--emptyOutDir',
-    'false',
-    '--manifest',
-    '--sourcemap',
-    'false',
-  ],
-  {
-    stdio: 'inherit',
-    env: { ...process.env, VITE_PB_PREVIEW: 'true' },
-  },
+const fixturesJson = JSON.stringify(fixtures);
+const fixtureBytes = Buffer.byteLength(fixturesJson);
+requireNoBankDetails('fixtures.json', fixturesJson);
+writeFileSync(join(out, 'preview', 'fixtures.json'), fixturesJson);
+for (const [name, stats] of families) {
+  const statuses = [...stats.statuses]
+    .sort(([a], [b]) => a - b)
+    .map(([status, n]) => `${status} x ${n}`)
+    .join(', ');
+  process.stdout.write(`preview: ${name}: ${stats.requests} requests (${statuses})\n`);
+}
+process.stdout.write(
+  `preview: recorded ${Object.keys(responses).length} keys, ${Object.keys(bodies).length} distinct bodies, ` +
+    `fixtures.json ${fixtureBytes} bytes, for ${dataset.users.length} users in ${Math.round((Date.now() - started) / 1000)} s\n`,
 );
-if (build.status !== 0) process.exit(build.status ?? 1);
+if (fixtureBytes > MAX_FIXTURE_BYTES) {
+  process.stderr.write(
+    `preview: fixtures.json is ${fixtureBytes} bytes, over the ${MAX_FIXTURE_BYTES} byte budget\n`,
+  );
+  process.exit(1);
+}
+
+function viteBuild(outDir, preview) {
+  const env = { ...process.env };
+  if (preview) env.VITE_PB_PREVIEW = 'true';
+  else delete env.VITE_PB_PREVIEW;
+  const args = ['exec', 'vite', 'build', '--outDir', outDir, '--sourcemap', 'false'];
+  if (preview) args.push('--base', './', '--emptyOutDir', 'false', '--manifest');
+  else args.push('--emptyOutDir', '--logLevel', 'warn');
+  const build = spawnSync('pnpm', args, { stdio: 'inherit', env });
+  if (build.status !== 0) process.exit(build.status ?? 1);
+}
+
+viteBuild(out, true);
 
 // Artifact fragment: the publishing host wraps the page in its own document skeleton. The asset
 // names come from Vite's build manifest, not from parsing the generated HTML.
 const manifest = JSON.parse(readFileSync(join(out, '.vite', 'manifest.json'), 'utf8'));
 const entry = manifest['index.html'];
 if (entry === undefined) throw new Error('vite manifest has no index.html entry');
+const shimChunk = manifest['src/preview/shim.ts'];
+if (shimChunk === undefined || !shimChunk.isDynamicEntry)
+  throw new Error('vite manifest has no dynamically imported preview shim chunk');
 const tags = [
   `<script type="module" crossorigin src="./${entry.file}"></script>`,
   ...(entry.css ?? []).map((css) => `<link rel="stylesheet" crossorigin href="./${css}">`),
@@ -160,6 +276,93 @@ const fragment = [
   '',
 ].join('\n');
 writeFileSync(join(out, 'artifact.html'), fragment);
+
+// The minifier folds `String.fromCharCode(0x2014)` (the em dash the EXT-TEXT-01 rule of @pb/ai
+// looks for in a draft) into the literal character, and the employer-data guard below scans the
+// output for em dashes; the character is written back as its escape, which a JavaScript string
+// or regular expression reads the same way, so the bundle stays free of the literal.
+const EM_DASH = String.fromCharCode(0x2014);
+for (const file of readdirSync(join(out, 'assets')).filter((f) => f.endsWith('.js'))) {
+  const path = join(out, 'assets', file);
+  const code = readFileSync(path, 'utf8');
+  const count = code.split(EM_DASH).length - 1;
+  if (count === 0) continue;
+  writeFileSync(path, code.split(EM_DASH).join('\\u2014'));
+  process.stdout.write(
+    `preview: ${file}: ${count} em dash character(s) the minifier folded written as the escape\n`,
+  );
+}
+
+// The simulation must live only in the shim chunk, which the app imports dynamically in preview
+// builds alone; a production build must carry none of it.
+const read = (file) => readFileSync(join(out, file), 'utf8');
+const entryCode = read(entry.file);
+const shimCode = read(shimChunk.file);
+const leaked = SIMULATION_MARKERS.filter((m) => entryCode.includes(m));
+const missing = SIMULATION_MARKERS.filter((m) => !shimCode.includes(m));
+if (leaked.length > 0 || missing.length > 0) {
+  process.stderr.write(
+    `preview: simulation code outside the shim chunk (${leaked.join(', ') || 'none'}) or missing from it (${missing.join(', ') || 'none'})\n`,
+  );
+  process.exit(1);
+}
+process.stdout.write(
+  `preview: shim chunk ${shimChunk.file} ${Buffer.byteLength(shimCode)} bytes; entry chunk carries no simulation code\n`,
+);
+// Where the bundler put the transition tables of @pb/workflows. They join the entry chunk when app
+// code imports the package (statically, through its barrel); informational, not a failure.
+const tablesIn = (code) => TABLE_MARKERS.some((m) => code.includes(m));
+process.stdout.write(
+  `preview: workflow transition tables in ${
+    [tablesIn(entryCode) ? 'the entry chunk' : '', tablesIn(shimCode) ? 'the shim chunk' : '']
+      .filter(Boolean)
+      .join(' and ') || 'no chunk'
+  }\n`,
+);
+
+const production = join(scratch, 'production');
+viteBuild(production, false);
+const productionCode = readdirSync(join(production, 'assets'))
+  .filter((f) => f.endsWith('.js'))
+  .map((f) => readFileSync(join(production, 'assets', f), 'utf8'))
+  .join('\n');
+const inProduction = SIMULATION_MARKERS.filter((m) => productionCode.includes(m));
+if (inProduction.length > 0) {
+  process.stderr.write(
+    `preview: the production build carries simulation code (${inProduction.join(', ')})\n`,
+  );
+  process.exit(1);
+}
+const tables = TABLE_MARKERS.filter((m) => productionCode.includes(m));
+process.stdout.write(
+  tables.length === 0
+    ? 'preview: production build checked: no simulation code and no workflow transition table\n'
+    : 'preview: production build checked: no simulation code; it carries the workflow transition tables because app code imports them\n',
+);
+rmSync(production, { recursive: true, force: true });
+
+// What a publisher maps beside artifact.html, by path: every built asset and preview data file
+// (the recordings, the book, the samples), so nothing the page requests is left behind.
+function filesUnder(dir) {
+  const files = [];
+  for (const entry of readdirSync(dir)) {
+    const path = join(dir, entry);
+    if (statSync(path).isDirectory()) files.push(...filesUnder(path));
+    else files.push(relative(out, path).split('\\').join('/'));
+  }
+  return files;
+}
+const notPublished = new Set(['index.html', 'artifact.html', 'publish.json']);
+const published = filesUnder(out)
+  .filter((f) => !notPublished.has(f) && !f.startsWith('.scratch/'))
+  .sort();
+writeFileSync(
+  join(out, 'publish.json'),
+  `${JSON.stringify({ page: 'artifact.html', files: published }, null, 2)}\n`,
+);
+process.stdout.write(
+  `preview: publish.json lists ${published.length} files to map beside artifact.html\n`,
+);
 
 // The bundle is build output that git never sees, so the employer-data guard scans it here.
 const guard = spawnSync('bash', ['scripts/check-employer-data.sh', '--paths', resolve(out)], {

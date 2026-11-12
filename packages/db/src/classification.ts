@@ -58,6 +58,7 @@ export const CLASSIFICATION: Record<string, TableClassification> = {
     },
   },
   'core.fund_alias': { default: 'internal', retention: 'books_and_records' },
+  'core.company_alias': { default: 'internal', retention: 'books_and_records' },
   'core.portfolio_company': {
     default: 'restricted_mnpi',
     retention: 'books_and_records',
@@ -78,9 +79,145 @@ export const CLASSIFICATION: Record<string, TableClassification> = {
   'mon.credit_performance': { default: 'restricted_mnpi', retention: 'books_and_records' },
   'mon.valuation': { default: 'restricted_mnpi', retention: 'books_and_records' },
   'mon.valuation_approval': { default: 'restricted_mnpi', retention: 'books_and_records' },
-  'mon.capital_notice': { default: 'restricted_mnpi', retention: 'books_and_records' },
+  'mon.capital_notice': {
+    default: 'restricted_mnpi',
+    retention: 'books_and_records',
+    columns: {
+      urgency_flag: 'internal',
+      wire_change_flag: 'internal',
+      funded_at: 'internal',
+      funded_by: 'confidential_personal',
+    },
+  },
   'mon.cash_flow': { default: 'restricted_mnpi', retention: 'books_and_records' },
   'mon.realization_outlook': { default: 'restricted_mnpi', retention: 'books_and_records' },
+  // The wire instruction register (migration 0013, SEC-12.2): payment data by default. The bank
+  // details are ciphertext and the masked form still names the bank; who proposed and who called
+  // back are personal; the counterparty, the version and the callback bookkeeping are operational.
+  'mon.wire_instruction': {
+    default: 'restricted_payment',
+    retention: 'books_and_records',
+    columns: {
+      sponsor_fund_id: 'internal',
+      investment_id: 'restricted_mnpi',
+      counterparty_name: 'internal',
+      version: 'internal',
+      proposed_by: 'confidential_personal',
+      proposed_at: 'internal',
+      source_note: 'internal',
+      callback_by: 'confidential_personal',
+      callback_at: 'internal',
+      callback_number_source: 'internal',
+      callback_result: 'internal',
+      verified_at: 'internal',
+      rejection_reason: 'internal',
+      active: 'internal',
+    },
+  },
+  // A trade ticket releases money (SEC-12.3): the amount, the funding date and the instruction it
+  // names are payment data; the notice it funds is MNPI; the people are personal.
+  'mon.trade_ticket': {
+    default: 'restricted_payment',
+    retention: 'books_and_records',
+    columns: {
+      capital_notice_id: 'restricted_mnpi',
+      prepared_by: 'confidential_personal',
+      prepared_at: 'internal',
+      approved_by: 'confidential_personal',
+      approved_at: 'internal',
+      withdrawn_reason: 'internal',
+    },
+  },
+  'mon.deal_change_request': {
+    default: 'restricted_mnpi',
+    retention: 'books_and_records',
+    columns: {
+      owner_id: 'confidential_personal',
+      submitted_by: 'confidential_personal',
+      applied_by: 'confidential_personal',
+      applied_period: 'internal',
+      applied_at: 'internal',
+      rejection_reason: 'internal',
+    },
+  },
+  // The pipeline (migration 0013): a named deal, its sponsor, size and stage are MNPI from the day
+  // it is sourced; the lead is personal; the scenario tag is test bookkeeping.
+  'deal.opportunity': {
+    default: 'restricted_mnpi',
+    retention: 'books_and_records',
+    columns: { owner_id: 'confidential_personal', scenario_tag: 'internal' },
+  },
+  'deal.opportunity_stage_history': {
+    default: 'restricted_mnpi',
+    retention: 'books_and_records',
+    columns: { command: 'internal', changed_by: 'confidential_personal', changed_at: 'internal' },
+  },
+  'deal.diligence_task': {
+    default: 'restricted_mnpi',
+    retention: 'books_and_records',
+    columns: {
+      owner_id: 'confidential_personal',
+      due_date: 'internal',
+      required_for_ic: 'internal',
+      evidence_document_id: 'internal',
+    },
+  },
+  'deal.ic_decision': {
+    default: 'restricted_mnpi',
+    retention: 'books_and_records',
+    columns: { memo_document_id: 'internal', recorded_by: 'confidential_personal' },
+  },
+  'deal.allocation': { default: 'restricted_mnpi', retention: 'books_and_records' },
+  'deal.closing': {
+    default: 'restricted_mnpi',
+    retention: 'books_and_records',
+    columns: {
+      ops_confirmed_by: 'confidential_personal',
+      ops_confirmed_at: 'internal',
+      reopen_reason: 'internal',
+    },
+  },
+  // The checklist says which closing documents were received, not what they say.
+  'deal.closing_item': { default: 'internal', retention: 'books_and_records' },
+  'deal.legal_term': {
+    default: 'restricted_mnpi',
+    retention: 'books_and_records',
+    columns: { confirmed_by: 'confidential_personal', confirmed_at: 'internal' },
+  },
+  // The document index (migration 0011): what a document is about is MNPI (its title, links,
+  // period, text excerpt and search vector); where it sits in the store and how it was handled are
+  // operational metadata. Who classified it is personal.
+  'doc.document': {
+    default: 'restricted_mnpi',
+    retention: 'books_and_records',
+    columns: {
+      source_system: 'internal',
+      source_item_id: 'internal',
+      folder: 'internal',
+      confidentiality: 'internal',
+      content_hash: 'internal',
+      size_bytes: 'internal',
+      page_count: 'internal',
+      received_at: 'internal',
+      indexed_at: 'internal',
+      review_status: 'internal',
+      classification_confidence: 'internal',
+      classified_by: 'confidential_personal',
+      classified_at: 'internal',
+      duplicate_of_id: 'internal',
+    },
+  },
+  'doc.expected_document': { default: 'internal', retention: 'books_and_records' },
+  // A run's bookkeeping (schema, prompt, state, tokens, cost, retries); the figures are on its values.
+  'doc.extraction_run': {
+    default: 'internal',
+    retention: 'operational_2y',
+    columns: {
+      requested_by: 'confidential_personal',
+      approved_by: 'confidential_personal',
+      promoted_record_id: 'restricted_mnpi',
+    },
+  },
   'ops.schema_migration': { default: 'internal', retention: 'permanent' },
   'ops.feature_flag': { default: 'internal', retention: 'permanent' },
   'ops.task': {
@@ -98,6 +235,21 @@ export const CLASSIFICATION: Record<string, TableClassification> = {
     },
   },
   'ops.job': { default: 'internal', retention: 'operational_2y' },
+  // The API's Idempotency-Key store (migration 0015, docs/17 section 3). The stored answer is a
+  // copy of what a command returned: deal, valuation and notice figures and, on a notice, its
+  // ticket and the masked instruction, so it takes the payment class (the stricter handling); bank
+  // details in clear never reach it. The request is kept only as a digest sealed with the field
+  // key, and a wire proposal's body carries bank details, so the digest is payment data too. The
+  // key, the route and the status are bookkeeping; the owner is personal.
+  'ops.idempotency_key': {
+    default: 'internal',
+    retention: 'operational_2y',
+    columns: {
+      user_id: 'confidential_personal',
+      request_hash: 'restricted_payment',
+      response_body: 'restricted_payment',
+    },
+  },
   'ops.systems_issue': { default: 'internal', retention: 'operational_2y' },
   'ops.outbox': {
     default: 'internal',
@@ -107,6 +259,17 @@ export const CLASSIFICATION: Record<string, TableClassification> = {
   'stg.intake_file': { default: 'internal', retention: 'operational_2y' },
   'stg.intake_row': { default: 'restricted_mnpi', retention: 'operational_2y' },
   'stg.valuation': { default: 'restricted_mnpi', retention: 'operational_2y' },
+  // An extracted value is a figure from a sponsor report until approved; the reviewer is personal.
+  'stg.extracted_value': {
+    default: 'restricted_mnpi',
+    retention: 'operational_2y',
+    columns: {
+      validation_state: 'internal',
+      reviewer_id: 'confidential_personal',
+      decision: 'internal',
+      decided_at: 'internal',
+    },
+  },
   'audit.event': {
     default: 'internal',
     retention: 'permanent',
@@ -120,8 +283,17 @@ export interface ColumnRef {
   column: string;
 }
 
-/** Resolves a column's class, treating <table>_history as its parent table. */
+/**
+ * Resolves a column's class. A table registered under its own name is classified as itself, even
+ * when the name ends in _history (deal.opportunity_stage_history is the pipeline's own record, not
+ * an image table); any other <table>_history is the image table of its parent.
+ */
 export function classify(ref: ColumnRef): DataClass | null {
+  const own = CLASSIFICATION[`${ref.schema}.${ref.table}`];
+  if (own !== undefined) {
+    if (METADATA_COLUMNS.includes(ref.column)) return 'internal';
+    return own.columns?.[ref.column] ?? own.default;
+  }
   const base = ref.table.endsWith('_history') ? ref.table.slice(0, -'_history'.length) : ref.table;
   const entry = CLASSIFICATION[`${ref.schema}.${base}`];
   if (entry === undefined) return null;

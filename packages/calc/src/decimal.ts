@@ -37,6 +37,19 @@ export function D(value: DecimalInput): Decimal {
   return d;
 }
 
+/** The decimal places a result travels with (docs/08 section 1). */
+export const RESULT_PLACES = 10;
+
+/**
+ * A result as the API contract's decimal string: rounded half up to ten places with this
+ * library's settings, never an exponent, trailing zeros dropped ("0.2", not "0.2000000000");
+ * null stays null, the missing placeholder (docs/06 section 3). The one rendering the API and the
+ * preview simulation share.
+ */
+export function toDecimalString(value: Decimal | null): string | null {
+  return value === null ? null : value.toFixed(RESULT_PLACES).replace(/\.?0+$/, '');
+}
+
 export function isZero(value: Decimal): boolean {
   return value.isZero();
 }

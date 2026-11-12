@@ -1,3 +1,4 @@
+import { DECIMAL_PATTERN } from '@pb/contracts';
 import brand from '../../../../config/brand.json';
 
 /** Display rules from docs/06 section 3. Inputs are decimal strings or null; null renders the missing placeholder. */
@@ -27,6 +28,14 @@ export function formatMoneyM(value: string | null | undefined): string {
   const millions = n / 1_000_000;
   const sign = millions < 0 ? '-' : '';
   return `${sign}$${withGrouping(Math.abs(millions), 1)}M`;
+}
+
+/**
+ * $M label for a number the chart kit hands back (axis tooltips and table twins). The number is
+ * the API's decimal string passed through Number for geometry, never the result of arithmetic.
+ */
+export function moneyLabel(value: number): string {
+  return formatMoneyM(value.toFixed(2));
 }
 
 /** MOIC with two decimals and an "x". */
@@ -80,9 +89,67 @@ export function formatMonthYear(iso: string | null | undefined): string {
   return `${long[Number(m[2]) - 1] ?? '?'} ${m[1]}`;
 }
 
-/** Taxonomy codes ("deal_type.co_invest_equity") to labels for display. */
+/**
+ * "Jun 2025" for chart axes, where full month names run into each other at phone width. The
+ * missing placeholder for anything that is not an ISO date with a real month.
+ */
+export function formatMonthYearShort(iso: string | null | undefined): string {
+  if (iso === null || iso === undefined) return MISSING;
+  const m = /^(\d{4})-(\d{2})-\d{2}$/.exec(iso);
+  const month = m === null ? undefined : MONTHS[Number(m[2]) - 1];
+  return m === null || month === undefined ? MISSING : `${month} ${m[1]}`;
+}
+
+/**
+ * "Q2 2025" from a quarter-end date ("2025-06-30"): the calendar quarter it falls in. Short enough
+ * that every tick of a quarterly chart stays readable at phone width; the missing placeholder when
+ * the value is not an ISO date with a real month.
+ */
+export function formatQuarter(iso: string | null | undefined): string {
+  if (iso === null || iso === undefined) return MISSING;
+  const m = /^(\d{4})-(\d{2})-\d{2}$/.exec(iso);
+  const month = Number(m?.[2]);
+  if (m === null || !(month >= 1 && month <= 12)) return MISSING;
+  return `Q${Math.ceil(month / 3)} ${m[1]}`;
+}
+
+/** "2.0 years" from the API's holding period in years (docs/08 section 2); the missing placeholder for null. */
+export function formatYears(value: string | null | undefined): string {
+  if (value === null || value === undefined || !DECIMAL_PATTERN.test(value)) return MISSING;
+  return `${Number(value).toFixed(1)} years`;
+}
+
+/** "1 quarter", "3 quarters": a count with its noun, plural by adding s. */
+export function plural(n: number, noun: string): string {
+  return `${n} ${noun}${n === 1 ? '' : 's'}`;
+}
+
+/** "A", "A and B", "A, B and C". */
+export function joinList(items: readonly string[]): string {
+  if (items.length <= 1) return items[0] ?? '';
+  return `${items.slice(0, -1).join(', ')} and ${items[items.length - 1]}`;
+}
+
+/** Labels from GET /api/v1/taxonomy, registered once by the app shell (useTaxonomyLabels). */
+const TAXONOMY_LABELS = new Map<string, string>();
+
+export function registerTaxonomyLabels(terms: Iterable<{ code: string; label: string }>): void {
+  for (const t of terms) TAXONOMY_LABELS.set(t.code, t.label);
+}
+
+/** Test helper: forget the registered labels. */
+export function clearTaxonomyLabels(): void {
+  TAXONOMY_LABELS.clear();
+}
+
+/**
+ * Taxonomy codes ("deal_type.co_invest_equity") to labels for display: the taxonomy's own label
+ * when the shell has loaded it, otherwise one generated from the code.
+ */
 export function labelOf(code: string | null | undefined): string {
   if (code === null || code === undefined) return MISSING;
+  const known = TAXONOMY_LABELS.get(code);
+  if (known !== undefined) return known;
   const tail = code.includes('.') ? code.slice(code.indexOf('.') + 1) : code;
   const words = tail.split('_').join(' ');
   return words.charAt(0).toUpperCase() + words.slice(1);
@@ -92,4 +159,11 @@ export function labelOf(code: string | null | undefined): string {
 export function irrDisplay(row: { grossIrr: string | null; irrFlag: string | null }): string {
   if (row.irrFlag === 'short_period' || row.irrFlag === 'multiple_irr') return 'NM';
   return formatPct(row.grossIrr);
+}
+
+/** "2025-06-30T12:00:00.000Z" to "Jun 30, 2025 12:00:00 UTC" through formatDate; the raw text when not ISO. */
+export function formatDateTime(iso: string): string {
+  const m = /^(\d{4}-\d{2}-\d{2})T(\d{2}:\d{2}:\d{2})/.exec(iso);
+  if (m === null) return iso;
+  return `${formatDate(m[1] ?? '')} ${m[2] ?? ''} UTC`;
 }

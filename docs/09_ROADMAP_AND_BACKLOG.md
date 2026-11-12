@@ -18,22 +18,25 @@ Synthetic data and mock adapters throughout. Every phase ends with: all CI gates
 **Status (session 1):** every exit criterion is proven by tests in the repo; CI runs the same commands but the branch ruleset and SHA pinning (P0-1, P0-3) are owner actions still open.
 
 ## Phase 1: Data foundation and intake (M1, M2)
-- [ ] Entities, linking, aliases, match guards, taxonomy, Data Health and Data Dictionary pages
-- [ ] Staging framework + validation library (target 100+ rules, each with pass/fail tests)
-- [ ] Accounting import/export (configurable layout), ops-drop parser, weekly-report intake, look-through reconcile
+- [x] Entities, linking, aliases, match guards, taxonomy, Data Health and Data Dictionary pages (company aliases on record since migration 0010, matched exactly; the exceptions queue under Data; decision 0010)
+- [x] Staging framework + validation library (target 100+ rules, each with pass/fail tests): the framework and the library are in place with 62 rules across three intakes (accounting 34, weekly values 15, look-through 13), each with a passing and a failing test and the exact set of findings asserted per case; the target counts every intake's rule set and grows with the document and report intakes of later phases
+- [x] Accounting import/export (configurable layout), ops-drop parser (workbooks by template signature), weekly-report intake (valuation staging to Draft valuations), look-through reconcile (differences as data exceptions with an external ticket): decisions 0009 and 0010
 **Exit:** journey: import a synthetic accounting export, see diffs, approve, promote; duplicate import is a no-op; near-miss names go to exceptions.
+**Status (session 6):** every Phase 1 item is built on synthetic data and proven by tests: the exit journey and the three other intakes each have an API suite and a Playwright journey over the real API (`apps/web/e2e/{intake,weekly,lookthrough,ops-drop}.spec.ts`), walls hold on every intake (a walled position links and waits for a wall member), and the static preview simulates all four intakes and the exceptions queue. Open owner decisions are listed in `docs/SESSION_LOG.md`.
 
 ## Phase 2: Documents, extraction, monitoring (M3, M4, M9)
-- [ ] Document index on local adapter; classifier with review queue and evals; duplicate detection
-- [ ] Extraction pipeline with citations; review-by-exception UI; batch status board; injection tests
-- [ ] Monitoring board, metrics, watchlist, realization outlook, primary fund view
+- [x] Document index on local adapter; classifier with review queue and evals; duplicate detection (the hub over the local folder store, `packages/pdf`, the keyword classifier under `ai.classifier`, the review queue, duplicates by content hash, the expected-document tracker; decision 0012)
+- [x] Extraction pipeline with citations; review-by-exception UI; batch status board; injection tests (batches as jobs, runs through the docs/18 machine with retry and token budgets, ten validation rules, the review page with the page drawn beside the fields and the quote highlighted, approval promoting into `mon.quarterly_performance` with lineage; the injection document extracts its real figures in the API suite, the eval harness and journey 2)
+- [x] Monitoring board, metrics, watchlist, realization outlook, primary fund view (the board under Portfolio with derived document status, run state, flags and approval and a CSV export; the audited outlook edit on the Performance tab; metrics and the watchlist from Phase 0 and session 3; watchlist alert dispatch and primary fund report extraction stay open, docs/11 E4 and E7)
 **Exit:** critical journey 2 (`docs/12`) passes; eval thresholds in M4 met with the mock and recorded fixtures.
+**Status (session 7):** journey 2 passes over the real API (`apps/web/e2e/journey2.spec.ts`: index, generate, batch, review flagged values, approve and promote, the one-pager shows the figure with its source link); `pnpm test:evals` builds the gold set from the synthetic documents and asserts the docs/04 thresholds (classifier precision 1.0 per type, numeric accuracy 1.0, no unit errors, no missing citations, no hallucinations, the injection probe changes nothing). OCR, semantic search and a real model stay out of the prototype (decision 0012).
 
 ## Phase 3: Controls (M10, M11, M8, M16, M22)
-- [ ] Valuation state machine, lock hash, batch approval, reporting gate
-- [ ] Deal change requests; closing checklist; legal terms and allocation tie-out
-- [ ] Capital notices, funding workflow, trade tickets, wire register with callback and dual control
+- [x] Valuation state machine, lock hash, batch approval, reporting gate (the commands served for real with the SHA-256 lock text, a reopen into a new Draft with tasks for the prior approvers, the batch bar, the version screen; the reporting-gate test; decision 0013)
+- [x] Deal change requests; closing checklist; legal terms and allocation tie-out (the one form, routing to operations, the quarter-end check opening exceptions; the closing record as the single close date with the config checklist, operations confirmation and the audited date change; legal terms captured and confirmed; the exact tie-out that blocks confirmation; the pipeline skeleton from Sourced to Closed with the diligence and IC gates and the conversion into a position)
+- [x] Capital notices, funding workflow, trade tickets, wire register with callback and dual control (notice commands for real, the ticket drafted and approved by different people against a Verified instruction, the versioned register with the second-person callback, encrypted bank details masked for everyone but operations and approvers, the hold window, the alerts, funding and the reconcile writing the approved cash flow)
 **Exit:** critical journeys 3, 4 and 6 pass; every forbidden transition in `docs/18` has a passing rejection test.
+**Status (session 8):** journeys 3, 4 and 6 pass over the real API (`apps/web/e2e/journey{3,4,6}.spec.ts`, the whole suite of 56 Playwright tests green in any order), every machine in docs/18 (eleven, two new) has its forbidden pairs rejected in `packages/workflows` and through the API for the valuation, notice, wire, deal stage, change request and closing machines. Teams approval cards, the monthly new-deal confirmation, AI-assisted legal term extraction, field encryption through Key Vault and consent requests stay out of the prototype (decision 0013). The adversarial review of the phase raised 45 findings, 44 on record by id: 43 fixed test first (client-level allocation lines after the owner's decision of 2026-11-11), one already covered (decision 0013, the two review-fix sections).
 
 ## Phase 4: Reporting (M12, M14, M19, M13)
 - [ ] Report QA engine first; then template engine with layout locks and external change log
@@ -49,7 +52,7 @@ Synthetic data and mock adapters throughout. Every phase ends with: all CI gates
 **Exit:** journey 6 passes end to end with diligence and closing; no raw email body persisted (scan test).
 
 ## Phase 6: Analytics, access and assistants (M20, M21, M15)
-- [ ] Exposures, benchmarking (KS-PME, Direct Alpha), liquidity forecast, attribution, exit analytics
+- [ ] Exposures, benchmarking (KS-PME, Direct Alpha), liquidity forecast, attribution, exit analytics (attribution built ahead of the phase at the owner's request, session 9: value creation and entry metric analytics, decision 0014)
 - [ ] Read API (OpenAPI), Excel add-in prototype, warehouse extract to files
 - [ ] Ask Portfolio Beach with permission-aware tools; Market Intelligence on a synthetic research library; missed-items digest
 **Exit:** journey 7 passes (no leakage of walled data); analytics match `docs/08` worked examples.

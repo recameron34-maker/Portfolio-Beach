@@ -1,0 +1,310 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Portfolio Beach: analytics and monitoring</title>
+    <meta
+      name="description"
+      content="Quarterly monitoring and analytics in the Portfolio Beach prototype: the monitoring board, the performance tab, the watchlist, exposure, performance, value creation, entry metrics, the credit book and client views."
+    />
+    <link rel="stylesheet" href="brochure.css" />
+  </head>
+  <body>
+    <!-- Page 1: monitoring -->
+    <section class="page cover">
+      <div class="cover-scene">
+        <svg
+          class="swell swell-a"
+          viewBox="0 0 1600 160"
+          preserveAspectRatio="none"
+          aria-hidden="true"
+        >
+          <path
+            d="M0 40 C50 30 150 30 200 40 S350 50 400 40 S550 30 600 40 S750 50 800 40 S950 30 1000 40 S1150 50 1200 40 S1350 30 1400 40 S1550 50 1600 40 V160 H0 Z"
+          />
+        </svg>
+        <svg
+          class="swell swell-b"
+          viewBox="0 0 1600 160"
+          preserveAspectRatio="none"
+          aria-hidden="true"
+        >
+          <path
+            d="M0 40 C50 50 150 50 200 40 S350 30 400 40 S550 50 600 40 S750 30 800 40 S950 50 1000 40 S1150 30 1200 40 S1350 50 1400 40 S1550 30 1600 40 V160 H0 Z"
+          />
+        </svg>
+        <svg class="shore" viewBox="0 0 1600 64" preserveAspectRatio="none" aria-hidden="true">
+          <path
+            class="sand"
+            d="M0 20 C50 12 150 12 200 20 S350 28 400 20 S550 12 600 20 S750 28 800 20 S950 12 1000 20 S1150 28 1200 20 S1350 12 1400 20 S1550 28 1600 20 V64 H0 Z"
+          />
+          <path
+            class="foam"
+            d="M0 20 C50 12 150 12 200 20 S350 28 400 20 S550 12 600 20 S750 28 800 20 S950 12 1000 20 S1150 28 1200 20 S1350 12 1400 20 S1550 28 1600 20"
+          />
+        </svg>
+        <div class="cover-text">
+          <span class="wordmark">Portfolio Beach</span>
+          <p class="kicker">Analytics and monitoring</p>
+          <h1>From report to portfolio view.</h1>
+          <p class="subtitle">
+            How approved figures move from a sponsor report to the board, the deal and the charts.
+          </p>
+        </div>
+        <span class="chip">Prototype, synthetic data only</span>
+      </div>
+
+      <div class="section split">
+        <div>
+          <h2>The monitoring board</h2>
+          <p class="muted">
+            The board answers one question for the quarter: for each active position, is the sponsor
+            report in, read and approved?
+          </p>
+          <ul class="ticks section">
+            <li>
+              Report status: expected, received, late or missing, judged against its due date.
+            </li>
+            <li>The state of the extraction run and the number of flagged values.</li>
+            <li>Whether the figures are approved into the record, and when.</li>
+            <li>An export of every row to CSV.</li>
+          </ul>
+        </div>
+        <figure>
+          <div class="shot crop tall"><img src="../media/screens/monitoring.webp" alt="" /></div>
+          <figcaption>The monitoring board for the latest quarter.</figcaption>
+        </figure>
+      </div>
+
+      <div class="section split flip">
+        <figure>
+          <div class="shot crop tall"><img src="../media/screens/performance.webp" alt="" /></div>
+          <figcaption>
+            A deal’s Performance tab: the quarterly series, with the source of an approved quarter.
+          </figcaption>
+        </figure>
+        <div>
+          <h2>Each deal, quarter by quarter</h2>
+          <ul class="ticks">
+            <li>Revenue, EBITDA, margin, enterprise value, net debt and leverage by quarter.</li>
+            <li>
+              Prior year means the same fiscal quarter one year earlier. When it is not on record,
+              the cell shows a placeholder, never a nearby period.
+            </li>
+            <li>
+              A quarter approved from an extraction run links back to the document and the page its
+              figures came from.
+            </li>
+            <li>
+              Since entry: revenue growth, EBITDA growth and the change in multiple, from the entry
+              snapshot.
+            </li>
+          </ul>
+        </div>
+      </div>
+
+      <div class="section cols-2">
+        <div class="card">
+          <h3>The watchlist</h3>
+          <p>
+            Positions are flagged against thresholds held in configuration, such as an EBITDA
+            decline, leverage above a limit or a stale valuation. Credit positions carry flags for
+            covenants and maturity.
+          </p>
+        </div>
+        <div class="card">
+          <h3>Calculations</h3>
+          <p>
+            MOIC, IRR, TVPI, DPI and RVPI, margins, leverage and the credit ratios come from one
+            calculation library, tested against worked examples and cross-checked by a second
+            implementation.
+          </p>
+        </div>
+      </div>
+
+      <div class="page-foot">
+        <span>Prototype. Synthetic data only: no real firm, fund, company or person appears.</span>
+        <span class="number">1 / 3</span>
+      </div>
+    </section>
+
+    <!-- Page 2: analytics -->
+    <section class="page">
+      <div class="page-head">
+        <span class="wordmark">Portfolio Beach</span
+        ><span class="title">Analytics and monitoring</span>
+      </div>
+
+      <div class="section">
+        <h2>Analytics over approved records</h2>
+        <p class="muted">
+          Seven tabs over the same record. Figures cover only the positions the signed-in user may
+          see, NAV reads Locked valuations only, and every chart has a table behind it. Value
+          creation and entry metrics are on the next page.
+        </p>
+      </div>
+
+      <div class="section cols-2">
+        <figure class="feature">
+          <div class="shot crop mid focus">
+            <img src="../media/screens/analytics.webp" alt="" />
+          </div>
+          <h3>Exposure</h3>
+          <p>
+            NAV and invested capital by sector, geography, deal type, vehicle, sponsor or vintage,
+            with each bucket’s share of NAV.
+          </p>
+        </figure>
+        <figure class="feature">
+          <div class="shot crop mid focus">
+            <img src="../media/screens/analytics-performance.webp" alt="" />
+          </div>
+          <h3>Performance</h3>
+          <p>
+            Pooled invested capital, distributions and NAV with DPI, RVPI, TVPI, gross MOIC and
+            gross IRR, the NAV trend by quarter and cash flows by year.
+          </p>
+        </figure>
+        <figure class="feature">
+          <div class="shot crop mid focus">
+            <img src="../media/screens/analytics-credit.webp" alt="" />
+          </div>
+          <h3>Credit book</h3>
+          <p>
+            Each credit position with its terms: facility, base rate, floor and spread, the cash and
+            PIK coupon, maturity and covenants, beside par, fair value, current yield, interest
+            coverage, leverage through the tranche and LTV.
+          </p>
+        </figure>
+        <figure class="feature">
+          <div class="shot crop mid focus">
+            <img src="../media/screens/analytics-realizations.webp" alt="" />
+          </div>
+          <h3>Realizations and clients</h3>
+          <p>
+            Realized positions with their holding period, distributions and returns, and each
+            entitled client’s look-through share of every vehicle, by ownership.
+          </p>
+        </figure>
+      </div>
+
+      <div class="section cols-2">
+        <div class="card">
+          <span class="status">Planned</span>
+          <h3>Benchmarking</h3>
+          <p>Public market equivalents and quartiles against synthetic benchmark series.</p>
+        </div>
+        <div class="card">
+          <span class="status">Planned</span>
+          <h3>Forecasting and exits</h3>
+          <p>Liquidity forecasting with tunable parameters, and exit analytics.</p>
+        </div>
+      </div>
+
+      <p class="note section">
+        Reporting packages for clients are planned, not built. The prototype has an on-screen weekly
+        report and the client look-through only.
+      </p>
+
+      <div class="page-foot">
+        <span>Prototype. Synthetic data only: no real firm, fund, company or person appears.</span>
+        <span class="number">2 / 3</span>
+      </div>
+    </section>
+
+    <!-- Page 3: value creation and entry metrics -->
+    <section class="page">
+      <div class="page-head">
+        <span class="wordmark">Portfolio Beach</span
+        ><span class="title">Analytics and monitoring</span>
+      </div>
+
+      <div class="section">
+        <h2>Value creation: the gain by driver</h2>
+        <p class="muted">
+          Two tabs of analytics cover the equity co-investments and continuation vehicles, active
+          and realized. They answer where the gain came from and how the terms at entry played out.
+        </p>
+      </div>
+
+      <div class="section split flip">
+        <figure>
+          <div class="shot crop deep focus">
+            <img src="../media/screens/value-creation.webp" alt="" />
+          </div>
+          <figcaption>
+            The Value creation tab: the gain by driver, as tiles and as a bridge.
+          </figcaption>
+        </figure>
+        <div>
+          <ul class="ticks">
+            <li>The gain on a position is NAV plus distributions less invested capital.</li>
+            <li>
+              The company’s equity value change since entry is split in a fixed order: EBITDA growth
+              at the entry multiple, then the change in the multiple, then the fall in net debt.
+            </li>
+            <li>
+              Each driver is taken at the entry stake: invested capital over the company’s equity
+              value at entry. The rest of the gain is shown as mark and timing.
+            </li>
+            <li>A switch opens EBITDA growth into revenue growth and margin change.</li>
+          </ul>
+        </div>
+      </div>
+
+      <div class="section cols-2">
+        <figure class="feature">
+          <div class="shot crop mid focus">
+            <img src="../media/screens/entry-metrics.webp" alt="" />
+          </div>
+          <h3>Entry metrics</h3>
+          <p>
+            Pooled gross MOIC and gross IRR, and EBITDA growth weighted by invested capital, by
+            entry purchase multiple band and by entry net leverage band. The bands are held in
+            configuration. A chart plots each company’s entry multiple against its MOIC.
+          </p>
+        </figure>
+        <figure class="feature">
+          <div class="shot crop mid focus">
+            <img src="../media/screens/deal-value-creation.webp" alt="" />
+          </div>
+          <h3>On each deal</h3>
+          <p>
+            The Performance tab of an equity or continuation vehicle position carries the company’s
+            own bridge with each driver’s share, the gain on the position at the entry stake, and
+            EBITDA, enterprise value, equity value and the mark indexed since entry.
+          </p>
+        </figure>
+      </div>
+
+      <div class="section cols-3">
+        <div class="card">
+          <h3>Valuation against earnings</h3>
+          <p>
+            Each company’s valuation growth against its EBITDA growth since entry, on the mark, the
+            company equity value or the enterprise value, with a line where the two are equal.
+          </p>
+        </div>
+        <div class="card">
+          <h3>One row of filters</h3>
+          <p>
+            Vehicle, sponsor, sector, deal type, entry year and status narrow both tabs. Every
+            figure is rolled up again over the positions that pass. The table exports to CSV.
+          </p>
+        </div>
+        <div class="card">
+          <h3>Nothing dropped silently</h3>
+          <p>
+            A position that cannot be split is counted and listed with its reason, such as EBITDA at
+            or below zero. Private credit positions are outside these two tabs.
+          </p>
+        </div>
+      </div>
+
+      <div class="page-foot">
+        <span>Prototype. Synthetic data only: no real firm, fund, company or person appears.</span>
+        <span class="number">3 / 3</span>
+      </div>
+    </section>
+  </body>
+</html>

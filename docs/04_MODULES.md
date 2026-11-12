@@ -125,7 +125,7 @@ Global rules in `CLAUDE.md` apply to every module. Workflow states are defined i
 **Features**
 - Closing record: close date (single source for every report), commitment by vehicle, securities, ownership %, documents.
 - Required-document checklist (signed docs, cap table, funds flow, wire confirmation, consents).
-- Operations confirmation; change of close date after confirmation needs a reason and re-confirmation.
+- Operations confirmation; change of close date after confirmation needs a reason and re-confirmation. A confirmed closing is frozen: allocation lines and checklist items change only after operations reopen it with a reason (audited), and it must be confirmed again. Once the position exists, the close date changes only through a deal change request (M11).
 - Monthly new-deal confirmation sent to deal teams for approval.
 - Legal terms and allocation capture (M22).
 **Prototype scope:** fully built; approvals in-app (Teams cards post-merge).
@@ -237,7 +237,7 @@ Global rules in `CLAUDE.md` apply to every module. Workflow states are defined i
 
 ## M22. Legal Terms and Allocation Tracker
 **Features:** structured legal terms at closing (LPA and side letter provisions, MFN elections, consent and notice requirements, transfer restrictions, fee terms); AI-assisted extraction to review; allocation tie-out against commitments and closing.
-**Depends on:** M8. **AC:** allocation totals must equal the closing commitment or closing cannot complete.
+**Depends on:** M8. **AC:** allocation totals must equal the closing commitment or closing cannot complete. The tie-out counts received amounts only: a line with no received amount keeps the closing from being confirmed, and the refusal says how many are missing.
 
 ## M23. Background Check Workflow
 **Features:** request, track and store background checks as diligence tasks; provider adapter (mock in prototype); results stored as Restricted with limited access.

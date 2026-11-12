@@ -73,6 +73,17 @@ export interface AccountingSystem extends Adapter {
   writeUpload(name: string, csv: string): Promise<FileRef>;
 }
 
+/**
+ * A folder where files are dropped for an intake (the weekly report values, the operations
+ * workbooks). The id is the adapter's own; a caller lists, then reads by id, as text for a CSV or
+ * as bytes for a workbook.
+ */
+export interface FileDrop extends Adapter {
+  listFiles(): Promise<FileRef[]>;
+  readText(id: string): Promise<string>;
+  readBytes(id: string): Promise<Uint8Array>;
+}
+
 export interface ExposureRow {
   investmentNumber: string | null;
   companyName: string;

@@ -1,0 +1,78 @@
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { cleanup, screen, within } from '@testing-library/react';
+import { mockApi, ok } from '../test/api-mock.js';
+import { dataHealthFixture, principalFixture } from '../test/fixtures.js';
+import { renderWithQuery } from '../test/render.js';
+import { DataHealthPage } from './Data.js';
+
+vi.mock('@tanstack/react-router', async () =>
+  (await import('../test/router-mock.js')).routerMock(),
+);
+
+const gaps = {
+  ...dataHealthFixture(),
+  vehiclesWithOwnershipGap: [{ vehicleName: 'Beach Co-Invest Fund III', ownershipTotal: '0.75' }],
+};
+
+const renderAs = (roles: string[], health = gaps) => {
+  mockApi({
+    '/api/v1/auth/me': ok({ ...principalFixture(), roles }),
+    '/api/v1/data-health': ok(health),
+  });
+  renderWithQuery(<DataHealthPage />);
+};
+
+describe('Data Health: client ownership', () => {
+  afterEach(() => {
+    cleanup();
+    vi.restoreAllMocks();
+  });
+
+  it('shows a role that sees every client the vehicles whose ownership misses 100%, as a percentage', async () => {
+    renderAs(['operations']);
+    expect(
+      await screen.findByText('Beach Co-Invest Fund III: ownership sums to 75.0%'),
+    ).toBeInTheDocument();
+    expect(screen.queryByTestId('ownership-not-checked')).not.toBeInTheDocument();
+  });
+
+  it('checks the ownership for the deal team too: the investment team sees every client (the decision of 2026-11-11)', async () => {
+    for (const roles of [['deal_team'], ['approver'], ['deal_team', 'platform_admin']]) {
+      renderAs(roles);
+      expect(
+        await screen.findByText('Beach Co-Invest Fund III: ownership sums to 75.0%'),
+      ).toBeInTheDocument();
+      expect(screen.queryByTestId('ownership-not-checked')).not.toBeInTheDocument();
+      cleanup();
+      vi.restoreAllMocks();
+    }
+  });
+
+  it('never shows a partial sum as a data error to a role entitled to some clients or none', async () => {
+    for (const roles of [['viewer'], ['investor_relations'], ['viewer', 'platform_admin']]) {
+      renderAs(roles);
+      expect(await screen.findByTestId('ownership-not-checked')).toHaveTextContent(
+        'checked against 100% for operations, the investment team (the deal team and approvers) and auditors, who see every',
+      );
+      expect(screen.queryByText(/ownership sums to/)).not.toBeInTheDocument();
+      cleanup();
+      vi.restoreAllMocks();
+    }
+  });
+
+  it('links the open exceptions tile to the exceptions queue', async () => {
+    renderAs(['operations']);
+    const tile = await screen.findByRole('group', { name: 'Open exceptions' });
+    expect(within(tile).getByRole('link', { name: 'Open the queue' })).toHaveAttribute(
+      'href',
+      '/data/exceptions',
+    );
+  });
+
+  it('says every closed vehicle sums to 100% when a full-view role finds no gap', async () => {
+    renderAs(['auditor'], dataHealthFixture());
+    expect(
+      await screen.findByText("Every closed vehicle's LP ownership sums to 100%."),
+    ).toBeInTheDocument();
+  });
+});

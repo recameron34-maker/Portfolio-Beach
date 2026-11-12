@@ -1,78 +1,74 @@
 import type { ReactNode } from 'react';
-import { useParams } from '@tanstack/react-router';
-import { useQuery } from '@tanstack/react-query';
-import { Spinner } from '@fluentui/react-components';
 import type { InvestmentDetail } from '@pb/contracts';
-import { ApiError } from '../api/client.js';
-import { investmentQuery } from '../app/queries.js';
-import { Card, ErrorState, SectionHeader, StatTile } from '../components/ui.js';
+import {
+  Badge,
+  Card,
+  KeyValueTable,
+  NumCell,
+  PageSkeleton,
+  SectionHeader,
+  TableWrap,
+} from '../components/ui.js';
 import {
   formatDate,
-  formatMoic,
   formatMoneyM,
-  formatMonthYear,
   formatMultiple,
   formatPct,
-  irrDisplay,
   labelOf,
   MISSING,
 } from '../lib/format.js';
+import { creditStatusTone } from '../lib/labels.js';
+import { humanizeState, valuationTone } from '../lib/states.js';
+import { useDealDetail } from './deal/data.js';
 
 function OperatingTable({ detail }: { detail: InvestmentDetail }): ReactNode {
   const o = detail.operating;
   if (o === null) return <p>No approved quarterly financials for this position.</p>;
+  // The prior year is the same fiscal quarter a year earlier, exactly, or nothing (docs/08 section 5).
+  const p = o.priorYear;
+  const rows: [string, string, string, string][] = [
+    [
+      'Revenue (LTM)',
+      formatMoneyM(o.revenueLtm),
+      formatMoneyM(p?.revenueLtm),
+      formatPct(o.revenueYoy),
+    ],
+    ['EBITDA (LTM)', formatMoneyM(o.ebitdaLtm), formatMoneyM(p?.ebitdaLtm), formatPct(o.ebitdaYoy)],
+    ['EBITDA margin', formatPct(o.ebitdaMargin), formatPct(p?.ebitdaMargin), MISSING],
+    ['Enterprise value', formatMoneyM(o.ev), formatMoneyM(p?.ev), MISSING],
+    ['EV / EBITDA', formatMultiple(o.evToEbitda), formatMultiple(p?.evToEbitda), MISSING],
+    [
+      'Net debt / EBITDA',
+      formatMultiple(o.netDebtToEbitda),
+      formatMultiple(p?.netDebtToEbitda),
+      MISSING,
+    ],
+  ];
   return (
-    <table className="pb-table" aria-label="Financial performance">
-      <thead>
-        <tr>
-          <th>Metric</th>
-          <th className="num">LTM / Current ({formatDate(o.periodEnd)})</th>
-          <th className="num">
-            Prior Year (
-            {o.priorYearPeriodEnd === null ? 'not available' : formatDate(o.priorYearPeriodEnd)})
-          </th>
-          <th className="num">YoY</th>
-        </tr>
-      </thead>
-      <tbody>
-        <tr>
-          <td>Revenue (LTM)</td>
-          <td className="num">{formatMoneyM(o.revenueLtm)}</td>
-          <td className="num">{MISSING}</td>
-          <td className="num">{formatPct(o.revenueYoy)}</td>
-        </tr>
-        <tr>
-          <td>EBITDA (LTM)</td>
-          <td className="num">{formatMoneyM(o.ebitdaLtm)}</td>
-          <td className="num">{MISSING}</td>
-          <td className="num">{formatPct(o.ebitdaYoy)}</td>
-        </tr>
-        <tr>
-          <td>EBITDA margin</td>
-          <td className="num">{formatPct(o.ebitdaMargin)}</td>
-          <td className="num">{MISSING}</td>
-          <td className="num">{MISSING}</td>
-        </tr>
-        <tr>
-          <td>Enterprise value</td>
-          <td className="num">{formatMoneyM(o.ev)}</td>
-          <td className="num">{MISSING}</td>
-          <td className="num">{MISSING}</td>
-        </tr>
-        <tr>
-          <td>EV / EBITDA</td>
-          <td className="num">{formatMultiple(o.evToEbitda)}</td>
-          <td className="num">{MISSING}</td>
-          <td className="num">{MISSING}</td>
-        </tr>
-        <tr>
-          <td>Net debt / EBITDA</td>
-          <td className="num">{formatMultiple(o.netDebtToEbitda)}</td>
-          <td className="num">{MISSING}</td>
-          <td className="num">{MISSING}</td>
-        </tr>
-      </tbody>
-    </table>
+    <TableWrap label="Financial performance">
+      <table className="pb-table" aria-label="Financial performance">
+        <thead>
+          <tr>
+            <th>Metric</th>
+            <th className="num">LTM / Current ({formatDate(o.periodEnd)})</th>
+            <th className="num">
+              Prior year ({p === null ? 'not on record' : formatDate(p.periodEnd)})
+            </th>
+            <th className="num">YoY</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map(([metric, current, prior, yoy]) => (
+            <tr key={metric}>
+              <td>{metric}</td>
+              <NumCell>{current}</NumCell>
+              <NumCell>{prior}</NumCell>
+              <NumCell>{yoy}</NumCell>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </TableWrap>
   );
 }
 
@@ -81,122 +77,76 @@ function CreditTerms({ detail }: { detail: InvestmentDetail }): ReactNode {
   if (c === null) return null;
   const l = c.latest;
   return (
-    <Card>
+    <Card tinted>
       <SectionHeader>Credit terms</SectionHeader>
-      <table className="pb-table" aria-label="Credit terms">
-        <tbody>
-          <tr>
-            <td>Facility</td>
-            <td>{labelOf(c.facilityType)}</td>
-            <td>Base rate</td>
-            <td>{labelOf(c.baseRate)}</td>
-          </tr>
-          <tr>
-            <td>Spread</td>
-            <td>{formatPct(c.spread, 2)}</td>
-            <td>Cash / PIK coupon</td>
-            <td>
-              {formatPct(c.cashCoupon, 2)} / {formatPct(c.pikCoupon, 2)}
-            </td>
-          </tr>
-          <tr>
-            <td>Maturity</td>
-            <td>{formatDate(c.maturityDate)}</td>
-            <td>Current yield</td>
-            <td>{formatPct(l?.currentYield ?? null, 2)}</td>
-          </tr>
-          <tr>
-            <td>Interest coverage</td>
-            <td>{formatMultiple(l?.interestCoverage ?? null)}</td>
-            <td>Leverage through tranche</td>
-            <td>{formatMultiple(l?.leverageThroughTranche ?? null)}</td>
-          </tr>
-          <tr>
-            <td>LTV</td>
-            <td>{formatPct(l?.loanToValue ?? null)}</td>
-            <td>Covenant / payment status</td>
-            <td>
-              {labelOf(l?.covenantStatus ?? null)} / {labelOf(l?.paymentStatus ?? null)}
-            </td>
-          </tr>
-        </tbody>
-      </table>
+      <KeyValueTable
+        label="Credit terms"
+        rows={[
+          { label: 'Facility', value: labelOf(c.facilityType) },
+          { label: 'Base rate', value: labelOf(c.baseRate) },
+          { label: 'Spread', value: formatPct(c.spread, 2) },
+          {
+            label: 'Cash / PIK coupon',
+            value: `${formatPct(c.cashCoupon, 2)} / ${formatPct(c.pikCoupon, 2)}`,
+          },
+          { label: 'Maturity', value: formatDate(c.maturityDate) },
+          { label: 'Current yield', value: formatPct(l?.currentYield ?? null, 2) },
+          { label: 'Interest coverage', value: formatMultiple(l?.interestCoverage ?? null) },
+          {
+            label: 'Leverage through tranche',
+            value: formatMultiple(l?.leverageThroughTranche ?? null),
+          },
+          { label: 'LTV', value: formatPct(l?.loanToValue ?? null) },
+          {
+            label: 'Covenant / payment status',
+            value: (
+              <>
+                <Badge tone={creditStatusTone(l?.covenantStatus ?? null)}>
+                  {labelOf(l?.covenantStatus ?? null)}
+                </Badge>{' '}
+                <Badge tone={creditStatusTone(l?.paymentStatus ?? null)}>
+                  {labelOf(l?.paymentStatus ?? null)}
+                </Badge>
+              </>
+            ),
+          },
+        ]}
+      />
     </Card>
   );
 }
 
+/**
+ * Overview tab: the one-pager body (docs/06 section 2). The banner and the stat tiles sit in
+ * DealWorkspace so every tab shares them; the workspace also owns the loading and not-found states
+ * and renders this tab only once the position has loaded.
+ */
 export function InvestmentDetailPage(): ReactNode {
-  const { id } = useParams({ from: '/app/portfolio/$id' });
-  const q = useQuery(investmentQuery(id));
-  if (q.isPending) return <Spinner label="Loading the one-pager" />;
-  if (q.isError) {
-    const notFound = q.error instanceof ApiError && q.error.status === 404;
-    return (
-      <ErrorState
-        title={notFound ? 'Investment not found' : 'Could not load this investment'}
-        detail={
-          notFound
-            ? 'There is no investment with this id in your view of the portfolio.'
-            : q.error.message
-        }
-      />
-    );
-  }
+  const q = useDealDetail();
+  if (q.data === undefined) return q.isPending ? <PageSkeleton rows={6} /> : null;
   const d = q.data;
   const isCredit = d.credit !== null;
   return (
     <>
-      <div className="pb-banner" data-testid="detail-banner">
-        <h1>{d.companyName}</h1>
-        <span className="pb-meta">
-          {d.vehicleName} | {labelOf(d.dealType)} | Investment date {formatMonthYear(d.entryDate)} |
-          As of {formatDate(d.navDate ?? d.latestPeriodEnd)}
-        </span>
-      </div>
-      <div className="pb-tiles">
-        <StatTile
-          label={isCredit ? 'Funded' : 'Invested capital'}
-          value={formatMoneyM(d.invested)}
-        />
-        {isCredit ? (
-          <StatTile label="Par" value={formatMoneyM(d.credit?.latest?.parValue ?? null)} />
-        ) : null}
-        <StatTile
-          label={isCredit ? 'Fair value' : 'Current NAV'}
-          value={formatMoneyM(d.nav)}
-          hint={d.navDate === null ? 'No Locked valuation' : `Locked ${formatDate(d.navDate)}`}
-        />
-        <StatTile label="Gross MOIC" value={formatMoic(d.grossMoic)} />
-        <StatTile
-          label="Gross IRR"
-          value={irrDisplay(d)}
-          hint={d.irrFlag === null ? undefined : `Flag: ${d.irrFlag.replace('_', ' ')}`}
-        />
-      </div>
       <Card tinted>
         <SectionHeader>Deal details</SectionHeader>
-        <table className="pb-table" aria-label="Deal details">
-          <tbody>
-            <tr>
-              <td>Sponsor</td>
-              <td>{d.sponsorName}</td>
-              <td>Sponsor fund</td>
-              <td>{d.sponsorFundName ?? MISSING}</td>
-            </tr>
-            <tr>
-              <td>Sector</td>
-              <td>{labelOf(d.sector)}</td>
-              <td>Geography</td>
-              <td>{labelOf(d.geography)}</td>
-            </tr>
-            <tr>
-              <td>Investment number</td>
-              <td>{d.investmentNumber}</td>
-              <td>Status</td>
-              <td>{d.isActive ? 'Active' : `Realized ${formatDate(d.exitDate)}`}</td>
-            </tr>
-          </tbody>
-        </table>
+        <KeyValueTable
+          label="Deal details"
+          rows={[
+            { label: 'Sponsor', value: d.sponsorName },
+            { label: 'Sponsor fund', value: d.sponsorFundName ?? MISSING },
+            { label: 'Sector', value: labelOf(d.sector) },
+            { label: 'Geography', value: labelOf(d.geography) },
+            {
+              label: 'Investment number',
+              value: <span className="pb-key">{d.investmentNumber}</span>,
+            },
+            {
+              label: 'Status',
+              value: d.isActive ? 'Active' : `Realized ${formatDate(d.exitDate)}`,
+            },
+          ]}
+        />
       </Card>
       {isCredit ? (
         <CreditTerms detail={d} />
@@ -207,53 +157,61 @@ export function InvestmentDetailPage(): ReactNode {
         </Card>
       )}
       <Card>
-        <SectionHeader>Valuations</SectionHeader>
-        <table className="pb-table" aria-label="Valuations">
-          <thead>
-            <tr>
-              <th>Period end</th>
-              <th>Version</th>
-              <th>State</th>
-              <th>Method</th>
-              <th className="num">Fair value</th>
-            </tr>
-          </thead>
-          <tbody>
-            {[...d.valuations]
-              .reverse()
-              .slice(0, 8)
-              .map((v) => (
-                <tr key={`${v.periodEnd}-${v.version}`}>
-                  <td>{formatDate(v.periodEnd)}</td>
-                  <td>{v.version}</td>
-                  <td>{v.state}</td>
-                  <td>{labelOf(v.method)}</td>
-                  <td className="num">{formatMoneyM(v.fairValue)}</td>
-                </tr>
-              ))}
-          </tbody>
-        </table>
+        <SectionHeader aside={d.valuations.length > 8 ? 'latest 8' : undefined}>
+          Valuations
+        </SectionHeader>
+        <TableWrap label="Valuations">
+          <table className="pb-table" aria-label="Valuations">
+            <thead>
+              <tr>
+                <th>Period end</th>
+                <th>Version</th>
+                <th>State</th>
+                <th>Method</th>
+                <th className="num">Fair value</th>
+              </tr>
+            </thead>
+            <tbody>
+              {[...d.valuations]
+                .reverse()
+                .slice(0, 8)
+                .map((v) => (
+                  <tr key={`${v.periodEnd}-${v.version}`}>
+                    <td>{formatDate(v.periodEnd)}</td>
+                    <td>{v.version}</td>
+                    <td>
+                      <Badge tone={valuationTone(v.state)}>{humanizeState(v.state)}</Badge>
+                    </td>
+                    <td>{labelOf(v.method)}</td>
+                    <NumCell>{formatMoneyM(v.fairValue)}</NumCell>
+                  </tr>
+                ))}
+            </tbody>
+          </table>
+        </TableWrap>
       </Card>
       <Card>
         <SectionHeader>Cash flows</SectionHeader>
-        <table className="pb-table" aria-label="Cash flows">
-          <thead>
-            <tr>
-              <th>Date</th>
-              <th>Type</th>
-              <th className="num">Amount</th>
-            </tr>
-          </thead>
-          <tbody>
-            {d.cashFlows.map((f, i) => (
-              <tr key={`${f.date}-${i}`}>
-                <td>{formatDate(f.date)}</td>
-                <td>{labelOf(f.flowType)}</td>
-                <td className="num">{formatMoneyM(f.amount)}</td>
+        <TableWrap label="Cash flows">
+          <table className="pb-table" aria-label="Cash flows">
+            <thead>
+              <tr>
+                <th>Date</th>
+                <th>Type</th>
+                <th className="num">Amount</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {d.cashFlows.map((f, i) => (
+                <tr key={`${f.date}-${i}`}>
+                  <td>{formatDate(f.date)}</td>
+                  <td>{labelOf(f.flowType)}</td>
+                  <NumCell>{formatMoneyM(f.amount)}</NumCell>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </TableWrap>
       </Card>
     </>
   );

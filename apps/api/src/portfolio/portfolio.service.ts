@@ -1,14 +1,30 @@
 import { Inject, Injectable } from '@nestjs/common';
-import { and, asc, desc, eq, gt, inArray, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, gt } from 'drizzle-orm';
+import type { SQL } from 'drizzle-orm';
 import type { Principal } from '@pb/adapters';
-import type { InvestmentDetail, InvestmentPage, InvestmentSummary } from '@pb/contracts';
+import type { InvestmentDetail, InvestmentPage } from '@pb/contracts';
 import { schema } from '@pb/db';
-import type { Tx } from '@pb/db';
+import { decodeCursor, encodeCursor } from '../common/cursor.js';
+import { configInteger } from '../common/definitions.js';
 import { DEFINITIONS } from '../common/tokens.js';
 import { ProblemError } from '../common/problem.js';
 import { DbService } from '../db/db.service.js';
-import { creditView, operatingView, positionMetrics } from './metrics.js';
-import type { FlowRow, ValuationRow } from './metrics.js';
+import {
+  asOfStatus,
+  enteredBy,
+  heldOn,
+  loadFlowsAndValuations,
+  loadInvestmentRows,
+  realizedBy,
+  summarizeInvestment,
+} from './loaders.js';
+import { creditView, operatingView } from './metrics.js';
+import {
+  sponsorActiveInvestments,
+  sponsorFundCount,
+  vehicleActiveInvestments,
+  vehicleLpCommitmentTotal,
+} from '../common/subqueries.js';
 
 export interface ListOptions {
   limit: number;
@@ -19,50 +35,16 @@ export interface ListOptions {
   asOf: string;
 }
 
+/** Calculation settings from config/definitions.json (docs/03 section 4); only the keys this service reads. */
 interface Definitions {
   priorYearPeriodEndToleranceDays?: number;
+  [key: string]: unknown;
 }
 
-const encodeCursor = (investmentNumber: string): string =>
-  Buffer.from(investmentNumber, 'utf8').toString('base64url');
-const decodeCursor = (cursor: string): string => {
-  const value = Buffer.from(cursor, 'base64url').toString('utf8');
-  if (!/^[A-Z0-9-]{1,32}$/.test(value)) throw new ProblemError(400, 'validation', 'Invalid cursor');
-  return value;
-};
-
-interface BaseRow {
-  id: string;
-  investmentNumber: string;
-  companyName: string;
-  sponsorName: string;
-  sponsorFundName: string | null;
-  vehicleName: string;
-  dealType: string;
-  entryDate: string;
-  exitDate: string | null;
-  isActive: boolean;
-}
-
-/**
- * Fully qualified outer-table columns for correlated subqueries. In a single-table select Drizzle
- * renders a column as a bare `"id"`, which inside the subquery would bind to the inner table.
- */
-const OUTER_SPONSOR_ID = sql.raw('"core"."sponsor"."id"');
-const OUTER_VEHICLE_ID = sql.raw('"core"."vehicle"."id"');
-
-const baseSelect = {
-  id: schema.investment.id,
-  investmentNumber: schema.investment.investmentNumber,
-  companyName: schema.portfolioCompany.name,
-  sponsorName: schema.sponsor.name,
-  sponsorFundName: schema.sponsorFund.name,
-  vehicleName: schema.vehicle.name,
-  dealType: schema.investment.dealType,
-  entryDate: schema.investment.entryDate,
-  exitDate: schema.investment.exitDate,
-  isActive: schema.investment.isActive,
-};
+/** The grid's cursor is the last row's investment number, its sort key. */
+const INVESTMENT_CURSOR = /^([A-Z0-9-]{1,32})$/;
+/** The sponsor list's cursor is the last row's name, its sort key; any name, compared as a parameter. */
+const SPONSOR_CURSOR = /^(.*)$/s;
 
 @Injectable()
 export class PortfolioService {
@@ -71,151 +53,86 @@ export class PortfolioService {
     @Inject(DEFINITIONS) private readonly definitions: Definitions,
   ) {}
 
-  private async loadFlowsAndValuations(
-    tx: Tx,
-    ids: string[],
-  ): Promise<{ flows: Map<string, FlowRow[]>; valuations: Map<string, ValuationRow[]> }> {
-    const flows = new Map<string, FlowRow[]>();
-    const valuations = new Map<string, ValuationRow[]>();
-    if (ids.length === 0) return { flows, valuations };
-    const flowRows = await tx
-      .select({
-        investmentId: schema.cashFlow.investmentId,
-        flowDate: schema.cashFlow.flowDate,
-        flowType: schema.cashFlow.flowType,
-        amount: schema.cashFlow.amount,
-      })
-      .from(schema.cashFlow)
-      .where(
-        and(
-          inArray(schema.cashFlow.investmentId, ids),
-          eq(schema.cashFlow.status, 'record_status.approved'),
-        ),
-      )
-      .orderBy(asc(schema.cashFlow.flowDate));
-    for (const f of flowRows) {
-      if (f.investmentId === null) continue;
-      (flows.get(f.investmentId) ?? flows.set(f.investmentId, []).get(f.investmentId))!.push({
-        flowDate: f.flowDate,
-        flowType: f.flowType,
-        amount: f.amount,
-      });
-    }
-    const valRows = await tx
-      .select({
-        investmentId: schema.valuation.investmentId,
-        periodEnd: schema.valuation.periodEnd,
-        version: schema.valuation.version,
-        state: schema.valuation.state,
-        fairValue: schema.valuation.fairValue,
-        method: schema.valuation.method,
-      })
-      .from(schema.valuation)
-      .where(inArray(schema.valuation.investmentId, ids))
-      .orderBy(asc(schema.valuation.periodEnd), asc(schema.valuation.version));
-    for (const v of valRows) {
-      (valuations.get(v.investmentId) ??
-        valuations.set(v.investmentId, []).get(v.investmentId))!.push({
-        periodEnd: v.periodEnd,
-        version: v.version,
-        state: v.state,
-        fairValue: v.fairValue,
-        method: v.method,
-      });
-    }
-    return { flows, valuations };
-  }
-
-  private summarize(
-    row: BaseRow,
-    flows: FlowRow[],
-    valuations: ValuationRow[],
-    asOf: string,
-  ): InvestmentSummary {
-    return { ...row, ...positionMetrics(flows, valuations, asOf, row.isActive) };
-  }
-
   async list(principal: Principal, requestId: string, opts: ListOptions): Promise<InvestmentPage> {
     return this.db.run(principal, requestId, async (tx) => {
-      const conditions = [];
-      if (opts.cursor !== undefined)
-        conditions.push(gt(schema.investment.investmentNumber, decodeCursor(opts.cursor)));
+      const conditions: (SQL | undefined)[] = [enteredBy(opts.asOf)];
+      if (opts.cursor !== undefined) {
+        const [after = ''] = decodeCursor(opts.cursor, INVESTMENT_CURSOR);
+        conditions.push(gt(schema.investment.investmentNumber, after));
+      }
       if (opts.vehicleId !== undefined)
         conditions.push(eq(schema.investment.vehicleId, opts.vehicleId));
       if (opts.dealType !== undefined)
         conditions.push(eq(schema.investment.dealType, opts.dealType));
       if (opts.active !== undefined)
-        conditions.push(eq(schema.investment.isActive, opts.active === 'true'));
-      const rows = await tx
-        .select(baseSelect)
-        .from(schema.investment)
-        .innerJoin(
-          schema.portfolioCompany,
-          eq(schema.portfolioCompany.id, schema.investment.portfolioCompanyId),
-        )
-        .innerJoin(schema.sponsor, eq(schema.sponsor.id, schema.investment.sponsorId))
-        .innerJoin(schema.vehicle, eq(schema.vehicle.id, schema.investment.vehicleId))
-        .leftJoin(schema.sponsorFund, eq(schema.sponsorFund.id, schema.investment.sponsorFundId))
-        .where(conditions.length > 0 ? and(...conditions) : undefined)
-        .orderBy(asc(schema.investment.investmentNumber))
-        .limit(opts.limit + 1);
+        conditions.push(opts.active === 'true' ? heldOn(opts.asOf) : realizedBy(opts.asOf));
+      const rows = await loadInvestmentRows(tx, {
+        where: and(...conditions),
+        limit: opts.limit + 1,
+      });
       const page = rows.slice(0, opts.limit);
-      const { flows, valuations } = await this.loadFlowsAndValuations(
+      const { flows, valuations } = await loadFlowsAndValuations(
         tx,
         page.map((r) => r.id),
       );
       const items = page.map((r) =>
-        this.summarize(r, flows.get(r.id) ?? [], valuations.get(r.id) ?? [], opts.asOf),
+        summarizeInvestment(
+          asOfStatus(r, opts.asOf),
+          flows.get(r.id) ?? [],
+          valuations.get(r.id) ?? [],
+          opts.asOf,
+        ),
       );
       const last = page[page.length - 1];
       return {
         items,
         nextCursor:
           rows.length > opts.limit && last !== undefined
-            ? encodeCursor(last.investmentNumber)
+            ? encodeCursor([last.investmentNumber])
             : null,
         asOf: opts.asOf,
       };
     });
   }
 
-  /** 404 for anything the caller cannot see (docs/17 section 3); a successful open is an audited sensitive read (SEC-11.1). */
+  /**
+   * 404 for anything the caller cannot see (docs/17 section 3); a successful open is an audited
+   * sensitive read (SEC-11.1). The prior-year tolerance comes from config; without it the read is
+   * a 500 'configuration' problem before the database is touched, never a default in code.
+   */
   async detail(
     principal: Principal,
     requestId: string,
     id: string,
     asOf: string,
   ): Promise<InvestmentDetail> {
+    const tolerance = configInteger(
+      this.definitions.priorYearPeriodEndToleranceDays,
+      'priorYearPeriodEndToleranceDays',
+    );
     return this.db.run(principal, requestId, async (tx, audit) => {
-      const rows = await tx
-        .select({
-          ...baseSelect,
-          companyId: schema.portfolioCompany.id,
-          sponsorId: schema.sponsor.id,
-          vehicleId: schema.vehicle.id,
-          sector: schema.portfolioCompany.sector,
-          geography: schema.portfolioCompany.geography,
-        })
-        .from(schema.investment)
-        .innerJoin(
-          schema.portfolioCompany,
-          eq(schema.portfolioCompany.id, schema.investment.portfolioCompanyId),
-        )
-        .innerJoin(schema.sponsor, eq(schema.sponsor.id, schema.investment.sponsorId))
-        .innerJoin(schema.vehicle, eq(schema.vehicle.id, schema.investment.vehicleId))
-        .leftJoin(schema.sponsorFund, eq(schema.sponsorFund.id, schema.investment.sponsorFundId))
-        .where(eq(schema.investment.id, id))
-        .limit(1);
-      const row = rows[0];
-      if (row === undefined) throw new ProblemError(404, 'not-found', 'Investment not found');
-      const { flows, valuations } = await this.loadFlowsAndValuations(tx, [row.id]);
-      const summary = this.summarize(
+      // Not found before its entry date as well: as of then, the position did not exist.
+      const rows = await loadInvestmentRows(tx, {
+        where: and(eq(schema.investment.id, id), enteredBy(asOf)),
+        limit: 1,
+      });
+      const found = rows[0];
+      if (found === undefined) throw new ProblemError(404, 'not-found', 'Investment not found');
+      const row = asOfStatus(found, asOf);
+      const description = (
+        await tx
+          .select({ description: schema.portfolioCompany.description })
+          .from(schema.portfolioCompany)
+          .where(eq(schema.portfolioCompany.id, row.companyId))
+          .limit(1)
+      )[0];
+      const { flows, valuations } = await loadFlowsAndValuations(tx, [row.id]);
+      const summary = summarizeInvestment(
         row,
         flows.get(row.id) ?? [],
         valuations.get(row.id) ?? [],
         asOf,
       );
-      const tolerance = this.definitions.priorYearPeriodEndToleranceDays ?? 7;
 
       const operatingRows = await tx
         .select({
@@ -266,15 +183,34 @@ export class PortfolioService {
           latest: creditView(creditRows, terms.cashCoupon, asOf),
         };
       }
+      // The close date comes from the closing record alone (docs/04 M8): no other table carries one.
+      // The closing's id and the pipeline record's id let the deal workspace open both (M5, M8);
+      // under the caller's row-level security a walled record reads as absent, so each is null.
+      const closing = (
+        await tx
+          .select({ id: schema.closing.id, closeDate: schema.closing.closeDate })
+          .from(schema.closing)
+          .where(eq(schema.closing.investmentId, row.id))
+          .limit(1)
+      )[0];
+      const opportunity = (
+        await tx
+          .select({ id: schema.opportunity.id })
+          .from(schema.opportunity)
+          .where(eq(schema.opportunity.investmentId, row.id))
+          .limit(1)
+      )[0];
       await audit({ action: 'investment.read', entity: 'core.investment', entityId: row.id });
       const latestPeriodEnd = credit?.latest?.periodEnd ?? operating?.periodEnd ?? null;
       return {
+        // The summary row carries the vehicle and sponsor ids; the detail adds the rest.
         ...summary,
         companyId: row.companyId,
-        sponsorId: row.sponsorId,
-        vehicleId: row.vehicleId,
-        sector: row.sector,
-        geography: row.geography,
+        sponsorFundId: row.sponsorFundId,
+        closeDate: closing?.closeDate ?? null,
+        opportunityId: opportunity?.id ?? null,
+        closingId: closing?.id ?? null,
+        companyDescription: description?.description ?? null,
         latestPeriodEnd,
         cashFlows: (flows.get(row.id) ?? []).map((f) => ({
           date: f.flowDate,
@@ -311,15 +247,15 @@ export class PortfolioService {
     nextCursor: string | null;
   }> {
     return this.db.run(principal, requestId, async (tx) => {
-      const after = cursor === undefined ? null : Buffer.from(cursor, 'base64url').toString('utf8');
+      const after = cursor === undefined ? null : (decodeCursor(cursor, SPONSOR_CURSOR)[0] ?? '');
       const rows = await tx
         .select({
           id: schema.sponsor.id,
           name: schema.sponsor.name,
           tier: schema.sponsor.tier,
           hqGeography: schema.sponsor.hqGeography,
-          fundCount: sql<number>`(select count(*)::int from core.sponsor_fund f where f.sponsor_id = ${OUTER_SPONSOR_ID})`,
-          activeInvestments: sql<number>`(select count(*)::int from core.investment i where i.sponsor_id = ${OUTER_SPONSOR_ID} and i.is_active)`,
+          fundCount: sponsorFundCount,
+          activeInvestments: sponsorActiveInvestments,
         })
         .from(schema.sponsor)
         .where(after === null ? undefined : gt(schema.sponsor.name, after))
@@ -329,10 +265,7 @@ export class PortfolioService {
       const last = page[page.length - 1];
       return {
         items: page,
-        nextCursor:
-          rows.length > limit && last !== undefined
-            ? Buffer.from(last.name, 'utf8').toString('base64url')
-            : null,
+        nextCursor: rows.length > limit && last !== undefined ? encodeCursor([last.name]) : null,
       };
     });
   }
@@ -357,11 +290,8 @@ export class PortfolioService {
           name: schema.vehicle.name,
           vehicleType: schema.vehicle.vehicleType,
           vintage: schema.vehicle.vintage,
-          activeInvestments: sql<number>`(select count(*)::int from core.investment i where i.vehicle_id = ${OUTER_VEHICLE_ID} and i.is_active)`,
-          // RLS decides which LP commitments the caller can see; none visible yields null, never 0.
-          lpCommitmentsTotal: sql<
-            string | null
-          >`(select sum(l.amount)::text from core.lp_commitment l where l.vehicle_id = ${OUTER_VEHICLE_ID})`,
+          activeInvestments: vehicleActiveInvestments,
+          lpCommitmentsTotal: vehicleLpCommitmentTotal,
         })
         .from(schema.vehicle)
         .orderBy(desc(schema.vehicle.vintage), asc(schema.vehicle.name));

@@ -1,0 +1,104 @@
+{
+  "id": "20_since_entry_measures",
+  "function": "since_entry_measures",
+  "note": "Growth since entry by hand. Case 1 (fixture 13's company): EBITDA 65 / 40 - 1 = 0.625; EV 715 / 400 - 1 = 0.7875; equity value (715 - 120) / (400 - 150) - 1 = 595 / 250 - 1 = 1.38; multiple 715 / 65 - 400 / 40 = 11 - 10 = 1 turn; net leverage 120 / 65 - 150 / 40 = 1.846153... - 3.75 = -99 / 52 = -1.903846...; net debt 120 - 150 = -30; index levels 162.5, 178.75 and 238. Case 2: 37 / 30 - 1 = 7 / 30; 330 / 250 - 1 = 0.32; 220 / 150 - 1 = 7 / 15; multiple 330 / 37 - 250 / 30 = 65 / 111; leverage 110 / 37 - 100 / 30 = -40 / 111; net debt +10; index levels 370 / 3, 132 and 440 / 3. Case 3: entry EBITDA of zero gives no EBITDA growth, no multiple and no leverage, while EV and equity value still compare. Case 4: a negative current EBITDA still has a growth figure (-10 / 40 - 1 = -1.25) but no current multiple or leverage. Case 5: entry equity value of zero (EV 400, net debt 400) is no base for a ratio; leverage 380 / 50 - 400 / 40 = 7.6 - 10 = -2.4. Case 6: a missing figure leaves out every measure that needs it.",
+  "input": {
+    "cases": [
+      {
+        "entry": { "ebitda": "40", "ev": "400", "netDebt": "150" },
+        "current": { "ebitda": "65", "ev": "715", "netDebt": "120" }
+      },
+      {
+        "entry": { "ebitda": "30", "ev": "250", "netDebt": "100" },
+        "current": { "ebitda": "37", "ev": "330", "netDebt": "110" }
+      },
+      {
+        "entry": { "ebitda": "0", "ev": "400", "netDebt": "150" },
+        "current": { "ebitda": "65", "ev": "715", "netDebt": "120" }
+      },
+      {
+        "entry": { "ebitda": "40", "ev": "400", "netDebt": "150" },
+        "current": { "ebitda": "-10", "ev": "300", "netDebt": "180" }
+      },
+      {
+        "entry": { "ebitda": "40", "ev": "400", "netDebt": "400" },
+        "current": { "ebitda": "50", "ev": "500", "netDebt": "380" }
+      },
+      {
+        "entry": { "ebitda": "40", "ev": null, "netDebt": "150" },
+        "current": { "ebitda": "65", "ev": "715", "netDebt": null }
+      }
+    ]
+  },
+  "expected": {
+    "results": [
+      {
+        "ebitdaGrowth": "0.625",
+        "evGrowth": "0.7875",
+        "equityValueGrowth": "1.38",
+        "multipleChange": "1",
+        "netLeverageChange": "-1.9038461538461538461538461538461538",
+        "netDebtChange": "-30",
+        "ebitdaIndex": "162.5",
+        "evIndex": "178.75",
+        "equityValueIndex": "238"
+      },
+      {
+        "ebitdaGrowth": "0.2333333333333333333333333333333333",
+        "evGrowth": "0.32",
+        "equityValueGrowth": "0.4666666666666666666666666666666667",
+        "multipleChange": "0.5855855855855855855855855855855856",
+        "netLeverageChange": "-0.3603603603603603603603603603603604",
+        "netDebtChange": "10",
+        "ebitdaIndex": "123.3333333333333333333333333333333333",
+        "evIndex": "132",
+        "equityValueIndex": "146.6666666666666666666666666666666667"
+      },
+      {
+        "ebitdaGrowth": null,
+        "evGrowth": "0.7875",
+        "equityValueGrowth": "1.38",
+        "multipleChange": null,
+        "netLeverageChange": null,
+        "netDebtChange": "-30",
+        "ebitdaIndex": null,
+        "evIndex": "178.75",
+        "equityValueIndex": "238"
+      },
+      {
+        "ebitdaGrowth": "-1.25",
+        "evGrowth": "-0.25",
+        "equityValueGrowth": "-0.52",
+        "multipleChange": null,
+        "netLeverageChange": null,
+        "netDebtChange": "30",
+        "ebitdaIndex": "-25",
+        "evIndex": "75",
+        "equityValueIndex": "48"
+      },
+      {
+        "ebitdaGrowth": "0.25",
+        "evGrowth": "0.25",
+        "equityValueGrowth": null,
+        "multipleChange": "0",
+        "netLeverageChange": "-2.4",
+        "netDebtChange": "-20",
+        "ebitdaIndex": "125",
+        "evIndex": "125",
+        "equityValueIndex": null
+      },
+      {
+        "ebitdaGrowth": "0.625",
+        "evGrowth": null,
+        "equityValueGrowth": null,
+        "multipleChange": null,
+        "netLeverageChange": null,
+        "netDebtChange": null,
+        "ebitdaIndex": "162.5",
+        "evIndex": null,
+        "equityValueIndex": null
+      }
+    ]
+  },
+  "tolerance": "1e-25"
+}

@@ -27,11 +27,34 @@
     "netDebtToEbitdaMax": 6.0,
     "ebitdaYoYDeclinePct": 0.15,
     "markdownPct": 0.2,
-    "missingFinancialsDays": 75
+    "missingFinancialsDays": 75,
+    "maturityWithinMonths": 12
   },
   "capitalActivity": {
+    "_note": "Capital activity (docs/04 M16, docs/18 section 3, SEC-12). alertDaysBeforeDue are the reminder days before a due date; wireChangeHoldDays is how long after a wire instruction change a ticket needs a second approval (SEC-12.3); urgencyPhrases are matched case-insensitively in the notice text to raise the urgency alert (SEC-12.4); dueSoonBusinessDays is the due-date alert window in business days (SEC-12.4).",
     "alertDaysBeforeDue": [3, 1, 0],
-    "wireChangeHoldDays": 30
+    "wireChangeHoldDays": 30,
+    "urgencyPhrases": [
+      "urgent",
+      "immediately",
+      "same day",
+      "within 24 hours",
+      "as soon as possible",
+      "time sensitive"
+    ],
+    "dueSoonBusinessDays": 2
+  },
+  "pipeline": {
+    "_note": "Deal pipeline (docs/04 M5, docs/18 section 4). stageAgingDays is how many days an opportunity may sit in a stage before it is flagged as aging; one entry per live stage (Closed and Passed never age).",
+    "stageAgingDays": {
+      "Sourced": 30,
+      "Screening": 30,
+      "Prescreen": 45,
+      "Diligence": 90,
+      "IC": 14,
+      "Approved": 30,
+      "Closing": 45
+    }
   },
   "aiBudgets": {
     "maxTokensPerDocument": 200000,
@@ -43,5 +66,60 @@
     "revenueMax": 50000000000
   },
   "valuationVarianceFlag": 0.1,
-  "_units": "All percentages in this file are decimals (0.10 = 10%)."
+  "_units": "All percentages in this file are decimals (0.10 = 10%).",
+  "reporting": {
+    "weeklyMoversCount": 5,
+    "capitalActivityWindowDays": 30,
+    "staleValuationFootnote": "Carried at the latest Locked valuation of {lockedPeriodEnd}; no Locked mark for {periodEnd}.",
+    "noValuationFootnote": "No Locked valuation on record; NAV is not calculable this quarter."
+  },
+  "analytics": {
+    "_note": "Analytics (docs/04 M13 and M20, docs/08 section 8). navSeriesQuarters is how many quarter ends the NAV series shows; topPositions is how many of the largest positions are listed. entryMultipleBands and entryLeverageBands are the ascending band edges, in turns, that the entry metric cohorts are cut at (entry EV / EBITDA and entry net debt / EBITDA): below the first edge, each interval closed below and open above, and at or above the last edge.",
+    "navSeriesQuarters": 8,
+    "topPositions": 10,
+    "entryMultipleBands": [9, 11, 13],
+    "entryLeverageBands": [4, 5, 6]
+  },
+  "intake": {
+    "_note": "Intake rules (docs/04 M2, packages/validation). Percentages are decimals. figureScale and figureIntegerDigits match the record's numeric(20,2) figure columns; minPeriodYear is the first year a period end may carry. weeklyVarianceThresholdPct is the move against the prior that flags a weekly value; weeklyStaleDays is how many days before the as-of date a report date may be before it is stale; lookthroughNavTolerancePct and lookthroughCostToleranceUsd are the differences a reconcile lets pass; maxWorkbookBase64Chars caps an uploaded ops-drop workbook; workbookMaxCells, workbookMaxSheets and workbookMaxPartBytes are the read limits the workbook parser works to (cells on one sheet and across the workbook, sheets listed, the declared size of one part), the rest stay at the parser defaults.",
+    "maxRowsPerFile": 5000,
+    "maxFileBytes": 2000000,
+    "fairValueTieToleranceUsd": 1.0,
+    "quarterOverQuarterMaxChangePct": 0.5,
+    "yearOverYearMaxChangePct": 1.0,
+    "staleQuarters": 2,
+    "evToEbitdaMax": 60,
+    "ebitdaMarginAbsMax": 1.0,
+    "figureScale": 2,
+    "figureIntegerDigits": 18,
+    "minPeriodYear": 1900,
+    "weeklyVarianceThresholdPct": 0.1,
+    "weeklyStaleDays": 10,
+    "lookthroughNavTolerancePct": 0.02,
+    "lookthroughCostToleranceUsd": 1.0,
+    "maxWorkbookBase64Chars": 4000000,
+    "workbookMaxCells": 200000,
+    "workbookMaxSheets": 16,
+    "workbookMaxPartBytes": 16777216
+  },
+  "documents": {
+    "_note": "Document hub (docs/04 M3, decision 0012). expectedDueDaysAfterQuarterEnd is when a quarter's report is due; lateAfterDays and missingAfterDays count from the due date and give the expected-document status (expected, received, late, missing), derived when read and never stored; searchPageSize is the hub's page; maxPdfBytes and maxPages are the limits the PDF reader works to on an indexed item.",
+    "expectedDueDaysAfterQuarterEnd": 45,
+    "lateAfterDays": 15,
+    "missingAfterDays": 75,
+    "searchPageSize": 50,
+    "maxPdfBytes": 20971520,
+    "maxPages": 200
+  },
+  "extraction": {
+    "_note": "AI extraction (docs/04 M4, docs/18 section 7, decision 0012). batchConcurrency is how many runs a batch drives at once; runTokenBudget and dayTokenBudget stop a run or the day's runs past their budget (SEC-8.9); quoteMaxChars caps a citation; a value whose confidence is below confidenceFlagBelow (a decimal fraction) is flagged for review, never invalid; schemaRetries and transientRetries are the retry budget per error kind; costPerThousandTokensUsd holds decimal strings, never floats.",
+    "batchConcurrency": 2,
+    "runTokenBudget": 60000,
+    "dayTokenBudget": 2000000,
+    "quoteMaxChars": 150,
+    "confidenceFlagBelow": 0.8,
+    "schemaRetries": 1,
+    "transientRetries": 3,
+    "costPerThousandTokensUsd": { "in": "0.003", "out": "0.015" }
+  }
 }

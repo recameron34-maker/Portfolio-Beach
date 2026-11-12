@@ -11,10 +11,58 @@ import {
   vehicleList,
   featureFlagList,
 } from '@pb/contracts';
+import { RequestMethod } from '@nestjs/common';
+import { METHOD_METADATA, PATH_METADATA } from '@nestjs/common/constants.js';
 import { CONTROLLERS } from '../app.module.js';
+import { IS_PUBLIC, ROLES } from '../auth/principal.js';
 import { listImplementedRoutes } from '../routes.js';
 import { startHarness } from './harness.js';
 import type { Harness } from './harness.js';
+
+interface HandlerGuard {
+  /** "METHOD /path/{param}", the contract's notation. */
+  key: string;
+  /** Where the guard is written, for a failure message a person can act on. */
+  handler: string;
+  /** What AuthGuard reads: the handler's metadata, else the controller's. */
+  roles: string[];
+  isPublic: boolean;
+}
+
+/**
+ * The guard metadata of every handler, read the way AuthGuard reads it (the handler first, then
+ * its controller; no @Roles means any authenticated user). The route key is built as
+ * listImplementedRoutes builds it, and the parity test below holds the two together.
+ */
+function handlerGuards(
+  controllers: readonly (abstract new (...args: never[]) => unknown)[],
+): HandlerGuard[] {
+  const out: HandlerGuard[] = [];
+  for (const controller of controllers) {
+    const base = (Reflect.getMetadata(PATH_METADATA, controller) as string | undefined) ?? '';
+    const proto = controller.prototype as Record<string, unknown>;
+    for (const name of Object.getOwnPropertyNames(proto)) {
+      const handler = proto[name];
+      if (name === 'constructor' || typeof handler !== 'function') continue;
+      const path = Reflect.getMetadata(PATH_METADATA, handler) as string | undefined;
+      const method = Reflect.getMetadata(METHOD_METADATA, handler) as number | undefined;
+      if (path === undefined || method === undefined) continue;
+      const full = `/${[base, path].filter((p) => p.length > 0 && p !== '/').join('/')}`
+        .replace(/\/+/g, '/')
+        .replace(/:(\w+)/g, '{$1}');
+      const read = <T>(key: string): T | undefined =>
+        (Reflect.getMetadata(key, handler) ?? Reflect.getMetadata(key, controller)) as
+          T | undefined;
+      out.push({
+        key: `${RequestMethod[method] ?? String(method)} ${full}`,
+        handler: `${controller.name}.${name}`,
+        roles: [...(read<string[]>(ROLES) ?? [])].sort(),
+        isPublic: read<boolean>(IS_PUBLIC) ?? false,
+      });
+    }
+  }
+  return out;
+}
 
 describe('Portfolio Beach API', () => {
   let h: Harness;
@@ -32,6 +80,34 @@ describe('Portfolio Beach API', () => {
         .sort();
       const contracted = ROUTES.map((r) => `${r.method} ${r.path}`).sort();
       expect(implemented).toEqual(contracted);
+    });
+
+    it('guards every handler with exactly the roles and the sign-in its contract route names (D7-5)', () => {
+      const guards = handlerGuards(CONTROLLERS);
+      expect(guards.map((g) => g.key).sort()).toEqual(
+        listImplementedRoutes(CONTROLLERS)
+          .map((r) => `${r.method} ${r.path}`)
+          .sort(),
+      );
+      const mismatches: string[] = [];
+      for (const route of ROUTES) {
+        const key = `${route.method} ${route.path}`;
+        const guard = guards.find((g) => g.key === key);
+        if (guard === undefined) {
+          mismatches.push(`${key}: no handler`);
+          continue;
+        }
+        const contracted = [...route.roles].sort();
+        if (JSON.stringify(guard.roles) !== JSON.stringify(contracted))
+          mismatches.push(
+            `${key} (${guard.handler}): @Roles [${guard.roles.join(', ')}], contract [${contracted.join(', ')}]`,
+          );
+        if (guard.isPublic === route.auth)
+          mismatches.push(
+            `${key} (${guard.handler}): ${guard.isPublic ? '@Public' : 'signed in'}, contract auth ${String(route.auth)}`,
+          );
+      }
+      expect(mismatches).toEqual([]);
     });
   });
 
@@ -86,6 +162,61 @@ describe('Portfolio Beach API', () => {
       const problem = problemDetails.parse(res.body);
       expect(problem.errors?.map((e) => e.path).sort()).toEqual(['(root)', 'limit']);
       expect(JSON.stringify(problem)).not.toContain('500');
+    });
+    it('answers a body that is not JSON with a fixed message, never the text that was sent (SEC-11.4)', async () => {
+      const res = await h
+        .http()
+        .post('/api/v1/valuations')
+        .set('authorization', h.as('operations'))
+        .set('content-type', 'application/json')
+        .send('VALUE-9931 and more')
+        .expect(400);
+      const body = problemDetails.parse(res.body);
+      expect(body.type).toBe('https://portfolio-beach.example/problems/validation');
+      expect(body.detail).toBe('Invalid body');
+      expect(body.errors).toEqual([{ path: '(root)', message: 'The body is not valid JSON' }]);
+      expect(JSON.stringify(res.body)).not.toContain('VALUE-9931');
+      expect(JSON.stringify(res.body)).not.toContain('Unexpected token');
+      // The request has its id like every other answer, although it is refused before sign-in.
+      expect(body.request_id).toMatch(/^[0-9a-f-]{8,}$/);
+      expect(res.headers['x-request-id']).toBe(body.request_id);
+      // A body over the size limit is named as that, with nothing of its content either.
+      const big = await h
+        .http()
+        .post('/api/v1/valuations')
+        .set('authorization', h.as('operations'))
+        .set('content-type', 'application/json')
+        .send(JSON.stringify({ note: 'x'.repeat(9_000_000) }));
+      expect(big.status).toBe(413);
+      expect(problemDetails.parse(big.body).detail).toBe('The request body is too large');
+    });
+
+    it('answers an impossible calendar date with a 400 validation problem, never a 500', async () => {
+      const sponsorId = h.dataset.sponsors[0]!.id;
+      const vehicleId = h.dataset.vehicles[0]!.id;
+      const cases: [string, string][] = [
+        ['/api/v1/analytics/summary?asOf=2025-02-30', 'asOf'],
+        ['/api/v1/valuations?periodEnd=2025-02-30', 'periodEnd'],
+        ['/api/v1/capital-notices?dueFrom=2025-13-01', 'dueFrom'],
+        ['/api/v1/capital-notices?dueTo=2023-02-29', 'dueTo'],
+        [`/api/v1/sponsors/${sponsorId}?asOf=2025-04-31`, 'asOf'],
+        [`/api/v1/vehicles/${vehicleId}?asOf=2025-06-31`, 'asOf'],
+        ['/api/v1/investments?asOf=2025-02-29', 'asOf'],
+      ];
+      for (const [path, field] of cases) {
+        const res = await h.http().get(path).set('authorization', h.as('viewer')).expect(400);
+        const problem = problemDetails.parse(res.body);
+        expect(problem.type, path).toBe('https://portfolio-beach.example/problems/validation');
+        expect(problem.errors, path).toEqual([
+          { path: field, message: 'Not a real calendar date' },
+        ]);
+      }
+      // A real leap day is a date like any other.
+      await h
+        .http()
+        .get('/api/v1/analytics/summary?asOf=2024-02-29')
+        .set('authorization', h.as('viewer'))
+        .expect(200);
     });
     it('sets security headers', async () => {
       const res = await h.http().get('/health/live').expect(200);
@@ -147,6 +278,37 @@ describe('Portfolio Beach API', () => {
       expect(audit[0]?.n).toBe(1);
     });
 
+    it("carries each position's vehicle and sponsor ids on the grid row and the detail alike", async () => {
+      const page = investmentPage.parse(
+        (
+          await h
+            .http()
+            .get('/api/v1/investments?limit=200')
+            .set('authorization', h.as('operations'))
+            .expect(200)
+        ).body,
+      );
+      expect(page.items.length).toBe(h.dataset.investments.length - 1);
+      for (const row of page.items) {
+        const seeded = h.dataset.investments.find((i) => i.id === row.id)!;
+        expect([row.vehicleId, row.sponsorId]).toEqual([seeded.vehicleId, seeded.sponsorId]);
+        expect(h.dataset.vehicles.find((v) => v.id === row.vehicleId)?.name).toBe(row.vehicleName);
+        expect(h.dataset.sponsors.find((s) => s.id === row.sponsorId)?.name).toBe(row.sponsorName);
+      }
+      // The detail inherits the summary row, ids included: one source for both.
+      const first = page.items[0]!;
+      const detail = investmentDetail.parse(
+        (
+          await h
+            .http()
+            .get(`/api/v1/investments/${first.id}`)
+            .set('authorization', h.as('operations'))
+            .expect(200)
+        ).body,
+      );
+      expect([detail.vehicleId, detail.sponsorId]).toEqual([first.vehicleId, first.sponsorId]);
+    });
+
     it('computes metrics with the calc library and flags multiple-root IRRs', async () => {
       const page = investmentPage.parse(
         (
@@ -197,6 +359,65 @@ describe('Portfolio Beach API', () => {
         .get('/api/v1/investments?cursor=%%%')
         .set('authorization', h.as('operations'))
         .expect(400);
+      // A control character in a filter is refused at the boundary, never passed to the database.
+      await h
+        .http()
+        .get('/api/v1/investments?dealType=deal_type.private_credit%00')
+        .set('authorization', h.as('operations'))
+        .expect(400);
+    });
+
+    it('reports the holding period from the first contribution, to the exit once realized', async () => {
+      const realized = investmentPage.parse(
+        (
+          await h
+            .http()
+            .get(`/api/v1/investments?active=false&limit=200&asOf=${h.dataset.asOf}`)
+            .set('authorization', h.as('operations'))
+            .expect(200)
+        ).body,
+      );
+      expect(realized.items.length).toBeGreaterThan(0);
+      for (const row of realized.items) {
+        const contributions = h.dataset.cashFlows
+          .filter(
+            (f) =>
+              f.investmentId === row.id &&
+              f.flowType === 'flow_type.contribution' &&
+              f.status === 'record_status.approved' &&
+              f.flowDate <= h.dataset.asOf,
+          )
+          .map((f) => f.flowDate)
+          .sort();
+        const first = contributions[0];
+        if (first === undefined) {
+          expect(row.holdingPeriodYears, row.investmentNumber).toBeNull();
+          continue;
+        }
+        const days = (Date.parse(row.exitDate ?? '') - Date.parse(first)) / 86_400_000;
+        expect(Number(row.holdingPeriodYears), row.investmentNumber).toBeCloseTo(days / 365, 9);
+      }
+      // A position still held is measured to the as-of date, so an earlier as-of shortens it.
+      const held = investmentPage.parse(
+        (
+          await h
+            .http()
+            .get(`/api/v1/investments?active=true&limit=1&asOf=${h.dataset.asOf}`)
+            .set('authorization', h.as('operations'))
+            .expect(200)
+        ).body,
+      ).items[0]!;
+      const earlier = investmentDetail.parse(
+        (
+          await h
+            .http()
+            .get(`/api/v1/investments/${held.id}?asOf=2024-12-31`)
+            .set('authorization', h.as('operations'))
+            .expect(200)
+        ).body,
+      );
+      if (held.holdingPeriodYears !== null && earlier.holdingPeriodYears !== null)
+        expect(Number(earlier.holdingPeriodYears)).toBeLessThan(Number(held.holdingPeriodYears));
     });
 
     it('filters by deal type and shows credit metrics on a credit position', async () => {
@@ -237,8 +458,33 @@ describe('Portfolio Beach API', () => {
       );
       expect(detail.operating).not.toBeNull();
       expect(detail.operating?.revenueYoy).toBeNull();
-      expect(detail.operating?.priorYearPeriodEnd).toBeNull();
+      expect(detail.operating?.priorYear).toBeNull();
       expect(detail.operating?.evToEbitda).not.toBeNull();
+      // Where the prior year is on record, its figures travel with the growth derived from them.
+      let compared = 0;
+      for (const inv of h.dataset.investments.slice(0, 12)) {
+        if (inv.id === missing) continue;
+        const res = await h
+          .http()
+          .get(`/api/v1/investments/${inv.id}?asOf=${h.dataset.asOf}`)
+          .set('authorization', h.as('operations'));
+        if (res.status !== 200) continue;
+        const op = investmentDetail.parse(res.body).operating;
+        const prior = op?.priorYear ?? null;
+        if (op === null || prior === null) continue;
+        compared += 1;
+        const daysApart = (Date.parse(op.periodEnd) - Date.parse(prior.periodEnd)) / 86_400_000;
+        expect(daysApart).toBeGreaterThanOrEqual(358);
+        expect(daysApart).toBeLessThanOrEqual(372);
+        if (op.revenueLtm !== null && prior.revenueLtm !== null && op.revenueYoy !== null)
+          expect(
+            Math.abs(
+              Number(op.revenueYoy) - (Number(op.revenueLtm) / Number(prior.revenueLtm) - 1),
+            ),
+          ).toBeLessThan(1e-9);
+        if (prior.ev !== null && prior.ebitdaLtm !== null) expect(prior.evToEbitda).not.toBeNull();
+      }
+      expect(compared).toBeGreaterThan(0);
       const negative = h.dataset.scenarios.negative_ebitda![0]!;
       const neg = investmentDetail.parse(
         (
@@ -265,6 +511,12 @@ describe('Portfolio Beach API', () => {
       );
       expect(sponsors.items.length).toBe(3);
       expect(sponsors.nextCursor).not.toBeNull();
+      const nulCursor = Buffer.from(`Kelp${String.fromCharCode(0)}`).toString('base64url');
+      await h
+        .http()
+        .get(`/api/v1/sponsors?cursor=${nulCursor}`)
+        .set('authorization', h.as('viewer'))
+        .expect(400);
       const viewerVehicles = vehicleList.parse(
         (await h.http().get('/api/v1/vehicles').set('authorization', h.as('viewer')).expect(200))
           .body,
@@ -287,6 +539,57 @@ describe('Portfolio Beach API', () => {
       // ir.two is entitled to one client only, so totals cover that client's commitments alone.
       const sma = irVehicles.items.find((v) => v.vehicleType === 'vehicle_type.client_sma');
       expect(sma?.lpCommitmentsTotal).toBe('150000000.00');
+    });
+
+    it('reads status as of the date from entry and exit dates, not from today', async () => {
+      // A position exited since, with a Locked mark from when it was still held.
+      const exited = h.dataset.investments.find(
+        (i) =>
+          i.exitDate !== null &&
+          i.id !== walledId() &&
+          h.dataset.valuations.some(
+            (v) => v.investmentId === i.id && v.state === 'Locked' && v.periodEnd < i.exitDate!,
+          ),
+      )!;
+      const asOf = h.dataset.valuations
+        .filter((v) => v.investmentId === exited.id && v.state === 'Locked')
+        .map((v) => v.periodEnd)
+        .filter((d) => d < exited.exitDate!)
+        .sort()
+        .at(-1)!;
+      const page = investmentPage.parse(
+        (
+          await h
+            .http()
+            .get(`/api/v1/investments?limit=200&asOf=${asOf}`)
+            .set('authorization', h.as('operations'))
+            .expect(200)
+        ).body,
+      );
+      const row = page.items.find((i) => i.id === exited.id)!;
+      expect(row.isActive).toBe(true);
+      expect(row.navDate).toBe(asOf);
+      expect(row.nav).not.toBe('0');
+      // Positions entered after the date did not exist as of it.
+      expect(page.items.every((i) => i.entryDate <= asOf)).toBe(true);
+      const later = h.dataset.investments.filter((i) => i.entryDate > asOf && i.id !== walledId());
+      expect(later.length).toBeGreaterThan(0);
+      await h
+        .http()
+        .get(`/api/v1/investments/${later[0]!.id}?asOf=${asOf}`)
+        .set('authorization', h.as('operations'))
+        .expect(404);
+      // The active filter follows the same dates.
+      const held = investmentPage.parse(
+        (
+          await h
+            .http()
+            .get(`/api/v1/investments?limit=200&asOf=${asOf}&active=true`)
+            .set('authorization', h.as('operations'))
+            .expect(200)
+        ).body,
+      );
+      expect(held.items.map((i) => i.id)).toContain(exited.id);
     });
   });
 

@@ -1,6 +1,7 @@
 import 'reflect-metadata';
 import { NestFactory } from '@nestjs/core';
 import type { INestApplication } from '@nestjs/common';
+import type { NestExpressApplication } from '@nestjs/platform-express';
 import helmet from 'helmet';
 import type { Request, Response } from 'express';
 import { AppModule } from './app.module.js';
@@ -9,11 +10,17 @@ import type { RequestWithId } from './common/problem.js';
 import type { Runtime } from './composition.js';
 import type { RequestWithPrincipal } from './auth/principal.js';
 
+/**
+ * The largest JSON body a request may carry: an intake upload holds a CSV of up to 2,000,000
+ * characters (packages/contracts intakeImportBody), which JSON escaping and UTF-8 can treble.
+ */
+const JSON_BODY_LIMIT = '8mb';
+
 /** Creates the Nest application over a built runtime. Tests call this with an in-memory database. */
 export async function createApp(runtime: Runtime): Promise<INestApplication> {
-  const app = await NestFactory.create(AppModule.forRuntime(runtime), {
+  const app = await NestFactory.create<NestExpressApplication>(AppModule.forRuntime(runtime), {
     logger: false,
-    bodyParser: true,
+    bodyParser: false,
   });
   app.use(
     helmet({
@@ -21,6 +28,17 @@ export async function createApp(runtime: Runtime): Promise<INestApplication> {
     }),
   );
   app.use(requestIdMiddleware);
+  // No answer is stored and no read is conditional (docs/17 section 3). Answers hold restricted
+  // data, so a browser or a proxy keeps none of them. And the ETag of a record is its row
+  // version, a concurrency token for If-Match, not a cache validator: a detail carries child
+  // rows the row version does not cover (tasks, checklist items, alerts, open change requests),
+  // so a read that named that tag in If-None-Match would be told 304 for a body that changed.
+  app.use((req: Request, res: Response, next: () => void) => {
+    delete req.headers['if-none-match'];
+    delete req.headers['if-modified-since'];
+    res.setHeader('Cache-Control', 'no-store');
+    next();
+  });
   app.use((req: Request, res: Response, next: () => void) => {
     const started = runtime.adapters.clock.nowMs();
     res.on('finish', () => {
@@ -39,6 +57,9 @@ export async function createApp(runtime: Runtime): Promise<INestApplication> {
     });
     next();
   });
+  // The body is read after the request has its id, its security headers and its log line, so a
+  // body the parser refuses is answered and logged like every other request.
+  app.useBodyParser('json', { limit: JSON_BODY_LIMIT });
   app.enableShutdownHooks();
   await app.init();
   return app;

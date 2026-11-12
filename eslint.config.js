@@ -14,6 +14,9 @@ const domainGlobs = [
   'packages/calc/src/**/*.ts',
   'packages/workflows/src/**/*.ts',
   'packages/validation/src/**/*.ts',
+  'packages/xlsx/src/**/*.ts',
+  'packages/pdf/src/**/*.ts',
+  'packages/ai/src/**/*.ts',
 ];
 
 export default tseslint.config(
@@ -26,6 +29,7 @@ export default tseslint.config(
       '.bundle/**',
       '.synthetic/**',
       '.pglite/**',
+      '.claude/worktrees/**',
       'apps/worker-py/**',
       'apps/web/dist/**',
       'apps/web/dist-types/**',
@@ -33,6 +37,9 @@ export default tseslint.config(
       'apps/web/.e2e/**',
       'apps/web/playwright-report/**',
       'apps/web/test-results/**',
+      'apps/site/media/**',
+      'apps/site/.wrangler/**',
+      'apps/site/dist-artifact/**',
     ],
   },
   js.configs.recommended,

@@ -1,3 +1,5 @@
+import { forgetIdempotencyKeys } from '../api/idempotency.js';
+
 /**
  * Prototype sign-in state. The mock credential is the chosen external id; it lives in session
  * storage for the tab only (never local storage, SEC-4.5) and is replaced by MSAL after merge.
@@ -24,8 +26,10 @@ export function setCredential(credential: string): void {
   }
 }
 
+/** Signs out: the credential goes, and with it the keys held for requests that had no answer yet. */
 export function clearCredential(): void {
   memory = null;
+  forgetIdempotencyKeys();
   try {
     window.sessionStorage.removeItem(KEY);
   } catch {

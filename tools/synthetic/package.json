@@ -19,11 +19,22 @@
     "build": "tsc -b",
     "test": "vitest run",
     "generate": "node dist/cli.js generate",
-    "verify": "node dist/cli.js verify"
+    "verify": "node dist/cli.js verify",
+    "exports": "node dist/cli.js exports",
+    "weekly": "node dist/cli.js weekly",
+    "lookthrough": "node dist/cli.js lookthrough",
+    "ops-drop": "node dist/cli.js ops-drop",
+    "drops": "node dist/cli.js drops",
+    "documents": "node dist/cli.js documents"
   },
   "dependencies": {
+    "@pb/adapters": "workspace:*",
     "@pb/calc": "workspace:*",
-    "@pb/db": "workspace:*"
+    "@pb/contracts": "workspace:*",
+    "@pb/db": "workspace:*",
+    "@pb/pdf": "workspace:*",
+    "@pb/validation": "workspace:*",
+    "@pb/xlsx": "workspace:*"
   },
   "devDependencies": {
     "drizzle-orm": "0.45.4"

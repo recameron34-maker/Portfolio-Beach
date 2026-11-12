@@ -8,8 +8,9 @@ import { join } from 'node:path';
  * the small synthetic profile, and the web app through Vite with the API proxied.
  */
 const scratch = process.env.PB_E2E_DIR ?? mkdtempSync(join(tmpdir(), 'pb-e2e-'));
-const apiPort = 3101;
-const webPort = 5174;
+// Overridable so several checkouts (agent worktrees) can run the journeys side by side.
+const apiPort = Number(process.env.PB_E2E_API_PORT ?? 3101);
+const webPort = Number(process.env.PB_E2E_WEB_PORT ?? 5174);
 
 export default defineConfig({
   testDir: './e2e',

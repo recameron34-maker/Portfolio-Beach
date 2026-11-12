@@ -18,7 +18,13 @@
   "dependencies": {
     "@fluentui/react-components": "9.75.1",
     "@fluentui/react-icons": "2.0.345",
+    "@pb/ai": "workspace:*",
+    "@pb/calc": "workspace:*",
     "@pb/contracts": "workspace:*",
+    "@pb/pdf": "workspace:*",
+    "@pb/validation": "workspace:*",
+    "@pb/workflows": "workspace:*",
+    "@pb/xlsx": "workspace:*",
     "@tanstack/react-query": "5.107.1",
     "@tanstack/react-router": "1.170.46",
     "ag-grid-community": "36.3.0",

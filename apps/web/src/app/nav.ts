@@ -1,4 +1,4 @@
-/** Navigation groups from docs/06 section 2. Areas not yet built route to a placeholder page. */
+/** Navigation groups from docs/06 section 2, with the secondary tabs each area shows. */
 export const NAV_GROUPS: { label: string; to: string }[] = [
   { label: 'Home', to: '/' },
   { label: 'Pipeline', to: '/pipeline' },
@@ -12,3 +12,80 @@ export const NAV_GROUPS: { label: string; to: string }[] = [
   { label: 'Assistants', to: '/assistants' },
   { label: 'Admin', to: '/admin/flags' },
 ];
+
+// Phase 3: W1 valuations (M10) and change requests (M11)
+/** Valuations group tabs: the batch board and the deal change request queue. */
+export const VALUATION_TABS = [
+  { to: '/valuations', label: 'Board', exact: true },
+  { to: '/valuations/changes', label: 'Change requests' },
+];
+
+export const PORTFOLIO_TABS = [
+  { to: '/portfolio', label: 'Positions', exact: true },
+  { to: '/portfolio/vehicles', label: 'Vehicles' },
+  { to: '/portfolio/watchlist', label: 'Watchlist' },
+  { to: '/portfolio/monitoring', label: 'Monitoring' },
+];
+/** Documents group tabs (docs/04 M3 and M4, decision 0012): the hub, the queue, the tracker and extraction. */
+export const DOCUMENTS_TABS = [
+  { to: '/documents', label: 'Hub', exact: true },
+  { to: '/documents/review', label: 'Review queue' },
+  { to: '/documents/expected', label: 'Expected documents' },
+  { to: '/documents/extraction', label: 'Extraction' },
+];
+export const CAPITAL_TABS = [
+  { to: '/capital-activity', label: 'Notices', exact: true },
+  { to: '/capital-activity/commitments', label: 'Commitments and unfunded' },
+  // Phase 3 W2: capital activity (M16), the wire register and the trade tickets.
+  { to: '/capital-activity/wires', label: 'Wire register' },
+  { to: '/capital-activity/tickets', label: 'Trade tickets' },
+];
+export const REPORTING_TABS = [
+  { to: '/reporting', label: 'Weekly report', exact: true },
+  { to: '/reporting/clients', label: 'Clients' },
+  { to: '/reporting/disclosures', label: 'Disclosures' },
+];
+export const ANALYTICS_TABS = [
+  { to: '/analytics', label: 'Exposure', exact: true },
+  { to: '/analytics/performance', label: 'Performance' },
+  { to: '/analytics/value-creation', label: 'Value creation' },
+  { to: '/analytics/entry-metrics', label: 'Entry metrics' },
+  { to: '/analytics/credit', label: 'Credit book' },
+  { to: '/analytics/realizations', label: 'Realizations' },
+  { to: '/analytics/clients', label: 'Clients' },
+];
+export const ADMIN_TABS = [
+  { to: '/admin/flags', label: 'Flags' },
+  { to: '/admin/audit', label: 'Audit trail' },
+  { to: '/admin/access', label: 'Access and walls' },
+  { to: '/admin/health', label: 'Integration health' },
+  { to: '/data/health', label: 'Data health' },
+  { to: '/data/dictionary', label: 'Data dictionary' },
+  { to: '/data/taxonomy', label: 'Taxonomy' },
+  { to: '/data/intake', label: 'Intake' },
+];
+
+/** The Data group of the main navigation (docs/03 section 4, docs/04 M2); icons live in AppShell. */
+export const DATA_LINKS: { label: string; to: string }[] = [
+  { label: 'Data Health', to: '/data/health' },
+  { label: 'Data Dictionary', to: '/data/dictionary' },
+  { label: 'Taxonomy', to: '/data/taxonomy' },
+  { label: 'Intake', to: '/data/intake' },
+  { label: 'Weekly values', to: '/data/weekly' },
+  { label: 'Look-through', to: '/data/lookthrough' },
+  { label: 'Exceptions', to: '/data/exceptions' },
+];
+
+/** Deal workspace tabs (docs/06 section 2). The Overview tab is the one-pager. */
+export const DEAL_TABS = [
+  { path: '', label: 'Overview' },
+  { path: '/performance', label: 'Performance' },
+  { path: '/sponsor', label: 'Sponsor and contacts' },
+  { path: '/diligence', label: 'Diligence' },
+  { path: '/closing', label: 'Closing' },
+  { path: '/valuations', label: 'Valuations' },
+  { path: '/capital', label: 'Capital activity' },
+  { path: '/documents', label: 'Documents' },
+  { path: '/tasks', label: 'Tasks' },
+  { path: '/activity', label: 'Activity' },
+] as const;

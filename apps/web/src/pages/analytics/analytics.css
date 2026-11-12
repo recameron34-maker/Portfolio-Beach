@@ -1,0 +1,95 @@
+/* Analytics tabs (pages/analytics). Scoped to this folder; colours come only from the theme variables.
+   styles.css loads first, so a page class wins over a shared class of the same specificity. */
+
+/* A short explanatory line under a chart or a table inside a card. */
+.pb-analytics-note {
+  margin: 10px 0 0;
+}
+
+/* The filter row of the value creation tabs: six dropdowns that fit one line on a laptop and
+   stack on a phone (the toolbar's own fields go full width there). */
+.pb-toolbar .pb-analytics-filter {
+  min-width: 0;
+  width: 172px;
+}
+@media (max-width: 720px) {
+  .pb-toolbar .pb-analytics-filter {
+    width: 100%;
+  }
+}
+
+/* A quiet count with its detail on demand (the positions a view leaves out, and why). */
+.pb-analytics-details {
+  margin-top: 10px;
+  font-size: 13px;
+  line-height: 20px;
+  color: var(--pb-muted);
+}
+.pb-analytics-details > summary {
+  cursor: pointer;
+  color: var(--pb-brand-primary);
+}
+.pb-analytics-details > .pb-list {
+  margin-top: 6px;
+  color: var(--pb-text);
+}
+
+/* Wide tables: headers may wrap and cells sit closer so the columns fit a laptop screen. */
+.pb-analytics-dense thead th {
+  height: auto;
+  min-height: 32px;
+  padding: 6px;
+  line-height: 16px;
+  white-space: normal;
+  vertical-align: bottom;
+}
+.pb-analytics-dense td {
+  padding: 7px 6px;
+}
+.pb-analytics-dense th:first-child,
+.pb-analytics-dense td:first-child {
+  padding-left: 10px;
+}
+
+/* A sortable column header: the label is a button that keeps the header's own type and colour. */
+.pb-sort {
+  display: inline-flex;
+  align-items: flex-end;
+  gap: 4px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  letter-spacing: inherit;
+  text-align: inherit;
+  cursor: pointer;
+}
+.pb-sort:hover {
+  text-decoration: underline;
+}
+.pb-sort:focus-visible {
+  outline: 2px solid var(--pb-bg);
+  outline-offset: 2px;
+  border-radius: 2px;
+}
+.pb-sort-mark {
+  font-size: 9px;
+  line-height: 16px;
+}
+
+/* "Realized" under a company name in the positions table: a word, quiet, on its own line. */
+.pb-analytics-realized {
+  display: block;
+  font-size: 11px;
+  line-height: 14px;
+  color: var(--pb-muted-strong);
+}
+
+/* The reason a row's drivers are missing, in the one cell the three drivers share: quiet, and
+   read as text, not as a figure. */
+.pb-table td.pb-analytics-reason {
+  font-size: 12px;
+  line-height: 16px;
+  text-align: left;
+}
