@@ -119,9 +119,11 @@ export function buildPlan(dataset, { dealTypes }) {
           '/api/v1/vehicles',
           withQuery('/api/v1/sponsors', { limit: LIST_LIMIT }),
           '/api/v1/analytics/summary',
-          // Value creation and entry metrics (M13, M20): the two tabs read one answer and sort
-          // it in the page, and the export replays the recorded CSV, so each credential's own
-          // rows (the wall decides) are all the preview needs.
+          // Value creation and entry metrics (M13, M20): the two tabs read one answer and filter,
+          // roll up and sort it in the page, and the export replays the recorded CSV, narrowed in
+          // the shim to the rows the view's filters leave (src/preview/routes/valueCreation.ts),
+          // so each credential's own rows (the wall decides) are all the preview needs: no
+          // recording per filter.
           '/api/v1/analytics/value-creation',
           '/api/v1/analytics/value-creation/export',
           '/api/v1/monitoring/watchlist',
