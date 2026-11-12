@@ -48,7 +48,9 @@ jobs:
     needs: ci
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
-    timeout-minutes: 40
+    # The whole suite took 38 minutes on its first run here (a private repository's runner has two
+    # cores); the limit leaves room for a slow day without letting a hung run burn the hour.
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4 # pin to SHA
       - uses: pnpm/action-setup@v4 # pin to SHA
@@ -58,7 +60,9 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm typecheck
       - run: pnpm --filter @pb/web exec playwright install --with-deps chromium
-      - run: pnpm test:e2e && pnpm test:a11y
+      # One run: it includes the tests tagged @a11y. `pnpm test:a11y` runs those alone, for a
+      # laptop; running it here as well repeated 29 of the 64 tests and overran the limit.
+      - run: pnpm test:e2e
   security:
     runs-on: ubuntu-latest
     timeout-minutes: 30
