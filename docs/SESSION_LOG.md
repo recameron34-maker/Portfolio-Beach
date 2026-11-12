@@ -446,3 +446,9 @@ Pull request 18 went green on every check for the head with the UI pass and the 
 - Nothing writes these tables yet. Next: the snapshot builder (a package's lines from Locked marks and approved flows), then the API commands through `reportingPackageMachine`, then the Reporting, Packages pages.
 - No synthetic packages are seeded; they will be made through the API once it exists.
 
+### Session 11, continued (2026-11-12): the site is published; Microsoft's pages read in full
+
+- **Publishing:** the owner reconnected the host to the private repository and ran the production build from `main`. cameroncastle.com now serves the Portfolio Beach site (confirmed by reading the page). A failed host check on pull request 18 dates from before the first publish, when a branch preview had no Worker to attach to; `docs/decisions/0015` has the amendment. The Murder-Party pull request that stops that project claiming the domain can now be merged by the owner.
+- **Microsoft 365 (decision 0019, still Proposed):** the owner allowed Microsoft Learn in the session's network and the seven pages behind the proposal were read in full. Every point held. Three were sharpened: the REST API tool route for agents is preview documentation, so the custom connector is the route to build on; a connector can sign in with a managed identity, so no client secret is stored; and Microsoft documents interactive user sign-in for the in-app agent client, not service-to-service.
+- The built-in page reader could not resolve the two newly allowed hosts in this running session; the pages were read through the session's network proxy with a small script kept outside the repository. Nothing was sent but the page requests.
+

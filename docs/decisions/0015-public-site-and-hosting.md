@@ -53,3 +53,11 @@ While the site was being built, the owner connected this repository to the host'
 - `.github/workflows/site.yml` now only builds and checks the site by hand; it holds no secret and publishes nothing.
 - This departs from the letter of CLAUDE.md ("deployment happens only in GitHub Actions after human approval") by the owner's own choice for this static site: the human approval is the merge to `main`. The application is still deployed nowhere.
 - The first build after the merge to `main` is the real test: nothing here could run the host's build. The owner pastes its log if it fails.
+
+## Amendment, 2026-11-12: the first publish
+
+- After the repository went private the host's build could no longer see it ("The project is linked to a repository that no longer exists"). The owner reconnected it the same day.
+- The host then built the open pull request's branch before anything had been published and reported "Preview creation failed: This Worker does not exist on your account": a preview of a branch can only be added to a Worker that already exists. Nothing in the repository was at fault; the site's build passed when run by hand at the same commit.
+- The owner ran the production build from `main`. It published, and cameroncastle.com serves the Portfolio Beach site (read from the session once the owner allowed the host: the page's title and opening lines are the site's).
+- For next time: on a new host project, publish once from `main` before opening a pull request, or switch off builds for other branches until then.
+
