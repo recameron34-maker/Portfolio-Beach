@@ -1,7 +1,7 @@
 export { generateDataset } from './generate.js';
 export type { GenerateOptions, GeneratedDataset } from './generate.js';
 export { verifyDataset } from './verify.js';
-export type { VerifyReport } from './verify.js';
+export type { VerifyReport, VerifyTolerances } from './verify.js';
 export { PROFILES, DATA_SCENARIOS, DOCUMENT_SCENARIOS } from './profiles.js';
 export { Rng } from './prng.js';
 export { accountingExport, accountingExports } from './accounting-export.js';
@@ -53,6 +53,7 @@ export {
   intakeDecimal,
   intakeWholeNumber,
   pipelineStageAgingDays,
+  underwritingTolerances,
 } from './settings.js';
 export type { IntakeDecimalKey, IntakeWholeNumberKey, PipelineStageKey } from './settings.js';
 export {
@@ -108,6 +109,27 @@ export type {
   WireInstructionState,
 } from './controls.js';
 export { activePositions, latestLockedMark, takeRows, walledInvestment } from './marks.js';
+export {
+  UNDERWRITING_EXISTING_SCENARIOS,
+  UNDERWRITING_GROWTH_SHIFT,
+  UNDERWRITING_IRR_SHIFT,
+  UNDERWRITING_MIN_HELD_DAYS,
+  UNDERWRITING_NONE_EVERY,
+  UNDERWRITING_PLAN_YEARS,
+  UNDERWRITING_SCENARIOS,
+  calcCaseOf,
+  generateUnderwriting,
+  irrOfMoic,
+  seededComparison,
+  underwritingInputsOf,
+} from './underwriting.js';
+export type {
+  UnderwritingBase,
+  UnderwritingCaseRow,
+  UnderwritingDeps,
+  UnderwritingPointRow,
+  UnderwritingScenario,
+} from './underwriting.js';
 export {
   WEEKLY_HEADER,
   WEEKLY_MOVES,

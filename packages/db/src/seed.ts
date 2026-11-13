@@ -1,3 +1,4 @@
+import { and, eq, inArray } from 'drizzle-orm';
 import { z } from 'zod';
 import type { PgliteDatabase } from 'drizzle-orm/pglite';
 import type { PgTable } from 'drizzle-orm/pg-core';
@@ -514,9 +515,55 @@ export const syntheticDatasetSchema = z.object({
       }),
     )
     .default([]),
+  /**
+   * The sponsor's underwritten base cases (migration 0021, decision 0022), one row per version
+   * with the plan points of an equity case inside it; [] for a dataset made before them. `state`
+   * is where the version stands today: the loader records each case as the product does (a
+   * Draft, its points, the confirmation, the withdrawal), so the dataset says who confirmed a
+   * case and when, and why it was withdrawn.
+   */
+  underwritingCases: z
+    .array(
+      z.object({
+        id: uuid,
+        investmentId: uuid,
+        version: z.number().int().min(1),
+        form: z.enum(['equity', 'credit']),
+        state: z.enum(['Draft', 'Confirmed', 'Superseded', 'Withdrawn']),
+        caseDate: isoDate,
+        plannedExitDate: isoDate,
+        /** EV / EBITDA at the planned exit: an equity case has one, a loan has none. */
+        exitMultiple: money.nullable(),
+        grossMoic: money,
+        grossIrr: money,
+        /** A loan only. */
+        underwrittenYield: money.nullable(),
+        annualLossRate: money.nullable(),
+        note: z.string().nullable(),
+        revisionReason: z.string().nullable(),
+        withdrawnReason: z.string().nullable(),
+        /** Where the model is held, in plain words; the seed carries no doc.document rows. */
+        sourceNote: z.string().nullable(),
+        enteredBy: uuid,
+        enteredAt: instant,
+        /** Set once the case was confirmed, and kept when it was superseded or withdrawn later. */
+        confirmedBy: uuid.nullable(),
+        confirmedAt: instant.nullable(),
+        points: z.array(
+          z.object({
+            id: uuid,
+            periodEnd: isoDate,
+            revenueLtm: money.nullable(),
+            ebitdaLtm: money.nullable(),
+            netDebt: money.nullable(),
+          }),
+        ),
+      }),
+    )
+    .default([]),
 });
 
-/** The dataset after parse: every array present (the Phase 3 arrays fill in as []). */
+/** The dataset after parse: every array present (the later arrays fill in as []). */
 export type ParsedSyntheticDataset = z.infer<typeof syntheticDatasetSchema>;
 
 /** The arrays migration 0013 added; a dataset made before Phase 3 has none of them. */
@@ -533,13 +580,17 @@ type Phase3Array =
   | 'tradeTickets'
   | 'changeRequests';
 
+/** The arrays added after the first contract; a dataset made before one of them has none of it. */
+type LaterArray = Phase3Array | 'underwritingCases';
+
 /**
  * The dataset as a producer builds it (tools/synthetic) and a reader receives it: the Phase 3 arrays
- * are optional on the way in, so a generator or a file made before Phase 3 still type-checks and
- * still loads; the parse fills them with [] and the loader reads the parsed form.
+ * and the underwritten base cases are optional on the way in, so a generator or a file made before
+ * them still type-checks and still loads; the parse fills them with [] and the loader reads the
+ * parsed form.
  */
-export type SyntheticDataset = Omit<ParsedSyntheticDataset, Phase3Array> &
-  Partial<Pick<ParsedSyntheticDataset, Phase3Array>>;
+export type SyntheticDataset = Omit<ParsedSyntheticDataset, LaterArray> &
+  Partial<Pick<ParsedSyntheticDataset, LaterArray>>;
 
 export interface SeedOptions {
   /**
@@ -718,5 +769,88 @@ export async function loadSyntheticDataset(
       appliedAt: toDateOrNull(appliedAt),
     })),
   );
+  Object.assign(counts, await loadUnderwritingCases(db, data.underwritingCases));
+  return counts;
+}
+
+type SeedUnderwritingCase = ParsedSyntheticDataset['underwritingCases'][number];
+
+/**
+ * The underwritten base cases (migration 0021). The database lets a case start only as a Draft,
+ * takes plan points only while it is one, and keeps one Confirmed case per position and case date,
+ * so the loader records each position's versions in order, as the product would: the Draft and its
+ * points, then the confirmation (after the Confirmed case with the same date, which it corrects,
+ * is superseded), then the withdrawal. One transaction per position, and a version already there
+ * is left as it is, so loading the same dataset again changes nothing. A dataset whose states no
+ * such history leads to (a Superseded case nothing corrected) is refused, naming the case.
+ */
+async function loadUnderwritingCases(
+  db: PgliteDatabase<Schema>,
+  cases: readonly SeedUnderwritingCase[],
+): Promise<Record<string, number>> {
+  const counts = {
+    underwritingCases: cases.length,
+    underwritingCasePoints: cases.reduce((n, c) => n + c.points.length, 0),
+  };
+  if (cases.length === 0) return counts;
+  const table = schema.underwritingCase;
+  const present = new Set((await db.select({ id: table.id }).from(table)).map((row) => row.id));
+  const byInvestment = new Map<string, SeedUnderwritingCase[]>();
+  for (const c of cases) {
+    const versions = byInvestment.get(c.investmentId);
+    if (versions === undefined) byInvestment.set(c.investmentId, [c]);
+    else versions.push(c);
+  }
+  for (const versions of byInvestment.values()) {
+    const fresh = versions.filter((c) => !present.has(c.id)).sort((a, b) => a.version - b.version);
+    if (fresh.length === 0) continue;
+    await db.transaction(async (tx) => {
+      for (const c of fresh) {
+        const { points, state, confirmedBy, confirmedAt, withdrawnReason, enteredAt, ...row } = c;
+        await tx.insert(table).values({ ...row, enteredAt: toDate(enteredAt) });
+        for (const batch of chunks(points))
+          await tx
+            .insert(schema.underwritingCasePoint)
+            .values(batch.map((point) => ({ ...point, caseId: c.id })));
+        if (confirmedBy !== null) {
+          // The confirmation of a correction supersedes the case it corrects, and does so first.
+          await tx
+            .update(table)
+            .set({ state: 'Superseded' })
+            .where(
+              and(
+                eq(table.investmentId, c.investmentId),
+                eq(table.caseDate, c.caseDate),
+                eq(table.state, 'Confirmed'),
+              ),
+            );
+          await tx
+            .update(table)
+            .set({ state: 'Confirmed', confirmedBy, confirmedAt: toDateOrNull(confirmedAt) })
+            .where(eq(table.id, c.id));
+        }
+        if (state === 'Withdrawn')
+          await tx
+            .update(table)
+            .set({ state: 'Withdrawn', withdrawnReason })
+            .where(eq(table.id, c.id));
+      }
+      const stored = await tx
+        .select({ id: table.id, state: table.state })
+        .from(table)
+        .where(
+          inArray(
+            table.id,
+            fresh.map((c) => c.id),
+          ),
+        );
+      const stateOf = new Map(stored.map((row) => [row.id, row.state]));
+      for (const c of fresh)
+        if (stateOf.get(c.id) !== c.state)
+          throw new Error(
+            `underwriting case ${c.id} (version ${String(c.version)}): the dataset says ${c.state}, and its versions lead to ${stateOf.get(c.id) ?? 'no row'}`,
+          );
+    });
+  }
   return counts;
 }

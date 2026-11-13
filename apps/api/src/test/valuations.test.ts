@@ -443,9 +443,17 @@ describe('valuation workflow (M10, docs/18 section 1)', () => {
     h.dataset.valuations.find(
       (v) => v.investmentId === investmentId && v.periodEnd === periodEnd && v.state === 'Locked',
     )!.id;
-  /** Active, visible investments outside every scenario, each with a Locked mark at the period. */
+  /**
+   * Active, visible investments outside every scenario, each with a Locked mark at the period.
+   * The base case scenarios (`underwriting_*`) are no reason to leave a position out: they add a
+   * sponsor's plan beside it and change none of its marks, flows or quarters.
+   */
   const plain = (periodEnd = PERIOD): string[] => {
-    const tagged = new Set(Object.values(h.dataset.scenarios).flat());
+    const tagged = new Set(
+      Object.entries(h.dataset.scenarios).flatMap(([tag, ids]) =>
+        tag.startsWith('underwriting_') ? [] : ids,
+      ),
+    );
     return h.dataset.investments
       .filter(
         (i) =>

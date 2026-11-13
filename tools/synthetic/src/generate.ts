@@ -11,6 +11,8 @@ import { NO_HEADQUARTERS, assignHeadquarters } from './places.js';
 import { Rng } from './prng.js';
 import { PROFILES } from './profiles.js';
 import type { Profile } from './profiles.js';
+import { generateUnderwriting } from './underwriting.js';
+import type { UnderwritingCaseRow } from './underwriting.js';
 
 export interface GenerateOptions {
   profile?: string;
@@ -22,14 +24,19 @@ export interface GenerateOptions {
 }
 
 /**
- * The generator's output: the seed loader's contract plus the company aliases (core.company_alias)
- * and the Phase 3 controls (controls.ts), each of which a seed schema from before its table strips
- * on parse and a later one inserts; the capital notices carry the two SEC-12.4 alert flags.
+ * The generator's output: the seed loader's contract plus the company aliases (core.company_alias),
+ * the Phase 3 controls (controls.ts) and the underwritten base cases (underwriting.ts), each of
+ * which a seed schema from before its table strips on parse and a later one inserts; the capital
+ * notices carry the two SEC-12.4 alert flags.
  */
-export type GeneratedDataset = Omit<SyntheticDataset, 'capitalNotices' | keyof ControlsDataset> &
+export type GeneratedDataset = Omit<
+  SyntheticDataset,
+  'capitalNotices' | 'underwritingCases' | keyof ControlsDataset
+> &
   ControlsDataset & {
     companyAliases: CompanyAlias[];
     capitalNotices: ControlledCapitalNotice[];
+    underwritingCases: UnderwritingCaseRow[];
   };
 
 type Users = SyntheticDataset['users'];
@@ -1275,6 +1282,23 @@ export function generateDataset(options: GenerateOptions = {}): GeneratedDataset
       .digest('hex');
   }
 
+  // ---- The underwritten base cases (docs/14 section 12) -------------------------------------
+  // Last, from the dataset as it now stands and from streams of their own, so adding them moved
+  // no other value; their scenario tags go to the scenario log only, never onto an investment.
+  const underwritingCases = generateUnderwriting(
+    {
+      asOf,
+      users,
+      investments,
+      quarterlyPerformance,
+      valuations,
+      cashFlows,
+      walls,
+      scenarios: scenarioLog,
+    },
+    { seed, tag },
+  );
+
   const dataset: GeneratedDataset = {
     version: 1,
     profile: profile.name,
@@ -1302,6 +1326,7 @@ export function generateDataset(options: GenerateOptions = {}): GeneratedDataset
     cashFlows,
     realizationOutlooks,
     ...controls,
+    underwritingCases,
     scenarios: scenarioLog,
   };
   void D;

@@ -59,6 +59,18 @@ export const DATA_SCENARIOS = [
   'walled_opportunity',
   'ic_pending',
   'change_request_open',
+  // The underwritten base cases (docs/14 section 12; UNDERWRITING_SCENARIOS in underwriting.ts
+  // lists the same tags). Each names the investment that carries it.
+  'underwriting_ahead',
+  'underwriting_on_plan',
+  'underwriting_behind',
+  'underwriting_reunderwritten',
+  'underwriting_corrected',
+  'underwriting_draft',
+  'underwriting_withdrawn',
+  'underwriting_past_exit',
+  'underwriting_gap',
+  'underwriting_net_cash',
 ] as const;
 export type DataScenario = (typeof DATA_SCENARIOS)[number];
 
