@@ -22,19 +22,24 @@ import type { OperatingRow } from '../portfolio/metrics.js';
  * pure: what underwritingComparison of @pb/calc is handed, built from the rows the service loaded
  * under the caller's row-level security. Nothing is worked out a second time here. The entry
  * snapshot, the current quarter and the company's bridge are the value creation card's own
- * (analytics/value-creation.ts), and our flows, invested capital, distributions, gross MOIC and
- * gross IRR are the position's summary, so the comparison cannot disagree with either. Every
+ * (analytics/value-creation.ts), our flows, invested capital, distributions, gross MOIC and
+ * gross IRR are the position's summary, and a loan's yield to maturity is the Credit terms'
+ * (performance/performance.service.ts), so the comparison cannot disagree with any of them. Every
  * figure is handed over as it travels (a decimal string), which is what a page that works the
  * comparison out again starts from.
  */
 
+/** The deal type whose positions hold a loan's base case. */
+export const CREDIT_DEAL_TYPE = 'deal_type.private_credit';
+
 /**
  * The form of the base case a position holds, from its deal type: plan points and exit terms for
- * an equity co-investment or a continuation vehicle. A primary fund holds none (null). A private
- * credit position reads as none until its own form is served.
+ * an equity co-investment or a continuation vehicle, the underwritten yield and loss rate for a
+ * private credit position. A primary fund holds none (null).
  */
 export function underwritingFormOf(dealType: string): UnderwritingForm | null {
-  return coversDealType(dealType) ? 'equity' : null;
+  if (coversDealType(dealType)) return 'equity';
+  return dealType === CREDIT_DEAL_TYPE ? 'credit' : null;
 }
 
 /** The settings this module reads of config/definitions.json. */
@@ -83,11 +88,17 @@ const figuresOf = (row: OperatingRow): UnderwritingInputs['quarters'][number] =>
 });
 
 /**
- * What an equity position's comparison is worked out from, as of a date. The quarters are the
- * approved ones on or before the date (the comparison itself keeps those up to the current
- * quarter, which for a realized position stops at its exit).
+ * What a position's comparison is worked out from, as of a date. The quarters are the approved
+ * ones on or before the date (the comparison itself keeps those up to the current quarter, which
+ * for a realized position stops at its exit). A loan reports no company quarter: it is handed
+ * with none, and with its yield to maturity as the Performance tab shows it, which an equity
+ * position has not (null).
  */
-export function comparisonInputs(position: PositionInputs, asOf: string): UnderwritingInputs {
+export function comparisonInputs(
+  position: PositionInputs,
+  asOf: string,
+  yieldToMaturity: string | null = null,
+): UnderwritingInputs {
   const { row, summary } = position;
   const { entry, current, forwardDated } = entryAndCurrent(position.operating, asOf, row.exitDate);
   const { bridge, reason } = bridgeOf(entry, current, forwardDated);
@@ -126,6 +137,6 @@ export function comparisonInputs(position: PositionInputs, asOf: string): Underw
     grossMoic: summary.grossMoic,
     grossIrr: summary.grossIrr,
     irrFlag: summary.irrFlag,
-    yieldToMaturity: null,
+    yieldToMaturity,
   };
 }

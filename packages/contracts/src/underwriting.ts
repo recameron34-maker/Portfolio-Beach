@@ -470,7 +470,7 @@ export function isCaseDateAllowed(
  * (its name first), so the API and the static preview answer the same sentence.
  */
 export const UNDERWRITING_REFUSALS = {
-  /** 422: a primary fund, and a private credit position until its form is served. */
+  /** 422: a primary fund. */
   noBaseCase: 'underwriting_case: this kind of position holds no base case',
   /** 409: one Draft per position. */
   draftExists:

@@ -29,6 +29,7 @@ import { ADAPTERS, DEFINITIONS } from '../common/tokens.js';
 import { requireUuid } from '../common/validate.js';
 import { DbService } from '../db/db.service.js';
 import type { AuditEntry } from '../db/db.service.js';
+import { loadCreditYieldToMaturity } from '../performance/performance.service.js';
 import { loadInvestmentsWithMetrics } from '../portfolio/loaders.js';
 import { str } from '../portfolio/metrics.js';
 import { calcCaseOf, comparisonInputs, tolerancesOf, underwritingFormOf } from './comparison.js';
@@ -44,7 +45,9 @@ import { loadVersions } from './rows.js';
  * reader names another that stands or stood as the plan. Only a case a second person confirmed
  * is compared (SEC-9.1): a Draft alone answers no comparison. The comparison is worked out on
  * read by underwritingComparison of @pb/calc, from the figures the value creation card and the
- * position summary carry for the same date; nothing of it is stored.
+ * position summary carry for the same date, and for a loan the yield to maturity of its Credit
+ * terms; nothing of it is stored. An equity or continuation vehicle position holds a plan, a
+ * private credit position the yield and loss rate it was underwritten on, a primary fund nothing.
  *
  * The writes keep the life of a case (docs/18 section 13). The deal team records a Draft (one per
  * position), and edits it whole: whoever edits becomes the person who last changed the figures.
@@ -175,13 +178,20 @@ export class UnderwritingService {
                 ? 'draft_only'
                 : 'no_case',
         };
-      const operating = (await loadOperatingRows(tx, [found.row.id])).get(found.row.id) ?? [];
+      // A loan is judged on its returns alone: it has no company quarter to load, and carries
+      // the yield to maturity of its Credit terms. An equity position has the quarters and no yield.
+      const operating =
+        form === 'credit'
+          ? []
+          : ((await loadOperatingRows(tx, [found.row.id])).get(found.row.id) ?? []);
+      const yieldToMaturity =
+        form === 'credit' ? await loadCreditYieldToMaturity(tx, found.row.id, asOf) : null;
       return {
         ...base,
         comparedVersion: compared.version,
         comparison: underwritingComparison(
           calcCaseOf(compared),
-          comparisonInputs({ ...found, operating }, asOf),
+          comparisonInputs({ ...found, operating }, asOf, yieldToMaturity),
           tolerances,
         ),
         notCalculable: null,
