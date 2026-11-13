@@ -64,6 +64,7 @@ import {
   useDealId,
 } from './data.js';
 import { HubLink, PeriodCell, RecordStatusBadge } from './parts.js';
+import { UnderwritingCard } from './UnderwritingCard.js';
 import { ValueCreationCard } from './ValueCreationCard.js';
 import './deal.css';
 import { balanceTiles } from '../../lib/tiles.js';
@@ -540,6 +541,7 @@ function EquityPerformance({
     <>
       <SinceEntryCard perf={perf} />
       <ValueCreationCard id={perf.investmentId} company={company} />
+      <UnderwritingCard id={perf.investmentId} company={company} />
       <QuarterlyCard perf={perf} company={company} />
       <div className="pb-two-col">
         <HighlightsCard perf={perf} />
@@ -852,8 +854,9 @@ function CreditPerformance({
 
 /**
  * Performance tab (docs/04 M9, docs/08 section 4): growth since entry, value creation (the
- * company's bridge, the indexed lines and entry against current metrics), the approved quarterly
- * series with the source of each quarter, and highlights for equity and CV positions; terms,
+ * company's bridge, the indexed lines and entry against current metrics), the position against
+ * the sponsor's underwritten base case, the approved quarterly series with the source of each
+ * quarter, and highlights for equity and CV positions; terms,
  * quarterly credit metrics and schedules for private credit; the realization outlook, with its
  * edit for the deal team, for every position.
  */

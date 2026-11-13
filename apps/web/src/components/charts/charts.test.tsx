@@ -133,6 +133,40 @@ describe('charts', () => {
     expect(table).toHaveTextContent('Q3-');
   });
 
+  it('places points by their own positions when given, so uneven dates are drawn that far apart', () => {
+    const drawn = (dates: string[], at: number[]): { xs: string[]; named: (string | null)[] } => {
+      cleanup();
+      measureAs(552);
+      const { container } = render(
+        <LineChart
+          title="Plan by date"
+          x={dates}
+          at={at}
+          series={[{ name: 'Plan', values: [10, 11, 14] }]}
+          kind="money"
+          format={(v) => `$${v}M`}
+          summary="a plan over three dates"
+        />,
+      );
+      const path = container.querySelector('path[fill="none"]')?.getAttribute('d') ?? '';
+      return {
+        xs: path.split('L').map((point) => point.replace('M', '').split(' ')[0] ?? ''),
+        named: [...container.querySelectorAll('text.pb-chart-tick[text-anchor="middle"]')].map(
+          (t) => t.textContent,
+        ),
+      };
+    };
+    // Days since the first date: the middle point is a quarter of the way along, not half. 552
+    // wide less the 56 and 96 of padding leaves 400 to plot over, from 56.
+    const spread = drawn(['Dec 2022', 'Mar 2023', 'Dec 2023'], [0, 90, 360]);
+    expect(spread.xs).toEqual(['56', '156', '456']);
+    expect(spread.named).toEqual(['Dec 2022', 'Mar 2023', 'Dec 2023']);
+    // A date too close to the one named after it goes without a label; the table twin has all.
+    const close = drawn(['Dec 2022', 'Jan 2023', 'Dec 2023'], [0, 36, 360]);
+    expect(close.xs).toEqual(['56', '96', '456']);
+    expect(close.named).toEqual(['Jan 2023', 'Dec 2023']);
+  });
+
   it('at phone width keeps the ends of similar labels, the full names elsewhere and the values inside', async () => {
     const width = 316;
     measureAs(width);

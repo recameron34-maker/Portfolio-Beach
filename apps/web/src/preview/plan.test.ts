@@ -46,6 +46,7 @@ import {
   VALUE_CREATION_EXPORT_PATH,
   valueCreationQuery,
 } from '../pages/analytics/value-creation-queries.js';
+import { underwritingQuery } from '../pages/deal/underwriting-api.js';
 import { exceptionQuery, exceptionsQuery } from '../pages/exceptions/exceptions-queries.js';
 import { opsDropDropsQuery } from '../pages/intake/ops-drop.js';
 import {
@@ -222,6 +223,7 @@ describe('the recording plan', () => {
       investmentPerformanceQuery(INV),
       valueCreationQuery,
       investmentValueCreationQuery(INV),
+      underwritingQuery(INV),
       sponsorQuery(SPO),
       vehicleQuery(VEH),
       capitalNoticeQuery(NOT),
@@ -324,6 +326,9 @@ describe('the recording plan', () => {
     );
     expect(paths('investment value creation')).toEqual(
       each((id) => `/api/v1/investments/${id}/value-creation`),
+    );
+    expect(paths('investment underwriting')).toEqual(
+      each((id) => `/api/v1/investments/${id}/underwriting`),
     );
     expect(paths('vehicle detail')).toEqual([`/api/v1/vehicles/${VEH}`]);
     expect(paths('sponsor detail')).toEqual([`/api/v1/sponsors/${SPO}`]);

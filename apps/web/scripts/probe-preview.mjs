@@ -2495,6 +2495,79 @@ check(
   recorded('viewer.one', `/api/v1/investments/${vcCredit.id}/value-creation`).json?.position ===
     null && (await page.getByTestId('deal-value-creation').count()) === 0,
 );
+// ---- The position against the sponsor's base case (decision 0022), as recorded ---------------
+
+const underwritingPath = (id) => `/api/v1/investments/${id}/underwriting`;
+const scenarioId = (name) => d.scenarios[name][0];
+const STATUS_WORDS = { ahead: 'Ahead of plan', on_plan: 'On plan', behind: 'Behind plan' };
+check(
+  'base case: recorded for every user and every position (200, 404 past the wall), a loan with no form',
+  d.users.every((u) =>
+    d.investments.every((i) =>
+      [200, 404].includes(recorded(u.externalId, underwritingPath(i.id)).status),
+    ),
+  ) &&
+    recorded('viewer.one', underwritingPath(walledId)).status === 404 &&
+    recorded('deal.three', underwritingPath(walledId)).json?.comparedVersion === 1 &&
+    recorded('viewer.one', underwritingPath(vcCredit.id)).json?.form === null,
+);
+const statusOnPage = async (name) => {
+  const id = scenarioId(name);
+  await page.goto(`${origin}/#/portfolio/${id}/performance`);
+  const tile = page
+    .getByTestId('deal-underwriting-tiles')
+    .getByRole('group', { name: 'EBITDA against plan' });
+  await tile.waitFor();
+  const headline = recorded('viewer.one', underwritingPath(id)).json?.comparison?.headline;
+  return { headline, text: await tile.innerText() };
+};
+const seen = {};
+for (const name of ['underwriting_ahead', 'underwriting_on_plan', 'underwriting_behind'])
+  seen[name] = await statusOnPage(name);
+check(
+  'deal workspace: the base case card badges EBITDA ahead of, on and behind plan as the API judged each seeded position',
+  seen.underwriting_ahead.headline === 'ahead' &&
+    seen.underwriting_on_plan.headline === 'on_plan' &&
+    seen.underwriting_behind.headline === 'behind' &&
+    Object.values(seen).every((s) => s.text.includes(STATUS_WORDS[s.headline])),
+  Object.values(seen)
+    .map((s) => s.text.replaceAll('\n', ' '))
+    .join(' | '),
+);
+check(
+  'deal workspace: the base case card charts actual against plan and sets the drivers against the planned bridge',
+  (await page.getByRole('group', { name: 'EBITDA, actual and plan' }).count()) === 1 &&
+    (await page.getByRole('table', { name: 'Value creation against plan' }).count()) === 1 &&
+    (await page.getByTestId('deal-underwriting-case').innerText()).includes('Entry case'),
+);
+const noCase = d.investments.find(
+  (i) =>
+    recorded('viewer.one', underwritingPath(i.id)).json?.form === 'equity' &&
+    recorded('viewer.one', underwritingPath(i.id)).json.versions.length === 0,
+);
+await page.goto(`${origin}/#/portfolio/${noCase.id}/performance`);
+await page.getByTestId('deal-underwriting-empty').waitFor();
+const noCaseText = await page.getByTestId('deal-underwriting').innerText();
+await page.goto(`${origin}/#/portfolio/${scenarioId('underwriting_draft')}/performance`);
+await page.getByTestId('deal-underwriting-draft').waitFor();
+const draftText = await page.getByTestId('deal-underwriting').innerText();
+await page.goto(`${origin}/#/portfolio/${scenarioId('underwriting_withdrawn')}/performance`);
+await page.getByTestId('deal-underwriting-versions').waitFor();
+const withdrawnText = await page.getByTestId('deal-underwriting').innerText();
+check(
+  'deal workspace: no base case, a draft alone and a withdrawn case each say what they are, and none is compared',
+  noCaseText.includes('No base case recorded.') &&
+    draftText.includes('A draft base case waits for a second person to confirm it.') &&
+    withdrawnText.includes('No base case stands') &&
+    (await page.getByTestId('deal-underwriting-tiles').count()) === 0,
+);
+await page.goto(`${origin}/#/portfolio/${vcCredit.id}/performance`);
+await page.getByTestId('deal-credit-terms').waitFor();
+await settle();
+check(
+  'deal workspace: a position that holds no base case shows no card',
+  (await page.getByTestId('deal-underwriting').count()) === 0,
+);
 await switchTo('deal.three');
 await page.goto(`${origin}/#/analytics/value-creation`);
 await page.getByTestId('value-creation-tiles').waitFor();

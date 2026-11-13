@@ -9,6 +9,7 @@ import {
   creditDetailFixture,
   creditPerformanceFixture,
   DEAL_DOCUMENT_ID,
+  DEAL_ID,
   DEAL_PATHS,
   dealDetailFixture,
   defaultOutlookFixture,
@@ -19,7 +20,9 @@ import {
 import { rolePrincipal, sentRequests } from '../../test/fixtures-valuations.js';
 import { MISSING } from '../../lib/format.js';
 import { renderWithQuery } from '../../test/render.js';
+import { investmentValueCreationFixture } from '../analytics/value-creation.fixtures.js';
 import { PerformanceTab } from './PerformanceTab.js';
+import { readFixture, UW_PATH } from './underwriting.fixtures.js';
 
 vi.mock('@tanstack/react-router', async () => {
   const { routerMock } = await import('../../test/router-mock.js');
@@ -216,6 +219,24 @@ describe('performance tab, equity position', () => {
     expect(imported).toHaveTextContent('document');
     expect(screen.queryByRole('link', { name: /run that read Mar 31, 2025/ })).toBeNull();
     expect(screen.getByTestId('performance-source-2024-12-31')).toHaveTextContent(MISSING);
+  });
+
+  it('sets the position against the base case after value creation and before the quarterly series', async () => {
+    mockApi(
+      routes(['viewer'], {
+        [`${DEAL_PATHS.detail}/value-creation`]: ok(
+          investmentValueCreationFixture({ investmentId: DEAL_ID }),
+        ),
+        [UW_PATH]: ok(readFixture()),
+      }),
+    );
+    renderWithQuery(<PerformanceTab />);
+    const underwriting = await screen.findByTestId('deal-underwriting');
+    const before = await screen.findByTestId('deal-value-creation');
+    const after = screen.getByTestId('deal-quarterly');
+    expect(before.compareDocumentPosition(underwriting)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+    expect(underwriting.compareDocumentPosition(after)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+    expect(underwriting).toHaveTextContent("Against the sponsor's base case");
   });
 
   it('says the entry snapshot is dated after the as-of date instead of comparing against it', async () => {

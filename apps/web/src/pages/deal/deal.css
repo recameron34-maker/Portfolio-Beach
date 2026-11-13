@@ -212,3 +212,29 @@ tr.pb-deal-note-row > td {
   outline-offset: 2px;
   border-radius: 4px;
 }
+
+/* The base case card: a heading over one version of the case, with its state beside it. */
+.pb-deal-subhead {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 8px;
+  margin: 0 0 8px;
+  font-size: 13px;
+  line-height: 20px;
+  font-weight: 600;
+  color: var(--pb-text);
+}
+/* A table with a total row: a rule above it, the figures in the key-number weight. Two classes so
+   the row header loses the hairline that .pb-table th[scope='row'] draws under body rows. */
+.pb-table.pb-deal-totals tfoot th,
+.pb-table.pb-deal-totals tfoot td {
+  padding: 8px 10px;
+  border-top: 1px solid var(--pb-border);
+  border-bottom: 0;
+  font-weight: 600;
+}
+/* The picker of the version compared: wide enough for "Re-underwritten Jun 30, 2025, corrected". */
+.pb-deal-version-picker {
+  min-width: min(100%, 280px);
+}

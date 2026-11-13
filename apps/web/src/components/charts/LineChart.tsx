@@ -18,11 +18,16 @@ const PAD = { top: 12, right: 96, bottom: 28, left: 56 };
  * under a single series, a crosshair tooltip that lists every series at the nearest x, keyboard
  * navigation with the arrow keys, direct end labels for up to four series and the table twin. A
  * null value is a gap: the line stops before it and starts again after it.
+ *
+ * The points sit at even steps unless `at` places them: one number per point, rising (days since
+ * the first date, say), so points that are unevenly spaced in time are drawn that far apart and a
+ * straight line in time is a straight line on the chart.
  */
 export function LineChart({
   title,
   subtitle,
   x,
+  at,
   series,
   kind,
   format,
@@ -34,6 +39,8 @@ export function LineChart({
   title: string;
   subtitle?: string | undefined;
   x: string[];
+  /** Where each point sits along the axis, in any unit; left out, the points are evenly spaced. */
+  at?: readonly number[] | undefined;
   series: LineSeries[];
   kind: ValueKind;
   format: (value: number) => string;
@@ -50,10 +57,31 @@ export function LineChart({
   const hi = ticks[ticks.length - 1] ?? 1;
   const plotW = Math.max(120, width - PAD.left - PAD.right);
   const plotH = height - PAD.top - PAD.bottom;
-  const xAt = (i: number) => PAD.left + (x.length <= 1 ? plotW / 2 : (i / (x.length - 1)) * plotW);
+  // The share of the axis each point sits at: its place in `at` when every point has one and
+  // they span a range, else its even step.
+  const first = at?.[0];
+  const last = at?.[x.length - 1];
+  const span =
+    at?.length === x.length && first !== undefined && last !== undefined ? last - first : 0;
+  const shareAt = (i: number): number =>
+    span > 0 ? ((at?.[i] ?? 0) - (first ?? 0)) / span : i / (x.length - 1);
+  const xAt = (i: number) => PAD.left + (x.length <= 1 ? plotW / 2 : shareAt(i) * plotW);
   const yAt = linearScale(lo, hi, PAD.top + plotH, PAD.top);
   const keys = series.map((s, i) => ({ name: s.name, color: seriesColor(i + 1) }));
   const labelEvery = Math.max(1, Math.ceil(x.length / Math.max(2, Math.floor(plotW / 90))));
+  // Which points are named under the axis. Evenly spaced points take every nth from the right;
+  // placed points take, from the right, each one far enough from the last one named.
+  const named = new Set<number>();
+  if (span > 0) {
+    let lastNamed = Infinity;
+    for (let i = x.length - 1; i >= 0; i--) {
+      if (lastNamed - xAt(i) < 90) continue;
+      named.add(i);
+      lastNamed = xAt(i);
+    }
+  } else {
+    for (let i = 0; i < x.length; i++) if ((x.length - 1 - i) % labelEvery === 0) named.add(i);
+  }
 
   const nearest = (clientX: number, el: SVGSVGElement): number => {
     const rect = el.getBoundingClientRect();
@@ -170,7 +198,7 @@ export function LineChart({
             </g>
           ))}
           {x.map((label, i) =>
-            (x.length - 1 - i) % labelEvery === 0 ? (
+            named.has(i) ? (
               <text
                 key={label}
                 x={xAt(i)}
