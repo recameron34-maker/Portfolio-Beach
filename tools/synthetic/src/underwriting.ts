@@ -13,8 +13,10 @@ import {
   toSignedFlows,
   underwritingComparison,
   valueCreationBridge,
+  yieldToMaturity,
 } from '@pb/calc';
 import type {
+  Decimal,
   FlowKind,
   TypedCashFlow,
   UnderwritingCase,
@@ -29,10 +31,10 @@ import { Rng } from './prng.js';
 
 /*
  * The sponsor's underwritten base cases (docs/14 section 12, docs/04 M9, decision 0022): the plan
- * each equity and continuation vehicle position is compared with on its deal page. Built last,
- * from the dataset as it stands and from streams of its own, so adding them moved no other value.
- * Every figure is fictional. Private credit positions get theirs with the credit card (a later
- * slice); primary funds have none.
+ * each equity and continuation vehicle position is compared with on its deal page, and the yield,
+ * loss rate, MOIC and IRR each loan was underwritten on. Built last, from the dataset as it stands
+ * and from streams of its own, so adding them moved no other value. Every figure is fictional.
+ * Primary funds have none.
  */
 
 export type UnderwritingCaseRow = NonNullable<SyntheticDataset['underwritingCases']>[number];
@@ -40,6 +42,10 @@ export type UnderwritingPointRow = UnderwritingCaseRow['points'][number];
 
 type Investment = SyntheticDataset['investments'][number];
 type Quarter = SyntheticDataset['quarterlyPerformance'][number];
+type CreditTerms = SyntheticDataset['creditTerms'][number];
+
+/** The deal type whose positions carry a loan's base case. */
+export const UNDERWRITING_CREDIT_DEAL_TYPE = 'deal_type.private_credit';
 
 /** Scenario tags of the base cases, each naming one investment (docs/14 section 3). */
 export const UNDERWRITING_SCENARIOS = [
@@ -74,11 +80,17 @@ export const UNDERWRITING_IRR_SHIFT = 0.05;
 /** The shortest ownership the ahead, on plan and behind scenarios take, in days. */
 export const UNDERWRITING_MIN_HELD_DAYS = 730;
 
+/** The expected loss a year a loan is underwritten with, drawn inside this band. */
+export const UNDERWRITING_LOSS_RATE = { min: 0.005, max: 0.02 } as const;
+
 /** "UNDW": the base cases' own stream, the seed turned by a constant as the other late streams are. */
 const UNDERWRITING_STREAM = 0x554e4457;
+/** "UNDC": the loans' stream, apart from the equity one, so neither moves the other's draws. */
+const UNDERWRITING_CREDIT_STREAM = 0x554e4443;
 /** The longest plan a scenario may need (an old position whose plan must reach past the as-of date). */
 const MAX_PLAN_YEARS = 14;
 const SOURCE_NOTE = 'Sponsor base case model at entry, held in the deal folder';
+const LOAN_SOURCE_NOTE = 'Underwriting model of the loan at entry, held in the deal folder';
 
 const fixed = (value: number, places = 2): string => value.toFixed(places);
 const kindOf = (flowType: string): FlowKind => flowType.replace('flow_type.', '') as FlowKind;
@@ -90,6 +102,8 @@ export interface UnderwritingBase {
   users: SyntheticDataset['users'];
   investments: SyntheticDataset['investments'];
   quarterlyPerformance: SyntheticDataset['quarterlyPerformance'];
+  creditTerms: SyntheticDataset['creditTerms'];
+  creditPerformance: SyntheticDataset['creditPerformance'];
   valuations: SyntheticDataset['valuations'];
   cashFlows: SyntheticDataset['cashFlows'];
   walls: SyntheticDataset['walls'];
@@ -107,12 +121,40 @@ const cutoffOf = (investment: Investment, asOf: string): string =>
   investment.exitDate !== null && investment.exitDate < asOf ? investment.exitDate : asOf;
 
 /**
+ * A loan's yield to maturity as of the dataset's as-of date, as the Performance tab works it out
+ * (docs/08 section 10): the latest approved credit row on or before the date is priced over the
+ * contractual flows to maturity, with only the repayment steps still to come. Null for a position
+ * with no credit terms, past maturity, or with no priced row.
+ */
+function loanYieldToMaturity(base: UnderwritingBase, investment: Investment): Decimal | null {
+  const terms = base.creditTerms.find((t) => t.investmentId === investment.id);
+  if (terms === undefined) return null;
+  const rows = base.creditPerformance
+    .filter((c) => c.investmentId === investment.id)
+    .map((c) => ({ ...c, status: c.status.replace('record_status.', '') }));
+  const latest = latestPeriod(rows, base.asOf);
+  const fairValue = latest?.fairValue ?? null;
+  const par = latest?.parValue ?? null;
+  if (fairValue === null || par === null) return null;
+  return yieldToMaturity({
+    asOf: base.asOf,
+    fairValue,
+    par,
+    cashCoupon: terms.cashCoupon,
+    pikCoupon: terms.pikCoupon,
+    maturity: terms.maturityDate,
+    frequency: terms.paymentFrequency,
+    scheduledPrincipal: (terms.amortization ?? []).filter((step) => step.date > base.asOf),
+  }).value;
+}
+
+/**
  * What a position's comparison is worked out from, as of the dataset's as-of date, by the rules
- * the API follows (docs/08 sections 2, 5 and 8): the approved entry snapshot once it is dated on
- * or before the date, the latest approved quarter on or before it (or before the exit), the
- * company's bridge between the two, and our own flows, invested capital, distributions, gross
- * MOIC and gross IRR with its flag over the latest Locked mark. The generator and its dataset
- * check read a position through this one function.
+ * the API follows (docs/08 sections 2, 5, 8 and 10): the approved entry snapshot once it is dated
+ * on or before the date, the latest approved quarter on or before it (or before the exit), the
+ * company's bridge between the two, our own flows, invested capital, distributions, gross MOIC
+ * and gross IRR with its flag over the latest Locked mark, and for a loan its yield to maturity.
+ * The generator and its dataset check read a position through this one function.
  */
 export function underwritingInputsOf(
   base: UnderwritingBase,
@@ -206,7 +248,7 @@ export function underwritingInputsOf(
     grossMoic,
     grossIrr,
     irrFlag,
-    yieldToMaturity: null,
+    yieldToMaturity: loanYieldToMaturity(base, investment),
   };
 }
 
@@ -365,10 +407,23 @@ const instantOn = (date: string, asOf: string, time: string): string =>
   `${compareIso(date, asOf) > 0 ? asOf : date}T${time}Z`;
 
 /**
- * Builds the base cases of the equity and continuation vehicle positions and tags the scenario
- * positions. A scenario that no position of the dataset can carry is left out, and the dataset
- * check reports it missing: a small profile under an unusual seed is short of positions, and the
- * generator never bends a scenario to fit one.
+ * The yield a loan is underwritten on, from its terms: the cash coupon, the PIK coupon and the
+ * original issue discount spread over the years from our entry to maturity, to four places.
+ */
+export function underwrittenYieldOf(
+  terms: Pick<CreditTerms, 'cashCoupon' | 'pikCoupon' | 'oid'>,
+  years: number,
+): number {
+  return Number(
+    fixed(Number(terms.cashCoupon) + Number(terms.pikCoupon) + Number(terms.oid) / years, 4),
+  );
+}
+
+/**
+ * Builds the base cases of the equity and continuation vehicle positions and of the loans, and
+ * tags the scenario positions. A scenario that no position of the dataset can carry is left out,
+ * and the dataset check reports it missing: a small profile under an unusual seed is short of
+ * positions, and the generator never bends a scenario to fit one.
  */
 export function generateUnderwriting(
   base: UnderwritingBase,
@@ -423,25 +478,31 @@ export function generateUnderwriting(
   const entryMultiple = (host: Host): number =>
     Number(host.snapshot.ev ?? '0') / Number(host.snapshot.ebitdaLtm ?? '1');
 
+  /**
+   * The two people of a case: one deal team member enters it and another confirms it. Only
+   * people inside the wall can have recorded and confirmed a walled position's case.
+   */
+  const twoPeople = (investmentId: string): { enteredBy: string; confirmedBy: string } | null => {
+    const wall = wallOf(investmentId);
+    if (wall === undefined) return { enteredBy: dealOne, confirmedBy: dealTwo };
+    const inside = wall.memberUserIds;
+    const author = inside.find((id) => roleOf.get(id)?.includes('deal_team') === true);
+    const second = inside.find(
+      (id) =>
+        id !== author &&
+        (roleOf.get(id) ?? []).some((role) => role === 'deal_team' || role === 'approver'),
+    );
+    return author === undefined || second === undefined
+      ? null
+      : { enteredBy: author, confirmedBy: second };
+  };
+
   /** A Confirmed version 1 dated at our entry, entered by one deal team member and confirmed by another. */
   const entryCase = (host: Host, shape: PlanShape): UnderwritingCaseRow | null => {
     const { investment, draws } = host;
-    let enteredBy = dealOne;
-    let confirmedBy = dealTwo;
-    const wall = wallOf(investment.id);
-    if (wall !== undefined) {
-      // Only people inside the wall can have recorded and confirmed a walled position's case.
-      const inside = wall.memberUserIds;
-      const author = inside.find((id) => roleOf.get(id)?.includes('deal_team') === true);
-      const second = inside.find(
-        (id) =>
-          id !== author &&
-          (roleOf.get(id) ?? []).some((role) => role === 'deal_team' || role === 'approver'),
-      );
-      if (author === undefined || second === undefined) return null;
-      enteredBy = author;
-      confirmedBy = second;
-    }
+    const people = twoPeople(investment.id);
+    if (people === null) return null;
+    const { enteredBy, confirmedBy } = people;
     const plan = planFrom(host.snapshot, draws, draws.pointIds, shape);
     const plannedExitDate = plan.points[plan.points.length - 1]?.periodEnd ?? '';
     if (compareIso(plannedExitDate, investment.entryDate) <= 0) return null;
@@ -721,5 +782,51 @@ export function generateUnderwriting(
       ]);
   }
 
-  return hosts.flatMap((host) => cases.get(host.investment.id) ?? []);
+  // ---- Private credit: every loan carries the case it was underwritten on -------------------
+  // Version 1, Confirmed, dated at our entry: the yield its terms stand for, an expected loss a
+  // year drawn from the loan's own stream, the IRR the two leave and the MOIC that IRR pays by
+  // maturity, which is the expected repayment. A loan has no plan points and no exit multiple.
+  const loans: UnderwritingCaseRow[] = [];
+  base.investments.forEach((investment, index) => {
+    if (investment.dealType !== UNDERWRITING_CREDIT_DEAL_TYPE) return;
+    const terms = base.creditTerms.find((t) => t.investmentId === investment.id);
+    const people = twoPeople(investment.id);
+    if (terms === undefined || people === null) return;
+    if (compareIso(terms.maturityDate, investment.entryDate) <= 0) return;
+    const rng = new Rng(
+      ((deps.seed ^ UNDERWRITING_CREDIT_STREAM) + Math.imul(index + 1, 0x9e3779b1)) >>> 0,
+    );
+    const id = rng.uuid();
+    const lossRate = Number(rng.decimal(UNDERWRITING_LOSS_RATE.min, UNDERWRITING_LOSS_RATE.max, 4));
+    const years = daysBetween(investment.entryDate, terms.maturityDate) / 365;
+    const underwrittenYield = underwrittenYieldOf(terms, years);
+    const grossIrr = Number(fixed(underwrittenYield - lossRate, 4));
+    const grossMoic = Number(fixed(1 + grossIrr * years, 4));
+    if (!(grossMoic > 0) || grossIrr <= -1 || underwrittenYield <= -1) return;
+    loans.push({
+      id,
+      investmentId: investment.id,
+      version: 1,
+      form: 'credit',
+      state: 'Confirmed',
+      caseDate: investment.entryDate,
+      plannedExitDate: terms.maturityDate,
+      exitMultiple: null,
+      grossMoic: fixed(grossMoic, 4),
+      grossIrr: fixed(grossIrr, 4),
+      underwrittenYield: fixed(underwrittenYield, 4),
+      annualLossRate: fixed(lossRate, 4),
+      note: null,
+      revisionReason: null,
+      withdrawnReason: null,
+      sourceNote: LOAN_SOURCE_NOTE,
+      enteredBy: people.enteredBy,
+      enteredAt: instantOn(addDays(investment.entryDate, 7), asOf, '10:00:00'),
+      confirmedBy: people.confirmedBy,
+      confirmedAt: instantOn(addDays(investment.entryDate, 9), asOf, '15:00:00'),
+      points: [],
+    });
+  });
+
+  return [...hosts.flatMap((host) => cases.get(host.investment.id) ?? []), ...loans];
 }

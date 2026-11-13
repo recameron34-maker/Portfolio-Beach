@@ -1291,6 +1291,8 @@ export function generateDataset(options: GenerateOptions = {}): GeneratedDataset
       users,
       investments,
       quarterlyPerformance,
+      creditTerms,
+      creditPerformance,
       valuations,
       cashFlows,
       walls,

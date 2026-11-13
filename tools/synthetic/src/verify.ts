@@ -515,10 +515,11 @@ const blank = (text: string | null): boolean => text === null || text.trim().len
  * The underwritten base cases (docs/14 section 12): every reference resolves; the rules migration
  * 0021 enforces hold (a second person confirmed, a source outside a Draft, a reason from version
  * 2 and when withdrawn, one Draft per position and one Confirmed case per position and date, an
- * equity plan of two points or more ending on the planned exit); a version is a correction of a
- * confirmed case or dated after every one of them; a walled position's case was recorded inside
- * its wall; nothing happened after the as-of date; and each scenario position reads, through the
- * comparison of docs/08 section 11 under the configured tolerances, as its tag says.
+ * equity plan of two points or more ending on the planned exit, a loan with a yield, a loss rate
+ * between 0 and 1 and no plan); a version is a correction of a confirmed case or dated after
+ * every one of them; a walled position's case was recorded inside its wall; nothing happened
+ * after the as-of date; each scenario position reads, through the comparison of docs/08 section
+ * 11 under the configured tolerances, as its tag says; and every Confirmed loan case compares.
  */
 function verifyUnderwriting(d: SyntheticDataset, must: Must, tolerances: VerifyTolerances): void {
   const cases = d.underwritingCases ?? [];
@@ -595,6 +596,15 @@ function verifyUnderwriting(d: SyntheticDataset, must: Must, tolerances: VerifyT
       must(
         c.exitMultiple === null && c.underwrittenYield !== null && c.points.length === 0,
         `${name}: a loan case has a yield, no exit multiple and no plan points`,
+      );
+      must(
+        c.underwrittenYield === null || Number(c.underwrittenYield) > -1,
+        `${name}: an underwritten yield out of range`,
+      );
+      must(
+        c.annualLossRate === null ||
+          (Number(c.annualLossRate) >= 0 && Number(c.annualLossRate) <= 1),
+        `${name}: a loss rate outside 0 to 1`,
       );
     }
     const wall = d.walls.filter((w) =>
@@ -678,6 +688,22 @@ function verifyUnderwriting(d: SyntheticDataset, must: Must, tolerances: VerifyT
   };
   const confirmedOf = (versions: UnderwritingCaseRow[]): UnderwritingCaseRow[] =>
     versions.filter((c) => c.state === 'Confirmed');
+
+  // A loan is judged on its returns alone (docs/08 section 11, rule 6): its comparison carries
+  // no company figure, whatever the position reports.
+  for (const c of cases) {
+    if (c.form !== 'credit' || c.state !== 'Confirmed' || !investments.has(c.investmentId))
+      continue;
+    try {
+      const comparison = seededComparison(base, c, tolerances);
+      must(
+        comparison.metrics.length === 0 && comparison.valueCreation === null,
+        `${numberOf(c)}: a loan compared on company figures`,
+      );
+    } catch (error) {
+      must(false, `${numberOf(c)}: ${error instanceof Error ? error.message : 'not comparable'}`);
+    }
+  }
   const metric = (comparison: NonNullable<ReturnType<typeof compared>>, name: string) =>
     comparison.metrics.find((m) => m.metric === name);
 

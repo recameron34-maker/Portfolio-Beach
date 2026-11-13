@@ -12,9 +12,11 @@ import { QUARTERLY_REPORTING_DEAL_TYPES } from './preview-book.js';
 import { DATA_SCENARIOS } from './profiles.js';
 import { underwritingTolerances } from './settings.js';
 import {
+  UNDERWRITING_CREDIT_DEAL_TYPE,
   UNDERWRITING_EXISTING_SCENARIOS,
   UNDERWRITING_GROWTH_SHIFT,
   UNDERWRITING_IRR_SHIFT,
+  UNDERWRITING_LOSS_RATE,
   UNDERWRITING_MIN_HELD_DAYS,
   UNDERWRITING_NONE_EVERY,
   UNDERWRITING_PLAN_YEARS,
@@ -22,6 +24,7 @@ import {
   irrOfMoic,
   seededComparison,
   underwritingInputsOf,
+  underwrittenYieldOf,
 } from './underwriting.js';
 import type { UnderwritingCaseRow } from './underwriting.js';
 import { verifyDataset } from './verify.js';
@@ -34,6 +37,16 @@ import { verifyDataset } from './verify.js';
 const BEFORE_BASE_CASES = {
   small: '3a25fe22d770fa084dd1354fec2f1ebafe28c163868235b1e0b15db72111ea85',
   default: '5310a10134a9738e04cd89566a2925dc54fe00343029439a7b50e9769ab9f06d',
+} as const;
+
+/**
+ * The SHA-256 of the equity and continuation vehicle cases (seed 42) as they were generated on
+ * the commit before the loans got theirs. The loans draw from a stream of their own and follow
+ * the equity cases in the list, so adding them must never be the reason these change.
+ */
+const BEFORE_LOAN_CASES = {
+  small: '54e5573dbbfb6fe3c230c97afa44de9033046cc1d4e0134ae2194e5a49438020',
+  default: '9b9eee0d75f20e7eb3d014764e4cf64b14c726f15427826990e7995eaa24acb5',
 } as const;
 
 const tolerances = underwritingTolerances();
@@ -84,6 +97,14 @@ describe.each([
       expect(i.scenarioTags.filter((t) => t.startsWith('underwriting_'))).toEqual([]);
   });
 
+  it('the loans moved no equity case: those are what they were, and come first', () => {
+    const equity = d.underwritingCases.filter((c) => c.form === 'equity');
+    expect(createHash('sha256').update(JSON.stringify(equity)).digest('hex')).toBe(
+      BEFORE_LOAN_CASES[profile],
+    );
+    expect(d.underwritingCases.slice(0, equity.length)).toEqual(equity);
+  });
+
   it('passes the dataset check and carries every scenario on one position', () => {
     expect(verifyDataset(d).problems).toEqual([]);
     for (const scenario of UNDERWRITING_SCENARIOS) {
@@ -97,7 +118,7 @@ describe.each([
     for (const id of ids) expect(walled.has(id ?? '')).toBe(false);
   });
 
-  it('gives four eligible positions in five a case, always the four existing scenario positions, and none to a loan', () => {
+  it('gives four eligible positions in five an equity case, always the four existing scenario positions', () => {
     const hosts = eligible(d);
     const withCase = hosts.filter((i) => casesOf(d, i.id).length > 0);
     const forced = taggedIds(d, UNDERWRITING_EXISTING_SCENARIOS);
@@ -115,22 +136,67 @@ describe.each([
     expect(withCase.length / hosts.length).toBeLessThan(0.9);
     // A held position with no case is there for the card with nothing recorded.
     expect(hosts.some((i) => i.isActive && casesOf(d, i.id).length === 0)).toBe(true);
-    // Only equity and continuation vehicle positions carry one: loans get theirs with the credit card.
-    const carriers = new Set(d.underwritingCases.map((c) => c.investmentId));
-    for (const id of carriers) {
-      expect(QUARTERLY_REPORTING_DEAL_TYPES).toContain(investmentOf(d, id).dealType);
-      expect(hosts.some((i) => i.id === id)).toBe(true);
-    }
+    // An equity case sits on an eligible equity or continuation vehicle position, a loan's case
+    // on a private credit position, and no other position carries one.
     for (const c of d.underwritingCases) {
-      expect(c.form).toBe('equity');
-      expect(c.underwrittenYield).toBeNull();
-      expect(c.annualLossRate).toBeNull();
+      const { dealType } = investmentOf(d, c.investmentId);
+      if (c.form === 'equity') {
+        expect(QUARTERLY_REPORTING_DEAL_TYPES).toContain(dealType);
+        expect(hosts.some((i) => i.id === c.investmentId)).toBe(true);
+        expect([c.underwrittenYield, c.annualLossRate]).toEqual([null, null]);
+      } else expect(dealType).toBe(UNDERWRITING_CREDIT_DEAL_TYPE);
     }
+  });
+
+  it('gives every loan the case it was underwritten on: its yield from its terms, a loss rate, and the IRR and MOIC they leave', () => {
+    const loans = d.investments.filter((i) => i.dealType === UNDERWRITING_CREDIT_DEAL_TYPE);
+    expect(loans.length).toBeGreaterThan(0);
+    const user = (externalId: string) => d.users.find((u) => u.externalId === externalId)!.id;
+    for (const loan of loans) {
+      const terms = d.creditTerms.find((t) => t.investmentId === loan.id)!;
+      const versions = casesOf(d, loan.id);
+      expect(
+        versions.map((c) => [c.version, c.form, c.state]),
+        loan.investmentNumber,
+      ).toEqual([[1, 'credit', 'Confirmed']]);
+      const c = versions[0]!;
+      // Dated at our entry; the expected repayment is the maturity of the loan.
+      expect([c.caseDate, c.plannedExitDate]).toEqual([loan.entryDate, terms.maturityDate]);
+      expect([c.exitMultiple, c.points]).toEqual([null, []]);
+      const years = daysBetween(loan.entryDate, terms.maturityDate) / 365;
+      const underwritten = Number(c.underwrittenYield);
+      const lossRate = Number(c.annualLossRate);
+      // The cash coupon, the PIK coupon and the discount spread over the years to maturity.
+      expect(underwritten).toBeCloseTo(
+        Number(terms.cashCoupon) + Number(terms.pikCoupon) + Number(terms.oid) / years,
+        4,
+      );
+      expect(underwritten).toBe(underwrittenYieldOf(terms, years));
+      expect(lossRate).toBeGreaterThanOrEqual(UNDERWRITING_LOSS_RATE.min);
+      expect(lossRate).toBeLessThanOrEqual(UNDERWRITING_LOSS_RATE.max);
+      expect(Number(c.grossIrr)).toBeCloseTo(underwritten - lossRate, 4);
+      expect(Number(c.grossMoic)).toBeCloseTo(1 + Number(c.grossIrr) * years, 4);
+      for (const figure of [c.underwrittenYield, c.annualLossRate, c.grossIrr, c.grossMoic])
+        expect(figure).toMatch(/^\d+\.\d{4}$/);
+      expect([c.enteredBy, c.confirmedBy]).toEqual([user('deal.one'), user('deal.two')]);
+      expect(c.sourceNote).toMatch(/held in the deal folder$/);
+      expect([c.note, c.revisionReason, c.withdrawnReason]).toEqual([null, null, null]);
+    }
+    // No loan is behind a wall in the seed, so the two people above are the ordinary pair.
+    const walled = new Set(d.walls.flatMap((w) => w.records.map((r) => r.entityId)));
+    expect(loans.some((loan) => walled.has(loan.id))).toBe(false);
+    // The loss rates are drawn loan by loan, not one figure for all.
+    if (loans.length > 1)
+      expect(
+        new Set(loans.map((loan) => casesOf(d, loan.id)[0]?.annualLossRate)).size,
+      ).toBeGreaterThan(1);
   });
 
   it('builds an ordinary case at entry: the snapshot, then its anniversaries for four to six years inside the documented bands', () => {
     const scenario = taggedIds(d, UNDERWRITING_SCENARIOS);
-    const ordinary = d.underwritingCases.filter((c) => !scenario.has(c.investmentId));
+    const ordinary = d.underwritingCases.filter(
+      (c) => c.form === 'equity' && !scenario.has(c.investmentId),
+    );
     expect(ordinary.length).toBeGreaterThan(4);
     const within = (value: number, low: number, high: number, slack: number): boolean =>
       value >= low - slack && value <= high + slack;
@@ -470,6 +536,56 @@ describe('what the comparison of a seeded position is worked out from', () => {
     expect(comparison.returns.moicGap).not.toBeNull();
   });
 
+  it('a loan is read on its returns and its yield to maturity alone', () => {
+    const loans = small.investments.filter((i) => i.dealType === UNDERWRITING_CREDIT_DEAL_TYPE);
+    const maturityOf = (id: string): string =>
+      small.creditTerms.find((t) => t.investmentId === id)!.maturityDate;
+    const running = loans.find((i) => i.isActive && maturityOf(i.id) > small.asOf)!;
+    const matured = loans.find((i) => maturityOf(i.id) <= small.asOf)!;
+    expect([running, matured].every((i) => i !== undefined)).toBe(true);
+
+    const inputs = underwritingInputsOf(small, running);
+    // No company quarter and no bridge: a loan has neither, and the comparison asks for neither.
+    expect([inputs.entry, inputs.current, inputs.quarters, inputs.bridge]).toEqual([
+      null,
+      null,
+      [],
+      null,
+    ]);
+    expect(Number(inputs.invested)).toBe(Number(investedCost(small, running.id, small.asOf)));
+    expect(inputs.irrFlag).toBeNull();
+    // Priced on the latest approved credit row: a loan marked above par yields under its coupons.
+    const ytm = Number(inputs.yieldToMaturity);
+    expect(ytm).toBeGreaterThan(0);
+    expect(ytm).toBeLessThan(0.5);
+
+    const comparison = seededComparison(small, casesOf(small, running.id)[0]!, tolerances);
+    expect([
+      comparison.quarter,
+      comparison.metrics,
+      comparison.headline,
+      comparison.series,
+      comparison.valueCreation,
+    ]).toEqual([null, [], null, [], null]);
+    expect(Number(comparison.yieldToMaturity)).toBeCloseTo(ytm, 9);
+    const { returns } = comparison;
+    expect(Number(returns.irrGap)).toBeCloseTo(
+      Number(returns.grossIrr) - Number(casesOf(small, running.id)[0]!.grossIrr),
+      9,
+    );
+    expect(['ahead', 'on_plan', 'behind']).toContain(returns.irrStatus);
+    expect(returns.moicOnPath).not.toBeNull();
+    expect(returns.pathNotCalculable).toBeNull();
+
+    // Past its maturity a loan has no yield to maturity, and no path to set its MOIC against.
+    expect(underwritingInputsOf(small, matured).yieldToMaturity).toBeNull();
+    const late = seededComparison(small, casesOf(small, matured.id)[0]!, tolerances);
+    expect([late.yieldToMaturity, late.returns.moicOnPath, late.returns.pathNotCalculable]).toEqual(
+      [null, null, 'past_plan_end'],
+    );
+    expect(late.returns.irrStatus).not.toBeNull();
+  });
+
   it('a forward-dated snapshot is no entry, and a position with no Locked mark has no IRR', () => {
     const [forward] = small.scenarios.forward_entry_snapshot ?? [];
     const inputs = underwritingInputsOf(small, investmentOf(small, forward ?? ''));
@@ -625,6 +741,19 @@ describe('the dataset check on the base cases', () => {
       investmentId: credit.id,
     });
     expect(problems(loan)).toMatch(/does not fit the position's deal type/);
+
+    // A loan's own rules: a loss rate is a share, a loan has no exit multiple, and its
+    // underwritten IRR is one the comparison can read.
+    const ofLoan = (d: GeneratedDataset) => d.underwritingCases.find((c) => c.form === 'credit')!;
+    const lossy = clone();
+    ofLoan(lossy).annualLossRate = '1.5000';
+    expect(problems(lossy)).toMatch(/a loss rate outside 0 to 1/);
+    const multiple = clone();
+    ofLoan(multiple).exitMultiple = '9.00';
+    expect(problems(multiple)).toMatch(/a loan case has a yield, no exit multiple/);
+    const wiped = clone();
+    ofLoan(wiped).grossIrr = '-1.0000';
+    expect(problems(wiped)).toMatch(/base case version 1: an underwritten IRR is above -100%/);
   });
 
   it('reports a scenario that no longer reads as it is tagged', () => {

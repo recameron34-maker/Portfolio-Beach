@@ -110,9 +110,11 @@ export type {
 } from './controls.js';
 export { activePositions, latestLockedMark, takeRows, walledInvestment } from './marks.js';
 export {
+  UNDERWRITING_CREDIT_DEAL_TYPE,
   UNDERWRITING_EXISTING_SCENARIOS,
   UNDERWRITING_GROWTH_SHIFT,
   UNDERWRITING_IRR_SHIFT,
+  UNDERWRITING_LOSS_RATE,
   UNDERWRITING_MIN_HELD_DAYS,
   UNDERWRITING_NONE_EVERY,
   UNDERWRITING_PLAN_YEARS,
@@ -122,6 +124,7 @@ export {
   irrOfMoic,
   seededComparison,
   underwritingInputsOf,
+  underwrittenYieldOf,
 } from './underwriting.js';
 export type {
   UnderwritingBase,
