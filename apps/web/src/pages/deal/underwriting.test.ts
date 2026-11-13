@@ -23,11 +23,14 @@ import {
   sourcePlace,
   STALE_CASE,
   versionLabels,
+  YIELD_NOTE,
+  yieldTiles,
 } from './underwriting.js';
 import type { CaseActions, PlanMetricRow, PlanProgress, PlanReturns } from './underwriting.js';
 import {
   caseFixture,
   draftFixture,
+  loanCaseFixture,
   readFixture,
   reunderwriteFixture,
   UW_PERSON,
@@ -221,6 +224,81 @@ describe('base case card: the tiles', () => {
       hint: '-0.40x against 2.50x underwritten at exit',
       status: null,
     });
+  });
+
+  it('judges a loan on its IRR alone, and sets its MOIC against the path to its repayment', () => {
+    const loan = comparison({ form: 'credit' });
+    // Rule 6: nothing of a company plan travels with a loan.
+    expect([loan.quarter, loan.metrics, loan.headline, loan.series, loan.valueCreation]).toEqual([
+      null,
+      [],
+      null,
+      [],
+      null,
+    ]);
+    expect(irrTile(loan.returns, '0.10000000')).toEqual({
+      label: 'Gross IRR against plan',
+      value: '-4.9 points',
+      hint: '5.1% against 10.0% underwritten',
+      status: 'behind',
+    });
+    expect(moicTile(loan.returns, '1.500000', 'repayment')).toEqual({
+      label: 'Gross MOIC',
+      value: '1.10x',
+      hint: '-0.10x against 1.20x on the underwritten path; 1.50x at repayment',
+      status: null,
+    });
+    // Marked at par the same loan is on its path exactly: no gap, and no sign on nothing.
+    const atPar = comparison({
+      form: 'credit',
+      inputs: { grossMoic: '1.2', grossIrr: '0.1' },
+    }).returns;
+    expect(irrTile(atPar, '0.1')).toMatchObject({ value: '0.0 points', status: 'on_plan' });
+    expect(moicTile(atPar, '1.5', 'repayment').hint).toBe(
+      '0.00x against 1.20x on the underwritten path; 1.50x at repayment',
+    );
+    // Repaid: its final MOIC against the one underwritten at repayment.
+    const repaid = comparison({
+      form: 'credit',
+      inputs: { isActive: false, grossMoic: '1.45' },
+    }).returns;
+    expect(moicTile(repaid, '1.5', 'repayment').hint).toBe(
+      '-0.05x against 1.50x underwritten at repayment',
+    );
+  });
+
+  it("shows a loan's yields to two decimals with no status, and says why one is missing", () => {
+    const loan = comparison({ form: 'credit' });
+    expect(yieldTiles(loan.yieldToMaturity, loanCaseFixture())).toEqual([
+      {
+        label: 'Yield to maturity',
+        value: '14.37%',
+        hint: 'As it stands, priced on fair value',
+        status: null,
+      },
+      {
+        label: 'Underwritten yield',
+        value: '11.50%',
+        hint: 'A year, as underwritten at entry',
+        status: null,
+      },
+      {
+        label: 'Underwritten loss rate',
+        value: '1.50%',
+        hint: 'Expected loss a year',
+        status: null,
+      },
+    ]);
+    // Past maturity, or with no priced quarter: the placeholder and its reason, never a zero.
+    const [ytm, , lossRate] = yieldTiles(null, loanCaseFixture({ annualLossRate: null }));
+    expect(ytm).toMatchObject({ value: MISSING, hint: 'Not calculable this quarter.' });
+    expect(lossRate).toMatchObject({ value: MISSING, hint: 'None was underwritten.' });
+    // A loss rate of nothing is a figure, and it is shown.
+    expect(yieldTiles('0.1', loanCaseFixture({ annualLossRate: '0.00000000' }))[2]).toMatchObject({
+      value: '0.00%',
+      hint: 'Expected loss a year',
+    });
+    expect(YIELD_NOTE).toBe('Yield to maturity rises when the mark falls, so it is not judged.');
   });
 });
 

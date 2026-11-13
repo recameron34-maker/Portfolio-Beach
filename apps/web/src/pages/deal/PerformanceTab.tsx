@@ -839,6 +839,7 @@ function CreditPerformance({
   return (
     <>
       <CreditTermsCard credit={credit} />
+      <UnderwritingCard id={perf.investmentId} company={company} />
       <CreditQuartersCard credit={credit} company={company} />
       <div className="pb-two-col">
         <AmortizationCard credit={credit} />
@@ -856,9 +857,9 @@ function CreditPerformance({
  * Performance tab (docs/04 M9, docs/08 section 4): growth since entry, value creation (the
  * company's bridge, the indexed lines and entry against current metrics), the position against
  * the sponsor's underwritten base case, the approved quarterly series with the source of each
- * quarter, and highlights for equity and CV positions; terms,
- * quarterly credit metrics and schedules for private credit; the realization outlook, with its
- * edit for the deal team, for every position.
+ * quarter, and highlights for equity and CV positions; terms, the loan against the base case it
+ * was underwritten on, quarterly credit metrics and schedules for private credit; the realization
+ * outlook, with its edit for the deal team, for every position.
  */
 export function PerformanceTab(): ReactNode {
   const id = useDealId();

@@ -14,6 +14,11 @@ import { ID } from '../../test/fixtures.js';
  * in 10.0 on 2021-06-30 and took 1.0 out 730 days later with 12.0 still held: a MOIC of 1.30
  * against 1.44 on the 20% path. Every comparison is the calculation library's own answer over
  * these inputs, as the API answers it; the tests state the figures they expect by hand.
+ *
+ * One loan beside it, the worked example of the calculation spec: 10.0 lent at par on 2021-06-30,
+ * 1.0 of interest on each anniversary, underwritten at a 10% IRR and 1.50x by its repayment on
+ * 2026-06-30, with an 11.5% yield and a 1.5% loss rate. Marked at 9.0 as of 2023-06-30 it shows a
+ * MOIC of 1.10 against 1.20 on the 10% path and an IRR of 5.12%, 4.9 points under: behind.
  */
 
 export const UW_AS_OF = '2023-06-30';
@@ -153,6 +158,53 @@ export function inputsFixture(overrides: Partial<UnderwritingInputs> = {}): Unde
   };
 }
 
+/** The entry case of the loan: Confirmed, version 1, no exit multiple and no plan. */
+export function loanCaseFixture(
+  overrides: Partial<UnderwritingCaseVersion> = {},
+): UnderwritingCaseVersion {
+  return caseFixture({
+    form: 'credit',
+    exitMultiple: null,
+    grossMoic: '1.500000',
+    grossIrr: '0.10000000',
+    underwrittenYield: '0.11500000',
+    annualLossRate: '0.01500000',
+    source: {
+      document: null,
+      page: null,
+      locator: null,
+      note: 'Underwriting model of the loan at entry, held in the deal folder',
+    },
+    points: [],
+    ...overrides,
+  });
+}
+
+/** What a loan's comparison is worked out from: our flows and returns, and its yield to maturity. */
+export function loanInputsFixture(overrides: Partial<UnderwritingInputs> = {}): UnderwritingInputs {
+  return {
+    asOf: UW_AS_OF,
+    isActive: true,
+    entry: null,
+    current: null,
+    quarters: [],
+    bridge: null,
+    bridgeNotCalculable: 'no_entry_snapshot',
+    flows: [
+      { date: '2021-06-30', amount: '-10000000' },
+      { date: '2022-06-30', amount: '1000000' },
+      { date: '2023-06-30', amount: '1000000' },
+    ],
+    invested: '10000000',
+    distributions: '2000000',
+    grossMoic: '1.1',
+    grossIrr: '0.0512492197',
+    irrFlag: null,
+    yieldToMaturity: '0.1437207904',
+    ...overrides,
+  };
+}
+
 /** The kind of every version, as the API derives it from the versions themselves. */
 export function withKinds(versions: readonly UnderwritingCaseVersion[]): UnderwritingCaseVersion[] {
   return versions.map((v) => ({ ...v, kind: underwritingKindOf(v, versions) }));
@@ -160,23 +212,28 @@ export function withKinds(versions: readonly UnderwritingCaseVersion[]): Underwr
 
 /**
  * The read as the API answers it for the versions given, compared with the one named (the first
- * by default): the calculation library's own comparison of that version with the inputs.
+ * by default): the calculation library's own comparison of that version with the inputs. The form
+ * is the position's: equity unless the read is a loan's.
  */
 export function readFixture(
   options: {
+    form?: 'equity' | 'credit';
     versions?: readonly UnderwritingCaseVersion[];
     compared?: number | null;
     inputs?: Partial<UnderwritingInputs>;
   } = {},
 ): UnderwritingRead {
-  const versions = withKinds(options.versions ?? [caseFixture()]);
+  const form = options.form ?? 'equity';
+  const versions = withKinds(
+    options.versions ?? [form === 'credit' ? loanCaseFixture() : caseFixture()],
+  );
   const compared =
     options.compared === null
       ? undefined
       : versions.find((v) => v.version === (options.compared ?? versions[0]?.version));
   const base = {
     asOf: UW_AS_OF,
-    form: 'equity' as const,
+    form,
     versions,
     thresholds: { ...UW_THRESHOLDS },
     calcVersion: CALC_VERSION,
@@ -191,7 +248,11 @@ export function readFixture(
   return {
     ...base,
     comparedVersion: compared.version,
-    comparison: underwritingComparison(compared, inputsFixture(options.inputs), UW_THRESHOLDS),
+    comparison: underwritingComparison(
+      compared,
+      form === 'credit' ? loanInputsFixture(options.inputs) : inputsFixture(options.inputs),
+      UW_THRESHOLDS,
+    ),
     notCalculable: null,
   };
 }

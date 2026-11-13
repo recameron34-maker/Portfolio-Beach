@@ -2501,8 +2501,9 @@ check(
 const underwritingPath = (id) => `/api/v1/investments/${id}/underwriting`;
 const scenarioId = (name) => d.scenarios[name][0];
 const STATUS_WORDS = { ahead: 'Ahead of plan', on_plan: 'On plan', behind: 'Behind plan' };
+const loanRead = recorded('viewer.one', underwritingPath(vcCredit.id)).json;
 check(
-  'base case: recorded for every user and every position (200, 404 past the wall), a loan with no form',
+  'base case: recorded for every user and every position (200, 404 past the wall), a loan with the credit form and its case',
   d.users.every((u) =>
     d.investments.every((i) =>
       [200, 404].includes(recorded(u.externalId, underwritingPath(i.id)).status),
@@ -2510,7 +2511,11 @@ check(
   ) &&
     recorded('viewer.one', underwritingPath(walledId)).status === 404 &&
     recorded('deal.three', underwritingPath(walledId)).json?.comparedVersion === 1 &&
-    recorded('viewer.one', underwritingPath(vcCredit.id)).json?.form === null,
+    loanRead?.form === 'credit' &&
+    loanRead.versions.length === 1 &&
+    loanRead.versions[0].form === 'credit' &&
+    loanRead.versions[0].points.length === 0 &&
+    loanRead.comparedVersion === 1,
 );
 const statusOnPage = async (name) => {
   const id = scenarioId(name);
@@ -2562,12 +2567,50 @@ check(
     withdrawnText.includes('No base case stands') &&
     (await page.getByTestId('deal-underwriting-tiles').count()) === 0,
 );
+// A loan is judged on its IRR alone: its card shows the IRR as the API judged it and the yield
+// to maturity of its own credit terms, with no company figure, no chart and no drivers.
 await page.goto(`${origin}/#/portfolio/${vcCredit.id}/performance`);
 await page.getByTestId('deal-credit-terms').waitFor();
+await page.getByTestId('deal-underwriting-tiles').waitFor();
 await settle();
+const loanTiles = page.getByTestId('deal-underwriting-tiles');
+const loanIrrText = await loanTiles
+  .getByRole('group', { name: 'Gross IRR against plan' })
+  .innerText();
+const loanYieldText = await loanTiles.getByRole('group', { name: 'Yield to maturity' }).innerText();
+const loanTerms = recorded('viewer.one', `/api/v1/investments/${vcCredit.id}/performance`).json
+  ?.credit?.terms;
+const loanYield = loanRead?.comparison?.yieldToMaturity ?? null;
 check(
-  'deal workspace: a position that holds no base case shows no card',
-  (await page.getByTestId('deal-underwriting').count()) === 0,
+  'deal workspace: a loan is compared on its IRR alone, with the yield to maturity of its credit terms and no company plan',
+  loanRead?.comparison?.metrics.length === 0 &&
+    loanRead.comparison.valueCreation === null &&
+    loanRead.comparison.returns.irrStatus !== null &&
+    loanIrrText.includes(STATUS_WORDS[loanRead.comparison.returns.irrStatus]) &&
+    loanYield !== null &&
+    loanYield === loanTerms?.yieldToMaturity &&
+    loanYieldText.includes(`${D(loanYield).times(100).toFixed(2)}%`) &&
+    (await loanTiles.getByRole('group').count()) === 5 &&
+    (await loanTiles.getByRole('group', { name: 'EBITDA against plan' }).count()) === 0 &&
+    (await page.getByTestId('deal-underwriting-chart').count()) === 0 &&
+    (await page.getByTestId('deal-underwriting-drivers').count()) === 0 &&
+    (await page.getByTestId('deal-underwriting-yield-note').innerText()).includes(
+      'Yield to maturity rises when the mark falls, so it is not judged.',
+    ) &&
+    (await page.getByTestId('deal-underwriting-case').innerText()).includes('Expected repayment'),
+  `${loanIrrText.replaceAll('\n', ' ')} | ${loanYieldText.replaceAll('\n', ' ')}`,
+);
+// Its card follows the terms of the facility and comes before its quarters: the three cards in
+// the order the page holds them.
+const loanCardOrder = await page
+  .locator(
+    '[data-testid="deal-credit-terms"], [data-testid="deal-underwriting"], [data-testid="deal-credit-quarters"]',
+  )
+  .evaluateAll((cards) => cards.map((card) => card.getAttribute('data-testid')));
+check(
+  'deal workspace: the loan card sits after the credit terms and before the credit quarters',
+  loanCardOrder.join() === 'deal-credit-terms,deal-underwriting,deal-credit-quarters',
+  loanCardOrder.join(', '),
 );
 
 // ---- The base case read worked out in the browser, and the simulated writes -----------------
@@ -2793,6 +2836,63 @@ if (formPosition === undefined) {
       ) &&
       (await card.getByRole('button', { name: 'Revise' }).count()) === 0 &&
       (await card.getByRole('button', { name: 'Retire' }).count()) === 0,
+  );
+}
+
+// A loan's base case through the page: deal.one revises the seeded case from its own rates in
+// a loan's form (no exit multiple, no plan), an approver confirms the correction, and the loan
+// is compared with it.
+{
+  const seededLoanCase = loanRead.versions[0];
+  await switchTo('deal.one');
+  await page.goto(`${origin}/#/portfolio/${vcCredit.id}/performance`);
+  await page.getByTestId('deal-underwriting-tiles').waitFor();
+  await page.getByTestId('deal-underwriting').getByRole('button', { name: 'Revise' }).click();
+  const loanForm = page.getByRole('form', { name: 'Revise the base case' });
+  const yieldTyped = await loanForm.getByLabel('Underwritten yield').inputValue();
+  const loanFormShape =
+    (await loanForm.getByLabel('Expected repayment').inputValue()) ===
+      seededLoanCase.plannedExitDate &&
+    (await loanForm.getByLabel('Exit multiple').count()) === 0 &&
+    (await loanForm.getByRole('table').count()) === 0 &&
+    (await loanForm.getByRole('button', { name: 'Add a plan date' }).count()) === 0;
+  await loanForm.getByLabel('Annual loss rate').fill('2.5');
+  await loanForm.getByLabel('Reason for the revision').fill('The loss rate was mistyped');
+  await loanForm.getByRole('button', { name: 'Review figures' }).click();
+  const loanReview = await page.getByTestId('underwriting-review').innerText();
+  await page.getByRole('button', { name: 'Save draft' }).click();
+  await page.getByTestId('underwriting-own-figures').waitFor();
+  const loanDraft = await page.getByTestId('deal-underwriting-draft').innerText();
+  check(
+    "base case form: the deal team revises a loan's case in a loan's form, from its own rates, with no plan to type",
+    D(yieldTyped).div(100).eq(seededLoanCase.underwrittenYield) &&
+      loanFormShape &&
+      loanReview.includes('Annual loss rate') &&
+      loanReview.includes('2.5%') &&
+      !loanReview.includes('Plan as it will be saved') &&
+      loanDraft.includes('Draft correction of the case dated') &&
+      loanDraft.includes('2.50%') &&
+      (await page.getByTestId('deal-underwriting-tiles').count()) === 1,
+    `yield typed ${yieldTyped}`,
+  );
+  await switchTo('head.one');
+  await page.goto(`${origin}/#/portfolio/${vcCredit.id}/performance`);
+  await page.getByRole('button', { name: 'Confirm', exact: true }).click();
+  await page.getByTestId('deal-underwriting-versions').waitFor();
+  await page.getByTestId('deal-underwriting-case').getByText('2.50%').waitFor();
+  const loanNow = (await api('viewer.one', 'GET', underwritingPath(vcCredit.id))).json;
+  check(
+    'base case form: an approver confirms the correction of a loan, which replaces the case it corrects and is the one compared',
+    (await page.getByTestId('deal-underwriting').innerText()).includes(
+      'Correction confirmed: it replaces the case it corrects (simulated in this preview',
+    ) &&
+      loanNow?.comparedVersion === 2 &&
+      loanNow.versions.map((v) => v.state).join() === 'Superseded,Confirmed' &&
+      loanNow.versions[1].annualLossRate === '0.02500000' &&
+      loanNow.comparison.returns.grossIrr === loanRead.comparison.returns.grossIrr &&
+      loanNow.comparison.yieldToMaturity === loanRead.comparison.yieldToMaturity &&
+      (await page.getByTestId('deal-underwriting-tiles').getByRole('group').count()) === 5,
+    loanNow?.versions.map((v) => `${v.version} ${v.state}`).join(', '),
   );
 }
 await switchTo('deal.three');

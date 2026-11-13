@@ -23,12 +23,15 @@ import {
   caseFixture,
   draftFixture,
   inputsFixture,
+  loanCaseFixture,
+  loanInputsFixture,
   noFormFixture,
   readFixture,
   reunderwriteFixture,
   UW_AS_OF,
   UW_THRESHOLDS,
 } from '../../pages/deal/underwriting.fixtures.js';
+import { performanceFixture as creditPerformance } from '../../test/fixtures.js';
 import { getKey } from '../keys.js';
 import { createPreviewFetch } from '../shim.js';
 import { createPreviewState } from '../state.js';
@@ -202,11 +205,61 @@ const entryCase = (overrides: Partial<UnderwritingCaseVersion> = {}): Underwriti
     ...overrides,
   });
 
+/** A private credit position of the test world: the page fixtures' loan as of 2023-06-30. */
+const LOAN = '00000000-0000-4000-8000-0000000005c1';
+
+/** The loan's one-pager as recorded: our flows by kind, one of them after the as-of date. */
+const loanDetail = investmentFixture(LOAN, {
+  investmentNumber: 'INV-0009',
+  companyName: 'Tidewater Logistics',
+  dealType: 'deal_type.private_credit',
+  entryDate: '2021-06-30',
+  invested: '10000000',
+  distributions: '2000000',
+  nav: '9000000',
+  grossMoic: '1.1',
+  grossIrr: '0.0512492197',
+  irrFlag: null,
+  cashFlows: [
+    { date: '2021-06-30', flowType: 'flow_type.contribution', amount: '10000000.00' },
+    { date: '2022-06-30', flowType: 'flow_type.interest', amount: '1000000.00' },
+    { date: '2023-06-30', flowType: 'flow_type.interest', amount: '1000000.00' },
+    { date: '2023-09-30', flowType: 'flow_type.interest', amount: '250000.00' },
+  ],
+});
+
+/** The loan's performance as recorded: no company quarter, and the yield to maturity of its terms. */
+function loanPerformance(): InvestmentPerformance {
+  const recorded = creditPerformance({ investmentId: LOAN, asOf: UW_AS_OF });
+  if (recorded.credit === null) throw new Error('the shared fixture holds no credit terms');
+  return {
+    ...recorded,
+    entry: null,
+    quarters: [],
+    credit: {
+      ...recorded.credit,
+      terms: { ...recorded.credit.terms, yieldToMaturity: '0.1437207904' },
+    },
+  };
+}
+
+const loanCase = (overrides: Partial<UnderwritingCaseVersion> = {}): UnderwritingCaseVersion =>
+  loanCaseFixture({
+    // Its own id: a case is known by it, and the open position's entry case holds the fixture's.
+    id: '00000000-0000-4000-8000-0000000005c2',
+    investmentId: LOAN,
+    enteredBy: personOf(DEAL),
+    confirmedBy: personOf(SECOND),
+    ...overrides,
+  });
+
 interface WorldOptions {
   /** The versions recorded for the open position; the Confirmed entry case by default. */
   versions?: readonly UnderwritingCaseVersion[];
   performance?: InvestmentPerformance;
   valueCreation?: InvestmentValueCreation;
+  /** The versions recorded for the loan; left out, the world holds no loan. */
+  loan?: readonly UnderwritingCaseVersion[];
 }
 
 /**
@@ -243,6 +296,19 @@ function world(options: WorldOptions = {}): {
     add(c, `${position(IDS.open)}/performance`, options.performance ?? performance());
     add(c, `${position(IDS.open)}/value-creation`, options.valueCreation ?? valueCreation());
     add(c, readOf(IDS.open), recorded);
+    if (options.loan !== undefined) {
+      // A loan as the build records it: no value creation row, and its read with the credit form.
+      add(c, position(LOAN), loanDetail);
+      add(c, `${position(LOAN)}/performance`, loanPerformance());
+      add(c, `${position(LOAN)}/value-creation`, {
+        ...valueCreation(),
+        investmentId: LOAN,
+        dealType: 'deal_type.private_credit',
+        position: null,
+        series: [],
+      });
+      add(c, readOf(LOAN), readFixture({ form: 'credit', versions: options.loan }));
+    }
     add(c, readOf(IDS.realized), noFormFixture());
     if (WALL_MEMBERS.includes(c)) add(c, readOf(IDS.walled), walledDraft);
     else add(c, readOf(IDS.walled), notFoundBody(readOf(IDS.walled)), 404);
@@ -962,5 +1028,120 @@ describe('preview: recording a base case (docs/18 section 13)', () => {
         })
       ).status,
     ).toBe(400);
+  });
+});
+
+describe("preview: a loan's base case", () => {
+  /** A loan's base case as the deal team records it: no exit multiple and no plan. */
+  const loanBody = (overrides: Partial<UnderwritingCaseBody> = {}): UnderwritingCaseBody => ({
+    caseDate: '2021-06-30',
+    plannedExitDate: '2026-06-30',
+    grossMoic: '1.5',
+    grossIrr: '0.06',
+    underwrittenYield: '0.12',
+    annualLossRate: '0.02',
+    revisionReason: 'Entered again from the credit committee paper',
+    sourceNote: 'Underwriting model of the loan, held in the deal folder',
+    ...overrides,
+  });
+  const readLoan = async (f: typeof fetch, who: string): Promise<UnderwritingRead> => {
+    const answer = await send(f, who, 'GET', readOf(LOAN));
+    expect(answer.status, answer.text).toBe(200);
+    return underwritingRead.parse(answer.json);
+  };
+
+  it('works the read out from the recorded returns and the yield to maturity of the credit terms', async () => {
+    const { f } = world({ loan: [loanCase()] });
+    const read = await readLoan(f, USERS.viewer.externalId);
+    // What the API recorded: the calculation library over the loan's inputs, yield included.
+    expect(read).toEqual(readFixture({ form: 'credit', versions: [loanCase()] }));
+    expect(read.comparison).toEqual(
+      underwritingComparison(loanCase(), loanInputsFixture(), UW_THRESHOLDS),
+    );
+    expect(read.comparison).toMatchObject({
+      quarter: null,
+      metrics: [],
+      series: [],
+      valueCreation: null,
+      yieldToMaturity: '0.1437207904',
+    });
+    // Our flows are signed from our side and stop at the as-of date; the yield is the terms' own.
+    const inputs = comparisonInputs(UW_AS_OF, loanDetail, loanPerformance(), null);
+    expect(inputs.flows).toEqual(loanInputsFixture().flows);
+    expect([inputs.entry, inputs.current, inputs.quarters, inputs.bridge]).toEqual([
+      null,
+      null,
+      [],
+      null,
+    ]);
+    expect(inputs.yieldToMaturity).toBe('0.1437207904');
+  });
+
+  it("records and confirms a loan's case through the same table: a loan's body, two people, no plan asked", async () => {
+    const { f, state } = world({ loan: [loanCase()] });
+    // An equity body is not a loan's: every field out of place is named, and nothing is kept.
+    const equity = await send(
+      f,
+      DEAL.externalId,
+      'POST',
+      readOf(LOAN),
+      body({ revisionReason: 'A correction' }),
+    );
+    expect(equity.status).toBe(400);
+    expect(
+      problemDetails
+        .parse(equity.json)
+        .errors?.map((e) => e.path)
+        .sort(),
+    ).toEqual(['exitMultiple', 'points', 'underwrittenYield']);
+    expect((await send(f, USERS.viewer.externalId, 'POST', readOf(LOAN), loanBody())).status).toBe(
+      403,
+    );
+    expect(heldFor(state, LOAN)).toBe(1);
+
+    // The deal team records a correction: it holds what a loan holds, as its columns answer it.
+    const draft = versionOf(await send(f, DEAL.externalId, 'POST', readOf(LOAN), loanBody()), 201);
+    expect(draft).toMatchObject({
+      investmentId: LOAN,
+      version: 2,
+      form: 'credit',
+      state: 'Draft',
+      kind: 'correction',
+      exitMultiple: null,
+      grossMoic: '1.500000',
+      grossIrr: '0.06000000',
+      underwrittenYield: '0.12000000',
+      annualLossRate: '0.02000000',
+      points: [],
+      enteredBy: personOf(DEAL),
+    });
+    // The person who entered it cannot confirm it; an approver can, and no plan is asked of a loan.
+    refused(
+      await send(f, DEAL.externalId, 'POST', commands(draft.id), { command: 'confirm' }),
+      422,
+      'underwriting_case: the person who last changed the figures cannot confirm them (SEC-5.6)',
+    );
+    const confirmed = versionOf(
+      await send(f, HEAD.externalId, 'POST', commands(draft.id), { command: 'confirm' }),
+    );
+    expect(confirmed).toMatchObject({ state: 'Confirmed', confirmedBy: personOf(HEAD) });
+
+    // The correction replaces the case it corrects, and the loan is compared with it: 5.12%
+    // against 6% is within the two points of tolerance, so the loan now reads on plan.
+    const read = await readLoan(f, USERS.viewer.externalId);
+    expect(read.versions.map((v) => [v.version, v.state, v.kind])).toEqual([
+      [1, 'Superseded', 'entry'],
+      [2, 'Confirmed', 'correction'],
+    ]);
+    expect(read.comparedVersion).toBe(2);
+    expect(read.comparison).toEqual(
+      underwritingComparison(confirmed, loanInputsFixture(), UW_THRESHOLDS),
+    );
+    expect(read.comparison?.returns).toMatchObject({ irrStatus: 'on_plan', irrFlag: null });
+    expect(state.audit.map((e) => e.action)).toEqual([
+      'underwriting_case.create',
+      'underwriting_case.supersede',
+      'underwriting_case.confirm',
+    ]);
   });
 });

@@ -66,6 +66,8 @@ import {
   STALE_CASE,
   STRAIGHT_LINE_NOTE,
   versionLabels,
+  YIELD_NOTE,
+  yieldTiles,
 } from './underwriting.js';
 import type { PlanMetric, PlanProgress, PlanTile } from './underwriting.js';
 import { isStaleCase, underwritingQuery, useUnderwritingCommand } from './underwriting-api.js';
@@ -75,7 +77,11 @@ import './deal.css';
 
 const METRICS: readonly PlanMetric[] = underwritingMetric.options;
 
-/** The figures against plan, EBITDA first: the three company figures, our IRR and our MOIC. */
+/**
+ * The figures against plan, EBITDA first: the three company figures, our IRR and our MOIC. A loan
+ * is judged on its IRR alone: its tiles are the IRR and the MOIC, then its yield to maturity
+ * beside the yield and the loss rate it was underwritten on, none of the three badged.
+ */
 function Tiles({
   comparison,
   compared,
@@ -83,11 +89,18 @@ function Tiles({
   comparison: UnderwritingComparison;
   compared: UnderwritingCaseVersion;
 }): ReactNode {
-  const tiles: PlanTile[] = [
-    ...comparison.metrics.map(metricTile),
-    irrTile(comparison.returns, compared.grossIrr),
-    moicTile(comparison.returns, compared.grossMoic),
-  ];
+  const tiles: PlanTile[] =
+    compared.form === 'credit'
+      ? [
+          irrTile(comparison.returns, compared.grossIrr),
+          moicTile(comparison.returns, compared.grossMoic, 'repayment'),
+          ...yieldTiles(comparison.yieldToMaturity, compared),
+        ]
+      : [
+          ...comparison.metrics.map(metricTile),
+          irrTile(comparison.returns, compared.grossIrr),
+          moicTile(comparison.returns, compared.grossMoic),
+        ];
   return (
     <div
       ref={balanceTiles}
@@ -283,41 +296,55 @@ export function CaseBlock({
   /** What the reader may do to this version, under its terms and its plan. */
   children?: ReactNode;
 }): ReactNode {
-  const terms = `${label}, terms`;
+  const loan = version.form === 'credit';
+  const terms = (
+    <KeyValueTable
+      label={`${label}, terms`}
+      // A loan has no plan beside its terms, so they take the width in two columns.
+      columns={loan ? 2 : 1}
+      rows={[
+        { label: 'Case date', value: formatDate(version.caseDate) },
+        ...(loan
+          ? [
+              { label: 'Expected repayment', value: formatDate(version.plannedExitDate) },
+              { label: 'Underwritten yield', value: formatPct(version.underwrittenYield, 2) },
+              { label: 'Annual loss rate', value: formatPct(version.annualLossRate, 2) },
+            ]
+          : [
+              { label: 'Planned exit', value: formatDate(version.plannedExitDate) },
+              { label: 'Exit multiple', value: formatMultiple(version.exitMultiple) },
+            ]),
+        { label: 'Underwritten gross MOIC', value: formatMoic(version.grossMoic) },
+        { label: 'Underwritten gross IRR', value: formatPct(version.grossIrr) },
+        { label: 'Entered by', value: byLine(version.enteredBy, version.enteredAt) },
+        { label: 'Confirmed by', value: byLine(version.confirmedBy, version.confirmedAt) },
+        { label: 'Source', value: <SourceValue source={version.source} /> },
+        ...(version.note === null ? [] : [{ label: 'Note', value: version.note }]),
+        ...(version.revisionReason === null
+          ? []
+          : [{ label: 'Reason for the revision', value: version.revisionReason }]),
+        ...(version.withdrawnReason === null
+          ? []
+          : [{ label: 'Reason it was withdrawn', value: version.withdrawnReason }]),
+      ]}
+    />
+  );
   return (
     <div className="pb-deal-gap" data-testid={testId}>
       <h3 className="pb-deal-subhead">
         {label}
         <Badge tone={caseStateTone(version.state)}>{version.state}</Badge>
       </h3>
-      <div className="pb-deal-split">
-        <div>
-          <KeyValueTable
-            label={terms}
-            columns={1}
-            rows={[
-              { label: 'Case date', value: formatDate(version.caseDate) },
-              { label: 'Planned exit', value: formatDate(version.plannedExitDate) },
-              { label: 'Exit multiple', value: formatMultiple(version.exitMultiple) },
-              { label: 'Underwritten gross MOIC', value: formatMoic(version.grossMoic) },
-              { label: 'Underwritten gross IRR', value: formatPct(version.grossIrr) },
-              { label: 'Entered by', value: byLine(version.enteredBy, version.enteredAt) },
-              { label: 'Confirmed by', value: byLine(version.confirmedBy, version.confirmedAt) },
-              { label: 'Source', value: <SourceValue source={version.source} /> },
-              ...(version.note === null ? [] : [{ label: 'Note', value: version.note }]),
-              ...(version.revisionReason === null
-                ? []
-                : [{ label: 'Reason for the revision', value: version.revisionReason }]),
-              ...(version.withdrawnReason === null
-                ? []
-                : [{ label: 'Reason it was withdrawn', value: version.withdrawnReason }]),
-            ]}
-          />
+      {loan ? (
+        terms
+      ) : (
+        <div className="pb-deal-split">
+          <div>{terms}</div>
+          <div>
+            <PlanTable version={version} label={`${label}, plan`} />
+          </div>
         </div>
-        <div>
-          <PlanTable version={version} label={`${label}, plan`} />
-        </div>
-      </div>
+      )}
       {children}
     </div>
   );
@@ -462,6 +489,8 @@ function CaseCard({
   const command = useUnderwritingCommand(id);
   const [form, setForm] = useState<FormMode | null>(null);
   const [reasonFor, setReasonFor] = useState<ReasonFor | null>(null);
+  // The card is only shown for a position that holds a base case, so the read names its form.
+  const caseForm = data.form ?? 'equity';
   const labels = versionLabels(data.versions);
   const compared = data.versions.find((v) => v.version === data.comparedVersion);
   const draft = data.versions.find((v) => v.state === 'Draft');
@@ -522,6 +551,7 @@ function CaseCard({
         ) : null}
         <UnderwritingForm
           investmentId={id}
+          form={caseForm}
           title={FORM_TITLE[form.kind]}
           initial={
             from === undefined ? emptyDraft() : draftOf(from, { keepReason: form.kind === 'edit' })
@@ -555,9 +585,18 @@ function CaseCard({
         <>
           <VersionPicker data={data} labels={labels} onPick={onPick} />
           <Tiles comparison={comparison} compared={compared} />
-          <PlanLines comparison={comparison} company={company} />
-          {comparison.valueCreation === null ? null : (
-            <Drivers progress={comparison.valueCreation} />
+          {compared.form === 'credit' ? (
+            // A loan has no company plan: no chart and no drivers, and its yields are not judged.
+            <p className="pb-meta pb-deal-note" data-testid="deal-underwriting-yield-note">
+              {YIELD_NOTE}
+            </p>
+          ) : (
+            <>
+              <PlanLines comparison={comparison} company={company} />
+              {comparison.valueCreation === null ? null : (
+                <Drivers progress={comparison.valueCreation} />
+              )}
+            </>
           )}
           <CaseBlock
             version={compared}
@@ -681,11 +720,13 @@ function CaseCard({
 /**
  * A position against the base case its sponsor underwrote: revenue, EBITDA and net debt of the
  * current quarter against plan at the same date, the share of the planned value creation earned
- * so far, and our gross IRR and MOIC against underwriting, each ahead of, on or behind plan. The
- * position is compared with its entry case unless the reader picks a later version. Only a case
- * a second person confirmed is compared; a Draft is shown as what it is. A position that holds
- * no base case (a primary fund) has no card, and a figure that is not calculable is the missing
- * placeholder with its reason, never a zero.
+ * so far, and our gross IRR and MOIC against underwriting, each ahead of, on or behind plan. A
+ * loan is judged on its gross IRR alone: its card shows the IRR and the MOIC against
+ * underwriting, then its yield to maturity beside the yield and the loss rate it was underwritten
+ * on, with no chart and no drivers. The position is compared with its entry case unless the
+ * reader picks a later version. Only a case a second person confirmed is compared; a Draft is
+ * shown as what it is. A position that holds no base case (a primary fund) has no card, and a
+ * figure that is not calculable is the missing placeholder with its reason, never a zero.
  */
 export function UnderwritingCard({ id, company }: { id: string; company: string }): ReactNode {
   // The version the reader picked; the entry case until they pick one.

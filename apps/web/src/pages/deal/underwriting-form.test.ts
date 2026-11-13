@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { underwritingCaseBody } from '@pb/contracts';
+import { underwritingBodyIssues, underwritingCaseBody } from '@pb/contracts';
 import { bodyOf, draftOf, emptyDraft, formatDollars, formatRatePct } from './underwriting-form.js';
 import type { CaseDraft } from './underwriting-form.js';
-import { caseFixture, reunderwriteFixture } from './underwriting.fixtures.js';
+import { caseFixture, loanCaseFixture, reunderwriteFixture } from './underwriting.fixtures.js';
 
 /** A base case as a person types it: the plan in US$ millions, the IRR in percent. */
 const typed = (overrides: Partial<CaseDraft> = {}): CaseDraft => ({
@@ -25,6 +25,146 @@ const errorsOf = (draft: CaseDraft, needsReason = false): Readonly<Record<string
   if (checked.ok) throw new Error('expected the entry to be refused');
   return checked.errors;
 };
+
+/** A loan's base case as a person types it: the yield, the loss rate and the IRR in percent. */
+const typedLoan = (overrides: Partial<CaseDraft> = {}): CaseDraft => ({
+  ...emptyDraft(),
+  caseDate: '2021-06-30',
+  plannedExitDate: '2026-06-30',
+  grossMoic: '1.5',
+  grossIrrPct: '10',
+  underwrittenYieldPct: '11.5',
+  annualLossRatePct: '1.5',
+  sourceNote: 'Underwriting model of the loan, held in the deal folder',
+  ...overrides,
+});
+const loanErrors = (draft: CaseDraft): Readonly<Record<string, string>> => {
+  const checked = bodyOf(draft, { needsReason: false, form: 'credit' });
+  if (checked.ok) throw new Error('expected the entry to be refused');
+  return checked.errors;
+};
+
+describe("base case form: a loan's case", () => {
+  it('sends the yield and the loss rate as rates, exactly, and neither an exit multiple nor a plan', () => {
+    const checked = bodyOf(typedLoan(), { needsReason: false, form: 'credit' });
+    expect(checked).toEqual({
+      ok: true,
+      body: {
+        caseDate: '2021-06-30',
+        plannedExitDate: '2026-06-30',
+        grossMoic: '1.5',
+        grossIrr: '0.1',
+        underwrittenYield: '0.115',
+        annualLossRate: '0.015',
+        sourceNote: 'Underwriting model of the loan, held in the deal folder',
+      },
+    });
+    if (checked.ok) {
+      expect(underwritingCaseBody.safeParse(checked.body).success).toBe(true);
+      // The contract's own rule for the form finds nothing missing and nothing out of place.
+      expect(
+        underwritingBodyIssues('credit', checked.body, { revenueMin: '1', revenueMax: '2' }),
+      ).toEqual([]);
+    }
+    // Whatever the rows of the form hold, a loan sends no plan and they refuse nothing.
+    const withRows = bodyOf(
+      typedLoan({
+        exitMultiple: 'eleven',
+        rows: [{ periodEnd: 'soon', revenue: 'x', ebitda: '', netDebt: '' }],
+      }),
+      { needsReason: false, form: 'credit' },
+    );
+    if (!withRows.ok) throw new Error(JSON.stringify(withRows.errors));
+    expect(withRows.body).not.toHaveProperty('points');
+    expect(withRows.body).not.toHaveProperty('exitMultiple');
+  });
+
+  it('keeps every digit of a rate, and leaves out a loss rate that was not underwritten', () => {
+    const checked = bodyOf(
+      typedLoan({ underwrittenYieldPct: '9.123456', annualLossRatePct: '', grossIrrPct: '8.75' }),
+      { needsReason: true, form: 'credit' },
+    );
+    expect(checked.ok).toBe(false);
+    const revised = bodyOf(
+      typedLoan({
+        underwrittenYieldPct: '9.123456',
+        annualLossRatePct: '',
+        grossIrrPct: '8.75',
+        revisionReason: 'Repriced at the amendment',
+      }),
+      { needsReason: true, form: 'credit' },
+    );
+    if (!revised.ok) throw new Error(JSON.stringify(revised.errors));
+    expect(revised.body.underwrittenYield).toBe('0.09123456');
+    expect(revised.body.grossIrr).toBe('0.0875');
+    expect(revised.body).not.toHaveProperty('annualLossRate');
+    expect(revised.body.revisionReason).toBe('Repriced at the amendment');
+    // A loss of nothing is a rate, and it is sent.
+    const none = bodyOf(typedLoan({ annualLossRatePct: '0' }), {
+      needsReason: false,
+      form: 'credit',
+    });
+    if (!none.ok) throw new Error(JSON.stringify(none.errors));
+    expect(none.body.annualLossRate).toBe('0');
+  });
+
+  it('names what is wrong with a loan in its own words, field by field', () => {
+    expect(loanErrors(typedLoan({ plannedExitDate: '' }))).toEqual({
+      plannedExitDate: 'Give the expected repayment date.',
+    });
+    expect(loanErrors(typedLoan({ plannedExitDate: '2021-06-30' }))).toEqual({
+      plannedExitDate: 'The expected repayment is after the case date.',
+    });
+    expect(loanErrors(typedLoan({ underwrittenYieldPct: '' })).underwrittenYield).toMatch(
+      /^Give the underwritten yield in percent, above -100\./,
+    );
+    expect(
+      Object.keys(
+        loanErrors(typedLoan({ underwrittenYieldPct: 'eleven', annualLossRatePct: '-1' })),
+      ),
+    ).toEqual(['underwrittenYield', 'annualLossRate']);
+    for (const lossRate of ['100.5', '1,5', '-0.5'])
+      expect(
+        loanErrors(typedLoan({ annualLossRatePct: lossRate })).annualLossRate,
+        lossRate,
+      ).toMatch(/^Give the loss rate in percent a year, between 0 and 100, or leave it empty\./);
+    expect(loanErrors(typedLoan({ underwrittenYieldPct: '-100' }))).toHaveProperty(
+      'underwrittenYield',
+    );
+    // The equity form's own fields are not asked of a loan.
+    expect(loanErrors(typedLoan({ grossMoic: '' }))).not.toHaveProperty('exitMultiple');
+    expect(loanErrors(typedLoan({ grossMoic: '' }))).not.toHaveProperty('rows');
+    // And an equity case is still asked for its multiple and its plan.
+    expect(Object.keys(errorsOf(typedLoan()))).toEqual(
+      expect.arrayContaining(['exitMultiple', 'rows.0.periodEnd']),
+    );
+  });
+
+  it('fills the form from a loan on record, the rates as the percent a person types', () => {
+    const draft = draftOf(loanCaseFixture(), { keepReason: false });
+    expect(draft).toMatchObject({
+      caseDate: '2021-06-30',
+      plannedExitDate: '2026-06-30',
+      exitMultiple: '',
+      grossMoic: '1.5',
+      grossIrrPct: '10',
+      underwrittenYieldPct: '11.5',
+      annualLossRatePct: '1.5',
+    });
+    const back = bodyOf(draft, { needsReason: false, form: 'credit' });
+    if (!back.ok) throw new Error(JSON.stringify(back.errors));
+    expect(back.body).toMatchObject({
+      grossMoic: '1.5',
+      grossIrr: '0.1',
+      underwrittenYield: '0.115',
+      annualLossRate: '0.015',
+    });
+    // A loan with no loss rate on record opens with the field empty, never a zero.
+    expect(
+      draftOf(loanCaseFixture({ annualLossRate: null }), { keepReason: false }).annualLossRatePct,
+    ).toBe('');
+  });
+});
 
 describe('base case form: what is typed becomes what the API takes', () => {
   it('turns millions into dollars and percent into a rate, exactly, and dates the last row the planned exit', () => {
@@ -200,6 +340,9 @@ describe('base case form: what is typed becomes what the API takes', () => {
       exitMultiple: '10',
       grossMoic: '2.2',
       grossIrrPct: '17',
+      // An equity case has neither: both fields stay empty.
+      underwrittenYieldPct: '',
+      annualLossRatePct: '',
       rows: [
         { periodEnd: '2023-03-31', revenue: '300', ebitda: '62', netDebt: '124' },
         { periodEnd: '2026-06-30', revenue: '380', ebitda: '76', netDebt: '104' },
@@ -232,6 +375,27 @@ describe('base case form: what is typed becomes what the API takes', () => {
     expect(gap.rows).toEqual([
       { periodEnd: '2021-06-30', revenue: '', ebitda: '66.38', netDebt: '' },
       { periodEnd: '2026-06-30', revenue: '0.000001', ebitda: '', netDebt: '-8' },
+    ]);
+  });
+
+  it('sends the fields of an equity case in the order it always did', () => {
+    const checked = bodyOf(typed({ note: 'From the sponsor model' }), { needsReason: true });
+    expect(checked.ok).toBe(false);
+    const withReason = bodyOf(
+      typed({ note: 'From the sponsor model', revisionReason: 'Mistyped multiple' }),
+      { needsReason: true, form: 'equity' },
+    );
+    if (!withReason.ok) throw new Error(JSON.stringify(withReason.errors));
+    expect(Object.keys(withReason.body)).toEqual([
+      'caseDate',
+      'plannedExitDate',
+      'exitMultiple',
+      'grossMoic',
+      'grossIrr',
+      'points',
+      'note',
+      'revisionReason',
+      'sourceNote',
     ]);
   });
 

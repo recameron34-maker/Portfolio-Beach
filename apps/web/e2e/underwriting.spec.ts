@@ -2,7 +2,12 @@ import AxeBuilder from '@axe-core/playwright';
 import { expect, test } from '@playwright/test';
 import type { Locator, Page } from '@playwright/test';
 import { D } from '@pb/calc';
-import { auditPage, investmentValueCreation, underwritingRead } from '@pb/contracts';
+import {
+  auditPage,
+  investmentPerformance,
+  investmentValueCreation,
+  underwritingRead,
+} from '@pb/contracts';
 import type { UnderwritingRead } from '@pb/contracts';
 import { generateDataset } from '@pb/synthetic';
 import { apiCall, loadDataset, signInAs, switchTo } from './fixtures.js';
@@ -12,7 +17,8 @@ import { apiCall, loadDataset, signInAs, switchTo } from './fixtures.js';
  * real API: a deal team member records the base case through the form on the Performance tab and
  * cannot confirm their own figures, a second deal team member confirms it, and the card then
  * shows where the position stands against the plan. A viewer reads the same card and an approver
- * is offered the retirement and nothing else.
+ * is offered the retirement and nothing else. A loan is read against the case it was underwritten
+ * on: its IRR against plan and its yields, with no company plan, and its own form.
  *
  * The plan is built in the test from the position's own current quarter, as the API answers it
  * at run time (the specs share one API process, and an earlier journey may have promoted a
@@ -37,6 +43,19 @@ function positionWithoutCase(): { id: string; investmentNumber: string } {
   );
   if (found === undefined)
     throw new Error('the dataset has no held equity position without a case');
+  return found;
+}
+
+/** A held loan that has not reached its maturity: its card carries a yield to maturity. */
+function runningLoan(): { id: string; investmentNumber: string } {
+  const found = full.investments.find(
+    (i) =>
+      i.isActive &&
+      i.dealType === 'deal_type.private_credit' &&
+      !walled.has(i.id) &&
+      full.creditTerms.some((t) => t.investmentId === i.id && t.maturityDate > full.asOf),
+  );
+  if (found === undefined) throw new Error('the dataset has no held loan before its maturity');
   return found;
 }
 
@@ -431,10 +450,105 @@ test('the deal team records the sponsor base case, a second person confirms it, 
   await expectNoWriteButtons(page, ['Retire']);
 });
 
+test('a loan is read against the case it was underwritten on: its IRR against plan and its yields, and no company plan', async ({
+  page,
+}) => {
+  const loan = runningLoan();
+  await signInAs(page, 'viewer.one', d);
+  // What the API answers for the loan today, and the yield its Credit terms show on this page.
+  const read = await readFor(page, 'viewer.one', loan.id);
+  const comparison = read.comparison;
+  const version = read.versions.find((v) => v.version === read.comparedVersion);
+  if (comparison === null || version === undefined)
+    throw new Error(`${loan.investmentNumber} has no Confirmed base case`);
+  const perf = await apiCall(
+    page,
+    'GET',
+    `/api/v1/investments/${loan.id}/performance`,
+    'viewer.one',
+    investmentPerformance,
+  );
+  const { underwrittenYield, annualLossRate } = version;
+  const ytm = comparison.yieldToMaturity;
+  if (ytm === null || underwrittenYield === null || annualLossRate === null)
+    throw new Error(`${loan.investmentNumber} lacks a yield or a loss rate`);
+  expect(read.form).toBe('credit');
+  expect([comparison.metrics, comparison.series, comparison.valueCreation]).toEqual([[], [], null]);
+  expect(ytm).toBe(perf.credit?.terms.yieldToMaturity);
+
+  await openPerformance(page, loan.id);
+  // The card sits after the terms of the facility and before its quarters.
+  const order = await page
+    .locator(
+      '[data-testid="deal-credit-terms"], [data-testid="deal-underwriting"], [data-testid="deal-credit-quarters"]',
+    )
+    .evaluateAll((cards) => cards.map((card) => card.getAttribute('data-testid')));
+  expect(order).toEqual(['deal-credit-terms', 'deal-underwriting', 'deal-credit-quarters']);
+  await expect(card(page)).toContainText(`As of ${day(read.asOf)}`);
+
+  // The IRR is the one figure judged; the yields are shown to two decimals and never badged.
+  const tiles = page.getByTestId('deal-underwriting-tiles');
+  await expect(tiles.getByRole('group')).toHaveCount(5);
+  const { returns } = comparison;
+  const irr = tile(page, 'Gross IRR against plan');
+  if (returns.grossIrr !== null && returns.irrStatus !== null) {
+    await expect(irr).toContainText(PLAN_STATUS_LABEL[returns.irrStatus]);
+    await expect(irr).toContainText(
+      `${pct(returns.grossIrr)} against ${pct(version.grossIrr)} underwritten`,
+    );
+  }
+  await expect(tile(page, 'Gross MOIC')).toContainText(
+    `${D(version.grossMoic).toFixed(2)}x at repayment`,
+  );
+  await expect(tile(page, 'Yield to maturity')).toContainText(pct(ytm, 2));
+  await expect(tile(page, 'Underwritten yield')).toContainText(pct(underwrittenYield, 2));
+  await expect(tile(page, 'Underwritten loss rate')).toContainText(pct(annualLossRate, 2));
+  for (const name of ['Gross MOIC', 'Yield to maturity', 'Underwritten yield'])
+    for (const label of Object.values(PLAN_STATUS_LABEL))
+      await expect(tile(page, name)).not.toContainText(label);
+  await expect(page.getByTestId('deal-underwriting-yield-note')).toHaveText(
+    'Yield to maturity rises when the mark falls, so it is not judged.',
+  );
+  // The same yield to maturity as the terms above it: one figure on the page, not two.
+  await expect(page.getByRole('table', { name: 'Fees, yield and maturity' })).toContainText(
+    pct(ytm, 2),
+  );
+  // No company plan: no metric against plan, no chart and no drivers.
+  await expect(tiles.getByRole('group', { name: 'EBITDA against plan' })).toHaveCount(0);
+  await expect(page.getByTestId('deal-underwriting-chart')).toHaveCount(0);
+  await expect(page.getByTestId('deal-underwriting-drivers')).toHaveCount(0);
+  const terms = page
+    .getByTestId('deal-underwriting-case')
+    .getByRole('table', { name: 'Entry case, terms' });
+  await expect(terms).toContainText(`Expected repayment${day(version.plannedExitDate)}`);
+  await expect(terms).not.toContainText('Exit multiple');
+  await expectNoWriteButtons(page);
+  await expectNoSeriousViolations(page);
+
+  // The deal team revises it in a loan's form, opened on its own rates; left without saving.
+  await switchTo(page, 'deal.two', d);
+  await openPerformance(page, loan.id);
+  await card(page).getByRole('button', { name: 'Revise' }).click();
+  const form = page.getByRole('form', { name: 'Revise the base case' });
+  await expect(form.getByLabel('Expected repayment')).toHaveValue(version.plannedExitDate);
+  await expect(form.getByLabel('Underwritten yield')).toHaveValue(
+    D(underwrittenYield).times(100).toFixed(),
+  );
+  await expect(form.getByLabel('Annual loss rate')).toHaveValue(
+    D(annualLossRate).times(100).toFixed(),
+  );
+  await expect(form.getByLabel('Exit multiple')).toHaveCount(0);
+  await expect(form.getByRole('table')).toHaveCount(0);
+  await expectNoSeriousViolations(page);
+  await form.getByRole('button', { name: 'Cancel' }).click();
+  expect((await readFor(page, 'deal.two', loan.id)).versions).toHaveLength(read.versions.length);
+});
+
 /**
  * The card's other states at a phone width, on the seeded positions (nothing is written): the
  * comparison of the position seeded ahead of its plan, the Draft that waits with the dialog that
- * asks why it is withdrawn, and the form with its review on the position whose case was retired.
+ * asks why it is withdrawn, the form with its review on the position whose case was retired, and
+ * a loan's card with its form.
  */
 test.describe('at 390 pixels wide', () => {
   test.use({ viewport: { width: 390, height: 900 } });
@@ -505,5 +619,29 @@ test.describe('at 390 pixels wide', () => {
     expect((await readFor(page, 'deal.two', retired)).versions.map((v) => v.state)).toEqual([
       'Withdrawn',
     ]);
+
+    // A loan: its five tiles and its terms fit a phone, and so does its form with its review.
+    const loan = runningLoan();
+    await openPerformance(page, loan.id);
+    await expect(page.getByTestId('deal-underwriting-tiles').getByRole('group')).toHaveCount(5);
+    await expectNoSeriousViolations(page);
+    expect(
+      await page.evaluate(
+        () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
+      ),
+    ).toBeLessThanOrEqual(0);
+    await card(page).getByRole('button', { name: 'Revise' }).click();
+    const loanForm = page.getByRole('form', { name: 'Revise the base case' });
+    await loanForm.getByLabel('Reason for the revision').fill('Checked against the model again');
+    await expectNoSeriousViolations(page);
+    await loanForm.getByRole('button', { name: 'Review figures' }).click();
+    const loanReview = page.getByTestId('underwriting-review');
+    await expect(loanReview).toContainText('Annual loss rate');
+    await expect(
+      loanReview.getByRole('table', { name: 'Plan as it will be saved, in dollars' }),
+    ).toHaveCount(0);
+    await expectNoSeriousViolations(page);
+    await loanReview.getByRole('button', { name: 'Back to the form' }).click();
+    await loanForm.getByRole('button', { name: 'Cancel' }).click();
   });
 });

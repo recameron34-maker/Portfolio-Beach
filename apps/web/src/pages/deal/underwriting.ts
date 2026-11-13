@@ -41,6 +41,8 @@ export const DRAFT_ONLY = 'A draft base case waits for a second person to confir
 /** Under the chart: what a plan figure between two plan dates is. */
 export const STRAIGHT_LINE_NOTE =
   'Between plan dates the plan is a straight line, not a sponsor figure.';
+/** Under the yields of a loan: why none of them is badged. */
+export const YIELD_NOTE = 'Yield to maturity rises when the mark falls, so it is not judged.';
 
 /** Where a figure stands against plan, as the badge says it. */
 export const PLAN_STATUS_LABEL: Readonly<Record<PlanStatus, string>> = {
@@ -187,14 +189,21 @@ export function irrTile(returns: PlanReturns, underwrittenIrr: string): PlanTile
   };
 }
 
+/** Where the underwritten MOIC is reached: the exit of an equity position, the repayment of a loan. */
+export type PlanEnd = 'exit' | 'repayment';
+
 /**
  * Our gross MOIC with what it is set against: for a held position the MOIC it would show today
  * on the underwritten path, and the underwritten MOIC at exit beside it; for a realized one the
- * underwritten MOIC at exit alone. It carries no status.
+ * underwritten MOIC at exit alone. A loan reaches it at repayment. It carries no status.
  */
-export function moicTile(returns: PlanReturns, underwrittenMoic: string): PlanTile {
+export function moicTile(
+  returns: PlanReturns,
+  underwrittenMoic: string,
+  end: PlanEnd = 'exit',
+): PlanTile {
   const label = 'Gross MOIC';
-  const atExit = `${formatMoic(underwrittenMoic)} at exit`;
+  const atExit = `${formatMoic(underwrittenMoic)} at ${end}`;
   const value = formatMoic(returns.grossMoic);
   if (returns.pathNotCalculable !== null)
     return {
@@ -211,7 +220,7 @@ export function moicTile(returns: PlanReturns, underwrittenMoic: string): PlanTi
       hint:
         returns.moicGap === null
           ? `Underwritten ${atExit}`
-          : `${formatSignedMoic(returns.moicGap)} against ${formatMoic(underwrittenMoic)} underwritten at exit`,
+          : `${formatSignedMoic(returns.moicGap)} against ${formatMoic(underwrittenMoic)} underwritten at ${end}`,
       status: null,
     };
   return {
@@ -223,6 +232,37 @@ export function moicTile(returns: PlanReturns, underwrittenMoic: string): PlanTi
         : `${formatSignedMoic(returns.moicGap)} against ${formatMoic(returns.moicOnPath)} on the underwritten path; ${atExit}`,
     status: null,
   };
+}
+
+/**
+ * The yields of a loan, none of them judged: its yield to maturity as it stands, beside the yield
+ * and the loss rate it was underwritten on. Yields show two decimals, as everywhere else. A loan
+ * past its maturity, or with no priced quarter, has no yield to maturity, and the tile says so.
+ */
+export function yieldTiles(
+  yieldToMaturity: string | null,
+  version: Pick<UnderwritingCaseVersion, 'underwrittenYield' | 'annualLossRate'>,
+): PlanTile[] {
+  return [
+    {
+      label: 'Yield to maturity',
+      value: formatPct(yieldToMaturity, 2),
+      hint: yieldToMaturity === null ? NOT_CALCULABLE : 'As it stands, priced on fair value',
+      status: null,
+    },
+    {
+      label: 'Underwritten yield',
+      value: formatPct(version.underwrittenYield, 2),
+      hint: 'A year, as underwritten at entry',
+      status: null,
+    },
+    {
+      label: 'Underwritten loss rate',
+      value: formatPct(version.annualLossRate, 2),
+      hint: version.annualLossRate === null ? 'None was underwritten.' : 'Expected loss a year',
+      status: null,
+    },
+  ];
 }
 
 /** Numbers feed chart geometry only. */

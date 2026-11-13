@@ -6,11 +6,14 @@ import { groupThousands } from '../../lib/format.js';
 
 /*
  * The form a base case is recorded with, as pure rules: what the deal team types (plan figures in
- * US$ millions, the IRR in percent), the body the API takes (dollars, a rate as a decimal), and
- * what is wrong with an entry, field by field. Every conversion is exact decimal arithmetic on
- * the text typed: nothing is rounded and nothing is guessed, and the review step shows each
- * figure back in full before anything is sent.
+ * US$ millions, the IRR and a loan's yield and loss rate in percent), the body the API takes
+ * (dollars, a rate as a decimal), and what is wrong with an entry, field by field. Every
+ * conversion is exact decimal arithmetic on the text typed: nothing is rounded and nothing is
+ * guessed, and the review step shows each figure back in full before anything is sent.
  */
+
+/** What a position's base case holds: a plan and exit terms, or a loan's yield and loss rate. */
+export type CaseForm = UnderwritingCaseVersion['form'];
 
 /** One plan date as typed: the twelve months ending on it, in US$ millions. */
 export interface PlanRowDraft {
@@ -22,15 +25,22 @@ export interface PlanRowDraft {
 
 /**
  * A base case as typed. The last plan row is the planned exit: its date is the planned exit
- * date, never typed a second time, so the two cannot disagree.
+ * date, never typed a second time, so the two cannot disagree. A loan has no exit multiple and
+ * no plan rows; an equity case has no yield and no loss rate. What the other form holds is left
+ * as it is and never sent.
  */
 export interface CaseDraft {
   caseDate: string;
+  /** The planned exit; for a loan, the expected repayment. */
   plannedExitDate: string;
   exitMultiple: string;
   grossMoic: string;
   /** In percent: 20 is 20%. */
   grossIrrPct: string;
+  /** A loan only, in percent: 11.5 is 11.5%. */
+  underwrittenYieldPct: string;
+  /** A loan only, in percent a year; may be left empty. */
+  annualLossRatePct: string;
   rows: PlanRowDraft[];
   sourceDocumentId: string;
   sourcePage: string;
@@ -50,6 +60,8 @@ export function emptyDraft(): CaseDraft {
     exitMultiple: '',
     grossMoic: '',
     grossIrrPct: '',
+    underwrittenYieldPct: '',
+    annualLossRatePct: '',
     rows: [{ ...EMPTY_ROW }, { ...EMPTY_ROW }],
     sourceDocumentId: '',
     sourcePage: '',
@@ -66,6 +78,10 @@ const millionsOf = (dollars: string | null): string =>
 
 /** A stored figure without the zeros its column pads it with: "11.000000" is "11". */
 const plain = (value: string | null): string => (value === null ? '' : D(value).toFixed());
+
+/** A stored rate as the percent a person types: "0.11500000" is "11.5". Exact; null is an empty field. */
+const percentOf = (rate: string | null): string =>
+  rate === null ? '' : D(rate).times(100).toFixed();
 
 /**
  * The form filled from a version on record: a Draft being edited, or the case a revision starts
@@ -87,7 +103,9 @@ export function draftOf(
     plannedExitDate: version.plannedExitDate,
     exitMultiple: plain(version.exitMultiple),
     grossMoic: plain(version.grossMoic),
-    grossIrrPct: D(version.grossIrr).times(100).toFixed(),
+    grossIrrPct: percentOf(version.grossIrr),
+    underwrittenYieldPct: percentOf(version.underwrittenYield),
+    annualLossRatePct: percentOf(version.annualLossRate),
     rows,
     sourceDocumentId: version.source.document?.id ?? '',
     sourcePage: version.source.page === null ? '' : String(version.source.page),
@@ -125,23 +143,42 @@ function dollarsOf(text: string): string | null | undefined {
  * are the ones a person can act on before sending (a missing date, a figure that is no number,
  * plan dates out of order); the contract's own schema then reads the body, so nothing the API
  * would refuse at its boundary is sent. What needs the record (a second Draft, the case date
- * against the Confirmed cases, a document of another position) is the API's to refuse.
+ * against the Confirmed cases, a document of another position) is the API's to refuse. The form
+ * is the position's: an equity case sends its exit multiple and its plan, a loan its yield and,
+ * when one was underwritten, its loss rate, and neither sends what the other holds.
  */
 export function bodyOf(
   draft: CaseDraft,
-  options: { needsReason: boolean },
+  options: { needsReason: boolean; form?: CaseForm },
 ): { ok: true; body: UnderwritingCaseBody } | { ok: false; errors: DraftErrors } {
+  const loan = options.form === 'credit';
   const errors: Record<string, string> = {};
   const caseDate = draft.caseDate.trim();
   const plannedExitDate = draft.plannedExitDate.trim();
   if (!ISO_DATE.test(caseDate)) errors.caseDate = 'Give the date of the base case.';
-  if (!ISO_DATE.test(plannedExitDate)) errors.plannedExitDate = 'Give the planned exit date.';
+  if (!ISO_DATE.test(plannedExitDate))
+    errors.plannedExitDate = loan
+      ? 'Give the expected repayment date.'
+      : 'Give the planned exit date.';
   else if (ISO_DATE.test(caseDate) && plannedExitDate <= caseDate)
-    errors.plannedExitDate = 'The planned exit is after the case date.';
+    errors.plannedExitDate = loan
+      ? 'The expected repayment is after the case date.'
+      : 'The planned exit is after the case date.';
 
   const exitMultiple = draft.exitMultiple.trim();
-  if (!MULTIPLE.test(exitMultiple) || !/[1-9]/.test(exitMultiple))
+  if (!loan && (!MULTIPLE.test(exitMultiple) || !/[1-9]/.test(exitMultiple)))
     errors.exitMultiple = `Give the exit multiple, above zero. ${NUMBER_WORDS}`;
+  const underwrittenYield = draft.underwrittenYieldPct.trim();
+  const annualLossRate = draft.annualLossRatePct.trim();
+  if (loan) {
+    if (!PERCENT.test(underwrittenYield) || !D(underwrittenYield).gt(-100))
+      errors.underwrittenYield = `Give the underwritten yield in percent, above -100. ${NUMBER_WORDS}`;
+    if (
+      annualLossRate !== '' &&
+      (!PERCENT.test(annualLossRate) || D(annualLossRate).isNegative() || D(annualLossRate).gt(100))
+    )
+      errors.annualLossRate = `Give the loss rate in percent a year, between 0 and 100, or leave it empty. ${NUMBER_WORDS}`;
+  }
   const grossMoic = draft.grossMoic.trim();
   if (!MULTIPLE.test(grossMoic) || !/[1-9]/.test(grossMoic))
     errors.grossMoic = `Give the underwritten gross MOIC, above zero. ${NUMBER_WORDS}`;
@@ -150,10 +187,12 @@ export function bodyOf(
   if (!irrOk)
     errors.grossIrr = `Give the underwritten gross IRR in percent, above -100. ${NUMBER_WORDS}`;
 
-  const last = draft.rows.length - 1;
+  // A loan has no plan: its rows, whatever they hold, are neither checked nor sent.
+  const rows = loan ? [] : draft.rows;
+  const last = rows.length - 1;
   const points: NonNullable<UnderwritingCaseBody['points']> = [];
   let before: string | null = null;
-  draft.rows.forEach((row, i) => {
+  rows.forEach((row, i) => {
     // The last row is the planned exit: its date is the one given above.
     const periodEnd = i === last ? plannedExitDate : row.periodEnd.trim();
     const dated = ISO_DATE.test(periodEnd);
@@ -177,7 +216,7 @@ export function bodyOf(
     if (revenue !== undefined && ebitda !== undefined && netDebt !== undefined)
       points.push({ periodEnd, revenueLtm: revenue, ebitdaLtm: ebitda, netDebt });
   });
-  if (draft.rows.length < 2) errors.rows = 'A base case has two plan dates or more.';
+  if (!loan && rows.length < 2) errors.rows = 'A base case has two plan dates or more.';
 
   const sourceDocumentId = draft.sourceDocumentId.trim();
   const sourcePage = draft.sourcePage.trim();
@@ -195,13 +234,7 @@ export function bodyOf(
   if (Object.keys(errors).length > 0) return { ok: false, errors };
 
   const note = draft.note.trim();
-  const body: UnderwritingCaseBody = {
-    caseDate,
-    plannedExitDate,
-    exitMultiple,
-    grossMoic,
-    grossIrr: D(irr).div(100).toFixed(),
-    points,
+  const tail = {
     ...(note === '' ? {} : { note }),
     ...(options.needsReason ? { revisionReason } : {}),
     ...(sourceDocumentId === '' ? {} : { sourceDocumentId }),
@@ -209,6 +242,18 @@ export function bodyOf(
     ...(sourceDocumentId === '' || sourceLocator === '' ? {} : { sourceLocator }),
     ...(sourceNote === '' ? {} : { sourceNote }),
   };
+  const grossIrr = D(irr).div(100).toFixed();
+  const body: UnderwritingCaseBody = loan
+    ? {
+        caseDate,
+        plannedExitDate,
+        grossMoic,
+        grossIrr,
+        underwrittenYield: D(underwrittenYield).div(100).toFixed(),
+        ...(annualLossRate === '' ? {} : { annualLossRate: D(annualLossRate).div(100).toFixed() }),
+        ...tail,
+      }
+    : { caseDate, plannedExitDate, exitMultiple, grossMoic, grossIrr, points, ...tail };
   // The contract reads what is about to be sent; whatever it still finds is named by its field.
   const parsed = underwritingCaseBody.safeParse(body);
   if (parsed.success) return { ok: true, body };

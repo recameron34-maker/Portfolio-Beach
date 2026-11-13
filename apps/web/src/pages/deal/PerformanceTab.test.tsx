@@ -566,6 +566,32 @@ describe('performance tab, private credit position', () => {
     expect(screen.queryByTestId('deal-since-entry')).not.toBeInTheDocument();
     expect(screen.queryByRole('table', { name: 'Quarterly financials' })).not.toBeInTheDocument();
   });
+
+  it('sets the loan against the base case it was underwritten on, after its terms and before its quarters', async () => {
+    mockApi(
+      routes(['viewer'], {
+        [DEAL_PATHS.detail]: ok(creditDetailFixture()),
+        [DEAL_PATHS.performance]: ok(creditPerformanceFixture()),
+        [DEAL_PATHS.outlook]: ok(defaultOutlookFixture()),
+        [UW_PATH]: ok(readFixture({ form: 'credit' })),
+      }),
+    );
+    renderWithQuery(<PerformanceTab />);
+    const underwriting = await screen.findByTestId('deal-underwriting');
+    const before = screen.getByTestId('deal-credit-terms');
+    const after = screen.getByTestId('deal-credit-quarters');
+    expect(before.compareDocumentPosition(underwriting)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+    expect(underwriting.compareDocumentPosition(after)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+    // A loan's card: its IRR against plan and its yields, and no company figure against plan.
+    const tiles = within(await screen.findByTestId('deal-underwriting-tiles'));
+    expect(tiles.getByRole('group', { name: 'Gross IRR against plan' })).toHaveTextContent(
+      'Behind plan',
+    );
+    expect(tiles.getByRole('group', { name: 'Yield to maturity' })).toBeInTheDocument();
+    expect(tiles.queryByRole('group', { name: 'EBITDA against plan' })).not.toBeInTheDocument();
+    // The value creation card stays an equity card.
+    expect(screen.queryByTestId('deal-value-creation')).not.toBeInTheDocument();
+  });
 });
 
 describe('performance tab, unavailable', () => {

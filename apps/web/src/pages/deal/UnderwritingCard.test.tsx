@@ -10,6 +10,7 @@ import { UnderwritingCard } from './UnderwritingCard.js';
 import {
   caseFixture,
   draftFixture,
+  loanCaseFixture,
   noFormFixture,
   readFixture,
   reunderwriteFixture,
@@ -283,6 +284,92 @@ describe('deal workspace: the position against the base case', () => {
     // The plan itself is still charted: its dates need no quarter.
     expect(screen.getByTestId('deal-underwriting-chart')).toBeInTheDocument();
     // No figure that could not be worked out reads as a zero.
+    expect(card()).not.toHaveTextContent(/(?<![\d.])0\.0+[%x]/);
+  });
+
+  it('judges a loan on its IRR alone: the IRR and the MOIC, then its yields with no status, no chart and no drivers', async () => {
+    mockApi({ [UW_PATH]: ok(readFixture({ form: 'credit' })) });
+    show();
+    await screen.findByTestId('deal-underwriting-tiles');
+    // No company quarter is compared, so the card is dated by its as-of date.
+    expect(card()).toHaveTextContent('As of Jun 30, 2023');
+    const groups = within(screen.getByTestId('deal-underwriting-tiles')).getAllByRole('group');
+    expect(groups.map((g) => g.getAttribute('aria-label'))).toEqual([
+      'Gross IRR against plan',
+      'Gross MOIC',
+      'Yield to maturity',
+      'Underwritten yield',
+      'Underwritten loss rate',
+    ]);
+    expect(tile('Gross IRR against plan')).toHaveTextContent(
+      '-4.9 pointsBehind plan5.1% against 10.0% underwritten',
+    );
+    // A loan reaches its underwritten MOIC at repayment, and the MOIC is not judged.
+    expect(tile('Gross MOIC')).toHaveTextContent(
+      '1.10x-0.10x against 1.20x on the underwritten path; 1.50x at repayment',
+    );
+    // Yields show two decimals, and none of the three carries a status.
+    expect(tile('Yield to maturity')).toHaveTextContent(
+      'Yield to maturity14.37%As it stands, priced on fair value',
+    );
+    expect(tile('Underwritten yield')).toHaveTextContent(
+      'Underwritten yield11.50%A year, as underwritten at entry',
+    );
+    expect(tile('Underwritten loss rate')).toHaveTextContent(
+      'Underwritten loss rate1.50%Expected loss a year',
+    );
+    const badges = groups.map((g) => g.querySelectorAll('.pb-badge').length);
+    expect(badges).toEqual([1, 0, 0, 0, 0]);
+    expect(screen.getByTestId('deal-underwriting-yield-note')).toHaveTextContent(
+      'Yield to maturity rises when the mark falls, so it is not judged.',
+    );
+    // A loan has no company plan: nothing is charted and no driver is set against one.
+    expect(screen.queryByTestId('deal-underwriting-chart')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('deal-underwriting-drivers')).not.toBeInTheDocument();
+    expect(screen.queryByRole('combobox', { name: 'Metric' })).not.toBeInTheDocument();
+    expect(card()).not.toHaveTextContent('Between plan dates');
+
+    // Its case: the expected repayment, the yield and the loss rate, no exit multiple, no plan.
+    const block = screen.getByTestId('deal-underwriting-case');
+    expect(rowsOf(within(block).getByRole('table', { name: 'Entry case, terms' }))).toEqual([
+      'Case dateJun 30, 2021Expected repaymentJun 30, 2026',
+      'Underwritten yield11.50%Annual loss rate1.50%',
+      'Underwritten gross MOIC1.50xUnderwritten gross IRR10.0%',
+      'Entered byBlake Okafor, Jul 6, 2021Confirmed byFinley Castellano, Jul 8, 2021',
+      'SourceUnderwriting model of the loan at entry, held in the deal folder',
+    ]);
+    expect(block).not.toHaveTextContent('Exit multiple');
+    expect(block).not.toHaveTextContent('Planned exit');
+    expect(
+      within(block).queryByRole('table', { name: 'Entry case, plan' }),
+    ).not.toBeInTheDocument();
+  });
+
+  it('shows a loan with no yield to maturity and no underwritten loss rate as missing, with the reason, never a zero', async () => {
+    mockApi({
+      [UW_PATH]: ok(
+        readFixture({
+          form: 'credit',
+          versions: [loanCaseFixture({ annualLossRate: null, plannedExitDate: '2023-03-31' })],
+          inputs: { yieldToMaturity: null },
+        }),
+      ),
+    });
+    show();
+    await screen.findByTestId('deal-underwriting-tiles');
+    expect(tile('Yield to maturity')).toHaveTextContent(
+      `Yield to maturity${MISSING}Not calculable this quarter.`,
+    );
+    expect(tile('Underwritten loss rate')).toHaveTextContent(
+      `Underwritten loss rate${MISSING}None was underwritten.`,
+    );
+    // Past the expected repayment there is no path to set the MOIC against.
+    expect(tile('Gross MOIC')).toHaveTextContent(
+      '1.10xNo figure on the underwritten path: After the plan ends. Underwritten 1.50x at repayment.',
+    );
+    expect(screen.getByRole('table', { name: 'Entry case, terms' })).toHaveTextContent(
+      `Annual loss rate${MISSING}`,
+    );
     expect(card()).not.toHaveTextContent(/(?<![\d.])0\.0+[%x]/);
   });
 

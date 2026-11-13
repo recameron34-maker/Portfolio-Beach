@@ -12,6 +12,7 @@ import { UnderwritingCard } from './UnderwritingCard.js';
 import {
   caseFixture,
   draftFixture,
+  loanCaseFixture,
   readFixture,
   UW_ID,
   UW_INVESTMENT,
@@ -472,5 +473,140 @@ describe('base case card: actions', () => {
       sourcePage: 12,
       sourceLocator: 'Base case!B14',
     });
+  });
+
+  it("records a loan's case with its yield and loss rate: no exit multiple and no plan to type", async () => {
+    const draft = loanCaseFixture({
+      state: 'Draft',
+      confirmedBy: null,
+      confirmedAt: null,
+      rowVersion: 1,
+    });
+    const card = open('entered', readFixture({ form: 'credit', versions: [] }), {
+      [`POST ${UW_PATH}`]: { status: 201, body: draft },
+    });
+    await userEvent.click(await screen.findByRole('button', { name: 'Record base case' }));
+    const form = await screen.findByRole('form', { name: 'Record the base case' });
+    // A loan's form: the expected repayment, the yield and the loss rate; nothing of a plan.
+    expect(screen.queryByLabelText(/^Planned exit/)).not.toBeInTheDocument();
+    expect(screen.queryByLabelText(/^Exit multiple/)).not.toBeInTheDocument();
+    expect(within(form).queryByRole('table')).not.toBeInTheDocument();
+    noButton('Add a plan date');
+    expect(form).not.toHaveTextContent('US$ millions');
+
+    // Asked for the review too early, the form names what a loan lacks, in a loan's words.
+    await userEvent.click(button('Review figures'));
+    expect(await screen.findByText('Give the expected repayment date.')).toBeInTheDocument();
+    expect(screen.getByText(/^Give the underwritten yield in percent/)).toBeInTheDocument();
+    expect(screen.queryByTestId('underwriting-plan-faults')).not.toBeInTheDocument();
+    expect(writes()).toEqual([]);
+
+    type(/^Case date/, '2021-06-30');
+    type(/^Expected repayment/, '2026-06-30');
+    type(/^Underwritten yield/, '11.5');
+    type(/^Annual loss rate/, '1.5');
+    type(/^Underwritten gross MOIC/, '1.5');
+    type(/^Underwritten gross IRR/, '10');
+    type(/^Where the model is held/, 'Underwriting model of the loan, held in the deal folder');
+    await userEvent.click(button('Review figures'));
+    const review = await screen.findByTestId('underwriting-review');
+    expect(
+      within(within(review).getByRole('table', { name: 'Terms as they will be saved' }))
+        .getAllByRole('row')
+        .map((r) => r.textContent),
+    ).toEqual([
+      'Case dateJun 30, 2021Expected repaymentJun 30, 2026',
+      'Underwritten yield11.5%Annual loss rate1.5%',
+      'Underwritten gross MOIC1.5xUnderwritten gross IRR10%',
+      'SourceUnderwriting model of the loan, held in the deal folder',
+    ]);
+    expect(
+      within(review).queryByRole('table', { name: 'Plan as it will be saved, in dollars' }),
+    ).not.toBeInTheDocument();
+    expect(review).toHaveTextContent(
+      'Saving records a draft: a second person confirms it before the loan is compared with it.',
+    );
+    card.now(readFixture({ form: 'credit', versions: [draft], compared: null }));
+    await userEvent.click(button('Save draft'));
+    await within(status()).findByText(/^Draft recorded/);
+    expect(writes()).toEqual([
+      {
+        method: 'POST',
+        path: UW_PATH,
+        body: {
+          caseDate: '2021-06-30',
+          plannedExitDate: '2026-06-30',
+          grossMoic: '1.5',
+          grossIrr: '0.1',
+          underwrittenYield: '0.115',
+          annualLossRate: '0.015',
+          sourceNote: 'Underwriting model of the loan, held in the deal folder',
+        },
+        ifMatch: null,
+      },
+    ]);
+    // The Draft of a loan shows a loan's terms, and its author is told who confirms it.
+    const block = await screen.findByTestId('deal-underwriting-draft');
+    expect(within(block).getByRole('table', { name: 'Draft base case, terms' })).toHaveTextContent(
+      'Underwritten yield11.50%Annual loss rate1.50%',
+    );
+    expect(screen.getByTestId('underwriting-own-figures')).toBeInTheDocument();
+  });
+
+  it("revises a loan's Confirmed case from its own rates, and a second person confirms a loan without a plan", async () => {
+    const entry = loanCaseFixture();
+    const correction = loanCaseFixture({
+      id: UW_ID.second,
+      version: 2,
+      state: 'Draft',
+      annualLossRate: '0.02000000',
+      revisionReason: 'The loss rate was mistyped',
+      confirmedBy: null,
+      confirmedAt: null,
+      rowVersion: 1,
+    });
+    const card = open('entered', readFixture({ form: 'credit' }), {
+      [`POST ${UW_PATH}`]: { status: 201, body: correction },
+    });
+    await userEvent.click(await screen.findByRole('button', { name: 'Revise' }));
+    await screen.findByRole('form', { name: 'Revise the base case' });
+    // The form opens on the case's own figures, the rates as the percent a person types.
+    expect(screen.getByLabelText(/^Underwritten yield/)).toHaveValue('11.5');
+    expect(screen.getByLabelText(/^Annual loss rate/)).toHaveValue('1.5');
+    expect(screen.getByLabelText(/^Expected repayment/)).toHaveValue('2026-06-30');
+    type(/^Annual loss rate/, '2');
+    type(/^Reason for the revision/, 'The loss rate was mistyped');
+    await userEvent.click(button('Review figures'));
+    await screen.findByTestId('underwriting-review');
+    card.now(readFixture({ form: 'credit', versions: [entry, correction] }));
+    await userEvent.click(button('Save draft'));
+    await within(status()).findByText(/^Draft recorded/);
+    expect(writes()[0]?.body).toEqual({
+      caseDate: '2021-06-30',
+      plannedExitDate: '2026-06-30',
+      grossMoic: '1.5',
+      grossIrr: '0.1',
+      underwrittenYield: '0.115',
+      annualLossRate: '0.02',
+      revisionReason: 'The loss rate was mistyped',
+      sourceNote: 'Underwriting model of the loan at entry, held in the deal folder',
+    });
+    cleanup();
+    vi.restoreAllMocks();
+
+    // A second person confirms the correction: one command, with the version it was opened on.
+    open('confirmed', readFixture({ form: 'credit', versions: [entry, correction] }), {
+      [`POST ${commands(UW_ID.second)}`]: ok({ ...correction, state: 'Confirmed' }),
+    });
+    await userEvent.click(await screen.findByRole('button', { name: 'Confirm' }));
+    await within(status()).findByText(/^Correction confirmed/);
+    expect(writes()).toEqual([
+      {
+        method: 'POST',
+        path: commands(UW_ID.second),
+        body: { command: 'confirm' },
+        ifMatch: '"1"',
+      },
+    ]);
   });
 });
