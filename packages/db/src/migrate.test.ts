@@ -560,7 +560,7 @@ describe('migrations', () => {
     expect(forced).toEqual([{ forced: true }]);
   });
 
-  it('0021: the base case of a position and its plan points (decision 0022)', async () => {
+  it('0021 and 0022: the base case of a position and its plan points (decision 0022)', async () => {
     const enums = await handle.query<{ labels: string }>(`
       select string_agg(e.enumlabel, ',' order by e.enumsortorder) as labels
       from pg_type t join pg_namespace n on n.oid = t.typnamespace join pg_enum e on e.enumtypid = t.oid
@@ -628,19 +628,27 @@ describe('migrations', () => {
     expect(rule('underwriting_case_point', 'read_visible')).toContain(
       'underwriting_case_visible(case_id)',
     );
+    // A point is written by the deal team member its case names as the last person to change
+    // the figures (migration 0022), no longer by anyone who can see the case.
     for (const name of ['write_insert', 'write_update', 'write_delete']) {
       expect(rule('underwriting_case_point', name), name).toContain('{deal_team}');
       expect(rule('underwriting_case_point', name), name).toContain(
-        'underwriting_case_visible(case_id)',
+        'underwriting_case_entered_by_me(case_id)',
+      );
+      expect(rule('underwriting_case_point', name), name).not.toContain(
+        'underwriting_case_visible',
       );
     }
     for (const p of policies) expect(p.rule, p.policyname).not.toContain('service');
-    // The visibility of a point is its case's, asked as the reader (no definer): the wall and the
-    // role rules apply once, on the position.
-    const fn = await handle.query<{ secdef: boolean }>(
-      "select p.prosecdef as secdef from pg_proc p join pg_namespace n on n.oid = p.pronamespace where n.nspname = 'pb' and p.proname = 'underwriting_case_visible'",
+    // The visibility of a point is its case's, and so is the question of who entered it, both
+    // asked as the caller (no definer): the wall and the role rules apply once, on the position.
+    const fn = await handle.query<{ name: string; secdef: boolean }>(
+      "select p.proname as name, p.prosecdef as secdef from pg_proc p join pg_namespace n on n.oid = p.pronamespace where n.nspname = 'pb' and p.proname in ('underwriting_case_visible', 'underwriting_case_entered_by_me') order by 1",
     );
-    expect(fn).toEqual([{ secdef: false }]);
+    expect(fn).toEqual([
+      { name: 'underwriting_case_entered_by_me', secdef: false },
+      { name: 'underwriting_case_visible', secdef: false },
+    ]);
     const forced = await handle.query<{ name: string; enabled: boolean; forced: boolean }>(
       "select c.relname as name, c.relrowsecurity as enabled, c.relforcerowsecurity as forced from pg_class c join pg_namespace n on n.oid = c.relnamespace where n.nspname = 'mon' and c.relname in ('underwriting_case', 'underwriting_case_point', 'underwriting_case_history', 'underwriting_case_point_history') order by 1",
     );

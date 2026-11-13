@@ -155,8 +155,19 @@ export const READ_MATRIX: Record<string, Row> = {
 export interface WriteCase {
   name: string;
   sql: string;
+  /**
+   * A statement the same actor sends first, in the same transaction, when the write is one no
+   * service sends alone (a plan point is written by whoever has just claimed its Draft). Row-level
+   * security may hide its row from the actor, and then it does nothing; the write is still judged
+   * on its own.
+   */
+  before?: string;
   allowed: ActorName[];
 }
+
+/** The claim an edit of a Draft makes: its sender becomes the last person to change the figures. */
+const CLAIM_WALLED_DRAFT =
+  "update mon.underwriting_case set entered_by = pb.current_user_id(), entered_at = now() where id = 'd0000000-0000-4000-8000-000000000003'";
 
 /** Representative writes. Everyone not listed must be rejected by RLS or a missing grant. */
 export const WRITE_MATRIX: WriteCase[] = [
@@ -599,14 +610,26 @@ export const WRITE_MATRIX: WriteCase[] = [
     sql: "update rpt.qa_result set override_reason = 'Agreed with the client', approver_id = '10000000-0000-4000-8000-000000000004', overridden_at = now() where id = 'c0000000-0000-4000-8000-000000000003'",
     allowed: ['approver', 'service'],
   },
-  // The underwritten base cases (migration 0021, docs/18 section 13). The policies say who may
-  // write at all: the deal team records a case and writes its plan points, the deal team and
-  // approvers move a case on, each on a position they can see. Which of them may send which
-  // command is the state machine's. The system actor reads every case and writes none.
+  // The underwritten base cases (migrations 0021 and 0022, docs/18 section 13). The policies say
+  // who may write at all: the deal team records a case, the deal team and approvers move a case
+  // on, each on a position they can see, and a plan point is written by the deal team member the
+  // Draft names as the last person to change its figures. Which of them may send which command
+  // is the state machine's. The system actor reads every case and writes none.
   {
     name: 'record a draft base case on the open investment',
     sql: "insert into mon.underwriting_case (investment_id, version, form, case_date, planned_exit_date, exit_multiple, gross_moic, gross_irr, revision_reason, entered_by) values ('30000000-0000-4000-8000-000000000001', 2, 'equity', '2024-06-30', '2028-06-30', 11.5, 2.4, 0.19, 'Re-underwritten after the add-on acquisition', pb.current_user_id())",
     allowed: ['deal_team', 'wall_member(deal_team)'],
+  },
+  {
+    name: 'record a draft base case on the walled investment',
+    // One Draft per position: whoever can withdraw the Draft waiting there does so first. Outside
+    // the wall that touches no row, and the insert is refused on the position itself.
+    before:
+      "update mon.underwriting_case set state = 'Withdrawn', withdrawn_reason = 'Replaced by a new draft' where id = 'd0000000-0000-4000-8000-000000000003'",
+    sql: "insert into mon.underwriting_case (investment_id, version, form, case_date, planned_exit_date, exit_multiple, gross_moic, gross_irr, revision_reason, entered_by) values ('30000000-0000-4000-8000-000000000002', 3, 'equity', '2025-06-30', '2030-06-30', 10, 1.9, 0.14, 'Re-underwritten after the second year', pb.current_user_id())",
+    // Inside the wall only: the deal team outside it is refused, and so is the system actor,
+    // which sees the position and is not deal team.
+    allowed: ['wall_member(deal_team)'],
   },
   {
     name: 'withdraw the confirmed base case of the open investment',
@@ -625,21 +648,44 @@ export const WRITE_MATRIX: WriteCase[] = [
     sql: "update mon.underwriting_case set state = 'Confirmed', confirmed_by = pb.current_user_id(), confirmed_at = now() where id = 'd0000000-0000-4000-8000-000000000003'",
     allowed: ['wall_member(deal_team)'],
   },
+  // A plan point is written by the person who last changed the figures of its Draft (migration
+  // 0022), so each writer claims the Draft first, as an edit through the API does. Nobody in the
+  // fixture is that person without claiming it: the three rows after these say so.
   {
-    name: 'add a plan point to the draft base case on the walled investment',
+    name: 'add a plan point to the draft base case on the walled investment, having claimed it',
+    before: CLAIM_WALLED_DRAFT,
     sql: "insert into mon.underwriting_case_point (case_id, period_end, revenue_ltm, ebitda_ltm, net_debt) values ('d0000000-0000-4000-8000-000000000003', '2026-06-30', 95000000, 20000000, 52000000)",
     allowed: ['wall_member(deal_team)'],
   },
   {
-    name: 'change a plan point of the draft base case on the walled investment',
+    name: 'change a plan point of the draft base case on the walled investment, having claimed it',
+    before: CLAIM_WALLED_DRAFT,
     sql: "update mon.underwriting_case_point set net_debt = 61000000 where id = 'd0000000-0000-4000-8000-000000000004'",
     allowed: ['wall_member(deal_team)'],
   },
   {
-    name: 'delete a plan point of the draft base case on the walled investment',
+    name: 'delete a plan point of the draft base case on the walled investment, having claimed it',
+    before: CLAIM_WALLED_DRAFT,
     sql: "delete from mon.underwriting_case_point where id = 'd0000000-0000-4000-8000-000000000004'",
     // Points are replaced as a set while the case is a Draft.
     allowed: ['wall_member(deal_team)'],
+  },
+  {
+    name: 'add a plan point to a draft base case somebody else entered',
+    sql: "insert into mon.underwriting_case_point (case_id, period_end, revenue_ltm, ebitda_ltm, net_debt) values ('d0000000-0000-4000-8000-000000000003', '2026-06-30', 95000000, 20000000, 52000000)",
+    // The person who entered it is outside the wall and cannot see it; the wall member can see
+    // it and did not enter it.
+    allowed: [],
+  },
+  {
+    name: 'change a plan point of a draft base case somebody else entered',
+    sql: "update mon.underwriting_case_point set net_debt = 61000000 where id = 'd0000000-0000-4000-8000-000000000004'",
+    allowed: [],
+  },
+  {
+    name: 'delete a plan point of a draft base case somebody else entered',
+    sql: "delete from mon.underwriting_case_point where id = 'd0000000-0000-4000-8000-000000000004'",
+    allowed: [],
   },
   {
     name: 'delete a base case',

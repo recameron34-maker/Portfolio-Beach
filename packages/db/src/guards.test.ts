@@ -461,7 +461,7 @@ describe('database guards', () => {
     });
   });
 
-  describe('underwritten base cases (migration 0021, SEC-5.6, SEC-9.1, SEC-9.2, SEC-9.4)', () => {
+  describe('underwritten base cases (migrations 0021 and 0022, SEC-5.6, SEC-9.1, SEC-9.2, SEC-9.4)', () => {
     const u = ids.users;
     const open = ids.investment1;
     /** A Draft version 2 on the open investment, with any column overridden. Rolled back by the caller or refused. */
@@ -877,6 +877,103 @@ describe('database guards', () => {
         ]),
         /belong to an equity base case/,
       );
+    });
+
+    it('lets only the person a Draft names change its plan points, so whoever rewrites them cannot confirm (migration 0022)', async () => {
+      const draftId = ids.underwritingCaseWalledDraft;
+      const pointsOnRecord = (): Promise<{ period: string; ebitda: string }[]> =>
+        handle.query<{ period: string; ebitda: string }>(
+          `select period_end::text as period, ebitda_ltm::text as ebitda from mon.underwriting_case_point where case_id = '${draftId}' order by period_end`,
+        );
+      const asEntered = await pointsOnRecord();
+      expect(asEntered).toHaveLength(2);
+      /** Thrown at the end of a block that must leave nothing behind, whatever it managed to write. */
+      class Undo extends Error {}
+      // The deal team entered this Draft. The wall member, who can open it, has not claimed it:
+      // an update and a delete of its points touch no row, and a new point is refused.
+      await expect(
+        asWallMember(async (tx) => {
+          const updated = await tx.execute<{ id: string }>(
+            sql.raw(
+              `update mon.underwriting_case_point set ebitda_ltm = 999000000 where case_id = '${draftId}' returning id`,
+            ),
+          );
+          expect(updated.rows).toEqual([]);
+          const deleted = await tx.execute<{ id: string }>(
+            sql.raw(
+              `delete from mon.underwriting_case_point where case_id = '${draftId}' returning id`,
+            ),
+          );
+          expect(deleted.rows).toEqual([]);
+          throw new Undo();
+        }),
+      ).rejects.toBeInstanceOf(Undo);
+      await expectDbRejection(
+        asWallMember((tx) =>
+          tx.execute(
+            sql.raw(
+              `insert into mon.underwriting_case_point (case_id, period_end, ebitda_ltm) values ('${draftId}', '2026-06-30', 999000000)`,
+            ),
+          ),
+        ),
+        /row-level security/,
+      );
+      // So rewriting the points and confirming them is not one person's to do: the points are as
+      // they were entered when the wall member confirms.
+      await expect(
+        asWallMember(async (tx) => {
+          await tx.execute(
+            sql.raw(
+              `update mon.underwriting_case_point set ebitda_ltm = 999000000 where case_id = '${draftId}'`,
+            ),
+          );
+          await tx.execute(
+            sql.raw(
+              `update mon.underwriting_case set state = 'Confirmed', confirmed_by = '${u.wallMember}', confirmed_at = now() where id = '${draftId}'`,
+            ),
+          );
+          const confirmed = await tx.execute<{ ebitda: string }>(
+            sql.raw(
+              `select ebitda_ltm::text as ebitda from mon.underwriting_case_point where case_id = '${draftId}' order by period_end`,
+            ),
+          );
+          expect(confirmed.rows.map((r) => r.ebitda)).toEqual(asEntered.map((r) => r.ebitda));
+          throw new Undo();
+        }),
+      ).rejects.toBeInstanceOf(Undo);
+      // Having claimed the Draft, as an edit through the API does, the wall member writes its
+      // points and is the one person who cannot confirm it.
+      await expectDbRejection(
+        asWallMember(async (tx) => {
+          await tx.execute(
+            sql.raw(
+              `update mon.underwriting_case set entered_by = '${u.wallMember}', entered_at = now() where id = '${draftId}'`,
+            ),
+          );
+          const updated = await tx.execute<{ id: string }>(
+            sql.raw(
+              `update mon.underwriting_case_point set ebitda_ltm = 999000000 where case_id = '${draftId}' returning id`,
+            ),
+          );
+          expect(updated.rows).toHaveLength(2);
+          await tx.execute(
+            sql.raw(
+              `insert into mon.underwriting_case_point (case_id, period_end, ebitda_ltm) values ('${draftId}', '2026-06-30', 21000000)`,
+            ),
+          );
+          await tx.execute(
+            sql.raw(
+              `update mon.underwriting_case set state = 'Confirmed', confirmed_by = '${u.wallMember}', confirmed_at = now() where id = '${draftId}'`,
+            ),
+          );
+        }),
+        /check constraint/,
+      );
+      expect(await pointsOnRecord()).toEqual(asEntered);
+      const row = await handle.query<{ state: string; entered_by: string }>(
+        `select state, entered_by from mon.underwriting_case where id = '${draftId}'`,
+      );
+      expect(row).toEqual([{ state: 'Draft', entered_by: u.dealTeam }]);
     });
 
     it('keeps a full history image of a case and of its points', async () => {
