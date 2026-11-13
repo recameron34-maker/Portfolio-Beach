@@ -495,3 +495,48 @@ The owner asked for four things while Phase 4 was under way: voice-overs on the 
 - The tour recording shows the home page as it was before the role focus; it is recorded again with the next media run.
 - The owner should listen to the narration and say if the voice, pace or a pronunciation should change.
 
+
+### Session 11, continued (2026-11-12 to 2026-11-13): deal performance against the sponsor's underwritten base case (decision 0022)
+
+The owner asked: "To the deal pages lets also add something that tracks deal performance vs. the GP's underwritten base case, unless thats already in the build." It was not. It was designed as a written spec, attacked by an independent review, revised, and built in thirteen slices by agents working one after another on this branch. It is a first draft for the owner to change, as the deal fit measures were.
+
+**What changed**
+
+- **The rules** (`docs/08` section 11, `packages/calc/src/underwriting.ts`, golden fixtures 27 and 28, the Python cross-check): the plan at a date (a plan point's own figure, or a straight line by days between two plan dates, flagged as ours); the variance and its percent; ahead, on or behind plan by a tolerance, EBITDA's status the headline and no blended score; the planned bridge to exit against the bridge earned, with the share of planned time passed; the gross IRR against the underwritten one, and the gross MOIC against the MOIC the position would show today on the underwritten path; a loan judged on its IRR gap alone. Tolerances are `underwriting.onPlanTolerance` (0.05) and `underwriting.irrTolerance` (0.02) in `config/definitions.json`, with no default in code.
+- **The record** (migration 0021, `docs/03`): `mon.underwriting_case`, one row per version, and `mon.underwriting_case_point`, the plan of an equity case by date. Row-level security follows the position, so a wall covers its base case. The database holds the two-person rule, the source outside a Draft, one Draft per position and one Confirmed case per position and case date, and lets a Confirmed case change only by being superseded or withdrawn. Every column is classified; both tables carry history. No existing table changed, so the accounting import and export are untouched.
+- **The life of a case** (`docs/18` section 13, `underwritingCaseMachine`): the deal team records a Draft and edits or withdraws it; a second person, never the one who last changed the figures, confirms it (SEC-5.6); the confirmation of a version dated as a Confirmed case supersedes that case in the same transaction, and a later date is a re-underwriting that keeps both; an approver retires a case confirmed in error. Superseded and Withdrawn are final.
+- **The API** (`docs/17` section 3): `GET /api/v1/investments/{id}/underwriting` answers every version and the comparison with the entry case, or with the version named; `POST` on the same path records a Draft; `PATCH /api/v1/underwriting-cases/{id}` replaces a Draft; `POST .../commands` confirms, withdraws and retires. Writes are idempotent and read `If-Match`; every read and write is audited. The actual side is never worked out a second time: the quarter and the bridge are the value creation card's, the returns are the position summary's, and a loan's yield to maturity is the Credit terms' own (`creditYieldToMaturity`, lifted out of the performance service and exported).
+- **The page**: a card "Against the sponsor's base case" on the Performance tab, after Value creation, and for a loan after Credit terms. Tiles for EBITDA, revenue, net debt and gross IRR against plan, each badged, and the gross MOIC with no badge; actual against plan by date for one metric with a table twin; the drivers planned, earned and their progress; the case with its terms, who entered and confirmed it, its source and its versions; the form, which takes plan figures in US$ millions and shows every figure back in dollars in full before it saves. A loan's card shows its IRR and MOIC, then its yield to maturity beside the yield and the loss rate it was underwritten on, none of the three badged, and its form has no exit multiple and no plan. A figure that is not calculable is the missing placeholder with its reason.
+- **The static preview**: the read is recorded for every position and user and worked out again in the browser by the same function the API calls, so a version the reader picks needs no recording; the writes are simulated through the same machine.
+- **Synthetic data** (`docs/14` section 12): four in five eligible equity and continuation vehicle positions carry a Confirmed case dated at entry, ten scenario positions carry the `underwriting_*` tags, and every loan carries the case it was underwritten on. They are built last, from streams of their own: tests hold the digest of the seed 42 dataset without them, and of the equity cases without the loans, to what each was before.
+- `docs/04` (M9), `docs/09` and `docs/11` (capability E14) say what is built.
+
+**Verified**
+
+Tests came first for the calculation: the text of `docs/08` section 11, the two fixtures, the property tests and the Python cross-check existed before any route or page used a rule. At the end of the work, on the branch as pushed:
+
+- `pnpm exec vitest run`: 263 files, 5,032 tests passed. `pnpm test:calc`: calc 141 passed, the Python worker 45 passed, the cross-check 520 cases with 0 mismatches (40 of them the comparison). `pnpm test:rls`: 1,622 passed, the two tables read and written by every actor, with a walled case. `pnpm test:workflows`: 273 passed, every forbidden transition refused.
+- `check:classification: OK (1008 columns classified)`. `pnpm typecheck` and `pnpm lint` clean; `check-style: OK`; `check-employer-data: OK`. `pnpm openapi:generate`: 92 paths.
+- The API against the synthetic data's own oracle: every equity position's and every loan's read equals `seededComparison` figure for figure; the actual side equals the value creation card, the position summary and, for a loan, the yield of the performance route; every figure is worked out again by its rule from the figures returned with it. The person who last changed the figures is refused by the database, the machine and the API. A loan corrected to read on plan reads behind once its mark is locked at 90% of par through the valuation workflow.
+- The generator moved nothing: the dataset without the base cases, and the equity cases without the loans, are byte for byte what the commit before each built (seed 42 in both profiles; for the loans, two other seeds as well).
+- The static preview: `build:preview`, then the probe, 212 passed and 0 failed. The comparison worked out in the browser equals the API's recording for every user and every position, 156 comparisons.
+- In a browser over the real API (`apps/web/e2e/underwriting.spec.ts`, and the whole suite: 70 passed): deal.one records a base case through the form and cannot confirm it, deal.two confirms, and the card reads EBITDA 25% ahead of plan, revenue 20% behind and net debt on plan, as the plan was built to; a viewer reads it and an approver is offered the retirement only; a loan's card shows the yield to maturity of its own Credit terms. Axe finds no serious or critical issue on the card, its draft, its form and its review, a loan's included, at 1280 and at 390 pixels, and nothing runs off the side of a phone.
+- Hand mutations of the service, the simulation, the page and the form (more than twenty across the slices) each failed a test and were reverted; one more did not apply and proved nothing.
+
+**Differences from the written design**
+
+- No outbox event is written: no API service writes `ops.outbox` and nothing relays it. The writes are audited.
+- The database enforces more than the design asked (a case starts as a Draft whoever inserts it, a confirmation changes nothing else, an equity case is confirmed with its plan).
+- One more reason travels: `no_invested_capital`, for a position with nothing invested by the as-of date.
+- A read lists versions, so it carries no single `ETag`; each version carries its row version, and every write answers the version it wrote with its `ETag`.
+- In the form the IRR and a loan's rates are typed in percent, and the last plan row is the planned exit, its date never typed twice.
+- A loan's yield to maturity has no reason code when it is missing (past maturity, or no priced quarter): the card says "Not calculable this quarter."
+- No marked-down loan is seeded, since changing a seeded mark would move recorded totals. Fixture 28 and an API test (a mark locked at 90% of par through the valuation workflow) cover it.
+
+**Open items**
+
+- The owner's six choices, each built with the default decision 0022 names: which case is compared; the straight line between plan dates; a second person in place of a staging table; when a case is entered and what counts as its source; the two tolerances; the MOIC before the exit.
+- Left out for now: other currencies, net returns, a downside case, a watchlist flag and an Analytics roll-up across positions.
+- A sponsor's model may define EBITDA differently from its quarterly reports; the two are compared as given, and the source of the case is on the card.
+- A loan's yield to maturity is priced on its reported credit row, so a mark locked through the valuation workflow moves its IRR and MOIC and not that yield. The Credit terms card reads the same way.
+- The published preview and the site's media were made before this card existed; both show it after the next publish and media run.
