@@ -1,0 +1,669 @@
+{
+  "id": "27_plan_tracking",
+  "function": "plan_tracking",
+  "note": "Plan tracking, by hand (docs/08 section 11, rules 1 to 3), with an on-plan tolerance of 5%. Plan 'worked' is worked example 1 with two more years: 2025-12-31 has no net debt and 2026-12-31 no EBITDA. Case 1, the worked example: 2024-06-30 is day 182 of 366, so revenue 200,000,000 + 36,600,000 x 182 / 366 = 218,200,000, EBITDA 43,640,000 and net debt 146,360,000, each interpolated; revenue 220,000,000 is +1,800,000, +0.0082493126, on plan; EBITDA 40,500,000 is -3,140,000, -0.0719523373, behind; net debt 150,000,000 is +3,640,000, 0.0248701831 over, so -2.49% favourable, on plan. Case 2, on a plan date (not interpolated): revenue 248,430,000 is 236,600,000 x 1.05, exactly on the edge, on plan; EBITDA 49,686,000.01 is a cent over 47,320,000 x 1.05, 0.0500000002, ahead; net debt 135,546,000 is 142,680,000 x 0.95, 5% under plan and exactly on the favourable edge, on plan. Case 3, a line that does not terminate: 2025-03-31 is day 90 of 365, revenue 236,600,000 + 33,400,000 x 90 / 365 = 244,835,616.4383561644 at ten places and EBITDA 47,320,000 + 7,680,000 x 90 / 365 = 49,213,698.6301369863; the variance is the actual less the plan as held, to the last place; net debt has no figure at 2025-12-31, so none here, and the 2026 point is not used in its place. Case 4: on 2025-12-31 itself the point has no net debt; EBITDA 60,500,000 is 10% over 55,000,000, ahead. Case 5: 2026-06-30 is day 181 of 365; revenue 270,000,000 + 30,000,000 x 181 / 365 = 284,876,712.3287671233; EBITDA has no figure at 2026-12-31 and net debt none at 2025-12-31. Case 6 is before the plan starts and case 7 after it ends: the actuals stand, the plan does not. Case 8: no revenue in the quarter (the plan figure still stands); an EBITDA of -2,000,000 is -45,640,000 against 43,640,000, behind; net debt 131,724,000 is 10% under plan, ahead. Case 9: no current quarter. Case 10, the low edges: EBITDA 41,458,000 is 43,640,000 x 0.95, on plan; revenue 207,289,999.99 is a cent under 218,200,000 x 0.95, -0.0500000000458 before it is held and -0.05 at ten places, so on plan (the status is judged on the percent as it travels); net debt 160,996,000 is 10% over plan, behind. Case 11: revenue 207,289,999.00 is a dollar under the edge, -0.0500000046, behind; EBITDA 41,457,999.99 is a cent under it, -0.0500000002, behind; net debt 153,678,000 is 5% over plan, on the unfavourable edge, on plan. Plan 'netCash' runs from net debt of 5,000,000 on 2023-12-31 to net cash of 5,000,000 on 2024-06-30. Case 12: 2024-03-31 is day 91 of 182, so the planned net debt is exactly 0: the variance of +1,000,000 stands and there is no percent; revenue 55,000,000 is the plan, 0, on plan; EBITDA 12,100,000 against 11,000,000 is +10%, ahead. Case 13: on 2024-06-30 the plan is net cash of 5,000,000 and the actual net cash of 8,000,000, a variance of -3,000,000 and no percent. Case 14: a plan with no points has no figure.",
+  "tolerance": "1e-10",
+  "input": {
+    "onPlanTolerance": "0.05",
+    "plans": {
+      "worked": [
+        {
+          "periodEnd": "2023-12-31",
+          "revenueLtm": "200000000.00",
+          "ebitdaLtm": "40000000.00",
+          "netDebt": "150000000.00"
+        },
+        {
+          "periodEnd": "2024-12-31",
+          "revenueLtm": "236600000.00",
+          "ebitdaLtm": "47320000.00",
+          "netDebt": "142680000.00"
+        },
+        {
+          "periodEnd": "2025-12-31",
+          "revenueLtm": "270000000.00",
+          "ebitdaLtm": "55000000.00",
+          "netDebt": null
+        },
+        {
+          "periodEnd": "2026-12-31",
+          "revenueLtm": "300000000.00",
+          "ebitdaLtm": null,
+          "netDebt": "120000000.00"
+        }
+      ],
+      "netCash": [
+        {
+          "periodEnd": "2023-12-31",
+          "revenueLtm": "50000000.00",
+          "ebitdaLtm": "10000000.00",
+          "netDebt": "5000000.00"
+        },
+        {
+          "periodEnd": "2024-06-30",
+          "revenueLtm": "60000000.00",
+          "ebitdaLtm": "12000000.00",
+          "netDebt": "-5000000.00"
+        }
+      ],
+      "empty": []
+    },
+    "cases": [
+      {
+        "plan": "worked",
+        "quarter": {
+          "periodEnd": "2024-06-30",
+          "revenueLtm": "220000000.00",
+          "ebitdaLtm": "40500000.00",
+          "netDebt": "150000000.00"
+        }
+      },
+      {
+        "plan": "worked",
+        "quarter": {
+          "periodEnd": "2024-12-31",
+          "revenueLtm": "248430000.00",
+          "ebitdaLtm": "49686000.01",
+          "netDebt": "135546000.00"
+        }
+      },
+      {
+        "plan": "worked",
+        "quarter": {
+          "periodEnd": "2025-03-31",
+          "revenueLtm": "244835616.44",
+          "ebitdaLtm": "49213698.63",
+          "netDebt": "140000000.00"
+        }
+      },
+      {
+        "plan": "worked",
+        "quarter": {
+          "periodEnd": "2025-12-31",
+          "revenueLtm": "270000000.00",
+          "ebitdaLtm": "60500000.00",
+          "netDebt": "130000000.00"
+        }
+      },
+      {
+        "plan": "worked",
+        "quarter": {
+          "periodEnd": "2026-06-30",
+          "revenueLtm": "280000000.00",
+          "ebitdaLtm": "58000000.00",
+          "netDebt": "125000000.00"
+        }
+      },
+      {
+        "plan": "worked",
+        "quarter": {
+          "periodEnd": "2023-09-30",
+          "revenueLtm": "195000000.00",
+          "ebitdaLtm": "39000000.00",
+          "netDebt": "151000000.00"
+        }
+      },
+      {
+        "plan": "worked",
+        "quarter": {
+          "periodEnd": "2027-03-31",
+          "revenueLtm": "310000000.00",
+          "ebitdaLtm": "64000000.00",
+          "netDebt": "115000000.00"
+        }
+      },
+      {
+        "plan": "worked",
+        "quarter": {
+          "periodEnd": "2024-06-30",
+          "revenueLtm": null,
+          "ebitdaLtm": "-2000000.00",
+          "netDebt": "131724000.00"
+        }
+      },
+      {
+        "plan": "worked",
+        "quarter": null
+      },
+      {
+        "plan": "worked",
+        "quarter": {
+          "periodEnd": "2024-06-30",
+          "revenueLtm": "207289999.99",
+          "ebitdaLtm": "41458000.00",
+          "netDebt": "160996000.00"
+        }
+      },
+      {
+        "plan": "worked",
+        "quarter": {
+          "periodEnd": "2024-06-30",
+          "revenueLtm": "207289999.00",
+          "ebitdaLtm": "41457999.99",
+          "netDebt": "153678000.00"
+        }
+      },
+      {
+        "plan": "netCash",
+        "quarter": {
+          "periodEnd": "2024-03-31",
+          "revenueLtm": "55000000.00",
+          "ebitdaLtm": "12100000.00",
+          "netDebt": "1000000.00"
+        }
+      },
+      {
+        "plan": "netCash",
+        "quarter": {
+          "periodEnd": "2024-06-30",
+          "revenueLtm": "60000000.00",
+          "ebitdaLtm": "12000000.00",
+          "netDebt": "-8000000.00"
+        }
+      },
+      {
+        "plan": "empty",
+        "quarter": {
+          "periodEnd": "2024-06-30",
+          "revenueLtm": "220000000.00",
+          "ebitdaLtm": "40500000.00",
+          "netDebt": "150000000.00"
+        }
+      }
+    ]
+  },
+  "expected": {
+    "results": [
+      {
+        "metrics": [
+          {
+            "metric": "ebitda",
+            "actual": "40500000",
+            "plan": "43640000",
+            "interpolated": true,
+            "variance": "-3140000",
+            "variancePct": "-0.0719523373",
+            "status": "behind",
+            "notCalculable": null
+          },
+          {
+            "metric": "revenue",
+            "actual": "220000000",
+            "plan": "218200000",
+            "interpolated": true,
+            "variance": "1800000",
+            "variancePct": "0.0082493126",
+            "status": "on_plan",
+            "notCalculable": null
+          },
+          {
+            "metric": "net_debt",
+            "actual": "150000000",
+            "plan": "146360000",
+            "interpolated": true,
+            "variance": "3640000",
+            "variancePct": "0.0248701831",
+            "status": "on_plan",
+            "notCalculable": null
+          }
+        ],
+        "headline": "behind"
+      },
+      {
+        "metrics": [
+          {
+            "metric": "ebitda",
+            "actual": "49686000.01",
+            "plan": "47320000",
+            "interpolated": false,
+            "variance": "2366000.01",
+            "variancePct": "0.0500000002",
+            "status": "ahead",
+            "notCalculable": null
+          },
+          {
+            "metric": "revenue",
+            "actual": "248430000",
+            "plan": "236600000",
+            "interpolated": false,
+            "variance": "11830000",
+            "variancePct": "0.05",
+            "status": "on_plan",
+            "notCalculable": null
+          },
+          {
+            "metric": "net_debt",
+            "actual": "135546000",
+            "plan": "142680000",
+            "interpolated": false,
+            "variance": "-7134000",
+            "variancePct": "-0.05",
+            "status": "on_plan",
+            "notCalculable": null
+          }
+        ],
+        "headline": "ahead"
+      },
+      {
+        "metrics": [
+          {
+            "metric": "ebitda",
+            "actual": "49213698.63",
+            "plan": "49213698.6301369863",
+            "interpolated": true,
+            "variance": "-0.0001369863",
+            "variancePct": "0",
+            "status": "on_plan",
+            "notCalculable": null
+          },
+          {
+            "metric": "revenue",
+            "actual": "244835616.44",
+            "plan": "244835616.4383561644",
+            "interpolated": true,
+            "variance": "0.0016438356",
+            "variancePct": "0",
+            "status": "on_plan",
+            "notCalculable": null
+          },
+          {
+            "metric": "net_debt",
+            "actual": "140000000",
+            "plan": null,
+            "interpolated": false,
+            "variance": null,
+            "variancePct": null,
+            "status": null,
+            "notCalculable": "missing_plan_figure"
+          }
+        ],
+        "headline": "on_plan"
+      },
+      {
+        "metrics": [
+          {
+            "metric": "ebitda",
+            "actual": "60500000",
+            "plan": "55000000",
+            "interpolated": false,
+            "variance": "5500000",
+            "variancePct": "0.1",
+            "status": "ahead",
+            "notCalculable": null
+          },
+          {
+            "metric": "revenue",
+            "actual": "270000000",
+            "plan": "270000000",
+            "interpolated": false,
+            "variance": "0",
+            "variancePct": "0",
+            "status": "on_plan",
+            "notCalculable": null
+          },
+          {
+            "metric": "net_debt",
+            "actual": "130000000",
+            "plan": null,
+            "interpolated": false,
+            "variance": null,
+            "variancePct": null,
+            "status": null,
+            "notCalculable": "missing_plan_figure"
+          }
+        ],
+        "headline": "ahead"
+      },
+      {
+        "metrics": [
+          {
+            "metric": "ebitda",
+            "actual": "58000000",
+            "plan": null,
+            "interpolated": false,
+            "variance": null,
+            "variancePct": null,
+            "status": null,
+            "notCalculable": "missing_plan_figure"
+          },
+          {
+            "metric": "revenue",
+            "actual": "280000000",
+            "plan": "284876712.3287671233",
+            "interpolated": true,
+            "variance": "-4876712.3287671233",
+            "variancePct": "-0.0171186767",
+            "status": "on_plan",
+            "notCalculable": null
+          },
+          {
+            "metric": "net_debt",
+            "actual": "125000000",
+            "plan": null,
+            "interpolated": false,
+            "variance": null,
+            "variancePct": null,
+            "status": null,
+            "notCalculable": "missing_plan_figure"
+          }
+        ],
+        "headline": null
+      },
+      {
+        "metrics": [
+          {
+            "metric": "ebitda",
+            "actual": "39000000",
+            "plan": null,
+            "interpolated": false,
+            "variance": null,
+            "variancePct": null,
+            "status": null,
+            "notCalculable": "before_plan_start"
+          },
+          {
+            "metric": "revenue",
+            "actual": "195000000",
+            "plan": null,
+            "interpolated": false,
+            "variance": null,
+            "variancePct": null,
+            "status": null,
+            "notCalculable": "before_plan_start"
+          },
+          {
+            "metric": "net_debt",
+            "actual": "151000000",
+            "plan": null,
+            "interpolated": false,
+            "variance": null,
+            "variancePct": null,
+            "status": null,
+            "notCalculable": "before_plan_start"
+          }
+        ],
+        "headline": null
+      },
+      {
+        "metrics": [
+          {
+            "metric": "ebitda",
+            "actual": "64000000",
+            "plan": null,
+            "interpolated": false,
+            "variance": null,
+            "variancePct": null,
+            "status": null,
+            "notCalculable": "past_plan_end"
+          },
+          {
+            "metric": "revenue",
+            "actual": "310000000",
+            "plan": null,
+            "interpolated": false,
+            "variance": null,
+            "variancePct": null,
+            "status": null,
+            "notCalculable": "past_plan_end"
+          },
+          {
+            "metric": "net_debt",
+            "actual": "115000000",
+            "plan": null,
+            "interpolated": false,
+            "variance": null,
+            "variancePct": null,
+            "status": null,
+            "notCalculable": "past_plan_end"
+          }
+        ],
+        "headline": null
+      },
+      {
+        "metrics": [
+          {
+            "metric": "ebitda",
+            "actual": "-2000000",
+            "plan": "43640000",
+            "interpolated": true,
+            "variance": "-45640000",
+            "variancePct": "-1.0458295142",
+            "status": "behind",
+            "notCalculable": null
+          },
+          {
+            "metric": "revenue",
+            "actual": null,
+            "plan": "218200000",
+            "interpolated": true,
+            "variance": null,
+            "variancePct": null,
+            "status": null,
+            "notCalculable": "missing_actual"
+          },
+          {
+            "metric": "net_debt",
+            "actual": "131724000",
+            "plan": "146360000",
+            "interpolated": true,
+            "variance": "-14636000",
+            "variancePct": "-0.1",
+            "status": "ahead",
+            "notCalculable": null
+          }
+        ],
+        "headline": "behind"
+      },
+      {
+        "metrics": [
+          {
+            "metric": "ebitda",
+            "actual": null,
+            "plan": null,
+            "interpolated": false,
+            "variance": null,
+            "variancePct": null,
+            "status": null,
+            "notCalculable": "no_current_quarter"
+          },
+          {
+            "metric": "revenue",
+            "actual": null,
+            "plan": null,
+            "interpolated": false,
+            "variance": null,
+            "variancePct": null,
+            "status": null,
+            "notCalculable": "no_current_quarter"
+          },
+          {
+            "metric": "net_debt",
+            "actual": null,
+            "plan": null,
+            "interpolated": false,
+            "variance": null,
+            "variancePct": null,
+            "status": null,
+            "notCalculable": "no_current_quarter"
+          }
+        ],
+        "headline": null
+      },
+      {
+        "metrics": [
+          {
+            "metric": "ebitda",
+            "actual": "41458000",
+            "plan": "43640000",
+            "interpolated": true,
+            "variance": "-2182000",
+            "variancePct": "-0.05",
+            "status": "on_plan",
+            "notCalculable": null
+          },
+          {
+            "metric": "revenue",
+            "actual": "207289999.99",
+            "plan": "218200000",
+            "interpolated": true,
+            "variance": "-10910000.01",
+            "variancePct": "-0.05",
+            "status": "on_plan",
+            "notCalculable": null
+          },
+          {
+            "metric": "net_debt",
+            "actual": "160996000",
+            "plan": "146360000",
+            "interpolated": true,
+            "variance": "14636000",
+            "variancePct": "0.1",
+            "status": "behind",
+            "notCalculable": null
+          }
+        ],
+        "headline": "on_plan"
+      },
+      {
+        "metrics": [
+          {
+            "metric": "ebitda",
+            "actual": "41457999.99",
+            "plan": "43640000",
+            "interpolated": true,
+            "variance": "-2182000.01",
+            "variancePct": "-0.0500000002",
+            "status": "behind",
+            "notCalculable": null
+          },
+          {
+            "metric": "revenue",
+            "actual": "207289999",
+            "plan": "218200000",
+            "interpolated": true,
+            "variance": "-10910001",
+            "variancePct": "-0.0500000046",
+            "status": "behind",
+            "notCalculable": null
+          },
+          {
+            "metric": "net_debt",
+            "actual": "153678000",
+            "plan": "146360000",
+            "interpolated": true,
+            "variance": "7318000",
+            "variancePct": "0.05",
+            "status": "on_plan",
+            "notCalculable": null
+          }
+        ],
+        "headline": "behind"
+      },
+      {
+        "metrics": [
+          {
+            "metric": "ebitda",
+            "actual": "12100000",
+            "plan": "11000000",
+            "interpolated": true,
+            "variance": "1100000",
+            "variancePct": "0.1",
+            "status": "ahead",
+            "notCalculable": null
+          },
+          {
+            "metric": "revenue",
+            "actual": "55000000",
+            "plan": "55000000",
+            "interpolated": true,
+            "variance": "0",
+            "variancePct": "0",
+            "status": "on_plan",
+            "notCalculable": null
+          },
+          {
+            "metric": "net_debt",
+            "actual": "1000000",
+            "plan": "0",
+            "interpolated": true,
+            "variance": "1000000",
+            "variancePct": null,
+            "status": null,
+            "notCalculable": "non_positive_plan"
+          }
+        ],
+        "headline": "ahead"
+      },
+      {
+        "metrics": [
+          {
+            "metric": "ebitda",
+            "actual": "12000000",
+            "plan": "12000000",
+            "interpolated": false,
+            "variance": "0",
+            "variancePct": "0",
+            "status": "on_plan",
+            "notCalculable": null
+          },
+          {
+            "metric": "revenue",
+            "actual": "60000000",
+            "plan": "60000000",
+            "interpolated": false,
+            "variance": "0",
+            "variancePct": "0",
+            "status": "on_plan",
+            "notCalculable": null
+          },
+          {
+            "metric": "net_debt",
+            "actual": "-8000000",
+            "plan": "-5000000",
+            "interpolated": false,
+            "variance": "-3000000",
+            "variancePct": null,
+            "status": null,
+            "notCalculable": "non_positive_plan"
+          }
+        ],
+        "headline": "on_plan"
+      },
+      {
+        "metrics": [
+          {
+            "metric": "ebitda",
+            "actual": "40500000",
+            "plan": null,
+            "interpolated": false,
+            "variance": null,
+            "variancePct": null,
+            "status": null,
+            "notCalculable": "missing_plan_figure"
+          },
+          {
+            "metric": "revenue",
+            "actual": "220000000",
+            "plan": null,
+            "interpolated": false,
+            "variance": null,
+            "variancePct": null,
+            "status": null,
+            "notCalculable": "missing_plan_figure"
+          },
+          {
+            "metric": "net_debt",
+            "actual": "150000000",
+            "plan": null,
+            "interpolated": false,
+            "variance": null,
+            "variancePct": null,
+            "status": null,
+            "notCalculable": "missing_plan_figure"
+          }
+        ],
+        "headline": null
+      }
+    ]
+  }
+}

@@ -7,6 +7,7 @@ from hypothesis import assume, given, settings
 from hypothesis import strategies as st
 
 from calc_check import attribution, bridge, credit, multiples, rollup
+from calc_check import underwriting as uw
 from calc_check.irr import Flow, npv, xirr
 
 
@@ -297,3 +298,71 @@ def test_rollup_parts_are_the_gain_and_add_over_any_split_of_the_rows(
         assert total(everything, key) == total(one, key) + total(other, key)
     for key in rollup.PARTS:
         assert part(everything, key) == part(one, key) + part(other, key)
+
+
+RANK = {"behind": 0, "on_plan": 1, "ahead": 2}
+
+
+@st.composite
+def plan_span(draw: st.DrawFn) -> tuple[list[dict[str, str | None]], str, str, str]:
+    """Two plan points with every figure, and a day strictly between them."""
+    start = date(2019, 1, 1) + timedelta(days=draw(st.integers(0, 2000)))
+    length = draw(st.integers(2, 2000))
+    day = start + timedelta(days=draw(st.integers(1, length - 1)))
+    end = start + timedelta(days=length)
+
+    def point(on: date) -> dict[str, str | None]:
+        return {
+            "periodEnd": on.isoformat(),
+            "revenueLtm": str(draw(cents(1, 4_000_000_000))),
+            "ebitdaLtm": str(draw(cents(1, 900_000_000))),
+            "netDebt": str(draw(cents(-200_000_000, 3_000_000_000))),
+        }
+
+    return [point(start), point(end)], start.isoformat(), day.isoformat(), end.isoformat()
+
+
+@given(plan_span(), st.sampled_from(uw.METRICS))
+def test_plan_between_two_dates_lies_between_their_figures(
+    span: tuple[list[dict[str, str | None]], str, str, str], metric: str
+) -> None:
+    points, start, day, end = span
+    first, _, _ = uw.plan_at(points, metric, start)
+    last, _, _ = uw.plan_at(points, metric, end)
+    plan, line, reason = uw.plan_at(points, metric, day)
+    assert first is not None and last is not None and plan is not None
+    assert line and reason is None
+    assert min(first, last) <= plan <= max(first, last)
+    # Outside the two dates there is no figure, and none is borrowed from the nearest point.
+    before = (date.fromisoformat(start) - timedelta(days=1)).isoformat()
+    after = (date.fromisoformat(end) + timedelta(days=1)).isoformat()
+    assert uw.plan_at(points, metric, before) == (None, False, "before_plan_start")
+    assert uw.plan_at(points, metric, after) == (None, False, "past_plan_end")
+
+
+@given(plan_span(), cents(-900_000_000, 1_800_000_000), cents(-900_000_000, 1_800_000_000))
+def test_a_higher_ebitda_never_reads_worse_and_a_higher_net_debt_never_better(
+    span: tuple[list[dict[str, str | None]], str, str, str], a: Decimal, b: Decimal
+) -> None:
+    points, _, day, _ = span
+    low, high = sorted((a, b))
+
+    def rows(value: Decimal) -> dict[str, Any]:
+        quarter: dict[str, str | None] = {
+            "periodEnd": day,
+            "revenueLtm": None,
+            "ebitdaLtm": str(value),
+            "netDebt": str(value),
+        }
+        return {r["metric"]: r for r in uw.plan_metrics(points, quarter, "0.05")}
+
+    lower, higher = rows(low), rows(high)
+    assert RANK[higher["ebitda"]["status"]] >= RANK[lower["ebitda"]["status"]]
+    assert lower["revenue"]["notCalculable"] == "missing_actual"
+    debt_low, debt_high = lower["net_debt"]["status"], higher["net_debt"]["status"]
+    assert (debt_low is None) == (debt_high is None)
+    if debt_low is not None:
+        assert RANK[debt_high] <= RANK[debt_low]
+    for row in (*lower.values(), *higher.values()):
+        if row["variance"] is not None:
+            assert row["variance"] == row["actual"] - row["plan"]

@@ -25,3 +25,40 @@ export type ValueCreationReason = (typeof VALUE_CREATION_REASONS)[number];
 
 /** The key of the cohort that holds the positions with no entry figure to band. */
 export const NOT_CALCULABLE_BAND = 'not_calculable';
+
+/*
+ * The names the comparison against the underwritten base case shares with the API contract
+ * (docs/08 section 11).
+ */
+
+/** The company figures a base case plans, in the order they are answered: EBITDA is the headline. */
+export const PLAN_METRICS = ['ebitda', 'revenue', 'net_debt'] as const;
+export type PlanMetric = (typeof PLAN_METRICS)[number];
+
+/** Where a figure stands against plan, best first. */
+export const PLAN_STATUSES = ['ahead', 'on_plan', 'behind'] as const;
+export type PlanStatus = (typeof PLAN_STATUSES)[number];
+
+/**
+ * Why a plan has no figure at a date: the date is before its first point, after its last, or the
+ * point on the date (or a neighbour of a date between two points) lacks the figure.
+ */
+export const PLAN_FIGURE_REASONS = [
+  'before_plan_start',
+  'past_plan_end',
+  'missing_plan_figure',
+] as const;
+export type PlanFigureReason = (typeof PLAN_FIGURE_REASONS)[number];
+
+/**
+ * Why a metric has no variance, percent or status against plan, in the order they are decided:
+ * no approved quarter to compare, no plan figure (the three reasons above), the quarter lacks the
+ * figure, or the plan figure is zero or less (the variance in money stands; the percent does not).
+ */
+export const PLAN_METRIC_REASONS = [
+  'no_current_quarter',
+  ...PLAN_FIGURE_REASONS,
+  'missing_actual',
+  'non_positive_plan',
+] as const;
+export type PlanMetricReason = (typeof PLAN_METRIC_REASONS)[number];

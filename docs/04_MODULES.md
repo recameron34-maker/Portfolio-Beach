@@ -147,6 +147,7 @@ Global rules in `CLAUDE.md` apply to every module. Workflow states are defined i
 - Private credit monitoring: credit terms (facility, coupon split cash / PIK, floor, spread, OID, maturity, amortization, call protection, covenants); per period par, cost, fair value, accrued and PIK, cash interest received, principal repaid; current yield, yield to maturity, interest coverage, leverage through the tranche, LTV, DSCR (`docs/08` section 10); covenant and payment status; maturity ladder across the credit vehicle.
 - Credit watchlist rules in config: coverage below covenant level, PIK toggle or deferred interest, LTV above threshold, maturity inside 12 months, payment status not current.
 - Entry snapshot pinned by flag, never inferred from the earliest date.
+- Performance against the sponsor's underwritten base case (asked by the owner, decision 0022): the deal team records the base case of a position (for equity and continuation vehicles the plan for twelve-month revenue, EBITDA and net debt at each date, the exit multiple and the underwritten gross MOIC and IRR; for private credit the underwritten yield, loss rate, MOIC and IRR) and a second person confirms it. The Performance tab of the deal then shows the current quarter against plan at the same date, the share of the planned value creation earned, and gross MOIC and IRR against underwriting, each ahead of, on or behind plan by the rules of `docs/08` section 11 and the tolerances in config (`underwriting`). A revision is a new version: dated as the case it corrects it replaces it, dated later it is a re-underwriting and both stay; the entry case is the one compared unless the reader picks another.
 **Prototype scope:** fully built.
 **Depends on:** M1, M4.
 **AC**
@@ -154,6 +155,12 @@ Global rules in `CLAUDE.md` apply to every module. Workflow states are defined i
 - Prior Year shows the missing placeholder when the exact quarter is absent (test).
 - "Monitoring status for a quarter" export lists every active investment with its status.
 - A credit position with EBITDA at or below zero shows the missing placeholder for coverage and leverage, never a number (test).
+- Every figure of the base case comparison equals its rule in `docs/08` section 11 over the figures the API returns with it, and the actual side equals what the value creation card and the position summary report for the same date (API test).
+- A plan figure between two plan dates is a straight line by days and is flagged as such; a quarter before the plan starts, after it ends, or beside a plan date with no figure shows the missing placeholder with its reason, never the nearest plan figure and never a zero (calculation and API tests).
+- The person who last changed the figures of a base case cannot confirm it: the database, the state machine and the API each refuse (tests). Only a confirmed case is compared; a draft alone shows no comparison.
+- A version dated as a confirmed case supersedes it and a later-dated version leaves it in place; superseded and withdrawn cases never change again, and every forbidden transition is refused (workflow tests).
+- A base case on a walled position is invisible outside the wall (404, RLS test); a primary fund has no base case and a create is refused (API test).
+- A loan marked below par reads behind plan on its IRR, and its yield to maturity carries no status (API test).
 
 ## M10. Valuation Workflow
 **Purpose:** one controlled valuation per investment per period.

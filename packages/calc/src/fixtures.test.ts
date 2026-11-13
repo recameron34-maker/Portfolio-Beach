@@ -29,6 +29,8 @@ import {
   navRollForward,
   netDebtToEbitda,
   parRollForward,
+  planHeadline,
+  planMetrics,
   sameQuarterPriorYear,
   sinceEntryMeasures,
   takahashiAlexander,
@@ -52,6 +54,7 @@ import type {
   OperatingFigures,
   PaymentFrequency,
   PeriodRow,
+  PlanFigures,
   RollupPosition,
 } from './index.js';
 
@@ -429,6 +432,22 @@ describe('golden fixtures', () => {
           const medians = fx.expected.medians as (string | null)[];
           expect(medians.length).toBe(lists.length);
           lists.forEach((values, i) => expectClose(median(values), medians[i], tol));
+          break;
+        }
+        case 'plan_tracking': {
+          const input = fx.input as {
+            onPlanTolerance: string;
+            plans: Record<string, PlanFigures[]>;
+            cases: { plan: string; quarter: PlanFigures | null }[];
+          };
+          const results = fx.expected.results as { metrics: unknown[]; headline: string | null }[];
+          expect(results.length).toBe(input.cases.length);
+          input.cases.forEach((c, i) => {
+            const rows = planMetrics(input.plans[c.plan]!, c.quarter, input.onPlanTolerance);
+            // The rows as they travel: the golden strings, to the letter.
+            expect(rows, `case ${i + 1}`).toEqual(results[i]!.metrics);
+            expect(planHeadline(rows), `case ${i + 1}`).toBe(results[i]!.headline);
+          });
           break;
         }
         case 'credit_yield': {

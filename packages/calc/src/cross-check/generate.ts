@@ -22,6 +22,8 @@ import { bandIndexOf, entryCohortBands, turnBands, weightedAverage } from '../co
 import { dealFit, median } from '../fit.js';
 import type { FitInputs, FitThresholds } from '../fit.js';
 import { valueCreationRollup } from '../rollup.js';
+import { planHeadline, planMetrics } from '../underwriting.js';
+import type { PlanFigures } from '../underwriting.js';
 import type { RollupPosition } from '../rollup.js';
 import { VALUE_CREATION_REASONS } from '../terms.js';
 import { directAlpha, ksPme } from '../pme.js';
@@ -463,6 +465,57 @@ function run(seed: number, perKind: number): Case[] {
         ),
         median: str(typical),
       },
+    });
+  }
+
+  // The quarter against the underwritten plan (docs/08 section 11, rules 1 to 3), last again:
+  // dates on, between and outside the plan dates, missing figures, a plan in net cash, and
+  // actuals on and a cent either side of the tolerance.
+  const onPlanTolerance = '0.05';
+  const maybe = (value: string, missing: number): string | null => (rnd() < missing ? null : value);
+  for (let i = 0; i < perKind; i++) {
+    const points: PlanFigures[] = [];
+    let date = addDays('2019-01-01', int(0, 1500));
+    for (let n = int(0, 5); n > 0; n--) {
+      points.push({
+        periodEnd: date,
+        revenueLtm: maybe(amount(1_000_000, 4_000_000_000), 0.1),
+        ebitdaLtm: maybe(amount(100_000, 900_000_000), 0.1),
+        netDebt: maybe(amount(-200_000_000, 3_000_000_000), 0.1),
+      });
+      date = addDays(date, int(30, 500));
+    }
+    const first = points[0]?.periodEnd ?? '2021-06-30';
+    const on = points.length > 0 && rnd() < 0.35 ? pick(points) : null;
+    const edge = (planned: PlanFigures['netDebt']): string | null => {
+      if (planned === null) return maybe(amount(-50_000_000, 4_000_000_000), 0.1);
+      const factor = pick(['0.95', '1.05', '0.9', '1.1', '1']);
+      const nudge = pick(['-0.01', '0', '0', '0.01']);
+      return D(planned).times(factor).plus(nudge).toFixed(2);
+    };
+    const quarter: PlanFigures | null =
+      rnd() < 0.05
+        ? null
+        : on !== null
+          ? {
+              periodEnd: on.periodEnd,
+              revenueLtm: edge(on.revenueLtm),
+              ebitdaLtm: edge(on.ebitdaLtm),
+              netDebt: edge(on.netDebt),
+            }
+          : {
+              periodEnd: addDays(first, int(-200, 2200)),
+              revenueLtm: maybe(amount(-50_000_000, 4_000_000_000), 0.08),
+              ebitdaLtm: maybe(amount(-50_000_000, 900_000_000), 0.08),
+              netDebt: maybe(amount(-200_000_000, 3_000_000_000), 0.08),
+            };
+    const metrics = planMetrics(points, quarter, onPlanTolerance);
+    cases.push({
+      id: id++,
+      kind: 'plan',
+      tolerance: '1e-18',
+      input: { points, quarter, onPlanTolerance },
+      result: { metrics, headline: planHeadline(metrics) },
     });
   }
   return cases;

@@ -16,6 +16,7 @@ from typing import Any, cast
 from calc_check import CTX, credit, fit, multiples, pme, rollup
 from calc_check import attribution as attr
 from calc_check import bridge as vc
+from calc_check import underwriting as uw
 from calc_check.irr import xirr
 
 
@@ -139,6 +140,12 @@ def check_case(case: dict[str, Any]) -> list[str]:
         typical = fit.median([Decimal(v) for v in inp["positions"]])
         if not _agree(typical, _dec(ts["median"]), tol):
             problems.append(f"median {typical} vs ts {ts['median']}")
+    elif kind == "plan":
+        plan_rows = uw.plan_metrics(inp["points"], inp["quarter"], inp["onPlanTolerance"])
+        for row, travelled in zip(plan_rows, ts["metrics"], strict=True):
+            problems.extend(uw.row_differences(row, travelled, tol, str(row["metric"])))
+        if uw.headline(plan_rows) != ts["headline"]:
+            problems.append(f"headline {uw.headline(plan_rows)} vs ts {ts['headline']}")
     else:
         problems.append(f"unknown kind {kind}")
     return problems

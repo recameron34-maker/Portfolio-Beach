@@ -57,6 +57,11 @@
     "caps": { "sector": 0.25, "sponsor": 0.2, "geography": 0.7 },
     "size": { "low": 0.5, "high": 1.5, "limit": 3 }
   },
+  "underwriting": {
+    "_note": "Performance against the sponsor's underwritten base case (docs/04 M9, docs/08 section 11, decision 0022): a draft, with both tolerances here and none in code. onPlanTolerance: revenue, EBITDA and net debt within this share of the plan figure, either way, are on plan; beyond it they are ahead of or behind plan (0.05 = 5%). irrTolerance: a gross IRR within this many points of the underwritten IRR, either way, is on plan (0.02 = 2 points).",
+    "onPlanTolerance": 0.05,
+    "irrTolerance": 0.02
+  },
   "pipeline": {
     "_note": "Deal pipeline (docs/04 M5, docs/18 section 4). stageAgingDays is how many days an opportunity may sit in a stage before it is flagged as aging; one entry per live stage (Closed and Passed never age).",
     "stageAgingDays": {

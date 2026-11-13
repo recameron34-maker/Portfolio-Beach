@@ -22,9 +22,10 @@ Financial calculations for Portfolio Beach, specified in `docs/08_CALCULATIONS_S
 | `cohorts.ts` | Entry metric bands in turns, the cohorts they are listed under and the weighted average of a cohort |
 | `pooled.ts` | Pooled returns over a set of positions: the multiples over the sums, the IRR over the pooled flows with its flag |
 | `rollup.ts` | The roll-up of the value creation views over position rows as they travel: the portfolio sums and the cohorts; the API calls it for the whole book and a page for a filtered set |
-| `terms.ts` | The names those views share with the API contract: the not-calculable reasons in order and the key of the cohort with no entry figure |
+| `terms.ts` | The names the value creation views and the base case comparison share with the API contract: the not-calculable reasons in order, the key of the cohort with no entry figure, the plan metrics and the statuses against plan |
 | `liquidity.ts` | Takahashi-Alexander cash flow model |
 | `credit.ts` | Private credit: all-in coupon, current yield, yield to maturity, coverage, leverage, LTV, DSCR, PIK |
+| `underwriting.ts` | Performance against the sponsor's underwritten base case: the plan at a date (a plan figure, or a flagged straight line between two), the variance of the current quarter against it and its status by a tolerance |
 | `fixtures/` | Golden files shared with the Python cross-check |
 
 ## Commands
