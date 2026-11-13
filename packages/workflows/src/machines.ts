@@ -666,6 +666,76 @@ export const closingMachine: Machine<ClosingState, ClosingCommand> = {
   ],
 };
 
+// ---- 13. Underwritten base case (docs/18 section 13, decision 0022) --------------------------
+export type UnderwritingCaseState = 'Draft' | 'Confirmed' | 'Superseded' | 'Withdrawn';
+export type UnderwritingCaseCommand = 'confirm' | 'withdraw' | 'supersede' | 'retire';
+
+/**
+ * mon.underwriting_case.state. The deal team records the sponsor's base case of a position as a
+ * Draft (one per position) and may edit or withdraw it. A second person confirms it: someone on
+ * the deal team or an approver, never the person who last changed the figures (record key
+ * enteredBy, which every edit resets), and only once the case names its source (hasSource). Only
+ * a Confirmed case is compared with the actuals, and it never changes: a later version dated as
+ * it is corrects it, and the confirmation of that version supersedes it as a system step in the
+ * same transaction (correctedBySameDate), never as a caller's command; a version with a later
+ * date is a re-underwriting and both stay Confirmed. An approver retires a case confirmed in
+ * error. Superseded and Withdrawn are terminal: a revision is always a new version.
+ */
+export const underwritingCaseMachine: Machine<UnderwritingCaseState, UnderwritingCaseCommand> = {
+  name: 'underwriting_case',
+  states: ['Draft', 'Confirmed', 'Superseded', 'Withdrawn'],
+  commands: ['confirm', 'withdraw', 'supersede', 'retire'],
+  initial: 'Draft',
+  terminal: ['Superseded', 'Withdrawn'],
+  transitions: [
+    {
+      from: 'Draft',
+      to: 'Confirmed',
+      command: 'confirm',
+      roles: ['deal_team', 'approver'],
+      precondition: all(
+        notSameAs(
+          'enteredBy',
+          'the person who last changed the figures cannot confirm them (SEC-5.6)',
+        ),
+        flag(
+          'hasSource',
+          true,
+          'a base case names its source before it is confirmed: a document of the position or a note on where the model is held (SEC-9.4)',
+        ),
+      ),
+      note: 'Only a confirmed base case is compared with the actuals.',
+    },
+    {
+      from: 'Draft',
+      to: 'Withdrawn',
+      command: 'withdraw',
+      roles: ['deal_team'],
+      precondition: requireReason,
+    },
+    {
+      from: 'Confirmed',
+      to: 'Superseded',
+      command: 'supersede',
+      roles: ['service'],
+      precondition: flag(
+        'correctedBySameDate',
+        true,
+        'only the confirmation of a later version with the same case date supersedes a base case',
+      ),
+      note: 'A step of that confirmation, in the same transaction; nobody sends it.',
+    },
+    {
+      from: 'Confirmed',
+      to: 'Withdrawn',
+      command: 'retire',
+      roles: ['approver'],
+      precondition: requireReason,
+      note: 'For a base case confirmed in error; a revision is a new version instead.',
+    },
+  ],
+};
+
 export const MACHINES = {
   valuation: valuationMachine,
   staging: stagingMachine,
@@ -678,4 +748,5 @@ export const MACHINES = {
   exception: exceptionMachine,
   wireInstruction: wireInstructionMachine,
   closing: closingMachine,
+  underwritingCase: underwritingCaseMachine,
 } as const;

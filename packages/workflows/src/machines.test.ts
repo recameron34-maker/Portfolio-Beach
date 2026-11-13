@@ -11,6 +11,7 @@ import {
   exceptionMachine,
   extractionRunMachine,
   reportingPackageMachine,
+  underwritingCaseMachine,
   valuationMachine,
   wireInstructionMachine,
 } from './machines.js';
@@ -65,6 +66,9 @@ const happyRecord = {
   transientRetries: 0,
   lastErrorKind: 'transient',
   appliedPeriod: '2025-06-30',
+  enteredBy: DEAL,
+  hasSource: true,
+  correctedBySameDate: true,
 };
 
 interface CtxOverrides {
@@ -893,6 +897,210 @@ describe('closing (docs/18 section 12, M8)', () => {
         code: 'forbidden',
         message: `closing: ${command} is not allowed from ${from}`,
       });
+  });
+});
+
+describe('underwritten base case (docs/18 section 13, SEC-5.6, SEC-9.1, SEC-9.4)', () => {
+  const DEAL2 = '10000000-0000-4000-8000-00000000000a';
+  const confirm = (roles: string[], extra: CtxOverrides = {}): TransitionResult<string> =>
+    attempt(underwritingCaseMachine, 'Draft', 'confirm', ctx(roles, extra));
+
+  it('is in the registry under its table name; Superseded and Withdrawn are terminal', () => {
+    expect(MACHINES.underwritingCase).toBe(underwritingCaseMachine);
+    expect(underwritingCaseMachine.name).toBe('underwriting_case');
+    expect(underwritingCaseMachine.states).toEqual([
+      'Draft',
+      'Confirmed',
+      'Superseded',
+      'Withdrawn',
+    ]);
+    expect(underwritingCaseMachine.commands).toEqual([
+      'confirm',
+      'withdraw',
+      'supersede',
+      'retire',
+    ]);
+    expect(underwritingCaseMachine.initial).toBe('Draft');
+    expect(underwritingCaseMachine.terminal).toEqual(['Superseded', 'Withdrawn']);
+  });
+
+  it('lists exactly the four moves of the table, each with its roles', () => {
+    expect(
+      underwritingCaseMachine.transitions.map(
+        (t) => `${t.from} ${t.command} ${t.to}: ${t.roles.join(', ')}`,
+      ),
+    ).toEqual([
+      'Draft confirm Confirmed: deal_team, approver',
+      'Draft withdraw Withdrawn: deal_team',
+      'Confirmed supersede Superseded: service',
+      'Confirmed retire Withdrawn: approver',
+    ]);
+  });
+
+  it('is confirmed by a second person: the deal team or an approver, never the last editor', () => {
+    // The person who entered the figures is refused, whatever role they hold.
+    for (const role of ['deal_team', 'approver'])
+      expect(confirm([role], { actorId: DEAL })).toEqual({
+        ok: false,
+        code: 'precondition',
+        message:
+          'underwriting_case: the person who last changed the figures cannot confirm them (SEC-5.6)',
+      });
+    expect(confirm(['deal_team'], { actorId: DEAL2 })).toEqual({ ok: true, to: 'Confirmed' });
+    expect(confirm(['approver'], { actorId: HEAD })).toEqual({ ok: true, to: 'Confirmed' });
+  });
+
+  it('A creates, B edits, B confirms: refused, because every edit makes its editor the last one', () => {
+    // enteredBy is the last person to change the figures, not the first: the record after each step.
+    const created = { ...happyRecord, enteredBy: DEAL };
+    const edited = { ...created, enteredBy: DEAL2 };
+    // Before the edit B is a second person and may confirm what A entered.
+    expect(confirm(['deal_team'], { actorId: DEAL2, record: created })).toEqual({
+      ok: true,
+      to: 'Confirmed',
+    });
+    // After it B confirms nothing: the figures are B's.
+    expect(confirm(['deal_team'], { actorId: DEAL2, record: edited })).toEqual({
+      ok: false,
+      code: 'precondition',
+      message:
+        'underwriting_case: the person who last changed the figures cannot confirm them (SEC-5.6)',
+    });
+    // A is now the second person for B's figures, and an approver always was.
+    expect(confirm(['deal_team'], { actorId: DEAL, record: edited })).toEqual({
+      ok: true,
+      to: 'Confirmed',
+    });
+    expect(confirm(['approver'], { actorId: HEAD, record: edited })).toEqual({
+      ok: true,
+      to: 'Confirmed',
+    });
+  });
+
+  it('is confirmed only once it names its source', () => {
+    const noSource = {
+      ok: false,
+      code: 'precondition',
+      message:
+        'underwriting_case: a base case names its source before it is confirmed: a document of the position or a note on where the model is held (SEC-9.4)',
+    };
+    expect(confirm(['approver'], { record: { ...happyRecord, hasSource: false } })).toEqual(
+      noSource,
+    );
+    const { hasSource: _dropped, ...unknownSource } = happyRecord;
+    expect(confirm(['approver'], { record: unknownSource })).toEqual(noSource);
+    // The second-person check comes first, and both stay listed.
+    const row = underwritingCaseMachine.transitions.find((t) => t.command === 'confirm');
+    expect(
+      checksOf(row?.precondition).map((c) =>
+        c(ctx(['deal_team'], { actorId: DEAL, record: { ...happyRecord, hasSource: false } })),
+      ),
+    ).toEqual([
+      'the person who last changed the figures cannot confirm them (SEC-5.6)',
+      'a base case names its source before it is confirmed: a document of the position or a note on where the model is held (SEC-9.4)',
+    ]);
+  });
+
+  it('withdrawing a Draft and retiring a Confirmed case each need a reason', () => {
+    for (const [from, command, role] of [
+      ['Draft', 'withdraw', 'deal_team'],
+      ['Confirmed', 'retire', 'approver'],
+    ] as const) {
+      expect(attempt(underwritingCaseMachine, from, command, ctx([role]))).toEqual({
+        ok: true,
+        to: 'Withdrawn',
+      });
+      for (const reason of [null, '', '   '])
+        expect(attempt(underwritingCaseMachine, from, command, ctx([role], { reason }))).toEqual({
+          ok: false,
+          code: 'precondition',
+          message: 'underwriting_case: a reason is required',
+        });
+      const row = underwritingCaseMachine.transitions.find((t) => t.command === command);
+      expect(row?.precondition).toBe(requireReason);
+    }
+  });
+
+  it('the person who entered a Draft may withdraw it: withdrawing takes no second person', () => {
+    expect(
+      attempt(underwritingCaseMachine, 'Draft', 'withdraw', ctx(['deal_team'], { actorId: DEAL })),
+    ).toEqual({ ok: true, to: 'Withdrawn' });
+  });
+
+  it('a Confirmed case is superseded only by the confirmation of a correction, as a system step', () => {
+    const supersede = (roles: string[], correctedBySameDate: boolean): TransitionResult<string> =>
+      attempt(
+        underwritingCaseMachine,
+        'Confirmed',
+        'supersede',
+        ctx(roles, { record: { ...happyRecord, correctedBySameDate } }),
+      );
+    expect(supersede(['service'], true)).toEqual({ ok: true, to: 'Superseded' });
+    // A re-underwriting on a later date leaves the case as it is.
+    expect(supersede(['service'], false)).toEqual({
+      ok: false,
+      code: 'precondition',
+      message:
+        'underwriting_case: only the confirmation of a later version with the same case date supersedes a base case',
+    });
+    // Never a caller's command: no sign-in carries the service role.
+    for (const role of EVERY_ROLE.filter((r) => r !== 'service'))
+      expect(supersede([role], true), role).toEqual({
+        ok: false,
+        code: 'role',
+        message: 'underwriting_case: supersede from Confirmed requires one of: service',
+      });
+  });
+
+  it('refuses every role the row does not name, on every row', () => {
+    for (const t of underwritingCaseMachine.transitions)
+      for (const role of EVERY_ROLE.filter((r) => !t.roles.includes(r)))
+        expect(
+          attempt(underwritingCaseMachine, t.from, t.command, ctx([role])),
+          `${role} ${t.command} from ${t.from}`,
+        ).toMatchObject({ ok: false, code: 'role' });
+    // The moves a role might expect and does not have.
+    expect(attempt(underwritingCaseMachine, 'Draft', 'withdraw', ctx(['approver']))).toMatchObject({
+      ok: false,
+      code: 'role',
+    });
+    expect(
+      attempt(underwritingCaseMachine, 'Confirmed', 'retire', ctx(['deal_team'])),
+    ).toMatchObject({ ok: false, code: 'role' });
+    expect(attempt(underwritingCaseMachine, 'Draft', 'confirm', ctx(['operations']))).toMatchObject(
+      { ok: false, code: 'role' },
+    );
+  });
+
+  it('rejects the twelve (state, command) pairs the table does not list, for an actor holding every role', () => {
+    const forbidden = forbiddenPairs(underwritingCaseMachine);
+    expect(forbidden).toEqual([
+      { from: 'Draft', command: 'supersede' },
+      { from: 'Draft', command: 'retire' },
+      { from: 'Confirmed', command: 'confirm' },
+      { from: 'Confirmed', command: 'withdraw' },
+      { from: 'Superseded', command: 'confirm' },
+      { from: 'Superseded', command: 'withdraw' },
+      { from: 'Superseded', command: 'supersede' },
+      { from: 'Superseded', command: 'retire' },
+      { from: 'Withdrawn', command: 'confirm' },
+      { from: 'Withdrawn', command: 'withdraw' },
+      { from: 'Withdrawn', command: 'supersede' },
+      { from: 'Withdrawn', command: 'retire' },
+    ]);
+    for (const { from, command } of forbidden)
+      expect(attempt(underwritingCaseMachine, from, command, ctx(EVERY_ROLE))).toEqual({
+        ok: false,
+        code: 'forbidden',
+        message: `underwriting_case: ${command} is not allowed from ${from}`,
+      });
+  });
+
+  it('never moves a case back: no row leads to Draft and none leaves a terminal state', () => {
+    for (const t of underwritingCaseMachine.transitions) {
+      expect(t.to).not.toBe('Draft');
+      expect(['Superseded', 'Withdrawn']).not.toContain(t.from);
+    }
   });
 });
 
