@@ -20,8 +20,9 @@ import type { AppRole } from '../roles.js';
  * investment, one walled) with a Funded ticket on the first and a Drafted one on the walled; one
  * change request per investment; the review fixes (migration 0014): one quarter-end data exception
  * about each change request; the client lines (migration 0017): a line for each of two clients on
- * the open opportunity beside its vehicle-level line, and a third client named on no line. Loaded
- * as the owner, outside RLS.
+ * the open opportunity beside its vehicle-level line, and a third client named on no line; the
+ * underwritten base cases (migration 0021): a Confirmed case on each investment and a Draft
+ * re-underwriting on the walled one, each with two plan points. Loaded as the owner, outside RLS.
  */
 export const ids = {
   users: {
@@ -128,6 +129,13 @@ export const ids = {
   // its vehicle-level line, so who reads a line depends on the client it names.
   allocationOpenClientA: 'b0000000-0000-4000-8000-00000000001d',
   allocationOpenClientB: 'b0000000-0000-4000-8000-00000000001e',
+  // The underwritten base cases (migration 0021): a Confirmed case on each investment, and on the
+  // walled one a Draft re-underwriting too, so the open position has room for a new Draft (there
+  // is one Draft per position) and the Draft that is edited and confirmed sits inside the wall.
+  underwritingCaseOpen: 'd0000000-0000-4000-8000-000000000001',
+  underwritingCaseWalled: 'd0000000-0000-4000-8000-000000000002',
+  underwritingCaseWalledDraft: 'd0000000-0000-4000-8000-000000000003',
+  underwritingPointWalledDraftEntry: 'd0000000-0000-4000-8000-000000000004',
 } as const;
 
 /** The synthetic bank details every fixture wire instruction carries, encrypted with the prototype key. */
@@ -332,5 +340,26 @@ export async function loadFixture(handle: DbHandle): Promise<void> {
     insert into ops.data_exception (id, source, entity, entity_id, rule_id, expected, actual, severity, state) values
       ('${ids.exceptionOpenChangeRequest}', 'change_request', 'mon.deal_change_request', '${ids.changeRequestOpen}', 'CR-QE-01', 'Applied by 2024-09-30', 'Submitted', 'exception_severity.medium', 'open'),
       ('${ids.exceptionWalledChangeRequest}', 'change_request', 'mon.deal_change_request', '${ids.changeRequestWalled}', 'CR-QE-01', 'Applied by 2024-09-30', 'Routed', 'exception_severity.medium', 'open');
+  `);
+  // The underwritten base cases (migration 0021). A case starts as a Draft, takes its plan points
+  // and is then confirmed by a second person, here as in the product. The Draft on the walled
+  // position was entered by the deal team member outside the wall (before the wall went up), so the
+  // wall member is a second person and may confirm it.
+  await handle.exec(`
+    insert into mon.underwriting_case (id, investment_id, version, form, case_date, planned_exit_date, exit_multiple, gross_moic, gross_irr, revision_reason, source_note, entered_by, entered_at) values
+      ('${ids.underwritingCaseOpen}', '${ids.investment1}', 1, 'equity', '2022-03-15', '2027-03-15', 12.5, 2.5, 0.2, null, 'Sponsor model, deal team shared drive', '${u.dealTeam}', '2022-04-01T09:00:00Z'),
+      ('${ids.underwritingCaseWalled}', '${ids.investmentWalled}', 1, 'equity', '2023-06-30', '2028-06-30', 11, 2.2, 0.17, null, 'Sponsor model, deal team shared drive', '${u.wallMember}', '2023-07-10T09:00:00Z');
+    insert into mon.underwriting_case_point (case_id, period_end, revenue_ltm, ebitda_ltm, net_debt) values
+      ('${ids.underwritingCaseOpen}', '2022-03-15', 100000000, 24000000, 95000000),
+      ('${ids.underwritingCaseOpen}', '2027-03-15', 160000000, 44000000, 60000000),
+      ('${ids.underwritingCaseWalled}', '2023-06-30', 76000000, 15000000, 62000000),
+      ('${ids.underwritingCaseWalled}', '2028-06-30', 120000000, 28000000, 40000000);
+    update mon.underwriting_case set state = 'Confirmed', confirmed_by = '${u.approver}', confirmed_at = '2022-04-04T09:00:00Z' where id = '${ids.underwritingCaseOpen}';
+    update mon.underwriting_case set state = 'Confirmed', confirmed_by = '${u.approver}', confirmed_at = '2023-07-12T09:00:00Z' where id = '${ids.underwritingCaseWalled}';
+    insert into mon.underwriting_case (id, investment_id, version, form, case_date, planned_exit_date, exit_multiple, gross_moic, gross_irr, revision_reason, source_note, entered_by, entered_at) values
+      ('${ids.underwritingCaseWalledDraft}', '${ids.investmentWalled}', 2, 'equity', '2024-06-30', '2029-06-30', 10.5, 2, 0.15, 'Re-underwritten after the first year', 'Sponsor model, deal team shared drive', '${u.dealTeam}', '2024-08-20T09:00:00Z');
+    insert into mon.underwriting_case_point (id, case_id, period_end, revenue_ltm, ebitda_ltm, net_debt) values
+      ('${ids.underwritingPointWalledDraftEntry}', '${ids.underwritingCaseWalledDraft}', '2024-06-30', 80000000, 16000000, 60000000),
+      (gen_random_uuid(), '${ids.underwritingCaseWalledDraft}', '2029-06-30', 118000000, 27000000, 42000000);
   `);
 }

@@ -141,6 +141,15 @@ export const READ_MATRIX: Record<string, Row> = {
   // because it runs the QA step.
   'rpt.package': row(0, 2, 2, 2, 1, 0, 2, 2, 2),
   'rpt.qa_result': row(0, 3, 3, 3, 2, 0, 3, 3, 3),
+  // The underwritten base cases (migration 0021) follow their position: everyone reads the case
+  // of the open investment and its two plan points; the two cases of the walled investment (one
+  // Confirmed, one Draft) and their four points are read inside the wall and by the system actor
+  // only. The history reads like every history table: five images of a case (three inserts and
+  // two confirmations) and six of a point.
+  'mon.underwriting_case': row(1, 1, 1, 1, 1, 1, 1, 3, 3),
+  'mon.underwriting_case_point': row(2, 2, 2, 2, 2, 2, 2, 6, 6),
+  'mon.underwriting_case_history': row(0, 0, 5, 5, 0, 0, 5, 0, 0),
+  'mon.underwriting_case_point_history': row(0, 0, 6, 6, 0, 0, 6, 0, 0),
 };
 
 export interface WriteCase {
@@ -589,5 +598,53 @@ export const WRITE_MATRIX: WriteCase[] = [
     name: 'override a failed QA finding on the package of client Alpha',
     sql: "update rpt.qa_result set override_reason = 'Agreed with the client', approver_id = '10000000-0000-4000-8000-000000000004', overridden_at = now() where id = 'c0000000-0000-4000-8000-000000000003'",
     allowed: ['approver', 'service'],
+  },
+  // The underwritten base cases (migration 0021, docs/18 section 13). The policies say who may
+  // write at all: the deal team records a case and writes its plan points, the deal team and
+  // approvers move a case on, each on a position they can see. Which of them may send which
+  // command is the state machine's. The system actor reads every case and writes none.
+  {
+    name: 'record a draft base case on the open investment',
+    sql: "insert into mon.underwriting_case (investment_id, version, form, case_date, planned_exit_date, exit_multiple, gross_moic, gross_irr, revision_reason, entered_by) values ('30000000-0000-4000-8000-000000000001', 2, 'equity', '2024-06-30', '2028-06-30', 11.5, 2.4, 0.19, 'Re-underwritten after the add-on acquisition', pb.current_user_id())",
+    allowed: ['deal_team', 'wall_member(deal_team)'],
+  },
+  {
+    name: 'withdraw the confirmed base case of the open investment',
+    sql: "update mon.underwriting_case set state = 'Withdrawn', withdrawn_reason = 'Confirmed against the wrong model' where id = 'd0000000-0000-4000-8000-000000000001'",
+    allowed: ['deal_team', 'approver', 'wall_member(deal_team)'],
+  },
+  {
+    name: 'edit the draft base case on the walled investment',
+    sql: "update mon.underwriting_case set gross_moic = 2.1, entered_by = pb.current_user_id(), entered_at = now() where id = 'd0000000-0000-4000-8000-000000000003'",
+    // Inside the wall only: the deal team and the approver outside it are shown no such row, and
+    // the system actor, which sees it, is neither deal team nor approver.
+    allowed: ['wall_member(deal_team)'],
+  },
+  {
+    name: 'confirm the draft base case on the walled investment',
+    sql: "update mon.underwriting_case set state = 'Confirmed', confirmed_by = pb.current_user_id(), confirmed_at = now() where id = 'd0000000-0000-4000-8000-000000000003'",
+    allowed: ['wall_member(deal_team)'],
+  },
+  {
+    name: 'add a plan point to the draft base case on the walled investment',
+    sql: "insert into mon.underwriting_case_point (case_id, period_end, revenue_ltm, ebitda_ltm, net_debt) values ('d0000000-0000-4000-8000-000000000003', '2026-06-30', 95000000, 20000000, 52000000)",
+    allowed: ['wall_member(deal_team)'],
+  },
+  {
+    name: 'change a plan point of the draft base case on the walled investment',
+    sql: "update mon.underwriting_case_point set net_debt = 61000000 where id = 'd0000000-0000-4000-8000-000000000004'",
+    allowed: ['wall_member(deal_team)'],
+  },
+  {
+    name: 'delete a plan point of the draft base case on the walled investment',
+    sql: "delete from mon.underwriting_case_point where id = 'd0000000-0000-4000-8000-000000000004'",
+    // Points are replaced as a set while the case is a Draft.
+    allowed: ['wall_member(deal_team)'],
+  },
+  {
+    name: 'delete a base case',
+    sql: "delete from mon.underwriting_case where id = 'd0000000-0000-4000-8000-000000000003'",
+    // A case is withdrawn, never deleted: no delete is granted to anyone.
+    allowed: [],
   },
 ];

@@ -461,6 +461,439 @@ describe('database guards', () => {
     });
   });
 
+  describe('underwritten base cases (migration 0021, SEC-5.6, SEC-9.1, SEC-9.2, SEC-9.4)', () => {
+    const u = ids.users;
+    const open = ids.investment1;
+    /** A Draft version 2 on the open investment, with any column overridden. Rolled back by the caller or refused. */
+    const draft = (overrides: Record<string, string> = {}): string => {
+      const row: Record<string, string> = {
+        investment_id: `'${open}'`,
+        version: '2',
+        form: `'equity'`,
+        case_date: `'2024-06-30'`,
+        planned_exit_date: `'2028-06-30'`,
+        exit_multiple: '11.5',
+        gross_moic: '2.4',
+        gross_irr: '0.19',
+        revision_reason: `'Re-underwritten after the add-on acquisition'`,
+        entered_by: `'${u.dealTeam}'`,
+        ...overrides,
+      };
+      const columns = Object.keys(row).filter((c) => row[c] !== '');
+      return `insert into mon.underwriting_case (${columns.join(', ')}) values (${columns.map((c) => row[c]).join(', ')})`;
+    };
+    const asDealTeam = (fn: (tx: Tx) => Promise<unknown>): Promise<void> =>
+      withUserContext(handle.db, { userId: u.dealTeam, roles: ['deal_team'] }, async (tx) => {
+        await fn(tx);
+      });
+    const asWallMember = (fn: (tx: Tx) => Promise<unknown>): Promise<void> =>
+      withUserContext(handle.db, { userId: u.wallMember, roles: ['deal_team'] }, async (tx) => {
+        await fn(tx);
+      });
+    /** Runs the statements as the owner and rolls them back, so each test starts from the fixture. */
+    const rolledBack = async (statements: string[]): Promise<void> => {
+      await handle.exec('begin');
+      try {
+        for (const statement of statements) await handle.exec(statement);
+      } finally {
+        await handle.exec('rollback');
+      }
+    };
+
+    it('rejects a case whose figures the record cannot hold', async () => {
+      for (const overrides of [
+        { planned_exit_date: `'2024-06-30'` },
+        { planned_exit_date: `'2024-03-31'` },
+        { exit_multiple: '0' },
+        { exit_multiple: '' },
+        { gross_moic: '0' },
+        { gross_irr: '-1' },
+        { currency: `'EUR'` },
+        { form: `'primary'` },
+        { version: '0' },
+        { source_page: '0' },
+        // An equity case has neither a yield nor a loss rate.
+        { underwritten_yield: '0.11' },
+        { annual_loss_rate: '0.01' },
+        // A loan has a yield and no exit multiple, and a loss rate between 0 and 1.
+        { form: `'credit'` },
+        { form: `'credit'`, exit_multiple: '' },
+        {
+          form: `'credit'`,
+          exit_multiple: '',
+          underwritten_yield: '0.11',
+          annual_loss_rate: '1.5',
+        },
+        {
+          form: `'credit'`,
+          exit_multiple: '',
+          underwritten_yield: '0.11',
+          annual_loss_rate: '-0.01',
+        },
+        { form: `'credit'`, exit_multiple: '', underwritten_yield: '-1' },
+      ])
+        await expectDbRejection(
+          handle.exec(draft(overrides)),
+          /check constraint|invalid input value/,
+        );
+      // A loan as the record holds it.
+      await rolledBack([
+        draft({
+          form: `'credit'`,
+          exit_multiple: '',
+          underwritten_yield: '0.11',
+          annual_loss_rate: '0.01',
+        }),
+      ]);
+    });
+
+    it('rejects a later version with no reason, a second version with the same number and a second Draft', async () => {
+      await expectDbRejection(handle.exec(draft({ revision_reason: '' })), /check constraint/);
+      await expectDbRejection(handle.exec(draft({ revision_reason: `'  '` })), /check constraint/);
+      await expectDbRejection(handle.exec(draft({ version: '1' })), /unique/);
+      await expectDbRejection(
+        rolledBack([draft(), draft({ version: '3' })]),
+        /underwriting_case_one_draft_idx/,
+      );
+    });
+
+    it('starts every case as a Draft, even for the owner', async () => {
+      for (const state of ['Confirmed', 'Superseded', 'Withdrawn'])
+        await expectDbRejection(
+          handle.exec(
+            draft({
+              state: `'${state}'`,
+              source_note: `'Sponsor model'`,
+              confirmed_by: `'${u.approver}'`,
+              confirmed_at: 'now()',
+              ...(state === 'Withdrawn' ? { withdrawn_reason: `'Entered in error'` } : {}),
+            }),
+          ),
+          /starts as a Draft/,
+        );
+    });
+
+    it('rejects a confirmation by the person who last changed the figures, one with no source and one with no plan', async () => {
+      const id = 'd0000000-0000-4000-8000-0000000000a1';
+      const points = (last: string): string =>
+        `insert into mon.underwriting_case_point (case_id, period_end, ebitda_ltm) values ('${id}', '2024-06-30', 30000000), ('${id}', '${last}', 44000000)`;
+      const confirm = (by: string): string =>
+        `update mon.underwriting_case set state = 'Confirmed', confirmed_by = '${by}', confirmed_at = now() where id = '${id}'`;
+      const withSource = { id: `'${id}'`, source_note: `'Sponsor model, deal team shared drive'` };
+      // The last editor (SEC-5.6).
+      await expectDbRejection(
+        rolledBack([draft(withSource), points('2028-06-30'), confirm(u.dealTeam)]),
+        /check constraint/,
+      );
+      // No source (SEC-9.4): neither a document nor a note, or a note of spaces.
+      await expectDbRejection(
+        rolledBack([draft({ id: `'${id}'` }), points('2028-06-30'), confirm(u.approver)]),
+        /check constraint/,
+      );
+      await expectDbRejection(
+        rolledBack([
+          draft({ id: `'${id}'`, source_note: `'  '` }),
+          points('2028-06-30'),
+          confirm(u.approver),
+        ]),
+        /check constraint/,
+      );
+      // Confirmed without a named person, or a person without a time.
+      await expectDbRejection(
+        rolledBack([
+          draft(withSource),
+          points('2028-06-30'),
+          `update mon.underwriting_case set state = 'Confirmed' where id = '${id}'`,
+        ]),
+        /check constraint/,
+      );
+      await expectDbRejection(
+        rolledBack([
+          draft(withSource),
+          points('2028-06-30'),
+          `update mon.underwriting_case set state = 'Confirmed', confirmed_by = '${u.approver}' where id = '${id}'`,
+        ]),
+        /check constraint/,
+      );
+      // An equity case with no plan, with one point, or whose last point is not the planned exit.
+      await expectDbRejection(
+        rolledBack([draft(withSource), confirm(u.approver)]),
+        /two plan points or more/,
+      );
+      await expectDbRejection(
+        rolledBack([
+          draft(withSource),
+          `insert into mon.underwriting_case_point (case_id, period_end, ebitda_ltm) values ('${id}', '2028-06-30', 44000000)`,
+          confirm(u.approver),
+        ]),
+        /two plan points or more/,
+      );
+      await expectDbRejection(
+        rolledBack([draft(withSource), points('2027-06-30'), confirm(u.approver)]),
+        /the last on its planned exit/,
+      );
+      // A document of the position is a source too.
+      await rolledBack([
+        draft({ id: `'${id}'`, source_document_id: `'${ids.documentOpen}'`, source_page: '3' }),
+        points('2028-06-30'),
+        confirm(u.approver),
+      ]);
+    });
+
+    it('lets a confirmation change nothing but who confirmed the case and when', async () => {
+      const draftId = ids.underwritingCaseWalledDraft;
+      for (const extra of [
+        'gross_moic = 9',
+        `planned_exit_date = '2030-06-30'`,
+        `note = 'Changed while confirming'`,
+        `source_note = 'Another model'`,
+        `entered_by = '${u.operations}'`,
+        `entered_at = now()`,
+      ])
+        await expectDbRejection(
+          handle.exec(
+            `update mon.underwriting_case set state = 'Confirmed', confirmed_by = '${u.approver}', confirmed_at = now(), ${extra} where id = '${draftId}'`,
+          ),
+          /changes nothing but who confirmed/,
+        );
+    });
+
+    it('names the person acting: whoever records or edits a case is entered_by, whoever confirms is confirmed_by', async () => {
+      // A case recorded under somebody else's name.
+      await expectDbRejection(
+        asDealTeam((tx) => tx.execute(sql.raw(draft({ entered_by: `'${u.wallMember}'` })))),
+        /names the person who enters it/,
+      );
+      // An edit that leaves the first author as the last editor: the wall member edits the Draft
+      // the deal team entered.
+      await expectDbRejection(
+        asWallMember((tx) =>
+          tx.execute(
+            sql.raw(
+              `update mon.underwriting_case set gross_moic = 2.1 where id = '${ids.underwritingCaseWalledDraft}'`,
+            ),
+          ),
+        ),
+        /names the person who made it/,
+      );
+      // A confirmation under somebody else's name.
+      await expectDbRejection(
+        asWallMember((tx) =>
+          tx.execute(
+            sql.raw(
+              `update mon.underwriting_case set state = 'Confirmed', confirmed_by = '${u.approver}', confirmed_at = now() where id = '${ids.underwritingCaseWalledDraft}'`,
+            ),
+          ),
+        ),
+        /names the person confirming/,
+      );
+      // Having edited the Draft, the wall member is its last editor and cannot confirm it.
+      await expectDbRejection(
+        asWallMember(async (tx) => {
+          await tx.execute(
+            sql.raw(
+              `update mon.underwriting_case set gross_moic = 2.1, entered_by = '${u.wallMember}', entered_at = now() where id = '${ids.underwritingCaseWalledDraft}'`,
+            ),
+          );
+          await tx.execute(
+            sql.raw(
+              `update mon.underwriting_case set state = 'Confirmed', confirmed_by = '${u.wallMember}', confirmed_at = now() where id = '${ids.underwritingCaseWalledDraft}'`,
+            ),
+          );
+        }),
+        /check constraint/,
+      );
+      const row = await handle.query<{ state: string; gross_moic: string; entered_by: string }>(
+        `select state, gross_moic, entered_by from mon.underwriting_case where id = '${ids.underwritingCaseWalledDraft}'`,
+      );
+      expect(row).toEqual([{ state: 'Draft', gross_moic: '2.000000', entered_by: u.dealTeam }]);
+    });
+
+    it('keeps a Confirmed case as it was confirmed: it is superseded or withdrawn, nothing else', async () => {
+      const id = ids.underwritingCaseOpen;
+      const update = (set: string): Promise<unknown> =>
+        handle.exec(`update mon.underwriting_case set ${set} where id = '${id}'`);
+      for (const set of [
+        'gross_moic = 3',
+        'gross_irr = 0.3',
+        'exit_multiple = 14',
+        `planned_exit_date = '2029-03-15'`,
+        `note = 'Rewritten'`,
+        `source_note = 'Another model'`,
+        `entered_by = '${u.wallMember}'`,
+        `confirmed_by = '${u.operations}'`,
+        `state = 'Draft', confirmed_by = null, confirmed_at = null`,
+        // Even an update that changes nothing is refused: the row version would move.
+        'gross_moic = gross_moic',
+      ])
+        await expectDbRejection(update(set), /Confirmed/);
+      // A move may not carry a change of figures with it.
+      await expectDbRejection(update(`state = 'Superseded', gross_moic = 3`), /keeps its figures/);
+      await expectDbRejection(
+        update(`investment_id = '${ids.investmentWalled}', state = 'Superseded'`),
+        /keeps its position, version and form/,
+      );
+      // Withdrawn needs its reason, and only Withdrawn carries one.
+      await expectDbRejection(update(`state = 'Withdrawn'`), /check constraint/);
+      await expectDbRejection(
+        update(`state = 'Withdrawn', withdrawn_reason = ' '`),
+        /check constraint/,
+      );
+      await expectDbRejection(
+        update(`state = 'Superseded', withdrawn_reason = 'Replaced'`),
+        /check constraint/,
+      );
+      await expectDbRejection(
+        handle.exec(`delete from mon.underwriting_case where id = '${id}'`),
+        /immutable/,
+      );
+    });
+
+    it('makes Superseded and Withdrawn final, and keeps one Confirmed case per position and case date', async () => {
+      const id = ids.underwritingCaseOpen;
+      const correction = 'd0000000-0000-4000-8000-0000000000a2';
+      const corrected = [
+        draft({
+          id: `'${correction}'`,
+          case_date: `'2022-03-15'`,
+          planned_exit_date: `'2027-03-15'`,
+          revision_reason: `'The exit multiple was typed as 12.5 and the model says 11.5'`,
+          source_note: `'Sponsor model, deal team shared drive'`,
+        }),
+        `insert into mon.underwriting_case_point (case_id, period_end, ebitda_ltm) values ('${correction}', '2022-03-15', 24000000), ('${correction}', '2027-03-15', 44000000)`,
+      ];
+      const confirm = `update mon.underwriting_case set state = 'Confirmed', confirmed_by = '${u.approver}', confirmed_at = now() where id = '${correction}'`;
+      // A correction is confirmed only once the case it corrects is superseded.
+      await expectDbRejection(
+        rolledBack([...corrected, confirm]),
+        /underwriting_case_confirmed_date_idx/,
+      );
+      for (const [move, final] of [
+        [`state = 'Superseded'`, 'Superseded'],
+        [
+          `state = 'Withdrawn', withdrawn_reason = 'Confirmed against the wrong model'`,
+          'Withdrawn',
+        ],
+      ] as const)
+        for (const again of [
+          `state = 'Confirmed'`,
+          `state = 'Draft', confirmed_by = null, confirmed_at = null, withdrawn_reason = null`,
+          `state = 'Withdrawn', withdrawn_reason = 'Another reason'`,
+          `note = 'Rewritten'`,
+        ])
+          await expectDbRejection(
+            rolledBack([
+              `update mon.underwriting_case set ${move} where id = '${id}'`,
+              `update mon.underwriting_case set ${again} where id = '${id}'`,
+            ]),
+            new RegExp(`is ${final} and cannot change`),
+          );
+      // Superseded first, then the correction is confirmed, and a re-underwriting on a later
+      // date stands beside it.
+      await rolledBack([
+        ...corrected,
+        `update mon.underwriting_case set state = 'Superseded' where id = '${id}'`,
+        confirm,
+        draft({ version: '3', source_note: `'Sponsor model, deal team shared drive'` }),
+      ]);
+      // A Draft goes to Confirmed or Withdrawn, never straight to Superseded.
+      await expectDbRejection(
+        handle.exec(
+          `update mon.underwriting_case set state = 'Superseded' where id = '${ids.underwritingCaseWalledDraft}'`,
+        ),
+        /is confirmed or withdrawn, nothing else/,
+      );
+      // Withdrawing a Draft changes nothing but the state and the reason.
+      await expectDbRejection(
+        handle.exec(
+          `update mon.underwriting_case set state = 'Withdrawn', withdrawn_reason = 'Entered in error', gross_moic = 9 where id = '${ids.underwritingCaseWalledDraft}'`,
+        ),
+        /changes nothing but the state and its reason/,
+      );
+      await rolledBack([
+        `update mon.underwriting_case set state = 'Withdrawn', withdrawn_reason = 'Entered in error' where id = '${ids.underwritingCaseWalledDraft}'`,
+      ]);
+    });
+
+    it('writes plan points only while the case is a Draft, on an equity case, one per date and never empty', async () => {
+      const confirmed = ids.underwritingCaseOpen;
+      await expectDbRejection(
+        handle.exec(
+          `insert into mon.underwriting_case_point (case_id, period_end, ebitda_ltm) values ('${confirmed}', '2025-03-15', 36000000)`,
+        ),
+        /is Confirmed and its plan points cannot change/,
+      );
+      await expectDbRejection(
+        handle.exec(
+          `update mon.underwriting_case_point set ebitda_ltm = 50000000 where case_id = '${confirmed}'`,
+        ),
+        /is Confirmed and its plan points cannot change/,
+      );
+      await expectDbRejection(
+        handle.exec(`delete from mon.underwriting_case_point where case_id = '${confirmed}'`),
+        /is Confirmed and its plan points cannot change/,
+      );
+      const draftId = ids.underwritingCaseWalledDraft;
+      // Moving a point of a Draft under a Confirmed case, or to another case at all.
+      await expectDbRejection(
+        handle.exec(
+          `update mon.underwriting_case_point set case_id = '${confirmed}' where id = '${ids.underwritingPointWalledDraftEntry}'`,
+        ),
+        /stays with its base case/,
+      );
+      await expectDbRejection(
+        handle.exec(
+          `insert into mon.underwriting_case_point (case_id, period_end, ebitda_ltm) values ('${draftId}', '2024-06-30', 16000000)`,
+        ),
+        /unique/,
+      );
+      await expectDbRejection(
+        handle.exec(
+          `insert into mon.underwriting_case_point (case_id, period_end) values ('${draftId}', '2026-06-30')`,
+        ),
+        /check constraint/,
+      );
+      await expectDbRejection(
+        handle.exec(
+          `insert into mon.underwriting_case_point (case_id, period_end, ebitda_ltm) values ('d0000000-0000-4000-8000-0000000000ff', '2026-06-30', 1)`,
+        ),
+        /foreign key/,
+      );
+      // A figure the sponsor did not give stays missing; a plan in net cash is below zero.
+      await rolledBack([
+        `insert into mon.underwriting_case_point (case_id, period_end, revenue_ltm, ebitda_ltm, net_debt) values ('${draftId}', '2026-06-30', 95000000, 20000000, null), ('${draftId}', '2027-06-30', null, null, -5000000)`,
+        `delete from mon.underwriting_case_point where case_id = '${draftId}'`,
+      ]);
+      // A loan has no plan points.
+      await expectDbRejection(
+        rolledBack([
+          draft({
+            id: `'d0000000-0000-4000-8000-0000000000a3'`,
+            form: `'credit'`,
+            exit_multiple: '',
+            underwritten_yield: '0.11',
+          }),
+          `insert into mon.underwriting_case_point (case_id, period_end, ebitda_ltm) values ('d0000000-0000-4000-8000-0000000000a3', '2026-06-30', 1)`,
+        ]),
+        /belong to an equity base case/,
+      );
+    });
+
+    it('keeps a full history image of a case and of its points', async () => {
+      const cases = await handle.query<{ op: string; state: string }>(
+        `select op, row_image ->> 'state' as state from mon.underwriting_case_history where row_id = '${ids.underwritingCaseOpen}' order by history_id`,
+      );
+      expect(cases).toEqual([
+        { op: 'INSERT', state: 'Draft' },
+        { op: 'UPDATE', state: 'Confirmed' },
+      ]);
+      const points = await handle.query<{ n: number }>(
+        `select count(*)::int as n from mon.underwriting_case_point_history h where h.row_image ->> 'case_id' = '${ids.underwritingCaseOpen}'`,
+      );
+      expect(points[0]?.n).toBe(2);
+    });
+  });
+
   describe('audit trail (SEC-11.1)', () => {
     it('rejects UPDATE and DELETE even for the owner', async () => {
       await expectDbRejection(handle.exec(`update audit.event set action = 'x'`), /immutable/);

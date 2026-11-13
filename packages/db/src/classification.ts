@@ -148,6 +148,22 @@ export const CLASSIFICATION: Record<string, TableClassification> = {
       rejection_reason: 'internal',
     },
   },
+  // The sponsor's underwritten base case (migration 0021): the plan, the exit terms, the returns
+  // and where they come from are MNPI. Who entered and who confirmed a case is personal; the
+  // version, the form and the two times say nothing about the company.
+  'mon.underwriting_case': {
+    default: 'restricted_mnpi',
+    retention: 'books_and_records',
+    columns: {
+      version: 'internal',
+      form: 'internal',
+      entered_by: 'confidential_personal',
+      entered_at: 'internal',
+      confirmed_by: 'confidential_personal',
+      confirmed_at: 'internal',
+    },
+  },
+  'mon.underwriting_case_point': { default: 'restricted_mnpi', retention: 'books_and_records' },
   // The pipeline (migration 0013): a named deal, its sponsor, size and stage are MNPI from the day
   // it is sourced; the lead is personal; the scenario tag is test bookkeeping.
   'deal.opportunity': {

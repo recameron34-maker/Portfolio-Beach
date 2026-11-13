@@ -560,6 +560,115 @@ describe('migrations', () => {
     expect(forced).toEqual([{ forced: true }]);
   });
 
+  it('0021: the base case of a position and its plan points (decision 0022)', async () => {
+    const enums = await handle.query<{ labels: string }>(`
+      select string_agg(e.enumlabel, ',' order by e.enumsortorder) as labels
+      from pg_type t join pg_namespace n on n.oid = t.typnamespace join pg_enum e on e.enumtypid = t.oid
+      where n.nspname = 'mon' and t.typname = 'underwriting_case_state'`);
+    expect(enums).toEqual([{ labels: 'Draft,Confirmed,Superseded,Withdrawn' }]);
+    // Money in dollars to the cent, rates to eight places, multiples to six (docs/03 section 1).
+    const numerics = await handle.query<{ col: string; precision: number; scale: number }>(`
+      select table_name || '.' || column_name as col, numeric_precision as precision, numeric_scale as scale
+      from information_schema.columns
+      where table_schema = 'mon' and table_name in ('underwriting_case', 'underwriting_case_point') and data_type = 'numeric'
+      order by 1`);
+    expect(numerics).toEqual([
+      { col: 'underwriting_case.annual_loss_rate', precision: 12, scale: 8 },
+      { col: 'underwriting_case.exit_multiple', precision: 12, scale: 6 },
+      { col: 'underwriting_case.gross_irr', precision: 12, scale: 8 },
+      { col: 'underwriting_case.gross_moic', precision: 12, scale: 6 },
+      { col: 'underwriting_case.underwritten_yield', precision: 12, scale: 8 },
+      { col: 'underwriting_case_point.ebitda_ltm', precision: 20, scale: 2 },
+      { col: 'underwriting_case_point.net_debt', precision: 20, scale: 2 },
+      { col: 'underwriting_case_point.revenue_ltm', precision: 20, scale: 2 },
+    ]);
+    // One Draft per position and one Confirmed case per position and case date.
+    const indexes = await handle.query<{ indexname: string; indexdef: string }>(
+      "select indexname, indexdef from pg_indexes where schemaname = 'mon' and tablename = 'underwriting_case' order by indexname",
+    );
+    const def = (name: string) => indexes.find((i) => i.indexname === name)?.indexdef ?? '';
+    expect(def('underwriting_case_one_draft_idx')).toContain('UNIQUE');
+    expect(def('underwriting_case_one_draft_idx')).toContain('(investment_id)');
+    expect(def('underwriting_case_one_draft_idx')).toContain("'Draft'");
+    expect(def('underwriting_case_confirmed_date_idx')).toContain('UNIQUE');
+    expect(def('underwriting_case_confirmed_date_idx')).toContain('(investment_id, case_date)');
+    expect(def('underwriting_case_confirmed_date_idx')).toContain("'Confirmed'");
+    // Policies by command: whoever can open the position reads; the deal team records a case and
+    // writes its points; the deal team and approvers move a case on. Nobody else writes, the
+    // system actor included.
+    const policies = await handle.query<{
+      table: string;
+      policyname: string;
+      cmd: string;
+      rule: string;
+    }>(
+      "select tablename as \"table\", policyname, cmd, coalesce(qual, '') || ' ' || coalesce(with_check, '') as rule from pg_policies where schemaname = 'mon' and tablename in ('underwriting_case', 'underwriting_case_point') order by 1, 2",
+    );
+    expect(policies.map((p) => `${p.table}.${p.policyname}:${p.cmd}`)).toEqual([
+      'underwriting_case.move_case:UPDATE',
+      'underwriting_case.read_visible:SELECT',
+      'underwriting_case.record_case:INSERT',
+      'underwriting_case_point.read_visible:SELECT',
+      'underwriting_case_point.write_delete:DELETE',
+      'underwriting_case_point.write_insert:INSERT',
+      'underwriting_case_point.write_update:UPDATE',
+    ]);
+    const rule = (table: string, name: string) =>
+      policies.find((p) => p.table === table && p.policyname === name)?.rule ?? '';
+    expect(rule('underwriting_case', 'read_visible')).toContain(
+      'investment_visible(investment_id)',
+    );
+    expect(rule('underwriting_case', 'read_visible')).not.toContain('has_');
+    expect(rule('underwriting_case', 'record_case')).toContain("has_role('deal_team'");
+    expect(rule('underwriting_case', 'record_case')).toContain('investment_visible(investment_id)');
+    expect(rule('underwriting_case', 'move_case')).toContain(
+      "ARRAY['deal_team'::text, 'approver'::text]",
+    );
+    expect(rule('underwriting_case', 'move_case')).toContain('investment_visible(investment_id)');
+    expect(rule('underwriting_case_point', 'read_visible')).toContain(
+      'underwriting_case_visible(case_id)',
+    );
+    for (const name of ['write_insert', 'write_update', 'write_delete']) {
+      expect(rule('underwriting_case_point', name), name).toContain('{deal_team}');
+      expect(rule('underwriting_case_point', name), name).toContain(
+        'underwriting_case_visible(case_id)',
+      );
+    }
+    for (const p of policies) expect(p.rule, p.policyname).not.toContain('service');
+    // The visibility of a point is its case's, asked as the reader (no definer): the wall and the
+    // role rules apply once, on the position.
+    const fn = await handle.query<{ secdef: boolean }>(
+      "select p.prosecdef as secdef from pg_proc p join pg_namespace n on n.oid = p.pronamespace where n.nspname = 'pb' and p.proname = 'underwriting_case_visible'",
+    );
+    expect(fn).toEqual([{ secdef: false }]);
+    const forced = await handle.query<{ name: string; enabled: boolean; forced: boolean }>(
+      "select c.relname as name, c.relrowsecurity as enabled, c.relforcerowsecurity as forced from pg_class c join pg_namespace n on n.oid = c.relnamespace where n.nspname = 'mon' and c.relname in ('underwriting_case', 'underwriting_case_point', 'underwriting_case_history', 'underwriting_case_point_history') order by 1",
+    );
+    expect(forced).toEqual([
+      { name: 'underwriting_case', enabled: true, forced: true },
+      { name: 'underwriting_case_history', enabled: true, forced: true },
+      { name: 'underwriting_case_point', enabled: true, forced: true },
+      { name: 'underwriting_case_point_history', enabled: true, forced: true },
+    ]);
+    // A case is never deleted; its points are replaced as a set while it is a Draft.
+    const grants = await handle.query<{ table: string; privileges: string }>(`
+      select table_name as "table", string_agg(privilege_type, ',' order by privilege_type) as privileges
+      from information_schema.role_table_grants
+      where grantee = 'pb_app' and table_schema = 'mon' and table_name like 'underwriting_case%'
+      group by table_name order by 1`);
+    expect(grants).toEqual([
+      { table: 'underwriting_case', privileges: 'INSERT,SELECT,UPDATE' },
+      { table: 'underwriting_case_history', privileges: 'SELECT' },
+      { table: 'underwriting_case_point', privileges: 'DELETE,INSERT,SELECT,UPDATE' },
+      { table: 'underwriting_case_point_history', privileges: 'SELECT' },
+    ]);
+    // No existing table changed: the accounting import and export read what they read before.
+    const added = await handle.query<{ n: number }>(
+      "select count(*)::int as n from information_schema.columns where table_schema in ('core', 'mon', 'stg') and column_name like '%underwrit%' and table_name not like 'underwriting_case%'",
+    );
+    expect(added[0]?.n).toBe(0);
+  });
+
   it('never grant DELETE on financial tables or UPDATE/DELETE on the audit trail to the application role', async () => {
     const grants = await handle.query<{ table: string; privilege: string }>(`
       select table_schema || '.' || table_name as "table", privilege_type as privilege
