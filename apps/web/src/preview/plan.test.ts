@@ -285,6 +285,9 @@ describe('the recording plan', () => {
       // The one-pager is simulated too, so a position a simulated close created has one; every
       // recorded position still answers from its recording through the same route.
       `/api/v1/investments/${INV}`,
+      // The comparison with the base case is worked out in the shim on every read, from the
+      // recorded read of the position and its other recordings.
+      `/api/v1/investments/${INV}/underwriting`,
       '/api/v1/documents?limit=200',
       '/api/v1/documents?limit=200&q=report&reviewStatus=NeedsReview',
       `/api/v1/documents?limit=200&investmentId=${INV}`,
@@ -301,9 +304,11 @@ describe('the recording plan', () => {
       '/api/v1/monitoring/board?asOf=2025-09-30&periodEnd=2025-06-30',
       `/api/v1/monitoring/outlook/${INV}`,
     ]);
-    // The hub's empty state, each investment's documents and its outlook are recorded all the
-    // same, so the recordings hold the API's own answer before the simulation adds anything.
+    // The hub's empty state, each investment's documents, its outlook and its base case are
+    // recorded all the same, so the recordings hold the API's own answer before the simulation
+    // adds anything.
     for (const path of [
+      `/api/v1/investments/${INV}/underwriting`,
       '/api/v1/documents?limit=200',
       '/api/v1/documents/review-queue?limit=200',
       '/api/v1/expected-documents?limit=200',

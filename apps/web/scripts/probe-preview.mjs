@@ -7,6 +7,7 @@ import { createHash } from 'node:crypto';
 import { createReadStream, existsSync, readFileSync, statSync } from 'node:fs';
 import { createServer, request } from 'node:http';
 import { extname, join, resolve, sep } from 'node:path';
+import { isDeepStrictEqual } from 'node:util';
 import { chromium } from '@playwright/test';
 import {
   D,
@@ -2567,6 +2568,153 @@ await settle();
 check(
   'deal workspace: a position that holds no base case shows no card',
   (await page.getByTestId('deal-underwriting').count()) === 0,
+);
+
+// ---- The base case read worked out in the browser, and the simulated writes -----------------
+
+// The shim works the comparison out again on every read (src/preview/routes/underwriting.ts),
+// from the credential's recorded performance, one-pager and value creation answers. Before any
+// simulated write it must give back what the API recorded, for every user and every position.
+const underwritingDiffs = [];
+let underwritingCompared = 0;
+for (const u of d.users) {
+  for (const i of d.investments) {
+    const was = recorded(u.externalId, underwritingPath(i.id));
+    const now = await api(u.externalId, 'GET', underwritingPath(i.id));
+    if ((was.json?.comparison ?? null) !== null) underwritingCompared += 1;
+    if (now.status !== was.status || (was.status === 200 && !isDeepStrictEqual(now.json, was.json)))
+      underwritingDiffs.push(`${u.externalId} ${i.investmentNumber}: ${now.status}`);
+  }
+}
+check(
+  'base case: the comparison worked out in the browser equals the API recording, for every user and every position',
+  underwritingDiffs.length === 0 && underwritingCompared > 0,
+  underwritingDiffs.length === 0
+    ? `${underwritingCompared} comparisons`
+    : underwritingDiffs.slice(0, 5).join(' | '),
+);
+
+// A version the reader picks was never recorded: the re-underwritten position answers both.
+const reunderwrittenId = scenarioId('underwriting_reunderwritten');
+const twoCases = recorded('viewer.one', underwritingPath(reunderwrittenId)).json;
+const laterCase = twoCases.versions.find((v) => v.kind === 'reunderwrite');
+const pickedRead = await api(
+  'viewer.one',
+  'GET',
+  `${underwritingPath(reunderwrittenId)}?version=${laterCase.version}`,
+);
+await page.goto(`${origin}/#/portfolio/${reunderwrittenId}/performance`);
+await page.getByTestId('deal-underwriting-tiles').waitFor();
+const missesBeforePick = (await misses()).length;
+const laterLabel = /Re-underwritten [A-Z][a-z]{2} \d{1,2}, \d{4}/.exec(
+  await page.getByTestId('deal-underwriting-versions').innerText(),
+)?.[0];
+await pickOption('Compared with', laterLabel);
+await page.getByRole('table', { name: `${laterLabel}, terms` }).waitFor();
+check(
+  'base case: the reader picks the re-underwritten case, the comparison is worked out for it and nothing is missed',
+  pickedRead.status === 200 &&
+    pickedRead.json?.comparedVersion === laterCase.version &&
+    twoCases.comparedVersion !== laterCase.version &&
+    pickedRead.json.comparison.returns.irrGap !== twoCases.comparison.returns.irrGap &&
+    (await misses()).length === missesBeforePick,
+  `${twoCases.comparedVersion} then ${pickedRead.json?.comparedVersion}`,
+);
+expectStatus(
+  'base case: a version that never stood as the plan is not found',
+  await api('viewer.one', 'GET', `${underwritingPath(reunderwrittenId)}?version=99`),
+  404,
+);
+
+// The two-person rule, on a position with no base case whose page was not opened yet (the page
+// holds a read for a minute): deal.one records a Draft and cannot confirm it, deal.two does, and
+// only then is the position compared.
+const journeyPosition = d.investments.find(
+  (i) =>
+    i.id !== noCase.id &&
+    recorded('deal.one', underwritingPath(i.id)).json?.form === 'equity' &&
+    recorded('deal.one', underwritingPath(i.id)).json.versions.length === 0,
+);
+const journeyPerf = recorded(
+  'deal.one',
+  `/api/v1/investments/${journeyPosition.id}/performance`,
+).json;
+const snapshot = journeyPerf.entry;
+const plannedExit = `${Number(snapshot.periodEnd.slice(0, 4)) + 7}-12-31`;
+const grown = (value, by) => (value === null ? null : D(value).times(by).toFixed(2));
+const caseBody = {
+  caseDate: snapshot.periodEnd,
+  plannedExitDate: plannedExit,
+  exitMultiple: '11',
+  grossMoic: '2.5',
+  grossIrr: '0.2',
+  points: [
+    {
+      periodEnd: snapshot.periodEnd,
+      revenueLtm: snapshot.revenueLtm,
+      ebitdaLtm: snapshot.ebitdaLtm,
+      netDebt: snapshot.netDebt,
+    },
+    {
+      periodEnd: plannedExit,
+      revenueLtm: grown(snapshot.revenueLtm, '1.8'),
+      ebitdaLtm: grown(snapshot.ebitdaLtm, '2'),
+      netDebt: grown(snapshot.netDebt, '0.6'),
+    },
+  ],
+  sourceNote: 'Sponsor base case model, held in the deal folder',
+};
+const caseCommands = (id) => `/api/v1/underwriting-cases/${id}/commands`;
+expectStatus(
+  'base case: a viewer cannot record one',
+  await api('viewer.one', 'POST', underwritingPath(journeyPosition.id), caseBody),
+  403,
+);
+const draftCase = await api('deal.one', 'POST', underwritingPath(journeyPosition.id), caseBody);
+expectStatus(
+  'base case: the deal team records a Draft, which is shown and not compared',
+  draftCase,
+  201,
+  draftCase.simulated &&
+    draftCase.json?.state === 'Draft' &&
+    (await api('viewer.one', 'GET', underwritingPath(journeyPosition.id))).json?.notCalculable ===
+      'draft_only',
+);
+const ownConfirm = await api('deal.one', 'POST', caseCommands(draftCase.json.id), {
+  command: 'confirm',
+});
+expectStatus(
+  'base case: the person who entered the figures cannot confirm them',
+  ownConfirm,
+  422,
+  (ownConfirm.json?.detail ?? '').includes('cannot confirm'),
+);
+const confirmedCase = await api(
+  'deal.two',
+  'POST',
+  caseCommands(draftCase.json.id),
+  { command: 'confirm' },
+  { 'if-match': `"${draftCase.json.rowVersion}"` },
+);
+const comparedNow = (await api('viewer.one', 'GET', underwritingPath(journeyPosition.id))).json;
+const journeyDetail = recorded('viewer.one', `/api/v1/investments/${journeyPosition.id}`).json;
+expectStatus(
+  'base case: a second person confirms it, and the position is compared with it from its own recorded figures',
+  confirmedCase,
+  200,
+  confirmedCase.json?.state === 'Confirmed' &&
+    confirmedCase.json.confirmedBy?.name === by('deal.two').displayName &&
+    comparedNow?.comparedVersion === 1 &&
+    comparedNow.comparison?.returns.grossMoic === journeyDetail.grossMoic &&
+    comparedNow.comparison.metrics.length === 3,
+);
+await page.goto(`${origin}/#/portfolio/${journeyPosition.id}/performance`);
+await page.getByTestId('deal-underwriting-tiles').waitFor();
+check(
+  'deal workspace: the card compares the position with the case confirmed in this session',
+  (await page.getByTestId('deal-underwriting-case').innerText()).includes(
+    by('deal.two').displayName,
+  ),
 );
 await switchTo('deal.three');
 await page.goto(`${origin}/#/analytics/value-creation`);

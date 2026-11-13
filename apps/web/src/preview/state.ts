@@ -5,6 +5,7 @@ import {
   opportunityDetail,
   opportunityPage,
   tradeTicketPage,
+  underwritingRead,
   valuationPage,
   wireInstructionPage,
 } from '@pb/contracts';
@@ -46,6 +47,7 @@ import type {
   QuarterSource,
   RealizationOutlookCode,
   StagingState,
+  UnderwritingCaseVersion,
   ValuationRow,
   ValuationStoredInputs,
   WeeklyPriorSource,
@@ -444,7 +446,8 @@ export interface SimAuditEvent {
     | 'closing'
     | 'closing_item'
     | 'legal_term'
-    | 'investment';
+    | 'investment'
+    | 'underwriting_case';
   entityId: string;
   reason: string | null;
   from: string | null;
@@ -679,6 +682,12 @@ export interface PreviewState {
   closings: Map<string, SimClosing> | null;
   /** Positions a simulated close created this session, by investment id. */
   investments: Map<string, SimInvestment>;
+  /**
+   * Every version of every position's underwritten base case, by id, seeded lazily from the
+   * recorded reads; null until then. A version is held as it travels; its kind is derived again
+   * from the versions beside it whenever it is answered.
+   */
+  underwritingCases: Map<string, UnderwritingCaseVersion> | null;
   audit: SimAuditEvent[];
   idempotency: Map<string, StoredResponse>;
 }
@@ -730,6 +739,7 @@ export function createPreviewState(): PreviewState {
     opportunities: null,
     closings: null,
     investments: new Map(),
+    underwritingCases: null,
     audit: [],
     idempotency: new Map(),
   };
@@ -757,6 +767,7 @@ export function resetPreviewState(state: PreviewState): void {
   state.opportunities = null;
   state.closings = null;
   state.investments.clear();
+  state.underwritingCases = null;
   state.audit.length = 0;
   state.idempotency.clear();
 }
@@ -1063,6 +1074,36 @@ export function createdInvestmentVisible(
   const path = `/api/v1/opportunities/${encodeURIComponent(opportunity.row.id)}`;
   const walled = recordings.users.some((u) => recordings.status(u.externalId, path) === 404);
   return !walled || recordings.status(credential, path) === 200;
+}
+
+/** The key of a credential's recorded read of a position's base case: no query, any credential. */
+const UNDERWRITING_READ_KEY = /^([^|]+)\|GET (\/api\/v1\/investments\/[^/?]+\/underwriting)$/;
+
+/**
+ * The base cases as recorded: every version in any user's recorded read of a position. A case
+ * follows its position (a reader sees every version of it or none), so the first recording that
+ * holds a version seeds it and the others add nothing. The reads have no list to start from, so
+ * the recordings are found by their keys.
+ */
+export function seedUnderwritingCases(
+  recordings: Recordings,
+): Map<string, UnderwritingCaseVersion> {
+  const seeded = new Map<string, UnderwritingCaseVersion>();
+  for (const key of Object.keys(recordings.fixtures.responses)) {
+    const match = UNDERWRITING_READ_KEY.exec(key);
+    if (match === null) continue;
+    const read = recordings.read(match[1] ?? '', match[2] ?? '', underwritingRead);
+    for (const version of read?.versions ?? [])
+      if (!seeded.has(version.id)) seeded.set(version.id, version);
+  }
+  return seeded;
+}
+
+export function ensureUnderwritingCases(
+  state: PreviewState,
+  recordings: Recordings,
+): Map<string, UnderwritingCaseVersion> {
+  return (state.underwritingCases ??= seedUnderwritingCases(recordings));
 }
 
 export function ensureValuations(
