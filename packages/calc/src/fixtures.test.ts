@@ -37,6 +37,7 @@ import {
   toDollars,
   totalGain,
   turnBands,
+  underwritingComparison,
   unfunded,
   valueChange,
   valueCreationAttribution,
@@ -56,6 +57,9 @@ import type {
   PeriodRow,
   PlanFigures,
   RollupPosition,
+  UnderwritingCase,
+  UnderwritingInputs,
+  UnderwritingTolerances,
 } from './index.js';
 
 /**
@@ -447,6 +451,22 @@ describe('golden fixtures', () => {
             // The rows as they travel: the golden strings, to the letter.
             expect(rows, `case ${i + 1}`).toEqual(results[i]!.metrics);
             expect(planHeadline(rows), `case ${i + 1}`).toBe(results[i]!.headline);
+          });
+          break;
+        }
+        case 'underwriting_comparison': {
+          const input = fx.input as {
+            tolerances: UnderwritingTolerances;
+            cases: { case: UnderwritingCase; inputs: UnderwritingInputs }[];
+          };
+          const results = fx.expected.results as unknown[];
+          expect(results.length).toBe(input.cases.length);
+          input.cases.forEach((c, i) => {
+            // The comparison as it travels: the golden strings, to the letter.
+            expect(
+              underwritingComparison(c.case, c.inputs, input.tolerances),
+              `case ${i + 1}`,
+            ).toEqual(results[i]);
           });
           break;
         }

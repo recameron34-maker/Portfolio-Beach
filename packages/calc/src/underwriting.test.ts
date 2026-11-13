@@ -5,17 +5,36 @@ import {
   D,
   PLAN_METRICS,
   PLAN_METRIC_REASONS,
+  PLAN_PATH_REASONS,
+  PLAN_PROGRESS_REASONS,
   PLAN_STATUSES,
+  UNDERWRITING_FORMS,
+  VALUE_CREATION_REASONS,
   addDays,
   daysBetween,
   favourablePct,
+  moic,
+  pathValue,
   planAt,
   planHeadline,
   planMetrics,
   planStatus,
   planVariance,
+  toDecimalString,
+  underwritingComparison,
+  valueCreationBridge,
+  xirr,
 } from './index.js';
-import type { PlanFigures, PlanMetric, PlanMetricRow, PlanStatus } from './index.js';
+import type {
+  CashFlow,
+  PlanFigures,
+  PlanMetric,
+  PlanMetricRow,
+  PlanStatus,
+  UnderwritingCase,
+  UnderwritingInputs,
+  UnderwritingTolerances,
+} from './index.js';
 
 /**
  * Property and unit tests for the comparison against the underwritten base case (docs/08 section
@@ -94,6 +113,13 @@ describe('the names (docs/08 section 11)', () => {
       'missing_actual',
       'non_positive_plan',
     ]);
+  });
+
+  it('keeps the reasons of the actual bridge in step with the value creation views', () => {
+    expect(UNDERWRITING_FORMS).toEqual(['equity', 'credit']);
+    expect(PLAN_PROGRESS_REASONS.slice(0, 5)).toEqual(VALUE_CREATION_REASONS.slice(0, 5));
+    expect(PLAN_PROGRESS_REASONS.slice(5)).toEqual(['missing_plan_figure']);
+    expect(PLAN_PATH_REASONS).toEqual(['past_plan_end', 'no_invested_capital']);
   });
 });
 
@@ -372,5 +398,534 @@ describe('planMetrics (rules 1 to 3 over one quarter)', () => {
 
   it('has no headline without the EBITDA row', () => {
     expect(planHeadline([])).toBeNull();
+  });
+});
+
+/* ---- Rules 4 to 6 and the comparison as it travels ---- */
+
+const TOLERANCES: UnderwritingTolerances = { onPlanTolerance: TOLERANCE, irrTolerance: '0.02' };
+
+const ENTRY = {
+  periodEnd: '2021-06-30',
+  revenueLtm: '200000000.00',
+  ebitdaLtm: '40000000.00',
+  ev: '400000000.00',
+  netDebt: '150000000.00',
+};
+
+const PLAN = [
+  point('2021-06-30', '200000000.00', '40000000.00', '150000000.00'),
+  point('2023-06-30', '250000000.00', '56000000.00', '130000000.00'),
+  point('2026-06-30', '320000000.00', '80000000.00', '100000000.00'),
+];
+
+const EQUITY: UnderwritingCase = {
+  form: 'equity',
+  plannedExitDate: '2026-06-30',
+  exitMultiple: '11.0',
+  grossMoic: '2.5',
+  grossIrr: '0.2',
+  points: PLAN,
+};
+
+const LOAN: UnderwritingCase = {
+  form: 'credit',
+  plannedExitDate: '2026-06-30',
+  exitMultiple: null,
+  grossMoic: '1.5',
+  grossIrr: '0.1',
+  points: [],
+};
+
+const QUARTER = point('2024-06-30', '260000000.00', '65000000.00', '120000000.00');
+
+/** Worked example 2 with the position of worked example 3 a year on. */
+const INPUTS: UnderwritingInputs = {
+  asOf: '2024-06-30',
+  isActive: true,
+  entry: ENTRY,
+  current: QUARTER,
+  quarters: [point('2023-06-30', '240000000.00', '55000000.00', '130000000.00'), QUARTER],
+  bridge: {
+    ebitdaGrowth: '250000000',
+    multipleExpansion: '65000000',
+    debtPaydown: '30000000',
+    total: '345000000',
+  },
+  bridgeNotCalculable: null,
+  flows: [
+    { date: '2021-06-30', amount: '-10000000' },
+    { date: '2023-06-30', amount: '2000000' },
+  ],
+  invested: '10000000',
+  distributions: '2000000',
+  grossMoic: '2.45',
+  grossIrr: '0.360867922',
+  irrFlag: null,
+  yieldToMaturity: null,
+};
+
+const LOAN_INPUTS: UnderwritingInputs = {
+  ...INPUTS,
+  asOf: '2023-06-30',
+  entry: null,
+  current: null,
+  quarters: [],
+  bridge: null,
+  flows: [
+    { date: '2021-06-30', amount: '-10000000' },
+    { date: '2022-06-30', amount: '1000000' },
+    { date: '2023-06-30', amount: '1000000' },
+  ],
+  distributions: '2000000',
+  grossMoic: '1.1',
+  grossIrr: '0.0512492197',
+  yieldToMaturity: '0.14320',
+};
+
+const compare = (
+  inputs: Partial<UnderwritingInputs> = {},
+  base: Partial<UnderwritingCase> = {},
+): ReturnType<typeof underwritingComparison> =>
+  underwritingComparison({ ...EQUITY, ...base }, { ...INPUTS, ...inputs }, TOLERANCES);
+
+const codeOf = (run: () => unknown): string => {
+  try {
+    run();
+  } catch (error) {
+    if (error instanceof CalcError) return error.code;
+    throw error;
+  }
+  throw new Error('nothing was refused');
+};
+
+/** Our flows on a position: a first funding, then a follow-on or money back on later days. */
+const positionFlows = fc
+  .tuple(
+    fc.integer({ min: 0, max: 2500 }),
+    money(100_000, 60_000_000),
+    fc.array(fc.tuple(fc.integer({ min: 1, max: 2400 }), fc.boolean(), money(1, 30_000_000)), {
+      maxLength: 5,
+    }),
+    fc.integer({ min: 0, max: 400 }),
+  )
+  .map(([start, first, later, tail]) => {
+    const funded = addDays('2015-01-01', start);
+    const flows: CashFlow[] = [{ date: funded, amount: `-${first}` }];
+    let invested = D(first);
+    let distributions = D('0');
+    let last = 0;
+    for (const [day, followOn, amount] of later) {
+      last = Math.max(last, day);
+      if (followOn) invested = invested.plus(amount);
+      else distributions = distributions.plus(amount);
+      flows.push({ date: addDays(funded, day), amount: followOn ? `-${amount}` : amount });
+    }
+    return {
+      flows,
+      asOf: addDays(funded, last + tail),
+      invested: invested.toFixed(2),
+      distributions: distributions.toFixed(2),
+    };
+  });
+
+/** An underwritten IRR from -30.00% to 60.00%. */
+const underwrittenRate = fc
+  .integer({ min: -3000, max: 6000 })
+  .map((bp) => D(String(bp)).div(10000));
+
+describe('value creation against plan (rule 4)', () => {
+  it('plans the bridge by the one bridge rule, from the entry snapshot to the planned exit', () => {
+    fc.assert(
+      fc.property(
+        fc.tuple(money(100_000, 900_000_000), fc.integer({ min: 300, max: 2500 })),
+        fc.tuple(money(100_000, 900_000_000), fc.integer({ min: 300, max: 2500 })),
+        fc.tuple(money(-200_000_000, 3_000_000_000), money(-200_000_000, 3_000_000_000)),
+        ([ebitda0, multipleBp0], [ebitda1, multipleBp1], [debt0, debt1]) => {
+          const entry = {
+            periodEnd: '2021-06-30',
+            ebitdaLtm: ebitda0,
+            ev: D(ebitda0).times(multipleBp0).div(100).toFixed(2),
+            netDebt: debt0,
+          };
+          const exitMultiple = D(String(multipleBp1)).div(100).toString();
+          const answer = compare(
+            { entry },
+            { exitMultiple, points: [point('2026-06-30', null, ebitda1, debt1)] },
+          ).valueCreation!;
+          const bridge = valueCreationBridge(
+            { ebitda: entry.ebitdaLtm, ev: entry.ev, netDebt: entry.netDebt },
+            { ebitda: ebitda1, ev: D(ebitda1).times(exitMultiple), netDebt: debt1 },
+          ).value!;
+          expect(answer.notCalculable).toBeNull();
+          expect(answer.planned).toEqual({
+            ebitdaGrowth: toDecimalString(bridge.ebitdaGrowth),
+            multipleExpansion: toDecimalString(bridge.multipleExpansion),
+            debtPaydown: toDecimalString(bridge.debtPaydown),
+            total: toDecimalString(bridge.total),
+          });
+          // The drivers are the total, within the last place each travels with.
+          const planned = answer.planned!;
+          const sum = D(planned.ebitdaGrowth)
+            .plus(planned.multipleExpansion)
+            .plus(planned.debtPaydown);
+          expect(sum.minus(planned.total).abs().lte('1e-10')).toBe(true);
+          // Progress is the actual over the planned figure received, and none over zero or less.
+          for (const key of [
+            'ebitdaGrowth',
+            'multipleExpansion',
+            'debtPaydown',
+            'total',
+          ] as const) {
+            const progress = answer.progress![key];
+            if (D(planned[key]).lte(0)) expect(progress).toBeNull();
+            else
+              expect(progress).toBe(
+                toDecimalString(D(answer.actual![key]).div(planned[key]).toDecimalPlaces(10)),
+              );
+          }
+        },
+      ),
+      { numRuns: 200 },
+    );
+  });
+
+  it('says how much of the planned time has passed, and may run past the end', () => {
+    expect(compare().valueCreation!.timePassed).toBe('0.6002190581');
+    const late = point('2027-06-30', '330000000.00', '82000000.00', '95000000.00');
+    expect(compare({ asOf: '2027-06-30', current: late }).valueCreation!.timePassed).toBe(
+      toDecimalString(D('2191').div(1826).toDecimalPlaces(10)),
+    );
+    // A planned exit that is not after the entry snapshot has no span to measure.
+    const early = { ...ENTRY, periodEnd: '2026-06-30' };
+    expect(compare({ entry: early }).valueCreation!.timePassed).toBeNull();
+    expect(compare({ current: null }).valueCreation!.timePassed).toBeNull();
+  });
+
+  it('answers the side that stands and says why the other does not', () => {
+    const stands = compare().valueCreation!;
+    const actualOnly = (base: Partial<UnderwritingCase>, reason: string): void => {
+      const answer = compare({}, base).valueCreation!;
+      expect([answer.planned, answer.progress, answer.notCalculable]).toEqual([null, null, reason]);
+      expect(answer.actual).toEqual(stands.actual);
+    };
+    // The plan's own reasons: no point on the planned exit, one without a figure, no multiple.
+    actualOnly({ plannedExitDate: '2026-12-31' }, 'missing_plan_figure');
+    actualOnly({ points: [] }, 'missing_plan_figure');
+    actualOnly(
+      { points: [point('2026-06-30', null, null, '100000000.00')] },
+      'missing_plan_figure',
+    );
+    actualOnly({ points: [point('2026-06-30', null, '80000000.00', null)] }, 'missing_plan_figure');
+    actualOnly(
+      { points: [point('2026-06-30', null, '-1.00', '100000000.00')] },
+      'non_positive_ebitda',
+    );
+
+    // The actual bridge's reason comes first; the planned bridge is answered where it stands.
+    const noQuarter = compare({ bridge: null, bridgeNotCalculable: 'no_current_quarter' });
+    expect(noQuarter.valueCreation).toEqual({
+      planned: stands.planned,
+      actual: null,
+      progress: null,
+      timePassed: stands.timePassed,
+      notCalculable: 'no_current_quarter',
+    });
+    const forward = compare({
+      entry: null,
+      bridge: null,
+      bridgeNotCalculable: 'entry_snapshot_forward_dated',
+    }).valueCreation!;
+    expect([forward.planned, forward.timePassed, forward.notCalculable]).toEqual([
+      null,
+      null,
+      'entry_snapshot_forward_dated',
+    ]);
+
+    // An entry snapshot that lacks a figure plans nothing, whatever the caller says of the actual.
+    for (const lacking of [
+      { ...ENTRY, ebitdaLtm: null },
+      { ...ENTRY, ev: null },
+      { ...ENTRY, netDebt: null },
+    ]) {
+      const answer = compare({ entry: lacking }).valueCreation!;
+      expect([answer.planned, answer.progress, answer.notCalculable]).toEqual([
+        null,
+        null,
+        'missing_figures',
+      ]);
+    }
+    const noEntry = compare({ entry: null }).valueCreation!;
+    expect([noEntry.planned, noEntry.notCalculable]).toEqual([null, 'no_entry_snapshot']);
+    const lossMaking = compare({ entry: { ...ENTRY, ebitdaLtm: '0.00' } }).valueCreation!;
+    expect([lossMaking.planned, lossMaking.notCalculable]).toEqual([null, 'non_positive_ebitda']);
+    // A reason sent beside a bridge that stands is not a reason.
+    expect(compare({ bridgeNotCalculable: 'missing_figures' }).valueCreation).toEqual(stands);
+  });
+
+  it('refuses an equity position with neither a bridge nor the reason it has none', () => {
+    expect(codeOf(() => compare({ bridge: null }))).toBe('invalid_underwriting_inputs');
+  });
+});
+
+describe('returns against plan (rule 5)', () => {
+  it('compounds every flow at the underwritten IRR to the as-of date', () => {
+    const flows = [
+      { date: '2021-06-30', amount: '-10000000' },
+      { date: '2023-06-30', amount: '1000000' },
+    ];
+    expect(pathValue(flows, '0.2', '2023-06-30').toString()).toBe('13400000');
+    expect(pathValue([], '0.2', '2023-06-30').toString()).toBe('0');
+    expect(codeOf(() => pathValue(flows, '-1', '2023-06-30'))).toBe('invalid_underwriting_case');
+  });
+
+  it('puts the IRR on the underwritten rate, and the MOIC gap at zero, when the NAV is the path value', () => {
+    fc.assert(
+      fc.property(
+        positionFlows,
+        underwrittenRate,
+        ({ flows, asOf, invested, distributions }, r) => {
+          const nav = pathValue(flows, r, asOf);
+          const grossMoic = toDecimalString(moic(distributions, nav, invested));
+          const answer = underwritingComparison(
+            { ...LOAN, plannedExitDate: asOf, grossIrr: r },
+            { ...LOAN_INPUTS, asOf, flows, invested, distributions, grossMoic, grossIrr: null },
+            TOLERANCES,
+          ).returns;
+          expect(answer.pathNotCalculable).toBeNull();
+          expect(answer.moicOnPath).toBe(grossMoic);
+          expect(answer.moicGap).toBe('0');
+          // The path value is the terminal value at which our IRR is the underwritten one, for
+          // flows that have one IRR: some time has passed, and the flows change sign once. With
+          // a follow-on after money came back there may be several rates, and which of them a
+          // solver reports is not this rule's to say.
+          fc.pre(nav.gt(1) && daysBetween(flows[0]!.date, asOf) > 0);
+          const signs = [...flows]
+            .sort((a, b) => daysBetween(b.date, a.date))
+            .map((f) => (D(f.amount).isNegative() ? -1 : 1));
+          fc.pre(signs.every((sign, i) => i === 0 || sign >= signs[i - 1]!));
+          const irr = xirr([...flows, { date: asOf, amount: nav }]).value;
+          expect(irr?.minus(r).abs().lte('1e-7'), String(irr)).toBe(true);
+        },
+      ),
+      { numRuns: 150 },
+    );
+  });
+
+  it('never lowers the MOIC gap for a higher NAV, nor the status for a higher IRR', () => {
+    fc.assert(
+      fc.property(
+        positionFlows,
+        underwrittenRate,
+        fc.tuple(money(0, 90_000_000), money(0, 90_000_000)),
+        fc.tuple(fc.integer({ min: -9000, max: 30000 }), fc.integer({ min: -9000, max: 30000 })),
+        ({ flows, asOf, invested, distributions }, r, navs, irrs) => {
+          const [lowNav, highNav] = D(navs[0]).lte(navs[1]) ? navs : [navs[1], navs[0]];
+          const [lowIrr, highIrr] = irrs[0] <= irrs[1] ? irrs : [irrs[1], irrs[0]];
+          const at = (nav: string, irrBp: number): ReturnType<typeof compare>['returns'] =>
+            underwritingComparison(
+              { ...LOAN, plannedExitDate: asOf, grossIrr: r },
+              {
+                ...LOAN_INPUTS,
+                asOf,
+                flows,
+                invested,
+                distributions,
+                grossMoic: toDecimalString(moic(distributions, nav, invested)),
+                grossIrr: D(String(irrBp)).div(10000),
+              },
+              TOLERANCES,
+            ).returns;
+          const lower = at(lowNav, lowIrr);
+          const higher = at(highNav, highIrr);
+          expect(D(higher.moicGap!).gte(lower.moicGap!)).toBe(true);
+          expect(rank(higher.irrStatus)).toBeGreaterThanOrEqual(rank(lower.irrStatus));
+          // The gap is the IRR received less the underwritten one, in points.
+          expect(D(higher.irrGap!).eq(D(String(highIrr)).div(10000).minus(r))).toBe(true);
+        },
+      ),
+      { numRuns: 150 },
+    );
+  });
+
+  it('judges the IRR gap by its own tolerance, in points, and not while the IRR is flagged', () => {
+    const gap = (
+      grossIrr: string | null,
+      irrFlag: UnderwritingInputs['irrFlag'] = null,
+    ): unknown[] => {
+      const r = compare({ grossIrr, irrFlag }).returns;
+      return [r.irrGap, r.irrStatus, r.irrFlag];
+    };
+    expect(gap('0.22')).toEqual(['0.02', 'on_plan', null]);
+    expect(gap('0.2200000001')).toEqual(['0.0200000001', 'ahead', null]);
+    expect(gap('0.18')).toEqual(['-0.02', 'on_plan', null]);
+    expect(gap('0.1799999999')).toEqual(['-0.0200000001', 'behind', null]);
+    // Held under a year: the rate is shown with its gap and is not judged.
+    expect(gap('0.9', 'short_period')).toEqual(['0.7', null, 'short_period']);
+    expect(gap(null, 'multiple_irr')).toEqual([null, null, 'multiple_irr']);
+  });
+
+  it('has no path after the planned exit, with nothing invested, or once realized', () => {
+    const path = (inputs: Partial<UnderwritingInputs>): unknown[] => {
+      const r = compare(inputs).returns;
+      return [r.moicOnPath, r.moicGap, r.pathNotCalculable];
+    };
+    expect(path({})).toEqual(['1.6887434582', '0.7612565418', null]);
+    // On the planned exit itself the path still stands; a day later it does not.
+    expect(path({ asOf: '2026-06-30' })[2]).toBeNull();
+    expect(path({ asOf: '2026-07-01' })).toEqual([null, null, 'past_plan_end']);
+    expect(path({ invested: null })).toEqual([null, null, 'no_invested_capital']);
+    expect(path({ invested: '0.00' })).toEqual([null, null, 'no_invested_capital']);
+    expect(path({ distributions: null })).toEqual([null, null, 'no_invested_capital']);
+    // Invested capital is a size: its sign does not move the path.
+    expect(path({ invested: '-10000000' })).toEqual(path({}));
+    // Without a gross MOIC the path stands and the gap does not.
+    expect(path({ grossMoic: null })).toEqual(['1.6887434582', null, null]);
+    // Realized: the gap is against the underwritten MOIC at exit, even after the planned exit.
+    expect(path({ isActive: false, asOf: '2027-01-31' })).toEqual([null, '-0.05', null]);
+    expect(path({ isActive: false, grossMoic: null })).toEqual([null, null, null]);
+  });
+});
+
+describe('underwritingComparison (the comparison as it travels)', () => {
+  it('carries the returns and the yield to maturity for a loan, and nothing else (rule 6)', () => {
+    const loan = underwritingComparison(LOAN, LOAN_INPUTS, TOLERANCES);
+    expect(loan).toEqual({
+      quarter: null,
+      metrics: [],
+      headline: null,
+      series: [],
+      valueCreation: null,
+      returns: {
+        grossIrr: '0.0512492197',
+        irrGap: '-0.0487507803',
+        irrStatus: 'behind',
+        irrFlag: null,
+        grossMoic: '1.1',
+        moicOnPath: '1.2',
+        moicGap: '-0.1',
+        pathNotCalculable: null,
+      },
+      yieldToMaturity: '0.1432',
+    });
+    const unpriced = underwritingComparison(
+      LOAN,
+      { ...LOAN_INPUTS, yieldToMaturity: null },
+      TOLERANCES,
+    );
+    expect(unpriced.yieldToMaturity).toBeNull();
+    // An equity position has no yield to maturity, whatever arrives in its place.
+    expect(compare({ yieldToMaturity: '0.09' }).yieldToMaturity).toBeNull();
+  });
+
+  it('answers rule 1 to 3 for the current quarter, with EBITDA as the headline', () => {
+    const answer = compare();
+    expect(answer.quarter).toBe('2024-06-30');
+    expect(answer.metrics).toEqual(planMetrics(PLAN, QUARTER, TOLERANCE));
+    expect(answer.headline).toBe('on_plan');
+    const none = compare({
+      current: null,
+      bridge: null,
+      bridgeNotCalculable: 'no_current_quarter',
+    });
+    expect([none.quarter, none.headline]).toEqual([null, null]);
+    expect(none.metrics.map((m) => m.notCalculable)).toEqual([
+      'no_current_quarter',
+      'no_current_quarter',
+      'no_current_quarter',
+    ]);
+  });
+
+  it('lists every plan date and every approved quarter up to the current one, once and in order', () => {
+    fc.assert(
+      fc.property(
+        fc.uniqueArray(fc.integer({ min: 0, max: 60 }), { minLength: 0, maxLength: 6 }),
+        fc.uniqueArray(fc.integer({ min: 0, max: 60 }), { minLength: 0, maxLength: 8 }),
+        fc.integer({ min: 0, max: 60 }),
+        fc.boolean(),
+        (planMonths, quarterMonths, currentMonth, missing) => {
+          const dateOf = (month: number): string => addDays('2021-06-30', month * 30);
+          const points = planMonths.map((m) =>
+            point(dateOf(m), `${200 + m}000000.00`, `${40 + m}000000.00`, missing ? null : '1.00'),
+          );
+          const quarters = quarterMonths.map((m) =>
+            point(dateOf(m), missing ? null : `${190 + m}000000.00`, `${38 + m}000000.00`, '2.00'),
+          );
+          const current = point(dateOf(currentMonth), '1.00', '2.00', '3.00');
+          const series = compare({ current, quarters }, { points }).series;
+          expect(series.map((s) => s.metric)).toEqual(PLAN_METRICS);
+          const counted = quarterMonths.filter((m) => m < currentMonth);
+          const dates = [...new Set([...planMonths, ...counted, currentMonth])]
+            .sort((a, b) => a - b)
+            .map(dateOf);
+          for (const { metric, points: rows } of series) {
+            expect(rows.map((r) => r.periodEnd)).toEqual(dates);
+            for (const row of rows) {
+              const plan = planAt(points, metric, row.periodEnd);
+              expect(row.plan).toBe(toDecimalString(plan.value));
+              expect(row.interpolated).toBe(plan.interpolated);
+              const quarter =
+                row.periodEnd === current.periodEnd
+                  ? current
+                  : quarters.find(
+                      (q) => q.periodEnd === row.periodEnd && q.periodEnd < current.periodEnd,
+                    );
+              const actual = quarter?.[FIELD[metric]] ?? null;
+              // An actual is the quarter's own figure, or nothing: never read off a line.
+              expect(row.actual).toBe(actual === null ? null : toDecimalString(D(actual)));
+            }
+          }
+        },
+      ),
+      { numRuns: 200 },
+    );
+  });
+
+  it('holds the plan dates alone when there is no current quarter', () => {
+    const series = compare({
+      current: null,
+      bridge: null,
+      bridgeNotCalculable: 'no_current_quarter',
+    }).series;
+    for (const { points: rows } of series) {
+      expect(rows.map((r) => r.periodEnd)).toEqual(PLAN.map((p) => p.periodEnd));
+      expect(rows.every((r) => r.actual === null && !r.interpolated)).toBe(true);
+    }
+  });
+
+  it('refuses a case or a tolerance the record could not hold, and two rows on one date', () => {
+    expect(codeOf(() => compare({}, { grossIrr: '-1' }))).toBe('invalid_underwriting_case');
+    expect(codeOf(() => compare({}, { grossMoic: '0' }))).toBe('invalid_underwriting_case');
+    expect(codeOf(() => compare({}, { exitMultiple: null }))).toBe('invalid_underwriting_case');
+    expect(codeOf(() => compare({}, { exitMultiple: '0' }))).toBe('invalid_underwriting_case');
+    expect(
+      codeOf(() => underwritingComparison({ ...LOAN, grossMoic: '-1' }, LOAN_INPUTS, TOLERANCES)),
+    ).toBe('invalid_underwriting_case');
+    for (const tolerances of [
+      { ...TOLERANCES, onPlanTolerance: '-0.05' },
+      { ...TOLERANCES, irrTolerance: '-0.02' },
+    ]) {
+      expect(codeOf(() => underwritingComparison(EQUITY, INPUTS, tolerances))).toBe(
+        'invalid_plan_tolerance',
+      );
+      expect(codeOf(() => underwritingComparison(LOAN, LOAN_INPUTS, tolerances))).toBe(
+        'invalid_plan_tolerance',
+      );
+    }
+    const twice = [...PLAN, point('2026-06-30', '1.00', '1.00', '1.00')];
+    expect(
+      codeOf(() =>
+        compare(
+          { current: null, bridge: null, bridgeNotCalculable: 'no_current_quarter' },
+          { points: twice },
+        ),
+      ),
+    ).toBe('duplicate_plan_date');
+    const early = point('2023-06-30', '1.00', '1.00', '1.00');
+    expect(codeOf(() => compare({ quarters: [early, early] }))).toBe('duplicate_quarter_date');
+    // The current quarter is itself: a row on its date in the list is the same quarter.
+    expect(compare({ quarters: [QUARTER, QUARTER] }).series[0]!.points.at(-2)!.periodEnd).toBe(
+      '2024-06-30',
+    );
   });
 });

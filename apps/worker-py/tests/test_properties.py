@@ -366,3 +366,207 @@ def test_a_higher_ebitda_never_reads_worse_and_a_higher_net_debt_never_better(
     for row in (*lower.values(), *higher.values()):
         if row["variance"] is not None:
             assert row["variance"] == row["actual"] - row["plan"]
+
+
+@st.composite
+def held_position(draw: st.DrawFn) -> dict[str, Any]:
+    """Our flows on a position: a first funding, follow-ons and money back, read some days on."""
+    funded = date(2015, 1, 1) + timedelta(days=draw(st.integers(0, 2500)))
+    first = draw(cents(100_000, 60_000_000))
+    paid: list[dict[str, str]] = [{"date": funded.isoformat(), "amount": str(-first)}]
+    invested, distributions, last = first, Decimal(0), 0
+    later = st.tuples(st.integers(1, 2400), st.booleans(), cents(1, 30_000_000))
+    for day, follow_on, amount in draw(st.lists(later, max_size=5)):
+        last = max(last, day)
+        if follow_on:
+            invested += amount
+        else:
+            distributions += amount
+        on = (funded + timedelta(days=day)).isoformat()
+        paid.append({"date": on, "amount": str(-amount if follow_on else amount)})
+    return {
+        "asOf": (funded + timedelta(days=last + draw(st.integers(0, 400)))).isoformat(),
+        "flows": paid,
+        "invested": str(invested),
+        "distributions": str(distributions),
+    }
+
+
+def loan_against(position: dict[str, Any], rate: Decimal) -> dict[str, Any]:
+    """A loan underwritten at a rate whose planned repayment is the day the position is read."""
+    return {
+        "form": "credit",
+        "plannedExitDate": position["asOf"],
+        "exitMultiple": None,
+        "grossMoic": "1.5",
+        "grossIrr": str(rate),
+        "points": [],
+    }
+
+
+def returns_of(
+    position: dict[str, Any], rate: Decimal, nav: Decimal, irr: Decimal | None
+) -> dict[str, Any]:
+    moic = (Fraction(position["distributions"]) + Fraction(nav)) / Fraction(position["invested"])
+    inp = {
+        **position,
+        "isActive": True,
+        "grossMoic": str(uw.travels(moic)),
+        "grossIrr": None if irr is None else str(irr),
+        "irrFlag": None,
+    }
+    return uw.returns(loan_against(position, rate), inp, Fraction(2, 100))
+
+
+@settings(max_examples=150, deadline=None)
+@given(held_position(), st.integers(-3000, 6000))
+def test_a_nav_on_the_path_earns_the_underwritten_rate_and_closes_the_moic_gap(
+    position: dict[str, Any], bp: int
+) -> None:
+    rate = Decimal(bp) / Decimal(10000)
+    nav = uw.path_value(position["flows"], rate, position["asOf"])
+    # With the path value as the terminal value, the flows are worth nothing at the rate: it is
+    # their IRR. The value is held to ten places, and discounting can grow that last place.
+    closed: list[Flow] = [(f["date"], Decimal(f["amount"])) for f in position["flows"]]
+    closed.append((position["asOf"], nav))
+    assert abs(npv(closed, rate)) <= Decimal("1e-7")
+    answer = returns_of(position, rate, nav, None)
+    assert answer["pathNotCalculable"] is None
+    assert answer["moicOnPath"] == answer["grossMoic"]
+    assert answer["moicGap"] == 0
+
+
+@settings(max_examples=150, deadline=None)
+@given(
+    held_position(),
+    st.integers(-3000, 6000),
+    st.tuples(cents(0, 90_000_000), cents(0, 90_000_000)),
+    st.tuples(st.integers(-9000, 30000), st.integers(-9000, 30000)),
+)
+def test_a_higher_nav_never_lowers_the_moic_gap_nor_a_higher_irr_its_status(
+    position: dict[str, Any], bp: int, navs: tuple[Decimal, Decimal], irrs: tuple[int, int]
+) -> None:
+    rate = Decimal(bp) / Decimal(10000)
+    low_irr, high_irr = (Decimal(i) / Decimal(10000) for i in sorted(irrs))
+    lower = returns_of(position, rate, min(navs), low_irr)
+    higher = returns_of(position, rate, max(navs), high_irr)
+    assert higher["moicGap"] >= lower["moicGap"]
+    assert RANK[higher["irrStatus"]] >= RANK[lower["irrStatus"]]
+    # The gap is the IRR received less the underwritten one, in points, and the path is one path.
+    assert higher["irrGap"] == high_irr - rate
+    assert higher["moicOnPath"] == lower["moicOnPath"]
+    # After the planned repayment there is no path to stand on, whatever the mark.
+    late = {**position, "asOf": (date.fromisoformat(position["asOf"]) + timedelta(1)).isoformat()}
+    case = loan_against(position, rate)
+    inp = {**late, "isActive": True, "grossMoic": "1.2", "grossIrr": None, "irrFlag": None}
+    assert uw.returns(case, inp, Fraction(2, 100))["pathNotCalculable"] == "past_plan_end"
+
+
+@settings(max_examples=150, deadline=None)
+@given(
+    company(),
+    company(),
+    st.integers(300, 2500),
+    st.tuples(*(cents(-900_000_000, 900_000_000) for _ in DRIVERS)),
+)
+def test_planned_bridge_adds_up_to_the_planned_equity_change(
+    entry: dict[str, Decimal | None],
+    at_exit: dict[str, Decimal | None],
+    turns: int,
+    earned: tuple[Decimal, ...],
+) -> None:
+    multiple = Fraction(turns, 100)
+    case = {
+        "plannedExitDate": "2026-06-30",
+        "points": [
+            {
+                "periodEnd": "2026-06-30",
+                "revenueLtm": None,
+                "ebitdaLtm": str(at_exit["ebitda"]),
+                "netDebt": str(at_exit["netDebt"]),
+            }
+        ],
+    }
+    actual = dict(zip(DRIVERS, earned, strict=True)) | {"total": sum(earned, Decimal(0))}
+    inp = {
+        "entry": {
+            "periodEnd": "2021-06-30",
+            "ebitdaLtm": str(entry["ebitda"]),
+            "ev": str(entry["ev"]),
+            "netDebt": str(entry["netDebt"]),
+        },
+        "current": {"periodEnd": "2024-06-30"},
+        "bridge": {key: str(value) for key, value in actual.items()},
+        "bridgeNotCalculable": None,
+    }
+    answer = uw.value_creation(case, multiple, inp)
+    planned = answer["planned"]
+    assert planned is not None and answer["notCalculable"] is None
+    # The planned total is the planned change in equity value: exit EV less exit net debt, less
+    # the same at entry. The three drivers are that total, within the last place each is held to.
+    assert entry["ev"] is not None and entry["netDebt"] is not None
+    assert at_exit["ebitda"] is not None and at_exit["netDebt"] is not None
+    change = (
+        multiple * Fraction(at_exit["ebitda"])
+        - Fraction(at_exit["netDebt"])
+        - (Fraction(entry["ev"]) - Fraction(entry["netDebt"]))
+    )
+    assert planned["total"] == uw.travels(change)
+    assert abs(whole(*(planned[key] for key in DRIVERS)) - change) <= Fraction(2, 10**10)
+    for key in uw.DRIVERS:
+        share = answer["progress"][key]
+        if planned[key] <= 0:
+            assert share is None
+        else:
+            # Progress times the planned figure gives back what was earned, to the last place.
+            rebuilt = Fraction(share) * Fraction(planned[key])
+            assert abs(rebuilt - Fraction(actual[key])) <= Fraction(planned[key]) / 10**10
+    assert answer["actual"] == actual
+    assert answer["timePassed"] == uw.travels(Fraction(1096, 1826))
+
+
+@settings(max_examples=150, deadline=None)
+@given(
+    st.lists(st.integers(0, 60), unique=True, max_size=6),
+    st.lists(st.integers(0, 60), unique=True, max_size=8),
+    st.one_of(st.none(), st.integers(0, 60)),
+)
+def test_series_holds_each_plan_date_and_each_quarter_so_far_once_and_in_order(
+    plan_months: list[int], quarter_months: list[int], current_month: int | None
+) -> None:
+    def day(month: int) -> str:
+        return (date(2021, 6, 30) + timedelta(days=30 * month)).isoformat()
+
+    def figures(month: int, revenue: int | None) -> dict[str, str | None]:
+        return {
+            "periodEnd": day(month),
+            "revenueLtm": None if revenue is None else f"{revenue + month}000000.00",
+            "ebitdaLtm": f"{40 + month}000000.00",
+            "netDebt": None,
+        }
+
+    points = [figures(m, 200) for m in plan_months]
+    quarters = [figures(m, 190) for m in quarter_months]
+    current = None if current_month is None else figures(current_month, None)
+    # Without a current quarter no quarter counts; with one, those dated before it and itself.
+    counted: dict[str, dict[str, str | None]] = {}
+    if current is not None and current_month is not None:
+        counted = {day(m): figures(m, 190) for m in quarter_months if m < current_month}
+        counted[day(current_month)] = current
+    want = sorted({day(m) for m in plan_months} | set(counted))
+    out = uw.series(points, quarters, current)
+    assert [s["metric"] for s in out] == list(uw.METRICS)
+    for one in out:
+        metric = str(one["metric"])
+        column = {"ebitda": "ebitdaLtm", "revenue": "revenueLtm", "net_debt": "netDebt"}[metric]
+        assert [row["periodEnd"] for row in one["points"]] == want
+        for row in one["points"]:
+            # An actual is a quarter's own figure or nothing: it is never read off a line.
+            quarter = counted.get(row["periodEnd"])
+            own = None if quarter is None else quarter[column]
+            assert row["actual"] == (None if own is None else Decimal(own))
+            plan, line, _ = uw.plan_at(points, metric, row["periodEnd"])
+            assert row["plan"] == (None if plan is None else uw.travels(plan))
+            assert row["interpolated"] is line
+            if metric == "net_debt":
+                assert row["plan"] is None and row["actual"] is None

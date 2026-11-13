@@ -10,7 +10,7 @@ import { dirname } from 'node:path';
 import { CALC_VERSION } from '../version.js';
 import { D, toDecimalString } from '../decimal.js';
 import type { Decimal } from '../decimal.js';
-import { addDays } from '../dates.js';
+import { addDays, daysBetween } from '../dates.js';
 import { xirr } from '../irr.js';
 import { dpi, rvpi, totalGain, tvpi, valueChange } from '../multiples.js';
 import { yieldToMaturity } from '../credit.js';
@@ -22,8 +22,13 @@ import { bandIndexOf, entryCohortBands, turnBands, weightedAverage } from '../co
 import { dealFit, median } from '../fit.js';
 import type { FitInputs, FitThresholds } from '../fit.js';
 import { valueCreationRollup } from '../rollup.js';
-import { planHeadline, planMetrics } from '../underwriting.js';
-import type { PlanFigures } from '../underwriting.js';
+import { planHeadline, planMetrics, underwritingComparison } from '../underwriting.js';
+import type {
+  PlanFigures,
+  UnderwritingCase,
+  UnderwritingInputs,
+  UnderwritingTolerances,
+} from '../underwriting.js';
 import type { RollupPosition } from '../rollup.js';
 import { VALUE_CREATION_REASONS } from '../terms.js';
 import { directAlpha, ksPme } from '../pme.js';
@@ -516,6 +521,138 @@ function run(seed: number, perKind: number): Case[] {
       tolerance: '1e-18',
       input: { points, quarter, onPlanTolerance },
       result: { metrics, headline: planHeadline(metrics) },
+    });
+  }
+
+  // The whole comparison against the base case (docs/08 section 11, rules 4 to 6), last again:
+  // equity cases and loans, held and realized, with every reason a caller can send or a plan can
+  // give, a path before and after the planned exit, and planned drivers either side of zero.
+  const tolerances: UnderwritingTolerances = { onPlanTolerance, irrTolerance: '0.02' };
+  const rate = (minBp: number, maxBp: number): string =>
+    D(String(int(minBp, maxBp)))
+      .div(10_000)
+      .toString();
+  for (let i = 0; i < perKind; i++) {
+    const entryDate = addDays('2017-01-01', int(0, 1800));
+    const points: PlanFigures[] = [];
+    let date = rnd() < 0.7 ? entryDate : addDays(entryDate, int(1, 400));
+    for (let n = int(0, 5); n > 0; n--) {
+      points.push({
+        periodEnd: date,
+        revenueLtm: maybe(amount(1_000_000, 4_000_000_000), 0.08),
+        ebitdaLtm: maybe(amount(-5_000_000, 900_000_000), 0.08),
+        netDebt: maybe(amount(-200_000_000, 3_000_000_000), 0.08),
+      });
+      date = addDays(date, int(120, 700));
+    }
+    const lastPlanDate = points[points.length - 1]?.periodEnd ?? addDays(entryDate, int(300, 2200));
+    const isLoan = rnd() < 0.25;
+    const base: UnderwritingCase = {
+      form: isLoan ? 'credit' : 'equity',
+      plannedExitDate: rnd() < 0.85 ? lastPlanDate : addDays(lastPlanDate, int(1, 300)),
+      exitMultiple: isLoan ? null : rate(40_000, 180_000),
+      grossMoic: rate(5_000, 40_000),
+      grossIrr: rate(-2_000, 6_000),
+      points: isLoan ? [] : points,
+    };
+
+    const entry: UnderwritingInputs['entry'] =
+      isLoan || rnd() < 0.1
+        ? null
+        : {
+            periodEnd: entryDate,
+            ebitdaLtm: maybe(amount(-2_000_000, 900_000_000), 0.06),
+            ev: maybe(amount(1_000_000, 9_000_000_000), 0.06),
+            netDebt: maybe(amount(-200_000_000, 3_000_000_000), 0.06),
+          };
+    const figures = (periodEnd: string): PlanFigures => ({
+      periodEnd,
+      revenueLtm: maybe(amount(-50_000_000, 4_000_000_000), 0.08),
+      ebitdaLtm: maybe(amount(-50_000_000, 900_000_000), 0.08),
+      netDebt: maybe(amount(-200_000_000, 3_000_000_000), 0.08),
+    });
+    // The current quarter: on a plan date, between the first and the last, or anywhere at all.
+    const firstPoint = points[0];
+    const where = rnd();
+    const currentDate =
+      firstPoint === undefined || where < 0.25
+        ? addDays(entryDate, int(-100, 2600))
+        : where < 0.5
+          ? pick(points).periodEnd
+          : addDays(firstPoint.periodEnd, int(0, daysBetween(firstPoint.periodEnd, lastPlanDate)));
+    const current = isLoan || rnd() < 0.08 ? null : figures(currentDate);
+    const quarters: PlanFigures[] = [];
+    if (!isLoan)
+      for (let q = int(0, 6), at = int(0, 4); q > 0; q--, at += int(1, 4))
+        quarters.push(figures(addDays(entryDate, at * 91)));
+    if (current !== null && rnd() < 0.5) quarters.push(current);
+
+    let bridge: UnderwritingInputs['bridge'] = null;
+    let bridgeNotCalculable: UnderwritingInputs['bridgeNotCalculable'] = null;
+    if (isLoan) bridge = null;
+    else if (entry === null)
+      bridgeNotCalculable = pick(['no_entry_snapshot', 'entry_snapshot_forward_dated'] as const);
+    else if (current === null) bridgeNotCalculable = 'no_current_quarter';
+    else if (rnd() < 0.15)
+      bridgeNotCalculable = pick(['missing_figures', 'non_positive_ebitda'] as const);
+    else {
+      const [growth, multiple, paydown] = [part(), part(), part()];
+      bridge = {
+        ebitdaGrowth: wire(growth),
+        multipleExpansion: wire(multiple),
+        debtPaydown: wire(paydown),
+        total: wire(growth.plus(multiple).plus(paydown)),
+      };
+    }
+
+    const flows: { date: string; amount: string }[] = [];
+    let invested = D('0');
+    let distributions = D('0');
+    // Half the positions are read well inside the plan, the rest up to seven years in.
+    const horizon = rnd() < 0.5 ? int(30, 700) : int(30, 2600);
+    if (rnd() >= 0.06) {
+      const first = amount(100_000, 60_000_000);
+      invested = D(first);
+      flows.push({ date: entryDate, amount: `-${first}` });
+      for (let n = int(0, 4); n > 0; n--) {
+        const day = int(1, horizon);
+        const value = amount(1, 30_000_000);
+        if (rnd() < 0.3) {
+          invested = invested.plus(value);
+          flows.push({ date: addDays(entryDate, day), amount: `-${value}` });
+        } else {
+          distributions = distributions.plus(value);
+          flows.push({ date: addDays(entryDate, day), amount: value });
+        }
+      }
+    }
+    const flagged = rnd() < 0.12;
+    const inputs: UnderwritingInputs = {
+      asOf: addDays(entryDate, horizon),
+      isActive: rnd() < 0.8,
+      entry,
+      current,
+      quarters,
+      bridge,
+      bridgeNotCalculable,
+      flows,
+      invested: flows.length === 0 ? null : wire(invested),
+      distributions: flows.length === 0 ? null : wire(distributions),
+      grossMoic: rnd() < 0.1 ? null : rate(0, 45_000),
+      grossIrr: flagged ? null : rate(-6_000, 9_000),
+      irrFlag: flagged
+        ? pick(['no_valuation', 'multiple_irr', 'insufficient_flows'] as const)
+        : rnd() < 0.1
+          ? 'short_period'
+          : null,
+      yieldToMaturity: isLoan && rnd() < 0.85 ? rate(300, 2_500) : null,
+    };
+    cases.push({
+      id: id++,
+      kind: 'underwriting',
+      tolerance: '1e-18',
+      input: { case: base, inputs, tolerances },
+      result: underwritingComparison(base, inputs, tolerances),
     });
   }
   return cases;

@@ -309,14 +309,18 @@ def _plan_tracking(inp: dict[str, Any], exp: dict[str, Any], tol: str) -> None:
     for n, (case, want) in enumerate(zip(inp["cases"], exp["results"], strict=True), start=1):
         rows = uw.plan_metrics(inp["plans"][case["plan"]], case["quarter"], inp["onPlanTolerance"])
         assert [r["metric"] for r in rows] == list(uw.METRICS)
-        found = [
-            problem
-            for mine, theirs in zip(rows, want["metrics"], strict=True)
-            for problem in uw.row_differences(mine, theirs, Decimal(tol), f"case {n}")
-        ]
+        found = uw.differences(rows, want["metrics"], Decimal(tol), f"case {n}")
         if found:
             raise MismatchError("; ".join(found))
         assert uw.headline(rows) == want["headline"], (n, uw.headline(rows), want["headline"])
+
+
+def _underwriting(inp: dict[str, Any], exp: dict[str, Any], tol: str) -> None:
+    for n, (case, want) in enumerate(zip(inp["cases"], exp["results"], strict=True), start=1):
+        answer = uw.comparison(case["case"], case["inputs"], inp["tolerances"])
+        found = uw.differences(answer, want, Decimal(tol), f"case {n}")
+        if found:
+            raise MismatchError("; ".join(found))
 
 
 def _credit_yield(inp: dict[str, Any], exp: dict[str, Any], tol: str) -> None:
@@ -442,6 +446,7 @@ HANDLERS: dict[str, Callable[[dict[str, Any], dict[str, Any], str], None]] = {
     "entry_bands": _bands,
     "deal_fit": _deal_fit,
     "plan_tracking": _plan_tracking,
+    "underwriting_comparison": _underwriting,
     "credit_yield": _credit_yield,
     "pik_roll": _pik,
     "credit_ratios": _credit_ratios,

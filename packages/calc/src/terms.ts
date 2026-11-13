@@ -62,3 +62,32 @@ export const PLAN_METRIC_REASONS = [
   'non_positive_plan',
 ] as const;
 export type PlanMetricReason = (typeof PLAN_METRIC_REASONS)[number];
+
+/** The forms a base case takes: plan points and exit terms for equity, yield and loss rate for a loan. */
+export const UNDERWRITING_FORMS = ['equity', 'credit'] as const;
+export type UnderwritingForm = (typeof UNDERWRITING_FORMS)[number];
+
+/**
+ * Why the value creation against plan is not calculable, in the order every view lists the
+ * reasons. The first five are the reasons a company has no EBITDA bridge (the first five of
+ * VALUE_CREATION_REASONS); the last is the plan's own: no plan point on the planned exit, or one
+ * without EBITDA or net debt. An EBITDA at or below zero at the planned exit is
+ * `non_positive_ebitda`, as it is at either end of the actual bridge.
+ */
+export const PLAN_PROGRESS_REASONS = [
+  'no_entry_snapshot',
+  'entry_snapshot_forward_dated',
+  'no_current_quarter',
+  'missing_figures',
+  'non_positive_ebitda',
+  'missing_plan_figure',
+] as const;
+export type PlanProgressReason = (typeof PLAN_PROGRESS_REASONS)[number];
+
+/**
+ * Why a held position has no MOIC on the underwritten path: the as-of date is after the planned
+ * exit, or nothing was invested by the as-of date. A realized position has no path and no reason:
+ * its gap is against the underwritten MOIC at exit.
+ */
+export const PLAN_PATH_REASONS = ['past_plan_end', 'no_invested_capital'] as const;
+export type PlanPathReason = (typeof PLAN_PATH_REASONS)[number];
