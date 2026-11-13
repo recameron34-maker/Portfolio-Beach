@@ -5,10 +5,13 @@ import { Button, Dropdown, Label, Option } from '@fluentui/react-components';
 import { underwritingMetric } from '@pb/contracts';
 import type {
   UnderwritingCaseVersion,
+  UnderwritingCommandBody,
   UnderwritingComparison,
   UnderwritingRead,
 } from '@pb/contracts';
 import { ApiError } from '../../api/client.js';
+import { describeActionError } from '../../app/mutations.js';
+import { meQuery } from '../../app/queries.js';
 import { LineChart } from '../../components/charts/index.js';
 import { UnavailableState } from '../../components/UnavailableState.js';
 import {
@@ -20,10 +23,13 @@ import {
   NumCell,
   PageSkeleton,
   SectionHeader,
+  SimulatedBadge,
   StatTile,
   TableWrap,
   Toolbar,
 } from '../../components/ui.js';
+import { ActionStatus, ReasonDialog } from '../../components/WorkflowActions.js';
+import { resultSuffix, useActionLog } from '../../lib/workflow.js';
 import {
   formatDate,
   formatMoic,
@@ -39,6 +45,7 @@ import { HubLink } from './parts.js';
 import {
   byLine,
   CARD_TITLE,
+  caseActions,
   caseStateTone,
   comparableVersions,
   DRAFT_ONLY,
@@ -50,16 +57,20 @@ import {
   moicTile,
   NO_CASE,
   NO_STANDING_CASE,
+  OWN_FIGURES,
   PLAN_STATUS_LABEL,
   planChart,
   planStatusTone,
   progressNotes,
   sourcePlace,
+  STALE_CASE,
   STRAIGHT_LINE_NOTE,
   versionLabels,
 } from './underwriting.js';
 import type { PlanMetric, PlanProgress, PlanTile } from './underwriting.js';
-import { underwritingQuery } from './underwriting-api.js';
+import { isStaleCase, underwritingQuery, useUnderwritingCommand } from './underwriting-api.js';
+import { draftOf, emptyDraft } from './underwriting-form.js';
+import { UnderwritingForm } from './UnderwritingForm.js';
 import './deal.css';
 
 const METRICS: readonly PlanMetric[] = underwritingMetric.options;
@@ -264,10 +275,13 @@ export function CaseBlock({
   version,
   label,
   testId,
+  children,
 }: {
   version: UnderwritingCaseVersion;
   label: string;
   testId: string;
+  /** What the reader may do to this version, under its terms and its plan. */
+  children?: ReactNode;
 }): ReactNode {
   const terms = `${label}, terms`;
   return (
@@ -304,6 +318,7 @@ export function CaseBlock({
           <PlanTable version={version} label={`${label}, plan`} />
         </div>
       </div>
+      {children}
     </div>
   );
 }
@@ -394,6 +409,275 @@ function VersionPicker({
   );
 }
 
+/** What the form is open for: a first case, a revision of the Confirmed case shown, or the Draft that waits. */
+type FormMode =
+  | { kind: 'record' }
+  | { kind: 'revise'; from: UnderwritingCaseVersion }
+  | { kind: 'edit'; draft: UnderwritingCaseVersion };
+
+const FORM_TITLE: Readonly<Record<FormMode['kind'], string>> = {
+  record: 'Record the base case',
+  revise: 'Revise the base case',
+  edit: 'Edit the draft',
+};
+
+/** A command that needs a reason before it is sent: the Draft withdrawn, or a Confirmed case retired. */
+interface ReasonFor {
+  command: 'withdraw' | 'retire';
+  version: UnderwritingCaseVersion;
+}
+
+const REASON_DIALOG: Readonly<Record<ReasonFor['command'], { title: string; subject: string }>> = {
+  withdraw: {
+    title: 'Withdraw draft',
+    subject: 'The draft stays on record as withdrawn, with your reason.',
+  },
+  retire: {
+    title: 'Retire',
+    subject:
+      'For a base case confirmed in error. It stays on record as withdrawn; a change to the plan is a revision instead.',
+  },
+};
+
+/**
+ * The card once the read has answered for a position that holds a base case: the comparison,
+ * the versions, and what the reader may do. The deal team records a Draft, edits or withdraws it
+ * and revises a Confirmed case; a second person confirms; an approver retires a case confirmed
+ * in error; everyone else reads. The form takes the card's place while it is open, and the
+ * result of every action stays in the card's one status region.
+ */
+function CaseCard({
+  id,
+  company,
+  data,
+  onPick,
+}: {
+  id: string;
+  company: string;
+  data: UnderwritingRead;
+  onPick: (version: number) => void;
+}): ReactNode {
+  const me = useQuery(meQuery);
+  const log = useActionLog();
+  const command = useUnderwritingCommand(id);
+  const [form, setForm] = useState<FormMode | null>(null);
+  const [reasonFor, setReasonFor] = useState<ReasonFor | null>(null);
+  const labels = versionLabels(data.versions);
+  const compared = data.versions.find((v) => v.version === data.comparedVersion);
+  const draft = data.versions.find((v) => v.state === 'Draft');
+  const comparison = data.comparison;
+  const quarter = comparison?.quarter ?? null;
+  const actions = caseActions({
+    roles: me.data?.roles ?? [],
+    userId: me.data?.userId ?? null,
+    draft,
+    shown: compared,
+    standing: data.versions.some((v) => v.state === 'Confirmed'),
+  });
+  const busy = command.isPending;
+
+  /** A refusal in the card's words; a case somebody changed meanwhile closes the form, since the read is refreshed. */
+  const failed = (what: string, error: unknown): void => {
+    if (isStaleCase(error)) {
+      setForm(null);
+      log.record('bad', STALE_CASE);
+    } else log.record('bad', `${what}: ${describeActionError(error)}`);
+  };
+  const send = (
+    what: string,
+    version: UnderwritingCaseVersion,
+    body: UnderwritingCommandBody,
+    done: string,
+  ): void =>
+    command.mutate(
+      { id: version.id, rowVersion: version.rowVersion, body },
+      {
+        onSuccess: () => log.record('good', `${done} ${resultSuffix()}`),
+        onError: (error) => failed(what, error),
+      },
+    );
+
+  const header = (
+    <SectionHeader
+      aside={
+        quarter === null ? `As of ${formatDate(data.asOf)}` : `Quarter ended ${formatDate(quarter)}`
+      }
+    >
+      {CARD_TITLE}
+    </SectionHeader>
+  );
+  const status = <ActionStatus latest={log.latest} testId="underwriting-action-status" />;
+
+  if (form !== null) {
+    const from = form.kind === 'record' ? undefined : form.kind === 'edit' ? form.draft : form.from;
+    return (
+      <Card testId="deal-underwriting">
+        {header}
+        {status}
+        {form.kind === 'revise' ? (
+          <p className="pb-meta pb-deal-note">
+            Keep the case date to correct this case: the new version replaces it once confirmed. A
+            later date records a re-underwriting, and both stay.
+          </p>
+        ) : null}
+        <UnderwritingForm
+          investmentId={id}
+          title={FORM_TITLE[form.kind]}
+          initial={
+            from === undefined ? emptyDraft() : draftOf(from, { keepReason: form.kind === 'edit' })
+          }
+          editing={
+            form.kind === 'edit'
+              ? { id: form.draft.id, rowVersion: form.draft.rowVersion }
+              : undefined
+          }
+          needsReason={form.kind === 'edit' ? form.draft.version > 1 : data.versions.length > 0}
+          sourceDocumentName={from?.source.document?.name}
+          onSaved={() => {
+            log.record(
+              'good',
+              `${form.kind === 'edit' ? 'Draft saved' : 'Draft recorded'}: a second person confirms it ${resultSuffix()}`,
+            );
+            setForm(null);
+          }}
+          onFailed={(error) => failed(FORM_TITLE[form.kind], error)}
+          onCancel={() => setForm(null)}
+        />
+      </Card>
+    );
+  }
+
+  return (
+    <Card testId="deal-underwriting">
+      {header}
+      {status}
+      {comparison !== null && compared !== undefined ? (
+        <>
+          <VersionPicker data={data} labels={labels} onPick={onPick} />
+          <Tiles comparison={comparison} compared={compared} />
+          <PlanLines comparison={comparison} company={company} />
+          {comparison.valueCreation === null ? null : (
+            <Drivers progress={comparison.valueCreation} />
+          )}
+          <CaseBlock
+            version={compared}
+            label={labels.get(compared.version) ?? 'Base case'}
+            testId="deal-underwriting-case"
+          >
+            {actions.revise || actions.retire ? (
+              <div className="pb-deal-actions">
+                {actions.revise ? (
+                  <Button size="small" onClick={() => setForm({ kind: 'revise', from: compared })}>
+                    Revise
+                  </Button>
+                ) : null}
+                {actions.retire ? (
+                  <Button
+                    size="small"
+                    disabled={busy}
+                    onClick={() => setReasonFor({ command: 'retire', version: compared })}
+                  >
+                    Retire
+                  </Button>
+                ) : null}
+                <SimulatedBadge />
+              </div>
+            ) : null}
+          </CaseBlock>
+        </>
+      ) : data.versions.length === 0 ? (
+        <EmptyState
+          title={NO_CASE}
+          detail="The deal team records the sponsor's base case, and a second person confirms it."
+          testId="deal-underwriting-empty"
+        />
+      ) : (
+        // Beside the versions under it, the state of the card is one quiet line.
+        <p className="pb-meta" data-testid="deal-underwriting-empty">
+          {draft === undefined ? NO_STANDING_CASE : DRAFT_ONLY}
+        </p>
+      )}
+      {actions.record ? (
+        <div className="pb-deal-actions">
+          <Button appearance="primary" size="small" onClick={() => setForm({ kind: 'record' })}>
+            Record base case
+          </Button>
+          <SimulatedBadge />
+        </div>
+      ) : null}
+      {draft === undefined ? null : (
+        <CaseBlock version={draft} label={draftLabel(draft)} testId="deal-underwriting-draft">
+          {actions.editDraft || actions.withdrawDraft || actions.confirm === 'offer' ? (
+            <div className="pb-deal-actions">
+              {actions.confirm === 'offer' ? (
+                <Button
+                  appearance="primary"
+                  size="small"
+                  disabled={busy}
+                  onClick={() =>
+                    send(
+                      'Confirm',
+                      draft,
+                      { command: 'confirm' },
+                      draft.kind === 'correction'
+                        ? 'Correction confirmed: it replaces the case it corrects'
+                        : 'Base case confirmed',
+                    )
+                  }
+                >
+                  Confirm
+                </Button>
+              ) : null}
+              {actions.editDraft ? (
+                <Button
+                  size="small"
+                  disabled={busy}
+                  onClick={() => setForm({ kind: 'edit', draft })}
+                >
+                  Edit draft
+                </Button>
+              ) : null}
+              {actions.withdrawDraft ? (
+                <Button
+                  size="small"
+                  disabled={busy}
+                  onClick={() => setReasonFor({ command: 'withdraw', version: draft })}
+                >
+                  Withdraw draft
+                </Button>
+              ) : null}
+              <SimulatedBadge />
+            </div>
+          ) : null}
+          {actions.confirm === 'own_figures' ? (
+            <p className="pb-meta pb-deal-note" data-testid="underwriting-own-figures">
+              {OWN_FIGURES}
+            </p>
+          ) : null}
+        </CaseBlock>
+      )}
+      <Versions versions={data.versions} labels={labels} shown={[compared, draft]} />
+      {reasonFor === null ? null : (
+        <ReasonDialog
+          title={REASON_DIALOG[reasonFor.command].title}
+          subject={REASON_DIALOG[reasonFor.command].subject}
+          onCancel={() => setReasonFor(null)}
+          onSubmit={(reason) => {
+            const { command: name, version } = reasonFor;
+            setReasonFor(null);
+            send(
+              REASON_DIALOG[name].title,
+              version,
+              { command: name, reason },
+              name === 'withdraw' ? 'Draft withdrawn' : 'Base case retired',
+            );
+          }}
+        />
+      )}
+    </Card>
+  );
+}
+
 /**
  * A position against the base case its sponsor underwrote: revenue, EBITDA and net debt of the
  * current quarter against plan at the same date, the share of the planned value creation earned
@@ -438,55 +722,7 @@ export function UnderwritingCard({ id, company }: { id: string; company: string 
       </Card>
     );
   }
-  const data = q.data;
   // A position that holds no base case: nothing to show, and nothing to record.
-  if (data.form === null) return null;
-  const labels = versionLabels(data.versions);
-  const compared = data.versions.find((v) => v.version === data.comparedVersion);
-  const draft = data.versions.find((v) => v.state === 'Draft');
-  const comparison = data.comparison;
-  const quarter = comparison?.quarter ?? null;
-  return (
-    <Card testId="deal-underwriting">
-      <SectionHeader
-        aside={
-          quarter === null
-            ? `As of ${formatDate(data.asOf)}`
-            : `Quarter ended ${formatDate(quarter)}`
-        }
-      >
-        {CARD_TITLE}
-      </SectionHeader>
-      {comparison !== null && compared !== undefined ? (
-        <>
-          <VersionPicker data={data} labels={labels} onPick={setPicked} />
-          <Tiles comparison={comparison} compared={compared} />
-          <PlanLines comparison={comparison} company={company} />
-          {comparison.valueCreation === null ? null : (
-            <Drivers progress={comparison.valueCreation} />
-          )}
-          <CaseBlock
-            version={compared}
-            label={labels.get(compared.version) ?? 'Base case'}
-            testId="deal-underwriting-case"
-          />
-        </>
-      ) : data.versions.length === 0 ? (
-        <EmptyState
-          title={NO_CASE}
-          detail="The deal team records the sponsor's base case, and a second person confirms it."
-          testId="deal-underwriting-empty"
-        />
-      ) : (
-        // Beside the versions under it, the state of the card is one quiet line.
-        <p className="pb-meta" data-testid="deal-underwriting-empty">
-          {draft === undefined ? NO_STANDING_CASE : DRAFT_ONLY}
-        </p>
-      )}
-      {draft === undefined ? null : (
-        <CaseBlock version={draft} label={draftLabel(draft)} testId="deal-underwriting-draft" />
-      )}
-      <Versions versions={data.versions} labels={labels} shown={[compared, draft]} />
-    </Card>
-  );
+  if (q.data.form === null) return null;
+  return <CaseCard id={id} company={company} data={q.data} onPick={setPicked} />;
 }

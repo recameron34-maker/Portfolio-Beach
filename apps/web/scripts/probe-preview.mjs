@@ -2716,6 +2716,85 @@ check(
     by('deal.two').displayName,
   ),
 );
+
+// The same rule through the page: deal.one records a base case with the form, which shows every
+// figure back in full before it saves, and is told a second person confirms it; deal.two
+// confirms, and the card compares the position for every reader.
+const formPosition = d.investments.find(
+  (i) =>
+    i.id !== noCase.id &&
+    i.id !== journeyPosition.id &&
+    recorded('deal.one', underwritingPath(i.id)).json?.form === 'equity' &&
+    recorded('deal.one', underwritingPath(i.id)).json.versions.length === 0,
+);
+if (formPosition === undefined) {
+  skip('base case form', 'skipped: no third position without a base case in this dataset');
+} else {
+  const formSnapshot = recorded('deal.one', `/api/v1/investments/${formPosition.id}/performance`)
+    .json.entry;
+  const formExit = `${Number(formSnapshot.periodEnd.slice(0, 4)) + 7}-12-31`;
+  const millions = (value, times = '1') => D(value).times(times).div(1_000_000).toFixed(1);
+  const dollars = (typed) => Number(D(typed).times(1_000_000).toFixed(0)).toLocaleString('en-US');
+  const inFull = (typed) => '$' + dollars(typed) + '.00';
+  const entryRevenue = millions(formSnapshot.revenueLtm);
+  await switchTo('deal.one');
+  await page.goto(`${origin}/#/portfolio/${formPosition.id}/performance`);
+  await page.getByRole('button', { name: 'Record base case' }).click();
+  const caseForm = page.getByRole('form', { name: 'Record the base case' });
+  await caseForm.getByLabel('Case date').fill(formSnapshot.periodEnd);
+  await caseForm.getByLabel('Planned exit').fill(formExit);
+  await caseForm.getByLabel('Exit multiple').fill('11');
+  await caseForm.getByLabel('Underwritten gross MOIC').fill('2.5');
+  await caseForm.getByLabel('Underwritten gross IRR').fill('20');
+  await caseForm.getByLabel('Twelve months ending, plan date 1').fill(formSnapshot.periodEnd);
+  const figure = (name, row) => caseForm.getByLabel(`${name} in US$ millions, plan date ${row}`);
+  await figure('Revenue', 1).fill(entryRevenue);
+  await figure('EBITDA', 1).fill(millions(formSnapshot.ebitdaLtm));
+  await figure('Net debt', 1).fill(millions(formSnapshot.netDebt));
+  await figure('Revenue', 2).fill(millions(formSnapshot.revenueLtm, '1.8'));
+  await figure('EBITDA', 2).fill(millions(formSnapshot.ebitdaLtm, '2'));
+  await figure('Net debt', 2).fill(millions(formSnapshot.netDebt, '0.6'));
+  await caseForm.getByLabel('Where the model is held').fill('Sponsor model, in the deal folder');
+  await caseForm.getByRole('button', { name: 'Review figures' }).click();
+  const reviewText = await page.getByTestId('underwriting-review').innerText();
+  await page.getByRole('button', { name: 'Save draft' }).click();
+  await page.getByTestId('underwriting-own-figures').waitFor();
+  const afterSave = await page.getByTestId('deal-underwriting').innerText();
+  check(
+    'base case form: the deal team records a Draft after seeing its figures in full, and is told a second person confirms it',
+    reviewText.includes(inFull(entryRevenue)) &&
+      reviewText.includes('Underwritten gross IRR') &&
+      reviewText.includes('20%') &&
+      afterSave.includes(
+        'Draft recorded: a second person confirms it (simulated in this preview',
+      ) &&
+      afterSave.includes('You entered these figures. A second person confirms them.') &&
+      afterSave.includes('A draft base case waits for a second person to confirm it.') &&
+      (await page.getByRole('button', { name: 'Confirm', exact: true }).count()) === 0 &&
+      (await page.getByRole('button', { name: 'Edit draft' }).count()) === 1,
+    `${inFull(entryRevenue)} in the review: ${reviewText.includes(inFull(entryRevenue))}`,
+  );
+  await switchTo('deal.two');
+  await page.goto(`${origin}/#/portfolio/${formPosition.id}/performance`);
+  await page.getByRole('button', { name: 'Confirm', exact: true }).click();
+  await page.getByTestId('deal-underwriting-tiles').waitFor();
+  const afterConfirm = await page.getByTestId('deal-underwriting').innerText();
+  await switchTo('viewer.one');
+  await page.goto(`${origin}/#/portfolio/${formPosition.id}/performance`);
+  await page.getByTestId('deal-underwriting-tiles').waitFor();
+  await settle();
+  const card = page.getByTestId('deal-underwriting');
+  check(
+    'base case form: a second person confirms on the page, and every reader then sees the position compared, with nothing to act on',
+    afterConfirm.includes('Base case confirmed (simulated in this preview') &&
+      afterConfirm.includes('EBITDA AGAINST PLAN') &&
+      (await page.getByTestId('deal-underwriting-case').innerText()).includes(
+        by('deal.two').displayName,
+      ) &&
+      (await card.getByRole('button', { name: 'Revise' }).count()) === 0 &&
+      (await card.getByRole('button', { name: 'Retire' }).count()) === 0,
+  );
+}
 await switchTo('deal.three');
 await page.goto(`${origin}/#/analytics/value-creation`);
 await page.getByTestId('value-creation-tiles').waitFor();

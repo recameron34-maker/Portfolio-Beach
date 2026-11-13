@@ -138,6 +138,9 @@ describe('preview guide', () => {
     expect(monitoring).toHaveTextContent(
       'Switch to Dana Deal (deal team) and set the realization outlook',
     );
+    expect(monitoring).toHaveTextContent(
+      "record the sponsor's base case for a position that has none",
+    );
     for (const [name, href, count] of [
       ['Clients', '/reporting/clients', 1],
       ['Valuations', '/valuations', 2],

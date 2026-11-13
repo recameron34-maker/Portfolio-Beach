@@ -3,6 +3,7 @@ import { PLAN_METRIC_REASONS, PLAN_PATH_REASONS, PLAN_PROGRESS_REASONS } from '@
 import { MISSING } from '../../lib/format.js';
 import {
   byLine,
+  caseActions,
   comparableVersions,
   draftLabel,
   driverRows,
@@ -14,19 +15,22 @@ import {
   METRIC_REASON_TEXT,
   metricTile,
   moicTile,
+  OWN_FIGURES,
   PATH_REASON_TEXT,
   planChart,
   PROGRESS_REASON_TEXT,
   progressNotes,
   sourcePlace,
+  STALE_CASE,
   versionLabels,
 } from './underwriting.js';
-import type { PlanMetricRow, PlanProgress, PlanReturns } from './underwriting.js';
+import type { CaseActions, PlanMetricRow, PlanProgress, PlanReturns } from './underwriting.js';
 import {
   caseFixture,
   draftFixture,
   readFixture,
   reunderwriteFixture,
+  UW_PERSON,
   withKinds,
 } from './underwriting.fixtures.js';
 
@@ -360,5 +364,99 @@ describe('base case card: the versions', () => {
     expect(byLine(null, null)).toBe(MISSING);
     expect(sourcePlace(reunderwriteFixture().source)).toBe('page 12, Base case!B14');
     expect(sourcePlace(caseFixture().source)).toBeNull();
+  });
+});
+
+describe('base case card: who may do what', () => {
+  const NOTHING: CaseActions = {
+    record: false,
+    revise: false,
+    editDraft: false,
+    withdrawDraft: false,
+    confirm: null,
+    retire: false,
+  };
+  const ME = UW_PERSON.approver.id;
+  const READERS = ['viewer', 'operations', 'investor_relations', 'auditor', 'platform_admin'];
+  const confirmed = caseFixture();
+  const draft = draftFixture();
+  const mine = draftFixture({ enteredBy: { id: ME, name: 'Morgan Lindqvist' } });
+  const act = (
+    roles: readonly string[],
+    state: { draft?: typeof draft; shown?: typeof confirmed; standing?: boolean },
+  ): CaseActions =>
+    caseActions({
+      roles,
+      userId: ME,
+      draft: state.draft,
+      shown: state.shown,
+      standing: state.standing ?? state.shown?.state === 'Confirmed',
+    });
+
+  it('lets the deal team record a first case, and revise the Confirmed case shown', () => {
+    expect(act(['deal_team'], {})).toEqual({ ...NOTHING, record: true });
+    expect(act(['deal_team'], { shown: confirmed })).toEqual({ ...NOTHING, revise: true });
+    // A superseded case is on show while another stands: nothing is recorded from it.
+    expect(
+      act(['deal_team'], { shown: caseFixture({ state: 'Superseded' }), standing: true }),
+    ).toEqual(NOTHING);
+    // One Draft per position: while one waits, no other is recorded.
+    expect(act(['deal_team'], { draft, shown: confirmed })).toMatchObject({
+      record: false,
+      revise: false,
+    });
+  });
+
+  it('lets the deal team edit and withdraw a Draft, and a second person confirm it', () => {
+    expect(act(['deal_team'], { draft })).toEqual({
+      ...NOTHING,
+      editDraft: true,
+      withdrawDraft: true,
+      confirm: 'offer',
+    });
+    // The person who last changed the figures is told so in place of the button.
+    expect(act(['deal_team'], { draft: mine })).toEqual({
+      ...NOTHING,
+      editDraft: true,
+      withdrawDraft: true,
+      confirm: 'own_figures',
+    });
+    // An approver confirms and retires, and neither records nor edits.
+    expect(act(['approver'], { draft })).toEqual({ ...NOTHING, confirm: 'offer' });
+    expect(act(['approver'], { draft: mine }).confirm).toBe('own_figures');
+    expect(act(['approver'], { shown: confirmed })).toEqual({ ...NOTHING, retire: true });
+    expect(act(['approver'], { draft, shown: confirmed })).toEqual({
+      ...NOTHING,
+      confirm: 'offer',
+      retire: true,
+    });
+    expect(act(['deal_team', 'approver'], { shown: confirmed })).toEqual({
+      ...NOTHING,
+      revise: true,
+      retire: true,
+    });
+    // Without a known identity nobody is taken for the person who entered the figures.
+    expect(
+      caseActions({ roles: ['deal_team'], userId: null, draft, shown: undefined, standing: false })
+        .confirm,
+    ).toBe('offer');
+  });
+
+  it('leaves every other role reading, whatever stands', () => {
+    for (const role of READERS)
+      for (const state of [
+        {},
+        { draft },
+        { draft: mine },
+        { shown: confirmed },
+        { draft, shown: confirmed },
+      ])
+        expect(act([role], state), role).toEqual(NOTHING);
+    expect(act([], { draft, shown: confirmed })).toEqual(NOTHING);
+  });
+
+  it('words the two sentences the actions need', () => {
+    expect(OWN_FIGURES).toBe('You entered these figures. A second person confirms them.');
+    expect(STALE_CASE).toBe('This base case changed since you opened it. Open it again.');
   });
 });

@@ -3,7 +3,8 @@ import type {
   UnderwritingCaseVersion,
   UnderwritingComparison,
 } from '@pb/contracts';
-import { isComparableVersion } from '@pb/contracts';
+import { isComparableVersion, UNDERWRITING_ROUTES } from '@pb/contracts';
+import { underwritingCaseMachine } from '@pb/workflows';
 import type { Tone } from '../../components/ui.js';
 import {
   formatDate,
@@ -14,6 +15,7 @@ import {
   joinList,
   MISSING,
 } from '../../lib/format.js';
+import { commandOptions } from '../../lib/states.js';
 import { formatSignedMoneyM } from '../analytics/value-creation.js';
 import { datePart } from './data.js';
 
@@ -373,4 +375,72 @@ export function sourcePlace(source: UnderwritingCaseVersion['source']): string |
     (part): part is string => part !== null,
   );
   return parts.length === 0 ? null : parts.join(', ');
+}
+
+/* ---- Who may do what to a case (the transition table and the routes decide; the API judges again) ---- */
+
+/** Said in place of the Confirm button to the person who last changed the figures of a Draft. */
+export const OWN_FIGURES = 'You entered these figures. A second person confirms them.';
+/** Said when a write is refused because somebody changed the case since the reader opened it. */
+export const STALE_CASE = 'This base case changed since you opened it. Open it again.';
+
+/** The roles that record and edit a Draft: the ones the route that records one names. */
+const RECORD_ROLES: readonly string[] =
+  UNDERWRITING_ROUTES.find((r) => r.method === 'POST' && r.path.endsWith('/underwriting'))?.roles ??
+  [];
+
+/** What the reader may do on the card. Everything false is a reader who only reads. */
+export interface CaseActions {
+  /** Record the first case, or a new one when none stands. */
+  record: boolean;
+  /** Record a revision of the Confirmed case shown. */
+  revise: boolean;
+  editDraft: boolean;
+  withdrawDraft: boolean;
+  /** `offer` the button; `own_figures` the sentence in its place; null for a reader who cannot confirm. */
+  confirm: 'offer' | 'own_figures' | null;
+  /** Retire the Confirmed case shown. */
+  retire: boolean;
+}
+
+type ActedOn = Pick<UnderwritingCaseVersion, 'state' | 'enteredBy'>;
+
+/**
+ * The actions of the card for a reader, from the transition table of a base case and the roles
+ * its routes name. One Draft per position: while one waits, no other is recorded. A first case
+ * is recorded while none stands; once one does, the Confirmed case shown is revised. The person who
+ * last changed the figures of a Draft is told a second person confirms them, since the API would
+ * refuse their confirmation. Everything else that can refuse (a source, the plan, a stale
+ * version) is the API's to judge, and the card shows the refusal it gets.
+ */
+export function caseActions(input: {
+  roles: readonly string[];
+  userId: string | null;
+  /** The Draft of the position, if one waits. */
+  draft: ActedOn | undefined;
+  /** The version the card shows in full: the one compared. */
+  shown: ActedOn | undefined;
+  /** Whether a Confirmed case stands for the position, shown or not. */
+  standing: boolean;
+}): CaseActions {
+  const { roles, userId, draft, shown } = input;
+  const may = (state: UnderwritingCaseState, command: string): boolean =>
+    commandOptions(underwritingCaseMachine, state, roles).some(
+      (option) => option.command === command && option.allowed,
+    );
+  const records = RECORD_ROLES.some((role) => roles.includes(role));
+  const confirmed = shown?.state === 'Confirmed';
+  return {
+    record: records && draft === undefined && !input.standing,
+    revise: records && draft === undefined && confirmed,
+    editDraft: records && draft !== undefined,
+    withdrawDraft: draft !== undefined && may('Draft', 'withdraw'),
+    confirm:
+      draft === undefined || !may('Draft', 'confirm')
+        ? null
+        : draft.enteredBy.id === userId
+          ? 'own_figures'
+          : 'offer',
+    retire: confirmed && may('Confirmed', 'retire'),
+  };
 }

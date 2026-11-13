@@ -238,3 +238,66 @@ tr.pb-deal-note-row > td {
 .pb-deal-version-picker {
   min-width: min(100%, 280px);
 }
+
+/* A row of actions under the record they act on: no rule under it, unlike a filter toolbar. */
+.pb-deal-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 12px;
+}
+/* The base case form: its fields in columns that fold on a narrow screen. A control fills its
+   column and gives up the width the library asks for, so five fields share a laptop's row. */
+.pb-deal-form-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 170px), 1fr));
+  gap: 12px 16px;
+  align-items: start;
+  margin-top: 12px;
+}
+.pb-deal-form-grid .pb-deal-form-control {
+  width: 100%;
+  min-width: 0;
+}
+.pb-deal-form-grid + .pb-table-wrap {
+  margin-top: 14px;
+}
+/* The plan rows: columns of a fixed share, so an input fills its cell instead of setting the
+   cell's width, and the table scrolls inside its frame on a phone. A figure is typed
+   right-aligned, as it is read. */
+.pb-table.pb-deal-plan-form {
+  table-layout: fixed;
+  min-width: 620px;
+}
+.pb-deal-plan-form th:first-child {
+  width: 26%;
+}
+.pb-deal-plan-form th:last-child {
+  width: 88px;
+}
+.pb-table.pb-deal-plan-form td {
+  padding: 6px 8px;
+  vertical-align: middle;
+}
+.pb-deal-plan-form .pb-deal-plan-input,
+.pb-deal-plan-form .pb-deal-plan-date {
+  width: 100%;
+  min-width: 0;
+}
+.pb-deal-plan-form .pb-deal-plan-input input,
+.pb-deal-plan-form .pb-deal-plan-date input {
+  width: 100%;
+  min-width: 0;
+}
+.pb-deal-plan-form .pb-deal-plan-input input {
+  text-align: right;
+}
+/* What is wrong with the plan rows, listed under the table. */
+.pb-deal-form-faults {
+  margin: 8px 0 0;
+  padding-left: 18px;
+  font-size: 13px;
+  line-height: 20px;
+  color: var(--pb-bad-ink);
+}

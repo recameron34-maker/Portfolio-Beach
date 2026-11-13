@@ -207,6 +207,11 @@ function walkthroughs(p: GuidePeople): Walkthrough[] {
           Switch to {p.dealTeam} and set the realization outlook on a position's Performance tab
           with a reason; every other role reads it.
         </>,
+        <>
+          On the same tab, as {p.dealTeam}, record the sponsor's base case for a position that has
+          none, then switch to {p.approver} to confirm it: the card then sets the position against
+          plan. Whoever entered the figures cannot confirm them.
+        </>,
       ],
     },
     {
