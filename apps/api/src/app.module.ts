@@ -70,6 +70,8 @@ import { ReportsController } from './reports/reports.controller.js';
 import { ReportsService } from './reports/reports.service.js';
 import { SponsorsController } from './sponsors/sponsors.controller.js';
 import { SponsorsService } from './sponsors/sponsors.service.js';
+import { UnderwritingController } from './underwriting/underwriting.controller.js';
+import { UnderwritingService } from './underwriting/underwriting.service.js';
 import { ValuationsController } from './valuations/valuations.controller.js';
 import { ValuationsService } from './valuations/valuations.service.js';
 import { ValuationWorkflowService } from './valuations/workflow.service.js';
@@ -84,6 +86,7 @@ export const CONTROLLERS = [
   PortfolioController,
   DataController,
   PerformanceController,
+  UnderwritingController,
   VehiclesController,
   SponsorsController,
   ValuationsController,
@@ -130,6 +133,7 @@ export class AppModule implements NestModule {
         FlagsService,
         PortfolioService,
         PerformanceService,
+        UnderwritingService,
         VehiclesService,
         SponsorsService,
         ValuationsService,

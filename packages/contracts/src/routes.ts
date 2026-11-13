@@ -1,6 +1,7 @@
 import { capitalNoticeControlDetail } from './controls.js';
 import { CONTROL_ROUTES } from './routes-controls.js';
 import { REPORTING_ROUTES } from './routes-reporting.js';
+import { UNDERWRITING_ROUTES } from './routes-underwriting.js';
 import type { RouteDefinition } from './route.js';
 import { API_PREFIX } from './route.js';
 import * as s from './schemas.js';
@@ -643,4 +644,5 @@ export const ROUTES: readonly RouteDefinition[] = [
   },
   ...CONTROL_ROUTES,
   ...REPORTING_ROUTES,
+  ...UNDERWRITING_ROUTES,
 ];

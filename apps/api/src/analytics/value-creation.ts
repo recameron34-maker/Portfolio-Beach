@@ -148,8 +148,12 @@ export function entryAndCurrent(
   };
 }
 
-/** The company's bridge between two quarters, or the first reason it cannot be computed. */
-function bridgeOf(
+/**
+ * The company's bridge between two quarters, or the first reason it cannot be computed. The
+ * comparison with the underwritten base case reads the actual bridge through this too, so the two
+ * cards of a deal page cannot disagree on it.
+ */
+export function bridgeOf(
   entry: OperatingRow | null,
   current: OperatingRow | null,
   forwardDated: boolean,
@@ -192,7 +196,10 @@ const figuresOf = (row: OperatingRow): Parameters<typeof sinceEntryMeasures>[0] 
  * our side (paid out negative, received positive, fees and expenses included), by date and then
  * by amount so the same book always answers the same list.
  */
-function signedFlows(inputs: PositionInputs, asOf: string): ValueCreationPosition['flows'] {
+export function signedFlows(
+  inputs: Pick<PositionInputs, 'flows'>,
+  asOf: string,
+): ValueCreationPosition['flows'] {
   return toSignedFlows(
     inputs.flows
       .filter((f) => f.flowDate <= asOf)

@@ -6,6 +6,8 @@ export * from './controls.js';
 export * from './routes-controls.js';
 export * from './reporting.js';
 export * from './routes-reporting.js';
+export * from './underwriting.js';
+export * from './routes-underwriting.js';
 export * from './lock.js';
 export * from './row-version.js';
 export * from './idempotency.js';
