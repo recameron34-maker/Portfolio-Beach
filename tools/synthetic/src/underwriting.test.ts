@@ -807,18 +807,48 @@ describe('the dataset check on the base cases', () => {
 });
 
 describe('a dataset short of positions', () => {
-  it('leaves a scenario out rather than bend it: every seed generates, and the check names what is missing', () => {
-    for (let seed = 1; seed <= 12; seed++) {
+  /**
+   * The seeds of the small profile, 1 to 20, whose dataset passed its whole check before the base
+   * cases were added, less seed 14: its twelve positions that can carry a case, four of them
+   * taken by the older scenarios, cannot hold ten more.
+   */
+  const FITS: ReadonlySet<number> = new Set([2, 5, 6, 7, 8, 9, 10, 11, 15, 17, 18, 19, 20]);
+
+  it('fits its scenarios on ordinary seeds, taking a position left without a case when the others run out, and leaves out what still does not fit', () => {
+    /** The seeds whose dataset carries all ten scenarios. */
+    const complete: number[] = [];
+    for (let seed = 1; seed <= 20; seed++) {
       const d = generateDataset({ profile: 'small', seed });
       const absent = UNDERWRITING_SCENARIOS.filter((s) => d.scenarios[s] === undefined);
-      const reported = verifyDataset(d).problems.filter((p) => p.includes('underwriting'));
+      const problems = verifyDataset(d).problems;
+      const reported = problems.filter((p) => p.includes('underwriting'));
       // Nothing is wrong with the cases that are there; only the absent scenarios are reported.
       expect(reported, `seed ${String(seed)}`).toEqual(
         absent.map((s) => `scenario ${s} is missing`),
       );
       for (const s of UNDERWRITING_SCENARIOS)
         expect(d.scenarios[s]?.length ?? 1, `seed ${String(seed)} ${s}`).toBe(1);
+      // The generator command refuses a dataset that fails its check, so these must pass whole.
+      if (FITS.has(seed)) expect(problems, `seed ${String(seed)}`).toEqual([]);
+      if (absent.length === 0) complete.push(seed);
     }
+    expect(complete.length).toBeGreaterThanOrEqual(FITS.size);
+  });
+
+  it('asks the positions left without a case only when the others run out: a scenario position still holds its scenario alone', () => {
+    // Seed 7 of the small profile has too few positions with an ordinary case for ten scenarios.
+    const d = generateDataset({ profile: 'small', seed: 7 });
+    expect(verifyDataset(d).problems).toEqual([]);
+    const tagged = UNDERWRITING_SCENARIOS.map((s) => d.scenarios[s]?.[0]);
+    expect(new Set(tagged).size).toBe(UNDERWRITING_SCENARIOS.length);
+    const [draft] = d.scenarios.underwriting_draft ?? [];
+    expect(d.underwritingCases.filter((c) => c.investmentId === draft).map((c) => c.state)).toEqual(
+      ['Draft'],
+    );
+    const [withdrawn] = d.scenarios.underwriting_withdrawn ?? [];
+    expect(
+      d.underwritingCases.filter((c) => c.investmentId === withdrawn).map((c) => c.state),
+    ).toEqual(['Withdrawn']);
   });
 
   it('builds the same cases for the same seed, and others for another', () => {

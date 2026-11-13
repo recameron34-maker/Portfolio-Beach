@@ -547,24 +547,34 @@ export function generateUnderwriting(
 
   // ---- The scenarios -------------------------------------------------------------------------
   const used = new Set<string>();
+  const open = (h: Host): boolean =>
+    !used.has(h.investment.id) && !existing.has(h.investment.id) && !h.walled;
+  const heldFirst = (a: Host, b: Host): number =>
+    Number(b.investment.isActive) - Number(a.investment.isActive);
   /** Positions a scenario may reshape: with an ordinary case, outside every wall, held ones first. */
   const free = (): Host[] =>
-    hosts
-      .filter(
-        (h) =>
-          cases.has(h.investment.id) &&
-          !used.has(h.investment.id) &&
-          !existing.has(h.investment.id) &&
-          !h.walled,
-      )
-      .sort((a, b) => Number(b.investment.isActive) - Number(a.investment.isActive));
+    hosts.filter((h) => cases.has(h.investment.id) && open(h)).sort(heldFirst);
+  /**
+   * The positions left without a case, for a scenario that finds no host among the others. A
+   * small profile has few positions: its scenarios would not all fit on those that carry an
+   * ordinary case, and a dataset short of a scenario fails its check. A scenario asks here only
+   * after `free` has nothing for it, so a dataset whose scenarios all fit is built exactly as before.
+   */
+  const spare = (): Host[] =>
+    hosts.filter((h) => !cases.has(h.investment.id) && open(h)).sort(heldFirst);
+  /** The two pools in the order a scenario asks them. */
+  const pools = [free, spare] as const;
+  /** The first position that suits, among those with a case and then among those without. */
+  const pick = (suits: (host: Host) => boolean = () => true): Host | undefined =>
+    free().find(suits) ?? spare().find(suits);
   const take = (scenario: UnderwritingScenario, host: Host, rows: UnderwritingCaseRow[]): void => {
     used.add(host.investment.id);
     cases.set(host.investment.id, rows);
     deps.tag(scenario, host.investment.id);
   };
+  /** The ordinary case of a position: the one it carries, or the one it would have been given. */
   const ordinary = (host: Host): UnderwritingCaseRow | undefined =>
-    cases.get(host.investment.id)?.[0];
+    cases.get(host.investment.id)?.[0] ?? entryCase(host, { years: host.draws.years }) ?? undefined;
   const heldDays = (host: Host): number =>
     host.current === null ? 0 : daysBetween(host.snapshot.periodEnd, host.current.periodEnd);
   const inside = (host: Host): host is Host & { current: Quarter } =>
@@ -577,17 +587,22 @@ export function generateUnderwriting(
     const ended = (h: Host, years: number): boolean =>
       h.current !== null &&
       compareIso(addMonths(h.snapshot.periodEnd, 12 * years), h.current.periodEnd) < 0;
-    const pool = free().filter((h) => h.investment.isActive);
-    const natural = pool.find((h) => ended(h, h.draws.years));
-    const shortened = pool.find((h) => ended(h, UNDERWRITING_PLAN_YEARS.min));
-    const host = natural ?? shortened;
-    const row =
-      host === undefined
-        ? null
-        : natural !== undefined
-          ? (ordinary(host) ?? null)
-          : entryCase(host, { years: UNDERWRITING_PLAN_YEARS.min });
-    if (host !== undefined && row !== null) take('underwriting_past_exit', host, [row]);
+    for (const pool of pools) {
+      const held = pool().filter((h) => h.investment.isActive);
+      const natural = held.find((h) => ended(h, h.draws.years));
+      const shortened = held.find((h) => ended(h, UNDERWRITING_PLAN_YEARS.min));
+      const host = natural ?? shortened;
+      const row =
+        host === undefined
+          ? null
+          : natural !== undefined
+            ? (ordinary(host) ?? null)
+            : entryCase(host, { years: UNDERWRITING_PLAN_YEARS.min });
+      if (host !== undefined && row !== null) {
+        take('underwriting_past_exit', host, [row]);
+        break;
+      }
+    }
   }
 
   // underwriting_ahead, underwriting_on_plan, underwriting_behind: the plan's EBITDA grows at the
@@ -600,8 +615,8 @@ export function generateUnderwriting(
       growth: number;
       irr: number;
     }
-    const candidates = (): Candidate[] =>
-      free().flatMap((host) => {
+    const candidates = (pool: () => Host[]): Candidate[] =>
+      pool().flatMap((host) => {
         if (!inside(host) || heldDays(host) < UNDERWRITING_MIN_HELD_DAYS) return [];
         const ebitda = Number(host.current.ebitdaLtm ?? '0');
         if (ebitda <= 0) return [];
@@ -634,12 +649,14 @@ export function generateUnderwriting(
           c.growth + sign * UNDERWRITING_GROWTH_SHIFT,
           c.irr + sign * UNDERWRITING_IRR_SHIFT - UNDERWRITING_IRR_SHIFT,
         );
-      const ranked = candidates().sort((a, b) => fit(b) - fit(a));
-      for (const candidate of ranked) {
-        const row = build(candidate, sign);
-        if (row === null) continue;
-        take(scenario, candidate.host, [row]);
-        return;
+      for (const pool of pools) {
+        const ranked = candidates(pool).sort((a, b) => fit(b) - fit(a));
+        for (const candidate of ranked) {
+          const row = build(candidate, sign);
+          if (row === null) continue;
+          take(scenario, candidate.host, [row]);
+          return;
+        }
       }
     };
     place('underwriting_ahead', -1);
@@ -649,7 +666,7 @@ export function generateUnderwriting(
 
   // underwriting_net_cash: the plan pays the debt off inside two years and holds net cash after.
   {
-    const host = free().find((h) => inside(h) && heldDays(h) >= UNDERWRITING_MIN_HELD_DAYS);
+    const host = pick((h) => inside(h) && heldDays(h) >= UNDERWRITING_MIN_HELD_DAYS);
     const row =
       host === undefined
         ? null
@@ -662,7 +679,7 @@ export function generateUnderwriting(
 
   // underwriting_gap: the sponsor gave no net debt at one plan date beside the current quarter.
   {
-    const host = free().find(inside);
+    const host = pick(inside);
     const row =
       host === undefined
         ? null
@@ -693,7 +710,7 @@ export function generateUnderwriting(
         ? q
         : undefined;
     };
-    const host = free().find((h) => startOf(h) !== undefined);
+    const host = pick((h) => startOf(h) !== undefined);
     const first = host === undefined ? undefined : ordinary(host);
     const start = host === undefined ? undefined : startOf(host);
     if (host !== undefined && first !== undefined && start !== undefined) {
@@ -730,7 +747,7 @@ export function generateUnderwriting(
   // underwriting_corrected: version 1 carried a mistyped exit multiple; version 2, dated as it
   // is, corrects it and supersedes it. The second person each time is the other deal team member.
   {
-    const host = free()[0];
+    const host = pick((h) => ordinary(h) !== undefined);
     const right = host === undefined ? undefined : ordinary(host);
     if (host !== undefined && right !== undefined) {
       const wrong = fixed(Number(right.exitMultiple ?? '0') + 3);
@@ -754,7 +771,7 @@ export function generateUnderwriting(
 
   // underwriting_draft: entered last week and waiting for a second person.
   {
-    const host = free()[0];
+    const host = pick((h) => ordinary(h) !== undefined);
     const row = host === undefined ? undefined : ordinary(host);
     if (host !== undefined && row !== undefined)
       take('underwriting_draft', host, [
@@ -770,7 +787,7 @@ export function generateUnderwriting(
 
   // underwriting_withdrawn: confirmed, then retired by an approver; nothing is in force.
   {
-    const host = free()[0];
+    const host = pick((h) => ordinary(h) !== undefined);
     const row = host === undefined ? undefined : ordinary(host);
     if (host !== undefined && row !== undefined)
       take('underwriting_withdrawn', host, [
