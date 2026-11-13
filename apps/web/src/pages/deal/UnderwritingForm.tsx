@@ -6,12 +6,18 @@ import type { UnderwritingCaseBody, UnderwritingCaseVersion } from '@pb/contract
 import { documentsOfInvestmentQuery } from '../../app/queries.js';
 import { KeyValueTable, NumCell, SimulatedBadge, TableWrap } from '../../components/ui.js';
 import { formatDate, MISSING } from '../../lib/format.js';
-import { bodyOf, formatDollars, formatRatePct } from './underwriting-form.js';
+import { sourcePlace } from './underwriting.js';
+import {
+  bodyOf,
+  documentHint,
+  formatDollars,
+  formatRatePct,
+  ISO_DATE,
+} from './underwriting-form.js';
 import type { CaseDraft, CaseForm, DraftErrors, PlanRowDraft } from './underwriting-form.js';
 import { useSaveUnderwritingCase } from './underwriting-api.js';
 import './deal.css';
 
-const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
 const FIGURES = [
   ['revenue', 'Revenue'],
   ['ebitda', 'EBITDA'],
@@ -62,18 +68,16 @@ function Review({
   onSave: () => void;
   onBack: () => void;
 }): ReactNode {
-  const place = [
-    body.sourcePage === undefined ? null : `page ${body.sourcePage}`,
-    body.sourceLocator ?? null,
-  ].filter((part): part is string => part !== null);
+  const place = sourcePlace({
+    page: body.sourcePage ?? null,
+    locator: body.sourceLocator ?? null,
+  });
   const source =
     body.sourceDocumentId === undefined
       ? (body.sourceNote ?? MISSING)
-      : [
-          documentName ?? 'The document chosen',
-          ...place,
-          ...(body.sourceNote === undefined ? [] : [body.sourceNote]),
-        ].join(', ');
+      : [documentName ?? 'The document chosen', place, body.sourceNote]
+          .filter((part): part is string => part !== null && part !== undefined)
+          .join(', ');
   const loan = form === 'credit';
   return (
     <div className="pb-deal-gap" data-testid="underwriting-review">
@@ -293,7 +297,7 @@ export function UnderwritingForm({
             <FluentField
               label="Underwritten yield (%)"
               required
-              hint="A year, as underwritten at entry. 11.5 is 11.5%."
+              hint="Annual yield, as underwritten at entry. 11.5 is 11.5%."
               {...invalid(errors, 'underwrittenYield')}
             >
               <Input
@@ -477,11 +481,15 @@ export function UnderwritingForm({
       <div className="pb-deal-form-grid">
         <FluentField
           label="Source document"
-          hint={
-            listed.length === 0
-              ? 'No document is filed for this position; say where the model is held.'
-              : 'A document of this position that holds the figures.'
-          }
+          hint={documentHint(
+            documents.isPending
+              ? 'loading'
+              : documents.isError
+                ? 'failed'
+                : listed.length === 0
+                  ? 'empty'
+                  : 'listed',
+          )}
           {...invalid(errors, 'sourceDocument')}
         >
           <Dropdown

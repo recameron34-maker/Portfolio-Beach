@@ -141,4 +141,22 @@ describe('knownRuns', () => {
     expect(knownRuns([null, null])).toEqual([]);
     expect(knownRuns([])).toEqual([]);
   });
+
+  it('runs over a point the series does not have by design, and still breaks at a missing value', () => {
+    // Index 1 is a date of another series; index 3 is a figure that is missing.
+    expect(knownRuns([1, null, 3, null, 5], [false, true, false, false, false])).toEqual([
+      [
+        { i: 0, v: 1 },
+        { i: 2, v: 3 },
+      ],
+      [{ i: 4, v: 5 }],
+    ]);
+    // A value is drawn wherever it is, whatever the marks say.
+    expect(knownRuns([1, 2], [true, true])).toEqual([
+      [
+        { i: 0, v: 1 },
+        { i: 1, v: 2 },
+      ],
+    ]);
+  });
 });

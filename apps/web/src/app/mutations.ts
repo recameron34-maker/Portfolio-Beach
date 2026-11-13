@@ -258,12 +258,15 @@ const sentence = (text: string): string => (/[.!?]$/.test(text) ? text : `${text
  * with its field in words and what is wrong with it. The API lists paths and messages only,
  * never the values, so nothing entered is echoed here either.
  */
-function describeIssues(issues: readonly Issue[]): string {
+function describeIssues(
+  issues: readonly Issue[],
+  label: (path: string) => string | null = () => null,
+): string {
   const header = issues.find((issue) => HEADER_PATHS.has(issue.path));
   if (header !== undefined)
     return `The app sent a request the server could not read (${header.path} header: ${header.message}). Nothing was changed. Reload the page and try again.`;
   const listed = issues.slice(0, MAX_ISSUES).map((issue) => {
-    const field = fieldLabel(issue.path);
+    const field = label(issue.path) ?? fieldLabel(issue.path);
     const message = plainMessage(issue.message);
     return sentence(field === null ? message : `${field}: ${message}`);
   });
@@ -286,16 +289,20 @@ const KEY_REUSED =
 
 /**
  * The sentence for a failed write: the issues of a validation refusal field by field, the
- * problem's refusal otherwise, or the error's own words.
+ * problem's refusal otherwise, or the error's own words. A form that calls a field by another
+ * name than its path reads as gives `label` (null for a path it has no word for).
  */
-export function describeActionError(error: unknown): string {
+export function describeActionError(
+  error: unknown,
+  label?: (path: string) => string | null,
+): string {
   if (!(error instanceof ApiError))
     return error instanceof Error ? error.message : 'The action failed.';
   const { problem } = error;
   if (error.code === IDEMPOTENCY_KEY_IN_PROGRESS.code) return STILL_RUNNING;
   if (error.code === IDEMPOTENCY_KEY_REUSE.code) return KEY_REUSED;
   const issues = problem.status === 400 ? (problem.errors ?? []) : [];
-  if (issues.length > 0) return describeIssues(issues);
+  if (issues.length > 0) return describeIssues(issues, label);
   return describeRefusal(error.status, problem.detail ?? problem.title);
 }
 

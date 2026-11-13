@@ -507,7 +507,7 @@ test('a loan is read against the case it was underwritten on: its IRR against pl
     for (const label of Object.values(PLAN_STATUS_LABEL))
       await expect(tile(page, name)).not.toContainText(label);
   await expect(page.getByTestId('deal-underwriting-yield-note')).toHaveText(
-    'Yield to maturity rises when the mark falls, so it is not judged.',
+    'Yield to maturity is priced on the fair value of the latest approved credit quarter, which our own mark does not change. It rises when that fair value falls, so it is not judged.',
   );
   // The same yield to maturity as the terms above it: one figure on the page, not two.
   await expect(page.getByRole('table', { name: 'Fees, yield and maturity' })).toContainText(

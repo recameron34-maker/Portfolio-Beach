@@ -182,12 +182,20 @@ export interface RunPoint {
 /**
  * Runs of consecutive known values. A missing value ends a run, so it shows as a gap in the line
  * and never as a line drawn through a figure that does not exist (CLAUDE.md rule 10).
+ *
+ * `absent` marks the points a series does not have by design: a date that belongs to another
+ * series of the same chart, where this one was never measured. Nothing is missing there, so the
+ * run carries on to the series' next value.
  */
-export function knownRuns(values: readonly (number | null)[]): RunPoint[][] {
+export function knownRuns(
+  values: readonly (number | null)[],
+  absent?: readonly boolean[],
+): RunPoint[][] {
   const out: RunPoint[][] = [];
   let run: RunPoint[] = [];
   values.forEach((v, i) => {
     if (v === null) {
+      if (absent?.[i] === true) return;
       if (run.length > 0) out.push(run);
       run = [];
     } else run.push({ i, v });

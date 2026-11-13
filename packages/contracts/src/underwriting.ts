@@ -8,7 +8,7 @@ import {
   PLAN_STATUSES,
   UNDERWRITING_FORMS,
 } from '@pb/calc';
-import type { DecimalInput } from '@pb/calc';
+import type { DecimalInput, DecimalValue } from '@pb/calc';
 import * as s from './schemas.js';
 
 /*
@@ -311,8 +311,17 @@ const lossRate = rate.refine(
   'Must be between 0 and 1',
 );
 
-/** A reason a person writes: at least a few words, bounded, no control characters. */
-const reason = s.plainText(500).min(3);
+/**
+ * A reason a person writes: at least a few characters that are not spaces, bounded, no control
+ * characters. The record refuses a reason of spaces (migration 0021), so the boundary does first.
+ */
+const reason = s
+  .plainText(500)
+  .min(3)
+  .refine(
+    (value) => value.length < 3 || value.trim().length >= 3,
+    'Needs at least 3 characters that are not spaces',
+  );
 
 /** One plan point as it is recorded: the date and at least one of the three figures, in US dollars. */
 export const underwritingPointBody = z
@@ -442,14 +451,25 @@ export function underwritingBodyIssues(
     });
   const min = D(bounds.revenueMin);
   const max = D(bounds.revenueMax);
+  // The bounds in full and in the millions a person types, so the sentence reads on a form that
+  // takes US$ millions as well as to a caller that sends dollars.
+  const message = `Revenue is in US dollars, between ${grouped(min)} and ${grouped(max)} (${grouped(min.div(MILLION))} to ${grouped(max.div(MILLION))} in US$ millions)`;
   points.forEach((p, i) => {
     if (p.revenueLtm !== null && (D(p.revenueLtm).lt(min) || D(p.revenueLtm).gt(max)))
-      issues.push({
-        path: `points.${i}.revenueLtm`,
-        message: `Revenue is in US dollars, between ${min.toFixed()} and ${max.toFixed()}`,
-      });
+      issues.push({ path: `points.${i}.revenueLtm`, message });
   });
   return issues;
+}
+
+const MILLION = 1_000_000;
+
+/** A decimal in full with its thousands grouped: 50000000000 is "50,000,000,000". */
+function grouped(value: DecimalValue): string {
+  const [whole = '0', fraction] = value.abs().toFixed().split('.');
+  const groups: string[] = [];
+  for (let end = whole.length; end > 0; end -= 3)
+    groups.unshift(whole.slice(Math.max(0, end - 3), end));
+  return `${value.isNegative() ? '-' : ''}${groups.join(',')}${fraction === undefined ? '' : `.${fraction}`}`;
 }
 
 /**

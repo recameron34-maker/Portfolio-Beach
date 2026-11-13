@@ -13,8 +13,8 @@ import {
   formatMoneyM,
   formatMultiple,
   formatPct,
-  MISSING,
   plural,
+  withSign,
 } from '../../lib/format.js';
 
 /*
@@ -39,18 +39,14 @@ export const REASON_TEXT: Record<ValueCreationReason, string> = {
 /** What the page calls `other`, the part of our gain the company's change at our stake does not explain. */
 export const MARK_AND_TIMING = 'Mark and timing';
 
-/** A change in $M with its sign: "+$5.0M", "-$1.3M"; an unchanged figure has none; null is the placeholder. */
+/** A change in $M with its sign: "+$5.0M", "-$1.3M"; one that rounds to nothing has none; null is the placeholder. */
 export function formatSignedMoneyM(value: string | null | undefined): string {
-  const text = formatMoneyM(value);
-  if (text === MISSING || text.startsWith('-') || Number(value) === 0) return text;
-  return `+${text}`;
+  return withSign(formatMoneyM(value));
 }
 
-/** A change in turns with its sign: "+1.0x", "-0.2x". */
+/** A change in turns with its sign: "+1.0x", "-0.2x"; one that rounds to nothing has none. */
 export function formatSignedTurns(value: string | null | undefined): string {
-  const text = formatMultiple(value);
-  if (text === MISSING || text.startsWith('-') || Number(value) === 0) return text;
-  return `+${text}`;
+  return withSign(formatMultiple(value));
 }
 
 const numberOf = (value: string): number => Number(value);

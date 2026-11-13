@@ -4,6 +4,17 @@ import brand from '../../../../config/brand.json';
 /** Display rules from docs/06 section 3. Inputs are decimal strings or null; null renders the missing placeholder. */
 export const MISSING: string = brand.missingValue;
 
+/**
+ * A formatted figure with its sign in front: "+$5.0M", "-7.2%". One that rounds to nothing
+ * carries none ("+0.0%" would claim a direction the figure does not show), and the placeholder
+ * stays the placeholder. Every signed figure on a page goes through here, so one page has one rule.
+ */
+export function withSign(text: string): string {
+  if (text === MISSING) return text;
+  if (!/[1-9]/.test(text)) return text.replace(/^-/, '');
+  return text.startsWith('-') ? text : `+${text}`;
+}
+
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
 function roundHalfAwayFromZero(value: number, places: number): number {

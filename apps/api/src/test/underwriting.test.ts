@@ -1142,12 +1142,18 @@ describe('the underwritten base case of a position: recording, confirming and re
       [
         { ...good, points: [{ ...points[0], revenueLtm: '200' }, points[1], points[2]] },
         'points.0.revenueLtm',
-        'Revenue is in US dollars, between 1000000 and 50000000000',
+        'Revenue is in US dollars, between 1,000,000 and 50,000,000,000 (1 to 50,000 in US$ millions)',
       ],
       [
         { ...good, points: [points[2]] },
         'points',
         'An equity base case has two plan points or more',
+      ],
+      // A reason of spaces is no reason: refused at the boundary, never an error from the record.
+      [
+        { ...good, revisionReason: '     ' },
+        'revisionReason',
+        'Needs at least 3 characters that are not spaces',
       ],
       [{ ...good, points: undefined }, 'points'],
       [

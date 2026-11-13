@@ -289,6 +289,59 @@ describe('base case card: actions', () => {
     expect(screen.getByLabelText('Revenue in US$ millions, plan date 2')).toHaveValue('400');
   });
 
+  it('says the documents could not load when they did not, and none is filed only when the list is empty', async () => {
+    open('entered', readFixture({ versions: [] }), {
+      [`GET ${DOCUMENTS}`]: failing(501, DOCUMENTS),
+    });
+    await userEvent.click(await screen.findByRole('button', { name: 'Record base case' }));
+    await screen.findByRole('form', { name: 'Record the base case' });
+    expect(
+      await screen.findByText(
+        "The position's documents could not load. Say where the model is held, or open the form again later.",
+      ),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/No document is filed/)).not.toBeInTheDocument();
+    cleanup();
+    vi.restoreAllMocks();
+
+    open('entered', readFixture({ versions: [] }));
+    await userEvent.click(await screen.findByRole('button', { name: 'Record base case' }));
+    expect(
+      await screen.findByText(
+        'No document is filed for this position; say where the model is held.',
+      ),
+    ).toBeInTheDocument();
+  });
+
+  it('words a refusal about a plan figure by its row in the form, with the range in US$ millions', async () => {
+    const problem: ProblemDetails = {
+      type: 'https://portfolio-beach.example/problems/validation',
+      title: 'Invalid body',
+      status: 400,
+      detail: 'Invalid body',
+      request_id: 'test',
+      errors: [
+        {
+          path: 'points.0.revenueLtm',
+          message:
+            'Revenue is in US dollars, between 1,000,000 and 50,000,000,000 (1 to 50,000 in US$ millions)',
+        },
+      ],
+    };
+    open('entered', readFixture({ versions: [] }), {
+      [`POST ${UW_PATH}`]: { status: 400, body: problem },
+    });
+    await userEvent.click(await screen.findByRole('button', { name: 'Record base case' }));
+    await screen.findByRole('form', { name: 'Record the base case' });
+    fillCase();
+    type('Revenue in US$ millions, plan date 1', '200000000');
+    await userEvent.click(button('Review figures'));
+    await userEvent.click(await screen.findByRole('button', { name: 'Save draft' }));
+    expect(await within(status()).findByText(/^Record the base case:/)).toHaveTextContent(
+      'Record the base case: The request was not valid. Plan date 1, revenue: Revenue is in US dollars, between 1,000,000 and 50,000,000,000 (1 to 50,000 in US$ millions).',
+    );
+  });
+
   it('adds and removes plan dates, the planned exit always last', async () => {
     open('entered', readFixture({ versions: [] }));
     await userEvent.click(await screen.findByRole('button', { name: 'Record base case' }));

@@ -119,7 +119,8 @@ export function draftOf(
 /** What is wrong with an entry, by field: "caseDate", "rows.0.revenue", "rows" for the plan as a whole. */
 export type DraftErrors = Readonly<Record<string, string>>;
 
-const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
+/** A date as a date field gives it. */
+export const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
 /** US$ millions: up to eight decimals, so the amount in dollars has no more than two. */
 const MILLIONS = /^-?\d{1,12}(\.\d{1,8})?$/;
 /** A multiple as the API keeps it. */
@@ -262,6 +263,40 @@ export function bodyOf(
     errors.form ??= `${fieldLabel(path) ?? 'The base case'}: ${issue.message}`;
   }
   return { ok: false, errors };
+}
+
+/**
+ * What stands under the source document field, by what the list of the position's documents
+ * did: a list that is still loading or could not load is never called empty.
+ */
+export function documentHint(list: 'loading' | 'failed' | 'empty' | 'listed'): string {
+  if (list === 'loading') return "Loading the position's documents.";
+  if (list === 'failed')
+    return "The position's documents could not load. Say where the model is held, or open the form again later.";
+  return list === 'empty'
+    ? 'No document is filed for this position; say where the model is held.'
+    : 'A document of this position that holds the figures.';
+}
+
+/** The figures of a plan point as the form names them, for a refusal that names one by its path. */
+const POINT_FIELDS: Readonly<Record<string, string>> = {
+  periodEnd: 'date',
+  revenueLtm: 'revenue',
+  ebitdaLtm: 'EBITDA',
+  netDebt: 'net debt',
+};
+
+/**
+ * A field of the body in the form's own words, for a refusal the API words by path: the form
+ * calls a plan point a plan date ("points.0.revenueLtm" is "Plan date 1, revenue"). Null for
+ * every other path, which reads well enough as it is.
+ */
+export function planFieldLabel(path: string): string | null {
+  const match = /^points\.(\d+)(?:\.(\w+))?$/.exec(path);
+  if (match === null) return null;
+  const row = `Plan date ${Number(match[1]) + 1}`;
+  const field = match[2] === undefined ? undefined : POINT_FIELDS[match[2]];
+  return field === undefined ? row : `${row}, ${field}`;
 }
 
 /** An amount in dollars in full, with its cents: "200000000.00" is "$200,000,000.00". Exact, from the text. */

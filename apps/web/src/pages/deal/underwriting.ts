@@ -14,6 +14,7 @@ import {
   formatPct,
   joinList,
   MISSING,
+  withSign,
 } from '../../lib/format.js';
 import { commandOptions } from '../../lib/states.js';
 import { formatSignedMoneyM } from '../analytics/value-creation.js';
@@ -42,7 +43,8 @@ export const DRAFT_ONLY = 'A draft base case waits for a second person to confir
 export const STRAIGHT_LINE_NOTE =
   'Between plan dates the plan is a straight line, not a sponsor figure.';
 /** Under the yields of a loan: why none of them is badged. */
-export const YIELD_NOTE = 'Yield to maturity rises when the mark falls, so it is not judged.';
+export const YIELD_NOTE =
+  'Yield to maturity is priced on the fair value of the latest approved credit quarter, which our own mark does not change. It rises when that fair value falls, so it is not judged.';
 
 /** Where a figure stands against plan, as the badge says it. */
 export const PLAN_STATUS_LABEL: Readonly<Record<PlanStatus, string>> = {
@@ -108,19 +110,9 @@ export function irrReasonText(flag: PlanReturns['irrFlag']): string {
   return NO_SINGLE_IRR;
 }
 
-/**
- * A formatted figure with its sign. One that rounds to nothing carries none: "+0.0%" would claim
- * a direction the figure does not show. The placeholder stays the placeholder.
- */
-function signed(text: string): string {
-  if (text === MISSING) return text;
-  if (!/[1-9]/.test(text)) return text.replace(/^-/, '');
-  return text.startsWith('-') ? text : `+${text}`;
-}
-
 /** A percent with its sign: "+0.8%", "-7.2%"; one that rounds to zero has none; null is the placeholder. */
 export function formatSignedPct(value: string | null | undefined, places = 1): string {
-  return signed(formatPct(value, places));
+  return withSign(formatPct(value, places));
 }
 
 /** A difference of two rates in points: 0.0598 below is "-6.0 points". */
@@ -131,7 +123,7 @@ export function formatPoints(value: string | null | undefined): string {
 
 /** A difference of two MOICs with its sign: "-0.14x". */
 export function formatSignedMoic(value: string | null | undefined): string {
-  return signed(formatMoic(value));
+  return withSign(formatMoic(value));
 }
 
 /** One tile of the card: a figure, what it was worked out from and, where it is judged, its status. */
@@ -205,11 +197,17 @@ export function moicTile(
   const label = 'Gross MOIC';
   const atExit = `${formatMoic(underwrittenMoic)} at ${end}`;
   const value = formatMoic(returns.grossMoic);
+  // A MOIC that is missing says why before anything else: a held position with no Locked
+  // valuation has none. Nothing invested is the reason the path gives itself.
+  const why =
+    returns.grossMoic !== null || returns.pathNotCalculable === 'no_invested_capital'
+      ? ''
+      : `${returns.irrFlag === 'no_valuation' ? irrReasonText('no_valuation') : NOT_CALCULABLE} `;
   if (returns.pathNotCalculable !== null)
     return {
       label,
       value,
-      hint: `No figure on the underwritten path: ${PATH_REASON_TEXT[returns.pathNotCalculable]} Underwritten ${atExit}.`,
+      hint: `${why}No figure on the underwritten path: ${PATH_REASON_TEXT[returns.pathNotCalculable]} Underwritten ${atExit}.`,
       status: null,
     };
   if (returns.moicOnPath === null)
@@ -219,7 +217,7 @@ export function moicTile(
       value,
       hint:
         returns.moicGap === null
-          ? `Underwritten ${atExit}`
+          ? `${why}Underwritten ${atExit}`
           : `${formatSignedMoic(returns.moicGap)} against ${formatMoic(underwrittenMoic)} underwritten at ${end}`,
       status: null,
     };
@@ -228,7 +226,7 @@ export function moicTile(
     value,
     hint:
       returns.moicGap === null
-        ? `${formatMoic(returns.moicOnPath)} on the underwritten path; ${atExit}`
+        ? `${why}${formatMoic(returns.moicOnPath)} on the underwritten path; ${atExit}`
         : `${formatSignedMoic(returns.moicGap)} against ${formatMoic(returns.moicOnPath)} on the underwritten path; ${atExit}`,
     status: null,
   };
@@ -247,13 +245,16 @@ export function yieldTiles(
     {
       label: 'Yield to maturity',
       value: formatPct(yieldToMaturity, 2),
-      hint: yieldToMaturity === null ? NOT_CALCULABLE : 'As it stands, priced on fair value',
+      hint:
+        yieldToMaturity === null
+          ? NOT_CALCULABLE
+          : 'On the fair value of the latest approved credit quarter',
       status: null,
     },
     {
       label: 'Underwritten yield',
       value: formatPct(version.underwrittenYield, 2),
-      hint: 'A year, as underwritten at entry',
+      hint: 'Annual yield, as underwritten at entry',
       status: null,
     },
     {
@@ -274,6 +275,11 @@ export interface PlanChart {
   /** Days from the first date to each date: where the chart places the point. */
   at: number[];
   actual: (number | null)[];
+  /**
+   * True on a date the actual line has no point at by design: a plan date no approved quarter
+   * ends on. The line runs over it; a quarter whose figure is missing stays a gap.
+   */
+  actualAbsent: boolean[];
   plan: (number | null)[];
 }
 
@@ -286,8 +292,16 @@ const dayOf = (iso: string): number => Math.round(Date.parse(`${iso}T00:00:00Z`)
  * so each point is placed by its date: the plan, a straight line by days between two plan dates,
  * is then drawn as one. The labels are month and year, or the full date when two dates share a
  * month (a plan dated mid-month beside a quarter end), so no two labels are the same.
+ *
+ * A plan date that no approved quarter ends on (a plan with a January year end, say) is not a
+ * missing quarter, so the actual line is not broken there. Which dates are quarters is read from
+ * every metric's series (`all`): a date where any of them has an approved figure is a quarter,
+ * and a quarter that lacks this metric's figure is a gap, never a line drawn through it.
  */
-export function planChart(series: PlanSeries): PlanChart {
+export function planChart(series: PlanSeries, all: readonly PlanSeries[] = [series]): PlanChart {
+  const quarters = new Set(
+    all.flatMap((s) => s.points.filter((p) => p.actual !== null).map((p) => p.periodEnd)),
+  );
   const short = series.points.map((p) => formatMonthYearShort(p.periodEnd));
   const x =
     new Set(short).size === short.length
@@ -298,6 +312,9 @@ export function planChart(series: PlanSeries): PlanChart {
     x,
     at: series.points.map((p) => dayOf(p.periodEnd) - dayOf(first?.periodEnd ?? p.periodEnd)),
     actual: series.points.map((p) => toNumber(p.actual)),
+    actualAbsent: series.points.map(
+      (p) => p.actual === null && p.plan !== null && !p.interpolated && !quarters.has(p.periodEnd),
+    ),
     plan: series.points.map((p) => toNumber(p.plan)),
   };
 }
@@ -410,7 +427,9 @@ export function byLine(person: { name: string } | null, at: string | null): stri
 }
 
 /** Where in a source document the figures are: "page 12", "Model!B14", or both. */
-export function sourcePlace(source: UnderwritingCaseVersion['source']): string | null {
+export function sourcePlace(
+  source: Pick<UnderwritingCaseVersion['source'], 'page' | 'locator'>,
+): string | null {
   const parts = [source.page === null ? null : `page ${source.page}`, source.locator].filter(
     (part): part is string => part !== null,
   );

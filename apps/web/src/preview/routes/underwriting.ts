@@ -40,6 +40,7 @@ import { overlayRecordedBody } from '../overlay.js';
 import { jsonResponse, problem, workflowProblem } from '../problems.js';
 import { ensureUnderwritingCases } from '../state.js';
 import {
+  byText,
   canOpen,
   defineSimRoute,
   documentVisible,
@@ -207,8 +208,6 @@ const figuresOf = (q: Quarter): UnderwritingInputs['quarters'][number] => ({
   ebitdaLtm: q.ebitdaLtm,
   netDebt: q.netDebt,
 });
-
-const byText = (a: string, b: string): number => (a < b ? -1 : a > b ? 1 : 0);
 
 /**
  * What the comparison is worked out from, as apps/api/src/underwriting/comparison.ts builds it

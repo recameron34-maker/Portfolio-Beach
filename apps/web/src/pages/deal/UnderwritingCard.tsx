@@ -74,7 +74,7 @@ import {
 } from './underwriting.js';
 import type { PlanMetric, PlanProgress, PlanTile } from './underwriting.js';
 import { isStaleCase, underwritingQuery, useUnderwritingCommand } from './underwriting-api.js';
-import { draftOf, emptyDraft } from './underwriting-form.js';
+import { draftOf, emptyDraft, planFieldLabel } from './underwriting-form.js';
 import { UnderwritingForm } from './UnderwritingForm.js';
 import './deal.css';
 
@@ -143,7 +143,7 @@ function PlanLines({
     return <p className="pb-meta pb-deal-note">No plan dates or approved quarters to chart.</p>;
   }
   const label = METRIC_LABEL[metric];
-  const chart = planChart(series);
+  const chart = planChart(series, comparison.series);
   const row = comparison.metrics.find((m) => m.metric === metric);
   const now =
     comparison.quarter === null || row === undefined
@@ -177,7 +177,7 @@ function PlanLines({
         x={chart.x}
         at={chart.at}
         series={[
-          { name: 'Actual', values: chart.actual },
+          { name: 'Actual', values: chart.actual, absent: chart.actualAbsent },
           { name: 'Plan', values: chart.plan },
         ]}
         kind="money"
@@ -592,7 +592,7 @@ function CaseCard({
     if (isStaleCase(error)) {
       if (form !== null) closeForm('title');
       log.record('bad', STALE_CASE);
-    } else log.record('bad', `${what}: ${describeActionError(error)}`);
+    } else log.record('bad', `${what}: ${describeActionError(error, planFieldLabel)}`);
   };
   const send = (
     what: string,

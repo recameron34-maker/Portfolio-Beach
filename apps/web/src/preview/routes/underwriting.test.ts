@@ -671,15 +671,29 @@ describe('preview: recording a base case (docs/18 section 13)', () => {
       errors: [
         {
           path: 'points.0.revenueLtm',
-          message: 'Revenue is in US dollars, between 1000000 and 50000000000',
+          message:
+            'Revenue is in US dollars, between 1,000,000 and 50,000,000,000 (1 to 50,000 in US$ millions)',
         },
         {
           path: 'points.1.revenueLtm',
-          message: 'Revenue is in US dollars, between 1000000 and 50000000000',
+          message:
+            'Revenue is in US dollars, between 1,000,000 and 50,000,000,000 (1 to 50,000 in US$ millions)',
         },
       ],
     });
     expect(millions.text).not.toContain('"200"');
+    // A reason of spaces is no reason, here as in the API.
+    const blank = await send(
+      f,
+      DEAL.externalId,
+      'POST',
+      readOf(IDS.open),
+      body({ revisionReason: '     ' }),
+    );
+    expect(blank.status).toBe(400);
+    expect(problemDetails.parse(blank.json).errors).toEqual([
+      { path: 'revisionReason', message: 'Needs at least 3 characters that are not spaces' },
+    ]);
     const onePoint = await send(
       f,
       DEAL.externalId,

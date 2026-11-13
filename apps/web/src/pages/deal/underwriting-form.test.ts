@@ -1,6 +1,14 @@
 import { describe, expect, it } from 'vitest';
 import { underwritingBodyIssues, underwritingCaseBody } from '@pb/contracts';
-import { bodyOf, draftOf, emptyDraft, formatDollars, formatRatePct } from './underwriting-form.js';
+import {
+  bodyOf,
+  documentHint,
+  draftOf,
+  emptyDraft,
+  formatDollars,
+  formatRatePct,
+  planFieldLabel,
+} from './underwriting-form.js';
 import type { CaseDraft } from './underwriting-form.js';
 import { caseFixture, loanCaseFixture, reunderwriteFixture } from './underwriting.fixtures.js';
 
@@ -43,6 +51,30 @@ const loanErrors = (draft: CaseDraft): Readonly<Record<string, string>> => {
   if (checked.ok) throw new Error('expected the entry to be refused');
   return checked.errors;
 };
+
+describe('base case form: what stands beside its fields', () => {
+  it('never calls a list of documents empty while it is loading or after it failed', () => {
+    expect(documentHint('loading')).toBe("Loading the position's documents.");
+    expect(documentHint('failed')).toBe(
+      "The position's documents could not load. Say where the model is held, or open the form again later.",
+    );
+    expect(documentHint('empty')).toBe(
+      'No document is filed for this position; say where the model is held.',
+    );
+    expect(documentHint('listed')).toBe('A document of this position that holds the figures.');
+  });
+
+  it('names a plan point by its row and figure, as the form does, and leaves other paths alone', () => {
+    expect(planFieldLabel('points.0.revenueLtm')).toBe('Plan date 1, revenue');
+    expect(planFieldLabel('points.2.ebitdaLtm')).toBe('Plan date 3, EBITDA');
+    expect(planFieldLabel('points.1.netDebt')).toBe('Plan date 2, net debt');
+    expect(planFieldLabel('points.4.periodEnd')).toBe('Plan date 5, date');
+    expect(planFieldLabel('points.1')).toBe('Plan date 2');
+    expect(planFieldLabel('points')).toBeNull();
+    expect(planFieldLabel('exitMultiple')).toBeNull();
+    expect(planFieldLabel('points.0.unknown')).toBe('Plan date 1');
+  });
+});
 
 describe("base case form: a loan's case", () => {
   it('sends the yield and the loss rate as rates, exactly, and neither an exit multiple nor a plan', () => {

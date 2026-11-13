@@ -27,6 +27,7 @@ import {
   yieldTiles,
 } from './underwriting.js';
 import type { CaseActions, PlanMetricRow, PlanProgress, PlanReturns } from './underwriting.js';
+import { formatSignedMoneyM, formatSignedTurns } from '../analytics/value-creation.js';
 import {
   caseFixture,
   draftFixture,
@@ -60,6 +61,15 @@ describe('base case card: figures in words', () => {
     // A figure that rounds to nothing claims no direction.
     expect(formatSignedPct('0.0004')).toBe('0.0%');
     expect(formatSignedPct('-0.0004')).toBe('0.0%');
+    // One rule for every signed figure on the card: the drivers table follows it too.
+    expect(formatSignedMoneyM('40000')).toBe('$0.0M');
+    expect(formatSignedMoneyM('-40000')).toBe('$0.0M');
+    expect(formatSignedMoneyM('5000000')).toBe('+$5.0M');
+    expect(formatSignedMoneyM('-1300000')).toBe('-$1.3M');
+    expect(formatSignedMoneyM(null)).toBe(MISSING);
+    expect(formatSignedTurns('0.04')).toBe('0.0x');
+    expect(formatSignedTurns('1')).toBe('+1.0x');
+    expect(formatSignedTurns('-0.2')).toBe('-0.2x');
     expect(formatPoints('-0.0002')).toBe('0.0 points');
     expect(formatSignedMoic('0.004')).toBe('0.00x');
     expect(formatSignedPct(null)).toBe(MISSING);
@@ -216,6 +226,36 @@ describe('base case card: the tiles', () => {
     ).toBe(
       'No figure on the underwritten path: Nothing invested by this date. Underwritten 2.50x at exit.',
     );
+    // No Locked valuation yet: the MOIC is the placeholder, and the tile says why before the path.
+    expect(
+      moicTile(
+        returnsOf({ grossMoic: null, moicGap: null, irrFlag: 'no_valuation', moicOnPath: '1.44' }),
+        '2.5',
+      ),
+    ).toEqual({
+      label: 'Gross MOIC',
+      value: MISSING,
+      hint: 'No locked valuation yet. 1.44x on the underwritten path; 2.50x at exit',
+      status: null,
+    });
+    // Missing for any other cause, the tile still says the figure is not calculable.
+    expect(
+      moicTile(returnsOf({ grossMoic: null, moicGap: null, moicOnPath: '1.44' }), '2.5').hint,
+    ).toBe('Not calculable this quarter. 1.44x on the underwritten path; 2.50x at exit');
+    // Nothing invested is already the reason the path gives.
+    expect(
+      moicTile(
+        returnsOf({
+          grossMoic: null,
+          moicOnPath: null,
+          moicGap: null,
+          pathNotCalculable: 'no_invested_capital',
+        }),
+        '2.5',
+      ).hint,
+    ).toBe(
+      'No figure on the underwritten path: Nothing invested by this date. Underwritten 2.50x at exit.',
+    );
     // Realized: the calculation library's own answer for a position no longer held.
     const realized = comparison({ inputs: { isActive: false, grossMoic: '2.1' } }).returns;
     expect(moicTile(realized, '2.500000')).toEqual({
@@ -273,13 +313,13 @@ describe('base case card: the tiles', () => {
       {
         label: 'Yield to maturity',
         value: '14.37%',
-        hint: 'As it stands, priced on fair value',
+        hint: 'On the fair value of the latest approved credit quarter',
         status: null,
       },
       {
         label: 'Underwritten yield',
         value: '11.50%',
-        hint: 'A year, as underwritten at entry',
+        hint: 'Annual yield, as underwritten at entry',
         status: null,
       },
       {
@@ -298,7 +338,10 @@ describe('base case card: the tiles', () => {
       value: '0.00%',
       hint: 'Expected loss a year',
     });
-    expect(YIELD_NOTE).toBe('Yield to maturity rises when the mark falls, so it is not judged.');
+    // The yield is priced on the credit quarter's fair value, which a Locked mark of ours leaves as it is.
+    expect(YIELD_NOTE).toBe(
+      'Yield to maturity is priced on the fair value of the latest approved credit quarter, which our own mark does not change. It rises when that fair value falls, so it is not judged.',
+    );
   });
 });
 
@@ -306,13 +349,45 @@ describe('base case card: the chart and the drivers', () => {
   it('lists every date once, with a gap where a quarter or a plan figure is missing', () => {
     const series = comparison().series.find((s) => s.metric === 'ebitda');
     if (series === undefined) throw new Error('no EBITDA series');
-    expect(planChart(series)).toEqual({
+    expect(planChart(series, comparison().series)).toEqual({
       x: ['Jun 2021', 'Dec 2022', 'Mar 2023', 'Jun 2023', 'Dec 2023', 'Jun 2026'],
       // Days from the first plan date: the quarter is day 730 of the 1,826 to the planned exit.
       at: [0, 549, 639, 730, 914, 1826],
       actual: [null, 60000000, null, 65000000, null, null],
+      // March 2023 is an approved quarter with no EBITDA: a gap. The other dates without an
+      // actual are plan dates no quarter ends on, where the actual line has no point to miss.
+      actualAbsent: [true, false, false, false, true, true],
       plan: [40000000, 66380000, 68180000, 70000000, 73680000, 80000000],
     });
+    // A plan dated off the quarter ends (a January year end): the date between two quarters is
+    // not a missing quarter, so the actual line runs over it.
+    const offQuarter = planChart({
+      metric: 'ebitda',
+      points: [
+        { periodEnd: '2022-12-31', actual: '10', plan: '9', interpolated: true },
+        { periodEnd: '2023-01-31', actual: null, plan: '12', interpolated: false },
+        { periodEnd: '2023-03-31', actual: '11', plan: '12.5', interpolated: true },
+      ],
+    });
+    expect(offQuarter.actual).toEqual([10, null, 11]);
+    expect(offQuarter.actualAbsent).toEqual([false, true, false]);
+    // A quarter that ends on a plan date and lacks this figure is still a gap: another metric
+    // has an approved figure on that date.
+    const onPlanDate = {
+      metric: 'ebitda' as const,
+      points: [
+        { periodEnd: '2022-12-31', actual: '10', plan: '9', interpolated: false },
+        { periodEnd: '2023-12-31', actual: null, plan: '12', interpolated: false },
+      ],
+    };
+    const revenue = {
+      metric: 'revenue' as const,
+      points: [
+        { periodEnd: '2022-12-31', actual: '50', plan: '45', interpolated: false },
+        { periodEnd: '2023-12-31', actual: '60', plan: '55', interpolated: false },
+      ],
+    };
+    expect(planChart(onPlanDate, [onPlanDate, revenue]).actualAbsent).toEqual([false, false]);
     // Two dates in one month are told apart by the day.
     const sameMonth = planChart({
       metric: 'ebitda',

@@ -133,6 +133,31 @@ describe('charts', () => {
     expect(table).toHaveTextContent('Q3-');
   });
 
+  it('draws a series through the dates it has no point at by design, and keeps the placeholder in the table', async () => {
+    const { container } = render(
+      <LineChart
+        title="EBITDA, actual and plan"
+        x={['Dec 2022', 'Jan 2023', 'Mar 2023']}
+        series={[
+          // January is a plan date no quarter ends on: the actual has nothing to miss there.
+          { name: 'Actual', values: [10, null, 11], absent: [false, true, false] },
+          { name: 'Plan', values: [9, 12, 12.5] },
+        ]}
+        kind="money"
+        format={(v) => `$${v}M`}
+        summary="actual and plan over three dates"
+      />,
+    );
+    const lines = [...container.querySelectorAll('path[fill="none"]')];
+    // One stroke per series: the actual is not cut in two at the plan date.
+    expect(lines).toHaveLength(2);
+    expect(lines[0]?.getAttribute('d')?.match(/L/g)).toHaveLength(1);
+    await userEvent.click(screen.getByRole('button', { name: 'Show table' }));
+    expect(
+      screen.getByRole('table', { name: 'EBITDA, actual and plan, as a table' }),
+    ).toHaveTextContent('Jan 2023-$12M');
+  });
+
   it('places points by their own positions when given, so uneven dates are drawn that far apart', () => {
     const drawn = (dates: string[], at: number[]): { xs: string[]; named: (string | null)[] } => {
       cleanup();

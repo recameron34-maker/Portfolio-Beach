@@ -36,7 +36,7 @@ Four rules of the build guide shape the design. A number is never invented (rule
 - the variance of the current quarter's revenue, EBITDA and net debt against it, and a status (ahead of, on or behind plan) by a tolerance;
 - the planned EBITDA bridge from the entry snapshot to the planned exit, by the one bridge rule the actuals use, and the share of each planned driver earned to date beside the share of the planned time that has passed;
 - the gross IRR against the underwritten IRR, with a status, and the gross MOIC against the underwritten path;
-- for credit, the IRR gap alone is judged: yield to maturity is priced on fair value and rises as the mark falls, so it and the loss rate are shown without a status.
+- for credit, the IRR gap alone is judged: yield to maturity is priced on the fair value of the latest approved credit quarter (our own Locked mark does not change it) and rises as that fair value falls, so it and the loss rate are shown without a status.
 
 A figure that cannot be worked out is missing and says why (before the plan starts, after it ends, no plan figure there, a plan figure of zero or less, no approved figure this quarter, and the reasons the bridge and the IRR already give). It is never a zero and never taken from another date.
 

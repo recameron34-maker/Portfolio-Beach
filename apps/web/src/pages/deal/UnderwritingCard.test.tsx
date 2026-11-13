@@ -272,8 +272,9 @@ describe('deal workspace: the position against the base case', () => {
     for (const name of ['EBITDA against plan', 'Revenue against plan', 'Net debt against plan'])
       expect(tile(name)).toHaveTextContent(`${MISSING}No approved quarter to compare.`);
     expect(tile('Gross IRR against plan')).toHaveTextContent(`${MISSING}No locked valuation yet.`);
+    // The MOIC is missing for the reason the IRR is, and its tile says so before the path.
     expect(tile('Gross MOIC')).toHaveTextContent(
-      `${MISSING}1.44x on the underwritten path; 2.50x at exit`,
+      `${MISSING}No locked valuation yet. 1.44x on the underwritten path; 2.50x at exit`,
     );
     expect(card()).toHaveTextContent('As of Jun 30, 2023');
     const drivers = screen.getByTestId('deal-underwriting-drivers');
@@ -310,10 +311,10 @@ describe('deal workspace: the position against the base case', () => {
     );
     // Yields show two decimals, and none of the three carries a status.
     expect(tile('Yield to maturity')).toHaveTextContent(
-      'Yield to maturity14.37%As it stands, priced on fair value',
+      'Yield to maturity14.37%On the fair value of the latest approved credit quarter',
     );
     expect(tile('Underwritten yield')).toHaveTextContent(
-      'Underwritten yield11.50%A year, as underwritten at entry',
+      'Underwritten yield11.50%Annual yield, as underwritten at entry',
     );
     expect(tile('Underwritten loss rate')).toHaveTextContent(
       'Underwritten loss rate1.50%Expected loss a year',
@@ -321,7 +322,7 @@ describe('deal workspace: the position against the base case', () => {
     const badges = groups.map((g) => g.querySelectorAll('.pb-badge').length);
     expect(badges).toEqual([1, 0, 0, 0, 0]);
     expect(screen.getByTestId('deal-underwriting-yield-note')).toHaveTextContent(
-      'Yield to maturity rises when the mark falls, so it is not judged.',
+      'Yield to maturity is priced on the fair value of the latest approved credit quarter, which our own mark does not change. It rises when that fair value falls, so it is not judged.',
     );
     // A loan has no company plan: nothing is charted and no driver is set against one.
     expect(screen.queryByTestId('deal-underwriting-chart')).not.toBeInTheDocument();

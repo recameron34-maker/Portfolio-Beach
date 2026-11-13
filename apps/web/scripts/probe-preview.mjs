@@ -2595,7 +2595,7 @@ check(
     (await page.getByTestId('deal-underwriting-chart').count()) === 0 &&
     (await page.getByTestId('deal-underwriting-drivers').count()) === 0 &&
     (await page.getByTestId('deal-underwriting-yield-note').innerText()).includes(
-      'Yield to maturity rises when the mark falls, so it is not judged.',
+      'Yield to maturity is priced on the fair value of the latest approved credit quarter, which our own mark does not change. It rises when that fair value falls, so it is not judged.',
     ) &&
     (await page.getByTestId('deal-underwriting-case').innerText()).includes('Expected repayment'),
   `${loanIrrText.replaceAll('\n', ' ')} | ${loanYieldText.replaceAll('\n', ' ')}`,

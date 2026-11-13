@@ -9,6 +9,11 @@ import { useWidth } from './useWidth.js';
 export interface LineSeries {
   name: string;
   values: (number | null)[];
+  /**
+   * True at a point this series does not have by design (a date that belongs to another series
+   * of the chart): its line runs over it. A null anywhere else is a missing figure and a gap.
+   */
+  absent?: readonly boolean[] | undefined;
 }
 
 const PAD = { top: 12, right: 96, bottom: 28, left: 56 };
@@ -213,7 +218,7 @@ export function LineChart({
           {series.map((s, si) => {
             const color = seriesColor(si + 1);
             const base = yAt(Math.max(lo, 0));
-            const runs = knownRuns(s.values);
+            const runs = knownRuns(s.values, s.absent);
             const lastRun = runs[runs.length - 1];
             const end = lastRun?.[lastRun.length - 1];
             return (

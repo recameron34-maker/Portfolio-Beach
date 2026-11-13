@@ -455,6 +455,9 @@ describe('recording a base case', () => {
       [{ ...equity, points: [point('2021-06-30'), point('2021-06-30')] }, 'points.1.periodEnd'],
       [{ ...equity, note: '' }, 'note'],
       [{ ...equity, revisionReason: 'no' }, 'revisionReason'],
+      // Spaces are not a reason: the record refuses one, so the boundary does first.
+      [{ ...equity, revisionReason: '     ' }, 'revisionReason'],
+      [{ ...equity, revisionReason: ' a  ' }, 'revisionReason'],
       [{ ...equity, sourceDocumentId: 'the model' }, 'sourceDocumentId'],
       [{ ...equity, sourcePage: 4 }, 'sourcePage'],
       [{ ...equity, sourceLocator: 'Returns!C14' }, 'sourceLocator'],
@@ -519,7 +522,8 @@ describe('recording a base case', () => {
     expect(issues('200')).toEqual([
       {
         path: 'points.0.revenueLtm',
-        message: 'Revenue is in US dollars, between 1000000 and 50000000000',
+        message:
+          'Revenue is in US dollars, between 1,000,000 and 50,000,000,000 (1 to 50,000 in US$ millions)',
       },
     ]);
     expect(issues('999999.99')).toHaveLength(1);
@@ -574,6 +578,13 @@ describe('recording a base case', () => {
       expect(underwritingCommandBody.safeParse({ command, reason: 'no' }).success, command).toBe(
         false,
       );
+      expect(underwritingCommandBody.safeParse({ command, reason: '    ' }).success, command).toBe(
+        false,
+      );
+      expect(
+        underwritingCommandBody.safeParse({ command, reason: ' Wrong model ' }).success,
+        command,
+      ).toBe(true);
     }
     for (const bad of [
       { command: 'supersede' },
