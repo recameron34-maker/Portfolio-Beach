@@ -525,6 +525,52 @@ def test_planned_bridge_adds_up_to_the_planned_equity_change(
     assert answer["timePassed"] == uw.travels(Fraction(1096, 1826))
 
 
+@given(
+    st.integers(min_value=-2_000, max_value=4_000),
+    st.integers(min_value=1, max_value=4_000),
+)
+def test_time_passed_is_never_below_zero(gone: int, whole: int) -> None:
+    # docs/08 section 11 rule 4: no time passed for a quarter dated before the entry snapshot.
+    entry = date(2020, 1, 1)
+    point = {"revenueLtm": None, "ebitdaLtm": "10", "netDebt": "5"}
+    exit_day = (entry + timedelta(days=whole)).isoformat()
+    case = {
+        "form": "equity",
+        "plannedExitDate": exit_day,
+        "exitMultiple": "10",
+        "grossMoic": "2",
+        "grossIrr": "0.2",
+        "points": [{"periodEnd": entry.isoformat(), **point}, {"periodEnd": exit_day, **point}],
+    }
+    quarter = {"periodEnd": (entry + timedelta(days=gone)).isoformat(), **point}
+    inp = {
+        "entry": {"periodEnd": entry.isoformat(), "ev": "100", **point},
+        "current": quarter,
+        "bridge": None,
+        "bridgeNotCalculable": "missing_figures",
+    }
+    passed = uw.value_creation(case, Fraction(10), inp)["timePassed"]
+    if gone < 0:
+        assert passed is None
+    else:
+        assert passed == uw.travels(Fraction(gone, whole))
+        assert passed >= 0
+
+
+def test_a_last_place_difference_is_seen_on_a_figure_of_any_size() -> None:
+    # docs/08 section 11: the two implementations agree to the last place, also on a plan figure
+    # of hundreds of millions, where a relative tolerance would let ten places slip.
+    ours = {"plan": Decimal("445100516.1393063584"), "status": "on_plan"}
+    assert uw.differences(ours, {"plan": "445100516.1393063584", "status": "on_plan"}, "row") == []
+    assert uw.differences(ours, {"plan": "445100516.13930635840", "status": "on_plan"}, "row") == []
+    assert uw.differences(ours, {"plan": "445100516.1393063585", "status": "on_plan"}, "row") == [
+        "row.plan: 445100516.1393063584 vs 445100516.1393063585"
+    ]
+    assert uw.differences(ours, {"plan": "445100516.1393063584", "status": "behind"}, "row") == [
+        "row.status: on_plan vs behind"
+    ]
+
+
 @settings(max_examples=150, deadline=None)
 @given(
     st.lists(st.integers(0, 60), unique=True, max_size=6),

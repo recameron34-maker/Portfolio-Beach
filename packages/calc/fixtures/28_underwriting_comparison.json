@@ -1,7 +1,7 @@
 {
   "id": "28_underwriting_comparison",
   "function": "underwriting_comparison",
-  "note": "The comparison against the underwritten base case, by hand (docs/08 section 11, rules 4 to 6), with tolerances of 5% on plan and 2 points of IRR. The company is the worked example of section 8: entry snapshot 2021-06-30 with revenue 200,000,000, EBITDA 40,000,000, EV 400,000,000 (10.0x) and net debt 150,000,000. Case 1, worked example 2: planned exit 2026-06-30 at 11.0x with EBITDA 80,000,000 and net debt 100,000,000, so EV 880,000,000; planned EBITDA growth (80 - 40) x 10.0 = 400,000,000, multiple expansion (880 - 400) - 400 = 80,000,000, debt paydown 50,000,000, total 530,000,000; the actual bridge at 2024-06-30 is 250,000,000, 65,000,000 and 30,000,000, total 345,000,000; progress 0.625, 0.8125, 0.6 and 345 / 530 = 0.6509433962; 1,096 of 1,826 days, 0.6002190581. The quarter of 2024-06-30 lies 366 of 1,096 days between the plan dates 2023-06-30 and 2026-06-30: EBITDA 56,000,000 + 24,000,000 x 366 / 1,096 = 64,014,598.5401459854, revenue 250,000,000 + 70,000,000 x 366 / 1,096 = 273,375,912.4087591241, net debt 130,000,000 - 30,000,000 x 366 / 1,096 = 119,981,751.8248175182. The series holds the three plan dates and the approved quarters up to the current one; the quarter of 2024-09-30 is dated after it and is left out. We invested 10,000,000 on 2021-06-30, received 2,000,000 on 2023-06-30 and hold a NAV of 22,500,000: MOIC 2.45; the path value at 20% is 10,000,000 x 1.2^(1096/365) - 2,000,000 x 1.2^(366/365). Case 2, worked example 3, as of 2023-06-30 on a plan date: 10,000,000 in, 1,000,000 back 730 days on and a NAV of 12,000,000; MOIC 1.3, IRR sqrt(1.3) - 1 = 0.1401754251, gap -0.0598245749, behind; path value 10,000,000 x 1.44 - 1,000,000 = 13,400,000, path MOIC 1.44, gap -0.14. The actual bridge with an EV of 580,000,000 is (55 - 40) x 10 = 150,000,000, (580 - 400) - 150 = 30,000,000 and 20,000,000, total 200,000,000: progress 0.375, 0.375, 0.4 and 200 / 530 = 0.3773584906; 730 of 1,826 days. Cases 3 and 4, worked example 4: a loan of 10,000,000 at par on 2021-06-30 paying 1,000,000 on each anniversary, underwritten at 10%, as of 2023-06-30. At par the IRR is 10%, on plan, and the path value 12,100,000 - 1,100,000 - 1,000,000 = 10,000,000, path MOIC 1.2, gap 0. Marked at 9,000,000 the MOIC is 1.1, the gap -0.1 and the IRR 0.0512492197 (10x^2 - x - 10 = 0), 0.0487507803 under: behind. A loan carries its returns and its yield to maturity as given, and nothing else. Case 5: a plan whose net debt rises to 160,000,000 plans a debt paydown of -10,000,000, so that driver has no progress; an actual multiple expansion of -40,000,000 against a planned 80,000,000 is -0.5; total 240 / 470 = 0.5106382979. Case 6: an exit at the entry multiple and the entry net debt plans exactly 0 for both, so neither has progress; total 240 / 400 = 0.6. With no Locked valuation there is no MOIC and no IRR, so no gap; the path still stands. Case 7: a plan that ended on 2023-12-31 (10.5x, EBITDA 62,000,000, net debt 125,000,000: planned 220,000,000, 31,000,000 and 25,000,000, total 276,000,000) read on 2024-06-30: no plan figure for the quarter and no path; progress 250 / 220, 65 / 31, 30 / 25 and 345 / 276 = 1.25, with 1,096 of 914 days passed. Case 8: realized on 2023-12-31 for 24,000,000 after 2,000,000 earlier: MOIC 2.6 against an underwritten 2.5 at exit, a gap of 0.1; no path and no reason. Its current quarter is the one at its exit. Case 9: no entry snapshot, so no bridge either way and no time passed; the quarter is still set against plan. Case 10: the plan point on the planned exit has no net debt, so there is no planned bridge; the actual one stands. Case 11: as of 2021-09-30 there is no approved quarter and nothing has been invested: no metrics, the series holds the plan dates alone, the planned bridge stands and there is no path. Case 12: an EBITDA of zero at the planned exit has no multiple, so no planned bridge. The gross IRR of cases 1, 5, 7, 9, 10 and 12 (0.360867922) and of case 8 (0.4742687072) are inputs, solved by bisection at 60 digits; every other figure is plain arithmetic.",
+  "note": "The comparison against the underwritten base case, by hand (docs/08 section 11, rules 4 to 6), with tolerances of 5% on plan and 2 points of IRR. The company is the worked example of section 8: entry snapshot 2021-06-30 with revenue 200,000,000, EBITDA 40,000,000, EV 400,000,000 (10.0x) and net debt 150,000,000. Case 1, worked example 2: planned exit 2026-06-30 at 11.0x with EBITDA 80,000,000 and net debt 100,000,000, so EV 880,000,000; planned EBITDA growth (80 - 40) x 10.0 = 400,000,000, multiple expansion (880 - 400) - 400 = 80,000,000, debt paydown 50,000,000, total 530,000,000; the actual bridge at 2024-06-30 is 250,000,000, 65,000,000 and 30,000,000, total 345,000,000; progress 0.625, 0.8125, 0.6 and 345 / 530 = 0.6509433962; 1,096 of 1,826 days, 0.6002190581. The quarter of 2024-06-30 lies 366 of 1,096 days between the plan dates 2023-06-30 and 2026-06-30: EBITDA 56,000,000 + 24,000,000 x 366 / 1,096 = 64,014,598.5401459854, revenue 250,000,000 + 70,000,000 x 366 / 1,096 = 273,375,912.4087591241, net debt 130,000,000 - 30,000,000 x 366 / 1,096 = 119,981,751.8248175182. The series holds the three plan dates and the approved quarters up to the current one; the quarter of 2024-09-30 is dated after it and is left out. We invested 10,000,000 on 2021-06-30, received 2,000,000 on 2023-06-30 and hold a NAV of 22,500,000: MOIC 2.45; the path value at 20% is 10,000,000 x 1.2^(1096/365) - 2,000,000 x 1.2^(366/365). Case 2, worked example 3, as of 2023-06-30 on a plan date: 10,000,000 in, 1,000,000 back 730 days on and a NAV of 12,000,000; MOIC 1.3, IRR sqrt(1.3) - 1 = 0.1401754251, gap -0.0598245749, behind; path value 10,000,000 x 1.44 - 1,000,000 = 13,400,000, path MOIC 1.44, gap -0.14. The actual bridge with an EV of 580,000,000 is (55 - 40) x 10 = 150,000,000, (580 - 400) - 150 = 30,000,000 and 20,000,000, total 200,000,000: progress 0.375, 0.375, 0.4 and 200 / 530 = 0.3773584906; 730 of 1,826 days. Cases 3 and 4, worked example 4: a loan of 10,000,000 at par on 2021-06-30 paying 1,000,000 on each anniversary, underwritten at 10%, as of 2023-06-30. At par the IRR is 10%, on plan, and the path value 12,100,000 - 1,100,000 - 1,000,000 = 10,000,000, path MOIC 1.2, gap 0. Marked at 9,000,000 the MOIC is 1.1, the gap -0.1 and the IRR 0.0512492197 (10x^2 - x - 10 = 0), 0.0487507803 under: behind. A loan carries its returns and its yield to maturity as given, and nothing else. Case 5: a plan whose net debt rises to 160,000,000 plans a debt paydown of -10,000,000, so that driver has no progress; an actual multiple expansion of -40,000,000 against a planned 80,000,000 is -0.5; total 240 / 470 = 0.5106382979. Case 6: an exit at the entry multiple and the entry net debt plans exactly 0 for both, so neither has progress; total 240 / 400 = 0.6. With no Locked valuation there is no MOIC and no IRR, so no gap; the path still stands. Case 7: a plan that ended on 2023-12-31 (10.5x, EBITDA 62,000,000, net debt 125,000,000: planned 220,000,000, 31,000,000 and 25,000,000, total 276,000,000) read on 2024-06-30: no plan figure for the quarter and no path; progress 250 / 220, 65 / 31, 30 / 25 and 345 / 276 = 1.25, with 1,096 of 914 days passed. Case 8: realized on 2023-12-31 for 24,000,000 after 2,000,000 earlier: MOIC 2.6 against an underwritten 2.5 at exit, a gap of 0.1; no path and no reason. Its current quarter is the one at its exit. Case 9: no entry snapshot, so no bridge either way and no time passed; the quarter is still set against plan. Case 10: the plan point on the planned exit has no net debt, so there is no planned bridge; the actual one stands. Case 11: as of 2021-09-30 there is no approved quarter and nothing has been invested: no metrics, the series holds the plan dates alone, the planned bridge stands and there is no path. Case 12: an EBITDA of zero at the planned exit has no multiple, so no planned bridge. Case 13: case 1 with its entry snapshot dated 2024-09-30, after the current quarter of 2024-06-30. The planned bridge reads the figures of the snapshot, not its date, and the actual bridge, the quarter against plan and the returns are inputs or dated otherwise, so every figure is as in case 1; but none of the planned time has begun (-92 of 638 days), so there is no time passed. The gross IRR of cases 1, 5, 7, 9, 10, 12 and 13 (0.360867922) and of case 8 (0.4742687072) are inputs, solved by bisection at 60 digits; every other figure is plain arithmetic.",
   "tolerance": "1e-20",
   "input": {
     "tolerances": {
@@ -877,6 +877,101 @@
           "isActive": true,
           "entry": {
             "periodEnd": "2021-06-30",
+            "revenueLtm": "200000000.00",
+            "ebitdaLtm": "40000000.00",
+            "ev": "400000000.00",
+            "netDebt": "150000000.00"
+          },
+          "current": {
+            "periodEnd": "2024-06-30",
+            "revenueLtm": "260000000.00",
+            "ebitdaLtm": "65000000.00",
+            "netDebt": "120000000.00"
+          },
+          "quarters": [
+            {
+              "periodEnd": "2023-06-30",
+              "revenueLtm": "240000000.00",
+              "ebitdaLtm": "55000000.00",
+              "netDebt": "130000000.00"
+            },
+            {
+              "periodEnd": "2023-12-31",
+              "revenueLtm": "250000000.00",
+              "ebitdaLtm": "60000000.00",
+              "netDebt": "126000000.00"
+            },
+            {
+              "periodEnd": "2024-06-30",
+              "revenueLtm": "260000000.00",
+              "ebitdaLtm": "65000000.00",
+              "netDebt": "120000000.00"
+            },
+            {
+              "periodEnd": "2024-09-30",
+              "revenueLtm": "265000000.00",
+              "ebitdaLtm": "66000000.00",
+              "netDebt": "118000000.00"
+            }
+          ],
+          "bridge": {
+            "ebitdaGrowth": "250000000",
+            "multipleExpansion": "65000000",
+            "debtPaydown": "30000000",
+            "total": "345000000"
+          },
+          "bridgeNotCalculable": null,
+          "flows": [
+            {
+              "date": "2021-06-30",
+              "amount": "-10000000"
+            },
+            {
+              "date": "2023-06-30",
+              "amount": "2000000"
+            }
+          ],
+          "invested": "10000000",
+          "distributions": "2000000",
+          "grossMoic": "2.45",
+          "grossIrr": "0.360867922",
+          "irrFlag": null,
+          "yieldToMaturity": null
+        }
+      },
+      {
+        "case": {
+          "form": "equity",
+          "plannedExitDate": "2026-06-30",
+          "exitMultiple": "11.0",
+          "grossMoic": "2.5",
+          "grossIrr": "0.2",
+          "points": [
+            {
+              "periodEnd": "2021-06-30",
+              "revenueLtm": "200000000.00",
+              "ebitdaLtm": "40000000.00",
+              "netDebt": "150000000.00"
+            },
+            {
+              "periodEnd": "2023-06-30",
+              "revenueLtm": "250000000.00",
+              "ebitdaLtm": "56000000.00",
+              "netDebt": "130000000.00"
+            },
+            {
+              "periodEnd": "2026-06-30",
+              "revenueLtm": "320000000.00",
+              "ebitdaLtm": "80000000.00",
+              "netDebt": "100000000.00"
+            }
+          ]
+        },
+        "inputs": {
+          "asOf": "2024-06-30",
+          "isActive": true,
+          "entry": {
+            "periodEnd": "2024-09-30",
             "revenueLtm": "200000000.00",
             "ebitdaLtm": "40000000.00",
             "ev": "400000000.00",
@@ -2573,6 +2668,182 @@
           "progress": null,
           "timePassed": "0.6002190581",
           "notCalculable": "non_positive_ebitda"
+        },
+        "returns": {
+          "grossIrr": "0.360867922",
+          "irrGap": "0.160867922",
+          "irrStatus": "ahead",
+          "irrFlag": null,
+          "grossMoic": "2.45",
+          "moicOnPath": "1.6887434582",
+          "moicGap": "0.7612565418",
+          "pathNotCalculable": null
+        },
+        "yieldToMaturity": null
+      },
+      {
+        "quarter": "2024-06-30",
+        "metrics": [
+          {
+            "metric": "ebitda",
+            "actual": "65000000",
+            "plan": "64014598.5401459854",
+            "interpolated": true,
+            "variance": "985401.4598540146",
+            "variancePct": "0.0153933865",
+            "status": "on_plan",
+            "notCalculable": null
+          },
+          {
+            "metric": "revenue",
+            "actual": "260000000",
+            "plan": "273375912.4087591241",
+            "interpolated": true,
+            "variance": "-13375912.4087591241",
+            "variancePct": "-0.0489286429",
+            "status": "on_plan",
+            "notCalculable": null
+          },
+          {
+            "metric": "net_debt",
+            "actual": "120000000",
+            "plan": "119981751.8248175182",
+            "interpolated": true,
+            "variance": "18248.1751824818",
+            "variancePct": "0.0001520913",
+            "status": "on_plan",
+            "notCalculable": null
+          }
+        ],
+        "headline": "on_plan",
+        "series": [
+          {
+            "metric": "ebitda",
+            "points": [
+              {
+                "periodEnd": "2021-06-30",
+                "actual": null,
+                "plan": "40000000",
+                "interpolated": false
+              },
+              {
+                "periodEnd": "2023-06-30",
+                "actual": "55000000",
+                "plan": "56000000",
+                "interpolated": false
+              },
+              {
+                "periodEnd": "2023-12-31",
+                "actual": "60000000",
+                "plan": "60029197.0802919708",
+                "interpolated": true
+              },
+              {
+                "periodEnd": "2024-06-30",
+                "actual": "65000000",
+                "plan": "64014598.5401459854",
+                "interpolated": true
+              },
+              {
+                "periodEnd": "2026-06-30",
+                "actual": null,
+                "plan": "80000000",
+                "interpolated": false
+              }
+            ]
+          },
+          {
+            "metric": "revenue",
+            "points": [
+              {
+                "periodEnd": "2021-06-30",
+                "actual": null,
+                "plan": "200000000",
+                "interpolated": false
+              },
+              {
+                "periodEnd": "2023-06-30",
+                "actual": "240000000",
+                "plan": "250000000",
+                "interpolated": false
+              },
+              {
+                "periodEnd": "2023-12-31",
+                "actual": "250000000",
+                "plan": "261751824.8175182482",
+                "interpolated": true
+              },
+              {
+                "periodEnd": "2024-06-30",
+                "actual": "260000000",
+                "plan": "273375912.4087591241",
+                "interpolated": true
+              },
+              {
+                "periodEnd": "2026-06-30",
+                "actual": null,
+                "plan": "320000000",
+                "interpolated": false
+              }
+            ]
+          },
+          {
+            "metric": "net_debt",
+            "points": [
+              {
+                "periodEnd": "2021-06-30",
+                "actual": null,
+                "plan": "150000000",
+                "interpolated": false
+              },
+              {
+                "periodEnd": "2023-06-30",
+                "actual": "130000000",
+                "plan": "130000000",
+                "interpolated": false
+              },
+              {
+                "periodEnd": "2023-12-31",
+                "actual": "126000000",
+                "plan": "124963503.6496350365",
+                "interpolated": true
+              },
+              {
+                "periodEnd": "2024-06-30",
+                "actual": "120000000",
+                "plan": "119981751.8248175182",
+                "interpolated": true
+              },
+              {
+                "periodEnd": "2026-06-30",
+                "actual": null,
+                "plan": "100000000",
+                "interpolated": false
+              }
+            ]
+          }
+        ],
+        "valueCreation": {
+          "planned": {
+            "ebitdaGrowth": "400000000",
+            "multipleExpansion": "80000000",
+            "debtPaydown": "50000000",
+            "total": "530000000"
+          },
+          "actual": {
+            "ebitdaGrowth": "250000000",
+            "multipleExpansion": "65000000",
+            "debtPaydown": "30000000",
+            "total": "345000000"
+          },
+          "progress": {
+            "ebitdaGrowth": "0.625",
+            "multipleExpansion": "0.8125",
+            "debtPaydown": "0.6",
+            "total": "0.6509433962"
+          },
+          "timePassed": null,
+          "notCalculable": null
         },
         "returns": {
           "grossIrr": "0.360867922",

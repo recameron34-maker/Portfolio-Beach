@@ -600,6 +600,12 @@ describe('value creation against plan (rule 4)', () => {
     const early = { ...ENTRY, periodEnd: '2026-06-30' };
     expect(compare({ entry: early }).valueCreation!.timePassed).toBeNull();
     expect(compare({ current: null }).valueCreation!.timePassed).toBeNull();
+    // A current quarter dated before the entry snapshot: none of the planned time has begun,
+    // and the share is never below zero. On the snapshot's own date it is zero.
+    const later = { ...ENTRY, periodEnd: '2024-09-30' };
+    expect(compare({ entry: later }).valueCreation!.timePassed).toBeNull();
+    const sameDay = { ...ENTRY, periodEnd: '2024-06-30' };
+    expect(compare({ entry: sameDay }).valueCreation!.timePassed).toBe('0');
   });
 
   it('answers the side that stands and says why the other does not', () => {

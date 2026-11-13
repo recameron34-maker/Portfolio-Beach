@@ -531,11 +531,13 @@ function progressAgainstPlan(
     };
   }
 
+  // None of the planned time has begun for a current quarter dated before the entry snapshot:
+  // no share, never one below zero.
   let timePassed: Decimal | null = null;
   if (entry !== null && current !== null) {
     const whole = daysBetween(entry.periodEnd, base.plannedExitDate);
-    if (whole > 0)
-      timePassed = held(new Dec(daysBetween(entry.periodEnd, current.periodEnd)).div(whole));
+    const gone = daysBetween(entry.periodEnd, current.periodEnd);
+    if (whole > 0 && gone >= 0) timePassed = held(new Dec(gone).div(whole));
   }
   return {
     planned: plan === null ? null : driverStrings(plan),

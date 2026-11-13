@@ -142,12 +142,12 @@ def check_case(case: dict[str, Any]) -> list[str]:
             problems.append(f"median {typical} vs ts {ts['median']}")
     elif kind == "plan":
         plan_rows = uw.plan_metrics(inp["points"], inp["quarter"], inp["onPlanTolerance"])
-        problems.extend(uw.differences(plan_rows, ts["metrics"], tol, "metrics"))
+        problems.extend(uw.differences(plan_rows, ts["metrics"], "metrics"))
         if uw.headline(plan_rows) != ts["headline"]:
             problems.append(f"headline {uw.headline(plan_rows)} vs ts {ts['headline']}")
     elif kind == "underwriting":
         answer = uw.comparison(inp["case"], inp["inputs"], inp["tolerances"])
-        problems.extend(uw.differences(answer, ts, tol, "comparison"))
+        problems.extend(uw.differences(answer, ts, "comparison"))
     else:
         problems.append(f"unknown kind {kind}")
     return problems

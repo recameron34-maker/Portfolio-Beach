@@ -244,8 +244,9 @@ def value_creation(case: dict[str, Any], multiple: Fraction, inp: dict[str, Any]
     time_passed: Decimal | None = None
     if entry is not None and current is not None:
         whole = days_between(entry["periodEnd"], case["plannedExitDate"])
-        if whole > 0:
-            gone = days_between(entry["periodEnd"], current["periodEnd"])
+        gone = days_between(entry["periodEnd"], current["periodEnd"])
+        # A quarter dated before the entry snapshot: none of the planned time has begun.
+        if whole > 0 and gone >= 0:
             time_passed = travels(Fraction(gone, whole))
     return {
         "planned": planned,
@@ -318,31 +319,30 @@ def comparison(case: dict[str, Any], inp: dict[str, Any], tolerances: dict[str, 
     return answer
 
 
-def differences(mine: Any, theirs: Any, tol: Decimal, label: str) -> list[str]:
+def differences(mine: Any, theirs: Any, label: str) -> list[str]:
     """Where an answer of ours differs from one as it travelled.
 
-    Ours holds a Decimal wherever the travelled one holds a number as text: those agree within
-    the tolerance. Everything else (dates, flags, statuses, reasons, nothing at all) agrees exactly.
+    Ours holds a Decimal wherever the travelled one holds a number as text. Both sides are
+    rounded half up to ten places from an exact or a high-precision figure, so they agree to the
+    last place or they differ: no tolerance, which on a figure of hundreds of millions would let
+    the last places slip. Everything else (dates, flags, statuses, reasons, nothing at all)
+    agrees exactly too.
     """
     if isinstance(mine, dict) and isinstance(theirs, dict):
         if set(mine) != set(theirs):
             return [f"{label}: keys {sorted(mine)} vs {sorted(theirs)}"]
-        return [
-            d for key in mine for d in differences(mine[key], theirs[key], tol, f"{label}.{key}")
-        ]
+        return [d for key in mine for d in differences(mine[key], theirs[key], f"{label}.{key}")]
     if isinstance(mine, list) and isinstance(theirs, list):
         if len(mine) != len(theirs):
             return [f"{label}: {len(mine)} rows vs {len(theirs)}"]
         return [
             d
             for n, (a, b) in enumerate(zip(mine, theirs, strict=True))
-            for d in differences(a, b, tol, f"{label}[{n}]")
+            for d in differences(a, b, f"{label}[{n}]")
         ]
     if isinstance(mine, Decimal):
         if not isinstance(theirs, str):
             return [f"{label}: {mine} vs {theirs}"]
         other = Decimal(theirs)
-        if abs(mine - other) > tol * max(Decimal(1), abs(mine), abs(other)):
-            return [f"{label}: {mine} vs {other}"]
-        return []
+        return [] if mine == other else [f"{label}: {mine} vs {other}"]
     return [] if mine == theirs and type(mine) is type(theirs) else [f"{label}: {mine} vs {theirs}"]
