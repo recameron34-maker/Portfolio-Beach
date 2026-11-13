@@ -54,7 +54,8 @@ A figure that cannot be worked out is missing and says why (before the plan star
 
 ## Consequences (security, cost, operations, migration)
 
-- One migration, two tables, row-level security forced on both. Nothing is backfilled and nothing existing changes.
+- Two migrations: 0021 adds the two tables, with row-level security forced on both, and 0022 narrows who writes a plan point to the person the Draft names (a review finding, below). Nothing is backfilled and nothing existing changes.
+- No outbox event is written, although `docs/18` says every transition emits one: no service of the API writes `ops.outbox` yet and nothing relays it, so the base case follows the other workflows. Every transition is in the audit trail. The events are added when the API gains an outbox writer.
 - No dependency and no new external service. The comparison is worked out on read; only the case is stored.
 - A sponsor's model may define EBITDA differently from its quarterly reports. The platform compares the two figures as given; the source of the case is on the card so a reader can check.
 - The straight line between plan dates is a convention of ours. It is flagged wherever it is used, and the owner may prefer a comparison on plan dates only.
@@ -64,7 +65,7 @@ A figure that cannot be worked out is missing and says why (before the plan star
 
 - SEC-2.1: every column of the two tables is classified (`restricted_mnpi`, retention `books_and_records`; the person columns `confidential_personal`).
 - SEC-5.1 and SEC-5.3: read and write policies under row-level security, by command, on visible positions only; a walled position's base case is invisible to everyone outside the wall, and the API answers 404.
-- SEC-5.6: the person who last changed the figures cannot confirm them (a check constraint, the machine and the API each refuse it).
+- SEC-5.6: the person who last changed the figures cannot confirm them (a check constraint, the machine and the API each refuse it). The rule covers the plan points: only the person the Draft names writes them (the write policies of `mon.underwriting_case_point`, migration 0022), so nobody rewrites the points of somebody else's Draft and then confirms it.
 - SEC-9.1: a case is a draft until a second person confirms it, and only a confirmed case is compared.
 - SEC-9.2: versions are kept, never overwritten; both tables carry history.
 - SEC-9.4: outside a draft a case names its source: a document of the position with a page or a sheet and cell, or a note on where the model is held.
@@ -75,6 +76,7 @@ A figure that cannot be worked out is missing and says why (before the plan star
 - `docs/04` (M9), `docs/05`, `docs/08` (sections 1 to 5, 8 and 10), `docs/18`, CLAUDE.md rules 5, 7, 9, 10 and 12.
 - The calculation: `packages/calc` `underwriting.test.ts` and fixtures 27 and 28 (the four worked examples of `docs/08` section 11 by hand, every reason, a value on each tolerance), the same fixtures and cases in `apps/worker-py` `calc_check`, and the random cross-check with 0 mismatches.
 - The slices that follow (the tables, the machine, the routes, the page, the preview, the data) record their own checks in `docs/SESSION_LOG.md`.
+- Three independent reviews of the finished feature, and the fixes that followed (the plan points under the two-person rule, the card's result and keyboard focus through every step, no time passed before the entry snapshot, an exact Python cross-check), are in `docs/SESSION_LOG.md` too.
 
 ## Open for the owner
 

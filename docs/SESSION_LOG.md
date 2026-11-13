@@ -540,3 +540,30 @@ Tests came first for the calculation: the text of `docs/08` section 11, the two 
 - A sponsor's model may define EBITDA differently from its quarterly reports; the two are compared as given, and the source of the case is on the card.
 - A loan's yield to maturity is priced on its reported credit row, so a mark locked through the valuation workflow moves its IRR and MOIC and not that yield. The Credit terms card reads the same way.
 - The published preview and the site's media were made before this card existed; both show it after the next publish and media run.
+
+### Session 11, continued (2026-11-13): review of the base case feature, and its fixes
+
+Three independent reviewers read the finished feature (decision 0022) and ran its gates. Each finding was checked before anything changed; a test that fails without the fix came first wherever a test can show it.
+
+**What changed**
+
+- **The database's two-person rule covers the plan points** (migration 0022, `docs/03`, `docs/18` section 13). A second deal team member could rewrite the points of a Draft somebody else had entered and then confirm it, in one user transaction: the rule sat on the case row alone. No route of the API did so, but the database is a line of its own. A plan point is now written only by the person the case names as `entered_by` (`pb.underwriting_case_entered_by_me` in the write policies), so whoever changes a point first claims the Draft, as the API does, and cannot confirm it. The access matrix gains the claim step, three rows for a Draft somebody else entered and a row for recording a Draft on the walled position.
+- **The card keeps its result and keyboard focus.** Retiring a version the reader had picked ended on a red notice with the confirmation lost; the card now goes back to the default case, still says what was done, and adds one quiet line. A read that fails after it has answered once keeps the card and an open form. Focus no longer falls to the page: the form and the review take it on their headings, cancelling returns it to the button that opened the form or the dialog, and a save or a command that removes its own button moves it to the card's title.
+- **Smaller points on the page:** a reason of spaces is refused by the contract (it was a 500 in the API and a 201 in the preview); the revenue bound refusal gives its bounds grouped and in US$ millions and names the row as the form does; the actual line of the chart runs over a plan date no quarter ends on; the source document field says when its list is loading or could not load; the MOIC tile says why the MOIC is missing; the loan's yield wording says the yield is priced on the fair value of the latest approved credit quarter, which a Locked mark of ours does not change (`docs/08` section 11 rule 6); every signed figure follows one rule.
+- **The calculation** (`docs/08` section 11 rule 4, fixture 28 case 13): no time passed when the current quarter is dated before the entry snapshot. The Python comparison of the plan and underwriting kinds is exact, since both sides are rounded to ten places.
+- **The generator** (`docs/14` section 12): a scenario that finds no host among the positions with an ordinary case takes one left without a case, so `pnpm synth --profile small` passes its check on 13 of the 14 seeds from 1 to 20 that passed before the feature (it was 5). A dataset whose scenarios all fit is built exactly as before: seed 42 in both profiles is unchanged.
+
+**Verified**
+
+- `pnpm exec vitest run`: 263 files, 5,080 tests passed. `pnpm test:calc`: calc 141 passed, the Python worker 47 passed, the cross-check 520 cases with 0 mismatches, now compared exactly for the two kinds. `pnpm test:rls`: 1,658 passed. `pnpm typecheck`, `pnpm lint`, `check-style`, `check-employer-data` and `check:classification` (1,008 columns) clean; `pnpm openapi:generate` writes the same file.
+- `build:preview`, then the probe: 212 passed and 0 failed. The browser journey of the base case: 3 passed.
+- Each new test was seen to fail first: the guards test on the database without migration 0022, four card tests (the retired pick, the failed later read, focus through the form and the dialog, focus after a command), the contract tests, the calc unit test and fixture 28, and the two generator tests on the old generator.
+
+**Not taken, and why**
+
+- The seeded `underwriting_ahead` plan shrinks (its growth is the position's own less 8 points) and the scenario MOICs do not tie to their plans. That is the rule of `docs/14` section 12 as written; changing it moves the seed 42 datasets, the recordings and every test that reads those positions. It is the owner's call: a floor on the scenario's plan growth, or an exit multiple solved so the plan's exit pays the underwritten MOIC.
+- The yield to maturity is still priced on the credit quarter's fair value and not on our Locked mark: pricing it on the mark would change the Credit terms figure too. The wording now says which it is.
+- The revenue bounds are not checked in the form itself: they are the API's configuration, which the web app carries only in the preview. The refusal now reads in the form's own terms.
+- A Draft edit need not move `entered_at` in the database: the API always sets it from its clock, and a fixed clock in tests would not move it.
+- The feature is far over the target of about 800 changed lines for one pull request. Its commits follow the slices, so it can be opened as one pull request per slice or per layer.
+- Small profile, seed 14: ten positions can carry a case and four are taken by the older scenarios, so six are left for ten scenarios and the generator command still refuses that seed.

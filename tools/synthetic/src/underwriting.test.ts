@@ -809,8 +809,8 @@ describe('the dataset check on the base cases', () => {
 describe('a dataset short of positions', () => {
   /**
    * The seeds of the small profile, 1 to 20, whose dataset passed its whole check before the base
-   * cases were added, less seed 14: its twelve positions that can carry a case, four of them
-   * taken by the older scenarios, cannot hold ten more.
+   * cases were added, less seed 14: ten positions can carry a case there and four of them are
+   * taken by the older scenarios, which leaves six for ten scenarios.
    */
   const FITS: ReadonlySet<number> = new Set([2, 5, 6, 7, 8, 9, 10, 11, 15, 17, 18, 19, 20]);
 
