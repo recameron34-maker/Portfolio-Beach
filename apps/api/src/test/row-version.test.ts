@@ -87,6 +87,13 @@ const VALID_BODY: Readonly<Record<string, object>> = {
   'POST /api/v1/opportunities/{id}/commands': { command: 'advance' },
   'POST /api/v1/closings/{id}/commands': { command: 'confirm' },
   'POST /api/v1/report-packages/{id}/commands': { command: 'generate' },
+  'PATCH /api/v1/underwriting-cases/{id}': {
+    caseDate: '2021-06-30',
+    plannedExitDate: '2026-06-30',
+    grossMoic: '2.5',
+    grossIrr: '0.2',
+  },
+  'POST /api/v1/underwriting-cases/{id}/commands': { command: 'confirm' },
 };
 
 /**
@@ -154,8 +161,14 @@ describe('the routes the contract marks ifMatch', () => {
     }
   });
 
-  /** Where each guarded record kind is read, and the table a seeded one comes from. */
-  const READS: Readonly<Record<string, { path: string; table: string }>> = {
+  /**
+   * Where each guarded record kind is read, and the table a seeded one comes from. A base case is
+   * read with the other versions of its position, so its read is found by the position
+   * (`parent`) and answers the versions in a list (`list`), each with its own row version.
+   */
+  const READS: Readonly<
+    Record<string, { path: string; table: string; parent?: string; list?: string }>
+  > = {
     valuation: { path: '/api/v1/valuations/{id}', table: 'mon.valuation' },
     capital_notice: { path: '/api/v1/capital-notices/{id}', table: 'mon.capital_notice' },
     wire_instruction: { path: '/api/v1/wire-instructions/{id}', table: 'mon.wire_instruction' },
@@ -163,22 +176,40 @@ describe('the routes the contract marks ifMatch', () => {
     opportunity: { path: '/api/v1/opportunities/{id}', table: 'deal.opportunity' },
     closing: { path: '/api/v1/closings/{id}', table: 'deal.closing' },
     reporting_package: { path: '/api/v1/report-packages/{id}', table: 'rpt.package' },
+    underwriting_case: {
+      path: '/api/v1/investments/{id}/underwriting',
+      table: 'mon.underwriting_case',
+      parent: 'investment_id',
+      list: 'versions',
+    },
   };
 
   it('tag the record they guard: its read answers the row version as the ETag a command may carry back', async () => {
     expect(Object.keys(READS).sort()).toEqual([...new Set(guarded.map((r) => r.ifMatch))].sort());
     for (const [kind, read] of Object.entries(READS)) {
-      const ids = await h.runtime.db.query<{ id: string }>(
-        `select id from ${read.table} order by id limit 20`,
+      const ids = await h.runtime.db.query<{ id: string; record: string; row_version: number }>(
+        `select ${read.parent ?? 'id'} as id, id as record, row_version from ${read.table} order by id limit 20`,
       );
       let tagged = false;
-      for (const { id } of ids) {
+      for (const { id, record, row_version: stored } of ids) {
         const res = await h
           .http()
           .get(read.path.replace('{id}', id))
           .set('authorization', h.as('operations'));
         if (res.status !== 200) continue; // behind a wall operations is not on
+        if (read.list !== undefined) {
+          // Several records in one answer: no single tag stands for it, so each record carries
+          // the row version a command sends back, and the answer is stored by nobody either.
+          const rows = (res.body as Record<string, { id: string; rowVersion: number }[]>)[
+            read.list
+          ];
+          expect(rows?.find((row) => row.id === record)?.rowVersion, kind).toBe(stored);
+          expect(res.headers['cache-control'], kind).toBe('no-store');
+          tagged = true;
+          break;
+        }
         const body = res.body as { rowVersion: number };
+        expect(body.rowVersion, kind).toBe(stored);
         expect(res.headers.etag, kind).toBe(rowVersionEtag(body.rowVersion));
         // The tag is a concurrency token, not a cache validator: a detail carries child rows the
         // row version does not cover (tasks, items, alerts, open change requests). So a
@@ -208,7 +239,7 @@ describe('the routes the contract marks ifMatch', () => {
       const text = readFileSync(`${src}/${file}`, 'utf8');
       if (!text.includes('ifMatchVersions(')) continue;
       const answers = text.match(
-        /\): Promise<(ValuationRow|ValuationDetail|CapitalNoticeControlDetail|TradeTicketRow|WireInstructionDetail|ChangeRequestRow|ChangeRequestDetail|OpportunityDetail|ClosingDetail|ReportPackageDetail)> \{/g,
+        /\): Promise<(ValuationRow|ValuationDetail|CapitalNoticeControlDetail|TradeTicketRow|WireInstructionDetail|ChangeRequestRow|ChangeRequestDetail|OpportunityDetail|ClosingDetail|ReportPackageDetail|UnderwritingCaseVersion)> \{/g,
       );
       expect(text.split('withEtag(').length - 1, file).toBe(answers?.length ?? 0);
     }

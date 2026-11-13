@@ -66,12 +66,14 @@ describe('staleIfMatch (docs/17 section 3)', () => {
   it('names the record kind the contract gives the route, as the API names it', async () => {
     const guarded = ROUTES.filter((r) => r.ifMatch !== undefined);
     expect(guarded.map((r) => `${r.method} ${r.path}`).sort()).toEqual([
+      'PATCH /api/v1/underwriting-cases/{id}',
       'PATCH /api/v1/valuations/{id}',
       'POST /api/v1/capital-notices/{id}/commands',
       'POST /api/v1/change-requests/{id}/commands',
       'POST /api/v1/closings/{id}/commands',
       'POST /api/v1/opportunities/{id}/commands',
       'POST /api/v1/report-packages/{id}/commands',
+      'POST /api/v1/underwriting-cases/{id}/commands',
       'POST /api/v1/valuations/{id}/commands',
       'POST /api/v1/wire-instructions/{id}/commands',
     ]);
