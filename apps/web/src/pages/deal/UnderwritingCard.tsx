@@ -1,5 +1,5 @@
-import { useId, useState } from 'react';
-import type { ReactNode } from 'react';
+import { useCallback, useEffect, useId, useRef, useState } from 'react';
+import type { MutableRefObject, ReactNode, RefObject } from 'react';
 import { keepPreviousData, useQuery } from '@tanstack/react-query';
 import { Button, Dropdown, Label, Option } from '@fluentui/react-components';
 import { underwritingMetric } from '@pb/contracts';
@@ -30,6 +30,7 @@ import {
 } from '../../components/ui.js';
 import { ActionStatus, ReasonDialog } from '../../components/WorkflowActions.js';
 import { resultSuffix, useActionLog } from '../../lib/workflow.js';
+import type { ActionLog } from '../../lib/workflow.js';
 import {
   formatDate,
   formatMoic,
@@ -65,6 +66,8 @@ import {
   sourcePlace,
   STALE_CASE,
   STRAIGHT_LINE_NOTE,
+  VERSION_GONE,
+  VERSION_NOT_COMPARED,
   versionLabels,
   YIELD_NOTE,
   yieldTiles,
@@ -448,6 +451,70 @@ const FORM_TITLE: Readonly<Record<FormMode['kind'], string>> = {
   edit: 'Edit the draft',
 };
 
+/** The buttons of the card that open something or take themselves away, by what they do. */
+type ButtonKey = FormMode['kind'] | 'confirm' | 'withdraw' | 'retire';
+
+/**
+ * Keyboard focus on the card. Every step takes away the button that was just used, and focus
+ * would fall to the page, so a keyboard or screen-reader user would lose their place. The form
+ * takes focus itself when it opens. When the form or the reason dialog closes (the overlay),
+ * focus goes back to the button that opened it, or to the card's title when that button is busy
+ * or about to go (a save, a command sent). And when a button leaves the card while it holds
+ * focus (a confirmation takes the Draft and its buttons away), the title takes it. Focus the
+ * reader has moved elsewhere is left alone.
+ */
+function useCardFocus(
+  overlay: boolean,
+  arrivingRef: MutableRefObject<boolean>,
+): {
+  titleRef: RefObject<HTMLSpanElement | null>;
+  /** Called from the ref of each button, so the card knows where it is and when it leaves. */
+  capture: (key: ButtonKey, el: HTMLButtonElement | null) => void;
+  /** Where focus goes once the overlay has closed. */
+  returnTo: (to: ButtonKey | 'title') => void;
+} {
+  const titleRef = useRef<HTMLSpanElement | null>(null);
+  const buttonsRef = useRef(new Map<ButtonKey, HTMLButtonElement>());
+  const orphanedRef = useRef(false);
+  const returnToRef = useRef<ButtonKey | 'title' | null>(null);
+  const capture = useCallback((key: ButtonKey, el: HTMLButtonElement | null): void => {
+    if (el !== null) {
+      buttonsRef.current.set(key, el);
+      return;
+    }
+    // A ref is released before its element leaves the page, so focus can still be asked.
+    if (buttonsRef.current.get(key) === document.activeElement) orphanedRef.current = true;
+    buttonsRef.current.delete(key);
+  }, []);
+  const returnTo = useCallback((to: ButtonKey | 'title'): void => {
+    returnToRef.current = to;
+  }, []);
+  useEffect(() => {
+    if (overlay || returnToRef.current === null) return;
+    const to = returnToRef.current;
+    returnToRef.current = null;
+    const opener = to === 'title' ? undefined : buttonsRef.current.get(to);
+    if (opener !== undefined && !opener.disabled) opener.focus();
+    else titleRef.current?.focus();
+  }, [overlay]);
+  useEffect(() => {
+    const lost = orphanedRef.current || arrivingRef.current;
+    orphanedRef.current = false;
+    arrivingRef.current = false;
+    if (!lost || overlay) return;
+    const active = document.activeElement;
+    if (active === null || active === document.body) titleRef.current?.focus();
+  });
+  return { titleRef, capture, returnTo };
+}
+
+/** The button that opens the form in each mode: where focus returns when the form is cancelled. */
+const OPENER: Readonly<Record<FormMode['kind'], ButtonKey>> = {
+  record: 'record',
+  revise: 'revise',
+  edit: 'edit',
+};
+
 /** A command that needs a reason before it is sent: the Draft withdrawn, or a Confirmed case retired. */
 interface ReasonFor {
   command: 'withdraw' | 'retire';
@@ -477,18 +544,33 @@ function CaseCard({
   id,
   company,
   data,
+  log,
+  pickGone,
+  arrivingRef,
   onPick,
 }: {
   id: string;
   company: string;
   data: UnderwritingRead;
+  /** The results of what the reader did, kept by the card above so they outlive every refresh. */
+  log: ActionLog;
+  /** The version the reader had picked stands no longer, so the card is back on the default case. */
+  pickGone: boolean;
+  /** Set when the reader came here by a button that has just left the page: the title takes focus. */
+  arrivingRef: MutableRefObject<boolean>;
   onPick: (version: number) => void;
 }): ReactNode {
   const me = useQuery(meQuery);
-  const log = useActionLog();
   const command = useUnderwritingCommand(id);
   const [form, setForm] = useState<FormMode | null>(null);
   const [reasonFor, setReasonFor] = useState<ReasonFor | null>(null);
+
+  const overlay = form !== null || reasonFor !== null;
+  const { titleRef, capture, returnTo } = useCardFocus(overlay, arrivingRef);
+  const closeForm = (to: ButtonKey | 'title'): void => {
+    returnTo(to);
+    setForm(null);
+  };
   // The card is only shown for a position that holds a base case, so the read names its form.
   const caseForm = data.form ?? 'equity';
   const labels = versionLabels(data.versions);
@@ -508,7 +590,7 @@ function CaseCard({
   /** A refusal in the card's words; a case somebody changed meanwhile closes the form, since the read is refreshed. */
   const failed = (what: string, error: unknown): void => {
     if (isStaleCase(error)) {
-      setForm(null);
+      if (form !== null) closeForm('title');
       log.record('bad', STALE_CASE);
     } else log.record('bad', `${what}: ${describeActionError(error)}`);
   };
@@ -532,10 +614,21 @@ function CaseCard({
         quarter === null ? `As of ${formatDate(data.asOf)}` : `Quarter ended ${formatDate(quarter)}`
       }
     >
-      {CARD_TITLE}
+      <span ref={titleRef} tabIndex={-1}>
+        {CARD_TITLE}
+      </span>
     </SectionHeader>
   );
-  const status = <ActionStatus latest={log.latest} testId="underwriting-action-status" />;
+  const status = (
+    <>
+      <ActionStatus latest={log.latest} testId="underwriting-action-status" />
+      {pickGone ? (
+        <p className="pb-meta pb-deal-note" data-testid="underwriting-version-gone">
+          {VERSION_GONE}
+        </p>
+      ) : null}
+    </>
+  );
 
   if (form !== null) {
     const from = form.kind === 'record' ? undefined : form.kind === 'edit' ? form.draft : form.from;
@@ -568,10 +661,11 @@ function CaseCard({
               'good',
               `${form.kind === 'edit' ? 'Draft saved' : 'Draft recorded'}: a second person confirms it ${resultSuffix()}`,
             );
-            setForm(null);
+            // The button that opened the form is about to go with the refreshed read.
+            closeForm('title');
           }}
           onFailed={(error) => failed(FORM_TITLE[form.kind], error)}
-          onCancel={() => setForm(null)}
+          onCancel={() => closeForm(OPENER[form.kind])}
         />
       </Card>
     );
@@ -606,12 +700,17 @@ function CaseCard({
             {actions.revise || actions.retire ? (
               <div className="pb-deal-actions">
                 {actions.revise ? (
-                  <Button size="small" onClick={() => setForm({ kind: 'revise', from: compared })}>
+                  <Button
+                    ref={(el) => capture('revise', el)}
+                    size="small"
+                    onClick={() => setForm({ kind: 'revise', from: compared })}
+                  >
                     Revise
                   </Button>
                 ) : null}
                 {actions.retire ? (
                   <Button
+                    ref={(el) => capture('retire', el)}
                     size="small"
                     disabled={busy}
                     onClick={() => setReasonFor({ command: 'retire', version: compared })}
@@ -638,7 +737,12 @@ function CaseCard({
       )}
       {actions.record ? (
         <div className="pb-deal-actions">
-          <Button appearance="primary" size="small" onClick={() => setForm({ kind: 'record' })}>
+          <Button
+            ref={(el) => capture('record', el)}
+            appearance="primary"
+            size="small"
+            onClick={() => setForm({ kind: 'record' })}
+          >
             Record base case
           </Button>
           <SimulatedBadge />
@@ -650,6 +754,7 @@ function CaseCard({
             <div className="pb-deal-actions">
               {actions.confirm === 'offer' ? (
                 <Button
+                  ref={(el) => capture('confirm', el)}
                   appearance="primary"
                   size="small"
                   disabled={busy}
@@ -669,6 +774,7 @@ function CaseCard({
               ) : null}
               {actions.editDraft ? (
                 <Button
+                  ref={(el) => capture('edit', el)}
                   size="small"
                   disabled={busy}
                   onClick={() => setForm({ kind: 'edit', draft })}
@@ -678,6 +784,7 @@ function CaseCard({
               ) : null}
               {actions.withdrawDraft ? (
                 <Button
+                  ref={(el) => capture('withdraw', el)}
                   size="small"
                   disabled={busy}
                   onClick={() => setReasonFor({ command: 'withdraw', version: draft })}
@@ -700,9 +807,14 @@ function CaseCard({
         <ReasonDialog
           title={REASON_DIALOG[reasonFor.command].title}
           subject={REASON_DIALOG[reasonFor.command].subject}
-          onCancel={() => setReasonFor(null)}
+          onCancel={() => {
+            returnTo(reasonFor.command);
+            setReasonFor(null);
+          }}
           onSubmit={(reason) => {
             const { command: name, version } = reasonFor;
+            // The button that asked for the reason is busy now, and gone once the command lands.
+            returnTo('title');
             setReasonFor(null);
             send(
               REASON_DIALOG[name].title,
@@ -731,28 +843,52 @@ function CaseCard({
 export function UnderwritingCard({ id, company }: { id: string; company: string }): ReactNode {
   // The version the reader picked; the entry case until they pick one.
   const [picked, setPicked] = useState<number | undefined>(undefined);
+  const [pickGone, setPickGone] = useState(false);
+  // Kept here, above everything a refresh can replace, so the result of an action is never lost
+  // with the part of the card that sent it.
+  const log = useActionLog();
+  const arrivingRef = useRef(false);
   const q = useQuery({ ...underwritingQuery(id, picked), placeholderData: keepPreviousData });
-  if (q.isPending) {
-    return (
-      <Card testId="deal-underwriting-loading">
-        <PageSkeleton rows={3} />
-      </Card>
-    );
+  const notFound = q.isError && q.error instanceof ApiError && q.error.status === 404;
+  // A version that was shown and stands no longer (retired here, or by somebody else meanwhile)
+  // answers not found when the read is refreshed: the card goes back to the case the position
+  // is compared with by default, and says so, instead of ending on a notice.
+  // (State adjusted while rendering: the next render has no pick, so this runs once.)
+  if (notFound && picked !== undefined && q.data !== undefined) {
+    setPicked(undefined);
+    setPickGone(true);
   }
-  if (q.isError) {
-    const notFound = q.error instanceof ApiError && q.error.status === 404;
-    // Not found here means there is nothing of this position to show; the workspace says so itself.
-    if (notFound && picked === undefined) return null;
+  const pick = (version: number | undefined): void => {
+    setPickGone(false);
+    setPicked(version);
+  };
+  // Not found for the position itself means there is nothing of it to show; the workspace says so.
+  if (notFound && picked === undefined) return null;
+  if (q.data === undefined) {
+    if (q.isPending) {
+      return (
+        <Card testId="deal-underwriting-loading">
+          <PageSkeleton rows={3} />
+        </Card>
+      );
+    }
+    // The read failed before it ever answered. A read that fails later keeps the card, and a
+    // form open on it, as they are (the convention of the other tabs of the workspace).
     return (
       <Card testId="deal-underwriting">
         <SectionHeader>{CARD_TITLE}</SectionHeader>
+        <ActionStatus latest={log.latest} testId="underwriting-action-status" />
         {notFound ? (
           <>
-            <p className="pb-notice pb-notice-bad">
-              That version of the base case is no longer one the position is compared with.
-            </p>
+            <p className="pb-notice pb-notice-bad">{VERSION_NOT_COMPARED}</p>
             <Toolbar>
-              <Button size="small" onClick={() => setPicked(undefined)}>
+              <Button
+                size="small"
+                onClick={() => {
+                  arrivingRef.current = true;
+                  pick(undefined);
+                }}
+              >
                 Show the entry case
               </Button>
             </Toolbar>
@@ -765,5 +901,15 @@ export function UnderwritingCard({ id, company }: { id: string; company: string 
   }
   // A position that holds no base case: nothing to show, and nothing to record.
   if (q.data.form === null) return null;
-  return <CaseCard id={id} company={company} data={q.data} onPick={setPicked} />;
+  return (
+    <CaseCard
+      id={id}
+      company={company}
+      data={q.data}
+      log={log}
+      pickGone={pickGone}
+      arrivingRef={arrivingRef}
+      onPick={pick}
+    />
+  );
 }

@@ -1,5 +1,5 @@
-import { useState } from 'react';
-import type { ReactNode } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import type { ReactNode, RefObject } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Button, Dropdown, Field as FluentField, Input, Option } from '@fluentui/react-components';
 import type { UnderwritingCaseBody, UnderwritingCaseVersion } from '@pb/contracts';
@@ -47,6 +47,7 @@ function Review({
   title,
   body,
   documentName,
+  heading,
   busy,
   onSave,
   onBack,
@@ -55,6 +56,8 @@ function Review({
   title: string;
   body: UnderwritingCaseBody;
   documentName: string | null;
+  /** The heading of the step, which takes focus when the step is shown. */
+  heading: RefObject<HTMLHeadingElement | null>;
   busy: boolean;
   onSave: () => void;
   onBack: () => void;
@@ -74,7 +77,9 @@ function Review({
   const loan = form === 'credit';
   return (
     <div className="pb-deal-gap" data-testid="underwriting-review">
-      <h3 className="pb-deal-subhead">{title}: check the figures in full</h3>
+      <h3 ref={heading} tabIndex={-1} className="pb-deal-subhead">
+        {title}: check the figures in full
+      </h3>
       <KeyValueTable
         label="Terms as they will be saved"
         columns={2}
@@ -202,6 +207,14 @@ export function UnderwritingForm({
       ...d,
       rows: d.rows.map((row, i) => (i === index ? { ...row, ...patch } : row)),
     }));
+  // Each step replaces the button that led to it, so its heading takes focus: when the form
+  // opens, when the figures are shown back, and when the reader returns to the form (their own
+  // choice, or a refusal the card words above). A keyboard or screen-reader user stays in place.
+  const heading = useRef<HTMLHeadingElement | null>(null);
+  const inReview = reviewing !== null;
+  useEffect(() => {
+    heading.current?.focus();
+  }, [inReview]);
   const loan = form === 'credit';
   const checked = bodyOf(draft, { needsReason, form });
   const errors: DraftErrors = asked && !checked.ok ? checked.errors : {};
@@ -218,6 +231,7 @@ export function UnderwritingForm({
         title={title}
         body={reviewing}
         documentName={documentName}
+        heading={heading}
         busy={save.isPending}
         onBack={() => setReviewing(null)}
         onSave={() =>
@@ -250,7 +264,9 @@ export function UnderwritingForm({
         if (checked.ok) setReviewing(checked.body);
       }}
     >
-      <h3 className="pb-deal-subhead">{title}</h3>
+      <h3 ref={heading} tabIndex={-1} className="pb-deal-subhead">
+        {title}
+      </h3>
       <div className="pb-deal-form-grid">
         <FluentField label="Case date" required {...invalid(errors, 'caseDate')}>
           <Input

@@ -423,6 +423,12 @@ export function sourcePlace(source: UnderwritingCaseVersion['source']): string |
 export const OWN_FIGURES = 'You entered these figures. A second person confirms them.';
 /** Said when a write is refused because somebody changed the case since the reader opened it. */
 export const STALE_CASE = 'This base case changed since you opened it. Open it again.';
+/** Said when the version asked for is not one the position is compared with: withdrawn, or never confirmed. */
+export const VERSION_NOT_COMPARED =
+  'That version of the base case is no longer one the position is compared with.';
+/** Said under the result of an action once the version the reader had picked has stopped standing. */
+export const VERSION_GONE =
+  'The version you picked is no longer one the position is compared with.';
 
 /** The roles that record and edit a Draft: the ones the route that records one names. */
 const RECORD_ROLES: readonly string[] =

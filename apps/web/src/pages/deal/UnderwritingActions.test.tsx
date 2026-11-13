@@ -1,12 +1,12 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { ReactNode } from 'react';
-import { cleanup, fireEvent, screen, waitFor, within } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import type { ProblemDetails, UnderwritingRead } from '@pb/contracts';
 import { failing, ok } from '../../test/api-mock.js';
 import type { MockResponse } from '../../test/api-mock.js';
 import { rolePrincipal } from '../../test/fixtures-valuations.js';
-import { renderWithQuery } from '../../test/render.js';
 import { documentFixture } from '../documents/fixtures.js';
 import { UnderwritingCard } from './UnderwritingCard.js';
 import {
@@ -14,6 +14,7 @@ import {
   draftFixture,
   loanCaseFixture,
   readFixture,
+  reunderwriteFixture,
   UW_ID,
   UW_INVESTMENT,
   UW_PATH,
@@ -113,7 +114,7 @@ function open(
   who: Who | 'viewer',
   read: UnderwritingRead,
   handlers: Record<string, Handler> = {},
-): { now: (next: UnderwritingRead) => void } {
+): { now: (next: UnderwritingRead) => void; client: QueryClient } {
   let current = read;
   serve({
     [`GET ${ME}`]: ok(
@@ -125,11 +126,18 @@ function open(
     [`GET ${DOCUMENTS}`]: ok({ items: [], nextCursor: null }),
     ...handlers,
   });
-  renderWithQuery(<UnderwritingCard id={UW_INVESTMENT} company="Saltmarsh Holdings" />);
+  // The page's query client, as renderWithQuery makes it, kept so a test can ask for a refresh.
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  render(
+    <QueryClientProvider client={client}>
+      <UnderwritingCard id={UW_INVESTMENT} company="Saltmarsh Holdings" />
+    </QueryClientProvider>,
+  );
   return {
     now: (next) => {
       current = next;
     },
+    client,
   };
 }
 
@@ -425,6 +433,152 @@ describe('base case card: actions', () => {
         ifMatch: '"2"',
       },
     ]);
+  });
+
+  it('keeps the result on the card when the version picked is retired, and compares with what stands', async () => {
+    const entry = caseFixture();
+    const later = reunderwriteFixture();
+    const versions = [entry, later];
+    const retired = [
+      entry,
+      { ...later, state: 'Withdrawn' as const, withdrawnReason: 'Wrong model' },
+    ];
+    let stands = true;
+    open('approver', readFixture({ versions }), {
+      // A version that no longer stands is not one the position is compared with: 404.
+      [`GET ${UW_PATH}?version=2`]: () =>
+        stands ? ok(readFixture({ versions, compared: 2 })) : failing(404, UW_PATH),
+      [`GET ${UW_PATH}`]: () => ok(readFixture({ versions: stands ? versions : retired })),
+      [`POST ${commands(later.id)}`]: () => {
+        stands = false;
+        return ok(retired[1]);
+      },
+    });
+    await userEvent.click(await screen.findByRole('combobox', { name: 'Compared with' }));
+    await userEvent.click(
+      await screen.findByRole('option', { name: 'Re-underwritten Mar 31, 2023' }, TIMEOUT),
+    );
+    await screen.findByRole('table', { name: 'Re-underwritten Mar 31, 2023, terms' }, TIMEOUT);
+    await userEvent.click(button('Retire'));
+    const dialog = await screen.findByRole('dialog', {}, TIMEOUT);
+    fireEvent.change(within(dialog).getByRole('textbox'), { target: { value: 'Wrong model' } });
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Retire' }));
+    // The card goes back to the case that stands, and still says what was done.
+    expect(
+      await screen.findByRole('table', { name: 'Entry case, terms' }, TIMEOUT),
+    ).toBeInTheDocument();
+    expect(within(status()).getByText('Base case retired (audited)')).toBeInTheDocument();
+    expect(screen.getByTestId('underwriting-version-gone')).toHaveTextContent(
+      'The version you picked is no longer one the position is compared with.',
+    );
+    expect(screen.queryByRole('button', { name: 'Show the entry case' })).not.toBeInTheDocument();
+    await waitFor(() =>
+      expect(screen.getByRole('table', { name: 'Versions of the base case' })).toHaveTextContent(
+        'Withdrawn',
+      ),
+    );
+    expect(writes()).toHaveLength(1);
+  });
+
+  it('keeps the card, and an open form, when a later read of the case fails', async () => {
+    let failingNow = false;
+    const view = open('entered', readFixture({ versions: [] }), {
+      [`GET ${UW_PATH}`]: () =>
+        failingNow
+          ? { status: 500, body: { title: 'Server error', status: 500 } }
+          : ok(readFixture({ versions: [] })),
+    });
+    await userEvent.click(await screen.findByRole('button', { name: 'Record base case' }));
+    await screen.findByRole('form', { name: 'Record the base case' });
+    type(/^Exit multiple/, '11');
+    failingNow = true;
+    await view.client.invalidateQueries();
+    await waitFor(() =>
+      expect(calls.filter((c) => c.method === 'GET' && c.path === UW_PATH)).toHaveLength(2),
+    );
+    await waitFor(() => expect(view.client.isFetching()).toBe(0));
+    // What was typed is still there: a read that fails later does not take the form away.
+    expect(screen.getByLabelText(/^Exit multiple/)).toHaveValue('11');
+    expect(screen.queryByText(/could not load/)).not.toBeInTheDocument();
+  });
+
+  it('keeps keyboard focus in the card at every step: the form, the review, the result and the reason dialog', async () => {
+    const draft = draftFixture();
+    const card = open('entered', readFixture({ versions: [] }), {
+      [`POST ${UW_PATH}`]: { status: 201, body: draft },
+    });
+    const heading = (): HTMLElement =>
+      within(screen.getByTestId('deal-underwriting')).getByText("Against the sponsor's base case");
+    const opener = await screen.findByRole('button', { name: 'Record base case' });
+    // Cancel gives focus back to the button that opened the form.
+    await userEvent.click(opener);
+    await waitFor(() =>
+      expect(screen.getByRole('heading', { name: 'Record the base case' })).toHaveFocus(),
+    );
+    await userEvent.click(button('Cancel'));
+    await waitFor(() => expect(button('Record base case')).toHaveFocus());
+    // The form, the review and back each take focus to their own heading.
+    await userEvent.click(button('Record base case'));
+    await waitFor(() =>
+      expect(screen.getByRole('heading', { name: 'Record the base case' })).toHaveFocus(),
+    );
+    fillCase();
+    await userEvent.click(button('Review figures'));
+    await waitFor(() =>
+      expect(
+        screen.getByRole('heading', { name: 'Record the base case: check the figures in full' }),
+      ).toHaveFocus(),
+    );
+    await userEvent.click(button('Back to the form'));
+    await waitFor(() =>
+      expect(screen.getByRole('heading', { name: 'Record the base case' })).toHaveFocus(),
+    );
+    await userEvent.click(button('Review figures'));
+    card.now(readFixture({ versions: [draft], compared: null }));
+    await userEvent.click(await screen.findByRole('button', { name: 'Save draft' }));
+    // Saved: the button that opened the form is gone with the read, so the card's title has focus.
+    await within(status()).findByText(/^Draft recorded/);
+    await screen.findByTestId('underwriting-own-figures');
+    expect(heading()).toHaveFocus();
+    // The reason dialog gives focus back to its button when it is cancelled.
+    await userEvent.click(button('Withdraw draft'));
+    const dialog = await screen.findByRole('dialog', {}, TIMEOUT);
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Cancel' }));
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument(), TIMEOUT);
+    await waitFor(() => expect(button('Withdraw draft')).toHaveFocus());
+  });
+
+  it('moves focus to the card title when a command takes its own button away', async () => {
+    const draft = draftFixture();
+    const confirmed = { ...draft, state: 'Confirmed' as const, confirmedBy: UW_PERSON.confirmed };
+    const card = open('confirmed', readFixture({ versions: [draft], compared: null }), {
+      [`POST ${commands(draft.id)}`]: () => {
+        card.now(readFixture({ versions: [confirmed] }));
+        return ok(confirmed);
+      },
+    });
+    const heading = (): HTMLElement =>
+      within(screen.getByTestId('deal-underwriting')).getByText("Against the sponsor's base case");
+    await userEvent.click(await screen.findByRole('button', { name: 'Confirm' }));
+    await within(status()).findByText(/^Base case confirmed/);
+    await waitFor(() => noButton('Confirm'));
+    await waitFor(() => expect(heading()).toHaveFocus());
+    cleanup();
+    vi.restoreAllMocks();
+
+    // A reason sent: the button that asked for it is busy and then gone, so the title has focus.
+    const again = open('confirmed', readFixture({ versions: [draft], compared: null }), {
+      [`POST ${commands(draft.id)}`]: () => {
+        again.now(readFixture({ versions: [{ ...draft, state: 'Withdrawn' }], compared: null }));
+        return ok({ ...draft, state: 'Withdrawn' });
+      },
+    });
+    await userEvent.click(await screen.findByRole('button', { name: 'Withdraw draft' }));
+    const dialog = await screen.findByRole('dialog', {}, TIMEOUT);
+    fireEvent.change(within(dialog).getByRole('textbox'), { target: { value: 'Wrong model' } });
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Withdraw draft' }));
+    await within(status()).findByText(/^Draft withdrawn/);
+    await waitFor(() => expect(heading()).toHaveFocus());
   });
 
   it('revises the Confirmed case from its own figures, with a reason and a source document', async () => {
