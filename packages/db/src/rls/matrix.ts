@@ -83,7 +83,7 @@ export const READ_MATRIX: Record<string, Row> = {
   'mon.valuation': row(1, 1, 1, 1, 1, 1, 1, 2, 2),
   'mon.cash_flow': row(2, 2, 2, 2, 2, 2, 2, 3, 3),
   'mon.valuation_history': row(0, 0, 2, 2, 0, 0, 2, 0, 0),
-  'ops.feature_flag': row(10, 10, 10, 10, 10, 10, 10, 10, 10),
+  'ops.feature_flag': row(11, 11, 11, 11, 11, 11, 11, 11, 11),
   // An exception about a staged row, a document, an extraction run or a change request is visible
   // to whoever that record's own policy admits (migrations 0010, 0012 and 0014): three fixture
   // exceptions are about the open, the walled and the unlinked accounting row (reviewers only), four
@@ -100,11 +100,13 @@ export const READ_MATRIX: Record<string, Row> = {
   'stg.valuation': row(0, 2, 2, 2, 0, 0, 2, 3, 3),
   'core.company_alias': row(1, 1, 1, 1, 1, 1, 1, 1, 1),
   // Documents carry the wall of the investment they are attached to, and so do their expected
-  // rows, runs and values (migration 0011); every authenticated user reads the rest. One document
-  // per investment, one of them walled, each with one run and two values.
-  'doc.document': row(1, 1, 1, 1, 1, 1, 1, 2, 2),
+  // rows, runs and values (migration 0011); every authenticated user reads the rest. A quarterly
+  // report per investment, one of them walled, each expected, with one run and two values; and
+  // for the next quarter (migration 0023) a report and a capital account statement on the open
+  // investment and a statement on the walled one, each with one approved run and no staged value.
+  'doc.document': row(3, 3, 3, 3, 3, 3, 3, 5, 5),
   'doc.expected_document': row(1, 1, 1, 1, 1, 1, 1, 2, 2),
-  'doc.extraction_run': row(1, 1, 1, 1, 1, 1, 1, 2, 2),
+  'doc.extraction_run': row(3, 3, 3, 3, 3, 3, 3, 5, 5),
   'stg.extracted_value': row(2, 2, 2, 2, 2, 2, 2, 4, 4),
   // The Phase 3 controls (migration 0013). The wire register is an operations control read by
   // operations, approvers, auditors, platform admins and the system actor only, and it is not
@@ -150,6 +152,14 @@ export const READ_MATRIX: Record<string, Row> = {
   'mon.underwriting_case_point': row(2, 2, 2, 2, 2, 2, 2, 6, 6),
   'mon.underwriting_case_history': row(0, 0, 5, 5, 0, 0, 5, 0, 0),
   'mon.underwriting_case_point_history': row(0, 0, 6, 6, 0, 0, 6, 0, 0),
+  // Valuation suggestions (migration 0023, SEC-5.1, SEC-5.3): operations, the deal team,
+  // approvers, auditors and the system actor read them, under the wall of the position; a
+  // viewer, investor relations and a platform admin are given nothing, though they can open the
+  // position. Two on the open investment (one Superseded, the Open one that replaced it) and an
+  // Open one on the walled investment. The history reads like every history table: three inserts
+  // and the supersession.
+  'mon.valuation_suggestion': row(0, 2, 2, 2, 0, 0, 2, 3, 3),
+  'mon.valuation_suggestion_history': row(0, 0, 4, 4, 0, 0, 4, 0, 0),
 };
 
 export interface WriteCase {
@@ -168,6 +178,9 @@ export interface WriteCase {
 /** The claim an edit of a Draft makes: its sender becomes the last person to change the figures. */
 const CLAIM_WALLED_DRAFT =
   "update mon.underwriting_case set entered_by = pb.current_user_id(), entered_at = now() where id = 'd0000000-0000-4000-8000-000000000003'";
+
+/** A decision on a valuation suggestion names whoever takes it, and when. */
+const SUGGESTION_DECIDED = 'decided_by = pb.current_user_id(), decided_at = now()';
 
 /** Representative writes. Everyone not listed must be rejected by RLS or a missing grant. */
 export const WRITE_MATRIX: WriteCase[] = [
@@ -691,6 +704,63 @@ export const WRITE_MATRIX: WriteCase[] = [
     name: 'delete a base case',
     sql: "delete from mon.underwriting_case where id = 'd0000000-0000-4000-8000-000000000003'",
     // A case is withdrawn, never deleted: no delete is granted to anyone.
+    allowed: [],
+  },
+  // Valuation suggestions (migration 0023, docs/18 section 14). Only the system actor writes
+  // one. A person in operations accepts or dismisses, the system actor supersedes, each on a
+  // position they can see, and neither can take the other's decision: the two update policies
+  // judge the row as it will be. The figures of a suggestion are not granted for update at all.
+  {
+    name: 'write a valuation suggestion for the next quarter of the open investment',
+    sql: `insert into mon.valuation_suggestion (investment_id, period_end, basis, method, reason_code, workings, source_document_id, extraction_run_id, calc_version) values ('30000000-0000-4000-8000-000000000001', '2024-12-31', 'capital_account_balance', 'valuation_method.sponsor_mark', 'no_ending_balance', '{"inputs": []}', 'e0000000-0000-4000-8000-000000000001', 'e0000000-0000-4000-8000-000000000003', 'matrix')`,
+    allowed: ['service'],
+  },
+  {
+    name: 'dismiss the open suggestion on the open investment',
+    sql: `update mon.valuation_suggestion set state = 'Dismissed', decision_reason = 'The statement is for another vehicle', ${SUGGESTION_DECIDED} where id = 'e0000000-0000-4000-8000-000000000008'`,
+    allowed: ['operations'],
+  },
+  {
+    name: 'accept the open suggestion on the open investment onto a draft valuation',
+    // Whoever may open a draft valuation does so first (operations and the system actor); for
+    // everyone else that insert is refused. The system actor is then refused the acceptance.
+    before:
+      "insert into mon.valuation (id, investment_id, period_end, version, method, fair_value) values ('e0000000-0000-4000-8000-00000000000a', '30000000-0000-4000-8000-000000000001', '2024-09-30', 1, 'valuation_method.sponsor_mark', 46500000)",
+    sql: `update mon.valuation_suggestion set state = 'Accepted', valuation_id = 'e0000000-0000-4000-8000-00000000000a', ${SUGGESTION_DECIDED} where id = 'e0000000-0000-4000-8000-000000000008'`,
+    allowed: ['operations'],
+  },
+  {
+    name: 'supersede the open suggestion on the open investment',
+    sql: `update mon.valuation_suggestion set state = 'Superseded', superseded_reason = 'mark_locked', ${SUGGESTION_DECIDED} where id = 'e0000000-0000-4000-8000-000000000008'`,
+    allowed: ['service'],
+  },
+  {
+    name: 'dismiss the open suggestion on the walled investment',
+    sql: `update mon.valuation_suggestion set state = 'Dismissed', decision_reason = 'The statement is for another vehicle', ${SUGGESTION_DECIDED} where id = 'e0000000-0000-4000-8000-000000000009'`,
+    // Nobody in the fixture: operations is outside the wall and is shown no such row, the wall
+    // member is deal team, and the system actor, which sees it, decides nothing for a person.
+    allowed: [],
+  },
+  {
+    name: 'supersede the open suggestion on the walled investment',
+    sql: `update mon.valuation_suggestion set state = 'Superseded', superseded_reason = 'position_closed', ${SUGGESTION_DECIDED} where id = 'e0000000-0000-4000-8000-000000000009'`,
+    allowed: ['service'],
+  },
+  {
+    name: 'rewrite the value of the open suggestion on the open investment',
+    sql: "update mon.valuation_suggestion set suggested_value = 50000000 where id = 'e0000000-0000-4000-8000-000000000008'",
+    // Only the decision columns are granted for update (column grant).
+    allowed: [],
+  },
+  {
+    name: 'move the open suggestion on the open investment to another position',
+    sql: "update mon.valuation_suggestion set investment_id = '30000000-0000-4000-8000-000000000002' where id = 'e0000000-0000-4000-8000-000000000008'",
+    allowed: [],
+  },
+  {
+    name: 'delete a valuation suggestion',
+    sql: "delete from mon.valuation_suggestion where id = 'e0000000-0000-4000-8000-000000000008'",
+    // A suggestion is dismissed or superseded, never deleted: no delete is granted to anyone.
     allowed: [],
   },
 ];

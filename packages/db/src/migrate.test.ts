@@ -677,6 +677,152 @@ describe('migrations', () => {
     expect(added[0]?.n).toBe(0);
   });
 
+  it('0023: valuation suggestions, their method and their switch (decision 0023)', async () => {
+    const enums = await handle.query<{ labels: string }>(`
+      select string_agg(e.enumlabel, ',' order by e.enumsortorder) as labels
+      from pg_type t join pg_namespace n on n.oid = t.typnamespace join pg_enum e on e.enumtypid = t.oid
+      where n.nspname = 'mon' and t.typname = 'valuation_suggestion_state'`);
+    expect(enums).toEqual([{ labels: 'Open,Accepted,Dismissed,Superseded' }]);
+    // The value is money in dollars to the cent (docs/03 section 1); who stood behind it is a list of people.
+    const columns = await handle.query<{ col: string; type: string; nullable: string }>(`
+      select column_name as col,
+        case when data_type = 'numeric' then 'numeric(' || numeric_precision || ',' || numeric_scale || ')'
+             when data_type = 'ARRAY' then udt_name else data_type end as type,
+        is_nullable as nullable
+      from information_schema.columns
+      where table_schema = 'mon' and table_name = 'valuation_suggestion'
+        and column_name in ('investment_id', 'period_end', 'suggested_value', 'reason_code', 'workings', 'source_document_id', 'extraction_run_id', 'source_reviewer_ids', 'calc_version', 'valuation_id')
+      order by 1`);
+    expect(columns).toEqual([
+      { col: 'calc_version', type: 'text', nullable: 'NO' },
+      { col: 'extraction_run_id', type: 'uuid', nullable: 'NO' },
+      { col: 'investment_id', type: 'uuid', nullable: 'NO' },
+      { col: 'period_end', type: 'date', nullable: 'NO' },
+      { col: 'reason_code', type: 'text', nullable: 'YES' },
+      { col: 'source_document_id', type: 'uuid', nullable: 'NO' },
+      { col: 'source_reviewer_ids', type: '_uuid', nullable: 'NO' },
+      { col: 'suggested_value', type: 'numeric(20,2)', nullable: 'YES' },
+      { col: 'valuation_id', type: 'uuid', nullable: 'YES' },
+      { col: 'workings', type: 'jsonb', nullable: 'NO' },
+    ]);
+    // One Open suggestion per position and quarter.
+    const indexes = await handle.query<{ indexname: string; indexdef: string }>(
+      "select indexname, indexdef from pg_indexes where schemaname = 'mon' and tablename = 'valuation_suggestion' order by indexname",
+    );
+    const open = indexes.find((i) => i.indexname === 'valuation_suggestion_one_open_idx');
+    expect(open?.indexdef).toContain('UNIQUE');
+    expect(open?.indexdef).toContain('(investment_id, period_end)');
+    expect(open?.indexdef).toContain("'Open'");
+    // The replacement is written after the suggestion it replaces is superseded, so that
+    // reference alone is checked at commit.
+    const deferred = await handle.query<{ column: string; deferred: boolean }>(`
+      select a.attname as "column", c.condeferred as deferred
+      from pg_constraint c
+      join pg_attribute a on a.attrelid = c.conrelid and a.attnum = c.conkey[1]
+      where c.conrelid = 'mon.valuation_suggestion'::regclass and c.contype = 'f'
+      order by 1`);
+    expect(deferred).toEqual([
+      { column: 'decided_by', deferred: false },
+      { column: 'extraction_run_id', deferred: false },
+      { column: 'investment_id', deferred: false },
+      { column: 'method', deferred: false },
+      { column: 'source_document_id', deferred: false },
+      { column: 'superseded_by_id', deferred: true },
+      { column: 'valuation_id', deferred: false },
+    ]);
+    // Policies by command. The four roles that work on valuations and the system actor read,
+    // under the position's wall; the system actor inserts; operations accept or dismiss and the
+    // system actor supersedes, each judged on the row as it will be.
+    const policies = await handle.query<{
+      policyname: string;
+      cmd: string;
+      qual: string;
+      check: string;
+    }>(
+      "select policyname, cmd, coalesce(qual, '') as qual, coalesce(with_check, '') as \"check\" from pg_policies where schemaname = 'mon' and tablename = 'valuation_suggestion' order by 1",
+    );
+    expect(policies.map((p) => `${p.policyname}:${p.cmd}`)).toEqual([
+      'decide_operations:UPDATE',
+      'insert_service:INSERT',
+      'read_reviewers:SELECT',
+      'supersede_service:UPDATE',
+    ]);
+    const policy = (name: string) => {
+      const found = policies.find((p) => p.policyname === name);
+      if (found === undefined) throw new Error(`no policy ${name}`);
+      return found;
+    };
+    for (const p of policies)
+      expect(`${p.qual} ${p.check}`, p.policyname).toContain('investment_visible(investment_id)');
+    expect(policy('read_reviewers').qual).toContain(
+      "ARRAY['operations'::text, 'deal_team'::text, 'approver'::text, 'auditor'::text, 'service'::text]",
+    );
+    for (const absent of ['viewer', 'investor_relations', 'platform_admin'])
+      for (const p of policies) expect(`${p.qual} ${p.check}`, p.policyname).not.toContain(absent);
+    expect(policy('insert_service').check).toContain("has_role('service'");
+    expect(policy('insert_service').check).not.toContain('operations');
+    expect(policy('decide_operations').qual).toContain("has_role('operations'");
+    expect(policy('decide_operations').check).toContain("has_role('operations'");
+    expect(policy('decide_operations').check).toContain("'Accepted'");
+    expect(policy('decide_operations').check).toContain("'Dismissed'");
+    expect(policy('decide_operations').check).not.toContain("'Superseded'");
+    expect(policy('supersede_service').qual).toContain("has_role('service'");
+    expect(policy('supersede_service').check).toContain("'Superseded'");
+    expect(policy('supersede_service').check).not.toContain("'Accepted'");
+    expect(policy('supersede_service').check).not.toContain("'Dismissed'");
+    const forced = await handle.query<{ name: string; enabled: boolean; forced: boolean }>(
+      "select c.relname as name, c.relrowsecurity as enabled, c.relforcerowsecurity as forced from pg_class c join pg_namespace n on n.oid = c.relnamespace where n.nspname = 'mon' and c.relname in ('valuation_suggestion', 'valuation_suggestion_history') order by 1",
+    );
+    expect(forced).toEqual([
+      { name: 'valuation_suggestion', enabled: true, forced: true },
+      { name: 'valuation_suggestion_history', enabled: true, forced: true },
+    ]);
+    // A suggestion is never deleted, and the application role sets its decision columns only.
+    const grants = await handle.query<{ table: string; privileges: string }>(`
+      select table_name as "table", string_agg(privilege_type, ',' order by privilege_type) as privileges
+      from information_schema.role_table_grants
+      where grantee = 'pb_app' and table_schema = 'mon' and table_name like 'valuation_suggestion%'
+      group by table_name order by 1`);
+    expect(grants).toEqual([
+      { table: 'valuation_suggestion', privileges: 'INSERT,SELECT' },
+      { table: 'valuation_suggestion_history', privileges: 'SELECT' },
+    ]);
+    const updatable = await handle.query<{ columns: string }>(`
+      select string_agg(column_name, ',' order by column_name) as columns
+      from information_schema.column_privileges
+      where grantee = 'pb_app' and table_schema = 'mon' and table_name = 'valuation_suggestion' and privilege_type = 'UPDATE'`);
+    expect(updatable).toEqual([
+      {
+        columns:
+          'decided_at,decided_by,decision_reason,state,superseded_by_id,superseded_reason,valuation_id',
+      },
+    ]);
+    // The method a draft opened from a report-based suggestion carries, after the six before it.
+    const methods = await handle.query<{ code: string; label: string; sort_order: number }>(
+      "select code, label, sort_order from core.taxonomy_term where domain = 'valuation_method' order by sort_order",
+    );
+    expect(methods.map((m) => m.code)).toEqual([
+      'valuation_method.sponsor_mark',
+      'valuation_method.market_multiple',
+      'valuation_method.dcf',
+      'valuation_method.cost',
+      'valuation_method.par_plus_accrued',
+      'valuation_method.weekly_report',
+      'valuation_method.report_indication',
+    ]);
+    expect(methods.at(-1)?.label).toBe('Indication from sponsor report');
+    // The switch is on from the start.
+    const flag = await handle.query<{ key: string; enabled: boolean }>(
+      "select key, enabled from ops.feature_flag where key = 'valuation.suggestions'",
+    );
+    expect(flag).toEqual([{ key: 'valuation.suggestions', enabled: true }]);
+    // No existing table changed: the accounting import and export read what they read before.
+    const added = await handle.query<{ n: number }>(
+      "select count(*)::int as n from information_schema.columns where table_schema in ('core', 'mon', 'stg', 'doc') and column_name like '%suggest%' and table_name not like 'valuation_suggestion%'",
+    );
+    expect(added[0]?.n).toBe(0);
+  });
+
   it('never grant DELETE on financial tables or UPDATE/DELETE on the audit trail to the application role', async () => {
     const grants = await handle.query<{ table: string; privilege: string }>(`
       select table_schema || '.' || table_name as "table", privilege_type as privilege

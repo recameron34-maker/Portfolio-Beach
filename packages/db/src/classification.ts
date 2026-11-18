@@ -164,6 +164,11 @@ export const CLASSIFICATION: Record<string, TableClassification> = {
     },
   },
   'mon.underwriting_case_point': { default: 'restricted_mnpi', retention: 'books_and_records' },
+  // A valuation suggestion (migration 0023): a mark worked out from a sponsor's statement or
+  // report, its inputs, where each was read and who stood behind them. No column is classed
+  // lower than the table: who decided on a suggestion, and when, says a mark is about to move.
+  // (The bookkeeping columns every table shares stay internal, as everywhere.)
+  'mon.valuation_suggestion': { default: 'restricted_mnpi', retention: 'books_and_records' },
   // The pipeline (migration 0013): a named deal, its sponsor, size and stage are MNPI from the day
   // it is sourced; the lead is personal; the scenario tag is test bookkeeping.
   'deal.opportunity': {

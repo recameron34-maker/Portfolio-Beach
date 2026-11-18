@@ -991,6 +991,438 @@ describe('database guards', () => {
     });
   });
 
+  describe('valuation suggestions (migration 0023, SEC-5.6, SEC-9.1, SEC-9.2, SEC-9.4)', () => {
+    const u = ids.users;
+    const open = ids.investment1;
+    /** A not calculable suggestion for the quarter after the fixture's, with any column overridden. */
+    const suggestion = (overrides: Record<string, string> = {}): string => {
+      const row: Record<string, string> = {
+        investment_id: `'${open}'`,
+        period_end: `'2024-12-31'`,
+        basis: `'capital_account_balance'`,
+        method: `'valuation_method.sponsor_mark'`,
+        suggested_value: '',
+        reason_code: `'no_ending_balance'`,
+        workings: `'{"inputs": []}'`,
+        source_document_id: `'${ids.documentOpenStatement}'`,
+        extraction_run_id: `'${ids.extractionRunOpenStatement}'`,
+        calc_version: `'guards'`,
+        ...overrides,
+      };
+      const columns = Object.keys(row).filter((c) => row[c] !== '');
+      return `insert into mon.valuation_suggestion (${columns.join(', ')}) values (${columns.map((c) => row[c]).join(', ')})`;
+    };
+    const decided = (who: string): string => `decided_by = '${who}', decided_at = now()`;
+    const decide = (id: string, set: string): string =>
+      `update mon.valuation_suggestion set ${set} where id = '${id}'`;
+    /** Runs the statements as the owner and rolls them back, so each test starts from the fixture. */
+    const rolledBack = async (statements: string[]): Promise<void> => {
+      await handle.exec('begin');
+      try {
+        for (const statement of statements) await handle.exec(statement);
+        // The reference to a replacement is checked at commit: ask for the check now.
+        await handle.exec('set constraints all immediate');
+      } finally {
+        await handle.exec('rollback');
+      }
+    };
+    class Undo extends Error {}
+    /** Runs the statement as an actor and rolls it back; answers the rows it touched. */
+    const attemptAs = async (
+      userId: string,
+      roles: AppRole[],
+      statement: string,
+    ): Promise<number> => {
+      let touched = -1;
+      await withUserContext(handle.db, { userId, roles }, async (tx) => {
+        const result = await tx.execute(sql.raw(statement));
+        touched = ('affectedRows' in result ? result.affectedRows : result.rowCount) ?? 0;
+        throw new Undo();
+      }).catch((error: unknown) => {
+        if (!(error instanceof Undo)) throw error;
+      });
+      return touched;
+    };
+    const stateOf = async (id: string): Promise<string | undefined> =>
+      (
+        await handle.query<{ state: string }>(
+          `select state from mon.valuation_suggestion where id = '${id}'`,
+        )
+      )[0]?.state;
+
+    it('rejects a suggestion the record cannot hold', async () => {
+      for (const overrides of [
+        // A calendar quarter end, nothing else.
+        { period_end: `'2024-12-30'` },
+        { period_end: `'2024-11-30'` },
+        { period_end: `'2025-01-01'` },
+        { basis: `'blend'` },
+        { method: `'sector.software'` },
+        // A value above zero or a reason: exactly one.
+        { reason_code: '' },
+        { suggested_value: '46500000' },
+        { suggested_value: '0', reason_code: '' },
+        { suggested_value: '-1', reason_code: '' },
+        { reason_code: `'No ending balance'` },
+        { workings: `'[]'` },
+        { workings: `'{}'` },
+        { workings: `'{"inputs": {}}'` },
+        { source_page: '0' },
+        { calc_version: '' },
+        { extraction_run_id: '' },
+      ])
+        await expectDbRejection(
+          handle.exec(suggestion(overrides)),
+          /check constraint|not-null constraint/,
+        );
+      await expectDbRejection(
+        handle.exec(suggestion({ method: `'valuation_method.unknown'` })),
+        /foreign key/,
+      );
+      // The same row as the record holds it, with a reason and then with a value.
+      await rolledBack([suggestion()]);
+      await rolledBack([
+        suggestion({ suggested_value: '0.01', reason_code: '', source_page: '1' }),
+      ]);
+    });
+
+    it('holds a quarter end in every quarter and refuses the day before and after', async () => {
+      for (const day of ['2024-03-31', '2024-06-30', '2025-09-30', '2025-12-31', '2024-02-29'])
+        if (day === '2024-02-29')
+          await expectDbRejection(
+            handle.exec(suggestion({ period_end: `'${day}'` })),
+            /check constraint/,
+          );
+        else
+          await rolledBack([
+            suggestion({
+              investment_id: `'${ids.investmentWalled}'`,
+              source_document_id: `'${ids.documentWalledStatement}'`,
+              extraction_run_id: `'${ids.extractionRunWalledStatement}'`,
+              period_end: `'${day}'`,
+            }),
+          ]);
+    });
+
+    it('starts Open, from an approved run of its own position, naming that run and its document', async () => {
+      await expectDbRejection(
+        handle.exec(
+          suggestion({
+            state: `'Dismissed'`,
+            decision_reason: `'Not ours'`,
+            decided_by: `'${u.operations}'`,
+            decided_at: 'now()',
+          }),
+        ),
+        /starts Open/,
+      );
+      // A run of the walled position, with its own document.
+      await expectDbRejection(
+        handle.exec(
+          suggestion({
+            source_document_id: `'${ids.documentWalledStatement}'`,
+            extraction_run_id: `'${ids.extractionRunWalledStatement}'`,
+          }),
+        ),
+        /approved run of its own position/,
+      );
+      // The position's own run, and another document or none.
+      await expectDbRejection(
+        handle.exec(suggestion({ source_document_id: `'${ids.documentOpenReportQ3}'` })),
+        /approved run of its own position/,
+      );
+      await expectDbRejection(
+        handle.exec(suggestion({ source_document_id: '' })),
+        /approved run of its own position/,
+      );
+      // A run nobody approved.
+      await expectDbRejection(
+        handle.exec(
+          suggestion({
+            source_document_id: `'${ids.documentOpen}'`,
+            extraction_run_id: `'${ids.extractionRunOpen}'`,
+          }),
+        ),
+        /approved run of its own position/,
+      );
+      await expectDbRejection(
+        handle.exec(suggestion({ extraction_run_id: `'${ids.documentOpen}'` })),
+        /foreign key/,
+      );
+    });
+
+    it('allows one Open suggestion per position and quarter', async () => {
+      await expectDbRejection(
+        handle.exec(suggestion({ period_end: `'2024-09-30'` })),
+        /valuation_suggestion_one_open_idx/,
+      );
+      // A second one once the first is decided.
+      await rolledBack([
+        decide(
+          ids.suggestionOpen,
+          `state = 'Dismissed', decision_reason = 'Superseded by hand', ${decided(u.operations)}`,
+        ),
+        suggestion({ period_end: `'2024-09-30'` }),
+      ]);
+    });
+
+    it('ties each decision column to the state it belongs to', async () => {
+      const id = ids.suggestionOpen;
+      const who = decided(u.operations);
+      const system = decided(SYSTEM_USER_ID);
+      for (const set of [
+        // A dismissal says why.
+        `state = 'Dismissed', ${who}`,
+        `state = 'Dismissed', decision_reason = '  ', ${who}`,
+        // An acceptance names its valuation and nothing else does.
+        `state = 'Accepted', ${who}`,
+        `state = 'Dismissed', decision_reason = 'Not ours', valuation_id = '${ids.valuationLocked}', ${who}`,
+        `state = 'Accepted', valuation_id = '${ids.valuationLocked}', decision_reason = 'Agreed', ${who}`,
+        // A supersession says why, with one of the four reasons, and names a replacement only
+        // when another suggestion took its place.
+        `state = 'Superseded', ${system}`,
+        `state = 'Superseded', superseded_reason = 'withdrawn', ${system}`,
+        `state = 'Superseded', superseded_reason = 'better_source', ${system}`,
+        `state = 'Superseded', superseded_reason = 'mark_locked', superseded_by_id = '${ids.suggestionOpenReplaced}', ${system}`,
+        `state = 'Superseded', superseded_reason = 'position_closed', superseded_by_id = '${ids.suggestionOpenReplaced}', ${system}`,
+        `state = 'Superseded', superseded_reason = 'figures_changed', superseded_by_id = '${id}', ${system}`,
+        `state = 'Dismissed', decision_reason = 'Not ours', superseded_reason = 'figures_changed', ${who}`,
+        // Every decision names who took it and when; an Open suggestion names nobody.
+        `state = 'Dismissed', decision_reason = 'Not ours'`,
+        `state = 'Dismissed', decision_reason = 'Not ours', decided_by = '${u.operations}'`,
+        `state = 'Dismissed', decision_reason = 'Not ours', decided_at = now()`,
+        who,
+        `decision_reason = 'Not ours'`,
+        // An Open suggestion names no replacement.
+        `superseded_by_id = '${ids.suggestionOpenReplaced}'`,
+      ])
+        await expectDbRejection(handle.exec(decide(id, set)), /check constraint/);
+      // A suggestion with a reason in place of a value cannot be accepted.
+      await expectDbRejection(
+        rolledBack([
+          suggestion({ id: `'e0000000-0000-4000-8000-0000000000f1'` }),
+          decide(
+            'e0000000-0000-4000-8000-0000000000f1',
+            `state = 'Accepted', valuation_id = '${ids.valuationLocked}', ${who}`,
+          ),
+        ]),
+        /check constraint/,
+      );
+      expect(await stateOf(id)).toBe('Open');
+    });
+
+    it('is accepted onto a valuation of its own position only', async () => {
+      await expectDbRejection(
+        handle.exec(
+          decide(
+            ids.suggestionOpen,
+            `state = 'Accepted', valuation_id = '${ids.valuationWalledDraft}', ${decided(u.operations)}`,
+          ),
+        ),
+        /valuation of its own position/,
+      );
+      await rolledBack([
+        decide(
+          ids.suggestionWalled,
+          `state = 'Accepted', valuation_id = '${ids.valuationWalledDraft}', ${decided(u.operations)}`,
+        ),
+      ]);
+    });
+
+    it('keeps its figures and its source, even for the owner', async () => {
+      for (const set of [
+        'suggested_value = 50000000',
+        `suggested_value = null, reason_code = 'no_ending_balance'`,
+        `basis = 'held_multiple'`,
+        `method = 'valuation_method.cost'`,
+        `period_end = '2024-12-31'`,
+        `investment_id = '${ids.investmentWalled}'`,
+        `workings = '{"inputs": []}'`,
+        `source_document_id = '${ids.documentOpenReportQ3}'`,
+        `extraction_run_id = '${ids.extractionRunOpenReportQ3}'`,
+        'source_page = 2',
+        `source_locator = 'Account block'`,
+        `source_reviewer_ids = '{}'`,
+        `prompt_version = '2'`,
+        `model_id = 'another'`,
+        `calc_version = 'another'`,
+      ])
+        await expectDbRejection(
+          handle.exec(decide(ids.suggestionOpen, set)),
+          /keeps its figures and its source/,
+        );
+      // Not with the decision either.
+      await expectDbRejection(
+        handle.exec(
+          decide(
+            ids.suggestionOpen,
+            `state = 'Dismissed', decision_reason = 'Not ours', suggested_value = 1, ${decided(u.operations)}`,
+          ),
+        ),
+        /keeps its figures and its source/,
+      );
+    });
+
+    it('is final once decided, and is never deleted', async () => {
+      // The fixture's Superseded suggestion.
+      for (const set of [
+        `state = 'Open', superseded_reason = null, superseded_by_id = null, decided_by = null, decided_at = null`,
+        `superseded_reason = 'figures_changed'`,
+        `state = 'Dismissed', superseded_reason = null, superseded_by_id = null, decision_reason = 'Not ours'`,
+      ])
+        await expectDbRejection(
+          handle.exec(decide(ids.suggestionOpenReplaced, set)),
+          /is Superseded and cannot change/,
+        );
+      // A dismissed and an accepted one, in a transaction that is rolled back.
+      await expectDbRejection(
+        rolledBack([
+          decide(
+            ids.suggestionOpen,
+            `state = 'Dismissed', decision_reason = 'Not ours', ${decided(u.operations)}`,
+          ),
+          decide(ids.suggestionOpen, `decision_reason = 'Another reason'`),
+        ]),
+        /is Dismissed and cannot change/,
+      );
+      await expectDbRejection(
+        rolledBack([
+          decide(
+            ids.suggestionOpen,
+            `state = 'Accepted', valuation_id = '${ids.valuationLocked}', ${decided(u.operations)}`,
+          ),
+          decide(
+            ids.suggestionOpen,
+            `state = 'Dismissed', valuation_id = null, decision_reason = 'Changed my mind'`,
+          ),
+        ]),
+        /is Accepted and cannot change/,
+      );
+      for (const id of [ids.suggestionOpen, ids.suggestionOpenReplaced])
+        await expectDbRejection(
+          handle.exec(`delete from mon.valuation_suggestion where id = '${id}'`),
+          /immutable/,
+        );
+    });
+
+    it('names whoever decides: operations accept or dismiss, the system actor supersedes, nobody else writes', async () => {
+      const id = ids.suggestionOpen;
+      const dismiss = (who: string): string =>
+        decide(id, `state = 'Dismissed', decision_reason = 'Not ours', ${decided(who)}`);
+      const supersede = (who: string): string =>
+        decide(id, `state = 'Superseded', superseded_reason = 'mark_locked', ${decided(who)}`);
+      // A decision under somebody else's name.
+      await expectDbRejection(
+        attemptAs(u.operations, ['operations'], dismiss(u.operations2)),
+        /names whoever made it/,
+      );
+      await expectDbRejection(
+        attemptAs(SYSTEM_USER_ID, ['service'], supersede(u.operations)),
+        /names whoever made it/,
+      );
+      // Each writer takes its own decision.
+      expect(await attemptAs(u.operations, ['operations'], dismiss(u.operations))).toBe(1);
+      expect(await attemptAs(SYSTEM_USER_ID, ['service'], supersede(SYSTEM_USER_ID))).toBe(1);
+      // And never the other's.
+      await expectDbRejection(
+        attemptAs(u.operations, ['operations'], supersede(u.operations)),
+        /row-level security/,
+      );
+      await expectDbRejection(
+        attemptAs(SYSTEM_USER_ID, ['service'], dismiss(SYSTEM_USER_ID)),
+        /row-level security/,
+      );
+      // The deal team, an approver and an auditor read the suggestion and are shown no row to write.
+      for (const [who, role] of [
+        [u.dealTeam, 'deal_team'],
+        [u.approver, 'approver'],
+        [u.auditor, 'auditor'],
+      ] as const)
+        expect(await attemptAs(who, [role], dismiss(who)), role).toBe(0);
+      // Operations outside the wall is shown no row of the walled position.
+      expect(
+        await attemptAs(
+          u.operations,
+          ['operations'],
+          decide(
+            ids.suggestionWalled,
+            `state = 'Dismissed', decision_reason = 'Not ours', ${decided(u.operations)}`,
+          ),
+        ),
+      ).toBe(0);
+      // Nobody but the system actor writes a suggestion, and the application role sets no figure.
+      for (const [who, role] of [
+        [u.operations, 'operations'],
+        [u.dealTeam, 'deal_team'],
+        [u.approver, 'approver'],
+      ] as const)
+        await expectDbRejection(attemptAs(who, [role], suggestion()), /row-level security/);
+      expect(await attemptAs(SYSTEM_USER_ID, ['service'], suggestion())).toBe(1);
+      await expectDbRejection(
+        attemptAs(SYSTEM_USER_ID, ['service'], decide(id, 'suggested_value = 1')),
+        /permission denied/,
+      );
+      expect(await stateOf(id)).toBe('Open');
+    });
+
+    it('is replaced by a suggestion for the same position and quarter, checked when the transaction commits', async () => {
+      const replacement = 'e0000000-0000-4000-8000-0000000000f2';
+      const supersede = (id: string, by: string): string =>
+        decide(
+          id,
+          `state = 'Superseded', superseded_reason = 'figures_changed', superseded_by_id = '${by}', ${decided(SYSTEM_USER_ID)}`,
+        );
+      // As the product does it: the Open one is superseded, then its replacement is written.
+      await rolledBack([
+        supersede(ids.suggestionOpen, replacement),
+        suggestion({ id: `'${replacement}'`, period_end: `'2024-09-30'` }),
+      ]);
+      // A replacement that is never written.
+      await expectDbRejection(
+        rolledBack([supersede(ids.suggestionOpen, replacement)]),
+        /foreign key/,
+      );
+      // One for another quarter of the position, written after and written before.
+      await expectDbRejection(
+        rolledBack([
+          supersede(ids.suggestionOpen, replacement),
+          suggestion({ id: `'${replacement}'` }),
+        ]),
+        /same position and quarter/,
+      );
+      await expectDbRejection(
+        rolledBack([
+          suggestion({ id: `'${replacement}'` }),
+          supersede(ids.suggestionOpen, replacement),
+        ]),
+        /same position and quarter/,
+      );
+      // One of another position: a link across the wall.
+      await expectDbRejection(
+        handle.exec(supersede(ids.suggestionOpen, ids.suggestionWalled)),
+        /same position and quarter/,
+      );
+      // Figures that changed with nothing to put in their place: no replacement is named.
+      await rolledBack([
+        decide(
+          ids.suggestionOpen,
+          `state = 'Superseded', superseded_reason = 'figures_changed', ${decided(SYSTEM_USER_ID)}`,
+        ),
+      ]);
+      expect(await stateOf(ids.suggestionOpen)).toBe('Open');
+    });
+
+    it('keeps a full history image of a suggestion', async () => {
+      const images = await handle.query<{ op: string; state: string; by: string | null }>(
+        `select op, row_image ->> 'state' as state, row_image ->> 'superseded_by_id' as by from mon.valuation_suggestion_history where row_id = '${ids.suggestionOpenReplaced}' order by history_id`,
+      );
+      expect(images).toEqual([
+        { op: 'INSERT', state: 'Open', by: null },
+        { op: 'UPDATE', state: 'Superseded', by: ids.suggestionOpen },
+      ]);
+    });
+  });
+
   describe('audit trail (SEC-11.1)', () => {
     it('rejects UPDATE and DELETE even for the owner', async () => {
       await expectDbRejection(handle.exec(`update audit.event set action = 'x'`), /immutable/);
