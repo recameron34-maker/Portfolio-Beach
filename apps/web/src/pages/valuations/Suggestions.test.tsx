@@ -307,12 +307,14 @@ describe('valuation suggestions', () => {
     expect(within(suggested).getByText('-')).toHaveClass('is-missing');
     expect(within(suggested).getByText('Not calculable this quarter')).toBeInTheDocument();
     expect(within(card).getByTestId('suggestion-not-calculable')).toHaveTextContent(
-      'Not calculable this quarter. The statement gives no ending balance for our account in US dollars.',
+      'Not calculable this quarter. No ending balance for our account in US dollars was accepted from the statement.',
     );
     expect(within(card).getByText('No input was read for this rule.')).toBeInTheDocument();
+    // With no value nothing was read as our own account, so the page does not say it was.
+    expect(within(card).queryByText('Read as our own account.')).not.toBeInTheDocument();
     expect(
       within(card).getByText(
-        'Contributions not checked: the statement does not state contributions to date.',
+        'Contributions not checked: no contributions to date were accepted from the statement.',
       ),
     ).toBeInTheDocument();
     expect(

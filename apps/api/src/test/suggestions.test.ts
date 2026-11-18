@@ -8,6 +8,7 @@ import {
   SUGGESTION_INPUT_SOURCE_KINDS,
   SUGGESTION_SUPERSEDED_REASONS,
   VALUATION_SUGGESTION_STATES,
+  extractionRunDetail,
   intakeImportResult,
   problemDetails,
   valuationRow,
@@ -866,6 +867,7 @@ describe('valuation suggestions: the statement first, a second statement and a t
   const STALE = 'INV-0007';
   const TWICE = 'INV-0016';
   const TYPED = 'INV-0015';
+  const WHOLE = 'INV-0003';
   const runOf = (key: string): ExtractionRun => runs.get(k.written.get(key)!.fileName)!;
   const outcomeOf = async (runId: string) =>
     (await k.list('ops.one', `&state=all&extractionRunId=${runId}`)).runOutcome;
@@ -888,6 +890,8 @@ describe('valuation suggestions: the statement first, a second statement and a t
           },
         },
         typed: { position: TYPED, periodEnd: nextQuarter, example: 'ties' },
+        // The lines of a whole vehicle, of which a quarter is ours.
+        whole: { position: WHOLE, periodEnd: nextQuarter, example: 'wholeVehicle' },
       }),
     });
     q2 = k.quarterEnd;
@@ -1031,6 +1035,78 @@ describe('valuation suggestions: the statement first, a second statement and a t
       source: { extractionRunId: run.id },
     });
     expect(row.workings.inputs).toEqual([]);
+  });
+
+  it('never reads the lines of a whole vehicle as our account while nobody stands behind the share', async () => {
+    const run = runOf('whole');
+    const on = (body: object) =>
+      k.post('ops.one', `/api/v1/extraction/runs/${run.id}/commands`, body);
+    const staged = extractionRunDetail.parse(
+      (await k.get('ops.one', `/api/v1/extraction/runs/${run.id}`).expect(200)).body,
+    ).values;
+    const share = staged.find((v) => v.field === 'investor_share_pct');
+    expect(share).toMatchObject({ value: '0.2500', decision: null });
+    // Every line the statement states is accepted; our share of the vehicle is left undecided.
+    for (const v of staged) {
+      if (v.field === 'investor_share_pct' || v.value === null) continue;
+      await on({ command: 'accept', field: v.field }).expect(200);
+    }
+    const OPEN_SHARE =
+      "extraction: Our share of the vehicle was read and is not accepted or edited, so Beginning capital balance is the whole vehicle's and not our account's; accept or edit the share, or reject the lines it scales";
+    const undecided = await on({ command: 'approve' }).expect(409);
+    expect(problemDetails.parse(undecided.body).detail).toBe(OPEN_SHARE);
+    // Rejecting the share does not make the lines ours either.
+    await on({
+      command: 'reject',
+      field: 'investor_share_pct',
+      reason: 'The share is not the one on the signed copy',
+    }).expect(200);
+    const rejected = await on({ command: 'approve' }).expect(409);
+    expect(problemDetails.parse(rejected.body).detail).toBe(OPEN_SHARE);
+    expect(await k.open('ops.one', WHOLE, q3)).toBeUndefined();
+    expect(await outcomeOf(run.id)).toBeNull();
+    // The reviewer rejects the lines of the whole vehicle: the run is approved and gives no value.
+    for (const field of [
+      'beginning_capital_balance',
+      'contributions_in_period',
+      'distributions_in_period',
+      'net_gain_loss',
+      'ending_capital_balance',
+      'contributions_to_date',
+    ])
+      await on({ command: 'reject', field, reason: 'For the whole vehicle' }).expect(200);
+    await on({ command: 'approve' }).expect(200);
+    const row = (await k.open('ops.one', WHOLE, q3))!;
+    expect(row).toMatchObject({
+      suggestedValue: null,
+      reasonCode: 'no_ending_balance',
+      source: { extractionRunId: run.id },
+    });
+    expect(row.workings.inputs).toEqual([]);
+
+    // The same statement read again, with the share typed by the reviewer: the balance times it.
+    const again = [...(await k.extract([k.written.get('whole')!.fileName])).values()][0]!;
+    const onAgain = (body: object) =>
+      k.post('ops.two', `/api/v1/extraction/runs/${again.id}/commands`, body);
+    await onAgain({
+      command: 'edit',
+      field: 'investor_share_pct',
+      value: '0.2500',
+      unit: 'PCT',
+      reason: 'The share on the signed copy',
+    }).expect(200);
+    await onAgain({ command: 'acceptClean' }).expect(200);
+    await onAgain({ command: 'approve' }).expect(200);
+    const scaled = (await k.open('ops.one', WHOLE, q3))!;
+    expect(scaled).toMatchObject({
+      suggestedValue: '20940000.00',
+      reasonCode: null,
+      checks: { ownAccount: false },
+    });
+    expect(scaled.workings.inputs.map((input) => [input.key, input.value, input.edited])).toEqual([
+      ['ending_capital_balance', '83760000', false],
+      ['investor_share_pct', '0.2500', true],
+    ]);
   });
 });
 

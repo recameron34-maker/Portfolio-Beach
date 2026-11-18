@@ -13,6 +13,7 @@ import {
 import type { ExtractionRunCommandBody, ExtractionRunDetail, ExtractionUnit } from '@pb/contracts';
 import { asSystemActor, schema } from '@pb/db';
 import type { Tx } from '@pb/db';
+import { openShareRefusal } from '@pb/workflows';
 import { ProblemError, zodIssues } from '../common/problem.js';
 import { ADAPTERS, DEFINITIONS } from '../common/tokens.js';
 import { requireUuid } from '../common/validate.js';
@@ -51,8 +52,9 @@ import {
  * validator applies to the model (docs/08 sections 5 and 6): a money value must convert to
  * dollars inside the configured range, a date must be the quarter end the run was opened for.
  * Approval checks that every required field is accepted or edited, that no invalid value stands,
- * that no flagged value and no record figure is undecided, and that the period end is the run's
- * quarter, then promotes the final values of the target fields, converted to dollars (an edited
+ * that no flagged value and no record figure is undecided, that no line of a statement is
+ * accepted while a share of the vehicle that was read stands unaccepted (openShareRefusal), and
+ * that the period end is the run's quarter, then promotes the final values of the target fields, converted to dollars (an edited
  * value with the edit's unit), into mon.quarterly_performance through the one promotion write the
  * accounting import uses (intake/promote.ts), as the system actor, in the same transaction, with
  * the lineage of the run and the document, citing the first promoted figure read from the
@@ -513,6 +515,13 @@ export class ExtractionReviewService {
           `extraction: ${field.label} is a record figure and undecided; accept, edit or reject it`,
         );
     }
+    // A share that was read and that nobody stood behind leaves the lines as the whole vehicle's:
+    // none of them is accepted as our account (docs/08 rule 12.1, rule 10).
+    const openShare = openShareRefusal(
+      values,
+      (key) => extractionSchema.fields.find((field) => field.key === key)?.label ?? key,
+    );
+    if (openShare !== null) throw blocked(openShare);
     // Only a schema that writes to the quarterly record needs a position to write it on.
     const promotes = promotesToRecord(extractionSchema);
     const investmentId = locked.investmentId;

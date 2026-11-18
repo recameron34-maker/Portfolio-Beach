@@ -105,7 +105,7 @@ describe('the words of a suggestion (docs/08 section 12)', () => {
       expect(sentence).not.toMatch(/\d+\.\d|section/);
     }
     expect(REASON_SENTENCE.no_ending_balance).toBe(
-      'The statement gives no ending balance for our account in US dollars.',
+      'No ending balance for our account in US dollars was accepted from the statement.',
     );
     expect(REASON_SENTENCE.flows_since_reference_mark).toBe(
       'Cash has moved since the last Locked mark.',
@@ -200,7 +200,7 @@ describe('the words of a suggestion (docs/08 section 12)', () => {
       'The lines are $50,000 apart.',
     );
     expect(tieSentence({ ties: null, tieDifference: null })).toBe(
-      'The lines were not added up: the statement does not state all five.',
+      'The lines were not added up: not all five were accepted from the statement.',
     );
   });
 
@@ -211,7 +211,7 @@ describe('the words of a suggestion (docs/08 section 12)', () => {
     );
     expect(
       contributionsSentence({ ...check, statement: null, notChecked: 'contributions_not_stated' }),
-    ).toBe('Contributions not checked: the statement does not state contributions to date.');
+    ).toBe('Contributions not checked: no contributions to date were accepted from the statement.');
     expect(
       contributionsSentence({ ...check, record: '0', notChecked: 'no_recorded_contributions' }),
     ).toBe('Contributions not checked: the record holds no approved contribution.');
@@ -258,7 +258,7 @@ describe('the words of a suggestion (docs/08 section 12)', () => {
         'sponsor_equity_value',
       ),
     ).toBe(
-      'Capital account statement: no value. The statement gives no ending balance for our account in US dollars.',
+      'Capital account statement: no value. No ending balance for our account in US dollars was accepted from the statement.',
     );
     // Beside a suggestion with no value there is nothing to measure the other source against.
     expect(

@@ -20,12 +20,15 @@ import {
   figureSourceOf,
   finalValuesOf,
   keepSuggestionKeys,
+  linesRestingOnOpenShare,
+  openShareRefusal,
   readSources,
   readStatement,
   recordFigureOf,
   referenceOnHand,
   sameSuggestion,
   selectSuggestion,
+  shareLeftOpen,
   sourceReviewersOf,
   statementOnHandOf,
   suggestionBar,
@@ -516,7 +519,7 @@ describe('reading an approved run: what its approval stands behind', () => {
   });
 
   it('reads the lines of a statement in the unit each was read in, and leaves out one with no money unit', () => {
-    const finals = finalValuesOf([
+    const rows = [
       staged(STATEMENT_LINE_KEYS.endingBalance),
       staged(STATEMENT_LINE_KEYS.beginningBalance, { value: '18420', unit: 'USD_K', page: 2 }),
       typed(STATEMENT_LINE_KEYS.contributionsToDate, '12.40', 'USD_M'),
@@ -524,8 +527,8 @@ describe('reading an approved run: what its approval stands behind', () => {
       staged(STATEMENT_LINE_KEYS.netGainLoss, { unit: 'PCT' }),
       staged(STATEMENT_LINE_KEYS.contributionsInPeriod, { unit: null }),
       staged(STATEMENT_SHARE_KEY, { value: '0.2500', unit: 'PCT' }),
-    ]);
-    expect(statementOnHandOf(finals, behind)).toEqual({
+    ];
+    expect(statementOnHandOf(rows, behind)).toEqual({
       beginningBalance: {
         value: '18420',
         unit: 'USD_K',
@@ -545,7 +548,73 @@ describe('reading an approved run: what its approval stands behind', () => {
       // A fraction of one, as rule 12.1 takes it.
       share: { value: '0.2500', source: { kind: 'document', id: DOC, page: 1 }, edited: false },
     });
-    expect(statementOnHandOf(new Map(), behind).share).toBeNull();
+    expect(statementOnHandOf([], behind).share).toBeNull();
+  });
+
+  it('never reads the lines of a whole vehicle as our own account when nobody stood behind the share', () => {
+    const lines = [
+      staged(STATEMENT_LINE_KEYS.endingBalance, { value: '83.76' }),
+      staged(STATEMENT_LINE_KEYS.beginningBalance, { value: '73.68' }),
+      staged(STATEMENT_LINE_KEYS.contributionsToDate, { value: '49.60' }),
+    ];
+    const share = (over: Partial<StagedFigure>): StagedFigure =>
+      staged(STATEMENT_SHARE_KEY, { value: '0.2500', unit: 'PCT', ...over });
+    const nothing = {
+      beginningBalance: null,
+      contributionsInPeriod: null,
+      distributionsInPeriod: null,
+      netGainLoss: null,
+      endingBalance: null,
+      contributionsToDate: null,
+      share: null,
+    };
+    // The share was read and left undecided, or rejected: the lines are the whole vehicle's, so
+    // none is on hand and the missing share is never taken as 100%.
+    for (const decision of [null, 'rejected']) {
+      const rows = [...lines, share({ decision })];
+      expect(shareLeftOpen(rows), String(decision)).toBe(true);
+      expect(linesRestingOnOpenShare(rows), String(decision)).toEqual([
+        STATEMENT_LINE_KEYS.beginningBalance,
+        STATEMENT_LINE_KEYS.endingBalance,
+        STATEMENT_LINE_KEYS.contributionsToDate,
+      ]);
+      expect(statementOnHandOf(rows, behind), String(decision)).toEqual(nothing);
+    }
+    // The approval says which share and which line, in the schema's own labels.
+    const labelOf = (key: string): string => `<${key}>`;
+    expect(openShareRefusal([...lines, share({ decision: null })], labelOf)).toBe(
+      "extraction: <investor_share_pct> was read and is not accepted or edited, so <beginning_capital_balance> is the whole vehicle's and not our account's; accept or edit the share, or reject the lines it scales",
+    );
+    expect(openShareRefusal([...lines, share({})], labelOf)).toBeNull();
+    // An edit that carries no value stands behind nothing either.
+    expect(shareLeftOpen([share({ decision: 'edited', editedValue: null })])).toBe(true);
+    // A share somebody accepted or typed scales the lines.
+    for (const rows of [
+      [...lines, share({})],
+      [...lines, typed(STATEMENT_SHARE_KEY, '0.3000', 'PCT')],
+    ]) {
+      expect(shareLeftOpen(rows)).toBe(false);
+      expect(linesRestingOnOpenShare(rows)).toEqual([]);
+      expect(statementOnHandOf(rows, behind).endingBalance?.value).toBe('83.76');
+      expect(statementOnHandOf(rows, behind).share).not.toBeNull();
+    }
+    // A statement that states no share is our own account, whatever was decided on the empty row.
+    for (const decision of [null, 'accepted', 'rejected']) {
+      const rows = [...lines, share({ value: null, decision })];
+      expect(shareLeftOpen(rows), String(decision)).toBe(false);
+      expect(statementOnHandOf(rows, behind), String(decision)).toMatchObject({
+        endingBalance: { value: '83.76' },
+        share: null,
+      });
+    }
+    // With the share open and no line accepted, nothing rests on it.
+    expect(
+      linesRestingOnOpenShare([
+        staged(STATEMENT_LINE_KEYS.endingBalance, { decision: 'rejected' }),
+        staged(STATEMENT_LINE_KEYS.beginningBalance, { decision: null }),
+        share({ decision: null }),
+      ]),
+    ).toEqual([]);
   });
 
   it('cites a figure of the record to the run only when that run read this very figure', () => {

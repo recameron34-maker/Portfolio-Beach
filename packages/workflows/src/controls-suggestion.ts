@@ -422,17 +422,60 @@ export function figureReviewersOf(final: FinalValue, behind: RunBehind): string[
 }
 
 /**
+ * True when a run read our share of the vehicle and nobody stood behind it: the share was left
+ * undecided, or rejected. The lines of such a statement are the whole vehicle's. They are never
+ * read as our own account, since a share nobody accepted is missing and a missing share is never
+ * 100% (docs/08 rule 12.1). A statement that states no share is our own account and is not this.
+ */
+export function shareLeftOpen(rows: readonly StagedFigure[]): boolean {
+  return (
+    rows.some((row) => row.field === STATEMENT_SHARE_KEY && row.value !== null) &&
+    !finalValuesOf(rows).has(STATEMENT_SHARE_KEY)
+  );
+}
+
+/**
+ * The lines somebody accepted or typed while the share they scale with was left open, by key in
+ * the order of `STATEMENT_LINE_KEYS`: what an approval refuses until the share is accepted or
+ * corrected, or those lines are rejected. Empty when the share is not open.
+ */
+export function linesRestingOnOpenShare(rows: readonly StagedFigure[]): string[] {
+  if (!shareLeftOpen(rows)) return [];
+  const finals = finalValuesOf(rows);
+  return Object.values(STATEMENT_LINE_KEYS).filter((key) => finals.has(key));
+}
+
+/**
+ * What an approval answers while lines rest on an open share, naming the share and the first such
+ * line as the schema labels them; null when nothing does. The reviewer accepts or corrects the
+ * share, or rejects the lines of the whole vehicle, and approves again.
+ */
+export function openShareRefusal(
+  rows: readonly StagedFigure[],
+  labelOf: (key: string) => string,
+): string | null {
+  const [first] = linesRestingOnOpenShare(rows);
+  if (first === undefined) return null;
+  return `extraction: ${labelOf(STATEMENT_SHARE_KEY)} was read and is not accepted or edited, so ${labelOf(first)} is the whole vehicle's and not our account's; accept or edit the share, or reject the lines it scales`;
+}
+
+/**
  * The statement on hand: the lines of one approved statement run, each in the unit it was read
- * in. A money line with no money unit cannot be converted and is not on hand. The share travels
- * as a fraction of one (0.2500 for 25%), which is what rule 12.1 takes.
+ * in, from the values a person stood behind (`finalValuesOf`). A money line with no money unit
+ * cannot be converted and is not on hand. The share travels as a fraction of one (0.2500 for
+ * 25%), which is what rule 12.1 takes. When the run read a share nobody stood behind
+ * (`shareLeftOpen`), no line is on hand: they are the whole vehicle's, not our account's.
  */
 export function statementOnHandOf(
-  finals: ReadonlyMap<string, FinalValue>,
+  rows: readonly StagedFigure[],
   behind: RunBehind,
 ): StatementOnHand {
+  const finals = finalValuesOf(rows);
+  const wholeVehicleOnly = shareLeftOpen(rows);
   const line = (key: string): StatementLine | null => {
     const final = finals.get(key);
-    if (final === undefined || final.unit === null || !isMoneyUnit(final.unit)) return null;
+    if (wholeVehicleOnly || final === undefined || final.unit === null || !isMoneyUnit(final.unit))
+      return null;
     return {
       value: final.value,
       unit: final.unit,

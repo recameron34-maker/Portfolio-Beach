@@ -55,7 +55,7 @@ import type {
   ExtractionValueCounts,
   PageLayout,
 } from '@pb/contracts';
-import { attempt, extractionRunMachine } from '@pb/workflows';
+import { attempt, extractionRunMachine, openShareRefusal } from '@pb/workflows';
 import type { ExtractionCommand, ExtractionState } from '@pb/workflows';
 import { ZodError } from 'zod';
 import type { PreviewBook } from '../book.js';
@@ -1268,6 +1268,13 @@ function approve(
         instance,
       );
   }
+  // A share that was read and that nobody stood behind leaves the lines as the whole vehicle's:
+  // none of them is accepted as our account, as the API refuses it.
+  const openShare = openShareRefusal(
+    values,
+    (key) => schema.fields.find((field) => field.key === key)?.label ?? key,
+  );
+  if (openShare !== null) return blocked(openShare, instance);
   // Only a schema that writes to the quarterly record needs a position to write it on.
   const promotes = promotesToRecord(schema);
   const investmentId = run.investmentId;

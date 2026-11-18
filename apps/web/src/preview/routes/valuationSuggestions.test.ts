@@ -139,8 +139,33 @@ const [staleNext, staleNextSecond] = (() => {
   ] as const;
 })();
 
+/**
+ * Another position's statement for the quarter after the as-of date, whose lines are for a whole
+ * vehicle of which a quarter is ours.
+ */
+const WHOLE =
+  generated.expectations.positionStatements
+    .map((p) => p.investmentNumber)
+    .find((number) => number !== STALE && number !== WALLED) ?? '';
+const wholeNext = (() => {
+  const position = investment(WHOLE);
+  const fund = dataset.sponsorFunds.find((f) => f.id === position.sponsorFundId);
+  if (fund === undefined) throw new Error('the position has no fund');
+  return positionStatementDocument({
+    periodEnd: nextQuarter,
+    fund,
+    vehicleName: dataset.vehicles.find((v) => v.id === position.vehicleId)?.name ?? '',
+    investment: {
+      id: position.id,
+      investmentNumber: position.investmentNumber,
+      companyName: companyOf(WHOLE),
+    },
+    ...STATEMENT_EXAMPLES.wholeVehicle,
+  });
+})();
+
 const set: DocumentSet = {
-  documents: [...generated.documents, walledNext, staleNext, staleNextSecond],
+  documents: [...generated.documents, walledNext, staleNext, staleNextSecond, wholeNext],
   expectations: generated.expectations,
 };
 const book = parseBook(JSON.parse(JSON.stringify(previewBook(dataset, { documents: set }))));
@@ -758,6 +783,56 @@ describe('preview: two statements for one quarter, and a figure a reviewer typed
     // The typed balance no longer adds up with the lines read from the statement.
     expect(open?.checks?.ties).toBe(false);
     expect(open?.flags.ties).toBe(false);
+  });
+
+  it('never reads the lines of a whole vehicle as our account while nobody stands behind the share', async () => {
+    const { f } = await ready();
+    const run = (await extract(f, [wholeNext.fileName])).get(wholeNext.fileName)!;
+    const staged = extractionRunDetail.parse(
+      await ok(f, 'ops.one', 'GET', `/api/v1/extraction/runs/${run.id}`),
+    ).values;
+    expect(staged.find((v) => v.field === 'investor_share_pct')).toMatchObject({
+      value: '0.2500',
+      decision: null,
+    });
+    // Every line the statement states is accepted; our share of the vehicle is left undecided.
+    for (const v of staged) {
+      if (v.field === 'investor_share_pct' || v.value === null) continue;
+      await ok(f, 'ops.one', 'POST', runCommands(run.id), { command: 'accept', field: v.field });
+    }
+    const approveIt = () => send(f, 'ops.one', 'POST', runCommands(run.id), { command: 'approve' });
+    const undecided = await approveIt();
+    expect(undecided.status).toBe(409);
+    expect(problemOf(undecided).detail).toBe(
+      "extraction: Our share of the vehicle was read and is not accepted or edited, so Beginning capital balance is the whole vehicle's and not our account's; accept or edit the share, or reject the lines it scales",
+    );
+    // Rejecting the share does not make the lines ours either.
+    await ok(f, 'ops.one', 'POST', runCommands(run.id), {
+      command: 'reject',
+      field: 'investor_share_pct',
+      reason: 'The share is not the one on the signed copy',
+    });
+    expect((await approveIt()).status).toBe(409);
+    expect((await list(f, 'ops.one', '&state=all')).items).toEqual([]);
+    // With the share typed by the reviewer, the suggestion is the balance times it.
+    await ok(f, 'ops.two', 'POST', runCommands(run.id), {
+      command: 'edit',
+      field: 'investor_share_pct',
+      value: '0.2500',
+      unit: 'PCT',
+      reason: 'The share on the signed copy',
+    });
+    expect((await approveIt()).status).toBe(200);
+    const [open] = (await list(f, 'ops.one')).items;
+    expect(open).toMatchObject({
+      investmentNumber: WHOLE,
+      suggestedValue: '20940000.00',
+      checks: { ownAccount: false },
+    });
+    expect(open?.workings.inputs.map((input) => [input.key, input.value, input.edited])).toEqual([
+      ['ending_capital_balance', '83760000', false],
+      ['investor_share_pct', '0.2500', true],
+    ]);
   });
 });
 

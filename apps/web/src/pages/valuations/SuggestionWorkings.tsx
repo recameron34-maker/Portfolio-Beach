@@ -196,7 +196,9 @@ export function SuggestionWorkings({ row }: { row: ValuationSuggestionRow }): Re
           {row.reasonCode === null ? null : REASON_SENTENCE[row.reasonCode]}
         </p>
       ) : null}
-      {checks?.ownAccount === true ? <p className="pb-meta">Read as our own account.</p> : null}
+      {checks?.ownAccount === true && row.suggestedValue !== null ? (
+        <p className="pb-meta">Read as our own account.</p>
+      ) : null}
       {row.workings.inputs.length === 0 ? (
         <p className="pb-meta">No input was read for this rule.</p>
       ) : (

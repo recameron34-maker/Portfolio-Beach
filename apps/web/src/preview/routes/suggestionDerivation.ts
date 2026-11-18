@@ -421,8 +421,9 @@ export function gatherSources(
     }
   }
   if (statementRun !== null) {
-    const finals = finalValues(ctx, statementRun.id);
-    statement = statementOnHandOf(finals, statementRun);
+    const staged = valuesOfRun(ctx.state, statementRun.id);
+    const finals = finalValuesOf(staged);
+    statement = statementOnHandOf(staged, statementRun);
     for (const key of [STATEMENT_LINE_KEYS.endingBalance, STATEMENT_SHARE_KEY]) {
       const final = finals.get(key);
       if (final !== undefined) reviewersByKey.set(key, figureReviewersOf(final, statementRun));

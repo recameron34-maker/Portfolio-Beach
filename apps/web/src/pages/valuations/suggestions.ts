@@ -182,9 +182,14 @@ export function ruleSentence(
   }
 }
 
-/** Why a source gives no value, in the order the reasons are decided. */
+/**
+ * Why a source gives no value, in the order the reasons are decided. A statement's lines are the
+ * ones a person accepted or typed in the review: a line the statement does not state, one nobody
+ * accepted and one for a whole vehicle whose share nobody accepted all read the same here.
+ */
 export const REASON_SENTENCE: Readonly<Record<SuggestionReason, string>> = {
-  no_ending_balance: 'The statement gives no ending balance for our account in US dollars.',
+  no_ending_balance:
+    'No ending balance for our account in US dollars was accepted from the statement.',
   non_positive_balance: 'The ending balance is zero or negative.',
   share_out_of_range: 'Our share of the vehicle must be above 0% and at most 100%.',
   no_reference_mark: 'No Locked mark from an earlier quarter.',
@@ -348,7 +353,7 @@ const isZero = (value: string): boolean => !/[1-9]/.test(value);
 /** Whether the statement's own lines add up, and by how much they miss when they do not. */
 export function tieSentence(checks: Pick<Checks, 'ties' | 'tieDifference'>): string {
   if (checks.ties === null || checks.tieDifference === null)
-    return 'The lines were not added up: the statement does not state all five.';
+    return 'The lines were not added up: not all five were accepted from the statement.';
   return checks.ties
     ? 'The lines add up.'
     : `The lines are ${formatWholeDollars(unsigned(checks.tieDifference))} apart.`;
@@ -357,7 +362,7 @@ export function tieSentence(checks: Pick<Checks, 'ties' | 'tieDifference'>): str
 const NOT_CHECKED: Readonly<
   Record<NonNullable<Checks['contributionsCheck']['notChecked']>, string>
 > = {
-  contributions_not_stated: 'the statement does not state contributions to date.',
+  contributions_not_stated: 'no contributions to date were accepted from the statement.',
   share_out_of_range: 'our share of the vehicle is out of range.',
   no_recorded_contributions: 'the record holds no approved contribution.',
 };

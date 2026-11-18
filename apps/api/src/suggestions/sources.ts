@@ -21,6 +21,7 @@ import type {
   ReportOnHand,
   RunBehind,
   SourcedFigure,
+  StagedFigure,
   StatementOnHand,
   SuggestionPosition,
   SuggestionSettings,
@@ -102,23 +103,26 @@ export interface GatherRequest {
   statementRunId?: string;
 }
 
+/** The staged values of a run as the rules read them (stg.extracted_value). */
+function stagedFigures(tx: Tx, runId: string): Promise<StagedFigure[]> {
+  return tx
+    .select({
+      field: value.field,
+      value: value.value,
+      unit: value.unit,
+      page: value.page,
+      decision: value.decision,
+      editedValue: value.editedValue,
+      editedUnit: value.editedUnit,
+      reviewerId: value.reviewerId,
+    })
+    .from(value)
+    .where(eq(value.runId, runId));
+}
+
 /** The accepted and edited values of a run, by field: what its approval stands behind. */
 async function finalValues(tx: Tx, runId: string): Promise<Map<string, FinalValue>> {
-  return finalValuesOf(
-    await tx
-      .select({
-        field: value.field,
-        value: value.value,
-        unit: value.unit,
-        page: value.page,
-        decision: value.decision,
-        editedValue: value.editedValue,
-        editedUnit: value.editedUnit,
-        reviewerId: value.reviewerId,
-      })
-      .from(value)
-      .where(eq(value.runId, runId)),
-  );
+  return finalValuesOf(await stagedFigures(tx, runId));
 }
 
 /** An approved run by id, with what a suggestion records of it; null when it is not approved or not visible. */
@@ -322,8 +326,9 @@ export async function gatherSources(
     }
   }
   if (statementRun !== null) {
-    const finals = await finalValues(tx, statementRun.id);
-    statement = statementOnHandOf(finals, statementRun);
+    const staged = await stagedFigures(tx, statementRun.id);
+    const finals = finalValuesOf(staged);
+    statement = statementOnHandOf(staged, statementRun);
     for (const key of [STATEMENT_LINE_KEYS.endingBalance, STATEMENT_SHARE_KEY]) {
       const final = finals.get(key);
       if (final !== undefined) reviewersByKey.set(key, figureReviewersOf(final, statementRun));
