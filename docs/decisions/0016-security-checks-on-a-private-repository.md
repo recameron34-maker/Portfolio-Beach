@@ -44,6 +44,7 @@ Tests, browser journeys, build scripts and fixtures are exempt from the four rul
 - Ten patterns in product code were rewritten to run in linear time: the thousands grouping (API and web), the trailing zeros of a decimal string (`trimFractionZeros` in `@pb/calc`, also used by the valuation form; the PDF writer), the PDF number token, the acronym split in state names, the cursor's padding and the site's base path.
 - Seven patterns built at run time and two comparisons were reviewed and carry a one-line reason where they stand: each is built from constants or names written in code.
 - `zod` 4.6.5 to 4.6.7 in two packages and `wrangler` 4.146.0 to 4.161.0 in the site, which clears ten of eleven advisories. The eleventh (minimatch through eslint, GHSA-g3hv-75wg-m249) has no installable fix and is the one listed exception.
+- Added 2026-11-18: a second listed exception, picomatch (GHSA-fc5q-39xc-vjpf, published after the first run). Its newest release, 4.0.7, is the affected one and no fixed version exists. It is reached only through build and test tools (vite, vitest and typescript-eslint by way of tinyglobby), never a production dependency (`pnpm why picomatch -r --prod` lists nothing), and it only matches the globs of this repository's own configuration. It is removed from the list when a fixed version can be installed.
 
 ## What is weaker, said plainly
 
