@@ -6,7 +6,7 @@ from typing import Any, cast
 from hypothesis import assume, given, settings
 from hypothesis import strategies as st
 
-from calc_check import attribution, bridge, credit, multiples, rollup
+from calc_check import attribution, bridge, credit, marks, multiples, rollup
 from calc_check import suggestion as sg
 from calc_check import underwriting as uw
 from calc_check.irr import Flow, npv, xirr
@@ -780,3 +780,99 @@ def test_the_mark_plus_the_change_is_the_value_and_the_net_of_flows_follows_from
     crossed = sg.cross_check(str(suggested), str(current), "0.1")
     assert crossed["difference"] == answer["change"]
     assert crossed["differencePct"] == answer["changePct"]
+
+
+# ---- Which marks and flows count for a suggestion's quarter (docs/08 section 12) ----
+
+QUARTER_ENDS = st.builds(
+    lambda year, month: (
+        date(year + month // 12, month % 12 + 1, 1) - timedelta(days=1)
+    ).isoformat(),
+    st.integers(2015, 2030),
+    st.sampled_from([3, 6, 9, 12]),
+)
+MARK_STATES = st.sampled_from(["Locked", "Locked", "Draft", "Reopened", "OpsPrepared"])
+
+
+def shifted(iso: str, days: int) -> str:
+    return (date.fromisoformat(iso) + timedelta(days=days)).isoformat()
+
+
+@st.composite
+def marks_near(draw: st.DrawFn, quarter_end: str) -> list[dict[str, Any]]:
+    days = draw(st.lists(st.integers(-800, 120), max_size=6))
+    return [
+        {"id": f"m{n}", "periodEnd": shifted(quarter_end, d), "state": draw(MARK_STATES)}
+        for n, d in enumerate(days)
+    ]
+
+
+@settings(max_examples=120, deadline=None)
+@given(QUARTER_ENDS, st.integers(0, 40), st.integers(0, 40))
+def test_a_date_within_the_tolerance_of_a_quarter_end_reports_for_it(
+    quarter_end: str, tolerance: int, away: int
+) -> None:
+    assert marks.aligned_quarter_end(quarter_end, tolerance) == quarter_end
+    for d in (shifted(quarter_end, away), shifted(quarter_end, -away)):
+        # Forty days is nearer this quarter end than any other, so the tolerance alone decides.
+        expected = quarter_end if away <= tolerance else d
+        assert marks.aligned_quarter_end(d, tolerance) == expected
+
+
+@settings(max_examples=120, deadline=None)
+@given(st.data(), QUARTER_ENDS, st.integers(0, 10))
+def test_the_reference_is_a_locked_mark_of_an_earlier_date_and_none_is_later(
+    data: st.DataObject, quarter_end: str, tolerance: int
+) -> None:
+    rows = data.draw(marks_near(quarter_end))
+    found = marks.latest_locked_before(rows, quarter_end, tolerance)
+    earlier = [
+        m
+        for m in rows
+        if m["state"] == "Locked"
+        and marks.aligned_quarter_end(m["periodEnd"], tolerance) < quarter_end
+    ]
+    if found is None:
+        assert earlier == []
+        return
+    assert found["mark"] in earlier
+    assert all(m["periodEnd"] <= found["mark"]["periodEnd"] for m in earlier)
+    assert found["ageQuarters"] >= 0
+    # The previous quarter's mark is exactly one quarter old and reports for a quarter end.
+    assert found["previousQuarter"] is (
+        found["ageQuarters"] == 1 and marks.is_quarter_end(found["reportsFor"])
+    )
+    # A quarter that is marked is so by a Locked mark that is not an earlier one.
+    later = [m for m in rows if m["state"] == "Locked" and m not in earlier]
+    assert marks.locked_for_or_after(rows, quarter_end, tolerance) is (later != [])
+
+
+@settings(max_examples=120, deadline=None)
+@given(
+    QUARTER_ENDS,
+    st.lists(st.integers(-400, 400), max_size=5),
+    st.integers(0, 300),
+    st.integers(0, 300),
+)
+def test_a_window_of_flows_splits_into_two_that_share_no_date(
+    quarter_end: str, days: list[int], first: int, second: int
+) -> None:
+    rows = [{"date": shifted(quarter_end, d)} for d in days]
+    start = shifted(quarter_end, -first - second)
+    middle = shifted(quarter_end, -second)
+    whole = marks.has_flow_between(rows, start, quarter_end)
+    assert whole is (
+        marks.has_flow_between(rows, start, middle)
+        or marks.has_flow_between(rows, middle, quarter_end)
+    )
+    assert marks.has_flow_between(rows, quarter_end, quarter_end) is False
+
+
+@settings(max_examples=80, deadline=None)
+@given(QUARTER_ENDS, st.integers(1, 40))
+def test_quarters_count_back_one_at_a_time(quarter_end: str, steps: int) -> None:
+    earlier = quarter_end
+    for _ in range(steps):
+        earlier = marks.previous_quarter_end(earlier)
+    assert marks.quarters_between(earlier, quarter_end) == steps
+    assert marks.quarters_between(quarter_end, earlier) == -steps

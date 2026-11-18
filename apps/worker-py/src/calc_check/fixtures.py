@@ -16,6 +16,7 @@ from calc_check import (
     credit,
     fit,
     liquidity,
+    marks,
     multiples,
     operating,
     periods,
@@ -375,6 +376,19 @@ def _suggested_mark(inp: dict[str, Any], exp: dict[str, Any], _tol: str) -> None
         _fail_on(uw.differences(mine, exp[name], name))
 
 
+def _reference_marks(inp: dict[str, Any], exp: dict[str, Any], _tol: str) -> None:
+    tolerance_days = inp["toleranceDays"]
+    for n, (case, want) in enumerate(zip(inp["cases"], exp["results"], strict=True), start=1):
+        mine = marks.reference_answer(
+            case["marks"], case["flows"], case["quarterEnd"], tolerance_days
+        )
+        _fail_on(uw.differences(mine, want, f"case {n}"))
+    before = [marks.previous_quarter_end(c["quarterEnd"]) for c in inp["previousQuarterEnd"]]
+    _fail_on(uw.differences(before, exp["previousQuarterEnd"], "previousQuarterEnd"))
+    apart = [marks.quarters_between(c["from"], c["to"]) for c in inp["quartersBetween"]]
+    _fail_on(uw.differences(apart, exp["quartersBetween"], "quartersBetween"))
+
+
 def _credit_yield(inp: dict[str, Any], exp: dict[str, Any], tol: str) -> None:
     t = inp["terms"]
     close(
@@ -501,6 +515,7 @@ HANDLERS: dict[str, Callable[[dict[str, Any], dict[str, Any], str], None]] = {
     "underwriting_comparison": _underwriting,
     "statement_mark": _statement_mark,
     "suggested_mark": _suggested_mark,
+    "reference_marks": _reference_marks,
     "credit_yield": _credit_yield,
     "pik_roll": _pik,
     "credit_ratios": _credit_ratios,

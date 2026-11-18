@@ -10,7 +10,7 @@ import { dirname } from 'node:path';
 import { CALC_VERSION } from '../version.js';
 import { D, toDecimalString } from '../decimal.js';
 import type { Decimal } from '../decimal.js';
-import { addDays, daysBetween } from '../dates.js';
+import { addDays, containingQuarterEnd, daysBetween, nextQuarterEnd } from '../dates.js';
 import { xirr } from '../irr.js';
 import { dpi, rvpi, totalGain, tvpi, valueChange } from '../multiples.js';
 import { yieldToMaturity } from '../credit.js';
@@ -31,9 +31,14 @@ import type {
 } from '../underwriting.js';
 import type { RollupPosition } from '../rollup.js';
 import {
+  hasFlowBetween,
   heldMultipleMark,
   impliedStakeMark,
+  latestLockedBefore,
+  lockedForOrAfter,
   markComparison,
+  previousQuarterEnd,
+  quartersBetween,
   sourceCrossCheck,
   statementMark,
   statementTieTolerance,
@@ -849,6 +854,56 @@ function run(seed: number, perKind: number): Case[] {
       result: {
         comparison: markComparison({ ...comparison, varianceFlag }),
         crossCheck: sourceCrossCheck(other, suggested, varianceFlag),
+      },
+    });
+  }
+
+  // Which marks and flows count for a suggestion's quarter (section 12), last again: marks on,
+  // just inside and just outside the tolerance of a quarter end, in the suggestion's own quarter,
+  // before and after it and across year ends, in every state; flows on and around both edges.
+  const nudges = [0, 0, 0, -3, 3, -7, 7, -8, 8, -1, 1, -45, 20];
+  const states = ['Locked', 'Locked', 'Locked', 'Draft', 'Reopened', 'OpsPrepared'];
+  for (let i = 0; i < perKind; i++) {
+    const quarterEnd = containingQuarterEnd(
+      `${int(2019, 2026)}-${pick(['02', '05', '08', '11'])}-15`,
+    );
+    const toleranceDays = pick([7, 7, 7, 0, 3, 10]);
+    const marks = Array.from({ length: int(0, 5) }, (_, n) => {
+      // A quarter end up to six quarters back, the suggestion's own, or the one after it.
+      let base = rnd() < 0.12 ? nextQuarterEnd(quarterEnd) : quarterEnd;
+      for (let back = int(0, 6); back > 0; back--) base = previousQuarterEnd(base);
+      return { id: `m${n}`, periodEnd: addDays(base, pick(nudges)), state: pick(states) };
+    });
+    const flows = Array.from({ length: int(0, 3) }, () => {
+      const anchor = marks.length > 0 && rnd() < 0.5 ? pick(marks).periodEnd : quarterEnd;
+      return {
+        date: rnd() < 0.6 ? addDays(anchor, pick([-1, 0, 1])) : addDays(quarterEnd, int(-400, 5)),
+      };
+    });
+    const from = addDays(quarterEnd, int(-900, 200));
+    const found = latestLockedBefore(marks, quarterEnd, toleranceDays);
+    cases.push({
+      id: id++,
+      kind: 'reference_marks',
+      tolerance: '0',
+      input: { quarterEnd, toleranceDays, marks, flows, from },
+      result: {
+        answer: {
+          reference:
+            found === null
+              ? null
+              : {
+                  mark: found.mark.id,
+                  reportsFor: found.reportsFor,
+                  previousQuarter: found.previousQuarter,
+                  ageQuarters: found.ageQuarters,
+                },
+          lockedForOrAfter: lockedForOrAfter(marks, quarterEnd, toleranceDays),
+          flowsSinceReference:
+            found === null ? null : hasFlowBetween(flows, found.mark.periodEnd, quarterEnd),
+        },
+        previousQuarterEnd: previousQuarterEnd(quarterEnd),
+        quartersFrom: quartersBetween(from, quarterEnd),
       },
     });
   }

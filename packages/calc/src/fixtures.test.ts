@@ -19,12 +19,15 @@ import {
   entryStake,
   evToEbitda,
   gainByDriver,
+  hasFlowBetween,
   heldMultipleMark,
   impliedStakeMark,
   indexedLevel,
   interestCoverage,
   ksPme,
+  latestLockedBefore,
   latestPeriod,
+  lockedForOrAfter,
   markComparison,
   median,
   leverageThroughTranche,
@@ -34,6 +37,8 @@ import {
   parRollForward,
   planHeadline,
   planMetrics,
+  previousQuarterEnd,
+  quartersBetween,
   sameQuarterPriorYear,
   sinceEntryMeasures,
   sourceCrossCheck,
@@ -554,6 +559,50 @@ describe('golden fixtures', () => {
               sourceCrossCheck(c.other, c.suggested, input.varianceFlag),
             ),
           ).toEqual(expected.crossChecks);
+          break;
+        }
+        case 'reference_marks': {
+          const input = fx.input as {
+            toleranceDays: number;
+            cases: {
+              quarterEnd: string;
+              marks: { id: string; periodEnd: string; state: string }[];
+              flows: { date: string }[];
+            }[];
+            previousQuarterEnd: { quarterEnd: string }[];
+            quartersBetween: { from: string; to: string }[];
+          };
+          const expected = fx.expected as {
+            results: unknown[];
+            previousQuarterEnd: string[];
+            quartersBetween: number[];
+          };
+          expect(expected.results.length).toBe(input.cases.length);
+          const answers = input.cases.map((c) => {
+            const found = latestLockedBefore(c.marks, c.quarterEnd, input.toleranceDays);
+            return {
+              reference:
+                found === null
+                  ? null
+                  : {
+                      mark: found.mark.id,
+                      reportsFor: found.reportsFor,
+                      previousQuarter: found.previousQuarter,
+                      ageQuarters: found.ageQuarters,
+                    },
+              lockedForOrAfter: lockedForOrAfter(c.marks, c.quarterEnd, input.toleranceDays),
+              // Rule 12.2's test: a flow after the reference mark's own date, on or before the quarter end.
+              flowsSinceReference:
+                found === null ? null : hasFlowBetween(c.flows, found.mark.periodEnd, c.quarterEnd),
+            };
+          });
+          expect(answers).toEqual(expected.results);
+          expect(input.previousQuarterEnd.map((c) => previousQuarterEnd(c.quarterEnd))).toEqual(
+            expected.previousQuarterEnd,
+          );
+          expect(input.quartersBetween.map((c) => quartersBetween(c.from, c.to))).toEqual(
+            expected.quartersBetween,
+          );
           break;
         }
         case 'credit_yield': {

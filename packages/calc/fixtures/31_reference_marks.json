@@ -1,0 +1,683 @@
+{
+  "id": "31_reference_marks",
+  "function": "reference_marks",
+  "note": "Which marks and flows count for a suggestion's quarter, by hand (docs/08 section 12, 'Which marks and flows count'): latestLockedBefore, lockedForOrAfter and hasFlowBetween, with previousQuarterEnd and quartersBetween behind them. A mark counts for the quarter end it is within seven days of, else for its own date. The reference is the latest Locked mark that reports for a date before the suggestion's quarter end; flowsSinceReference is hasFlowBetween from the reference mark's own period end to the suggestion's quarter end, and null with no reference.",
+  "tolerance": "0",
+  "input": {
+    "toleranceDays": 7,
+    "cases": [
+      {
+        "note": "A Locked mark dated on the quarter end before: the previous quarter's mark, one quarter old.",
+        "quarterEnd": "2025-06-30",
+        "marks": [
+          {
+            "id": "m1",
+            "periodEnd": "2025-03-31",
+            "state": "Locked"
+          }
+        ],
+        "flows": []
+      },
+      {
+        "note": "Dated three days before that quarter end: it reports for it. A flow after the mark's own date counts, though it is before the quarter end.",
+        "quarterEnd": "2025-06-30",
+        "marks": [
+          {
+            "id": "m1",
+            "periodEnd": "2025-03-28",
+            "state": "Locked"
+          }
+        ],
+        "flows": [
+          {
+            "date": "2025-03-30"
+          }
+        ]
+      },
+      {
+        "note": "Dated three days after that quarter end: still that quarter's mark. A flow on the mark's own date is not after it.",
+        "quarterEnd": "2025-06-30",
+        "marks": [
+          {
+            "id": "m1",
+            "periodEnd": "2025-04-03",
+            "state": "Locked"
+          }
+        ],
+        "flows": [
+          {
+            "date": "2025-04-03"
+          }
+        ]
+      },
+      {
+        "note": "Dated three days before the suggestion's own quarter end: the quarter is marked, and there is no earlier mark.",
+        "quarterEnd": "2025-06-30",
+        "marks": [
+          {
+            "id": "m1",
+            "periodEnd": "2025-06-27",
+            "state": "Locked"
+          }
+        ],
+        "flows": []
+      },
+      {
+        "note": "Dated three days after the suggestion's own quarter end: the quarter is marked.",
+        "quarterEnd": "2025-06-30",
+        "marks": [
+          {
+            "id": "m1",
+            "periodEnd": "2025-07-03",
+            "state": "Locked"
+          }
+        ],
+        "flows": []
+      },
+      {
+        "note": "Inside the suggestion's own quarter and further from its end than the tolerance: it reports for its own date, is an earlier mark, is not the previous quarter's and is zero quarters old.",
+        "quarterEnd": "2025-06-30",
+        "marks": [
+          {
+            "id": "m1",
+            "periodEnd": "2025-05-15",
+            "state": "Locked"
+          }
+        ],
+        "flows": [
+          {
+            "date": "2025-05-15"
+          },
+          {
+            "date": "2025-05-16"
+          }
+        ]
+      },
+      {
+        "note": "Seven days before the suggestion's quarter end is on the tolerance: the quarter is marked.",
+        "quarterEnd": "2025-06-30",
+        "marks": [
+          {
+            "id": "m1",
+            "periodEnd": "2025-06-23",
+            "state": "Locked"
+          }
+        ],
+        "flows": []
+      },
+      {
+        "note": "Eight days before it is beyond the tolerance: an earlier mark, zero quarters old.",
+        "quarterEnd": "2025-06-30",
+        "marks": [
+          {
+            "id": "m1",
+            "periodEnd": "2025-06-22",
+            "state": "Locked"
+          }
+        ],
+        "flows": []
+      },
+      {
+        "note": "Seven days after the earlier quarter end is on the tolerance: that quarter's mark.",
+        "quarterEnd": "2025-06-30",
+        "marks": [
+          {
+            "id": "m1",
+            "periodEnd": "2025-04-07",
+            "state": "Locked"
+          }
+        ],
+        "flows": []
+      },
+      {
+        "note": "Eight days after it is beyond the tolerance: it reports for its own date, inside the suggestion's quarter.",
+        "quarterEnd": "2025-06-30",
+        "marks": [
+          {
+            "id": "m1",
+            "periodEnd": "2025-04-08",
+            "state": "Locked"
+          }
+        ],
+        "flows": []
+      },
+      {
+        "note": "Two Locked versions on one period end: the first listed wins (callers list the highest version first).",
+        "quarterEnd": "2025-06-30",
+        "marks": [
+          {
+            "id": "v2",
+            "periodEnd": "2025-03-31",
+            "state": "Locked"
+          },
+          {
+            "id": "v1",
+            "periodEnd": "2025-03-31",
+            "state": "Locked"
+          }
+        ],
+        "flows": []
+      },
+      {
+        "note": "A Draft and a Reopened version do not count: the Locked mark before them does, two quarters old.",
+        "quarterEnd": "2025-06-30",
+        "marks": [
+          {
+            "id": "d",
+            "periodEnd": "2025-03-31",
+            "state": "Draft"
+          },
+          {
+            "id": "r",
+            "periodEnd": "2025-03-31",
+            "state": "Reopened"
+          },
+          {
+            "id": "old",
+            "periodEnd": "2024-12-31",
+            "state": "Locked"
+          }
+        ],
+        "flows": [
+          {
+            "date": "2025-01-15"
+          }
+        ]
+      },
+      {
+        "note": "Across a year end: the fourth quarter's mark is the previous quarter's for the first quarter.",
+        "quarterEnd": "2025-03-31",
+        "marks": [
+          {
+            "id": "m1",
+            "periodEnd": "2024-12-31",
+            "state": "Locked"
+          }
+        ],
+        "flows": []
+      },
+      {
+        "note": "Across a year end, dated four days into the new year: the fourth quarter's mark. A flow before the mark's own date does not count.",
+        "quarterEnd": "2025-03-31",
+        "marks": [
+          {
+            "id": "m1",
+            "periodEnd": "2025-01-04",
+            "state": "Locked"
+          }
+        ],
+        "flows": [
+          {
+            "date": "2025-01-04"
+          },
+          {
+            "date": "2025-01-02"
+          }
+        ]
+      },
+      {
+        "note": "Across a year end, dated three days before it.",
+        "quarterEnd": "2025-03-31",
+        "marks": [
+          {
+            "id": "m1",
+            "periodEnd": "2024-12-28",
+            "state": "Locked"
+          }
+        ],
+        "flows": [
+          {
+            "date": "2024-12-30"
+          }
+        ]
+      },
+      {
+        "note": "A mark five quarters back, across two year ends.",
+        "quarterEnd": "2025-03-31",
+        "marks": [
+          {
+            "id": "m1",
+            "periodEnd": "2023-12-31",
+            "state": "Locked"
+          }
+        ],
+        "flows": []
+      },
+      {
+        "note": "A Locked mark of a later quarter marks this quarter too; the reference is still the latest earlier mark.",
+        "quarterEnd": "2025-06-30",
+        "marks": [
+          {
+            "id": "later",
+            "periodEnd": "2025-09-30",
+            "state": "Locked"
+          },
+          {
+            "id": "m1",
+            "periodEnd": "2025-03-31",
+            "state": "Locked"
+          },
+          {
+            "id": "m0",
+            "periodEnd": "2024-12-31",
+            "state": "Locked"
+          }
+        ],
+        "flows": []
+      },
+      {
+        "note": "The latest of several earlier marks, whatever the order they are listed in.",
+        "quarterEnd": "2025-06-30",
+        "marks": [
+          {
+            "id": "a",
+            "periodEnd": "2024-06-30",
+            "state": "Locked"
+          },
+          {
+            "id": "c",
+            "periodEnd": "2024-12-31",
+            "state": "Locked"
+          },
+          {
+            "id": "b",
+            "periodEnd": "2024-09-30",
+            "state": "Locked"
+          }
+        ],
+        "flows": []
+      },
+      {
+        "note": "No mark at all.",
+        "quarterEnd": "2025-06-30",
+        "marks": [],
+        "flows": [
+          {
+            "date": "2025-04-01"
+          }
+        ]
+      },
+      {
+        "note": "Versions in progress only: none is Locked, so there is no reference and the quarter is not marked.",
+        "quarterEnd": "2025-06-30",
+        "marks": [
+          {
+            "id": "d",
+            "periodEnd": "2025-03-31",
+            "state": "OpsPrepared"
+          },
+          {
+            "id": "e",
+            "periodEnd": "2025-06-30",
+            "state": "DealTeamApproved"
+          }
+        ],
+        "flows": []
+      },
+      {
+        "note": "A flow on the reference mark's own date is not after it.",
+        "quarterEnd": "2025-06-30",
+        "marks": [
+          {
+            "id": "m1",
+            "periodEnd": "2025-03-31",
+            "state": "Locked"
+          }
+        ],
+        "flows": [
+          {
+            "date": "2025-03-31"
+          }
+        ]
+      },
+      {
+        "note": "A flow the day after the reference mark counts.",
+        "quarterEnd": "2025-06-30",
+        "marks": [
+          {
+            "id": "m1",
+            "periodEnd": "2025-03-31",
+            "state": "Locked"
+          }
+        ],
+        "flows": [
+          {
+            "date": "2025-04-01"
+          }
+        ]
+      },
+      {
+        "note": "A flow on the suggestion's quarter end counts.",
+        "quarterEnd": "2025-06-30",
+        "marks": [
+          {
+            "id": "m1",
+            "periodEnd": "2025-03-31",
+            "state": "Locked"
+          }
+        ],
+        "flows": [
+          {
+            "date": "2025-06-30"
+          }
+        ]
+      },
+      {
+        "note": "A flow the day after the suggestion's quarter end does not count.",
+        "quarterEnd": "2025-06-30",
+        "marks": [
+          {
+            "id": "m1",
+            "periodEnd": "2025-03-31",
+            "state": "Locked"
+          }
+        ],
+        "flows": [
+          {
+            "date": "2025-07-01"
+          }
+        ]
+      },
+      {
+        "note": "Flows on and outside both edges only: none counts.",
+        "quarterEnd": "2025-06-30",
+        "marks": [
+          {
+            "id": "m1",
+            "periodEnd": "2025-03-31",
+            "state": "Locked"
+          }
+        ],
+        "flows": [
+          {
+            "date": "2025-03-31"
+          },
+          {
+            "date": "2025-07-01"
+          },
+          {
+            "date": "2024-11-02"
+          }
+        ]
+      }
+    ],
+    "previousQuarterEnd": [
+      {
+        "quarterEnd": "2025-06-30"
+      },
+      {
+        "quarterEnd": "2025-03-31"
+      },
+      {
+        "quarterEnd": "2024-12-31"
+      },
+      {
+        "quarterEnd": "2024-09-30"
+      },
+      {
+        "quarterEnd": "2024-03-31"
+      }
+    ],
+    "quartersBetween": [
+      {
+        "from": "2025-03-31",
+        "to": "2025-06-30"
+      },
+      {
+        "from": "2024-12-31",
+        "to": "2025-03-31"
+      },
+      {
+        "from": "2025-05-15",
+        "to": "2025-06-30"
+      },
+      {
+        "from": "2025-04-01",
+        "to": "2025-06-30"
+      },
+      {
+        "from": "2023-12-31",
+        "to": "2025-03-31"
+      },
+      {
+        "from": "2025-06-30",
+        "to": "2025-03-31"
+      },
+      {
+        "from": "2024-02-29",
+        "to": "2024-12-31"
+      }
+    ]
+  },
+  "expected": {
+    "results": [
+      {
+        "reference": {
+          "mark": "m1",
+          "reportsFor": "2025-03-31",
+          "previousQuarter": true,
+          "ageQuarters": 1
+        },
+        "lockedForOrAfter": false,
+        "flowsSinceReference": false
+      },
+      {
+        "reference": {
+          "mark": "m1",
+          "reportsFor": "2025-03-31",
+          "previousQuarter": true,
+          "ageQuarters": 1
+        },
+        "lockedForOrAfter": false,
+        "flowsSinceReference": true
+      },
+      {
+        "reference": {
+          "mark": "m1",
+          "reportsFor": "2025-03-31",
+          "previousQuarter": true,
+          "ageQuarters": 1
+        },
+        "lockedForOrAfter": false,
+        "flowsSinceReference": false
+      },
+      {
+        "reference": null,
+        "lockedForOrAfter": true,
+        "flowsSinceReference": null
+      },
+      {
+        "reference": null,
+        "lockedForOrAfter": true,
+        "flowsSinceReference": null
+      },
+      {
+        "reference": {
+          "mark": "m1",
+          "reportsFor": "2025-05-15",
+          "previousQuarter": false,
+          "ageQuarters": 0
+        },
+        "lockedForOrAfter": false,
+        "flowsSinceReference": true
+      },
+      {
+        "reference": null,
+        "lockedForOrAfter": true,
+        "flowsSinceReference": null
+      },
+      {
+        "reference": {
+          "mark": "m1",
+          "reportsFor": "2025-06-22",
+          "previousQuarter": false,
+          "ageQuarters": 0
+        },
+        "lockedForOrAfter": false,
+        "flowsSinceReference": false
+      },
+      {
+        "reference": {
+          "mark": "m1",
+          "reportsFor": "2025-03-31",
+          "previousQuarter": true,
+          "ageQuarters": 1
+        },
+        "lockedForOrAfter": false,
+        "flowsSinceReference": false
+      },
+      {
+        "reference": {
+          "mark": "m1",
+          "reportsFor": "2025-04-08",
+          "previousQuarter": false,
+          "ageQuarters": 0
+        },
+        "lockedForOrAfter": false,
+        "flowsSinceReference": false
+      },
+      {
+        "reference": {
+          "mark": "v2",
+          "reportsFor": "2025-03-31",
+          "previousQuarter": true,
+          "ageQuarters": 1
+        },
+        "lockedForOrAfter": false,
+        "flowsSinceReference": false
+      },
+      {
+        "reference": {
+          "mark": "old",
+          "reportsFor": "2024-12-31",
+          "previousQuarter": false,
+          "ageQuarters": 2
+        },
+        "lockedForOrAfter": false,
+        "flowsSinceReference": true
+      },
+      {
+        "reference": {
+          "mark": "m1",
+          "reportsFor": "2024-12-31",
+          "previousQuarter": true,
+          "ageQuarters": 1
+        },
+        "lockedForOrAfter": false,
+        "flowsSinceReference": false
+      },
+      {
+        "reference": {
+          "mark": "m1",
+          "reportsFor": "2024-12-31",
+          "previousQuarter": true,
+          "ageQuarters": 1
+        },
+        "lockedForOrAfter": false,
+        "flowsSinceReference": false
+      },
+      {
+        "reference": {
+          "mark": "m1",
+          "reportsFor": "2024-12-31",
+          "previousQuarter": true,
+          "ageQuarters": 1
+        },
+        "lockedForOrAfter": false,
+        "flowsSinceReference": true
+      },
+      {
+        "reference": {
+          "mark": "m1",
+          "reportsFor": "2023-12-31",
+          "previousQuarter": false,
+          "ageQuarters": 5
+        },
+        "lockedForOrAfter": false,
+        "flowsSinceReference": false
+      },
+      {
+        "reference": {
+          "mark": "m1",
+          "reportsFor": "2025-03-31",
+          "previousQuarter": true,
+          "ageQuarters": 1
+        },
+        "lockedForOrAfter": true,
+        "flowsSinceReference": false
+      },
+      {
+        "reference": {
+          "mark": "c",
+          "reportsFor": "2024-12-31",
+          "previousQuarter": false,
+          "ageQuarters": 2
+        },
+        "lockedForOrAfter": false,
+        "flowsSinceReference": false
+      },
+      {
+        "reference": null,
+        "lockedForOrAfter": false,
+        "flowsSinceReference": null
+      },
+      {
+        "reference": null,
+        "lockedForOrAfter": false,
+        "flowsSinceReference": null
+      },
+      {
+        "reference": {
+          "mark": "m1",
+          "reportsFor": "2025-03-31",
+          "previousQuarter": true,
+          "ageQuarters": 1
+        },
+        "lockedForOrAfter": false,
+        "flowsSinceReference": false
+      },
+      {
+        "reference": {
+          "mark": "m1",
+          "reportsFor": "2025-03-31",
+          "previousQuarter": true,
+          "ageQuarters": 1
+        },
+        "lockedForOrAfter": false,
+        "flowsSinceReference": true
+      },
+      {
+        "reference": {
+          "mark": "m1",
+          "reportsFor": "2025-03-31",
+          "previousQuarter": true,
+          "ageQuarters": 1
+        },
+        "lockedForOrAfter": false,
+        "flowsSinceReference": true
+      },
+      {
+        "reference": {
+          "mark": "m1",
+          "reportsFor": "2025-03-31",
+          "previousQuarter": true,
+          "ageQuarters": 1
+        },
+        "lockedForOrAfter": false,
+        "flowsSinceReference": false
+      },
+      {
+        "reference": {
+          "mark": "m1",
+          "reportsFor": "2025-03-31",
+          "previousQuarter": true,
+          "ageQuarters": 1
+        },
+        "lockedForOrAfter": false,
+        "flowsSinceReference": false
+      }
+    ],
+    "previousQuarterEnd": ["2025-03-31", "2024-12-31", "2024-09-30", "2024-06-30", "2023-12-31"],
+    "quartersBetween": [1, 1, 0, 0, 5, -1, 3]
+  }
+}

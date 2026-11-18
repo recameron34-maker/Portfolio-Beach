@@ -13,7 +13,7 @@ from fractions import Fraction
 from pathlib import Path
 from typing import Any, cast
 
-from calc_check import CTX, credit, fit, multiples, pme, rollup
+from calc_check import CTX, credit, fit, marks, multiples, pme, rollup
 from calc_check import attribution as attr
 from calc_check import bridge as vc
 from calc_check import suggestion as sg
@@ -167,6 +167,15 @@ def check_case(case: dict[str, Any]) -> list[str]:
         problems.extend(uw.differences(compared, ts["comparison"], "comparison"))
         crossed = sg.cross_check(inp["other"], inp["comparison"]["suggested"], flag)
         problems.extend(uw.differences(crossed, ts["crossCheck"], "crossCheck"))
+    elif kind == "reference_marks":
+        standing = marks.reference_answer(
+            inp["marks"], inp["flows"], inp["quarterEnd"], inp["toleranceDays"]
+        )
+        problems.extend(uw.differences(standing, ts["answer"], "reference"))
+        before = marks.previous_quarter_end(inp["quarterEnd"])
+        problems.extend(uw.differences(before, ts["previousQuarterEnd"], "previousQuarterEnd"))
+        apart = marks.quarters_between(inp["from"], inp["quarterEnd"])
+        problems.extend(uw.differences(apart, ts["quartersFrom"], "quartersFrom"))
     else:
         problems.append(f"unknown kind {kind}")
     return problems
