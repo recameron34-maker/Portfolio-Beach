@@ -618,3 +618,36 @@ Tests came first for the calculation: the text of `docs/08` section 12, the two 
 - No outbox event is written, as for the other workflows; every derivation and command is audited.
 - The published preview and the site's media were made before this feature; both show it after the next publish and media run.
 - The feature is far over the target of about 800 changed lines for one pull request. Its commits follow the slices, so it can be opened as one pull request per slice or per layer.
+
+### Session 12, continued (2026-11-18): review of the valuation suggestions, and its fixes
+
+Three independent reviews of the finished feature (decision 0023) reported fifteen findings. Each was checked against the code before anything was changed; all were real. Four were serious (three of them the same defect), eleven small.
+
+**What changed**
+
+- **A source reviewer stays barred after a reopen** (`valuations/workflow.service.ts` `sourceReviewers`, the preview's `sourceReviewersOn`). The list of people who cannot approve a valuation that carries a suggested mark read the suggestions accepted onto that one version. A reopen copies the mark and the suggestion's keys to a new version, which no suggestion points at, so whoever approved the figures could approve the same mark on version 2. The list now reads every Accepted suggestion whose valuation is a version of the same investment and quarter. This closes the open item the build left on it. `docs/18` section 1, `docs/04` M10 and decision 0023 say so.
+- **A whole vehicle's lines are never read as our account when nobody accepted the share** (`shareLeftOpen`, `statementOnHandOf`, `openShareRefusal` in `packages/workflows/src/controls-suggestion.ts`). A statement whose lines are for the whole vehicle, with our share staged and left undecided or rejected, was read at 100% of the vehicle: a suggestion of 83,760,000.00 where our balance was 20,940,000.00. Such a share now leaves every line off hand, and the approval of the run is refused (409) while one of those lines is accepted, in the API and the preview, so the reviewer corrects the share or rejects the lines. `docs/08` rule 12.1 and `docs/18` section 14 state it.
+- **The rules that pick the reference mark have a golden fixture and a Python cross-check** (fixture 31 `reference_marks`, `apps/worker-py/src/calc_check/marks.py`, the cross-check kind `reference_marks`). `latestLockedBefore`, `lockedForOrAfter`, `hasFlowBetween`, `previousQuarterEnd` and `quartersBetween` were in `docs/08` and in use with TypeScript tests only. The fixture is 25 cases worked by hand; `docs/08` sections 9 and 12 list it.
+- **Tests the plan listed and nobody had written:** a statement with no value falling to rule 12.2 on a quarter with figures on record; a statement far from the report raising "Sources differ"; a report-based suggestion accepted through to a Locked mark with the method "Indication from sponsor report". The first two are mirrored in the preview.
+- **The pages:** a suggestion whose figures are all the record's reads "Raised when <file> was approved. Its figures come from the record." and no longer "Worked out from" a statement none of whose figures it used; the version screen words what a suggestion wrote (no key names, no identifiers); the sentences for a line that was not accepted say "accepted from the statement", true whether the document lacked the line or the reviewer did not accept it; "Read as our own account." shows only beside a value; the state filter of the Suggestions tab lives in the address; focus moves to the workings card when it opens and back to the row when it closes; the board asks for the open suggestions of its own quarter, says when more exist and says when the read failed.
+- **Stated once** (`@pb/workflows`): `quarterVersions`, `VALUATION_IN_FLIGHT_STATES` (four lists before), `suggestionSchemasOf` (the preview's copy had no field check) and `EQUITY_DEAL_TYPES` (the list behind the suggestions and the expected-document tracker). `changeText`, used by its own test only, is gone.
+- **Documents:** the generator's README lists the position-level statements; capability E4 reads "P"; `docs/07` section 7 counts fifteen fields for a report and eleven for a statement.
+
+**Verified**
+
+- Each fix has a test that failed before it: the reopen (API and preview: lock, reopen, prepare, both approvals refused), the open share (pure, API and preview: 409 undecided, 409 rejected, no value once the lines are rejected, 20,940,000.00 once the share is typed), fixture 31 (refused as an unknown function until its handler existed; all 25 hand-worked answers then agreed with the library).
+- `pnpm test:calc`: calc 174 passed, Python 59 passed, cross-check 680 cases (`reference_marks` 40), 0 mismatches. A second batch of 10,200 cases on seed 7: 0 mismatches. `ruff` and `mypy` clean.
+- At the end: `pnpm typecheck` and `pnpm lint` clean; `pnpm exec vitest run` 274 files, 5,552 tests passed; `pnpm test:rls` 1,775 passed; `pnpm openapi:generate` leaves the tree unchanged (no contract moved); `bash scripts/check-style.sh` and `pnpm check:employer-data` pass.
+- The static preview builds and its probe passes 223 of 223. In the browser: the valuation suggestions journey passes, and so do the valuation journey and the accessibility checks of the valuations pages at both widths (5 passed).
+
+**Decisions and deviations**
+
+- Next free numbers used: golden fixture 31. No migration, no decision record and no document section was added.
+- The open share is handled where a person can still act on it (the approval is refused) and again where the figures are read (the lines are off hand), not by a new reason code: the statement then gives "no ending balance for our account", the reason the specification already gives a whole-vehicle statement with no share.
+- The source reviewer bar reads the versions of the quarter, not the suggestion a version's keys name: an earlier suggestion put on the same Draft and then replaced still counts, as it did on the first version.
+
+**Open items**
+
+- Two more questions for the owner, in decision 0023: who reads the keys a suggestion leaves on a valuation (question 11: today every valuation reader, since the lock text covers them), and walling the history tables (question 12: `mon.valuation_suggestion_history`, like every history table, is read by role alone at the database; no API route reads one).
+- The five second wait for another derivation on the same position and quarter stays in code.
+
