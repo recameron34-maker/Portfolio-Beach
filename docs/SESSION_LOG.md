@@ -651,3 +651,52 @@ Three independent reviews of the finished feature (decision 0023) reported fifte
 - Two more questions for the owner, in decision 0023: who reads the keys a suggestion leaves on a valuation (question 11: today every valuation reader, since the lock text covers them), and walling the history tables (question 12: `mon.valuation_suggestion_history`, like every history table, is read by role alone at the database; no API route reads one).
 - The five second wait for another derivation on the same position and quarter stays in code.
 
+
+
+### Session 12, continued (2026-11-18): the Reporting, Packages pages (decision 0024)
+
+The next line of Phase 4 in the roadmap: "The Reporting, Packages pages: the findings with expected and found, and the release gate; the preview's simulated routes." It was designed as a written spec (`docs/handoff/spec-report-packages-web.md`), attacked by an independent reviewer and revised, then built in eight slices by agents working one after another on this branch. It has not been through the three reviews the two features before it had: that is the first open item.
+
+**What changed**
+
+- **Shared first, with no change in behaviour** (slice 1). The API hashes a package with `canonicalJson` of `@pb/contracts` and its private copy is gone; how a flow type reads as a contribution or a distribution is `flowKindOf` in `@pb/calc`; the mapping from the record to a snapshot request, with the pick of the prior release, is the pure `snapshotRequestOf` in `@pb/report-engine`, which the API and the preview both call.
+- **One contract change** (slice 2): a package answers `changeLog`, its generation runs with who ran each (`docs/03`). OpenAPI regenerated, 95 paths as before.
+- **The static preview** (slice 3, `apps/web/src/preview/routes/reportPackages.ts`): the four routes simulated over the packages started in the page session. The snapshot is built by the shared rule from the acting credential's own recordings, so a position behind a wall the preparer is not on is absent, a mark locked in the session is read, and the findings are `runReportQa`'s. `@pb/report-engine` is a dependency of `@pb/web`.
+- **The words and the list** (slices 4 and 5): `components/StepStrip.tsx` lifted from the pipeline page; `packages.ts` with a plain name for every QA rule, the gate as six steps, the commands a person may be offered and the start form's checks; `formatUsdExact` (dollars to the cent, `docs/06` section 3); `reporting.packageQuarterChoices` in config. `Packages.tsx` and `StartPackageForm.tsx`, the Packages tab after Weekly report, and `config/role_focus.json` (first Reporting tab and a work link for investor relations and approvers).
+- **The package page** (slices 6 and 7, `PackageDetail.tsx`, `PackageActions.tsx`): the release gate, the checks with what each expected and found, positions, footnotes, client share, tie-out explanations and the generation runs; the commands by role and state with `If-Match`, the override dialog, the explanations dialog and the refusals in words.
+- **The last slice** (slice 8):
+  - `failingPackageCase(dataset)` in `tools/synthetic` (`package-case.ts`, `docs/14` section 3): the investor relations user, the client and the position of a package that fails the gate, the `roll_forward_break` position first, else the `stale_valuation` one. No row is added.
+  - `apps/web/e2e/report-packages.spec.ts`, the packages journey over the real API: started from the list as final, generated, the failed checks and the line with no begin NAV read on the page, no Submit, who else reads it, the approver's override, the submission, the approval with the hash checked against the stored content, the release, a late command refused, the list, the audit trail. The page, the override dialog and the list are scanned with axe, the page at 390 pixels too.
+  - The probe (`apps/web/scripts/probe-preview.mjs`): a package is started and generated before the route walk, so each of the six users opens a real one; after a reset, the package the generator names goes through the gate in the pages of the built bundle, its findings compared with the engine run over the content shown and its hash with the SHA-256 of that content.
+  - A fourteenth walkthrough in the preview guide, "Client packages".
+  - Decision 0024, `docs/04` M14, `docs/09`, `docs/11` (F4 and F9 now partial), `apps/web/README.md`, the generator's README.
+
+**Verified**
+
+__VERIFIED__
+
+**Differences from the written design**
+
+- `snapshotRequestOf` also sorts the shares by vehicle and drops positions outside the client's vehicles (no change for the API; it makes the preview independent of the order of its recordings), and the API reads every Released package of the client and basis instead of the latest one.
+- The preview's start asks for entitlement, not only a client the caller can read, and its commands apply the update policy, so investor relations holding a second role that reads every client still get 404 for a client they are not entitled to. Single-role users are unaffected. With no book or no client recording, generate answers 503 in package words.
+- Positions and Client share are in US$ millions (`docs/06`); only the Checks card is to the cent. The Positions sentence names whoever ran the latest generation, whose reading the snapshot is. Client lines are in position order; the change log is newest first.
+- An override is said once above the Checks table, not on each row; a passed check is plain text with no badge.
+- A refused command reads the package and the list again, so a stale page (412) lands on what stands now.
+- A Released package has no "start a corrected version" button on its page: the list's start form does it, and asks for the reason.
+- `failingPackageCase` passes over a client no investor relations user is entitled to and never names a user outside the position's wall; it answers null when the dataset gives no case.
+- The journey names only the three checks the break position fails in any order, whose Expected and Found are both the placeholder; the label check ("expected Preliminary, found Final") is asserted whenever it failed, and a passed check supplies the figures to the cent. The valuation journey locks the stale position's mark first when the whole suite runs, which mends the label check.
+- The package page is scanned with axe inside the journey; `a11y.spec.ts` scans the list only, since it has no package to open.
+- The fourteenth walkthrough was not in the written design.
+
+**Open items**
+
+- **The review.** Every gate from a clean tree with the whole browser suite, then three independent reviews of the diff since `44104ff`, as `docs/handoff/README.md` section 2 lays out. That file's table of slices was written before slices 7 and 8 landed.
+- Decision 0024, "Still open", recommended as the next two slices of Phase 4: a package inherits the walls of the positions it holds (today every role that reads all clients reads every line; latent, since no investor relations user is on a wall), and "send back with a reason" from In review and QA passed.
+- A net package shows gross figures under a notice. The template engine must refuse a net package or carry net figures before any file is produced.
+- The Phase 4 exit is unchanged: critical journey 5 and the layout snapshots need the template engine.
+- `qtd_ytd_basis` and `sign_flip` are still not generated.
+- The published preview and the site's media were made before this feature.
+- The feature is far over the target of about 800 changed lines for one pull request; its commits follow the slices.
+__EXTRA_OPEN__
+
+**Stopped early (added by the session lead, 2026-11-18):** the build was stopped here because the week's usage ran out. This last slice was committed after typecheck, lint, the style and employer-data guards and the web tests named in the commit, not after its own full closing run, and the three reviews of the feature have not run. `docs/handoff/README.md` says how to finish.

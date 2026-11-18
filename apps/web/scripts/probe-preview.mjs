@@ -17,7 +17,9 @@ import {
   toDollars,
   valueCreationRollup,
 } from '@pb/calc';
-import { accountingExports, generateDataset } from '@pb/synthetic';
+import { canonicalJson } from '@pb/contracts';
+import { runReportQa } from '@pb/report-engine';
+import { accountingExports, failingPackageCase, generateDataset } from '@pb/synthetic';
 import { readsRegister } from '@pb/workflows';
 import { keyFor } from './preview-plan.mjs';
 import { bankDetailLeaks } from './preview-wires.mjs';
@@ -732,6 +734,38 @@ check(
 const walkDocumentId = reviewed.documentId;
 const walkExtractionRunId = reviewed.id;
 
+// A reporting package exists only once somebody starts one in the session (the book seeds none).
+// Investor relations starts one here and generates it, so the package route opens a real package
+// with its figures and its checks for every user of the walk (a viewer is told who reads them).
+// It is the net package of the client the generator names; the journey at the end of this file
+// starts the gross one after a reset.
+const packageCase = failingPackageCase(d);
+const PACKAGES = '/api/v1/report-packages';
+const walkPackage = await api(packageCase.user.externalId, 'POST', PACKAGES, {
+  clientId: packageCase.client.id,
+  periodEnd: quarterEnd,
+  basis: 'net',
+  label: 'preliminary',
+});
+const walkPackageId = walkPackage.json?.id;
+const walkPackageRun = await api(
+  packageCase.user.externalId,
+  'POST',
+  `${PACKAGES}/${walkPackageId}/commands`,
+  { command: 'generate' },
+  { 'if-match': `"${walkPackage.json?.rowVersion}"` },
+);
+check(
+  'packages: one is started and generated for the route walk (201, then its checks, simulated)',
+  walkPackage.status === 201 &&
+    walkPackage.simulated &&
+    walkPackageRun.status === 200 &&
+    walkPackageRun.simulated &&
+    walkPackageRun.json?.content?.lines?.length > 0 &&
+    walkPackageRun.json.findings.length > 0,
+  `start ${walkPackage.status}, generate ${walkPackageRun.status}: ${walkPackageRun.json?.detail ?? walkPackageRun.json?.state ?? ''}`,
+);
+
 /** Concrete addresses for one user, ids taken from that user's own recorded lists. */
 function visitsFor(externalId, paths) {
   const positions =
@@ -784,8 +818,9 @@ function visitsFor(externalId, paths) {
     } else if (path === '/documents/extraction/$id') {
       visits.push(path.replace('$id', walkExtractionRunId));
     } else if (path === '/reporting/packages/$id') {
-      // No package is recorded (the book seeds none), so the walk opens the page of an id nobody
-      // started: "Package not found" for a role that reads packages, "not visible" for the rest.
+      // The package started above, and the page of an id nobody started: "Package not found"
+      // for a role that reads packages, "not visible" for the rest.
+      if (walkPackageId !== undefined) visits.push(path.replace('$id', walkPackageId));
       visits.push(path.replace('$id', '00000000-0000-4000-8000-0000000000f0'));
     } else {
       throw new Error(`the probe does not know how to fill ${path}`);
@@ -3123,6 +3158,329 @@ if (staleReport === undefined || staleStatement === undefined || statementExpect
     ),
   );
 }
+
+// ---- Reporting packages (decision 0024): the release gate in the built preview --------------
+// Nothing is recorded: a package exists only once investor relations starts one in the session.
+// The session starts afresh, so the record is the recordings' own: the package the generator
+// names as failing fails on the position with no Locked mark at the start of the quarter and,
+// labelled final, on the stale mark no session has locked yet.
+await api('viewer.one', 'POST', '/api/v1/preview/reset');
+const preparer = packageCase.user.externalId;
+const breakRef = packageCase.positionNumber;
+const breakCompany = d.portfolioCompanies.find(
+  (c) => c.id === d.investments.find((i) => i.investmentNumber === breakRef).portfolioCompanyId,
+).name;
+const staleRef = d.investments.find((i) => i.id === staleId).investmentNumber;
+const quarterWords = `Q${Math.ceil(Number(quarterEnd.slice(5, 7)) / 3)} ${quarterEnd.slice(0, 4)}`;
+const packageWords = `${packageCase.client.name}, ${quarterWords}, gross, version 1`;
+const SIMULATED = '(simulated in this preview, not audited)';
+const packageStatus = page.getByTestId('package-action-status');
+const packageActions = page.getByTestId('package-actions');
+const packageOf = async (who, id) => (await api(who, 'GET', `${PACKAGES}/${id}`)).json;
+const packageCommand = (who, id, body, headers) =>
+  api(who, 'POST', `${PACKAGES}/${id}/commands`, body, headers);
+/** A card's or a row's text on one line, for the detail of a check. */
+const oneLine = (text) => text.replace(/\s+/g, ' ').slice(0, 160);
+/** A finding as the engine states it, for comparing the page's answer with the rules. */
+const findingKey = (f) => `${f.rule} ${f.entityRef}`;
+const asEngine = (findings) =>
+  findings
+    .map(({ rule, entityRef, expected, actual, passed, detail }) => ({
+      rule,
+      entityRef,
+      expected,
+      actual,
+      passed,
+      detail,
+    }))
+    .sort((a, b) => (findingKey(a) < findingKey(b) ? -1 : findingKey(a) > findingKey(b) ? 1 : 0));
+/** The cells of the Checks table row for a check about one thing: Result, Check, About, Expected, Found, Detail. */
+const checkCells = (checkName, about) =>
+  page
+    .getByRole('table', { name: 'Checks' })
+    .getByRole('row')
+    .filter({ has: page.getByRole('cell', { name: checkName, exact: true }) })
+    .filter({ hasText: about })
+    .getByRole('cell')
+    .allInnerTexts();
+
+check(
+  'packages: none after a reset; a viewer and a platform admin are refused the list',
+  (await api(preparer, 'GET', PACKAGES)).json?.items?.length === 0 &&
+    (await api('viewer.one', 'GET', PACKAGES)).status === 403 &&
+    (await api('admin.one', 'GET', PACKAGES)).status === 403,
+);
+await switchTo(preparer);
+await page.goto(`${origin}/#/reporting/packages`);
+await page.getByTestId('packages-empty').waitFor();
+await page.getByTestId('packages-card').getByRole('button', { name: 'Start package' }).click();
+const startForm = page.getByTestId('package-start-form');
+await startForm.getByRole('combobox', { name: 'Client' }).click();
+await page.getByRole('option', { name: packageCase.client.name, exact: true }).click();
+await startForm.getByRole('combobox', { name: 'Basis' }).click();
+await page.getByRole('option', { name: 'Gross', exact: true }).click();
+await startForm.getByRole('combobox', { name: 'Label' }).click();
+await page.getByRole('option', { name: 'Final', exact: true }).click();
+const quarterChosen = await startForm.getByRole('combobox', { name: 'Quarter' }).innerText();
+await startForm.getByRole('button', { name: 'Start package' }).click();
+await page.waitForURL(/#\/reporting\/packages\/[0-9a-f-]{36}$/);
+const packageHash = new URL(page.url()).hash.slice(1);
+const packageId = packageHash.split('/').pop();
+await page.getByTestId('package-gate').waitFor();
+const draftPackage = await packageOf(preparer, packageId);
+check(
+  'packages: investor relations starts a final package from the list; it opens as a Draft of the latest quarter with no figures',
+  quarterChosen === quarterWords &&
+    draftPackage?.state === 'Draft' &&
+    draftPackage.periodEnd === quarterEnd &&
+    draftPackage.asOf === fixtures.asOf &&
+    draftPackage.label === 'final' &&
+    draftPackage.content === null &&
+    draftPackage.preparedBy.name === by(preparer).displayName &&
+    (await page.getByTestId('package-checks').innerText()).includes('Not generated yet') &&
+    (await page.getByTestId('package-positions').innerText()).includes('Not generated yet') &&
+    (await packageActions.getByRole('button').allInnerTexts()).join() === 'Generate' &&
+    (await packageActions.getByText('Simulated').isVisible()),
+  `${quarterChosen}: ${draftPackage?.state} as of ${draftPackage?.asOf}`,
+);
+
+await packageActions.getByRole('button', { name: 'Generate' }).click();
+await packageStatus.filter({ hasText: 'is now QA failed' }).waitFor();
+const generatedPackage = await packageOf(preparer, packageId);
+const packageFindings = generatedPackage?.findings ?? [];
+const failedFindings = packageFindings.filter((f) => !f.passed);
+check(
+  'packages: Generate fails the gate on the position with no start mark and on the final label over the stale mark',
+  generatedPackage?.state === 'QAFailed' &&
+    generatedPackage.rowVersion === draftPackage.rowVersion + 2 &&
+    isDeepStrictEqual(failedFindings.map(findingKey).sort(), [
+      'QA-LBL-01 status',
+      `QA-QTD-01 ${breakRef}`,
+      `QA-RF-01 ${breakRef}`,
+      `QA-SIGN-01 ${breakRef}`,
+    ]) &&
+    (await packageStatus.innerText()) ===
+      `${packageWords} is now QA failed: 4 of ${packageFindings.length} checks failed in run 1 ${SIMULATED}`,
+  await packageStatus.innerText(),
+);
+check(
+  'packages: the findings are exactly what the report engine finds on the content the package shows',
+  generatedPackage?.content !== null &&
+    packageFindings.length > 0 &&
+    isDeepStrictEqual(
+      asEngine(packageFindings),
+      asEngine(
+        runReportQa(generatedPackage.content, {
+          toleranceUsd: String(definitions.rollForwardToleranceUsd),
+          moversCount: definitions.reporting.weeklyMoversCount,
+        }),
+      ),
+    ),
+  `${packageFindings.length} findings`,
+);
+const breakLine = generatedPackage?.content?.lines?.find((l) => l.ref === breakRef);
+const staleLine = generatedPackage?.content?.lines?.find((l) => l.ref === staleRef);
+const labelCells = await checkCells(
+  'Preliminary or final, gross or net',
+  'Preliminary or final label',
+);
+const startCells = await checkCells(
+  'Quarter starts from the prior locked mark',
+  `${breakRef} ${breakCompany}`,
+);
+const checksCard = await page.getByTestId('package-checks').innerText();
+check(
+  'packages: the failed checks show what each expected and found, in words, with no rule code and no identifier',
+  (await page.getByRole('table', { name: 'Checks' }).locator('tbody tr').count()) === 4 &&
+    labelCells[0] === 'Failed' &&
+    labelCells[3] === 'Preliminary' &&
+    labelCells[4] === 'Final' &&
+    startCells[0] === 'Failed' &&
+    startCells[3] === '-' &&
+    startCells[4] === '-' &&
+    !/QA-[A-Z]+-\d+/.test(checksCard) &&
+    !/[0-9a-f]{8}-[0-9a-f]{4}-/.test(checksCard),
+  `label ${labelCells.slice(3, 5).join(' / ')}; start ${startCells.slice(3, 5).join(' / ')}`,
+);
+const breakRow = page
+  .getByTestId('package-positions')
+  .getByRole('row')
+  .filter({ hasText: breakRef });
+const NO_START = 'Not calculable: no locked mark at the start of the quarter';
+check(
+  'packages: the line with no start mark shows no begin NAV and no gain, each saying why, never a zero',
+  breakLine?.beginNav === null &&
+    breakLine.gainLoss === null &&
+    breakLine.endNav !== null &&
+    (await breakRow.getByRole('cell').nth(0).getAttribute('title')) === NO_START &&
+    (await breakRow.getByRole('cell').nth(3).getAttribute('title')) === NO_START &&
+    (await breakRow.getByRole('cell').nth(0).innerText()).trim().startsWith('-') &&
+    (await breakRow.getByRole('cell').nth(4).innerText()) === moneyM(breakLine.endNav),
+  oneLine(await breakRow.innerText()),
+);
+const staleMarkWords = new Date(`${staleLine?.endNavPeriodEnd}T00:00:00Z`).toLocaleDateString(
+  'en-US',
+  { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC' },
+);
+check(
+  'packages: the stale position is carried at its last Locked mark and footnoted with that mark',
+  staleLine?.endNavPeriodEnd < quarterEnd &&
+    generatedPackage.content.footnotes.some((n) => n.ref === staleRef) &&
+    (await page.getByTestId('package-footnotes').innerText()).includes(
+      `Carried at the mark of ${staleMarkWords}, rolled forward for cash flows since.`,
+    ) &&
+    (await page.getByTestId('package-positions').innerText()).includes(
+      `Rolled forward from ${staleMarkWords}`,
+    ),
+  oneLine(await page.getByTestId('package-footnotes').innerText()),
+);
+// What the gate refuses while the checks fail, in the API's own statuses.
+const earlySubmit = await packageCommand(preparer, packageId, { command: 'submit' });
+const ownOverride = await packageCommand(preparer, packageId, {
+  command: 'overrideQa',
+  reason: 'probe: not an approver',
+});
+const staleOverride = await packageCommand(
+  'head.one',
+  packageId,
+  { command: 'overrideQa', reason: 'probe: a stale page' },
+  { 'if-match': `"${draftPackage.rowVersion}"` },
+);
+const outsiderIr = d.users.find(
+  (u) => u.roles.includes('investor_relations') && !u.clientIds.includes(packageCase.client.id),
+);
+const unseenPackage = await api(outsiderIr.externalId, 'GET', `${PACKAGES}/${packageId}`);
+check(
+  'packages: no Submit while the checks fail, no override by investor relations, none from a stale page, and no package for another client',
+  (await packageActions.getByRole('button', { name: 'Submit' }).count()) === 0 &&
+    (await packageActions.getByRole('button', { name: 'Override QA' }).isDisabled()) &&
+    earlySubmit.status === 409 &&
+    ownOverride.status === 403 &&
+    staleOverride.status === 412 &&
+    unseenPackage.status === 404 &&
+    (await packageOf(preparer, packageId))?.rowVersion === generatedPackage.rowVersion,
+  `submit ${earlySubmit.status}, override ${ownOverride.status}, stale ${staleOverride.status}, other client ${unseenPackage.status}`,
+);
+
+const overrideReason = 'probe: the breaks are disclosed in the cover letter';
+await switchTo('head.one');
+await page.goto(`${origin}/#${packageHash}`);
+await packageActions.getByRole('button', { name: 'Override QA' }).click();
+const overrideDialog = page.getByRole('dialog');
+const overrideSubject = await overrideDialog.innerText();
+await overrideDialog.getByRole('textbox', { name: /Reason/ }).fill(overrideReason);
+await overrideDialog.getByRole('button', { name: 'Override QA' }).click();
+await packageStatus.filter({ hasText: 'overridden' }).waitFor();
+const overriddenPackage = await packageOf('head.one', packageId);
+check(
+  'packages: an approver overrides the failed checks with a reason, recorded against each with their name',
+  overrideSubject.includes(
+    'The reason is recorded against all 4 failed checks of this run, with your name.',
+  ) &&
+    overriddenPackage?.state === 'QAPassed' &&
+    overriddenPackage.qa.overridden === 4 &&
+    overriddenPackage.findings
+      .filter((f) => !f.passed)
+      .every(
+        (f) =>
+          f.override?.reason === overrideReason &&
+          f.override.approver.name === by('head.one').displayName,
+      ) &&
+    isDeepStrictEqual(overriddenPackage.content, generatedPackage.content) &&
+    (await packageStatus.innerText()) ===
+      `${packageWords} is now QA passed: 4 failed checks overridden ${SIMULATED}` &&
+    (await page.getByTestId('package-override').innerText()).includes(`Reason: ${overrideReason}`),
+  await packageStatus.innerText(),
+);
+
+await switchTo(preparer);
+await page.goto(`${origin}/#${packageHash}`);
+await packageActions.getByRole('button', { name: 'Submit' }).click();
+await packageStatus.filter({ hasText: 'is now In review' }).waitFor();
+const preparerApproves = await packageCommand(preparer, packageId, { command: 'approve' });
+await switchTo('head.one');
+await page.goto(`${origin}/#${packageHash}`);
+await packageActions.getByRole('button', { name: 'Approve' }).click();
+await packageStatus.filter({ hasText: 'is now Approved' }).waitFor();
+const approvedPackage = await packageOf('head.one', packageId);
+const hashShown = await page.getByTestId('package-hash').innerText();
+check(
+  'packages: submitted by investor relations and approved by an approver; the hash is the SHA-256 of the content shown, in full on the page',
+  preparerApproves.status === 403 &&
+    approvedPackage?.state === 'Approved' &&
+    approvedPackage.reviewer?.name === by('head.one').displayName &&
+    approvedPackage.contentHash === sha256(canonicalJson(approvedPackage.content)) &&
+    isDeepStrictEqual(approvedPackage.content, generatedPackage.content) &&
+    hashShown.includes('Content hash (SHA-256)') &&
+    hashShown.includes(approvedPackage.contentHash),
+  `${approvedPackage?.state}; ${approvedPackage?.contentHash}`,
+);
+
+await switchTo(preparer);
+await page.goto(`${origin}/#${packageHash}`);
+await packageActions.getByRole('button', { name: 'Release' }).click();
+await packageStatus.filter({ hasText: 'is now Released' }).waitFor();
+const releasedPackage = await packageOf(preparer, packageId);
+const lateRegenerate = await packageCommand(preparer, packageId, { command: 'regenerate' });
+const startBody = {
+  clientId: packageCase.client.id,
+  periodEnd: quarterEnd,
+  basis: 'gross',
+  label: 'final',
+};
+const unexplainedVersion = await api(preparer, 'POST', PACKAGES, startBody);
+check(
+  'packages: released by investor relations, the page is read only, nothing leaves Released and a new version needs a reason',
+  releasedPackage?.state === 'Released' &&
+    releasedPackage.releasedBy?.name === by(preparer).displayName &&
+    releasedPackage.contentHash === approvedPackage.contentHash &&
+    (await packageActions.count()) === 0 &&
+    (await page.getByTestId('package-gate').getByRole('button').count()) === 0 &&
+    (await page.getByTestId('package-next').innerText()).includes(
+      'Released packages are read only.',
+    ) &&
+    lateRegenerate.status === 409 &&
+    unexplainedVersion.status === 422,
+  `${releasedPackage?.state}; regenerate ${lateRegenerate.status}; start again ${unexplainedVersion.status}`,
+);
+await page.goto(`${origin}/#/reporting/packages`);
+const packageListRow = page
+  .getByRole('table', { name: 'Client packages' })
+  .getByRole('row')
+  .filter({ hasText: packageCase.client.name });
+await packageListRow.waitFor();
+check(
+  'packages: the list shows the package Released, its checks as failed and overridden',
+  (await packageListRow.innerText()).includes('Released') &&
+    (await packageListRow.innerText()).includes('4 failed, overridden') &&
+    (await page.getByTestId('package-count').innerText()).includes('0 packages not yet released'),
+  oneLine(await packageListRow.innerText()),
+);
+// Who else opens the package: the other investor relations user finds none, a viewer is told
+// whom packages are for, and the deal team reads the released package with nothing to press.
+await switchTo(outsiderIr.externalId);
+await page.goto(`${origin}/#${packageHash}`);
+await page.getByText('Package not found').waitFor();
+await switchTo('viewer.one');
+await page.goto(`${origin}/#${packageHash}`);
+await page.getByTestId('package-unavailable').waitFor();
+const viewerPackage = await page.getByTestId('package-unavailable').innerText();
+await switchTo('deal.one');
+await page.goto(`${origin}/#${packageHash}`);
+await page.getByTestId('package-hash').waitFor();
+check(
+  'packages: not found for investor relations of another client, not visible to a viewer, read only for the deal team',
+  viewerPackage.includes('not visible to your role') &&
+    (await page.getByTestId('package-banner').innerText()).includes('Released') &&
+    (await packageActions.count()) === 0,
+  oneLine(viewerPackage),
+);
+await api('viewer.one', 'POST', '/api/v1/preview/reset');
+check(
+  'packages: a reset forgets every package of the session',
+  (await api(preparer, 'GET', PACKAGES)).json?.items?.length === 0 &&
+    (await api(preparer, 'GET', `${PACKAGES}/${packageId}`)).status === 404,
+);
 
 check(
   'no recording misses in the whole session',

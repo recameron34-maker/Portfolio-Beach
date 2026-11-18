@@ -17,7 +17,7 @@ interface Walkthrough {
   steps: ReactNode[];
 }
 
-/** Thirteen walkthroughs of two to four steps each, in the order a reviewer would try them. */
+/** Fourteen walkthroughs of two to four steps each, in the order a reviewer would try them. */
 function walkthroughs(p: GuidePeople): Walkthrough[] {
   return [
     {
@@ -263,6 +263,28 @@ function walkthroughs(p: GuidePeople): Walkthrough[] {
       ],
     },
     {
+      id: 'packages',
+      title: 'Client packages',
+      steps: [
+        <>
+          As {p.investorRelations}, open <Link to="/reporting/packages">Packages</Link> under
+          Reporting, choose Start package, pick a client, Gross and Final, and start it.
+        </>,
+        <>
+          Generate it: the checks run and some fail. Each failed check shows what it expected and
+          what it found, and Submit is not offered while one fails.
+        </>,
+        <>
+          Switch to {p.approver}, open the package from the list and choose Override QA with a
+          reason. Back as {p.investorRelations}, Submit it.
+        </>,
+        <>
+          As {p.approver}, Approve it: the hash of everything the package shows appears. As{' '}
+          {p.investorRelations}, Release it: the package is read only from then on.
+        </>,
+      ],
+    },
+    {
       id: 'assistant',
       title: 'Ask Portfolio Beach',
       steps: [
@@ -348,8 +370,8 @@ function Guide({
       </div>
       <p className="pb-meta pb-guide-intro">
         {compact
-          ? 'Thirteen short walkthroughs on synthetic data. Sign in as the user a step names; after that, switch users with the user menu at the top of any page.'
-          : 'Thirteen short walkthroughs on synthetic data. Switch users with the user menu at the top of any page.'}
+          ? 'Fourteen short walkthroughs on synthetic data. Sign in as the user a step names; after that, switch users with the user menu at the top of any page.'
+          : 'Fourteen short walkthroughs on synthetic data. Switch users with the user menu at the top of any page.'}
       </p>
       {folded ? (
         <div className="pb-guide-compact">

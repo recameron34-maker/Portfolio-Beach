@@ -79,12 +79,12 @@ Status: N = not started, P = partial, B = built. Phase 0 built the foundations (
 | F1 | Weekly report generated from data; live Power BI version | M12 | P (report assembled server side from the figures with template commentary and footnotes; Office output and Power BI pending) |
 | F2 | Portfolio analysis page (sector, vintage, sponsor, average check size, deal type, concentration) | M12 | P (exposures, NAV and cash-flow series, top positions from the analytics endpoint; average check and concentration limits pending) |
 | F3 | Internal quarterly co-invest reports updated from last quarter, stable visuals, separate change log | M14 | N (designed) |
-| F4 | **New:** report QA engine (roll-forward, QTD basis, prior-report tie-out, sign check) | M14 | N |
+| F4 | **New:** report QA engine (roll-forward, QTD basis, prior-report tie-out, sign check) | M14 | P (ten rules in `packages/report-engine` run on a package's stored snapshot when it is generated: roll-forward, quarter start, sign, the tie-out to the last released package with recorded explanations, stale marks and their footnote, movers, labels and client share; a failed check blocks the gate until an approver overrides it with a reason; the Packages pages show what each check expected and found, decision 0024. The `qtd_ytd_basis` and `sign_flip` scenarios are not generated yet, and commentary is checked only once it exists) |
 | F5 | Mover commentary in house style; recalculated after data corrections | M14 | N |
 | F6 | Client reporting packs (Word per vehicle + PowerPoint) | M14 | N (designed) |
 | F7 | Multiple reporting bases per client; deal status deck | M14 | N |
 | F8 | **New:** disclosure library and approved statistics register | M19 | N |
-| F9 | Reporting package tracker, distribution log | M14, M19 | N |
+| F9 | Reporting package tracker, distribution log | M14, M19 | P (Reporting, Packages lists every package of the clients a reader sees with its quarter, basis, label, version, state at the release gate and what its checks said, and a package's page shows who prepared, approved and released it with the content hash, decision 0024; the distribution log is pending) |
 | F10 | Ad hoc client / DDQ answer library | M14 | N |
 | F12 | Reporting views with row-level security; in-app analytics; Power BI model (post-merge) | M13 | P (in-app analytics under RLS, including the value creation and entry metric views of decision 0014; Power BI post-merge) |
 | F11 | IRR workbook reviewer agent | M15 | N (designed) |

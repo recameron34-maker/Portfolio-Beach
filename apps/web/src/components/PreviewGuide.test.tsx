@@ -77,7 +77,7 @@ describe('preview guide', () => {
     expect(
       within(guide).getByRole('heading', { name: 'What to try in this preview' }),
     ).toBeVisible();
-    expect(guide).toHaveTextContent('Thirteen short walkthroughs');
+    expect(guide).toHaveTextContent('Fourteen short walkthroughs');
     const titles = within(guide)
       .getAllByRole('heading', { level: 3 })
       .map((h) => h.textContent);
@@ -94,6 +94,7 @@ describe('preview guide', () => {
       'Valuation suggestions',
       'Monitoring board',
       'Analytics and the weekly report',
+      'Client packages',
       'Ask Portfolio Beach',
     ]);
     const walls = screen.getByTestId('guide-walls');
@@ -154,8 +155,19 @@ describe('preview guide', () => {
     expect(monitoring).toHaveTextContent(
       "record the sponsor's base case for a position that has none",
     );
+    const packages = screen.getByTestId('guide-packages');
+    expect(packages).toHaveTextContent(
+      'As Iris Relations (investor relations), open Packages under Reporting',
+    );
+    expect(packages).toHaveTextContent('Generate it: the checks run and some fail');
+    expect(packages).toHaveTextContent(
+      'Switch to Ada Approver (approver), open the package from the list and choose Override QA',
+    );
+    expect(packages).toHaveTextContent('the hash of everything the package shows appears');
+    expect(packages).toHaveTextContent('Release it: the package is read only from then on');
     for (const [name, href, count] of [
       ['Clients', '/reporting/clients', 1],
+      ['Packages', '/reporting/packages', 1],
       ['Valuations', '/valuations', 3],
       ['Suggestions', '/valuations/suggestions', 1],
       ['Capital activity', '/capital-activity', 1],
@@ -191,6 +203,7 @@ describe('preview guide', () => {
       'suggestions',
       'monitoring',
       'analytics',
+      'packages',
       'assistant',
     ]) {
       const steps = within(screen.getByTestId(`guide-${w}`)).getAllByRole('listitem');
@@ -205,7 +218,7 @@ describe('preview guide', () => {
     renderWithQuery(<PreviewGuide variant="sign-in" />);
     const guide = screen.getByTestId('preview-guide');
     const summaries = [...guide.querySelectorAll('details > summary')].map((s) => s.textContent);
-    expect(summaries).toHaveLength(13);
+    expect(summaries).toHaveLength(14);
     expect(summaries[0]).toBe('Walls and entitlements');
     await waitFor(() =>
       expect(screen.getByTestId('guide-walls')).toHaveTextContent('Vera Viewer (viewer)'),
@@ -223,7 +236,7 @@ describe('preview guide', () => {
     mockApi({ '/api/v1/auth/mock-users': ok(USERS) });
     renderWithQuery(<PreviewGuide variant="home" onHide={() => undefined} />);
     const guide = screen.getByTestId('preview-guide');
-    expect(guide.querySelectorAll('details > summary')).toHaveLength(13);
+    expect(guide.querySelectorAll('details > summary')).toHaveLength(14);
     expect(guide.querySelector('.pb-guide-list')).toBeNull();
     await waitFor(() =>
       expect(screen.getByTestId('guide-walls')).toHaveTextContent('Vera Viewer (viewer)'),
