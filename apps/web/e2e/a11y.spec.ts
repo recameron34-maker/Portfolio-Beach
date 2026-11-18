@@ -180,6 +180,8 @@ const valuation = idOf(
 ).id;
 const W1_PAGES: Visit[] = [
   { path: '/valuations/changes', ready: (p) => p.getByTestId('change-requests-card') },
+  // Valuation suggestions (decision 0023): the tab as operations opens it, with none open.
+  { path: '/valuations/suggestions', ready: (p) => p.getByTestId('suggestions-card') },
   { path: `/valuations/${valuation}`, ready: (p) => p.getByTestId('valuation-detail') },
 ];
 // Phase 3: W3 pipeline (M5), diligence and closing (M8, M22)

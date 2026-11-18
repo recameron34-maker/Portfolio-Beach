@@ -53,6 +53,7 @@ import {
   lookthroughRunQuery,
   lookthroughRunsQuery,
 } from '../pages/lookthrough/lookthrough-queries.js';
+import { suggestionQuery, suggestionsQuery } from '../pages/valuations/suggestions-api.js';
 import { weeklyDropsQuery, weeklyFileQuery, weeklyFilesQuery } from '../pages/weekly/queries.js';
 import { getKey, isPublicPath, normalizeKey } from './keys.js';
 import { SIM_ROUTES } from './routes/index.js';
@@ -250,6 +251,12 @@ describe('the recording plan', () => {
       monitoringBoardQuery(),
       monitoringBoardQuery({ periodEnd: '2025-06-30', asOf: '2025-09-30' }),
       realizationOutlookQuery(INV),
+      suggestionsQuery(),
+      suggestionsQuery({ state: 'all' }),
+      suggestionsQuery({ investmentId: INV }),
+      suggestionsQuery({ investmentId: INV, periodEnd: '2025-06-30' }),
+      suggestionsQuery({ extractionRunId: INV, state: 'all' }),
+      suggestionQuery(INV),
     ];
     for (const limit of [undefined, ...INVESTMENT_LIMITS])
       for (const dealType of [undefined, ...DEAL_TYPES])
@@ -303,6 +310,14 @@ describe('the recording plan', () => {
       '/api/v1/monitoring/board',
       '/api/v1/monitoring/board?asOf=2025-09-30&periodEnd=2025-06-30',
       `/api/v1/monitoring/outlook/${INV}`,
+      // Valuation suggestions are never recorded: one exists only once a statement or a report
+      // is approved in the session, so the shim answers every read of them.
+      '/api/v1/valuation-suggestions?limit=200',
+      '/api/v1/valuation-suggestions?limit=200&state=all',
+      `/api/v1/valuation-suggestions?investmentId=${INV}&limit=200`,
+      `/api/v1/valuation-suggestions?investmentId=${INV}&limit=200&periodEnd=2025-06-30`,
+      `/api/v1/valuation-suggestions?extractionRunId=${INV}&limit=200&state=all`,
+      `/api/v1/valuation-suggestions/${INV}`,
     ]);
     // The hub's empty state, each investment's documents, its outlook and its base case are
     // recorded all the same, so the recordings hold the API's own answer before the simulation

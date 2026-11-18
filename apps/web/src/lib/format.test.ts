@@ -3,12 +3,14 @@ import {
   formatDate,
   formatMoic,
   formatMoneyM,
+  formatMoneyM2,
   formatMoneyMIn,
   formatMonthYear,
   formatMonthYearShort,
   formatMultiple,
   formatPct,
   formatQuarter,
+  formatWholeDollars,
   formatYears,
   groupThousands,
   clearTaxonomyLabels,
@@ -32,6 +34,22 @@ describe('number and date display (docs/06 section 3)', () => {
     expect(formatMoneyMIn('-2500000', 'GBP')).toBe('-GBP 2.5M');
     expect(formatMoneyMIn(null, 'EUR')).toBe(MISSING);
     expect(formatMoneyM('abc')).toBe(MISSING);
+  });
+  it('shows $M with two decimals where two close figures sit side by side', () => {
+    expect(formatMoneyM2('7831632.54')).toBe('$7.83M');
+    expect(formatMoneyM2('30000000')).toBe('$30.00M');
+    expect(formatMoneyM2('-12400000.00')).toBe('-$12.40M');
+    expect(formatMoneyM2(null)).toBe(MISSING);
+    expect(formatMoneyM2('abc')).toBe(MISSING);
+  });
+  it('shows a small amount in full to the whole dollar, with no sign on one that rounds to nothing', () => {
+    expect(formatWholeDollars('21632.54')).toBe('$21,633');
+    expect(formatWholeDollars('50000.00')).toBe('$50,000');
+    expect(formatWholeDollars('-17600000')).toBe('-$17,600,000');
+    expect(formatWholeDollars('0.5')).toBe('$1');
+    expect(formatWholeDollars('-0.4')).toBe('$0');
+    expect(formatWholeDollars(null)).toBe(MISSING);
+    expect(formatWholeDollars('abc')).toBe(MISSING);
   });
   it('groups the digits of a whole number in threes and leaves anything else alone', () => {
     for (const [whole, grouped] of [

@@ -37,7 +37,7 @@ import {
   useValuationCommand,
 } from '../../app/mutations.js';
 import type { ValuationCreateBody } from '../../app/mutations.js';
-import { VALUATION_TABS } from '../../app/nav.js';
+import { ValuationTabs } from './ValuationTabs.js';
 import {
   investmentsQuery,
   LIST_LIMIT,
@@ -60,7 +60,6 @@ import {
   SimulatedBadge,
   StatTile,
   TableWrap,
-  TabNav,
   Toolbar,
 } from '../../components/ui.js';
 import { formatDate, formatMoneyM, formatPct, labelOf, MISSING, plural } from '../../lib/format.js';
@@ -672,7 +671,7 @@ function Board({ page, roles }: { page: ValuationPage; roles: readonly string[] 
     return (
       <>
         {header}
-        <TabNav label="Valuations" items={VALUATION_TABS} />
+        <ValuationTabs />
         <Gate />
         <Card>
           <EmptyState
@@ -705,7 +704,7 @@ function Board({ page, roles }: { page: ValuationPage; roles: readonly string[] 
   return (
     <>
       {header}
-      <TabNav label="Valuations" items={VALUATION_TABS} />
+      <ValuationTabs />
       <Gate />
       <div ref={balanceTiles} className="pb-tiles" data-testid="valuation-tiles">
         <CountTile label="Locked" count={counts.locked} hint="Read by reports" partial={partial} />
@@ -904,7 +903,7 @@ export function ValuationsPage(): ReactNode {
     return (
       <>
         <PageHeader title="Valuations" />
-        <TabNav label="Valuations" items={VALUATION_TABS} />
+        <ValuationTabs />
         <Gate />
         <UnavailableState
           card

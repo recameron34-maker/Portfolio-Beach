@@ -82,6 +82,11 @@ import {
   underwritingReadRoute,
 } from './underwriting.js';
 import {
+  valuationSuggestionCommandRoute,
+  valuationSuggestionRoute,
+  valuationSuggestionsRoute,
+} from './valuationSuggestions.js';
+import {
   createValuationRoute,
   editValuationRoute,
   valuationBatchCommandRoute,
@@ -110,7 +115,8 @@ export type { SimContext, SimRoute } from './common.js';
  * runs, the monitoring board) or that it seeds from the recordings and changes in the session
  * (the valuation detail, the wire register, the trade tickets, the change requests, the pipeline,
  * the closings, the one-pager of a position a simulated close created, the base case of a
- * position, whose comparison is worked out here on every read). A literal path is listed
+ * position, whose comparison is worked out here on every read, the valuation suggestions, which
+ * are never recorded). A literal path is listed
  * before the parameterized path it would also match (the review queue before the document, the
  * batch commands before a version's commands, the quarter-end check before a request's commands).
  * Anything else that is not a GET is a miss.
@@ -122,6 +128,9 @@ export const SIM_ROUTES: readonly SimRoute[] = [
   valuationCommandRoute,
   valuationDetailRoute,
   editValuationRoute,
+  valuationSuggestionsRoute,
+  valuationSuggestionRoute,
+  valuationSuggestionCommandRoute,
   capitalNoticeCommandRoute,
   tradeTicketsRoute,
   tradeTicketRoute,

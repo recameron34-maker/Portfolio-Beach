@@ -201,3 +201,42 @@
     grid-template-columns: minmax(0, 1fr);
   }
 }
+
+/* Valuation suggestions (decision 0023): the badges of a suggestion on one line that wraps, the
+   selected row, and the workings with their sub-headings. A figure cell keeps its muted second
+   line on the right, under the figure. */
+.pb-val-flags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 6px;
+  margin-top: 6px;
+}
+.pb-card > .pb-val-flags {
+  margin: 0 0 12px;
+}
+.pb-val-table td.num > .pb-cell-sub {
+  justify-content: flex-end;
+}
+.pb-val-table .is-selected td {
+  background: var(--pb-accent-tint-10);
+}
+.pb-val-workings {
+  display: grid;
+  gap: 10px;
+  margin: 0 0 16px;
+}
+.pb-val-workings > p,
+.pb-val-workings > ul {
+  margin: 0;
+}
+.pb-val-sub {
+  margin: 6px 0 0;
+  font-size: 13px;
+  line-height: 18px;
+  font-weight: 600;
+  color: var(--pb-text);
+}
+.pb-val-actions > .pb-meta {
+  flex-basis: 100%;
+  margin: 0;
+}

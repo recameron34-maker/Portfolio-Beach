@@ -48,14 +48,39 @@ function withGrouping(value: number, places: number): string {
   return frac === undefined ? grouped : `${grouped}.${frac}`;
 }
 
-/** Dollars as $M with one decimal: 12,345,678.90 -> "$12.3M". */
-export function formatMoneyM(value: string | null | undefined): string {
+/** Dollars as $M: the sign in front, the figure grouped, to the places asked. */
+function moneyM(value: string | null | undefined, places: number): string {
   if (value === null || value === undefined || value === '') return MISSING;
   const n = Number(value);
   if (!Number.isFinite(n)) return MISSING;
   const millions = n / 1_000_000;
   const sign = millions < 0 ? '-' : '';
-  return `${sign}$${withGrouping(Math.abs(millions), 1)}M`;
+  return `${sign}$${withGrouping(Math.abs(millions), places)}M`;
+}
+
+/** Dollars as $M with one decimal: 12,345,678.90 -> "$12.3M". */
+export function formatMoneyM(value: string | null | undefined): string {
+  return moneyM(value, 1);
+}
+
+/**
+ * Dollars as $M with two decimals: 7,831,632.54 -> "$7.83M". For a sentence that sets two close
+ * figures side by side, where one decimal would show them as the same number; tables keep one.
+ */
+export function formatMoneyM2(value: string | null | undefined): string {
+  return moneyM(value, 2);
+}
+
+/**
+ * Dollars in full to the whole dollar: 21,632.54 -> "$21,633". For a difference too small to
+ * read in millions. An amount that rounds to nothing carries no sign.
+ */
+export function formatWholeDollars(value: string | null | undefined): string {
+  if (value === null || value === undefined || value === '') return MISSING;
+  const n = Number(value);
+  if (!Number.isFinite(n)) return MISSING;
+  const whole = withGrouping(Math.abs(n), 0);
+  return `${n < 0 && /[1-9]/.test(whole) ? '-' : ''}$${whole}`;
 }
 
 /**

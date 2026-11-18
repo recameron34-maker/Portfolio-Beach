@@ -28,7 +28,7 @@ import { containingQuarterEnd } from '@pb/calc';
 import { dealChangeRequestMachine } from '@pb/workflows';
 import { previewMode } from '../../app/env.js';
 import { describeActionError } from '../../app/mutations.js';
-import { VALUATION_TABS } from '../../app/nav.js';
+import { ValuationTabs } from './ValuationTabs.js';
 import { dataHealthQuery, LIST_LIMIT, meQuery, mockUsersQuery } from '../../app/queries.js';
 import { UnavailableState } from '../../components/UnavailableState.js';
 import {
@@ -42,7 +42,6 @@ import {
   SectionHeader,
   SimulatedBadge,
   TableWrap,
-  TabNav,
   Toolbar,
 } from '../../components/ui.js';
 import {
@@ -572,7 +571,7 @@ function Queue({
   return (
     <>
       <PageHeader title="Change requests" meta={META} />
-      <TabNav label="Valuations" items={VALUATION_TABS} />
+      <ValuationTabs />
       <div ref={balanceTiles} className="pb-tiles" data-testid="change-request-tiles">
         <CountTile
           label="Submitted"
@@ -738,7 +737,7 @@ export function ChangeRequestsPage(): ReactNode {
     return (
       <>
         <PageHeader title="Change requests" meta={META} />
-        <TabNav label="Valuations" items={VALUATION_TABS} />
+        <ValuationTabs />
         <UnavailableState
           card
           error={list.error}

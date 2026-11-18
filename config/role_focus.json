@@ -41,6 +41,11 @@
           "what": "Review the marks operations prepared, and approve them or send them back"
         },
         {
+          "to": "/valuations/suggestions",
+          "label": "Valuation suggestions",
+          "what": "Marks worked out from approved statements and reports"
+        },
+        {
           "to": "/valuations/changes",
           "label": "Change requests",
           "what": "Ask for a correction to a deal's record and follow it until it is applied"
@@ -106,6 +111,11 @@
           "to": "/valuations",
           "label": "Valuation board",
           "what": "Draft and prepare the quarter's marks"
+        },
+        {
+          "to": "/valuations/suggestions",
+          "label": "Valuation suggestions",
+          "what": "Marks worked out from approved statements and reports"
         },
         {
           "to": "/valuations/changes",

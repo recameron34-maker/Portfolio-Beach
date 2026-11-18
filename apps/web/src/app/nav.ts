@@ -14,9 +14,17 @@ export const NAV_GROUPS: { label: string; to: string }[] = [
 ];
 
 // Phase 3: W1 valuations (M10) and change requests (M11)
-/** Valuations group tabs: the batch board and the deal change request queue. */
+/** Where the marks worked out from approved statements and reports are read and decided (decision 0023). */
+export const SUGGESTIONS_PATH = '/valuations/suggestions';
+
+/**
+ * Valuations group tabs: the batch board, the suggested marks and the deal change request queue.
+ * The Suggestions tab is shown to the roles that read suggestions only (valuationTabsFor in
+ * pages/valuations/suggestions.ts); every other role sees the row without it.
+ */
 export const VALUATION_TABS = [
   { to: '/valuations', label: 'Board', exact: true },
+  { to: SUGGESTIONS_PATH, label: 'Suggestions' },
   { to: '/valuations/changes', label: 'Change requests' },
 ];
 

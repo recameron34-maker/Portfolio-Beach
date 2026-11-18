@@ -74,6 +74,9 @@ import { ValuationsPage } from '../pages/valuations/Valuations.js';
 // Phase 3: W1 valuations (M10) and change requests (M11)
 import { ChangeRequestsPage } from '../pages/valuations/ChangeRequests.js';
 import { ValuationDetailPage } from '../pages/valuations/ValuationDetail.js';
+// Valuation suggestions (decision 0023): marks worked out from approved statements and reports.
+import { SuggestionsPage } from '../pages/valuations/Suggestions.js';
+import { parseSuggestionsSearch } from '../pages/valuations/suggestions.js';
 // Phase 3: W2 capital activity (M16), the wire register, one instruction and the trade tickets.
 import { TradeTicketsPage } from '../pages/capital/TradeTickets.js';
 import { WireInstructionPage } from '../pages/capital/WireInstruction.js';
@@ -150,6 +153,17 @@ const documentsExtractionRunRoute = child('/documents/extraction/$id', Extractio
 const valuationsRoute = child('/valuations', ValuationsPage);
 // Phase 3: W1 valuations (M10) and change requests (M11): the queue is listed before the version
 const valuationChangesRoute = child('/valuations/changes', ChangeRequestsPage);
+/**
+ * The suggested marks; the search names the suggestion shown with its workings and the state
+ * listed. A value the list does not know is dropped, never an error page. Listed before the
+ * version, as the queue is: a static segment outranks the version's $id.
+ */
+const valuationSuggestionsRoute = createRoute({
+  getParentRoute: () => appRoute,
+  path: '/valuations/suggestions',
+  component: SuggestionsPage,
+  validateSearch: parseSuggestionsSearch,
+});
 const valuationDetailRoute = child('/valuations/$id', ValuationDetailPage);
 const capitalRoute = child('/capital-activity', CapitalActivityPage);
 const commitmentsRoute = child('/capital-activity/commitments', CommitmentsPage);
@@ -273,6 +287,7 @@ const routeTree = rootRoute.addChildren([
     valuationsRoute,
     // Phase 3: W1 valuations and change requests
     valuationChangesRoute,
+    valuationSuggestionsRoute,
     valuationDetailRoute,
     capitalRoute,
     commitmentsRoute,
