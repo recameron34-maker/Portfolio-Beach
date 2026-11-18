@@ -34,6 +34,7 @@ import { requireUuid } from '../common/validate.js';
 import { DbService } from '../db/db.service.js';
 import type { AuditEntry } from '../db/db.service.js';
 import { openChangeRequestsFor } from '../change-requests/queries.js';
+import { SuggestionDerivationService } from '../suggestions/derivation.service.js';
 import { ValuationsService } from './valuations.service.js';
 
 /*
@@ -147,6 +148,7 @@ export class ValuationWorkflowService {
     private readonly db: DbService,
     private readonly board: ValuationsService,
     @Inject(ADAPTERS) private readonly adapters: AdapterSet,
+    private readonly suggestions: SuggestionDerivationService,
   ) {}
 
   /**
@@ -506,6 +508,10 @@ export class ValuationWorkflowService {
           ...(body.reason !== undefined ? { reason: body.reason } : {}),
           details,
         });
+        // A Locked mark closes the Open suggestion of its quarter and of any earlier one, and is
+        // the mark a later quarter's suggestion is now worked out from (docs/18 section 14).
+        if (body.command === 'lock')
+          await this.suggestions.refreshPosition(tx, audit, locked.investmentId);
         return this.rowOrThrow(tx, locked.id);
       }
       const next = await this.reopenInto(tx, audit, locked, position.investmentNumber, actor, body);
@@ -521,6 +527,8 @@ export class ValuationWorkflowService {
           tasks: next.tasks,
         },
       });
+      // The mark is no longer Locked: a later quarter's Open suggestion rested on it.
+      await this.suggestions.refreshPosition(tx, audit, locked.investmentId);
       return this.rowOrThrow(tx, next.id);
     });
   }

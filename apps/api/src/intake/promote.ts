@@ -3,6 +3,7 @@ import { schema } from '@pb/db';
 import type { Tx } from '@pb/db';
 import { ProblemError } from '../common/problem.js';
 import type { AuditEntry } from '../db/db.service.js';
+import type { SuggestionDerivationService } from '../suggestions/derivation.service.js';
 
 /*
  * The one write into mon.quarterly_performance (docs/04 M2 and M4, SEC-9.1, SEC-9.4, CLAUDE.md
@@ -13,6 +14,8 @@ import type { AuditEntry } from '../db/db.service.js';
  * replace the matched quarter or create the quarter the record lacked, with the approver, the
  * time, the reason and the lineage columns. The audit event carries the figures before and after
  * as the record now holds them, read back from the row written, never from the file or the model.
+ * The Open valuation suggestions of the position are derived again in the same transaction
+ * (docs/18 section 14), so a suggestion never outlives the figures it was worked out from.
  */
 
 const quarter = schema.quarterlyPerformance;
@@ -84,6 +87,15 @@ export interface PromoteQuarterInput {
   check?: (existing: QuarterOnRecord | null) => void;
   /** What the audit event carries beside the figures before and after: ids and names, never content. */
   details: Record<string, unknown>;
+  /**
+   * What the promotion owes the valuation suggestions of the position (docs/18 section 14,
+   * decision 0023): once the figures are written, every Open suggestion of the position is
+   * derived again as the system actor, whoever approves the promotion, and none is created. An
+   * accounting import passes the derivation. The extraction review passes null: the run it is
+   * approving is not on record as approved until the promotion has answered, so it derives the
+   * suggestions itself, straight after, where its approval may also open one.
+   */
+  suggestions: Pick<SuggestionDerivationService, 'refreshPosition'> | null;
 }
 
 export interface PromotedQuarter {
@@ -222,5 +234,9 @@ export async function promoteQuarterlyPerformance(
     reason: input.approval.approvalReason,
     details: { ...input.details, before, after },
   });
+  // The figures a suggestion rests on may just have moved (this quarter's, or the earlier
+  // quarter's of a later suggestion).
+  if (input.suggestions !== null)
+    await input.suggestions.refreshPosition(tx, audit, input.investmentId);
   return { id: written.id, created, before, after };
 }

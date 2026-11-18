@@ -231,9 +231,9 @@ describe('contracts', () => {
       .filter((p) => ['asOf', 'periodEnd', 'dueFrom', 'dueTo'].includes(p.name));
     // asOf on twenty-one routes (the expected documents, the board and its export, the three
     // value creation routes, the deal fit and the base case of a position among them), periodEnd
-    // on five (valuations, documents, expected documents, the board and its export), dueFrom and
-    // dueTo on one.
-    expect(dateParams.length).toBe(28);
+    // on six (valuations, valuation suggestions, documents, expected documents, the board and its
+    // export), dueFrom and dueTo on one.
+    expect(dateParams.length).toBe(29);
     for (const p of dateParams) {
       expect(p.schema, p.name).toEqual({
         type: 'string',

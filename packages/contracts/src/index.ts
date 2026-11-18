@@ -3,6 +3,7 @@ export * from './routes.js';
 export * from './openapi.js';
 export * from './simulated.js';
 export * from './controls.js';
+export * from './suggestions.js';
 export * from './routes-controls.js';
 export * from './reporting.js';
 export * from './routes-reporting.js';

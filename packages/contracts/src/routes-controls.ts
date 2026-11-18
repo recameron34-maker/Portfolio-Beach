@@ -2,6 +2,7 @@ import * as c from './controls.js';
 import type { RouteDefinition } from './route.js';
 import { API_PREFIX } from './route.js';
 import * as s from './schemas.js';
+import * as v from './suggestions.js';
 
 /**
  * The Phase 3 control routes (decision 0013): valuations, capital notices with the wire register
@@ -30,6 +31,12 @@ const READ_ROLES = [
 const TICKET_ROLES = ['operations', 'approver', 'auditor', 'deal_team'] as const;
 const WIRE_ROLES = ['operations', 'approver', 'auditor', 'platform_admin'] as const;
 const CHANGE_REQUEST_READ_ROLES = ['deal_team', 'operations', 'approver', 'auditor'] as const;
+/**
+ * Who reads a valuation suggestion (docs/18 section 14): the roles that work on valuations. A
+ * viewer, investor relations and a platform admin are given nothing; row-level security says the
+ * same, and adds the wall of the position.
+ */
+const SUGGESTION_READ_ROLES = ['deal_team', 'operations', 'approver', 'auditor'] as const;
 
 export const CONTROL_ROUTES: readonly RouteDefinition[] = [
   // ---- Valuations (M10, docs/18 section 1) ----
@@ -92,6 +99,29 @@ export const CONTROL_ROUTES: readonly RouteDefinition[] = [
     roles: READ_ROLES,
     auth: true,
     response: c.valuationDetail,
+  },
+
+  // ---- Valuation suggestions (M10, docs/18 section 14, decision 0023) ----
+  {
+    method: 'GET',
+    path: `${API_PREFIX}/valuation-suggestions`,
+    summary:
+      'Marks worked out from approved capital account statements and sponsor reports, newest first, Open unless a state is given; with a run id, what that approved run did to the suggestions of its position and quarter',
+    tags: ['valuations'],
+    roles: SUGGESTION_READ_ROLES,
+    auth: true,
+    query: v.valuationSuggestionListQuery,
+    response: v.valuationSuggestionPage,
+  },
+  {
+    method: 'GET',
+    path: `${API_PREFIX}/valuation-suggestions/{id}`,
+    summary:
+      'One suggestion with its workings, the mark on record, the checks of its statement and the other sources for the quarter (404 when its position is not visible)',
+    tags: ['valuations'],
+    roles: SUGGESTION_READ_ROLES,
+    auth: true,
+    response: v.valuationSuggestionRow,
   },
 
   // ---- Capital notices (M16, docs/18 section 3) ----

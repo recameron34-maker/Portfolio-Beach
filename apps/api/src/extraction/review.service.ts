@@ -21,6 +21,7 @@ import type { AuditEntry } from '../db/db.service.js';
 import { EXTRACTION_SCHEMAS } from '../documents/settings.js';
 import { promoteQuarterlyPerformance } from '../intake/promote.js';
 import type { QuarterlyFigureKey, QuarterlyFigures } from '../intake/promote.js';
+import { SuggestionDerivationService } from '../suggestions/derivation.service.js';
 import { ExtractionService } from './extraction.service.js';
 import { ExtractionRunner } from './runner.js';
 import {
@@ -59,6 +60,8 @@ import {
  * A schema with no record figure (no field with a target: a capital account statement) is
  * approved the same way and promotes nothing: it needs no linked position, and the quarter on
  * record, its approver and its lineage stay exactly as they were (promotesToRecord of @pb/ai).
+ * Approving a statement or a report then derives the valuation suggestion of its position and
+ * quarter, in the same transaction (suggestions/derivation.service.ts, docs/18 section 14).
  * The default approval reason is a fixed sentence, since the file name names the company and
  * the audit trail is read by role, not by wall (W3). Every decision and the approval are audited
  * with before and after. retry drives a NeedsRetry run again through the machine, or queues a
@@ -125,6 +128,7 @@ export class ExtractionReviewService {
     @Inject(ADAPTERS) private readonly adapters: AdapterSet,
     @Inject(DEFINITIONS) private readonly definitions: unknown,
     @Inject(EXTRACTION_SCHEMAS) private readonly schemas: ExtractionSchemas,
+    private readonly suggestions: SuggestionDerivationService,
   ) {}
 
   /** One review command on a run the caller can see (404 otherwise); answers the run as it now stands. */
@@ -608,6 +612,8 @@ export class ExtractionReviewService {
           fields: promotedFields,
           narrative: Object.keys(narrative),
         },
+        // Derived below, once the run is on record as approved.
+        suggestions: null,
       }),
     );
     const claimed = await tx
@@ -631,6 +637,35 @@ export class ExtractionReviewService {
         created: promoted.created,
         figures: { before: promoted.before, after: promoted.after },
       },
+    });
+    await this.deriveSuggestion(tx, audit, principal, locked, investmentId, periodEnd);
+  }
+
+  /**
+   * What the approval of a statement or a report means for the valuation suggestions (docs/18
+   * section 14, decision 0023): in the approval's own transaction, as the system actor, the
+   * suggestion of the run's position and quarter is derived and may be opened, and the other
+   * Open suggestions of the position are derived again. It is called once the run is on record
+   * as approved, since a suggestion names an approved run. A statement linked to no position
+   * raises none.
+   */
+  private async deriveSuggestion(
+    tx: Tx,
+    audit: (entry: AuditEntry) => Promise<void>,
+    principal: Principal,
+    locked: LockedRun,
+    investmentId: string | null,
+    periodEnd: string,
+  ): Promise<void> {
+    await this.suggestions.runApproved(tx, audit, {
+      id: locked.id,
+      documentId: locked.documentId,
+      approvedBy: principal.userId,
+      promptVersion: locked.promptVersion,
+      modelId: locked.modelId,
+      investmentId,
+      periodEnd,
+      schemaId: locked.schemaId,
     });
   }
 
@@ -675,6 +710,7 @@ export class ExtractionReviewService {
         promoted: false,
       },
     });
+    await this.deriveSuggestion(tx, audit, principal, locked, locked.investmentId, periodEnd);
   }
 
   /**
