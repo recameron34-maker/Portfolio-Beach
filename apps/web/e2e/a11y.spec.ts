@@ -40,8 +40,29 @@ test.beforeAll(() => {
   writeFileSync(join(folder, `${cleanExtract.asOf}.json`), cleanExtract.json);
 });
 
+/**
+ * Waits for every finite animation on the page to finish (the loading pulse is the only one that
+ * loops), so axe never measures contrast while a block is still fading in. Gives up after five
+ * seconds rather than hang on an animation that never ends.
+ */
+async function settled(page: Page): Promise<void> {
+  await page.evaluate(async () => {
+    const finite = document
+      .getAnimations()
+      .filter((a) => a.effect?.getComputedTiming().iterations !== Infinity)
+      .map((a) =>
+        a.finished.then(
+          () => undefined,
+          () => undefined,
+        ),
+      );
+    await Promise.race([Promise.all(finite), new Promise((resolve) => setTimeout(resolve, 5_000))]);
+  });
+}
+
 /** The rule ids and node counts axe reports as serious or critical on the page as it stands. */
 async function seriousViolations(page: Page): Promise<string[]> {
+  await settled(page);
   const results = await new AxeBuilder({ page })
     .withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa'])
     .analyze();
@@ -81,6 +102,55 @@ test('sign-in scene is static under reduced motion @a11y', async ({ page }) => {
     .evaluateAll((els) => els.map((el) => getComputedStyle(el).animationName));
   expect(names.length).toBeGreaterThan(0);
   expect(names.every((n) => n === 'none')).toBe(true);
+});
+
+/** The animation each element a locator finds would run, as the browser computes it. */
+async function animationNames(locator: Locator): Promise<string[]> {
+  return locator.evaluateAll((els) => els.map((el) => getComputedStyle(el).animationName));
+}
+
+test('pages and loading states arrive composed under reduced motion @a11y', async ({ page }) => {
+  await signInAs(page, 'ops.one', d);
+  await page.goto('/sponsors');
+  await page.getByRole('table', { name: 'Sponsors' }).waitFor();
+  const sections = page.locator('.pb-main > section');
+  // The page's sections rise in, which shows the rule reaches them; under the setting they do not.
+  await page.emulateMedia({ reducedMotion: 'no-preference' });
+  const moving = await animationNames(sections);
+  expect(moving.length).toBeGreaterThan(0);
+  expect(moving.every((n) => n === 'pb-enter')).toBe(true);
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  expect((await animationNames(sections)).every((n) => n === 'none')).toBe(true);
+
+  // A page held pending: its skeleton neither fades in nor pulses.
+  const SPONSOR_LIST = /\/api\/v1\/sponsors\?/;
+  let release = (): void => undefined;
+  const held = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  let asked = (): void => undefined;
+  const requested = new Promise<void>((resolve) => {
+    asked = resolve;
+  });
+  await page.route(SPONSOR_LIST, async (route) => {
+    asked();
+    await held;
+    await route.continue();
+  });
+  await page.goto('/sponsors');
+  await requested;
+  const skeleton = page.locator('.pb-main > .pb-skeleton');
+  await expect(skeleton).toHaveCount(1);
+  expect(await animationNames(skeleton)).toEqual(['none']);
+  const bars = await animationNames(skeleton.locator('.pb-skeleton-bar'));
+  expect(bars.length).toBeGreaterThan(0);
+  expect(bars.every((n) => n === 'none')).toBe(true);
+  await page.emulateMedia({ reducedMotion: 'no-preference' });
+  expect(await animationNames(skeleton)).toEqual(['pb-fade']);
+  release();
+  // Let the held request go on before the route is removed.
+  await page.unroute(SPONSOR_LIST, { behavior: 'wait' });
+  await page.getByRole('table', { name: 'Sponsors' }).waitFor();
 });
 
 // ---- Every page added this round, at a laptop and a phone width --------------------------------

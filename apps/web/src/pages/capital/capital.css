@@ -111,7 +111,7 @@
   margin: 12px 0 0;
 }
 .pb-wire-clear td {
-  font-family: ui-monospace, 'Cascadia Mono', 'Segoe UI Mono', Menlo, Consolas, monospace;
+  font-family: var(--pb-font-mono);
 }
 /* The propose and callback forms: fields in a responsive grid, the buttons in a row under them. */
 .pb-wire-form {

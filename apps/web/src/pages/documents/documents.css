@@ -70,7 +70,7 @@
   border-radius: 6px;
   background: var(--pb-bg);
   color: var(--pb-text);
-  font-family: ui-monospace, 'Cascadia Mono', 'Segoe UI Mono', Menlo, Consolas, monospace;
+  font-family: var(--pb-font-mono);
   font-size: 12px;
   line-height: 18px;
   white-space: pre-wrap;

@@ -1,6 +1,6 @@
 # 0017: The co-investment map
 
-- **Status:** Accepted for the prototype
+- **Status:** Accepted; the map palette is superseded by 0026
 - **Date:** 2026-11-12
 - **Deciders:** repo owner (asked for the map and how it should feel); built in Claude Code
 

@@ -1,21 +1,67 @@
 /* Portfolio Beach stylesheet. Colours and fonts come only from the CSS variables that theme.ts emits
-   from config/brand.json; this file never writes a hex, rgb or font name. Scale tokens below are not colours.
+   from config/brand.json; this file never writes a hex, rgb or font name (the faces themselves are
+   declared in app/fonts.css). Scale tokens below are not colours.
    Grid areas: header, banner, nav, main. Any new direct child of .pb-shell must set grid-area. */
+@import './app/fonts.css';
+
+/* The ledger look's tokens (decision 0026, docs/06 sections 1, 2 and 5). Every size, space, radius
+   and duration below is written by its name; a px value elsewhere is a rule or a fixed geometry. */
 :root {
-  --pb-header-h: 48px;
+  --pb-header-h: 44px;
   --pb-nav-w: 224px;
-  --pb-radius-sm: 4px;
-  --pb-radius: 8px;
-  --pb-radius-lg: 12px;
-  --pb-ease: cubic-bezier(0.2, 0, 0, 1);
-  --pb-ease-inout: cubic-bezier(0.45, 0, 0.55, 1);
-  --pb-dur-fast: 120ms;
-  --pb-dur: 180ms;
-  --pb-shadow-1: 0 1px 2px rgba(var(--pb-text-rgb), 0.06);
+
+  /* Shape: 2px on identifiers and focus outlines, 4px on controls and notices, 6px on dialogs. */
+  --pb-radius-sm: 2px;
+  --pb-radius: 4px;
+  --pb-radius-lg: 6px;
+  /* Shadows only on what floats over the page: tooltips and menus (2), dialogs and the drawer (3).
+     Sections, figures and steps carry none; the first token stays so the rules that name it hold. */
+  --pb-shadow-1: 0 0 0 transparent;
   --pb-shadow-2:
     0 2px 6px rgba(var(--pb-text-rgb), 0.06), 0 6px 16px -8px rgba(var(--pb-primary-rgb), 0.16);
   --pb-shadow-3:
     0 12px 32px -12px rgba(var(--pb-primary-rgb), 0.28), 0 2px 6px rgba(var(--pb-text-rgb), 0.06);
+
+  /* Space, on a 4px scale. A table cell's 6px vertical padding is the one value off it. */
+  --pb-space-1: 4px;
+  --pb-space-2: 8px;
+  --pb-space-3: 12px;
+  --pb-space-4: 16px;
+  --pb-space-5: 24px;
+  --pb-space-6: 32px;
+  --pb-space-7: 48px;
+  --pb-cell-py: 6px;
+
+  /* Type: one sans family, weights 400, 500 and 600, each size with its line height. */
+  --pb-text-xs: 11px; /* axis ticks only */
+  --pb-text-xs-lh: 16px;
+  --pb-text-sm: 12px; /* labels, table headers, sub-lines, status words, crumbs */
+  --pb-text-sm-lh: 16px;
+  --pb-text-md: 13px; /* body, cells, navigation, tabs, buttons, inputs */
+  --pb-text-md-lh: 20px;
+  --pb-text-lg: 14px; /* section titles */
+  --pb-text-lg-lh: 20px;
+  --pb-text-xl: 16px; /* dialog titles */
+  --pb-text-xl-lh: 24px;
+  --pb-text-title: 20px; /* page titles */
+  --pb-text-title-lh: 28px;
+  --pb-text-fig: 22px; /* key figures */
+  --pb-text-fig-lh: 28px;
+  --pb-text-prose: 14px; /* commentary and descriptions */
+  --pb-text-prose-lh: 22px;
+
+  /* Motion (section "Motion" below; mirrored in components/motion.ts, which a test holds to it). */
+  --pb-ease: cubic-bezier(0.2, 0, 0, 1); /* entrances and hovers */
+  --pb-ease-inout: cubic-bezier(0.45, 0, 0.55, 1); /* lines drawing, camera moves */
+  --pb-ease-exit: cubic-bezier(0.4, 0, 1, 1); /* exits only */
+  --pb-dur-instant: 80ms; /* press, tooltip */
+  --pb-dur-fast: 120ms; /* colour, border, chevrons, exits */
+  --pb-dur: 180ms; /* small entrances, status lines */
+  --pb-dur-enter: 220ms; /* page, section and dialog entrances */
+  --pb-dur-slow: 320ms; /* bars growing, a step filling, the radar opening */
+  --pb-dur-draw: 480ms; /* a line or sparkline drawing */
+  --pb-stagger: 24ms;
+  --pb-rise: 4px;
 }
 
 /* ---- Base ---- */
@@ -27,8 +73,10 @@ body,
   background: var(--pb-bg);
   color: var(--pb-text);
   font-family: var(--pb-font-ui);
-  font-size: 14px;
-  line-height: 1.5;
+  font-size: var(--pb-text-md);
+  line-height: var(--pb-text-md-lh);
+  /* Plex sets every digit on one width already; this keeps figures in columns in the fallback faces. */
+  font-variant-numeric: tabular-nums lining-nums;
   -webkit-text-size-adjust: 100%;
   -webkit-font-smoothing: antialiased;
 }
@@ -835,7 +883,6 @@ p:last-child {
   height: 14px;
   border-radius: var(--pb-radius-sm);
   background: var(--pb-primary-tint-8);
-  animation: pb-pulse 1400ms var(--pb-ease-inout) infinite alternate;
 }
 .pb-skeleton-bar.is-title {
   width: 40%;
@@ -851,15 +898,6 @@ p:last-child {
   border: 1px solid var(--pb-border);
   border-radius: var(--pb-radius);
   background: var(--pb-primary-tint-4);
-  animation: pb-pulse 1400ms var(--pb-ease-inout) infinite alternate;
-}
-@keyframes pb-pulse {
-  from {
-    opacity: 1;
-  }
-  to {
-    opacity: 0.45;
-  }
 }
 
 /* ---- Lists on Home ---- */
@@ -1203,12 +1241,12 @@ p:last-child {
   gap: 12px;
 }
 .pb-prose {
-  max-width: 78ch;
+  max-width: 72ch;
+  font-size: var(--pb-text-prose);
+  line-height: var(--pb-text-prose-lh);
 }
 .pb-prose p {
   margin: 0 0 10px;
-  font-size: 14px;
-  line-height: 22px;
 }
 .pb-prose p:last-child {
   margin-bottom: 0;
@@ -1509,47 +1547,6 @@ p:last-child {
   }
 }
 
-/* ---- Motion policy: the animated selectors of the shell and the sign-in scene, parked at composed
-   static offsets. The co-investment map keeps its own list at the foot of its stylesheet
-   (pages/analytics/map/map.css; docs/06 section 5). ---- */
-@media (prefers-reduced-motion: reduce), (update: slow) {
-  .pb-scene-glow,
-  .pb-scene-wave,
-  .pb-scene-tide,
-  .pb-scene-foam,
-  .pb-skeleton-bar,
-  .pb-skeleton-tile {
-    animation: none;
-    will-change: auto;
-  }
-  .pb-scene-glow {
-    opacity: 0.7;
-  }
-  .pb-scene-wave-a {
-    transform: translate3d(-12%, 0, 0);
-  }
-  .pb-scene-wave-b {
-    transform: translate3d(-31%, 0, 0);
-  }
-  .pb-scene-tide {
-    transform: translate3d(0, -3px, 0);
-  }
-  .pb-scene-foam {
-    transform: translate3d(-7%, 0, 0);
-  }
-  .pb-skeleton-bar,
-  .pb-skeleton-tile {
-    opacity: 0.7;
-  }
-  a,
-  .pb-nav-item,
-  .pb-nav-icon,
-  .pb-tabs a,
-  .pb-signin-list > button {
-    transition: none;
-  }
-}
-
 /* ---- Responsive ---- */
 @media (max-width: 1240px) {
   .pb-steps {
@@ -1568,6 +1565,11 @@ p:last-child {
   }
 }
 @media (max-width: 760px) {
+  :root {
+    --pb-header-h: 48px;
+    --pb-text-fig: 20px;
+    --pb-text-fig-lh: 26px;
+  }
   .pb-shell {
     grid-template-columns: minmax(0, 1fr);
     grid-template-rows: auto auto auto minmax(0, 1fr);
@@ -1738,5 +1740,218 @@ p:last-child {
   }
   .pb-tiles {
     grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+}
+
+/* ---- Motion (decision 0026, docs/06 section 5) ----
+   Quick, short, decelerating, never overshooting, and played once: a CSS animation runs when its
+   element is inserted and never again while it stays mounted, so a route change plays it and a
+   refetch, a sort or a filter does not. Every entrance fills backwards, never both, so a finished
+   element keeps no transform. Figures being read are never animated. The policy at the very end
+   repeats each animated selector exactly and switches it off. */
+@keyframes pb-enter {
+  from {
+    opacity: 0;
+    transform: translate3d(0, var(--pb-rise), 0);
+  }
+}
+@keyframes pb-drop {
+  from {
+    opacity: 0;
+    transform: translate3d(0, calc(var(--pb-rise) * -1), 0);
+  }
+}
+@keyframes pb-fade {
+  from {
+    opacity: 0;
+  }
+}
+@keyframes pb-pop {
+  from {
+    opacity: 0;
+    transform: scale(0.6);
+  }
+}
+@keyframes pb-grow-x {
+  from {
+    transform: scaleX(0);
+  }
+}
+@keyframes pb-tab-in {
+  from {
+    opacity: 0;
+    transform: scaleX(0.4);
+  }
+}
+@keyframes pb-wash {
+  from {
+    background-color: var(--pb-primary-tint-8);
+  }
+  to {
+    background-color: transparent;
+  }
+}
+@keyframes pb-draw {
+  from {
+    stroke-dashoffset: 1;
+  }
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+@keyframes pb-pulse {
+  to {
+    opacity: 0.55;
+  }
+}
+
+/* Page and tab entrance: each new top-level block rises once, a step behind the one before it. The
+   frame (title, tabs) stays still; the figures strip staggers its own cells. A page whose body is
+   one wrapper puts pb-enter-children on it. */
+.pb-main > :not(.pb-banner, .pb-tabs, .pb-skeleton, .pb-tiles),
+.pb-enter-children > * {
+  animation: pb-enter var(--pb-dur-enter) var(--pb-ease) backwards;
+}
+.pb-main > :nth-child(2),
+.pb-enter-children > :nth-child(2) {
+  animation-delay: var(--pb-stagger);
+}
+.pb-main > :nth-child(3),
+.pb-enter-children > :nth-child(3) {
+  animation-delay: calc(var(--pb-stagger) * 2);
+}
+.pb-main > :nth-child(4),
+.pb-enter-children > :nth-child(4) {
+  animation-delay: calc(var(--pb-stagger) * 3);
+}
+.pb-main > :nth-child(5),
+.pb-enter-children > :nth-child(5) {
+  animation-delay: calc(var(--pb-stagger) * 4);
+}
+.pb-main > :nth-child(n + 6),
+.pb-enter-children > :nth-child(n + 6) {
+  animation-delay: calc(var(--pb-stagger) * 5);
+}
+
+/* The figures strip: cells arrive left to right; a figure never counts up. */
+.pb-tiles > * {
+  animation: pb-enter var(--pb-dur-enter) var(--pb-ease) backwards;
+}
+.pb-tiles > :nth-child(2) {
+  animation-delay: 20ms;
+}
+.pb-tiles > :nth-child(3) {
+  animation-delay: 40ms;
+}
+.pb-tiles > :nth-child(4) {
+  animation-delay: 60ms;
+}
+.pb-tiles > :nth-child(5) {
+  animation-delay: 80ms;
+}
+.pb-tiles > :nth-child(6) {
+  animation-delay: 100ms;
+}
+.pb-tiles > :nth-child(7) {
+  animation-delay: 120ms;
+}
+.pb-tiles > :nth-child(n + 8) {
+  animation-delay: 140ms;
+}
+
+/* The reader's own command: its result line drops in beside the controls and the row it changed
+   washes once (components/motion.ts, useJustChanged). Never on a refetch; the role="status" region
+   itself does not move. */
+.pb-action-status > *,
+.pb-action-log > li:first-child {
+  animation: pb-drop var(--pb-dur) var(--pb-ease) backwards;
+}
+.pb-table tr[data-just-changed] > * {
+  animation: pb-wash calc(var(--pb-dur-slow) * 2) var(--pb-ease-inout);
+}
+/* A table whose rows are being replaced: aria-busy says the same in words. */
+.pb-table-wrap {
+  transition: opacity var(--pb-dur-fast) var(--pb-ease);
+}
+.pb-table-wrap[aria-busy='true'] {
+  opacity: 0.55;
+}
+/* A view the reader swaps in place (a chart and its table, a document's page): the outgoing one
+   leaves at once and the incoming one fades in. Set only after the reader's own swap. */
+.pb-swap-in {
+  animation: pb-fade var(--pb-dur-fast) var(--pb-ease) backwards;
+}
+
+/* Loading appears only if it lasts, and pulses until replaced: the app's only loop. Declared after
+   the entrance rules, so .pb-main > .pb-skeleton outranks their delays. */
+.pb-skeleton,
+.pb-main > .pb-skeleton {
+  animation: pb-fade var(--pb-dur) var(--pb-ease) 120ms backwards;
+}
+.pb-skeleton-bar,
+.pb-skeleton-tile {
+  animation: pb-pulse 1200ms var(--pb-ease-inout) infinite alternate;
+}
+
+/* ---- Motion policy: every animated or transitioned selector of this file, repeated exactly as it is
+   declared (a media block adds no specificity, so only the same selector later in the file wins),
+   switched off under reduced motion or on a slow display. The sign-in scene is parked at composed
+   static offsets. Fluent's spinner keeps turning under its own reduced-motion rule, so it is
+   stopped here at two classes, above Griffel's one. Each other stylesheet that animates keeps its
+   own list at its foot (docs/06 section 5); components/motion.test.ts holds every one of them. ---- */
+@media (prefers-reduced-motion: reduce), (update: slow) {
+  .pb-main > :not(.pb-banner, .pb-tabs, .pb-skeleton, .pb-tiles),
+  .pb-enter-children > *,
+  .pb-tiles > *,
+  .pb-action-status > *,
+  .pb-action-log > li:first-child,
+  .pb-table tr[data-just-changed] > *,
+  .pb-swap-in,
+  .pb-skeleton,
+  .pb-main > .pb-skeleton,
+  .pb-skeleton-bar,
+  .pb-skeleton-tile,
+  .pb-scene-glow,
+  .pb-scene-wave,
+  .pb-scene-wave-a,
+  .pb-scene-wave-b,
+  .pb-scene-tide,
+  .pb-scene-foam,
+  .fui-Spinner > .fui-Spinner__spinner,
+  .fui-Spinner__spinner > .fui-Spinner__spinnerTail {
+    animation: none;
+  }
+  .pb-scene-glow,
+  .pb-scene-wave,
+  .pb-scene-tide,
+  .pb-scene-foam {
+    will-change: auto;
+  }
+  .pb-scene-glow {
+    opacity: 0.7;
+  }
+  .pb-scene-wave-a {
+    transform: translate3d(-12%, 0, 0);
+  }
+  .pb-scene-wave-b {
+    transform: translate3d(-31%, 0, 0);
+  }
+  .pb-scene-tide {
+    transform: translate3d(0, -3px, 0);
+  }
+  .pb-scene-foam {
+    transform: translate3d(-7%, 0, 0);
+  }
+  .pb-skeleton-bar,
+  .pb-skeleton-tile {
+    opacity: 0.7;
+  }
+  a,
+  .pb-nav-item,
+  .pb-nav-icon,
+  .pb-tabs a,
+  .pb-signin-list > button,
+  .pb-table-wrap {
+    transition: none;
   }
 }

@@ -700,3 +700,34 @@ __VERIFIED__
 __EXTRA_OPEN__
 
 **Stopped early (added by the session lead, 2026-11-18):** the build was stopped here because the week's usage ran out. This last slice was committed after typecheck, lint, the style and employer-data guards and the web tests named in the commit, not after its own full closing run, and the three reviews of the feature have not run. `docs/handoff/README.md` says how to finish.
+
+### Session 13 (2026-11-18): the UI pass, slice 1: tokens, type and the motion system (decision 0026)
+
+The owner asked that the app "look less like a standard anthropic build, throughout". The plan is `docs/handoff/ui-pass-plan.md` (fourteen slices and a close). This first slice sets the language every later slice builds on; no page's markup, request or figure changes.
+
+**What changed**
+
+- **Colours** (`config/brand.json`): ink blue primary `#1E3A5F`, one cobalt accent `#4C72D9`, neutral grey in place of sand `#EEF0F3`, text `#16191D`, muted `#68707A`, border `#DCE0E5`; chart series 1 and 3 swapped, so cobalt leads and the first pair is blue and orange. Status colours and every derived formula of decision 0007 are unchanged; `lib/theme.test.ts` passes as it was.
+- **Type**: IBM Plex Sans 400, 500 and 600 and IBM Plex Mono 400, IBM's own unmodified files (`@ibm/plex-sans` and `@ibm/plex-mono` 1.1.0, SIL Open Font License 1.1) in `apps/web/src/app/fonts/`, declared in `apps/web/src/app/fonts.css`, which `styles.css` imports first. `fonts.display` is the same sans, so the serif title is gone; `fonts.mono` is new, emitted as `--pb-font-mono` and set as Fluent's monospace face; the four hand-written monospace stacks read it. The page is 13/20 with tabular figures, and `styles.css` holds the type scale, the 4px spacing scale and the new radii (2, 4, 6px) as tokens. Fluent's radii and body size follow (`theme.ts`).
+- **Shape**: shadows only on overlays (the cards' token is now transparent); the chart tooltip's literal shadow is `--pb-shadow-2`. The top bar is 44px (48px on a phone).
+- **Motion** (`styles.css`, "Motion" and "Motion policy"): the tokens, mirrored in the new `components/motion.ts` (`MOTION`, `EASE`, `REDUCED_MOTION_QUERY`, `useReducedMotion()`, `dialogSurfaceMotion()`, `useJustChanged()`); each new block of a page rises 4px once, a step behind the one before; the figures strip arrives cell by cell; the result line of a command drops in; a row the reader's command changed washes once; a busy table dims; a swapped view fades in; loading fades in only if it lasts and pulses at 1200ms. The radar and the fit meter run on the tokens without the long delays. The policy repeats every animated selector exactly and also stops Fluent's spinner, which kept turning under reduced motion.
+- **Guards**: `components/motion.test.ts` holds `motion.ts` to `styles.css`, and reads every stylesheet of the web app for a selector that animates or transitions and is not switched off, under exactly the same selector, by `animation: none` or `transition: none` in a reduced-motion block. Written first and seen to fail on a shorter selector (a fixture in the test); on the real sheets it found the sign-in waves (`.pb-scene-wave-a` and `-b`), stopped only through the shorter `.pb-scene-wave`, now listed exactly. `e2e/a11y.spec.ts` waits for every finite animation to end before axe scans, and a new test reads, with and without emulated reduced motion, that a page's sections rise in and a pending page's skeleton fades in, and that neither moves under the setting.
+- **The website** imports the same `fonts.css`, so it renders Plex; its colours follow `brand.json` through `tokens.mjs`. Its restyle is slice 13.
+- **Docs**: decision 0026 (the ledger look: options, palette with its contrast, the font files with sizes and hashes, scale, shape, motion); `docs/06` sections 1 and 5; status lines on 0007 (the sign-in scene and the serif title superseded) and 0017 (the map palette superseded); the decision index.
+
+**Verified**
+
+- `pnpm typecheck` and `pnpm lint` clean; `pnpm exec vitest run --project web`: 152 files, 1627 tests passed (with the new `motion.test.ts`, 11 tests); `bash scripts/check-style.sh` and `pnpm check:employer-data` OK.
+- `pnpm --filter @pb/api build` and `pnpm --filter @pb/web build:preview` OK: the preview carries the eight font files in `assets/` and `publish.json` lists all eight. Opened with every request to another origin blocked, the page computes `"IBM Plex Sans", "Segoe UI", system-ui, sans-serif` at 13px, `document.fonts.check('13px "IBM Plex Sans"')` is true and only the bundled files are fetched.
+- The probe (`node scripts/probe-preview.mjs`, with the sandbox Chromium): 238 passed, 0 failed, 0 skipped. No locator it reads was touched: this slice changes no markup, test id, label or role name.
+- `e2e/a11y.spec.ts`: 28 passed, at 1280 and 390 pixels, including the new reduced-motion test.
+- The website: `typecheck`, `test` (32 passed), `build:site-only`, `check` (75 passed), `build:artifact` and `check:artifact` (68 passed); the site carries the same eight files.
+- The font files' SHA-256 match the files in IBM's 1.1.0 packages; fontTools reads version 3.005 (sans) and 2.004 (mono), every digit 600 units wide, U+2212 and U+00B7 present.
+- Screenshots: all 174 shots of the plan's set taken again into the session's scratch space (`capture-after.mjs`, with an area filter); none failed, and no page's notes changed (no new sideways scroll, error or not-shown state). Compared at 1440 and 390: home as an approver, the valuation board as operations, analytics performance as an approver, the sign-in page, positions as the deal team, plus an opportunity's radar, a wire instruction and a document's page text in the mono face. Colour and type only; every page keeps its structure.
+
+**Open items**
+
+- The look is mid-change until slices 2 to 4 land: cards, uppercase section labels, filled table headers, pills, the dark top bar and the beach on the sign-in page are still there, now in the new colours and face. `docs/06` section 2 still describes the old layout rules; slice 2 rewrites it.
+- The fit meter fills on the radar's stagger only once each measure's row carries `--pb-radar-i` (`pages/pipeline/DealFit.tsx`); this slice changed no markup, so every bar fills together at 80ms. For slice 7.
+- The site's screenshots, tour videos and brochures, and the published demo, still show the old look (plan section 8, items 3 and 5).
+- `theme.ts`'s review comments now carry the new derived values; the comment on `PageHeader` in `components/ui.tsx` still says "a serif title" until slice 2 rewrites the header.

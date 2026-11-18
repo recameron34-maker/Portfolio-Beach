@@ -1,7 +1,9 @@
 /* The Portfolio Beach site. Colours and fonts come only from the custom properties the build
    derives from config/brand.json (scripts/lib/tokens.mjs, light and dark); this file never
    writes a colour or a font name of its own. Sizes, radii and easings below are not colours.
-   Order: base, shared pieces, header, hero and scene, bands, then each section, motion, small screens. */
+   Order: base, shared pieces, header, hero and scene, bands, then each section, motion, small screens.
+   The faces are the web app's own files, declared once in apps/web/src/app/fonts.css (decision 0026). */
+@import '../../../web/src/app/fonts.css';
 
 :root {
   --gutter: clamp(16px, 4vw, 40px);

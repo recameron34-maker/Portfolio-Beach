@@ -54,21 +54,21 @@ export function rgbTriplet(hex: string): string {
  * The hex comments are what the formulas produce today, for review only; the formulas govern.
  */
 export const derived = {
-  primaryDeep: shade(tokens.brand.primary, 0.2), // #0c3d4a  header bottom rule, header controls
-  primaryTint4: tint(tokens.brand.primary, 0.96), // #f5f8f8  row and nav hover, notice wash
-  primaryTint8: tint(tokens.brand.primary, 0.92), // #ecf1f2  active nav, selected row, key chip, brand badge
-  primaryTint12: tint(tokens.brand.primary, 0.88), // #e2eaeb  pressed states
-  accentTint10: tint(tokens.brand.accent, 0.9), // #eaf5f4  accent badge background
-  accentInk: shade(tokens.brand.accent, 0.3), // #1d6e64  the only accent used as text (6.06:1 on bg)
-  sandPale: tint(tokens.brand.sand, 0.5), // #faf5ec  prototype banner, tinted cards, sign-in sand
-  sandEdge: shade(tokens.brand.sand, 0.08), // #e0d8c8  rules on sand
-  sky: tint(tokens.brand.accent, 0.86), // #e1f1ef  sign-in sky and shallow water
-  sea: tint(tokens.brand.accent, 0.72), // #c3e4e0  sign-in sea band
-  seaDeep: tint(tokens.brand.primary, 0.78), // #cad8db  far swell fill
-  surface2: tint(tokens.ui.text, 0.97), // #f8f8f9  empty-state and disabled fills, never the page
-  hairline: tint(tokens.ui.border, 0.4), // #eff1f3  rules inside tables and lists
-  borderStrong: shade(tokens.ui.border, 0.12), // #cacbcf  hovered input borders
-  mutedStrong: shade(tokens.ui.muted, 0.18), // #585d69  secondary text on any tinted surface
+  primaryDeep: shade(tokens.brand.primary, 0.2), // #182e4c  header bottom rule, header controls
+  primaryTint4: tint(tokens.brand.primary, 0.96), // #f6f7f9  row and nav hover, notice wash
+  primaryTint8: tint(tokens.brand.primary, 0.92), // #edeff2  active nav, selected row, key chip, brand badge
+  primaryTint12: tint(tokens.brand.primary, 0.88), // #e4e7ec  pressed states
+  accentTint10: tint(tokens.brand.accent, 0.9), // #edf1fb  accent badge background
+  accentInk: shade(tokens.brand.accent, 0.3), // #355098  the only accent used as text (7.63:1 on bg)
+  sandPale: tint(tokens.brand.sand, 0.5), // #f7f8f9  prototype banner, tinted cards, sign-in sand
+  sandEdge: shade(tokens.brand.sand, 0.08), // #dbdde0  rules on sand
+  sky: tint(tokens.brand.accent, 0.86), // #e6ebfa  sign-in sky and shallow water
+  sea: tint(tokens.brand.accent, 0.72), // #cdd8f4  sign-in sea band
+  seaDeep: tint(tokens.brand.primary, 0.78), // #ced4dc  far swell fill
+  surface2: tint(tokens.ui.text, 0.97), // #f8f8f8  empty-state and disabled fills, never the page
+  hairline: tint(tokens.ui.border, 0.4), // #eaecef  rules inside tables and lists
+  borderStrong: shade(tokens.ui.border, 0.12), // #c2c5ca  hovered input borders
+  mutedStrong: shade(tokens.ui.muted, 0.18), // #555c64  secondary text on any tinted surface
   goodInk: shade(tokens.status.good, 0.15), // #276a2b  good as text
   goodTint: tint(tokens.status.good, 0.92), // #eef5ef
   watchInk: shade(tokens.status.watch, 0.25), // #895b17  watch as text (raw watch is 3.64:1)
@@ -117,26 +117,30 @@ export function createTheme(): Theme {
     colorNeutralBackground3: derived.surface2,
     colorSubtleBackgroundHover: derived.primaryTint4,
     colorBrandForegroundLink: tokens.brand.primary,
-    colorCompoundBrandStroke: tokens.brand.accent, // input and dropdown focus underline (non-text, 3.32:1)
+    colorCompoundBrandStroke: tokens.brand.accent, // input and dropdown focus underline (non-text, 4.45:1)
     colorCompoundBrandStrokeHover: tokens.brand.accent,
     colorStrokeFocus2: tokens.brand.accent, // focus ring on light surfaces; the header overrides it to bg
-    borderRadiusSmall: '4px',
-    borderRadiusMedium: '6px',
-    borderRadiusLarge: '8px',
-    borderRadiusXLarge: '10px',
+    // Decision 0026: square corners on controls, a little more on dialogs; body text 13px/20px.
+    borderRadiusSmall: '2px',
+    borderRadiusMedium: '4px',
+    borderRadiusLarge: '4px',
+    borderRadiusXLarge: '6px',
+    fontSizeBase300: '13px',
+    lineHeightBase300: '20px',
     shadow2: `0 1px 2px rgba(${t}, 0.06)`,
     shadow4: `0 1px 2px rgba(${t}, 0.06), 0 2px 6px rgba(${p}, 0.08)`,
     shadow8: `0 2px 6px rgba(${t}, 0.06), 0 6px 16px -8px rgba(${p}, 0.16)`,
     shadow16: `0 12px 32px -12px rgba(${p}, 0.28), 0 2px 6px rgba(${t}, 0.06)`,
     fontFamilyBase: brand.fonts.ui.join(', '),
     fontFamilyNumeric: brand.fonts.ui.join(', '),
+    fontFamilyMonospace: brand.fonts.mono.join(', '),
   };
 }
 
 /** CSS custom properties so feature-scoped styles can use the same tokens. */
 export function cssVariables(): string {
   const chart = tokens.chartSeries.map((c, i) => `--pb-chart-${i + 1}:${c};`).join('');
-  const base = `--pb-chart-muted:${tokens.chartMuted};--pb-brand-primary:${tokens.brand.primary};--pb-brand-accent:${tokens.brand.accent};--pb-brand-sand:${tokens.brand.sand};--pb-bg:${tokens.ui.bg};--pb-text:${tokens.ui.text};--pb-muted:${tokens.ui.muted};--pb-border:${tokens.ui.border};--pb-good:${tokens.status.good};--pb-watch:${tokens.status.watch};--pb-bad:${tokens.status.bad};--pb-font-ui:${brand.fonts.ui.join(', ')};--pb-font-display:${brand.fonts.display.join(', ')};`;
+  const base = `--pb-chart-muted:${tokens.chartMuted};--pb-brand-primary:${tokens.brand.primary};--pb-brand-accent:${tokens.brand.accent};--pb-brand-sand:${tokens.brand.sand};--pb-bg:${tokens.ui.bg};--pb-text:${tokens.ui.text};--pb-muted:${tokens.ui.muted};--pb-border:${tokens.ui.border};--pb-good:${tokens.status.good};--pb-watch:${tokens.status.watch};--pb-bad:${tokens.status.bad};--pb-font-ui:${brand.fonts.ui.join(', ')};--pb-font-display:${brand.fonts.display.join(', ')};--pb-font-mono:${brand.fonts.mono.join(', ')};`;
   const extra = Object.entries(derived)
     .map(([k, v]) => `--pb-${cssName(k)}:${v};`)
     .join('');

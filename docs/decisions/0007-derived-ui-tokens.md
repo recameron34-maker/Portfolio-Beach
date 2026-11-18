@@ -1,5 +1,5 @@
 # 0007: Derived UI tokens and the Horizon Line design system
-- **Status:** Accepted for the prototype
+- **Status:** Accepted; the sign-in scene and the serif title are superseded by 0026
 - **Date:** 2026-10-08
 - **Deciders:** repo owner (asked for a sleek, professional UI and an animated beach on the sign-in page)
 ## Context

@@ -19,3 +19,4 @@ Status values: Proposed, Accepted, Superseded (link the replacement).
 - 0022: Deal performance against the sponsor's underwritten base case (a draft for the owner to change)
 - 0023: Valuation suggestions from capital account statements and sponsor reports (a draft for the owner to change)
 - 0024: The Reporting, Packages pages (the release gate in the web app and the static preview)
+- 0026: The ledger look (one designed visual language, with motion; supersedes the scene and serif title of 0007 and the map palette of 0017)

@@ -3,19 +3,27 @@
 The prototype ships with its **own neutral theme**. A deploying firm's brand is applied later as a theme file in configuration. Never hard-code colors or fonts; use tokens from `config/brand.json`.
 
 ## 1. Portfolio Beach default theme (placeholder, change freely)
+The look is called the ledger look (decision 0026): ink and neutral greys, one cobalt accent, one sans family with tabular figures.
+
 | Token | Value | Use |
 |---|---|---|
-| `brand.primary` | #0F4C5C | Header, section headings, table headers |
-| `brand.accent` | #2A9D8F | Active states, focus, highlights |
-| `brand.sand` | #F4EBD9 | Subtle panels (one-pager tab only) |
-| `ui.bg` | #FFFFFF | Background |
-| `ui.text` | #1F2328 | Body text |
-| `ui.muted` | #6B7280 | Secondary text |
-| `ui.border` | #E5E7EB | Card borders |
-| `status.good / watch / bad` | #2E7D32 / #B7791F / #C62828 | Status |
-Fonts: system UI stack (`"Segoe UI", system-ui, sans-serif`); serif accent for page titles (`Georgia, serif`). Check WCAG AA contrast for all pairs.
+| `brand.primary` | #1E3A5F | Ink blue: links, primary buttons, the wordmark's mark |
+| `brand.accent` | #4C72D9 | Cobalt: focus ring, current tab underline, current step, selected row edge, chart series 1. Never text |
+| `brand.sand` | #EEF0F3 | Neutral panel grey (the key keeps its name for the formulas that read it) |
+| `ui.bg` | #FFFFFF | Page |
+| `ui.text` | #16191D | Text and every figure |
+| `ui.muted` | #68707A | Secondary text, on the page background only |
+| `ui.border` | #DCE0E5 | Section rules |
+| `status.good / watch / bad` | #2E7D32 / #B7791F / #C62828 | Status (meanings fixed) |
+| `chartSeries` | #4C72D9, #D9782B, #2A9D8F, #C9A21C, #C05C86, #4E9A3A, #7A5BD0, #D94A3F | Charts, in this order: cobalt first, orange second |
 
-Derived tokens (`apps/web/src/app/theme.ts`, decision 0007) are formulas over the values above and are the only other colours the web app may use: tints for hover and selection, inks for status text, the sign-in scene. Usage rules: `--pb-muted` only on the page background; secondary text on any tinted surface uses `--pb-muted-strong`; the accent is never text (use `--pb-accent-ink` when accent-coloured text is unavoidable); status colours as text only through `--pb-good-ink`, `--pb-watch-ink` and `--pb-bad-ink`, with the raw values kept for dots, borders and fills. Chart series come from `chartSeries` (validated for colour-vision safety) and are never used for text.
+Fonts: **IBM Plex Sans** 400, 500 and 600 for everything (`fonts.ui`, and `fonts.display`, which is the same stack), bundled with the app from IBM's own unmodified files (`apps/web/src/app/fonts/`, SIL Open Font License 1.1), with Segoe UI and the system face behind it; **IBM Plex Mono** 400 (`fonts.mono`, `--pb-font-mono`) only for hashes, wire digits, lock text and a document's page text. No serif. Every digit has the same width, so figures line up in columns; identifiers such as INV-0001 use the sans. Check WCAG AA contrast for all pairs (`apps/web/src/lib/theme.test.ts`).
+
+Type scale (`styles.css :root`, a size and a line height each; the weight is set where it is used): `--pb-text-xs` 11/16 (axis ticks only), `--pb-text-sm` 12/16 (labels, table headers, sub-lines, status words, crumbs), `--pb-text-md` 13/20 (body, cells, navigation, tabs, buttons, inputs), `--pb-text-lg` 14/20 (section titles), `--pb-text-xl` 16/24 (dialog titles), `--pb-text-title` 20/28 (page titles), `--pb-text-fig` 22/28 (key figures; 20/26 under 760px), `--pb-text-prose` 14/22 (commentary and descriptions, at most 72 characters a line). Weights 400, 500 and 600 only. No uppercase lettering and no tracking, except a slight tightening on titles and figures.
+
+Shape and space: radii `--pb-radius-sm` 2px (identifiers, focus outlines), `--pb-radius` 4px (buttons, inputs, notices, menus), `--pb-radius-lg` 6px (dialogs, popovers). Shadows only on what floats over the page: `--pb-shadow-2` (tooltips, menus) and `--pb-shadow-3` (dialogs, the phone drawer). Spacing `--pb-space-1` to `--pb-space-7` (4, 8, 12, 16, 24, 32, 48px); the one value off the scale is a table cell's vertical padding, `--pb-cell-py` 6px, which gives a 32px row.
+
+Derived tokens (`apps/web/src/app/theme.ts`, decision 0007) are formulas over the values above and are the only other colours the web app may use: tints for hover and selection, inks for status text, the sign-in scene. Colour roles: figures and titles in `--pb-text`; tone is shown only through the ink tokens and dots. Usage rules: `--pb-muted` only on the page background; secondary text on any tinted surface uses `--pb-muted-strong`; the accent is never text (use `--pb-accent-ink` when accent-coloured text is unavoidable); status colours as text only through `--pb-good-ink`, `--pb-watch-ink` and `--pb-bad-ink`, with the raw values kept for dots, borders and fills. Chart series come from `chartSeries` (validated for colour-vision safety) and are never used for text.
 
 ## 2. Layout rules
 - White background, white cards with thin borders; brand color only for headers, table header rows and key numbers.
@@ -39,8 +47,9 @@ Derived tokens (`apps/web/src/app/theme.ts`, decision 0007) are formulas over th
 Template-driven (pptx, docx, xlsx) with stable chart sizes and positions between periods; change logs stored outside the output; disclosures inserted from a disclosure library.
 
 ## 5. Motion, and the co-investment map
-- Motion is decoration: nothing a reader needs is said only by an animation, and nothing moves under the reduced motion setting (`prefers-reduced-motion`, or a slow display). Every animated selector is listed again in a reduced motion block where it is switched off: the app's in `styles.css` ("Motion policy"), the map's at the foot of `pages/analytics/map/map.css`, the charts' at the foot of `components/charts/charts.css` and the pipeline pages' at the foot of `pages/pipeline/pipeline.css`.
-- Durations and easing come from the tokens (`--pb-dur-fast`, `--pb-dur`, `--pb-ease`, `--pb-ease-inout`). An entrance plays once; only a marker under the pointer, in focus or selected keeps moving (its ripple).
+- Motion is decoration: nothing a reader needs is said only by an animation, and nothing moves under the reduced motion setting (`prefers-reduced-motion`, or a slow display). Every animated or transitioned selector is repeated, exactly as it is declared, in a reduced motion block at the foot of its own stylesheet, where it is switched off (a media block adds no specificity, so a shorter selector would lose): the app's in `styles.css` ("Motion policy", which also stops Fluent's spinner), the map's at the foot of `pages/analytics/map/map.css`, the charts' at the foot of `components/charts/charts.css`, the pipeline pages' at the foot of `pages/pipeline/pipeline.css`, and each other stylesheet that animates at its own foot. `apps/web/src/components/motion.test.ts` reads every stylesheet of the web app and fails on a selector left moving.
+- Durations and easing come from the tokens in `styles.css :root`, mirrored for script in `apps/web/src/components/motion.ts` (`MOTION`, `EASE`, `useReducedMotion()`), which a test holds to the stylesheet: `--pb-dur-instant` 80ms (a press, a tooltip), `--pb-dur-fast` 120ms (colour, border, a chevron, every exit), `--pb-dur` 180ms (small entrances, a status line), `--pb-dur-enter` 220ms (a page, section or dialog arriving), `--pb-dur-slow` 320ms (a bar growing, a step filling, the radar opening), `--pb-dur-draw` 480ms (a line drawing), `--pb-stagger` 24ms between siblings, `--pb-rise` 4px of travel; `--pb-ease` (decelerate, entrances and hovers), `--pb-ease-inout` (lines drawing, camera moves), `--pb-ease-exit` (exits only). Nothing overshoots.
+- What moves: each new block of a page rises 4px into place once, a step behind the one before; the figures strip arrives cell by cell; the result of the reader's own command drops in beside the button and the row it changed washes once; a table whose rows are being replaced dims while it is busy; loading appears only if it lasts and pulses until replaced, the app's only loop. What never moves: a figure being read (no count-up), table rows on a refresh, sort or filter, anything per keystroke, the navigation, titles and the tab row, focus rings. An entrance plays once; only a marker under the pointer, in focus or selected keeps moving (its ripple).
 - The co-investment map (decision 0017) uses the sign-in scene's colours the way the scene does: sky and sea for water, sand for land, the brand primary for the coast line. Markers take the chart series by deal type; a marker holding more than one type takes the brand primary. No other colour is introduced.
 - The radar chart (decision 0018) takes the first chart series. Its web fades in, its shape opens from the centre and its points land in turn, once. A measure with no score is a dashed spoke with the missing-value placeholder and a gap in the shape, never a point at the centre. The score is printed at every label.
 - A map is never the only way to the information: the same positions are in a table under it, and positions it cannot place are listed with the reason.

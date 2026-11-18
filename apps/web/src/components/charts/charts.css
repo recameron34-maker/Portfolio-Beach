@@ -149,7 +149,7 @@
   background: var(--pb-bg);
   border: 1px solid var(--pb-border);
   border-radius: 6px;
-  box-shadow: 0 6px 20px rgb(0 0 0 / 8%);
+  box-shadow: var(--pb-shadow-2);
   font-size: 12px;
 }
 .pb-chart-tooltip-title {
@@ -254,34 +254,23 @@
   stroke-width: 2;
   transition: r var(--pb-dur-fast) var(--pb-ease);
 }
-/* The entrance, played once: the web fades in, the shape opens out from the centre, then each
-   point lands in turn round the chart. */
+/* The entrance, played once on the motion tokens (styles.css): the web fades in, the shape opens
+   out from near its full size, then each point lands in turn round the chart. Backwards, never
+   both, so a finished shape keeps no transform. */
 .pb-radar-web {
-  animation: pb-radar-fade 320ms var(--pb-ease) both;
+  animation: pb-fade var(--pb-dur) var(--pb-ease) backwards;
 }
 .pb-radar-shape {
-  animation: pb-radar-open 620ms var(--pb-ease) 120ms both;
+  animation: pb-radar-open var(--pb-dur-slow) var(--pb-ease) 80ms backwards;
 }
 .pb-radar-point {
-  animation: pb-radar-fade 240ms var(--pb-ease) both;
-  animation-delay: calc(520ms + var(--pb-radar-i, 0) * 45ms);
-}
-@keyframes pb-radar-fade {
-  from {
-    opacity: 0;
-  }
-  to {
-    opacity: 1;
-  }
+  animation: pb-fade var(--pb-dur-fast) var(--pb-ease) backwards;
+  animation-delay: calc(240ms + var(--pb-radar-i, 0) * var(--pb-stagger));
 }
 @keyframes pb-radar-open {
   from {
     opacity: 0;
-    transform: scale(0.2);
-  }
-  to {
-    opacity: 1;
-    transform: scale(1);
+    transform: scale(0.85);
   }
 }
 

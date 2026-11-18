@@ -270,7 +270,7 @@
 
 /* The lock-style monospace fields (ids) wrap anywhere so a card never scrolls sideways. */
 .pb-pipe-id {
-  font-family: ui-monospace, 'Cascadia Mono', 'Segoe UI Mono', Menlo, monospace;
+  font-family: var(--pb-font-mono);
   font-size: 12px;
   overflow-wrap: anywhere;
 }
@@ -338,15 +338,10 @@
   border-radius: 2px;
   background: var(--pb-chart-1);
   transform-origin: left center;
-  animation: pb-fit-fill 620ms var(--pb-ease) 160ms both;
-}
-@keyframes pb-fit-fill {
-  from {
-    transform: scaleX(0);
-  }
-  to {
-    transform: scaleX(1);
-  }
+  /* Fills with the radar's points: 80ms in, then one stagger step per measure where the row sets
+     --pb-radar-i. */
+  animation: pb-grow-x var(--pb-dur-slow) var(--pb-ease) backwards;
+  animation-delay: calc(80ms + var(--pb-radar-i, 0) * var(--pb-stagger));
 }
 .pb-fit-basis {
   margin: 0;

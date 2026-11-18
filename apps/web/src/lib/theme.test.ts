@@ -13,6 +13,7 @@ describe('theme tokens (docs/06)', () => {
     const css = cssVariables();
     expect(css).toContain(`--pb-brand-primary:${tokens.brand.primary}`);
     expect(css).toContain(`--pb-bad:${tokens.status.bad}`);
+    expect(css).toContain('--pb-font-mono:');
   });
 });
 

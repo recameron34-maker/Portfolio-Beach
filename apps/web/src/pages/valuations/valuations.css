@@ -157,7 +157,7 @@
 /* The lock text: the exact bytes the hash covers, in a monospace block that wraps but never reflows. */
 .pb-val-lock,
 .pb-val-hash {
-  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-family: var(--pb-font-mono);
   font-size: 12.5px;
   line-height: 18px;
   overflow-wrap: anywhere;

@@ -3,15 +3,15 @@
   "theme": "default",
   "colors": {
     "brand": {
-      "primary": "#0F4C5C",
-      "accent": "#2A9D8F",
-      "sand": "#F4EBD9"
+      "primary": "#1E3A5F",
+      "accent": "#4C72D9",
+      "sand": "#EEF0F3"
     },
     "ui": {
       "bg": "#FFFFFF",
-      "text": "#1F2328",
-      "muted": "#6B7280",
-      "border": "#E5E7EB"
+      "text": "#16191D",
+      "muted": "#68707A",
+      "border": "#DCE0E5"
     },
     "status": {
       "good": "#2E7D32",
@@ -19,9 +19,9 @@
       "bad": "#C62828"
     },
     "chartSeries": [
-      "#2A9D8F",
-      "#D9782B",
       "#4C72D9",
+      "#D9782B",
+      "#2A9D8F",
       "#C9A21C",
       "#C05C86",
       "#4E9A3A",
@@ -31,8 +31,9 @@
     "chartMuted": "#C7CCD1"
   },
   "fonts": {
-    "ui": ["Segoe UI", "system-ui", "sans-serif"],
-    "display": ["Georgia", "serif"]
+    "ui": ["IBM Plex Sans", "Segoe UI", "system-ui", "sans-serif"],
+    "display": ["IBM Plex Sans", "Segoe UI", "system-ui", "sans-serif"],
+    "mono": ["IBM Plex Mono", "Cascadia Mono", "Consolas", "monospace"]
   },
   "logo": "none (text wordmark 'Portfolio Beach' in the prototype)",
   "missingValue": "-"
