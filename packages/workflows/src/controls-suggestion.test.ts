@@ -5,6 +5,9 @@ import { CalcError, SUGGESTION_BASES } from '@pb/calc';
 import type { SuggestionBasis } from '@pb/calc';
 import {
   NO_SUGGESTION_REASONS,
+  PERIOD_END_KEY,
+  STATEMENT_LINE_KEYS,
+  STATEMENT_SHARE_KEY,
   SUGGESTION_BUSY_REFUSAL,
   SUGGESTION_CHANGED_REFUSAL,
   SUGGESTION_DEAL_TYPES,
@@ -13,13 +16,18 @@ import {
   SUGGESTIONS_OFF_REFUSAL,
   SuggestionConfigError,
   derivationStep,
+  figureReviewersOf,
+  figureSourceOf,
+  finalValuesOf,
   keepSuggestionKeys,
   readSources,
   readStatement,
+  recordFigureOf,
   referenceOnHand,
   sameSuggestion,
   selectSuggestion,
   sourceReviewersOf,
+  statementOnHandOf,
   suggestionBar,
   suggestionCommandRecord,
   suggestionDraftKeys,
@@ -30,13 +38,16 @@ import {
 import { SUPERSEDED_REASONS, attempt, valuationSuggestionMachine } from './index.js';
 import type {
   DerivationInput,
+  FinalValue,
   MarkOnRecord,
   PriorSuggestion,
   QuarterOnRecord,
   ReferenceOnHand,
   ReportOnHand,
+  RunBehind,
   Selection,
   SourcedFigure,
+  StagedFigure,
   StatementLine,
   StatementOnHand,
   SuggestionPosition,
@@ -416,6 +427,192 @@ describe('referenceOnHand: the mark a suggestion is set against', () => {
       toleranceDays: 7,
     });
     expect(found.quarter?.id).toBe('late');
+  });
+});
+
+describe('reading an approved run: what its approval stands behind', () => {
+  const APPROVER = '10000000-0000-4000-8000-000000000004';
+  const behind: RunBehind = {
+    id: '60000000-0000-4000-8000-000000000001',
+    documentId: DOC,
+    approvedBy: APPROVER,
+    promptVersion: 'capital_account_extraction@1',
+    modelId: null,
+  };
+  const staged = (field: string, over: Partial<StagedFigure> = {}): StagedFigure => ({
+    field,
+    value: '20.94',
+    unit: 'USD_M',
+    page: 1,
+    decision: 'accepted',
+    editedValue: null,
+    editedUnit: null,
+    reviewerId: APPROVER,
+    ...over,
+  });
+  const typed = (field: string, value: string, unit: string | null): StagedFigure =>
+    staged(field, {
+      decision: 'edited',
+      editedValue: value,
+      editedUnit: unit,
+      reviewerId: REVIEWER,
+    });
+
+  it('names the keys of a statement once, for the API and the preview alike', () => {
+    expect(STATEMENT_LINE_KEYS).toEqual({
+      beginningBalance: 'beginning_capital_balance',
+      contributionsInPeriod: 'contributions_in_period',
+      distributionsInPeriod: 'distributions_in_period',
+      netGainLoss: 'net_gain_loss',
+      endingBalance: 'ending_capital_balance',
+      contributionsToDate: 'contributions_to_date',
+    });
+    expect(STATEMENT_SHARE_KEY).toBe('investor_share_pct');
+    expect(PERIOD_END_KEY).toBe('period_end');
+  });
+
+  it('keeps an accepted value as read and a typed one as typed, and nothing else', () => {
+    const finals = finalValuesOf([
+      staged('accepted_line'),
+      typed('typed_line', '21.10', 'USD_M'),
+      // Nobody decided it, it was rejected, the document did not state it, the edit carries no value.
+      staged('undecided', { decision: null }),
+      staged('rejected', { decision: 'rejected' }),
+      staged('unstated', { value: null }),
+      staged('empty_edit', { decision: 'edited', editedValue: null }),
+    ]);
+    expect([...finals.keys()]).toEqual(['accepted_line', 'typed_line']);
+    expect(finals.get('accepted_line')).toEqual({
+      value: '20.94',
+      unit: 'USD_M',
+      page: 1,
+      edited: false,
+      reviewerId: APPROVER,
+    });
+    // A typed value has no page of its own, and carries the unit it was typed in.
+    expect(finals.get('typed_line')).toEqual({
+      value: '21.10',
+      unit: 'USD_M',
+      page: null,
+      edited: true,
+      reviewerId: REVIEWER,
+    });
+  });
+
+  it('cites a value read to its page and a typed one to the reviewer, who then stands behind it too', () => {
+    const read: FinalValue = { value: '1', unit: 'USD', page: 2, edited: false, reviewerId: null };
+    const byHand: FinalValue = { ...read, page: null, edited: true, reviewerId: REVIEWER };
+    expect(figureSourceOf(read, behind)).toEqual({ kind: 'document', id: DOC, page: 2 });
+    expect(figureSourceOf(byHand, behind)).toEqual({ kind: 'reviewer', id: REVIEWER, page: null });
+    // A typed value whose reviewer is not on record is the approver's.
+    expect(figureSourceOf({ ...byHand, reviewerId: null }, behind)).toEqual({
+      kind: 'reviewer',
+      id: APPROVER,
+      page: null,
+    });
+    expect(figureReviewersOf(read, behind)).toEqual([APPROVER]);
+    expect(figureReviewersOf(byHand, behind)).toEqual([APPROVER, REVIEWER]);
+    expect(figureReviewersOf({ ...byHand, reviewerId: null }, behind)).toEqual([APPROVER]);
+  });
+
+  it('reads the lines of a statement in the unit each was read in, and leaves out one with no money unit', () => {
+    const finals = finalValuesOf([
+      staged(STATEMENT_LINE_KEYS.endingBalance),
+      staged(STATEMENT_LINE_KEYS.beginningBalance, { value: '18420', unit: 'USD_K', page: 2 }),
+      typed(STATEMENT_LINE_KEYS.contributionsToDate, '12.40', 'USD_M'),
+      // A money line that carries a percent, and one with no unit, cannot be converted.
+      staged(STATEMENT_LINE_KEYS.netGainLoss, { unit: 'PCT' }),
+      staged(STATEMENT_LINE_KEYS.contributionsInPeriod, { unit: null }),
+      staged(STATEMENT_SHARE_KEY, { value: '0.2500', unit: 'PCT' }),
+    ]);
+    expect(statementOnHandOf(finals, behind)).toEqual({
+      beginningBalance: {
+        value: '18420',
+        unit: 'USD_K',
+        source: { kind: 'document', id: DOC, page: 2 },
+        edited: false,
+      },
+      contributionsInPeriod: null,
+      distributionsInPeriod: null,
+      netGainLoss: null,
+      endingBalance: line('20.94'),
+      contributionsToDate: {
+        value: '12.40',
+        unit: 'USD_M',
+        source: { kind: 'reviewer', id: REVIEWER, page: null },
+        edited: true,
+      },
+      // A fraction of one, as rule 12.1 takes it.
+      share: { value: '0.2500', source: { kind: 'document', id: DOC, page: 1 }, edited: false },
+    });
+    expect(statementOnHandOf(new Map(), behind).share).toBeNull();
+  });
+
+  it('cites a figure of the record to the run only when that run read this very figure', () => {
+    const fromTheRecord = {
+      figure: {
+        value: '413000000.00',
+        source: { kind: 'record', id: QUARTER, page: null },
+        edited: false,
+      },
+      reviewers: [],
+    };
+    const final = (over: Partial<FinalValue> = {}): FinalValue => ({
+      value: '413',
+      unit: 'USD_M',
+      page: 3,
+      edited: false,
+      reviewerId: APPROVER,
+      ...over,
+    });
+    // The quarter names no run (it was seeded or imported): the record, and nobody behind it.
+    expect(recordFigureOf(quarter, 'ev', null)).toEqual(fromTheRecord);
+    // The run read it: its page, and its approver stands behind it.
+    expect(recordFigureOf(quarter, 'ev', { behind, final: final() })).toEqual({
+      figure: {
+        value: '413000000.00',
+        source: { kind: 'document', id: DOC, page: 3 },
+        edited: false,
+      },
+      reviewers: [APPROVER],
+    });
+    // A reviewer typed it: no page, and both people stand behind it.
+    expect(
+      recordFigureOf(quarter, 'ev', {
+        behind,
+        final: final({ page: null, edited: true, reviewerId: REVIEWER }),
+      }),
+    ).toEqual({
+      figure: {
+        value: '413000000.00',
+        source: { kind: 'reviewer', id: REVIEWER, page: null },
+        edited: true,
+      },
+      reviewers: [APPROVER, REVIEWER],
+    });
+    // The run rejected the field, read another figure, or read no money: the record's.
+    for (const other of [undefined, final({ value: '412.9' }), final({ unit: 'PCT' })])
+      expect(recordFigureOf(quarter, 'ev', { behind, final: other })).toEqual(fromTheRecord);
+    // To the cent, rounded half away from zero, as the column keeps a figure.
+    expect(
+      recordFigureOf({ ...quarter, netDebt: '150000000.13' }, 'netDebt', {
+        behind,
+        final: final({ value: '150000000.125', unit: 'USD' }),
+      }).reviewers,
+    ).toEqual([APPROVER]);
+    expect(
+      recordFigureOf({ ...quarter, netDebt: '150000000.12' }, 'netDebt', {
+        behind,
+        final: final({ value: '150000000.125', unit: 'USD' }),
+      }).reviewers,
+    ).toEqual([]);
+    // A figure the record does not hold is not on hand, whatever the run read.
+    expect(
+      recordFigureOf({ ...quarter, ebitdaLtm: null }, 'ebitdaLtm', { behind, final: final() }),
+    ).toEqual({
+      figure: null,
+      reviewers: [],
+    });
   });
 });
 

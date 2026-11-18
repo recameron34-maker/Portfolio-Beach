@@ -1,7 +1,13 @@
 import type { ExtractionSchema, ExtractionSchemas, TargetColumn } from '@pb/ai';
 import { promotesToRecord } from '@pb/ai';
 import { EXPECTED_DOC_TYPES } from '@pb/validation';
-import { SuggestionConfigError, suggestionSettings } from '@pb/workflows';
+import {
+  PERIOD_END_KEY,
+  STATEMENT_LINE_KEYS,
+  STATEMENT_SHARE_KEY,
+  SuggestionConfigError,
+  suggestionSettings,
+} from '@pb/workflows';
 import type { SuggestionSettings } from '@pb/workflows';
 import { configError } from '../common/definitions.js';
 import { ProblemError } from '../common/problem.js';
@@ -28,23 +34,13 @@ export function suggestionSettingsOf(definitions: unknown): SuggestionSettings {
   }
 }
 
-/**
- * The lines of a capital account statement the suggestion rules read (docs/08 rule 12.1), by
- * the key config/extraction_schema.json gives each. The keys are the schema's own: a statement
- * schema that lacks one is refused when the schemas are read (statementSchemasOf).
+/*
+ * The lines of a capital account statement the suggestion rules read, our share of the vehicle
+ * and the period end, by the key config/extraction_schema.json gives each: named once, in
+ * @pb/workflows, for the API and the static preview alike. A statement schema that lacks one is
+ * refused when the schemas are read (suggestionSchemasOf).
  */
-export const STATEMENT_LINE_KEYS = {
-  beginningBalance: 'beginning_capital_balance',
-  contributionsInPeriod: 'contributions_in_period',
-  distributionsInPeriod: 'distributions_in_period',
-  netGainLoss: 'net_gain_loss',
-  endingBalance: 'ending_capital_balance',
-  contributionsToDate: 'contributions_to_date',
-} as const;
-/** Our share of the vehicle, when the statement's lines are for the whole vehicle: a fraction of one. */
-export const STATEMENT_SHARE_KEY = 'investor_share_pct';
-/** The period a run's figures are for: every schema states it under this key. */
-export const PERIOD_END_KEY = 'period_end';
+export { PERIOD_END_KEY, STATEMENT_LINE_KEYS, STATEMENT_SHARE_KEY };
 
 /** The schemas of a kind, by id. */
 export interface SuggestionSchemas {

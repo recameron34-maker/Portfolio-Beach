@@ -1,11 +1,13 @@
 import {
   CalcError,
   D,
+  Decimal,
   SUGGESTION_BASES,
   alignedQuarterEnd,
   hasFlowBetween,
   heldMultipleMark,
   impliedStakeMark,
+  isMoneyUnit,
   isQuarterEnd,
   latestLockedBefore,
   lockedForOrAfter,
@@ -323,6 +325,171 @@ export function referenceOnHand(input: {
       input.periodEnd,
     ),
     quarter,
+  };
+}
+
+/* ---- Reading an approved run (docs/18 section 14) ---- */
+
+/**
+ * The lines of a capital account statement the rules read (docs/08 rule 12.1), by the key
+ * config/extraction_schema.json gives each. The keys are the schema's own: the API refuses a
+ * statement schema that lacks one when it reads the schemas.
+ */
+export const STATEMENT_LINE_KEYS = {
+  beginningBalance: 'beginning_capital_balance',
+  contributionsInPeriod: 'contributions_in_period',
+  distributionsInPeriod: 'distributions_in_period',
+  netGainLoss: 'net_gain_loss',
+  endingBalance: 'ending_capital_balance',
+  contributionsToDate: 'contributions_to_date',
+} as const;
+/** Our share of the vehicle, when the statement's lines are for the whole vehicle: a fraction of one. */
+export const STATEMENT_SHARE_KEY = 'investor_share_pct';
+/** The period a run's figures are for: every schema states it under this key. */
+export const PERIOD_END_KEY = 'period_end';
+
+/** One staged value of a run, as far as the rules read it (stg.extracted_value). */
+export interface StagedFigure {
+  field: string;
+  value: string | null;
+  unit: string | null;
+  page: number | null;
+  decision: string | null;
+  editedValue: string | null;
+  editedUnit: string | null;
+  reviewerId: string | null;
+}
+
+/** The value a person stood behind for one field of a run: accepted as read, or typed over it. */
+export interface FinalValue {
+  value: string;
+  unit: string | null;
+  /** The page it was read from; null for a value a reviewer typed. */
+  page: number | null;
+  edited: boolean;
+  reviewerId: string | null;
+}
+
+/** An approved run a suggestion can name as the one that produced it. */
+export interface RunBehind {
+  id: string;
+  documentId: string;
+  approvedBy: string;
+  promptVersion: string;
+  modelId: string | null;
+}
+
+/**
+ * The accepted and edited values of a run, by field: what its approval stands behind. A value
+ * nobody decided, a rejected one and an accepted one the document did not state are not on hand:
+ * nothing is suggested from a figure no person stood behind.
+ */
+export function finalValuesOf(rows: readonly StagedFigure[]): Map<string, FinalValue> {
+  const out = new Map<string, FinalValue>();
+  for (const row of rows) {
+    if (row.decision === 'edited' && row.editedValue !== null)
+      out.set(row.field, {
+        value: row.editedValue,
+        unit: row.editedUnit,
+        page: null,
+        edited: true,
+        reviewerId: row.reviewerId,
+      });
+    else if (row.decision === 'accepted' && row.value !== null)
+      out.set(row.field, {
+        value: row.value,
+        unit: row.unit,
+        page: row.page,
+        edited: false,
+        reviewerId: row.reviewerId,
+      });
+  }
+  return out;
+}
+
+/** Where a final value of a run came from: the page of the run's document, or the reviewer who typed it. */
+export function figureSourceOf(final: FinalValue, behind: RunBehind): FigureSource {
+  return final.edited
+    ? { kind: 'reviewer', id: final.reviewerId ?? behind.approvedBy, page: null }
+    : { kind: 'document', id: behind.documentId, page: final.page };
+}
+
+/** Who stands behind a final value of a run: its approver, and the reviewer when the value was typed. */
+export function figureReviewersOf(final: FinalValue, behind: RunBehind): string[] {
+  return final.edited && final.reviewerId !== null
+    ? [behind.approvedBy, final.reviewerId]
+    : [behind.approvedBy];
+}
+
+/**
+ * The statement on hand: the lines of one approved statement run, each in the unit it was read
+ * in. A money line with no money unit cannot be converted and is not on hand. The share travels
+ * as a fraction of one (0.2500 for 25%), which is what rule 12.1 takes.
+ */
+export function statementOnHandOf(
+  finals: ReadonlyMap<string, FinalValue>,
+  behind: RunBehind,
+): StatementOnHand {
+  const line = (key: string): StatementLine | null => {
+    const final = finals.get(key);
+    if (final === undefined || final.unit === null || !isMoneyUnit(final.unit)) return null;
+    return {
+      value: final.value,
+      unit: final.unit,
+      source: figureSourceOf(final, behind),
+      edited: final.edited,
+    };
+  };
+  const share = finals.get(STATEMENT_SHARE_KEY);
+  return {
+    beginningBalance: line(STATEMENT_LINE_KEYS.beginningBalance),
+    contributionsInPeriod: line(STATEMENT_LINE_KEYS.contributionsInPeriod),
+    distributionsInPeriod: line(STATEMENT_LINE_KEYS.distributionsInPeriod),
+    netGainLoss: line(STATEMENT_LINE_KEYS.netGainLoss),
+    endingBalance: line(STATEMENT_LINE_KEYS.endingBalance),
+    contributionsToDate: line(STATEMENT_LINE_KEYS.contributionsToDate),
+    share:
+      share === undefined
+        ? null
+        : { value: share.value, source: figureSourceOf(share, behind), edited: share.edited },
+  };
+}
+
+/** The figures of the quarterly record a report rule reads. */
+export type RecordFigureColumn = 'ev' | 'netDebt' | 'ebitdaLtm';
+
+/**
+ * A figure of an approved quarter with where it came from and who stands behind it. The value is
+ * always the record's. It is cited to the run the quarter names only when that run read this
+ * very figure: `lineage.final` is the run's final value for the field, and it counts when, in
+ * dollars and to the cent (rounded half away from zero, as the column keeps it), it is the
+ * record's. A promotion leaves a rejected field as the record held it, and an accounting import
+ * replaces the figures and the lineage whole: such a figure is cited to the record, and nobody
+ * is named for it.
+ */
+export function recordFigureOf(
+  on: QuarterOnRecord,
+  column: RecordFigureColumn,
+  lineage: { behind: RunBehind; final: FinalValue | undefined } | null,
+): { figure: SourcedFigure | null; reviewers: string[] } {
+  const stored = on[column];
+  if (stored === null) return { figure: null, reviewers: [] };
+  const fromTheRecord: { figure: SourcedFigure; reviewers: string[] } = {
+    figure: { value: stored, source: { kind: 'record', id: on.id, page: null }, edited: false },
+    reviewers: [],
+  };
+  const final = lineage?.final;
+  if (lineage === null || final === undefined || final.unit === null || !isMoneyUnit(final.unit))
+    return fromTheRecord;
+  const read = toDollars(final.value, final.unit).toDecimalPlaces(2, Decimal.ROUND_HALF_UP);
+  if (!read.eq(D(stored))) return fromTheRecord;
+  return {
+    figure: {
+      value: stored,
+      source: figureSourceOf(final, lineage.behind),
+      edited: final.edited,
+    },
+    reviewers: figureReviewersOf(final, lineage.behind),
   };
 }
 

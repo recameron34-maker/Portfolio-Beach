@@ -1,16 +1,26 @@
 import { and, asc, desc, eq, inArray, isNotNull } from 'drizzle-orm';
 import type { ExtractionSchema, TargetColumn } from '@pb/ai';
-import { D, Decimal, alignedQuarterEnd, isMoneyUnit, summarizeFlows, toDollars } from '@pb/calc';
+import { alignedQuarterEnd, summarizeFlows } from '@pb/calc';
 import { schema } from '@pb/db';
 import type { Tx } from '@pb/db';
-import { referenceOnHand } from '@pb/workflows';
+import {
+  PERIOD_END_KEY,
+  STATEMENT_LINE_KEYS,
+  STATEMENT_SHARE_KEY,
+  figureReviewersOf,
+  finalValuesOf,
+  recordFigureOf,
+  referenceOnHand,
+  statementOnHandOf,
+} from '@pb/workflows';
 import type {
-  FigureSource,
+  FinalValue,
   MarkOnRecord,
   QuarterOnRecord,
+  RecordFigureColumn,
   ReportOnHand,
+  RunBehind,
   SourcedFigure,
-  StatementLine,
   StatementOnHand,
   SuggestionPosition,
   SuggestionSettings,
@@ -18,13 +28,10 @@ import type {
 } from '@pb/workflows';
 import { APPROVED } from '../intake/promote.js';
 import { kindOf } from '../portfolio/metrics.js';
-import {
-  PERIOD_END_KEY,
-  STATEMENT_LINE_KEYS,
-  STATEMENT_SHARE_KEY,
-  fieldKeyOf,
-} from './settings.js';
+import { fieldKeyOf } from './settings.js';
 import type { SuggestionSchemas } from './settings.js';
+
+export type { RunBehind } from '@pb/workflows';
 
 /*
  * The sources on hand for one position and quarter (docs/08 section 12, docs/18 section 14,
@@ -43,15 +50,16 @@ import type { SuggestionSchemas } from './settings.js';
  *   restated it, or nothing was extracted).
  * - Who stands behind each input: the approver of the run it came from and whoever typed it,
  *   for the figures of the earlier quarter too.
+ *
+ * What a run's approval stands behind, how a statement's lines are read and when a figure of the
+ * record is cited to a run are rules of @pb/workflows (controls-suggestion.ts), which the static
+ * preview reads its own session through; only the queries are here.
  */
 
 const run = schema.extractionRun;
 const value = schema.extractedValue;
 const quarter = schema.quarterlyPerformance;
 const valuation = schema.valuation;
-
-const ACCEPTED = 'accepted';
-const EDITED = 'edited';
 
 /** A valuation version of the position, as the rules and the commands read it. */
 export interface PositionVersion extends MarkOnRecord {
@@ -66,15 +74,6 @@ export interface GatheredPosition extends SuggestionPosition {
   investmentNumber: string;
   companyName: string;
   vehicleName: string;
-}
-
-/** An approved run a suggestion can name as the one that produced it. */
-export interface RunBehind {
-  id: string;
-  documentId: string;
-  approvedBy: string;
-  promptVersion: string;
-  modelId: string | null;
 }
 
 export interface Gathered {
@@ -103,64 +102,23 @@ export interface GatherRequest {
   statementRunId?: string;
 }
 
-/** The value a person stood behind for one field of a run: accepted as read, or typed over it. */
-interface FinalValue {
-  value: string;
-  unit: string | null;
-  page: number | null;
-  edited: boolean;
-  reviewerId: string | null;
-}
-
 /** The accepted and edited values of a run, by field: what its approval stands behind. */
-async function finalValuesOf(tx: Tx, runId: string): Promise<Map<string, FinalValue>> {
-  const rows = await tx
-    .select({
-      field: value.field,
-      value: value.value,
-      unit: value.unit,
-      page: value.page,
-      decision: value.decision,
-      editedValue: value.editedValue,
-      editedUnit: value.editedUnit,
-      reviewerId: value.reviewerId,
-    })
-    .from(value)
-    .where(eq(value.runId, runId));
-  const out = new Map<string, FinalValue>();
-  for (const row of rows) {
-    if (row.decision === EDITED && row.editedValue !== null)
-      out.set(row.field, {
-        value: row.editedValue,
-        unit: row.editedUnit,
-        page: null,
-        edited: true,
-        reviewerId: row.reviewerId,
-      });
-    else if (row.decision === ACCEPTED && row.value !== null)
-      out.set(row.field, {
-        value: row.value,
-        unit: row.unit,
-        page: row.page,
-        edited: false,
-        reviewerId: row.reviewerId,
-      });
-  }
-  return out;
-}
-
-/** Where a final value of a run came from: the page of the run's document, or the reviewer who typed it. */
-function sourceOf(final: FinalValue, behind: RunBehind): FigureSource {
-  return final.edited
-    ? { kind: 'reviewer', id: final.reviewerId ?? behind.approvedBy, page: null }
-    : { kind: 'document', id: behind.documentId, page: final.page };
-}
-
-/** Who stands behind a final value of a run: its approver, and the reviewer when the value was typed. */
-function reviewersOf(final: FinalValue, behind: RunBehind): string[] {
-  return final.edited && final.reviewerId !== null
-    ? [behind.approvedBy, final.reviewerId]
-    : [behind.approvedBy];
+async function finalValues(tx: Tx, runId: string): Promise<Map<string, FinalValue>> {
+  return finalValuesOf(
+    await tx
+      .select({
+        field: value.field,
+        value: value.value,
+        unit: value.unit,
+        page: value.page,
+        decision: value.decision,
+        editedValue: value.editedValue,
+        editedUnit: value.editedUnit,
+        reviewerId: value.reviewerId,
+      })
+      .from(value)
+      .where(eq(value.runId, runId)),
+  );
 }
 
 /** An approved run by id, with what a suggestion records of it; null when it is not approved or not visible. */
@@ -184,44 +142,13 @@ async function approvedRun(
   return { ...row, approvedBy: row.approvedBy };
 }
 
-/**
- * The statement on hand: the lines of one approved statement run, each in the unit it was read
- * in. A money line with no money unit cannot be converted and is not on hand.
- */
-function statementOf(finals: ReadonlyMap<string, FinalValue>, behind: RunBehind): StatementOnHand {
-  const line = (key: string): StatementLine | null => {
-    const final = finals.get(key);
-    if (final === undefined || final.unit === null || !isMoneyUnit(final.unit)) return null;
-    return {
-      value: final.value,
-      unit: final.unit,
-      source: sourceOf(final, behind),
-      edited: final.edited,
-    };
-  };
-  const share = finals.get(STATEMENT_SHARE_KEY);
-  return {
-    beginningBalance: line(STATEMENT_LINE_KEYS.beginningBalance),
-    contributionsInPeriod: line(STATEMENT_LINE_KEYS.contributionsInPeriod),
-    distributionsInPeriod: line(STATEMENT_LINE_KEYS.distributionsInPeriod),
-    netGainLoss: line(STATEMENT_LINE_KEYS.netGainLoss),
-    endingBalance: line(STATEMENT_LINE_KEYS.endingBalance),
-    contributionsToDate: line(STATEMENT_LINE_KEYS.contributionsToDate),
-    // A percent travels as a fraction of one (0.2500 for 25%), which is what rule 12.1 takes.
-    share:
-      share === undefined
-        ? null
-        : { value: share.value, source: sourceOf(share, behind), edited: share.edited },
-  };
-}
-
 /** An approved quarter of the record with the lineage it names. */
 interface LoadedQuarter extends QuarterOnRecord {
   extractionRunId: string | null;
 }
 
 /** The record's figure for a target column of the report schema. */
-const RECORD_COLUMN: Readonly<Partial<Record<TargetColumn, 'ev' | 'netDebt' | 'ebitdaLtm'>>> = {
+const RECORD_COLUMN: Readonly<Partial<Record<TargetColumn, RecordFigureColumn>>> = {
   ev: 'ev',
   net_debt: 'netDebt',
   ebitda_ltm: 'ebitdaLtm',
@@ -234,35 +161,22 @@ interface LineageRun {
   finals: ReadonlyMap<string, FinalValue>;
 }
 
-/**
- * A figure of an approved quarter with where it came from. The value is always the record's.
- * It is cited to the run the quarter names only when that run read this very figure (its final
- * value, in dollars and to the cent, is the record's): a promotion leaves a rejected field as
- * the record held it, and an accounting import replaces the figures and the lineage whole.
- */
+/** A figure of an approved quarter with where it came from (recordFigureOf), for a column of the report schema. */
 function recordFigure(
   on: LoadedQuarter,
   target: TargetColumn,
   lineage: LineageRun | null,
 ): { figure: SourcedFigure | null; reviewers: string[] } {
   const column = RECORD_COLUMN[target];
-  const stored = column === undefined ? null : on[column];
-  if (stored === null) return { figure: null, reviewers: [] };
-  const fromRecord = {
-    figure: { value: stored, source: { kind: 'record', id: on.id, page: null }, edited: false },
-    reviewers: [],
-  } satisfies { figure: SourcedFigure; reviewers: string[] };
-  if (lineage === null) return fromRecord;
-  const key = fieldKeyOf(lineage.schema, target);
-  const final = key === null ? undefined : lineage.finals.get(key);
-  if (final === undefined || final.unit === null || !isMoneyUnit(final.unit)) return fromRecord;
-  // The record keeps a figure to the cent, rounded half away from zero as the column rounds it.
-  const read = toDollars(final.value, final.unit).toDecimalPlaces(2, Decimal.ROUND_HALF_UP);
-  if (!read.eq(D(stored))) return fromRecord;
-  return {
-    figure: { value: stored, source: sourceOf(final, lineage.behind), edited: final.edited },
-    reviewers: reviewersOf(final, lineage.behind),
-  };
+  if (column === undefined) return { figure: null, reviewers: [] };
+  const key = lineage === null ? null : fieldKeyOf(lineage.schema, target);
+  return recordFigureOf(
+    on,
+    column,
+    lineage === null || key === null
+      ? null
+      : { behind: lineage.behind, final: lineage.finals.get(key) },
+  );
 }
 
 /**
@@ -368,7 +282,7 @@ export async function gatherSources(
     const lineage =
       behind === null || reportSchema === undefined
         ? null
-        : { behind, schema: reportSchema, finals: await finalValuesOf(tx, behind.id) };
+        : { behind, schema: reportSchema, finals: await finalValues(tx, behind.id) };
     lineageCache.set(on.extractionRunId, lineage);
     return lineage;
   };
@@ -400,7 +314,7 @@ export async function gatherSources(
       // accepted, which is the run's when the document carries one.
       const own =
         candidate.periodEnd ??
-        (await finalValuesOf(tx, candidate.id)).get(PERIOD_END_KEY)?.value ??
+        (await finalValues(tx, candidate.id)).get(PERIOD_END_KEY)?.value ??
         null;
       if (own !== periodEnd) continue;
       statementRun = await approvedRun(tx, candidate.id);
@@ -408,11 +322,11 @@ export async function gatherSources(
     }
   }
   if (statementRun !== null) {
-    const finals = await finalValuesOf(tx, statementRun.id);
-    statement = statementOf(finals, statementRun);
+    const finals = await finalValues(tx, statementRun.id);
+    statement = statementOnHandOf(finals, statementRun);
     for (const key of [STATEMENT_LINE_KEYS.endingBalance, STATEMENT_SHARE_KEY]) {
       const final = finals.get(key);
-      if (final !== undefined) reviewersByKey.set(key, reviewersOf(final, statementRun));
+      if (final !== undefined) reviewersByKey.set(key, figureReviewersOf(final, statementRun));
     }
   }
 
