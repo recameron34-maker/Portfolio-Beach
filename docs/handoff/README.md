@@ -184,3 +184,5 @@ Checks for a UI change: `pnpm typecheck && pnpm lint`; `pnpm exec vitest run --p
 
 A first small item for it: section 7's page copy that names a config file.
 
+The UI session's plan is `docs/handoff/ui-pass-plan.md` (fourteen slices and a close, built from an audit of 174 screenshots and the owner's direction of 2026-11-18 that the app look "less like a standard anthropic build, throughout"). Its section 4 lists the slices; `git log` shows which are committed.
+
