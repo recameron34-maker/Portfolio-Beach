@@ -5,7 +5,7 @@ import { useQuery } from '@tanstack/react-query';
 import { Button } from '@fluentui/react-components';
 import type { QaFindingRow, ReportPackageContent, ReportPackageDetail } from '@pb/contracts';
 import { ApiError } from '../../../api/client.js';
-import { investmentsQuery, LIST_LIMIT } from '../../../app/queries.js';
+import { investmentsQuery, LIST_LIMIT, meQuery } from '../../../app/queries.js';
 import { UnavailableState } from '../../../components/UnavailableState.js';
 import { StepStrip } from '../../../components/StepStrip.js';
 import { ActionLogCard, ActionStatus } from '../../../components/WorkflowActions.js';
@@ -33,6 +33,7 @@ import {
 } from '../../../lib/format.js';
 import { useActionLog } from '../../../lib/workflow.js';
 import { reportPackageQuery } from './api.js';
+import { PackageActions } from './PackageActions.js';
 import {
   BASIS_WORDS,
   beginNavCell,
@@ -104,10 +105,17 @@ function NotGenerated(): ReactNode {
 
 /**
  * The release gate (docs/18 section 5): where the package stands among the six steps, what
- * happens next and who does it, who prepared, approved and released it, and once it is approved
- * the hash its content was locked with (SEC-9.3).
+ * happens next and who does it, the commands that move it, who prepared, approved and released
+ * it, and once it is approved the hash its content was locked with (SEC-9.3).
  */
-function ReleaseGateCard({ detail }: { detail: ReportPackageDetail }): ReactNode {
+function ReleaseGateCard({
+  detail,
+  actions,
+}: {
+  detail: ReportPackageDetail;
+  /** The commands a person may take from the package's state. */
+  actions: ReactNode;
+}): ReactNode {
   return (
     <Card testId="package-gate">
       <SectionHeader>Release gate</SectionHeader>
@@ -115,6 +123,7 @@ function ReleaseGateCard({ detail }: { detail: ReportPackageDetail }): ReactNode
       <p className="pb-pkg-next" data-testid="package-next">
         {NEXT_STEP_WORDS[detail.state]}
       </p>
+      {actions}
       <KeyValueTable
         label="Who moved the package"
         rows={[
@@ -564,6 +573,7 @@ function ChangeLogCard({ detail }: { detail: ReportPackageDetail }): ReactNode {
 
 function Body({ detail }: { detail: ReportPackageDetail }): ReactNode {
   const log = useActionLog();
+  const me = useQuery(meQuery);
   // The reader's own positions list gives each number its company; a position the reader cannot
   // list, or a list that did not load, leaves the number alone.
   const positions = useQuery(investmentsQuery({ limit: LIST_LIMIT }));
@@ -591,7 +601,12 @@ function Body({ detail }: { detail: ReportPackageDetail }): ReactNode {
         </p>
       ) : null}
       <ActionStatus latest={log.latest} testId="package-action-status" />
-      <ReleaseGateCard detail={detail} />
+      <ReleaseGateCard
+        detail={detail}
+        actions={
+          <PackageActions detail={detail} roles={me.data?.roles ?? []} names={names} onLog={log} />
+        }
+      />
       <ChecksCard detail={detail} names={names} />
       <PositionsCard detail={detail} content={content} names={names} />
       <div className="pb-two-col">
@@ -606,9 +621,9 @@ function Body({ detail }: { detail: ReportPackageDetail }): ReactNode {
 }
 
 /**
- * One reporting package (docs/04 M14): its header, its release gate, the checks of its latest
- * run with what each expected and found, its positions, footnotes and client share as stored,
- * the tie-out explanations and the generation runs. A package of a client the reader does not
+ * One reporting package (docs/04 M14): its header, its release gate with the commands that move
+ * it, the checks of its latest run with what each expected and found, its positions, footnotes
+ * and client share as stored, the tie-out explanations and the generation runs. A package of a client the reader does not
  * read answers 404 and reads as not found, so nothing says it exists.
  */
 export function PackageDetailPage(): ReactNode {

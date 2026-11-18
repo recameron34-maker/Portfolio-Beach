@@ -147,11 +147,19 @@ const NOT_SERVED = 'This build does not serve that action yet.';
  */
 export { withoutReferences };
 
+/** "Fair value" stays as it is; "Bank name" after another part reads "bank name"; "IC decision" keeps its capitals. */
+const lowerFirst = (words: string): string =>
+  /^[A-Z][a-z]/.test(words) ? words.charAt(0).toLowerCase() + words.slice(1) : words;
+
 export function plainRule(detail: string): string {
   const rule = withoutReferences(detail)
     .replace(/^[a-z_]+: /, '')
-    .replace(/\b[A-Z][a-z]+(?:[A-Z][a-z]+)+\b/g, (state) => humanizeState(state))
-    .replace(/\b[a-z]+(?:[A-Z][a-z]+)+\b/g, (command) => commandLabel(command).toLowerCase());
+    // A state name: words run together ("TicketDrafted"), or led by an acronym ("QAFailed").
+    .replace(/\b(?:[A-Z][a-z]+(?:[A-Z][a-z]+)+|[A-Z]{2,}[a-z]{2,})\b/g, (state) =>
+      humanizeState(state),
+    )
+    // A command name in the middle of the sentence: its acronym keeps its capitals ("override QA").
+    .replace(/\b[a-z]+(?:[A-Z][a-z]+)+\b/g, (command) => lowerFirst(commandLabel(command)));
   return rule.charAt(0).toUpperCase() + rule.slice(1);
 }
 
@@ -187,10 +195,6 @@ export function describeRefusal(status: number, rawDetail: string): string {
 }
 
 type Issue = NonNullable<ProblemDetails['errors']>[number];
-
-/** "Fair value" stays as it is; "Bank name" after another part reads "bank name"; "IC decision" keeps its capitals. */
-const lowerFirst = (words: string): string =>
-  /^[A-Z][a-z]/.test(words) ? words.charAt(0).toLowerCase() + words.slice(1) : words;
 
 /**
  * The path of a validation issue as a person reads the field: "fairValue" is "Fair value",

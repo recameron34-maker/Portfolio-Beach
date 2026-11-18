@@ -47,6 +47,14 @@
   line-height: 22px;
   color: var(--pb-text);
 }
+/* The commands of the gate, under the sentence that says what happens next. */
+.pb-pkg-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 14px;
+}
 /* The sentence a card opens on: whose reading the figures are, what a tie-out ties to. */
 .pb-pkg-note {
   max-width: 78ch;

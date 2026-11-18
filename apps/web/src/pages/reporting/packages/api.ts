@@ -6,8 +6,8 @@ import type {
   ReportPackageCreateBody,
   ReportPackageDetail,
 } from '@pb/contracts';
-import { api } from '../../../api/client.js';
-import { invalidate } from '../../../app/mutations.js';
+import { api, ApiError } from '../../../api/client.js';
+import { describeActionError, invalidate } from '../../../app/mutations.js';
 import { retryUnlessUnavailable } from '../../../lib/unavailable.js';
 
 /*
@@ -63,8 +63,11 @@ export function postPackageCommand(
   });
 }
 
-/** The reads a package write can change: the list, the package, and the audit trail every write adds to. */
-export const PACKAGE_KEYS: QueryKey[] = [['report-packages'], ['report-package'], ['audit']];
+/** The reads that show where a package stands: the list and the package. */
+export const PACKAGE_READS: QueryKey[] = [['report-packages'], ['report-package']];
+
+/** The reads a package write can change: where it stands, and the audit trail every write adds to. */
+export const PACKAGE_KEYS: QueryKey[] = [...PACKAGE_READS, ['audit']];
 
 export function useStartPackage(): UseMutationResult<
   ReportPackageDetail,
@@ -89,6 +92,12 @@ export interface PackageCommandVariables {
   body: ReportPackageCommandBody;
 }
 
+/**
+ * Moves a package. The answer becomes the package the page shows, so the next command carries
+ * its row version. A refusal reads the package and the list again: what refuses a command is
+ * most often what somebody else did to the package meanwhile (a stale row version above all),
+ * and the page must then show where it stands, with the row version the next try needs.
+ */
 export function usePackageCommand(): UseMutationResult<
   ReportPackageDetail,
   Error,
@@ -102,5 +111,17 @@ export function usePackageCommand(): UseMutationResult<
       queryClient.setQueryData(['report-package', detail.id], detail);
       invalidate(queryClient, PACKAGE_KEYS);
     },
+    onError: () => invalidate(queryClient, PACKAGE_READS),
   });
+}
+
+/**
+ * The sentence for a refused command. A stale row version says that somebody moved the package
+ * first and that the page was read again; anything else is worded as on every workflow page
+ * (the rule behind a refusal, without the control it cites).
+ */
+export function describePackageError(error: unknown): string {
+  if (error instanceof ApiError && error.status === 412)
+    return 'Someone changed this package first, so nothing was done. The page now shows it as it stands.';
+  return describeActionError(error);
 }

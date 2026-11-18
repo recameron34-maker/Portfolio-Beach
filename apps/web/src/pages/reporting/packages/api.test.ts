@@ -3,6 +3,7 @@ import { createElement } from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { renderHook, waitFor } from '@testing-library/react';
 import { IDEMPOTENCY_KEY_HEADER } from '@pb/contracts';
+import type { ProblemDetails } from '@pb/contracts';
 import { ApiError } from '../../../api/client.js';
 import { clearCredential, setCredential } from '../../../app/session.js';
 import {
@@ -14,7 +15,9 @@ import {
   PKG_PERIOD,
 } from '../../../test/fixtures-packages.js';
 import {
+  describePackageError,
   PACKAGE_KEYS,
+  PACKAGE_READS,
   reportPackageQuery,
   reportPackagesQuery,
   usePackageCommand,
@@ -23,6 +26,15 @@ import {
 
 const json = (status: number, body: unknown): Response =>
   new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
+
+/** The 412 the API answers a command whose If-Match names a row version that has moved on. */
+const STALE: ProblemDetails = {
+  type: 'https://portfolio-beach.example/problems/precondition-failed',
+  title: 'Precondition failed',
+  status: 412,
+  detail: 'The record changed since it was read',
+  request_id: 'test',
+};
 
 /** Renders a hook inside a query client and reports the keys it invalidates. */
 function harness<T>(hook: () => T): {
@@ -140,22 +152,63 @@ describe('reporting package writes', () => {
       expect(keys()).toContain(JSON.stringify([key]));
   });
 
-  it('changes nothing it holds when a command is refused', async () => {
-    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
-      json(412, {
-        type: 'https://portfolio-beach.example/problems/precondition-failed',
-        title: 'Precondition failed',
-        status: 412,
-        detail: 'The record changed since it was read',
-        request_id: 'test',
-      }),
-    );
+  it('keeps nothing of a refused command, and reads the package and the list again', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(json(412, STALE));
     const { result, client, keys } = harness(() => usePackageCommand());
     result.current.mutate({ id: PKG_ID.failed, rowVersion: 2, body: { command: 'submit' } });
     await waitFor(() => expect(result.current.isError).toBe(true));
     expect(result.current.error).toBeInstanceOf(ApiError);
     expect((result.current.error as ApiError).status).toBe(412);
+    // The answer of a refusal is not a package: nothing is put in its place.
     expect(client.getQueryData(['report-package', PKG_ID.failed])).toBeUndefined();
-    expect(keys()).toEqual([]);
+    // What refuses a command is most often what somebody else did meanwhile, so the page reads
+    // where the package stands now. Nothing was written, so the audit trail is left alone.
+    expect(keys().sort()).toEqual(PACKAGE_READS.map((key) => JSON.stringify(key)).sort());
+    expect(keys()).not.toContain(JSON.stringify(['audit']));
+  });
+});
+
+describe('a refused package command in words', () => {
+  const refusal = (status: number, detail: string, code = 'workflow-precondition'): ApiError =>
+    new ApiError({
+      type: `https://portfolio-beach.example/problems/${code}`,
+      title: 'Refused',
+      status,
+      detail,
+      request_id: 'test',
+    });
+
+  it('says of a stale row version that somebody moved the package first', () => {
+    expect(describePackageError(new ApiError(STALE))).toBe(
+      'Someone changed this package first, so nothing was done. The page now shows it as it stands.',
+    );
+  });
+
+  it('shows the rule behind a refusal without the control it cites', () => {
+    // The API words the preparer's refusal with its control number; the page drops the number.
+    expect(
+      describePackageError(
+        refusal(422, 'reporting_package: the package preparer cannot approve it (SEC-5.6)'),
+      ),
+    ).toBe('Blocked by a rule. The package preparer cannot approve it');
+    expect(
+      describePackageError(
+        refusal(
+          403,
+          'reporting_package: overrideQa from QAFailed requires one of: approver',
+          'forbidden',
+        ),
+      ),
+    ).toBe('Your role cannot do this. Override QA from QA failed requires one of: approver');
+    expect(
+      describePackageError(
+        refusal(
+          409,
+          'reporting_package: submit is not allowed from Released',
+          'workflow-transition',
+        ),
+      ),
+    ).toBe('Not allowed from the current state. Submit is not allowed from Released');
+    expect(describePackageError(new Error('Failed to fetch'))).toBe('Failed to fetch');
   });
 });

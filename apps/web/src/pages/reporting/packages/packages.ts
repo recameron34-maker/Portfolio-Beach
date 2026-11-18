@@ -2,11 +2,13 @@ import { isCalendarDate, latestQuarterEndOnOrBefore, previousQuarterEnd } from '
 import {
   REPORT_PACKAGE_STATES,
   reportPackageBasis,
+  reportPackageCommandBody,
   reportPackageCreateBody,
   reportPackageLabel,
 } from '@pb/contracts';
 import type {
   QaFindingRow,
+  ReportPackageCommandBody,
   ReportPackageCreateBody,
   ReportPackageDetail,
   ReportPackageLine,
@@ -28,6 +30,7 @@ import {
   formatUsdExact,
   labelOf,
   MISSING,
+  plural,
 } from '../../../lib/format.js';
 import { WHO_READS_EVERY_CLIENT } from '../../../lib/roles.js';
 import { commandOptions, humanizeState } from '../../../lib/states.js';
@@ -473,6 +476,105 @@ export function personCommands(
       return { ...option, roles: people, allowed: people.some((role) => roles.includes(role)) };
     })
     .filter((option) => option.roles.length > 0);
+}
+
+/* ---- Commands ---- */
+
+/** The rule whose failure an explanation settles: a begin NAV against the last released package. */
+const TIE_OUT_RULE: QaRule = 'QA-TIE-01';
+
+/**
+ * The tie-outs a regeneration asks about: the positions whose begin NAV did not tie to the last
+ * released package in the latest run and that carry no explanation yet, in the order of the run.
+ * Each is its finding, so the dialog can show what was compared. A position that is explained is
+ * not asked about again: an explanation stays on the package.
+ */
+export function unexplainedTieOuts(
+  detail: Pick<ReportPackageDetail, 'findings' | 'tieOutExplanations'>,
+): QaFindingRow[] {
+  return detail.findings.filter(
+    (finding) =>
+      finding.rule === TIE_OUT_RULE &&
+      !finding.passed &&
+      ENTITY_WORDS[finding.entityRef] === undefined &&
+      (detail.tieOutExplanations[finding.entityRef] ?? '').trim() === '',
+  );
+}
+
+/**
+ * The two figures a failed tie-out compared, to the cent, in a sentence: the end NAV of the last
+ * released package and the begin NAV of this one. A side that is not there is said in words,
+ * never as a figure.
+ */
+export function tieOutWords(finding: Pick<QaFindingRow, 'expected' | 'actual'>): string {
+  const last =
+    finding.expected === null
+      ? 'Not in the last released package'
+      : `Last released ${formatUsdExact(finding.expected)}`;
+  const begin =
+    finding.actual === null
+      ? 'no begin NAV in this package'
+      : `begin NAV ${formatUsdExact(finding.actual)}`;
+  return `${last}, ${begin}.`;
+}
+
+export const EXPLANATION_PROBLEM = 'Give 3 to 500 characters, or leave the box empty.';
+
+/** The body of a regeneration with the boxes that were filled in, trimmed; an empty box is left out. */
+function regenerateDraft(explanations: Readonly<Record<string, string>>): unknown {
+  const given = Object.entries(explanations)
+    .map(([ref, text]): [string, string] => [ref, text.trim()])
+    .filter(([, text]) => text !== '');
+  return given.length === 0
+    ? { command: 'regenerate' }
+    : { command: 'regenerate', explanations: Object.fromEntries(given) };
+}
+
+/** What is wrong with one explanation, judged by the contract's own body; null for an empty box, which is allowed. */
+export function explanationProblem(text: string): string | null {
+  const draft = regenerateDraft({ position: text });
+  return reportPackageCommandBody.safeParse(draft).success ? null : EXPLANATION_PROBLEM;
+}
+
+/** The regenerate command with its explanations by position number, or null while one of them cannot be sent. */
+export function regenerateBody(
+  explanations: Readonly<Record<string, string>>,
+): ReportPackageCommandBody | null {
+  const parsed = reportPackageCommandBody.safeParse(regenerateDraft(explanations));
+  return parsed.success ? parsed.data : null;
+}
+
+/** How many failed checks of a run no approver has overridden: what an override would cover. */
+export function openFailures(findings: readonly QaFindingRow[]): number {
+  return findings.filter((finding) => findingResult(finding) === 'failed').length;
+}
+
+/** What the override dialog says of its reason before it is given. */
+export function overrideSubject(failed: number): string {
+  const checks = failed === 1 ? 'the 1 failed check' : `all ${failed} failed checks`;
+  return `The reason is recorded against ${checks} of this run, with your name.`;
+}
+
+/**
+ * The result of a command in one line, from the package it answered: where the package stands
+ * now, and for a generation what its checks found, for an override how many failures it covers.
+ */
+export function commandResultWords(
+  command: ReportPackageCommandBody['command'],
+  detail: Pick<ReportPackageDetail, 'client' | 'periodEnd' | 'basis' | 'version' | 'state' | 'qa'>,
+): string {
+  const now = `${packageWords(detail)} is now ${humanizeState(detail.state)}`;
+  const { qa } = detail;
+  if (command === 'generate' || command === 'regenerate') {
+    const found =
+      qa.failed === 0
+        ? `all ${plural(qa.findings, 'check')} passed`
+        : `${qa.failed} of ${plural(qa.findings, 'check')} failed`;
+    return qa.runNo === null ? now : `${now}: ${found} in run ${qa.runNo}`;
+  }
+  if (command === 'overrideQa')
+    return `${now}: ${plural(qa.overridden, 'failed check')} overridden`;
+  return now;
 }
 
 /* ---- The list ---- */

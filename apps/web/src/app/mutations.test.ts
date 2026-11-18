@@ -406,6 +406,22 @@ describe('describeActionError', () => {
     ).toBe('Blocked by a rule. The ticket preparer cannot approve it');
   });
 
+  it('keeps an acronym in capitals in a state or a command name', () => {
+    expect(plainRule('reporting_package: submit is not allowed from QAFailed')).toBe(
+      'Submit is not allowed from QA failed',
+    );
+    expect(plainRule('reporting_package: overrideQa from QAFailed requires one of: approver')).toBe(
+      'Override QA from QA failed requires one of: approver',
+    );
+    expect(plainRule('reporting_package: regenerate is not allowed from QAPassed')).toBe(
+      'Regenerate is not allowed from QA passed',
+    );
+    // A plural of capitals is not a state name.
+    expect(plainRule('The IDs of the positions do not match')).toBe(
+      'The IDs of the positions do not match',
+    );
+  });
+
   it('reads a rule without the reference to the control or the document behind it', () => {
     // The API cites the control; the sentence on the page goes without it.
     expect(plainRule('capital_notice: the ticket preparer cannot approve it (SEC-12.3)')).toBe(
