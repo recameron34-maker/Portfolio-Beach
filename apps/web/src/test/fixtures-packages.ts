@@ -244,19 +244,20 @@ export function packageDetailFixture(
 /**
  * The final gross package of the latest quarter after its first generation: the three lines, the
  * engine's findings over them (the label check fails: final over a stale mark) and one run in
- * the change log. Row version 3: created, then the two writes of a generation.
+ * the change log. Row version 3: created, then the two writes of a generation. Given another
+ * snapshot, the findings, the counts and the run are the engine's over that one.
  */
 export function generatedDetailFixture(
   overrides: Partial<ReportPackageDetail> = {},
+  content: ReportPackageContent = packageContentFixture(),
 ): ReportPackageDetail {
-  const content = packageContentFixture();
   const findings = packageFindingsFixture(content);
   const qa = qaOf(findings);
   return packageDetailFixture({
     id: PKG_ID.failed,
     basis: 'gross',
     label: 'final',
-    state: 'QAFailed',
+    state: qa.failed === 0 ? 'QAPassed' : 'QAFailed',
     qa,
     rowVersion: 3,
     content,
@@ -273,6 +274,37 @@ export function generatedDetailFixture(
     ],
     ...overrides,
   });
+}
+
+/**
+ * A package as it stands once an approver overrode the failed checks of its run: every failed
+ * finding carries the one reason, the approver and the time, and the package is QA passed. Row
+ * version one on from the run it overrides.
+ */
+export function overriddenDetailFixture(
+  overrides: Partial<ReportPackageDetail> = {},
+): ReportPackageDetail {
+  const generated = generatedDetailFixture();
+  const findings = generated.findings.map((finding) =>
+    finding.passed
+      ? finding
+      : {
+          ...finding,
+          override: {
+            reason: 'The stale mark is disclosed in the cover letter.',
+            approver: PKG_PERSON.approver,
+            at: '2025-08-16T09:00:00.000Z',
+          },
+        },
+  );
+  return {
+    ...generated,
+    state: 'QAPassed',
+    findings,
+    qa: qaOf(findings),
+    rowVersion: generated.rowVersion + 1,
+    ...overrides,
+  };
 }
 
 /**

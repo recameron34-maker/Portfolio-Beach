@@ -6,9 +6,12 @@ import {
   reportPackageLabel,
 } from '@pb/contracts';
 import type {
+  QaFindingRow,
   ReportPackageCreateBody,
+  ReportPackageDetail,
   ReportPackageLine,
   ReportPackageRow,
+  ReportPackageRun,
   ReportPackageState,
 } from '@pb/contracts';
 import { STALE_FOOTNOTE } from '@pb/report-engine';
@@ -19,6 +22,8 @@ import definitions from '../../../../../../config/definitions.json';
 import type { Step, StepStatus } from '../../../components/StepStrip.js';
 import {
   formatDate,
+  formatDateTime,
+  formatMoneyM,
   formatQuarter,
   formatUsdExact,
   labelOf,
@@ -66,7 +71,7 @@ export function quarterChoices(asOf: string, count: number = PACKAGE_QUARTER_CHO
   return out;
 }
 
-/* ---- Positions ---- */
+/* ---- Position names ---- */
 
 /** The company of each position the reader can list, by position number. */
 export type PositionNames = ReadonlyMap<string, string>;
@@ -187,6 +192,187 @@ export function checksSummary(qa: ReportPackageRow['qa']): string {
   // An override stands for the run only when it covers every failure of it.
   if (qa.overridden >= qa.failed) return `${qa.failed} failed, overridden`;
   return `${qa.failed} of ${qa.findings} failed`;
+}
+
+/** How a check came out: it failed, it failed and an approver overrode it, or it passed. */
+export type FindingResult = 'failed' | 'overridden' | 'passed';
+
+export const RESULT_WORDS: Readonly<Record<FindingResult, string>> = {
+  failed: 'Failed',
+  overridden: 'Overridden',
+  passed: 'Passed',
+};
+
+export function findingResult(finding: Pick<QaFindingRow, 'passed' | 'override'>): FindingResult {
+  if (finding.passed) return 'passed';
+  return finding.override === null ? 'failed' : 'overridden';
+}
+
+/**
+ * The checks of a run that did not pass (an overridden check still did not) and those that did,
+ * each in the order the run answered them. The page shows the first and keeps the second behind
+ * a toggle.
+ */
+export function splitFindings(findings: readonly QaFindingRow[]): {
+  notPassed: QaFindingRow[];
+  passed: QaFindingRow[];
+} {
+  return {
+    notPassed: findings.filter((f) => !f.passed),
+    passed: findings.filter((f) => f.passed),
+  };
+}
+
+/** One override of a run: why, by whom, when, and how many failed checks it covers. */
+export interface OverrideWords {
+  reason: string;
+  /** The approver's name. */
+  approver: string;
+  at: string;
+  checks: number;
+}
+
+/**
+ * The overrides of a run, each once. An approver overrides every failed check of a run with one
+ * reason, so there is one as a rule; two are kept apart if the person, the time or the reason
+ * ever differs.
+ */
+export function overridesOf(findings: readonly QaFindingRow[]): OverrideWords[] {
+  const byKey = new Map<string, OverrideWords>();
+  for (const { override } of findings) {
+    if (override === null) continue;
+    const key = JSON.stringify([override.approver.id, override.at, override.reason]);
+    const seen = byKey.get(key);
+    if (seen === undefined)
+      byKey.set(key, {
+        reason: override.reason,
+        approver: override.approver.name,
+        at: override.at,
+        checks: 1,
+      });
+    else seen.checks += 1;
+  }
+  return [...byKey.values()];
+}
+
+/* ---- Positions ---- */
+
+/** A figure of a position's line as its cell shows it; `why` says why it is the placeholder. */
+export interface FigureCell {
+  text: string;
+  why?: string;
+}
+
+/** The begin NAV of a position entered in the quarter: it starts from nothing, which is not zero NAV on record. */
+export const NEW_THIS_QUARTER = 'New this quarter';
+export const NO_START_MARK = 'Not calculable: no locked mark at the start of the quarter';
+export const NO_END_MARK = 'Not calculable: no locked mark on or before the end of the quarter';
+const NO_MARK_QUARTER = 'The quarter of the mark is not recorded';
+
+const money = (value: string): FigureCell => ({ text: formatMoneyM(value) });
+const missing = (why: string): FigureCell => ({ text: MISSING, why });
+
+/**
+ * The begin NAV of a line as the package stores it. A position entered in the quarter reads as
+ * new; a held one with no Locked mark at the start of the quarter has no begin NAV, and the cell
+ * says so instead of showing zero or another quarter's figure.
+ */
+export function beginNavCell(line: ReportPackageLine): FigureCell {
+  const stored = line.beginNav;
+  if (line.enteredInPeriod && (stored === null || !/[1-9]/.test(stored)))
+    return { text: NEW_THIS_QUARTER };
+  return stored === null ? missing(NO_START_MARK) : money(stored);
+}
+
+/** The end NAV of a line; with no mark to report on or before the quarter end there is none. */
+export function endNavCell(line: ReportPackageLine): FigureCell {
+  return line.endNav === null ? missing(NO_END_MARK) : money(line.endNav);
+}
+
+/** The gain or loss of a line, or which of its two ends is missing when there is none. */
+export function gainLossCell(line: ReportPackageLine): FigureCell {
+  if (line.gainLoss !== null) return money(line.gainLoss);
+  return missing(line.endNav === null ? NO_END_MARK : NO_START_MARK);
+}
+
+/**
+ * Which mark the end NAV of a line stands on: the quarter end's, or an earlier one rolled
+ * forward for the cash flows since (the line then carries the footnote).
+ */
+export function markCell(line: ReportPackageLine, periodEnd: string): FigureCell {
+  if (line.endNav === null) return missing(NO_END_MARK);
+  if (line.endNavPeriodEnd === null) return missing(NO_MARK_QUARTER);
+  return {
+    text:
+      line.endNavPeriodEnd < periodEnd
+        ? `Rolled forward from ${formatDate(line.endNavPeriodEnd)}`
+        : 'Quarter end',
+  };
+}
+
+/**
+ * Whose reading of the record a package's figures are: the person who ran its latest generation
+ * (the snapshot is built from the positions that person could read), or the preparer while
+ * nothing has been generated.
+ */
+export function generatedBy(detail: Pick<ReportPackageDetail, 'preparedBy' | 'changeLog'>): string {
+  const latest = detail.changeLog.reduce<ReportPackageRun | null>(
+    (best, run) => (best === null || run.runNo > best.runNo ? run : best),
+    null,
+  );
+  return (latest?.by ?? detail.preparedBy).name;
+}
+
+/** Order by text, code unit by code unit: the order the positions of a package are stored in. */
+const byText = (a: string, b: string): number => (a < b ? -1 : a > b ? 1 : 0);
+
+/**
+ * The client lines in the order of the positions table (by position number), so the two read
+ * side by side; the package stores them vehicle by vehicle. Lines of one position keep the
+ * order they were stored in.
+ */
+export function clientShareRows(
+  clientLines: NonNullable<ReportPackageDetail['content']>['clientLines'],
+): NonNullable<ReportPackageDetail['content']>['clientLines'] {
+  return clientLines
+    .map((line, index) => ({ line, index }))
+    .sort((a, b) => byText(a.line.ref, b.line.ref) || a.index - b.index)
+    .map(({ line }) => line);
+}
+
+/* ---- Tie-out explanations and the change log ---- */
+
+/** The recorded explanations, one per position, by position number. */
+export function explanationRows(
+  explanations: Readonly<Record<string, string>>,
+): { ref: string; text: string }[] {
+  return Object.entries(explanations)
+    .map(([ref, text]) => ({ ref, text }))
+    .sort((a, b) => byText(a.ref, b.ref));
+}
+
+export interface ChangeLogRow {
+  runNo: number;
+  at: string;
+  /** The name of the person who ran the generation. */
+  by: string;
+  positions: number;
+  checks: number;
+  failed: number;
+}
+
+/** The generation runs of a package, newest first, with the time in words and the person by name. */
+export function changeLogRows(runs: readonly ReportPackageRun[]): ChangeLogRow[] {
+  return [...runs]
+    .sort((a, b) => b.runNo - a.runNo)
+    .map((run) => ({
+      runNo: run.runNo,
+      at: formatDateTime(run.at),
+      by: run.by.name,
+      positions: run.lines,
+      checks: run.findings,
+      failed: run.failed,
+    }));
 }
 
 /* ---- Footnotes ---- */

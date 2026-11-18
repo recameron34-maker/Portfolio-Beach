@@ -47,6 +47,43 @@
   line-height: 22px;
   color: var(--pb-text);
 }
+/* The sentence a card opens on: whose reading the figures are, what a tie-out ties to. */
+.pb-pkg-note {
+  max-width: 78ch;
+  margin: 0 0 12px;
+}
+/* The hash an approval locked the content with, in full: it wraps anywhere on a narrow page. */
+.pb-pkg-hash {
+  display: grid;
+  justify-items: start;
+  gap: 4px;
+  margin: 14px 0 0;
+}
+.pb-pkg-hash-label {
+  font-size: 12px;
+  line-height: 16px;
+  font-weight: 600;
+  color: var(--pb-muted-strong);
+}
+.pb-pkg-hash-value {
+  max-width: 100%;
+  font-size: 13px;
+  line-height: 20px;
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
+/* What a check expected and what it found sit side by side: one line each, figures in step. */
+.pb-table td.pb-pkg-value {
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums lining-nums;
+}
+/* The sentence of a check keeps a readable measure beside the narrow columns. */
+.pb-table td.pb-pkg-detail {
+  min-width: 30ch;
+}
+.pb-pkg-toggle {
+  margin-top: 10px;
+}
 
 @media (max-width: 760px) {
   .pb-toolbar .pb-pkg-filter,
