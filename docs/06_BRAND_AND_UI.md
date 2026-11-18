@@ -30,6 +30,7 @@ Derived tokens (`apps/web/src/app/theme.ts`, decision 0007) are formulas over th
 
 ## 3. Number and date display
 - $M with one decimal in tables; multiples 1 decimal + "x"; MOIC 2 decimals; IRR 1 decimal %; yields and spreads 2 decimals % (spreads may also show in basis points); coverage ratios 1 decimal + "x"; LTV 1 decimal %.
+- Dollars to the cent ("$12,450,950.25") only where two figures are compared with each other and a rounded million would hide the difference between them: what a report check expected and what it found (decision 0024). Worked from the digits of the decimal string, never through a float.
 - Missing or not meaningful: a single `MISSING` constant (a hyphen or "NM"); never 0, Infinity or -100%.
 - Prior Year means the same fiscal quarter one year earlier only.
 - Dates: "Jan 15, 2026"; investment dates "January 2026"; UTC-safe formatter.

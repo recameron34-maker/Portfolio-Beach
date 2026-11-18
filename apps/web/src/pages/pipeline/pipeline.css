@@ -117,53 +117,6 @@
   gap: 6px;
 }
 
-/* The stage strip: the eight live stages of docs/18 section 4 as an ordered list that wraps. */
-.pb-pipe-stages {
-  display: grid;
-  grid-template-columns: repeat(8, minmax(0, 1fr));
-  gap: 6px;
-  margin: 0 0 16px;
-  padding: 0;
-  list-style: none;
-}
-.pb-pipe-stages > li {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  min-width: 0;
-  padding: 8px 10px;
-  background: var(--pb-bg);
-  border: 1px solid var(--pb-border);
-  border-radius: var(--pb-radius);
-  font-size: 12px;
-  line-height: 16px;
-  font-weight: 600;
-  color: var(--pb-text);
-}
-.pb-pipe-stages > li[aria-current='step'] {
-  border-color: var(--pb-brand-primary);
-  box-shadow: inset 0 3px 0 var(--pb-brand-accent);
-}
-.pb-pipe-stages > li[data-status='upcoming'] {
-  font-weight: 500;
-  color: var(--pb-muted-strong);
-  background: var(--pb-surface-2);
-}
-.pb-pipe-stages > li[data-status='done'] {
-  box-shadow: inset 0 3px 0 var(--pb-border-strong);
-}
-/* The state of a step in words under its name: quiet for done, the brand colour for current. */
-.pb-pipe-stage-state {
-  font-size: 11px;
-  line-height: 14px;
-  font-weight: 500;
-  color: var(--pb-muted-strong);
-}
-.pb-pipe-stages > li[aria-current='step'] > .pb-pipe-stage-state {
-  font-weight: 600;
-  color: var(--pb-brand-primary);
-}
-
 /* Gates: a dot and a sentence per gate (docs/06: never colour alone, the badge carries the word). */
 .pb-pipe-gates {
   display: grid;
@@ -420,11 +373,6 @@
   }
 }
 
-@media (max-width: 1240px) {
-  .pb-pipe-stages {
-    grid-template-columns: repeat(4, minmax(0, 1fr));
-  }
-}
 @media (max-width: 760px) {
   .pb-toolbar .pb-pipe-filter,
   .pb-pipe-form > .pb-field,
@@ -436,11 +384,6 @@
   }
   .pb-pipe-kv-row {
     grid-template-columns: minmax(0, 1fr);
-  }
-}
-@media (max-width: 560px) {
-  .pb-pipe-stages {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
 

@@ -18,6 +18,7 @@ import {
   StatTile,
   TableWrap,
 } from '../../components/ui.js';
+import { StepStrip } from '../../components/StepStrip.js';
 import { ActionLogCard, ActionStatus } from '../../components/WorkflowActions.js';
 import { formatDate, formatDateTime, formatMoneyM, labelOf, MISSING } from '../../lib/format.js';
 import { humanizeState } from '../../lib/states.js';
@@ -54,26 +55,14 @@ function BackLink(): ReactNode {
 /** The live stages of docs/18 section 4 as an ordered strip; the current one is marked. */
 function StageStrip({ stage }: { stage: DealStage }): ReactNode {
   return (
-    <ol className="pb-pipe-stages" aria-label="Deal stages">
-      {stageSteps(stage).map((step) => (
-        <li
-          key={step.stage}
-          data-status={step.status}
-          {...(step.status === 'current' ? { 'aria-current': 'step' as const } : {})}
-        >
-          <span>{humanizeState(step.stage)}</span>
-          {step.status === 'done' ? (
-            <span className="pb-pipe-stage-state">
-              <span aria-hidden="true">{'\u2713'}</span> Done
-            </span>
-          ) : step.status === 'current' ? (
-            <span className="pb-pipe-stage-state">Current</span>
-          ) : (
-            <span className="pb-visually-hidden">Upcoming</span>
-          )}
-        </li>
-      ))}
-    </ol>
+    <StepStrip
+      label="Deal stages"
+      steps={stageSteps(stage).map((step) => ({
+        key: step.stage,
+        label: humanizeState(step.stage),
+        status: step.status,
+      }))}
+    />
   );
 }
 

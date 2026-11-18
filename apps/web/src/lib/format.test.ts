@@ -10,6 +10,7 @@ import {
   formatMultiple,
   formatPct,
   formatQuarter,
+  formatUsdExact,
   formatWholeDollars,
   formatYears,
   groupThousands,
@@ -50,6 +51,32 @@ describe('number and date display (docs/06 section 3)', () => {
     expect(formatWholeDollars('-0.4')).toBe('$0');
     expect(formatWholeDollars(null)).toBe(MISSING);
     expect(formatWholeDollars('abc')).toBe(MISSING);
+  });
+  it('shows dollars to the cent where two figures are compared, from the digits and never a float', () => {
+    expect(formatUsdExact('12450950.25')).toBe('$12,450,950.25');
+    expect(formatUsdExact('11900000')).toBe('$11,900,000.00');
+    expect(formatUsdExact('4074999.5')).toBe('$4,074,999.50');
+    expect(formatUsdExact('0')).toBe('$0.00');
+    expect(formatUsdExact('0.00')).toBe('$0.00');
+    expect(formatUsdExact('-125000.5')).toBe('-$125,000.50');
+    expect(formatUsdExact('999.99')).toBe('$999.99');
+    expect(formatUsdExact('007.5')).toBe('$7.50');
+    // More places than cents: half a cent rounds away from zero, and the carry runs through.
+    expect(formatUsdExact('814999.904')).toBe('$814,999.90');
+    expect(formatUsdExact('814999.905')).toBe('$814,999.91');
+    expect(formatUsdExact('0.005')).toBe('$0.01');
+    expect(formatUsdExact('-0.005')).toBe('-$0.01');
+    expect(formatUsdExact('999.995')).toBe('$1,000.00');
+    expect(formatUsdExact('999999.9999999999')).toBe('$1,000,000.00');
+    expect(formatUsdExact('1.0049999999')).toBe('$1.00');
+    // An amount that rounds to nothing carries no sign.
+    expect(formatUsdExact('-0.004')).toBe('$0.00');
+    expect(formatUsdExact('-0')).toBe('$0.00');
+    // Larger than a float holds exactly: every digit is kept.
+    expect(formatUsdExact('123456789012345678.91')).toBe('$123,456,789,012,345,678.91');
+    expect(formatUsdExact('9007199254740993.01')).toBe('$9,007,199,254,740,993.01');
+    for (const nothing of [null, undefined, '', 'abc', '1e6', '1,000.00', '.5', '5.', '$5'])
+      expect(formatUsdExact(nothing), String(nothing)).toBe(MISSING);
   });
   it('groups the digits of a whole number in threes and leaves anything else alone', () => {
     for (const [whole, grouped] of [

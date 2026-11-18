@@ -83,6 +83,44 @@ export function formatWholeDollars(value: string | null | undefined): string {
   return `${n < 0 && /[1-9]/.test(whole) ? '-' : ''}$${whole}`;
 }
 
+/** A string of digits plus one: "199" is "200", "999" is "1000". One pass from the last digit. */
+function addOne(digits: string): string {
+  let out = '';
+  let carry = true;
+  for (let i = digits.length - 1; i >= 0; i -= 1) {
+    const digit: number = digits.charCodeAt(i) - 48 + (carry ? 1 : 0);
+    carry = digit === 10;
+    out = String(carry ? 0 : digit) + out;
+  }
+  return carry ? `1${out}` : out;
+}
+
+/** Digits without the zeros in front of them; the last digit stays when every one is a zero. */
+function withoutLeadingZeros(digits: string): string {
+  let start = 0;
+  while (start < digits.length - 1 && digits.charAt(start) === '0') start += 1;
+  return digits.slice(start);
+}
+
+/**
+ * Dollars in full to the cent: 12,450,950.25 -> "$12,450,950.25". For figures that are compared
+ * with each other, such as what a report check expected and what it found, where a rounded
+ * million would hide the very difference the check is about. Worked from the digits of the
+ * decimal string and never through a float, so an amount of any size keeps every digit. More
+ * places than cents round half away from zero; an amount that rounds to nothing carries no sign.
+ */
+export function formatUsdExact(value: string | null | undefined): string {
+  if (value === null || value === undefined || !DECIMAL_PATTERN.test(value)) return MISSING;
+  const negative = value.startsWith('-');
+  const [whole = '0', fraction = ''] = (negative ? value.slice(1) : value).split('.');
+  // The amount in cents as digits, and one cent more when the third place is five or above.
+  const truncated = whole + fraction.padEnd(2, '0').slice(0, 2);
+  const rounded = fraction.charAt(2) >= '5' ? addOne(truncated) : truncated;
+  const cents = withoutLeadingZeros(rounded).padStart(3, '0');
+  const text = `$${groupThousands(cents.slice(0, -2))}.${cents.slice(-2)}`;
+  return negative && /[1-9]/.test(cents) ? `-${text}` : text;
+}
+
 /**
  * formatMoneyM for an amount in its own currency: dollars as they are, any other currency with
  * its code in place of the dollar sign ("EUR 2.5M"). The figure is never converted.

@@ -95,7 +95,8 @@
     "weeklyMoversCount": 5,
     "capitalActivityWindowDays": 30,
     "staleValuationFootnote": "Carried at the latest Locked valuation of {lockedPeriodEnd}; no Locked mark for {periodEnd}.",
-    "noValuationFootnote": "No Locked valuation on record; NAV is not calculable this quarter."
+    "noValuationFootnote": "No Locked valuation on record; NAV is not calculable this quarter.",
+    "packageQuarterChoices": 8
   },
   "analytics": {
     "_note": "Analytics (docs/04 M13 and M20, docs/08 section 8). navSeriesQuarters is how many quarter ends the NAV series shows; topPositions is how many of the largest positions are listed. entryMultipleBands and entryLeverageBands are the ascending band edges, in turns, that the entry metric cohorts are cut at (entry EV / EBITDA and entry net debt / EBITDA): below the first edge, each interval closed below and open above, and at or above the last edge.",

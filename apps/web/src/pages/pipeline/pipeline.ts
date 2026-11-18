@@ -27,6 +27,7 @@ import {
   tieOut,
 } from '@pb/workflows';
 import definitions from '../../../../../config/definitions.json';
+import type { StepStatus } from '../../components/StepStrip.js';
 import type { Tone } from '../../components/ui.js';
 import { formatMoneyM, labelOf, MISSING, plural } from '../../lib/format.js';
 import { WHO_READS_EVERY_CLIENT } from '../../lib/roles.js';
@@ -118,7 +119,7 @@ export function dealTypeOptions(rows: readonly OpportunityRow[]): string[] {
   );
 }
 
-export type StepStatus = 'done' | 'current' | 'upcoming';
+export type { StepStatus };
 
 /**
  * The progress strip over the live stages: every stage before the current one is done, the rest
