@@ -82,14 +82,10 @@ export function postSuggestionCommand(
 }
 
 /**
- * A decision changes the suggestions, and an accepted one opens or corrects a draft valuation,
- * which the whole valuation read set shows.
+ * A decision changes the suggestions, and an accepted one opens or corrects a draft valuation:
+ * the valuation read set, which holds the suggestions too.
  */
-export const SUGGESTION_KEYS: QueryKey[] = [
-  ['valuation-suggestions'],
-  ['valuation-suggestion'],
-  ...VALUATION_KEYS,
-];
+export const SUGGESTION_KEYS: QueryKey[] = VALUATION_KEYS;
 
 export interface SuggestionCommandVariables {
   id: string;

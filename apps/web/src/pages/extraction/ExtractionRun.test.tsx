@@ -5,7 +5,12 @@ import type { ExtractionRunDetail } from '@pb/contracts';
 import { failing, mockApi, ok } from '../../test/api-mock.js';
 import type { MockRoutes } from '../../test/api-mock.js';
 import { ID } from '../../test/fixtures.js';
-import { rolePrincipal, sentPosts } from '../../test/fixtures-valuations.js';
+import {
+  runOutcomePageFixture,
+  SUGGESTION_ID,
+  suggestionFixture,
+} from '../../test/fixtures-suggestions.js';
+import { rolePrincipal, sentPosts, sentRequests } from '../../test/fixtures-valuations.js';
 import { renderWithQuery } from '../../test/render.js';
 import { navigate } from '../../test/router-mock.js';
 import { ExtractionRunPage } from './ExtractionRun.js';
@@ -26,13 +31,16 @@ import {
 const route = vi.hoisted(() => ({ id: '' }));
 
 vi.mock('@tanstack/react-router', async () => ({
-  ...(await import('../../test/router-mock.js')).routerMock(),
+  ...(await import('../../test/router-mock.js')).routerMockWithSearch(),
   useParams: () => ({ id: route.id }),
 }));
 
 const ME = '/api/v1/auth/me';
 const detailPath = (id: string): string => `/api/v1/extraction/runs/${id}`;
 const commandsPath = (id: string): string => `${detailPath(id)}/commands`;
+/** What the run page asks once a run is approved: the suggestions that run produced, in every state. */
+const outcomePath = (id: string): string =>
+  `/api/v1/valuation-suggestions?extractionRunId=${id}&limit=200&state=all`;
 /** Dialog journeys drive Fluent popovers; give them room on a loaded test runner. */
 const TIMEOUT = { timeout: 15_000 };
 
@@ -506,6 +514,148 @@ describe('extraction run review', () => {
       expect(again).toHaveAttribute('title', 'This run is approved');
     },
   );
+
+  it('says what the approval of a statement did to the valuation suggestions, and what to do when it sits on the wrong position', async () => {
+    const id = STATEMENT_RUN_ID;
+    mockApi(
+      routes(
+        ['operations'],
+        {
+          [detailPath(id)]: ok(statementDetailFixture({ stage: 'approved' })),
+          [outcomePath(id)]: ok(
+            runOutcomePageFixture(
+              { outcome: 'opened', reason: null, suggestionId: SUGGESTION_ID.statement },
+              [suggestionFixture()],
+            ),
+          ),
+        },
+        id,
+      ),
+    );
+    renderWithQuery(<ExtractionRunPage />);
+    const line = await screen.findByTestId('run-suggestion');
+    expect(line).toHaveTextContent('Valuation suggestion opened.');
+    expect(within(line).getByRole('link', { name: 'Open the suggestion' })).toHaveAttribute(
+      'href',
+      `/valuations/suggestions?id=${SUGGESTION_ID.statement}`,
+    );
+    expect(screen.getByTestId('run-relink-note')).toHaveTextContent(
+      'Wrong position, or none? A classified document cannot be relinked yet. Dismiss the suggestion; a draft can still be started on the board.',
+    );
+  });
+
+  it.each([
+    [
+      'replaced',
+      { outcome: 'replaced', reason: null, suggestionId: SUGGESTION_ID.statement },
+      'Valuation suggestion replaced.',
+      true,
+    ],
+    [
+      'left unchanged',
+      { outcome: 'unchanged', reason: null, suggestionId: SUGGESTION_ID.statement },
+      'The valuation suggestion open for this quarter is unchanged.',
+      true,
+    ],
+    [
+      'not suggested for a locked quarter',
+      { outcome: 'none', reason: 'mark_locked', suggestionId: null },
+      'No mark suggested: a mark for this quarter or a later one is Locked.',
+      false,
+    ],
+  ] as const)(
+    'says a suggestion was %s when a quarterly report is approved, with no relink note',
+    async (_name, outcome, sentence, linked) => {
+      mockApi(
+        routes(['deal_team'], {
+          [detailPath(RUN_ID.succeeded)]: ok(approvedDetailFixture()),
+          [outcomePath(RUN_ID.succeeded)]: ok(runOutcomePageFixture(outcome)),
+        }),
+      );
+      renderWithQuery(<ExtractionRunPage />);
+      const line = await screen.findByTestId('run-suggestion');
+      expect(line).toHaveTextContent(sentence);
+      expect(within(line).queryAllByRole('link')).toHaveLength(linked ? 1 : 0);
+      expect(screen.queryByTestId('run-relink-note')).not.toBeInTheDocument();
+    },
+  );
+
+  it('says why no mark is suggested for a statement of our account in a fund', async () => {
+    const id = STATEMENT_RUN_ID;
+    mockApi(
+      routes(
+        ['auditor'],
+        {
+          [detailPath(id)]: ok(statementDetailFixture({ stage: 'approved', fundLevel: true })),
+          [outcomePath(id)]: ok(
+            runOutcomePageFixture({
+              outcome: 'none',
+              reason: 'fund_commitment',
+              suggestionId: null,
+            }),
+          ),
+        },
+        id,
+      ),
+    );
+    renderWithQuery(<ExtractionRunPage />);
+    expect(await screen.findByTestId('run-suggestion')).toHaveTextContent(
+      'No mark suggested: this is our account in a fund commitment, which has no valuation record yet.',
+    );
+    expect(screen.getByTestId('run-relink-note')).toBeInTheDocument();
+  });
+
+  it('asks for no suggestion before the run is approved, nor for a role that does not read them', async () => {
+    mockApi(routes(['operations']));
+    const first = renderWithQuery(<ExtractionRunPage />);
+    await screen.findByTestId('run-fields');
+    expect(sentRequests().some(([url]) => url.includes('valuation-suggestions'))).toBe(false);
+    first.unmount();
+    vi.restoreAllMocks();
+
+    for (const role of ['viewer', 'investor_relations', 'platform_admin'] as const) {
+      mockApi(
+        routes([role], {
+          [detailPath(RUN_ID.succeeded)]: ok(approvedDetailFixture()),
+          [outcomePath(RUN_ID.succeeded)]: ok(
+            runOutcomePageFixture({
+              outcome: 'opened',
+              reason: null,
+              suggestionId: SUGGESTION_ID.statement,
+            }),
+          ),
+        }),
+      );
+      const page = renderWithQuery(<ExtractionRunPage />);
+      await screen.findByTestId('run-fields');
+      expect(sentRequests().some(([url]) => url.includes('valuation-suggestions'))).toBe(false);
+      expect(screen.queryByTestId('run-suggestion')).not.toBeInTheDocument();
+      page.unmount();
+      vi.restoreAllMocks();
+    }
+  });
+
+  it('says so when what the approval did could not be read', async () => {
+    mockApi(
+      routes(['operations'], {
+        [detailPath(RUN_ID.succeeded)]: ok(approvedDetailFixture()),
+        [outcomePath(RUN_ID.succeeded)]: {
+          status: 500,
+          body: {
+            type: 'https://portfolio-beach.example/problems/internal',
+            title: 'Internal error',
+            status: 500,
+            request_id: 'test',
+          },
+        },
+      }),
+    );
+    renderWithQuery(<ExtractionRunPage />);
+    expect(await screen.findByTestId('run-suggestion-unavailable', {}, TIMEOUT)).toHaveTextContent(
+      'Whether this approval suggested a mark could not be read.',
+    );
+    expect(screen.queryByTestId('run-suggestion')).not.toBeInTheDocument();
+  });
 
   it('reads a statement linked to no position as our account in the fund', async () => {
     const id = STATEMENT_RUN_ID;

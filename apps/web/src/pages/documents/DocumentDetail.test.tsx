@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import type { DocumentDetail } from '@pb/contracts';
+import { STATEMENT_HOLD_REASONS } from '@pb/validation';
 import { failing, mockApi, ok } from '../../test/api-mock.js';
 import type { MockRoutes } from '../../test/api-mock.js';
 import { ID, investmentFixture, investmentPageFixture } from '../../test/fixtures.js';
@@ -279,6 +280,27 @@ describe('a document', () => {
     expect(sentPosts()).toEqual([
       [commandsPath(scan.id), { command: 'classify', docType: 'doc_type.other' }],
     ]);
+  });
+
+  it('tells the reviewer what to choose for a held statement, in place of the general line', async () => {
+    const held = scanDetailFixture({
+      title: 'Capital Account Statement: Meridian Data Partners',
+      investmentId: POSITION_ID.meridian,
+      investmentNumber: 'INV-0001',
+      companyName: 'Meridian Data Partners',
+      classifierEvidence: {
+        keywords: ['capital account statement'],
+        candidates: [{ reason: STATEMENT_HOLD_REASONS.disagree }],
+      },
+    });
+    mockApi(routes(['operations'], held));
+    renderWithQuery(<DocumentDetailPage />);
+    const form = await screen.findByTestId('document-classify');
+    expect(within(form).getByTestId('document-statement-hold')).toHaveTextContent(
+      'The reference and the company named on this statement disagree. Choose the position it is for; left empty, it keeps the one linked now.',
+    );
+    expect(form).not.toHaveTextContent('The classifier was not sure.');
+    expect(form).toHaveTextContent('a link left blank keeps what the classifier found');
   });
 
   it('says why a classification was refused', TIMEOUT, async () => {

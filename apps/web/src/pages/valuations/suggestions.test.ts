@@ -238,6 +238,13 @@ describe('the words of a suggestion (docs/08 section 12)', () => {
         'capital_account_balance',
       ),
     ).toBe('Sponsor report: $7.83M, the same as the statement.');
+    // A difference too small to show at one decimal is never written as 0.0%.
+    expect(
+      crossCheckSentence(
+        { ...report, value: '38135817.31', difference: '-4182.69', differencePct: '-0.0001096668' },
+        'capital_account_balance',
+      ),
+    ).toBe('Sponsor report: $38.14M, $4,183 (under 0.1%) below the statement.');
     expect(
       crossCheckSentence(
         {

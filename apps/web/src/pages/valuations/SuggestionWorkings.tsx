@@ -124,6 +124,7 @@ function SourceCell({
   return (
     <td>
       <Button
+        className="pb-val-source"
         size="small"
         appearance="subtle"
         aria-expanded={shown}

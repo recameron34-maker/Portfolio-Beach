@@ -11,6 +11,7 @@ import type {
 } from '@pb/contracts';
 import { documentReviewStatus, expectedDocumentStatus, ROUTES } from '@pb/contracts';
 import { isCalendarDate, isQuarterEnd, latestQuarterEndOnOrBefore } from '@pb/calc';
+import { isStatementHoldReason, STATEMENT_HOLD_REASONS } from '@pb/validation';
 import { formatDate, formatPct, labelOf, MISSING } from '../../lib/format.js';
 import { humanizeState } from '../../lib/states.js';
 
@@ -138,6 +139,30 @@ export function candidatesText(evidence: ClassifierEvidence): string {
   return evidence.candidates.length === 0
     ? MISSING
     : evidence.candidates.map((c) => c.reason).join('; ');
+}
+
+/**
+ * What a reviewer is asked to do with a capital account statement held for a person because the
+ * position it names did not link, or its reference and its company name disagree (decision
+ * 0023); null for any other document, and once the document is classified. Classified is final,
+ * so the line says what leaving the position empty will do: a statement linked to no position is
+ * read as a fund statement, and one the reference already linked keeps that position.
+ */
+export function statementHoldLine(
+  doc: Pick<DocumentSummary, 'reviewStatus' | 'investmentId' | 'classifierEvidence'>,
+): string | null {
+  if (doc.reviewStatus !== 'NeedsReview') return null;
+  const reason = doc.classifierEvidence.candidates
+    .map((candidate) => candidate.reason)
+    .find(isStatementHoldReason);
+  if (reason === undefined) return null;
+  const what =
+    reason === STATEMENT_HOLD_REASONS.disagree
+      ? 'The reference and the company named on this statement disagree.'
+      : 'This statement names a position that did not link.';
+  return doc.investmentId === null
+    ? `${what} Choose the position, or leave it empty for a fund statement.`
+    : `${what} Choose the position it is for; left empty, it keeps the one linked now.`;
 }
 
 /** The exact status phrases the probe and the journeys look for. */

@@ -372,6 +372,15 @@ export function contributionsSentence(check: Checks['contributionsCheck']): stri
 /* ---- The other sources of the quarter (rule 12.5) ---- */
 
 /**
+ * The size of a difference as a percent to one place; one too small to show at one place reads
+ * "under 0.1%", never "0.0%" beside an amount that is not zero.
+ */
+function smallPct(pct: string): string {
+  const text = formatPct(unsigned(pct));
+  return /[1-9]/.test(text) ? text : 'under 0.1%';
+}
+
+/**
  * Another source beside the suggestion: its value and how far it is from the suggested one, or
  * why it has no value. Nothing is averaged; the line only sets the two side by side.
  */
@@ -388,7 +397,7 @@ export function crossCheckSentence(
   if (check.difference === null) return `${label}: ${value}.`;
   if (isZero(check.difference)) return `${label}: ${value}, the same as ${SOURCE_NOUN[basis]}.`;
   const size = formatWholeDollars(unsigned(check.difference));
-  const pct = check.differencePct === null ? '' : ` (${formatPct(unsigned(check.differencePct))})`;
+  const pct = check.differencePct === null ? '' : ` (${smallPct(check.differencePct)})`;
   const side = check.difference.startsWith('-') ? 'below' : 'above';
   return `${label}: ${value}, ${size}${pct} ${side} ${SOURCE_NOUN[basis]}.`;
 }
@@ -449,6 +458,23 @@ export function suggestionLabel(
   row: Pick<ValuationSuggestionRow, 'companyName' | 'periodEnd'>,
 ): string {
   return `${row.companyName}, ${formatDate(row.periodEnd)}`;
+}
+
+/* ---- The suggestions of one quarter (the board, the version screen) ---- */
+
+/**
+ * The Open suggestion of each position for one quarter, by investment id. A position has at
+ * most one Open suggestion for a quarter, and one for another quarter is never shown in its place.
+ */
+export function suggestedForQuarter(
+  rows: readonly ValuationSuggestionRow[],
+  quarterEnd: string,
+): Map<string, ValuationSuggestionRow> {
+  return new Map(
+    rows
+      .filter((row) => row.state === 'Open' && row.periodEnd === quarterEnd)
+      .map((row) => [row.investmentId, row]),
+  );
 }
 
 /* ---- What an approved run did (the run page) ---- */

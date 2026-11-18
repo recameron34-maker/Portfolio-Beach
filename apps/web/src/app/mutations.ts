@@ -321,9 +321,18 @@ export interface CommandVariables<C extends string> {
  * write, including the reads held fresh for a minute. The per-domain api files (the api.ts
  * beside each Phase 3 page folder) spread these lists into their own.
  */
+/**
+ * The valuation suggestions (decision 0023). They are worked out again when a statement or a
+ * report is approved, when an import is promoted and when a valuation is locked or reopened, and
+ * what they offer follows the valuation versions of their quarter, so each of those writes
+ * refreshes them.
+ */
+const SUGGESTION_READS: QueryKey[] = [['valuation-suggestions'], ['valuation-suggestion']];
+
 export const VALUATION_KEYS: QueryKey[] = [
   ['valuations'],
   ['valuation'],
+  ...SUGGESTION_READS,
   ['investment'],
   ['investments'],
   ['investment-performance'],
@@ -360,6 +369,7 @@ const INTAKE_KEYS: QueryKey[] = [
   ['intake-files'],
   ['intake-file'],
   ['intake-exports'],
+  ...SUGGESTION_READS,
   ['investment'],
   ['investments'],
   ['investment-performance'],
@@ -537,6 +547,7 @@ const EXTRACTION_KEYS: QueryKey[] = [
   ['extraction-batches'],
   ['extraction-runs'],
   ['extraction-run'],
+  ...SUGGESTION_READS,
   ['documents'],
   ['document'],
   ['monitoring-board'],

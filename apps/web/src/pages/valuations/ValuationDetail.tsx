@@ -15,6 +15,7 @@ import type {
 import { valuationMachine } from '@pb/workflows';
 import { ApiError } from '../../api/client.js';
 import { previewMode } from '../../app/env.js';
+import { SUGGESTIONS_PATH } from '../../app/nav.js';
 import { useValuationCommand } from '../../app/mutations.js';
 import { meQuery } from '../../app/queries.js';
 import { UnavailableState } from '../../components/UnavailableState.js';
@@ -68,6 +69,7 @@ import {
   canEditDraft,
   changedParts,
   EDIT_ROLES,
+  isInFlight,
   lockedBy,
   signOffsOf,
   valuationSteps,
@@ -75,6 +77,13 @@ import {
   versionLabel,
 } from './board.js';
 import { EditValuationDialog } from './EditValuation.js';
+import { suggestionsQuery } from './suggestions-api.js';
+import {
+  canReadSuggestions,
+  NEWER_SUGGESTION,
+  startedFromSentence,
+  suggestionOnDraft,
+} from './suggestions.js';
 import './valuations.css';
 
 type ValuationOption = CommandOption<ValuationState, ValuationCommand>;
@@ -570,6 +579,64 @@ function OpenChangesCard({ detail }: { detail: ValuationDetail }): ReactNode {
   );
 }
 
+/**
+ * What a suggestion has to do with this version (decision 0023): the suggestion its value was
+ * started from, read from the inputs the lock will cover, with the document it came from; and,
+ * while the version is still being worked on, a suggestion open for its quarter that is not the
+ * one it started from. The second is read for the roles that read suggestions and nobody else.
+ */
+function SuggestionNotes({
+  detail,
+  roles,
+}: {
+  detail: ValuationDetail;
+  roles: readonly string[];
+}): ReactNode {
+  const started = suggestionOnDraft(detail.inputs);
+  const reader = canReadSuggestions(roles);
+  const open = useQuery({
+    ...suggestionsQuery({ investmentId: detail.investmentId, periodEnd: detail.quarterEnd }),
+    enabled: reader && isInFlight(detail.state),
+  });
+  const other = open.data?.items.find((row) => row.state === 'Open' && row.id !== started?.id);
+  if (started === null && other === undefined) return null;
+  return (
+    <div className="pb-val-gates">
+      {started === null ? null : (
+        <p className="pb-notice" data-testid="valuation-from-suggestion">
+          {/* One child, so the links stay inside the sentence: a notice lays its children out in a row. */}
+          <span>
+            {startedFromSentence(started)}{' '}
+            {started.documentId === null ? null : (
+              <>
+                <Link to="/documents/$id" params={{ id: started.documentId }}>
+                  Source document
+                </Link>
+                {started.page === null ? '.' : `, page ${started.page}.`}{' '}
+              </>
+            )}
+            {reader ? (
+              <Link to={SUGGESTIONS_PATH} search={{ id: started.id }}>
+                Open the suggestion
+              </Link>
+            ) : null}
+          </span>
+        </p>
+      )}
+      {other === undefined ? null : (
+        <p className="pb-notice" data-testid="valuation-newer-suggestion">
+          <span>
+            {started === null ? 'A suggestion is open for this quarter.' : NEWER_SUGGESTION}{' '}
+            <Link to={SUGGESTIONS_PATH} search={{ id: other.id }}>
+              Open it
+            </Link>
+          </span>
+        </p>
+      )}
+    </div>
+  );
+}
+
 function DetailBody({
   detail,
   roles,
@@ -600,6 +667,7 @@ function DetailBody({
       />
       <ProgressStrip state={detail.state} />
       <Tiles detail={detail} />
+      <SuggestionNotes detail={detail} roles={roles} />
       <div className="pb-two-col">
         <WorkflowCard detail={detail} roles={roles} log={log} />
         <InputsCard detail={detail} />

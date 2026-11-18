@@ -4,7 +4,14 @@ import type { DocumentSummary } from '@pb/contracts';
 import { Badge, NumCell, TableWrap } from '../../components/ui.js';
 import { formatDate, MISSING } from '../../lib/format.js';
 import { reviewStatusTone, runStateTone, runStateWord } from '../../lib/states.js';
-import { confidenceText, dayOf, docTypeLabel, reviewWord, subjectOf } from './documents.js';
+import {
+  confidenceText,
+  dayOf,
+  docTypeLabel,
+  reviewWord,
+  statementHoldLine,
+  subjectOf,
+} from './documents.js';
 import './documents.css';
 
 /** The company or fund a document is about, as a link where the reader may follow it. */
@@ -30,7 +37,8 @@ function SubjectCell({ doc }: { doc: DocumentSummary }): ReactNode {
 
 /**
  * The hub's table, shared by the hub, the review queue and any tab that lists documents: title
- * (a link to the document) with its file name, type, company or fund, period, status, received,
+ * (a link to the document) with its file name and, for a statement held because the position it
+ * names did not link, what the reviewer is asked to choose; then type, company or fund, period, status, received,
  * the classifier's confidence and the latest extraction run (a link to its review page).
  */
 export function DocumentsTable({
@@ -58,41 +66,49 @@ export function DocumentsTable({
           </tr>
         </thead>
         <tbody>
-          {items.map((doc) => (
-            <tr key={doc.id}>
-              <td className="pb-documents-title">
-                <Link to="/documents/$id" params={{ id: doc.id }}>
-                  {doc.title}
-                </Link>
-                {doc.fileName === doc.title ? null : (
-                  <span className="pb-cell-sub">
-                    <span>{doc.fileName}</span>
-                  </span>
-                )}
-              </td>
-              <td>{docTypeLabel(doc.docType)}</td>
-              <SubjectCell doc={doc} />
-              <td className="pb-nowrap">{formatDate(doc.periodEnd)}</td>
-              <td>
-                <Badge tone={reviewStatusTone(doc.reviewStatus)}>
-                  {reviewWord(doc.reviewStatus)}
-                </Badge>
-              </td>
-              <td className="pb-nowrap">{dayOf(doc.receivedAt)}</td>
-              <NumCell>{confidenceText(doc.classificationConfidence)}</NumCell>
-              <td>
-                {doc.latestRun === null ? (
-                  <span className="pb-meta">{MISSING}</span>
-                ) : (
-                  <Link to="/documents/extraction/$id" params={{ id: doc.latestRun.id }}>
-                    <Badge tone={runStateTone(doc.latestRun.state)}>
-                      {runStateWord(doc.latestRun.state)}
-                    </Badge>
+          {items.map((doc) => {
+            const hold = statementHoldLine(doc);
+            return (
+              <tr key={doc.id}>
+                <td className="pb-documents-title">
+                  <Link to="/documents/$id" params={{ id: doc.id }}>
+                    {doc.title}
                   </Link>
-                )}
-              </td>
-            </tr>
-          ))}
+                  {doc.fileName === doc.title ? null : (
+                    <span className="pb-cell-sub">
+                      <span>{doc.fileName}</span>
+                    </span>
+                  )}
+                  {hold === null ? null : (
+                    <span className="pb-cell-sub" data-testid={`statement-hold-${doc.id}`}>
+                      {hold}
+                    </span>
+                  )}
+                </td>
+                <td>{docTypeLabel(doc.docType)}</td>
+                <SubjectCell doc={doc} />
+                <td className="pb-nowrap">{formatDate(doc.periodEnd)}</td>
+                <td>
+                  <Badge tone={reviewStatusTone(doc.reviewStatus)}>
+                    {reviewWord(doc.reviewStatus)}
+                  </Badge>
+                </td>
+                <td className="pb-nowrap">{dayOf(doc.receivedAt)}</td>
+                <NumCell>{confidenceText(doc.classificationConfidence)}</NumCell>
+                <td>
+                  {doc.latestRun === null ? (
+                    <span className="pb-meta">{MISSING}</span>
+                  ) : (
+                    <Link to="/documents/extraction/$id" params={{ id: doc.latestRun.id }}>
+                      <Badge tone={runStateTone(doc.latestRun.state)}>
+                        {runStateWord(doc.latestRun.state)}
+                      </Badge>
+                    </Link>
+                  )}
+                </td>
+              </tr>
+            );
+          })}
         </tbody>
       </table>
     </TableWrap>

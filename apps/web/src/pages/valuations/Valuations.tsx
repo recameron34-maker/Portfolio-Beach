@@ -26,6 +26,7 @@ import type {
   ValuationPage,
   ValuationRow,
   ValuationState,
+  ValuationSuggestionRow,
 } from '@pb/contracts';
 import { valuationMachine } from '@pb/workflows';
 import { previewMode } from '../../app/env.js';
@@ -37,7 +38,10 @@ import {
   useValuationCommand,
 } from '../../app/mutations.js';
 import type { ValuationCreateBody } from '../../app/mutations.js';
+import { SUGGESTIONS_PATH } from '../../app/nav.js';
 import { ValuationTabs } from './ValuationTabs.js';
+import { suggestionsQuery } from './suggestions-api.js';
+import { canReadSuggestions, SOURCE_LABEL, suggestedForQuarter } from './suggestions.js';
 import {
   investmentsQuery,
   LIST_LIMIT,
@@ -339,15 +343,46 @@ function marksTile(status: MarksStatus, period: string): ReactNode {
   }
 }
 
+/** The mark suggested for a position with no version for the quarter, as a link to its workings. */
+function SuggestedCell({
+  suggestion,
+  companyName,
+}: {
+  suggestion: ValuationSuggestionRow | undefined;
+  companyName: string;
+}): ReactNode {
+  if (suggestion === undefined)
+    return (
+      <td>
+        <span className="pb-meta">{MISSING}</span>
+      </td>
+    );
+  return (
+    <td>
+      <Link to={SUGGESTIONS_PATH} search={{ id: suggestion.id }}>
+        {suggestion.suggestedValue === null
+          ? 'Not calculable'
+          : formatMoneyM(suggestion.suggestedValue)}
+        {/* The figure a person sees starts the link's name; the rest says what it is, for a reader who cannot see the column. */}
+        <span className="pb-visually-hidden">, suggested mark for {companyName}</span>
+      </Link>
+      <span className="pb-cell-sub">{SOURCE_LABEL[suggestion.basis]}</span>
+    </td>
+  );
+}
+
 function MissingMarksCard({
   status,
   period,
   canStart,
+  suggested,
   onStart,
 }: {
   status: MarksStatus;
   period: string;
   canStart: boolean;
+  /** The Open suggestion of each position for this quarter; null when the reader is shown none. */
+  suggested: ReadonlyMap<string, ValuationSuggestionRow> | null;
   onStart: (investmentId: string) => void;
 }): ReactNode {
   let body: ReactNode;
@@ -381,6 +416,7 @@ function MissingMarksCard({
                   <th>Inv #</th>
                   <th>Company</th>
                   <th>Vehicle</th>
+                  {suggested === null ? null : <th>Suggested</th>}
                   {canStart ? <th>Action</th> : null}
                 </tr>
               </thead>
@@ -396,6 +432,9 @@ function MissingMarksCard({
                       </Link>
                     </td>
                     <td>{p.vehicleName}</td>
+                    {suggested === null ? null : (
+                      <SuggestedCell suggestion={suggested.get(p.id)} companyName={p.companyName} />
+                    )}
                     {canStart ? (
                       <td>
                         <Button
@@ -606,6 +645,9 @@ function Board({ page, roles }: { page: ValuationPage; roles: readonly string[] 
   const [reasonFor, setReasonFor] = useState<Pending | null>(null);
   const [newFor, setNewFor] = useState<{ investmentId: string | null } | null>(null);
   const [confirmReset, setConfirmReset] = useState(false);
+  // The suggested marks are read for the roles that read suggestions and for nobody else.
+  const reader = canReadSuggestions(roles);
+  const suggestions = useQuery({ ...suggestionsQuery(), enabled: reader });
   const log = useActionLog();
   const actions = useBoardActions(log);
 
@@ -848,6 +890,11 @@ function Board({ page, roles }: { page: ValuationPage; roles: readonly string[] 
           status={marks}
           period={period}
           canStart={isOps}
+          suggested={
+            reader && suggestions.data !== undefined
+              ? suggestedForQuarter(suggestions.data.items, period)
+              : null
+          }
           onStart={(investmentId) => setNewFor({ investmentId })}
         />
         <ActionLogCard entries={log.entries} />

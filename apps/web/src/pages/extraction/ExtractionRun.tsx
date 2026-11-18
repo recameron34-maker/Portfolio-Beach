@@ -8,8 +8,10 @@ import type {
   ExtractionFinding,
   ExtractionRunCommandBody,
   ExtractionRunDetail,
+  SuggestionRunOutcome,
 } from '@pb/contracts';
 import { ApiError } from '../../api/client.js';
+import { SUGGESTIONS_PATH } from '../../app/nav.js';
 import { useExtractionRunCommand } from '../../app/mutations.js';
 import { extractionRunQuery, meQuery } from '../../app/queries.js';
 import { UnavailableState } from '../../components/UnavailableState.js';
@@ -67,6 +69,8 @@ import {
   validationWord,
   valueText,
 } from './extraction.js';
+import { suggestionsQuery } from '../valuations/suggestions-api.js';
+import { canReadSuggestions, RELINK_NOTE, runOutcomeText } from '../valuations/suggestions.js';
 import { PageView } from './PageView.js';
 import './extraction.css';
 
@@ -440,6 +444,46 @@ function NarrativeCard({
   );
 }
 
+/**
+ * What the approval of this run did to the valuation suggestions of its position and quarter
+ * (decision 0023): one was opened or replaced, the open one is unchanged, or no mark is
+ * suggested and why. Under a statement's line, what to do when it sits on the wrong position:
+ * a classified document cannot be relinked yet.
+ */
+function SuggestionOutcome({
+  outcome,
+  statement,
+}: {
+  outcome: SuggestionRunOutcome;
+  statement: boolean;
+}): ReactNode {
+  const { text, linked } = runOutcomeText(outcome);
+  return (
+    <>
+      <p className="pb-notice" data-testid="run-suggestion">
+        {/* One child, so the link stays inside the sentence: a notice lays its children out in a row. */}
+        <span>
+          {text}
+          {outcome.outcome === 'none' ? null : '.'}
+          {linked && outcome.suggestionId !== null ? (
+            <>
+              {' '}
+              <Link to={SUGGESTIONS_PATH} search={{ id: outcome.suggestionId }}>
+                Open the suggestion
+              </Link>
+            </>
+          ) : null}
+        </span>
+      </p>
+      {statement ? (
+        <p className="pb-meta" data-testid="run-relink-note">
+          {RELINK_NOTE}
+        </p>
+      ) : null}
+    </>
+  );
+}
+
 function RunBody({
   detail,
   roles,
@@ -462,6 +506,12 @@ function RunBody({
   const offered = canReview(roles);
   const values = reviewOrder(detail.values);
   const busy = command.isPending;
+  // Read once the run is approved, for the roles that read suggestions and nobody else.
+  const suggested = useQuery({
+    ...suggestionsQuery({ extractionRunId: detail.run.id, state: 'all' }),
+    enabled: canReadSuggestions(roles) && detail.run.approvedBy !== null,
+  });
+  const runOutcome = suggested.data?.runOutcome ?? null;
 
   // The reason and edit dialogs have no trigger of their own, so when one closes focus goes back
   // to the button that opened it, once the dialog is out of the document.
@@ -616,6 +666,16 @@ function RunBody({
             <strong>{readAs}</strong>.
           </p>
         )}
+        {runOutcome === null ? null : (
+          <SuggestionOutcome outcome={runOutcome} statement={!traits.promotes} />
+        )}
+        {suggested.isError &&
+        !(suggested.error instanceof ApiError && suggested.error.status === 404) ? (
+          <p className="pb-notice pb-notice-bad" data-testid="run-suggestion-unavailable">
+            Whether this approval suggested a mark could not be read. The Suggestions tab under
+            Valuations lists what is open.
+          </p>
+        ) : null}
         <ActionStatus latest={log.latest} testId="run-action-status" />
         {values.length === 0 ? (
           <EmptyState

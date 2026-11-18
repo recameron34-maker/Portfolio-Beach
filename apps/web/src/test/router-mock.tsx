@@ -28,3 +28,34 @@ export function routerMock(): Record<string, unknown> {
     }) => <a href={hrefOf(to, params)}>{children}</a>,
   };
 }
+
+/**
+ * routerMock with each link's search in its address ("/valuations/suggestions?id=..."), for a
+ * page whose links name a record by a search parameter. A link with no search reads as before.
+ */
+export function routerMockWithSearch(): Record<string, unknown> {
+  return {
+    ...routerMock(),
+    Link: ({
+      to,
+      params,
+      search,
+      children,
+      'aria-label': label,
+    }: {
+      to: string;
+      params?: Record<string, string>;
+      search?: Record<string, string>;
+      children?: ReactNode;
+      'aria-label'?: string;
+    }) => {
+      const query = new URLSearchParams(search ?? {}).toString();
+      const path = hrefOf(to, params);
+      return (
+        <a href={query === '' ? path : `${path}?${query}`} aria-label={label}>
+          {children}
+        </a>
+      );
+    },
+  };
+}

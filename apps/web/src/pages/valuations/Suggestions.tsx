@@ -110,10 +110,19 @@ function Badges({ row }: { row: ValuationSuggestionRow }): ReactNode {
 }
 
 /** A figure with a muted line under it, right-aligned; the placeholder alone when there is no figure. */
-function FigureCell({ value, sub }: { value: string; sub?: string | undefined }): ReactNode {
+function FigureCell({
+  value,
+  sub,
+  className,
+}: {
+  value: string;
+  sub?: string | undefined;
+  className?: string | undefined;
+}): ReactNode {
   if (value === MISSING && sub === undefined) return <NumCell>{MISSING}</NumCell>;
+  const classes = ['num', value === MISSING ? 'is-missing' : '', className ?? ''];
   return (
-    <td className={value === MISSING ? 'num is-missing' : 'num'}>
+    <td className={classes.filter(Boolean).join(' ')}>
       {value}
       {sub === undefined ? null : <span className="pb-cell-sub">{sub}</span>}
     </td>
@@ -158,6 +167,8 @@ function SuggestionsTable({
   state: SuggestionStateFilter;
   selectedId: string | undefined;
 }): ReactNode {
+  // Listing the open suggestions, every row would say Open: the column is shown for the other lists.
+  const withState = state !== 'Open';
   return (
     <TableWrap label={TITLE}>
       <table className="pb-table pb-val-table" aria-label={TITLE} data-testid="suggestions-table">
@@ -170,7 +181,7 @@ function SuggestionsTable({
             <th className="num">Change</th>
             <th className="num">Net of flows</th>
             <th>Source</th>
-            <th>State</th>
+            {withState ? <th>State</th> : null}
             <th>Workings</th>
           </tr>
         </thead>
@@ -199,6 +210,7 @@ function SuggestionsTable({
                   sub={row.suggestedValue === null ? 'Not calculable' : undefined}
                 />
                 <FigureCell
+                  className="pb-val-mark"
                   value={formatMoneyM(currentMark?.value)}
                   sub={
                     currentMark === null ? 'No earlier Locked mark' : currentMarkNote(currentMark)
@@ -223,10 +235,12 @@ function SuggestionsTable({
                   )}
                   <Badges row={row} />
                 </td>
-                <td className="pb-val-state">
-                  <Badge tone={suggestionTone(row.state)}>{suggestionStateWord(row.state)}</Badge>
-                  <Outcome row={row} state={state} />
-                </td>
+                {withState ? (
+                  <td>
+                    <Badge tone={suggestionTone(row.state)}>{suggestionStateWord(row.state)}</Badge>
+                    <Outcome row={row} state={state} />
+                  </td>
+                ) : null}
                 <td>
                   {selected ? (
                     <span className="pb-meta">Shown above</span>
@@ -322,13 +336,16 @@ function DecisionNote({
   if (row.state === 'Accepted')
     return (
       <p className="pb-notice pb-notice-good" data-testid="suggestion-decision">
-        Accepted{by}
-        {at}.{' '}
-        {row.valuationId === null ? null : (
-          <Link to="/valuations/$id" params={{ id: row.valuationId }}>
-            Open the valuation it went onto
-          </Link>
-        )}
+        {/* One child, so the link stays inside the sentence: a notice lays its children out in a row. */}
+        <span>
+          Accepted{by}
+          {at}.{' '}
+          {row.valuationId === null ? null : (
+            <Link to="/valuations/$id" params={{ id: row.valuationId }}>
+              Open the valuation it went onto
+            </Link>
+          )}
+        </span>
       </p>
     );
   if (row.state === 'Dismissed')
@@ -344,12 +361,12 @@ function DecisionNote({
       {row.supersededById === null ? (
         supersededText(row)
       ) : (
-        <>
+        <span>
           Replaced by a newer suggestion{at}.{' '}
           <Link to={SUGGESTIONS_PATH} search={searchFor(row.supersededById, state)}>
             Open the replacement
           </Link>
-        </>
+        </span>
       )}
     </p>
   );
@@ -387,9 +404,11 @@ function Tiles({ row }: { row: ValuationSuggestionRow }): ReactNode {
         label="Net of flows"
         value={formatPct(comparison.netOfFlowsPct)}
         hint={
-          comparison.netOfFlows === null
-            ? "Shown when the statement opens at the previous quarter's mark"
-            : `${formatMoneyM(comparison.netOfFlows)} after contributions and distributions`
+          comparison.netOfFlows !== null
+            ? `${formatMoneyM(comparison.netOfFlows)} after contributions and distributions`
+            : row.checks === null
+              ? "Only a statement gives the quarter's contributions and distributions"
+              : "Shown when the statement opens at the previous quarter's mark"
         }
       />
     </div>
@@ -510,15 +529,16 @@ function SuggestionCard({
         <span>{row.vehicleName}</span>
         <span>{SOURCE_LABEL[row.basis]}</span>
         <span>
-          <Link to="/documents/extraction/$id" params={{ id: row.source.extractionRunId }}>
-            {fileName ?? 'Source document'}
-          </Link>
-        </span>
-        <span>
           <Link to={SUGGESTIONS_PATH} search={searchFor(undefined, state)}>
             Close
           </Link>
         </span>
+      </p>
+      <p className="pb-meta pb-val-source-file">
+        Worked out from{' '}
+        <Link to="/documents/extraction/$id" params={{ id: row.source.extractionRunId }}>
+          {fileName ?? 'the source document'}
+        </Link>
       </p>
       <Tiles row={row} />
       <Badges row={row} />
@@ -648,6 +668,8 @@ function Queue({
           </p>
         )}
       </div>
+      {/* Above the suggestion acted on, so the result of a decision is read where it was taken. */}
+      <ActionStatus latest={log.latest} testId="suggestion-action-status" />
       {selectedId === undefined ? null : (
         <Selected id={selectedId} list={page} listSettled={!list.isPending}>
           {(row) => (
@@ -695,7 +717,6 @@ function Queue({
             </Dropdown>
           </Field>
         </Toolbar>
-        <ActionStatus latest={log.latest} testId="suggestion-action-status" />
         {list.isPending ? (
           <PageSkeleton rows={4} />
         ) : list.isError ? (

@@ -47,6 +47,7 @@ import {
   mayClassify,
   reviewWord,
   sizeText,
+  statementHoldLine,
   subjectOf,
 } from './documents.js';
 import type { ClassifyForm } from './documents.js';
@@ -270,6 +271,7 @@ function ClassifyCard({ doc, log }: { doc: DocumentDetail; log: ActionLog }): Re
     reason: '',
   });
   const classify = useClassifyDocument();
+  const hold = statementHoldLine(doc);
   const problem = classifyProblem(form);
   const busy = classify.isPending;
   const types = docTypeOptions(taxonomy.data);
@@ -297,10 +299,15 @@ function ClassifyCard({ doc, log }: { doc: DocumentDetail; log: ActionLog }): Re
   return (
     <Card testId="document-classify">
       <SectionHeader aside={<SimulatedBadge />}>Classify</SectionHeader>
+      {hold === null ? null : (
+        <p className="pb-notice" data-testid="document-statement-hold">
+          {hold}
+        </p>
+      )}
       <p className="pb-meta">
-        The classifier was not sure. Name the type, and the position or the sponsor fund and the
-        period the document is about; a link left blank keeps what the classifier found. The
-        decision is audited with your reason.
+        {hold === null ? 'The classifier was not sure. ' : null}
+        Name the type, and the position or the sponsor fund and the period the document is about; a
+        link left blank keeps what the classifier found. The decision is audited with your reason.
       </p>
       <form
         className="pb-documents-form"

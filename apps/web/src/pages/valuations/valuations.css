@@ -204,7 +204,7 @@
 
 /* Valuation suggestions (decision 0023): the badges of a suggestion on one line that wraps, the
    selected row, and the workings with their sub-headings. A figure cell keeps its muted second
-   line on the right, under the figure. */
+   line (the mark's date and age, a percent) on the right, under the figure. */
 .pb-val-flags {
   display: flex;
   flex-wrap: wrap;
@@ -217,8 +217,17 @@
 .pb-val-table td.num > .pb-cell-sub {
   justify-content: flex-end;
 }
+.pb-val-table .pb-val-mark {
+  min-width: 132px;
+}
 .pb-val-table .is-selected td {
   background: var(--pb-accent-tint-10);
+}
+/* Secondary text on the selected row's tinted surface keeps its contrast (docs/06 section 1). */
+.pb-val-table .is-selected .pb-cell-sub,
+.pb-val-table .is-selected .pb-meta,
+.pb-val-table .is-selected .is-missing {
+  color: var(--pb-muted-strong);
 }
 .pb-val-workings {
   display: grid;
@@ -228,6 +237,9 @@
 .pb-val-workings > p,
 .pb-val-workings > ul {
   margin: 0;
+}
+.pb-card > .pb-notice + .pb-val-workings {
+  margin-top: 12px;
 }
 .pb-val-sub {
   margin: 6px 0 0;
@@ -239,4 +251,18 @@
 .pb-val-actions > .pb-meta {
   flex-basis: 100%;
   margin: 0;
+}
+/* The document a suggestion was worked out from, under the line that names the position. */
+.pb-val-source-file {
+  margin: 4px 0 12px;
+  overflow-wrap: anywhere;
+}
+/* A source that opens its page: left-aligned like the plain sources beside it, wide enough that
+   a long file name wraps to a few lines and not to a column of words. */
+.pb-val-source {
+  justify-content: flex-start;
+  min-width: 220px;
+  height: auto;
+  padding-block: 4px;
+  text-align: left;
 }

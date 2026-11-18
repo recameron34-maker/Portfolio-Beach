@@ -1,4 +1,3 @@
-import type { ReactNode } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
@@ -27,33 +26,9 @@ import type { SuggestionsSearch } from './suggestions.js';
 /** The address the page reads: tests set it before they render. */
 const route: { search: SuggestionsSearch } = { search: {} };
 
-/** A link as an anchor whose address carries its search, so a test can read where it goes. */
-function TestLink({
-  to,
-  params,
-  search,
-  children,
-  ...rest
-}: {
-  to: string;
-  params?: Record<string, string>;
-  search?: Record<string, string>;
-  children?: ReactNode;
-  'aria-label'?: string;
-}): ReactNode {
-  const path = to.replace(/\$(\w+)/g, (_m, key: string) => params?.[key] ?? '');
-  const query = new URLSearchParams(search ?? {}).toString();
-  return (
-    <a href={query === '' ? path : `${path}?${query}`} aria-label={rest['aria-label']}>
-      {children}
-    </a>
-  );
-}
-
 vi.mock('@tanstack/react-router', async () => ({
-  ...(await import('../../test/router-mock.js')).routerMock(),
+  ...(await import('../../test/router-mock.js')).routerMockWithSearch(),
   useSearch: () => route.search,
-  Link: TestLink,
 }));
 
 const ME = '/api/v1/auth/me';
@@ -151,6 +126,8 @@ describe('valuation suggestions', () => {
       '/valuations/suggestions',
     );
     expect(suggestionRequests()).toEqual([[OPEN, 'GET']]);
+    // Every row of this list is Open, so the state is not repeated on each.
+    expect(within(table).queryByRole('columnheader', { name: 'State' })).not.toBeInTheDocument();
   });
 
   it.each(['viewer', 'investor_relations', 'platform_admin'] as const)(
@@ -688,6 +665,7 @@ describe('valuation suggestions', () => {
     await userEvent.click(await screen.findByRole('option', { name: 'All states' }));
     const table = await screen.findByTestId('suggestions-table');
     await within(table).findByText('Accepted');
+    expect(within(table).getByRole('columnheader', { name: 'State' })).toBeInTheDocument();
     const first = within(table).getByText('Meridian Data Partners').closest('tr')!;
     expect(within(first).getByRole('link', { name: 'Open the valuation' })).toHaveAttribute(
       'href',
