@@ -814,6 +814,7 @@ describe('valuation suggestions: the other order, the report rules and the refre
   let k: SuggestionKit;
   let q2: string;
   let statementRun: ExtractionRun;
+  let farRun: ExtractionRun;
   let report: ExtractionRun;
   const STALE = 'INV-0007';
   const openOne = async (): Promise<ValuationSuggestionRow> =>
@@ -827,11 +828,26 @@ describe('valuation suggestions: the other order, the report rules and the refre
     );
 
   beforeAll(async () => {
-    k = await startSuggestionKit();
+    k = await startSuggestionKit({
+      // The account of docs/08 example 1 on this position: a balance far from what the sponsor's
+      // report indicates. It is named by our reference alone.
+      statements: ({ quarterEnd }) => ({
+        far: {
+          position: STALE,
+          periodEnd: quarterEnd,
+          example: 'ties',
+          shape: { fileCompany: null },
+        },
+      }),
+    });
     q2 = k.quarterEnd;
     await k.index();
     const statementsOfQuarter = await k.extractQuarter(q2, CAS);
-    statementRun = [...statementsOfQuarter.values()].find((r) => r.investmentNumber === STALE)!;
+    const farFile = k.written.get('far')!.fileName;
+    farRun = statementsOfQuarter.get(farFile)!;
+    statementRun = [...statementsOfQuarter.values()].find(
+      (r) => r.investmentNumber === STALE && r.fileName !== farFile,
+    )!;
     report = [...(await k.extractQuarter(q2, QF)).values()].find(
       (r) => r.investmentNumber === STALE,
     )!;
@@ -856,6 +872,35 @@ describe('valuation suggestions: the other order, the report rules and the refre
     const row = await openOne();
     expect(row.suggestedValue).toBe('38140000.00');
     expect(row.crossChecks.map((c) => c.basis)).toEqual(['sponsor_equity_value']);
+    expect(row.flags.sourcesDiffer).toBe(false);
+  });
+
+  it('says the sources differ when a later statement is far from what the report indicates', async () => {
+    const earlier = await openOne();
+    await k.approve('ops.two', farRun.id);
+    const row = await openOne();
+    expect(row).toMatchObject({
+      basis: 'capital_account_balance',
+      suggestedValue: '20940000.00',
+      source: { extractionRunId: farRun.id },
+      flags: { sourcesDiffer: true },
+    });
+    // The report's indication sits beside it with the difference, and nothing is averaged.
+    expect(row.crossChecks).toHaveLength(1);
+    const check = row.crossChecks[0]!;
+    expect(check).toMatchObject({
+      basis: 'sponsor_equity_value',
+      value: '38135817.31',
+      reason: null,
+      difference: '17195817.31',
+      differs: true,
+    });
+    expect(check.differencePct).toBe(toDecimalString(valueChange(check.value, '20940000.00')));
+    // The later of two approved statements counts: the earlier suggestion was replaced by it.
+    expect((await stored()).find((r) => r.id === earlier.id)).toMatchObject({
+      state: 'Superseded',
+      superseded_reason: 'figures_changed',
+    });
   });
 });
 

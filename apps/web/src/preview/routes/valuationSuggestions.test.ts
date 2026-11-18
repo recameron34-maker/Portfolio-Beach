@@ -785,6 +785,90 @@ describe('preview: two statements for one quarter, and a figure a reviewer typed
     expect(open?.flags.ties).toBe(false);
   });
 
+  it('falls to the report rule when the statement gives no value, with the statement beside it', async () => {
+    const { f } = await ready();
+    const { statement } = await staleRuns(f);
+    // The reviewer stands behind every line but the ending balance, which is rejected.
+    await ok(f, 'ops.one', 'POST', runCommands(statement.id), {
+      command: 'reject',
+      field: 'ending_capital_balance',
+      reason: 'The balance is not the one on the signed copy',
+    });
+    await approve(f, 'ops.one', statement.id);
+    const [open] = (await list(f, 'ops.one')).items;
+    // Rule 12.2 over the quarter on record: the statement's approval raised it, and none of its
+    // figures was read from the statement.
+    expect(open).toMatchObject({
+      basis: 'sponsor_equity_value',
+      method: REPORT_INDICATION,
+      reasonCode: null,
+      source: { extractionRunId: statement.id, page: null },
+      sourceReviewerIds: [],
+      checks: null,
+    });
+    expect(open?.suggestedValue).toMatch(/^\d+\.\d{2}$/);
+    expect(open?.workings.inputs.map((input) => input.source.kind)).toEqual([
+      'valuation',
+      'record',
+      'record',
+      'record',
+      'record',
+    ]);
+    expect(open?.crossChecks).toEqual([
+      {
+        basis: 'capital_account_balance',
+        value: null,
+        reason: 'no_ending_balance',
+        difference: null,
+        differencePct: null,
+        differs: false,
+      },
+    ]);
+    expect(await outcomeOf(f, 'ops.one', statement.id)).toEqual({
+      outcome: 'opened',
+      reason: null,
+      suggestionId: open?.id,
+    });
+  });
+
+  it('says the sources differ when the statement is far from what the report indicates', async () => {
+    const { f } = await ready();
+    const { report, statement } = await staleRuns(f);
+    await approve(f, 'deal.one', report.id);
+    const [fromReport] = (await list(f, 'ops.one')).items;
+    // The account of the worked example on this position: a balance far from the report's.
+    await review(f, 'ops.two', statement.id);
+    await ok(f, 'ops.two', 'POST', runCommands(statement.id), {
+      command: 'edit',
+      field: 'ending_capital_balance',
+      value: '20.94',
+      unit: 'USD_M',
+      reason: 'The balance on the signed copy',
+    });
+    await ok(f, 'ops.one', 'POST', runCommands(statement.id), { command: 'approve' });
+    const [open] = (await list(f, 'ops.one')).items;
+    expect(open).toMatchObject({
+      basis: 'capital_account_balance',
+      suggestedValue: '20940000.00',
+      flags: { sourcesDiffer: true },
+    });
+    // The report's indication sits beside it with the difference, and nothing is averaged.
+    expect(open?.crossChecks).toHaveLength(1);
+    const check = open?.crossChecks[0];
+    expect(check).toMatchObject({
+      basis: 'sponsor_equity_value',
+      value: fromReport?.suggestedValue,
+      reason: null,
+      differs: true,
+    });
+    expect(check?.difference).toBe(
+      toDecimalString(D(fromReport?.suggestedValue ?? '0').minus('20940000')),
+    );
+    expect(check?.differencePct).toBe(
+      toDecimalString(valueChange(fromReport?.suggestedValue ?? null, '20940000.00')),
+    );
+  });
+
   it('never reads the lines of a whole vehicle as our account while nobody stands behind the share', async () => {
     const { f } = await ready();
     const run = (await extract(f, [wholeNext.fileName])).get(wholeNext.fileName)!;

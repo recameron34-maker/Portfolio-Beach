@@ -770,3 +770,124 @@ describe('valuation suggestions: figures that moved, and the switch (decision 00
     await setSwitch(true);
   });
 });
+
+describe('valuation suggestions: a statement with no value, and a report-based mark (decision 0023)', () => {
+  let k: SuggestionKit;
+  let q2: string;
+  const STALE = 'INV-0007';
+  const REPORT_INDICATION = 'valuation_method.report_indication';
+  const outcomeOf = async (runId: string) =>
+    (await k.list('ops.one', `&state=all&extractionRunId=${runId}`)).runOutcome;
+
+  beforeAll(async () => {
+    k = await startSuggestionKit({
+      // The lines of a whole vehicle and no share of ours: the statement gives no value.
+      statements: ({ quarterEnd }) => ({
+        noShare: {
+          position: STALE,
+          periodEnd: quarterEnd,
+          example: 'wholeVehicleNoShare',
+          shape: { fileCompany: null },
+        },
+      }),
+    });
+    q2 = k.quarterEnd;
+    await k.index();
+  }, 120_000);
+  afterAll(async () => {
+    await k.close();
+  });
+
+  it('falls to the report rule when the statement gives no value, with the statement beside it', async () => {
+    const run = [...(await k.extract([k.written.get('noShare')!.fileName])).values()][0]!;
+    expect(run.investmentNumber).toBe(STALE);
+    await k.approve('ops.one', run.id);
+    const open = (await k.open('ops.one', STALE, q2))!;
+    // Rule 12.2 over the quarter on record: the statement's approval raised it, and none of its
+    // figures was read from the statement.
+    expect(open).toMatchObject({
+      basis: 'sponsor_equity_value',
+      method: REPORT_INDICATION,
+      suggestedValue: '38135947.85',
+      reasonCode: null,
+      source: { extractionRunId: run.id, page: null },
+      sourceReviewerIds: [],
+      checks: null,
+    });
+    expect(open.workings.inputs.map((input) => [input.key, input.source.kind])).toEqual([
+      ['reference_mark', 'valuation'],
+      ['reference_enterprise_value', 'record'],
+      ['reference_net_debt', 'record'],
+      ['enterprise_value', 'record'],
+      ['net_debt', 'record'],
+    ]);
+    expect(open.crossChecks).toEqual([
+      {
+        basis: 'capital_account_balance',
+        value: null,
+        reason: 'no_ending_balance',
+        difference: null,
+        differencePct: null,
+        differs: false,
+      },
+    ]);
+    expect(await outcomeOf(run.id)).toEqual({
+      outcome: 'opened',
+      reason: null,
+      suggestionId: open.id,
+    });
+  });
+
+  it('takes a report-based suggestion through to a Locked mark with the method of its own', async () => {
+    const report = [...(await k.extractQuarter(q2, QF)).values()].find(
+      (r) => r.investmentNumber === STALE,
+    )!;
+    await k.approve('deal.one', report.id);
+    // The report's own figures replace the record's: the suggestion now cites the report.
+    const open = (await k.open('ops.one', STALE, q2))!;
+    expect(open).toMatchObject({
+      basis: 'sponsor_equity_value',
+      method: REPORT_INDICATION,
+      suggestedValue: '38135817.31',
+      source: { extractionRunId: report.id },
+      sourceReviewerIds: [k.userId('deal.one')],
+    });
+    const accepted = valuationSuggestionRow.parse(
+      (
+        await k
+          .post('ops.one', `${SUGGESTIONS}/${open.id}/commands`, { command: 'accept' })
+          .expect(200)
+      ).body,
+    );
+    const id = accepted.valuationId!;
+    const draft = valuationDetail.parse(
+      (await k.get('ops.one', `/api/v1/valuations/${id}`).expect(200)).body,
+    );
+    expect(draft).toMatchObject({
+      state: 'Draft',
+      periodEnd: q2,
+      method: REPORT_INDICATION,
+      fairValue: '38135817.31',
+    });
+    expect(draft.inputs).toMatchObject({
+      'suggestion.id': open.id,
+      'suggestion.basis': 'sponsor_equity_value',
+      'suggestion.value': '38135817.31',
+      'suggestion.runId': report.id,
+    });
+    await k.valuationCommand('ops.one', id, { command: 'prepare' });
+    // deal.one approved the report the figures were read from.
+    const refused = await k
+      .post('deal.one', `/api/v1/valuations/${id}/commands`, { command: 'dealTeamApprove' })
+      .expect(422);
+    expect(problemDetails.parse(refused.body).detail).toBe(NO_SOURCE_REVIEWER);
+    await k.valuationCommand('deal.two', id, { command: 'dealTeamApprove' });
+    const locked = await k.valuationCommand('head.one', id, { command: 'lock' });
+    expect(locked).toMatchObject({
+      state: 'Locked',
+      method: REPORT_INDICATION,
+      fairValue: '38135817.31',
+    });
+    expect(await k.open('ops.one', STALE, q2)).toBeUndefined();
+  });
+});
