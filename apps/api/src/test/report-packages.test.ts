@@ -1,6 +1,8 @@
+import { createHash } from 'node:crypto';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { addMonths, containingQuarterEnd, latestQuarterEndOnOrBefore } from '@pb/calc';
 import {
+  canonicalJson,
   investmentPage,
   problemDetails,
   reportPackageDetail,
@@ -391,6 +393,84 @@ describe('reporting packages: from Draft to Released through the QA gate', () =>
         d.findings.find((f) => f.rule === 'QA-TIE-01' && f.entityRef === broken.entityRef)?.passed,
       ).toBe(true);
     }
+  });
+
+  it('steps the row version once per write, and locks the approved content with a hash anyone can take again', async () => {
+    const externalIdOf = (userId: string): string => {
+      const user = h.dataset.users.find((u) => u.id === userId);
+      if (user === undefined) throw new Error('the preparer is a user of the dataset');
+      return user.externalId;
+    };
+    /** One command with the row version the caller last read; the answer is `by` versions on. */
+    const stepped = async (
+      who: string,
+      from: ReportPackageDetail,
+      body: Record<string, unknown>,
+      by: number,
+    ): Promise<ReportPackageDetail> => {
+      const after = detailOf(
+        (await command(who, from.id, body).set('if-match', `"${from.rowVersion}"`).expect(200))
+          .body,
+      );
+      expect(after.rowVersion, String(body.command)).toBe(from.rowVersion + by);
+      return after;
+    };
+
+    // ir.two's client, the prior quarter, gross: no other test starts this one.
+    let d = await started('ir.two', clientC, prior);
+    expect(d.rowVersion).toBe(1);
+    // Generating writes twice: the snapshot as the preparer, then the QA outcome as the system.
+    d = await stepped('ir.two', d, { command: 'generate' }, 2);
+    expect(d.contentHash).toBeNull();
+    if (d.state === 'QAFailed')
+      d = await stepped('head.one', d, { command: 'overrideQa', reason: 'Agreed with ops' }, 1);
+    d = await stepped('ir.two', d, { command: 'submit' }, 1);
+    // No hash before the review: it is taken when the package is approved.
+    expect(d.contentHash).toBeNull();
+    d = await stepped('head.one', d, { command: 'approve' }, 1);
+
+    // SHA-256, lowercase hex, over the canonical JSON of the content the package shows.
+    const content = d.content;
+    if (content === null) throw new Error('an approved package has content');
+    const hashOf = (value: unknown): string =>
+      createHash('sha256').update(canonicalJson(value)).digest('hex');
+    expect(d.contentHash).toBe(hashOf(content));
+    // The text does not depend on the order a store hands the keys back in.
+    const keysReversed = (value: unknown): unknown =>
+      Array.isArray(value)
+        ? value.map(keysReversed)
+        : value !== null && typeof value === 'object'
+          ? Object.fromEntries(
+              Object.entries(value)
+                .reverse()
+                .map(([k, v]) => [k, keysReversed(v)]),
+            )
+          : value;
+    expect(Object.keys(keysReversed(content) as object)).not.toEqual(Object.keys(content));
+    expect(hashOf(keysReversed(content))).toBe(d.contentHash);
+    // And one changed figure is another hash.
+    expect(hashOf({ ...content, asOf: content.periodEnd })).not.toBe(d.contentHash);
+
+    const hash = d.contentHash;
+    d = await stepped('ops.one', d, { command: 'release' }, 1);
+    // Releasing changes nothing the hash covers.
+    expect(d.contentHash).toBe(hash);
+    expect(d.content).toEqual(content);
+
+    // A package the scenarios left failed: a second run is two writes again, and since nothing
+    // was fixed it fails again; the override is one write.
+    const left = reportPackageList
+      .parse((await get('ops.one', BASE).expect(200)).body)
+      .items.find((p) => p.state === 'QAFailed' && p.label === 'final');
+    if (left === undefined) throw new Error('the scenarios leave a failed package');
+    let again = detailOf((await get('ops.one', `${BASE}/${left.id}`).expect(200)).body);
+    const preparer = externalIdOf(again.preparedBy.id);
+    const runNo = again.qa.runNo ?? 0;
+    again = await stepped(preparer, again, { command: 'regenerate' }, 2);
+    expect(again.qa.runNo).toBe(runNo + 1);
+    expect(again.state).toBe('QAFailed');
+    again = await stepped('head.one', again, { command: 'overrideQa', reason: 'Seen' }, 1);
+    expect(again.state).toBe('QAPassed');
   });
 
   it('audits every step with the state before and after', async () => {

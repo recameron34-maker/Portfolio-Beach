@@ -7,10 +7,10 @@ import {
   D,
   Decimal,
   alignedQuarterEnd,
+  flowKindOf,
   isQuarterEnd,
   summarizeFlows,
 } from '@pb/calc';
-import type { FlowKind } from '@pb/calc';
 import { investmentDetail } from '@pb/contracts';
 import type { SuggestionRunOutcome, ValuationSuggestionRow } from '@pb/contracts';
 import { EXPECTED_DOC_TYPES } from '@pb/validation';
@@ -463,8 +463,7 @@ export function gatherSources(
       .filter((flow) => flow.date <= periodEnd)
       .map((flow) => ({
         date: flow.date,
-        // The flow kind @pb/calc expects is the taxonomy code without its domain.
-        kind: flow.flowType.replace('flow_type.', '') as FlowKind,
+        kind: flowKindOf(flow.flowType),
         amount: flow.amount,
       })),
   ).contributions;

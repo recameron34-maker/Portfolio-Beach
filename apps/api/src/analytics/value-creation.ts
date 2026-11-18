@@ -8,6 +8,7 @@ import {
   entryStake,
   equityValue,
   evToEbitda,
+  flowKindOf,
   gainByDriver,
   indexedLevel,
   latestPeriod,
@@ -39,7 +40,7 @@ import { configDecimal, configError } from '../common/definitions.js';
 import { compareText } from '../common/order.js';
 import { QUARTERLY_REPORTING_DEAL_TYPES } from '../documents/expected.js';
 import type { InvestmentBaseRow } from '../portfolio/loaders.js';
-import { kindOf, str } from '../portfolio/metrics.js';
+import { str } from '../portfolio/metrics.js';
 import type { FlowRow, OperatingRow, ValuationRow } from '../portfolio/metrics.js';
 
 /*
@@ -203,7 +204,7 @@ export function signedFlows(
   return toSignedFlows(
     inputs.flows
       .filter((f) => f.flowDate <= asOf)
-      .map((f) => ({ date: f.flowDate, kind: kindOf(f.flowType), amount: f.amount })),
+      .map((f) => ({ date: f.flowDate, kind: flowKindOf(f.flowType), amount: f.amount })),
   )
     .map((f) => ({ date: f.date, amount: D(f.amount) }))
     .sort((a, b) => compareText(a.date, b.date) || a.amount.comparedTo(b.amount))
@@ -400,7 +401,7 @@ export function seriesOf(
     const invested = summarizeFlows(
       inputs.flows
         .filter((f) => f.flowDate <= quarter.periodEnd)
-        .map((f) => ({ date: f.flowDate, kind: kindOf(f.flowType), amount: f.amount })),
+        .map((f) => ({ date: f.flowDate, kind: flowKindOf(f.flowType), amount: f.amount })),
     ).contributions;
     points.push({
       periodEnd: quarter.periodEnd,

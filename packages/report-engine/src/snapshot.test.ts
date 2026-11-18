@@ -1,8 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import { STALE_FOOTNOTE, qaPassed, runReportQa } from './qa.js';
 import type { QaFinding } from './qa.js';
-import { buildPackageSnapshot } from './snapshot.js';
-import type { PositionRecord, SnapshotRequest } from './snapshot.js';
+import { buildPackageSnapshot, snapshotRequestOf } from './snapshot.js';
+import type {
+  PositionRecord,
+  PositionSource,
+  SnapshotRequest,
+  SnapshotSource,
+} from './snapshot.js';
 
 /*
  * The package snapshot (docs/08 section 7, fixture 26): lines built from Locked marks and
@@ -267,5 +272,225 @@ describe('package snapshot: lines from Locked marks and approved flows', () => {
     expect(() => buildPackageSnapshot(request([position('INV-A'), position('INV-A')]))).toThrow(
       /INV-A/,
     );
+  });
+});
+
+/*
+ * The snapshot request read from the record (snapshotRequestOf): what the API holds in its tables
+ * and the static preview in its recordings becomes the same request, so both build one snapshot.
+ */
+
+const stored = (ref: string, over: Partial<PositionSource> = {}): PositionSource => ({
+  ref,
+  vehicleRef: 'VEH-1',
+  entryDate: '2022-01-15',
+  exitDate: null,
+  valuations: [
+    { periodEnd: START, state: 'Locked', fairValue: '100' },
+    { periodEnd: PERIOD, state: 'Locked', fairValue: '120' },
+  ],
+  flows: [
+    { date: '2025-05-10', flowType: 'flow_type.contribution', amount: '-10' },
+    { date: '2025-06-01', flowType: 'flow_type.distribution', amount: '5' },
+  ],
+  ...over,
+});
+
+const source = (over: Partial<SnapshotSource> = {}): SnapshotSource => ({
+  clientRef: 'CLIENT-1',
+  periodEnd: PERIOD,
+  asOf: '2025-08-09',
+  label: 'final',
+  basis: 'gross',
+  commitments: [{ vehicleRef: 'VEH-1', ownershipPct: '0.25' }],
+  positions: [stored('INV-A')],
+  released: [],
+  explanations: {},
+  moversCount: SETTINGS.moversCount,
+  ...over,
+});
+
+describe('snapshot request: read from the record', () => {
+  it('carries the package, its positions and the client share, with no commentary and no prior release', () => {
+    expect(snapshotRequestOf(source())).toEqual({
+      periodEnd: PERIOD,
+      asOf: '2025-08-09',
+      label: 'final',
+      basis: 'gross',
+      positions: [
+        {
+          ref: 'INV-A',
+          vehicleRef: 'VEH-1',
+          entryDate: '2022-01-15',
+          exitDate: null,
+          marks: [
+            { periodEnd: START, nav: '100' },
+            { periodEnd: PERIOD, nav: '120' },
+          ],
+          flows: [
+            { date: '2025-05-10', kind: 'contribution', amount: '-10' },
+            { date: '2025-06-01', kind: 'distribution', amount: '5' },
+          ],
+        },
+      ],
+      shares: [{ clientRef: 'CLIENT-1', vehicleRef: 'VEH-1', ownershipPct: '0.25' }],
+      priorRelease: null,
+      commentary: [],
+      moversCount: SETTINGS.moversCount,
+    });
+    // 100 + 10 - 5 + 15 = 120, and a quarter of 120 is the client's.
+    const snapshot = buildPackageSnapshot(snapshotRequestOf(source()));
+    expect(snapshot.lines[0]).toMatchObject({ beginNav: '100', gainLoss: '15', endNav: '120' });
+    expect(snapshot.clientLines).toEqual([
+      { clientRef: 'CLIENT-1', ref: 'INV-A', ownershipPct: '0.25', nav: '30' },
+    ]);
+  });
+
+  it('reads Locked marks only: a draft, a mark in review or a superseded one is not a mark', () => {
+    const request = snapshotRequestOf(
+      source({
+        positions: [
+          stored('INV-A', {
+            valuations: [
+              { periodEnd: START, state: 'Superseded', fairValue: '90' },
+              { periodEnd: START, state: 'Locked', fairValue: '100' },
+              { periodEnd: PERIOD, state: 'Draft', fairValue: '130' },
+              { periodEnd: PERIOD, state: 'ApproverReview', fairValue: '131' },
+            ],
+          }),
+        ],
+      }),
+    );
+    expect(request.positions[0]?.marks).toEqual([{ periodEnd: START, nav: '100' }]);
+    // With no Locked mark for the quarter the line is the last one rolled forward: 100 + 10 - 5.
+    const line = buildPackageSnapshot(request).lines[0];
+    expect(line).toMatchObject({ endNav: '105', endNavPeriodEnd: START, gainLoss: '0' });
+  });
+
+  it('reads flows up to the as-of date and none after it', () => {
+    const flows = [
+      { date: '2025-06-30', flowType: 'flow_type.interest', amount: '1' },
+      { date: '2025-08-09', flowType: 'flow_type.principal', amount: '2' },
+      { date: '2025-08-10', flowType: 'flow_type.contribution', amount: '-3' },
+    ];
+    const request = snapshotRequestOf(source({ positions: [stored('INV-A', { flows })] }));
+    expect(request.positions[0]?.flows).toEqual([
+      { date: '2025-06-30', kind: 'interest', amount: '1' },
+      { date: '2025-08-09', kind: 'principal', amount: '2' },
+    ]);
+  });
+
+  it('skips a commitment with no share on record, and still shows the positions of its vehicle', () => {
+    const request = snapshotRequestOf(
+      source({
+        commitments: [
+          { vehicleRef: 'VEH-2', ownershipPct: null },
+          { vehicleRef: 'VEH-1', ownershipPct: '0.25' },
+        ],
+        positions: [stored('INV-A'), stored('INV-B', { vehicleRef: 'VEH-2' })],
+      }),
+    );
+    expect(request.shares).toEqual([
+      { clientRef: 'CLIENT-1', vehicleRef: 'VEH-1', ownershipPct: '0.25' },
+    ]);
+    expect(request.positions.map((p) => p.ref)).toEqual(['INV-A', 'INV-B']);
+    const snapshot = buildPackageSnapshot(request);
+    expect(snapshot.lines.map((l) => l.ref)).toEqual(['INV-A', 'INV-B']);
+    // No share of VEH-2 is on record, so INV-B has no client line: never a zero share.
+    expect(snapshot.clientLines.map((c) => c.ref)).toEqual(['INV-A']);
+  });
+
+  it('orders the shares by vehicle, whatever order the commitments were read in', () => {
+    const commitments = [
+      { vehicleRef: 'VEH-2', ownershipPct: '0.5' },
+      { vehicleRef: 'VEH-1', ownershipPct: '0.25' },
+      { vehicleRef: 'VEH-2', ownershipPct: '0.1' },
+    ];
+    const shares = snapshotRequestOf(source({ commitments })).shares;
+    // Two commitments to one vehicle keep the order they were read in.
+    expect(shares.map((s) => `${s.vehicleRef} ${s.ownershipPct}`)).toEqual([
+      'VEH-1 0.25',
+      'VEH-2 0.5',
+      'VEH-2 0.1',
+    ]);
+  });
+
+  it('leaves out a position of a vehicle the client is not committed to', () => {
+    const request = snapshotRequestOf(
+      source({ positions: [stored('INV-A'), stored('INV-X', { vehicleRef: 'VEH-9' })] }),
+    );
+    expect(request.positions.map((p) => p.ref)).toEqual(['INV-A']);
+  });
+
+  it('picks the prior release: the latest earlier quarter, and its highest version', () => {
+    const lines = (endNav: string | null) => [{ ref: 'INV-A', endNav }];
+    const request = snapshotRequestOf(
+      source({
+        released: [
+          { periodEnd: '2024-12-31', version: 1, lines: lines('80') },
+          { periodEnd: START, version: 1, lines: lines('99') },
+          { periodEnd: START, version: 2, lines: lines('100') },
+          // The same quarter, released before and now being corrected: not a prior release.
+          { periodEnd: PERIOD, version: 1, lines: lines('120') },
+          // A later quarter is never what this one ties to.
+          { periodEnd: '2025-09-30', version: 1, lines: lines('140') },
+        ],
+        explanations: { 'INV-A': 'Restated by the sponsor' },
+      }),
+    );
+    expect(request.priorRelease).toEqual({
+      endNav: { 'INV-A': '100' },
+      explanations: { 'INV-A': 'Restated by the sponsor' },
+    });
+    // The pick does not depend on the order the releases were read in.
+    const reversed = snapshotRequestOf(
+      source({
+        released: [
+          { periodEnd: START, version: 2, lines: lines('100') },
+          { periodEnd: START, version: 1, lines: lines('99') },
+          { periodEnd: '2024-12-31', version: 3, lines: lines('80') },
+        ],
+      }),
+    );
+    expect(reversed.priorRelease?.endNav).toEqual({ 'INV-A': '100' });
+  });
+
+  it('has no prior release without an earlier one, or when the stored one cannot be read', () => {
+    expect(snapshotRequestOf(source()).priorRelease).toBeNull();
+    expect(
+      snapshotRequestOf(source({ released: [{ periodEnd: PERIOD, version: 1, lines: [] }] }))
+        .priorRelease,
+    ).toBeNull();
+    // The latest earlier release is the prior one even when it cannot be read: an older one
+    // is never read in its place.
+    expect(
+      snapshotRequestOf(
+        source({
+          released: [
+            { periodEnd: '2024-12-31', version: 1, lines: [{ ref: 'INV-A', endNav: '80' }] },
+            { periodEnd: START, version: 1, lines: null },
+          ],
+        }),
+      ).priorRelease,
+    ).toBeNull();
+  });
+
+  it('ties to the prior release only where it showed an end NAV', () => {
+    const request = snapshotRequestOf(
+      source({
+        released: [
+          {
+            periodEnd: START,
+            version: 1,
+            lines: [
+              { ref: 'INV-A', endNav: '100' },
+              { ref: 'INV-U', endNav: null },
+            ],
+          },
+        ],
+      }),
+    );
+    expect(request.priorRelease).toEqual({ endNav: { 'INV-A': '100' }, explanations: {} });
+    expect(failed(runReportQa(buildPackageSnapshot(request), SETTINGS))).toEqual([]);
   });
 });

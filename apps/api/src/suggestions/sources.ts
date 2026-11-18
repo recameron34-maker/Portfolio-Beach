@@ -1,6 +1,6 @@
 import { and, asc, desc, eq, inArray, isNotNull } from 'drizzle-orm';
 import type { ExtractionSchema, TargetColumn } from '@pb/ai';
-import { alignedQuarterEnd, summarizeFlows } from '@pb/calc';
+import { alignedQuarterEnd, flowKindOf, summarizeFlows } from '@pb/calc';
 import { schema } from '@pb/db';
 import type { Tx } from '@pb/db';
 import {
@@ -28,7 +28,6 @@ import type {
   SuggestionSources,
 } from '@pb/workflows';
 import { APPROVED } from '../intake/promote.js';
-import { kindOf } from '../portfolio/metrics.js';
 import { fieldKeyOf } from './settings.js';
 import type { SuggestionSchemas } from './settings.js';
 
@@ -379,7 +378,7 @@ export async function gatherSources(
   const contributions = summarizeFlows(
     flows
       .filter((flow) => flow.date <= periodEnd)
-      .map((flow) => ({ date: flow.date, kind: kindOf(flow.flowType), amount: flow.amount })),
+      .map((flow) => ({ date: flow.date, kind: flowKindOf(flow.flowType), amount: flow.amount })),
   ).contributions;
 
   return {

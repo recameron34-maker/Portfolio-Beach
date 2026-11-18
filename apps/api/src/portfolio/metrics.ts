@@ -8,6 +8,7 @@ import {
   ebitdaMargin,
   evToEbitda,
   flaggedIrr,
+  flowKindOf,
   holdingPeriodYears,
   interestCoverage,
   latestPeriod,
@@ -25,7 +26,7 @@ import {
   toSignedFlows,
   yoyGrowth,
 } from '@pb/calc';
-import type { CashFlow, FlowKind, IrrFlag, TypedCashFlow } from '@pb/calc';
+import type { CashFlow, IrrFlag, TypedCashFlow } from '@pb/calc';
 import type { PooledMetrics, SeriesPoint } from '@pb/contracts';
 
 export interface FlowRow {
@@ -58,11 +59,6 @@ export interface PositionMetrics {
 
 /** Decimal to the contract's decimal string (@pb/calc toDecimalString); null stays null. */
 export const str = toDecimalString;
-
-/** The flow kind packages/calc expects: the taxonomy code without its domain prefix. */
-export function kindOf(flowType: string): FlowKind {
-  return flowType.replace('flow_type.', '') as FlowKind;
-}
 
 /** Latest Locked valuation on or before the as-of date: the NAV date rule (docs/03 section 4). */
 export function latestLockedValuation(
@@ -100,7 +96,7 @@ export function positionMetrics(
 ): PositionMetrics {
   const typed: TypedCashFlow[] = flows
     .filter((f) => f.flowDate <= asOf)
-    .map((f) => ({ date: f.flowDate, kind: kindOf(f.flowType), amount: f.amount }));
+    .map((f) => ({ date: f.flowDate, kind: flowKindOf(f.flowType), amount: f.amount }));
   const summary = summarizeFlows(typed);
   const nav = isActive ? latestLockedValuation(valuations, asOf) : null;
   const invested = summary.contributions.isZero() ? null : summary.contributions;
@@ -278,7 +274,7 @@ export function pooledPositionMetrics(
   for (const p of positions) {
     for (const f of p.flows) {
       if (f.flowDate <= asOf)
-        typed.push({ date: f.flowDate, kind: kindOf(f.flowType), amount: f.amount });
+        typed.push({ date: f.flowDate, kind: flowKindOf(f.flowType), amount: f.amount });
     }
     if (p.isActive) {
       const nav = latestLockedValuation(p.valuations, asOf);

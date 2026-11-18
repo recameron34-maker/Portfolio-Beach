@@ -6,6 +6,7 @@ import {
   daysBetween,
   entrySnapshot,
   flaggedIrr,
+  flowKindOf,
   latestPeriod,
   moic,
   summarizeFlows,
@@ -17,7 +18,6 @@ import {
 } from '@pb/calc';
 import type {
   Decimal,
-  FlowKind,
   TypedCashFlow,
   UnderwritingCase,
   UnderwritingComparison,
@@ -93,7 +93,6 @@ const SOURCE_NOTE = 'Sponsor base case model at entry, held in the deal folder';
 const LOAN_SOURCE_NOTE = 'Underwriting model of the loan at entry, held in the deal folder';
 
 const fixed = (value: number, places = 2): string => value.toFixed(places);
-const kindOf = (flowType: string): FlowKind => flowType.replace('flow_type.', '') as FlowKind;
 const approved = (q: Quarter): boolean => q.status === 'record_status.approved';
 
 /** The parts of the dataset the base cases are built from and checked against. */
@@ -204,7 +203,7 @@ export function underwritingInputsOf(
         f.status === 'record_status.approved' &&
         f.flowDate <= asOf,
     )
-    .map((f) => ({ date: f.flowDate, kind: kindOf(f.flowType), amount: f.amount }));
+    .map((f) => ({ date: f.flowDate, kind: flowKindOf(f.flowType), amount: f.amount }));
   const summary = summarizeFlows(typed);
   const mark = isActive ? latestLockedMark(base.valuations, investment.id, asOf) : null;
   const invested = summary.contributions.isZero() ? null : summary.contributions;

@@ -1,11 +1,11 @@
 import { and, asc, eq, inArray, isNull, lte } from 'drizzle-orm';
 import type { SQL } from 'drizzle-orm';
-import { summarizeFlows, unfunded } from '@pb/calc';
+import { flowKindOf, summarizeFlows, unfunded } from '@pb/calc';
 import type { TypedCashFlow } from '@pb/calc';
 import type { FundCommitmentRow } from '@pb/contracts';
 import { schema } from '@pb/db';
 import type { Tx } from '@pb/db';
-import { kindOf, str } from './metrics.js';
+import { str } from './metrics.js';
 import { compareText } from '../common/order.js';
 
 /** Pooled rows (no client) sort ahead of client-directed rows of the same vehicle and fund. */
@@ -46,7 +46,11 @@ async function loadCommitmentFlows(
     .orderBy(asc(schema.cashFlow.flowDate), asc(schema.cashFlow.id));
   for (const f of rows) {
     if (f.commitmentId === null) continue;
-    const flow: TypedCashFlow = { date: f.flowDate, kind: kindOf(f.flowType), amount: f.amount };
+    const flow: TypedCashFlow = {
+      date: f.flowDate,
+      kind: flowKindOf(f.flowType),
+      amount: f.amount,
+    };
     const list = out.get(f.commitmentId);
     if (list === undefined) out.set(f.commitmentId, [flow]);
     else list.push(flow);

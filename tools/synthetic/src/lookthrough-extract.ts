@@ -1,5 +1,13 @@
 import type { ExposureRow } from '@pb/adapters';
-import { D, ONE, addMonths, containingQuarterEnd, summarizeFlows, toDecimalString } from '@pb/calc';
+import {
+  D,
+  ONE,
+  addMonths,
+  containingQuarterEnd,
+  flowKindOf,
+  summarizeFlows,
+  toDecimalString,
+} from '@pb/calc';
 import type { TypedCashFlow } from '@pb/calc';
 import type { AliasedDataset } from './aliases.js';
 import { aliasesOf } from './aliases.js';
@@ -109,10 +117,6 @@ function labelFor(kind: 'sector' | 'geography', code: string | null, where: stri
   return label;
 }
 
-/** The flow kind packages/calc expects: the taxonomy code without its domain prefix. */
-const kindOf = (flowType: string): TypedCashFlow['kind'] =>
-  flowType.replace('flow_type.', '') as TypedCashFlow['kind'];
-
 /**
  * A position's invested capital on the as-of date, as the API computes `invested`: the sum of
  * its approved contributions dated on or before that date (summarizeFlows in @pb/calc). Null
@@ -130,7 +134,7 @@ export function investedCost(
         f.status === 'record_status.approved' &&
         f.flowDate <= asOf,
     )
-    .map((f) => ({ date: f.flowDate, kind: kindOf(f.flowType), amount: f.amount }));
+    .map((f) => ({ date: f.flowDate, kind: flowKindOf(f.flowType), amount: f.amount }));
   const contributions = summarizeFlows(flows).contributions;
   return contributions.isZero() ? null : toDecimalString(contributions);
 }

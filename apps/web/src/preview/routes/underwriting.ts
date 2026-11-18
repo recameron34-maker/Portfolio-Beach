@@ -2,13 +2,14 @@ import definitions from '../../../../../config/definitions.json';
 import {
   CALC_VERSION,
   D,
+  flowKindOf,
   latestPeriod,
   toDecimalString,
   toSignedFlows,
   underwritingComparison,
   valueCreationBridge,
 } from '@pb/calc';
-import type { FlowKind, UnderwritingInputs } from '@pb/calc';
+import type { UnderwritingInputs } from '@pb/calc';
 import {
   UNDERWRITING_REFUSALS,
   entryCaseOf,
@@ -239,8 +240,7 @@ export function comparisonInputs(
       .filter((f) => f.date <= asOf)
       .map((f) => ({
         date: f.date,
-        // The flow kind @pb/calc expects is the taxonomy code without its domain.
-        kind: f.flowType.replace('flow_type.', '') as FlowKind,
+        kind: flowKindOf(f.flowType),
         amount: f.amount,
       })),
   )

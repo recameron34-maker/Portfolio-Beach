@@ -10,6 +10,7 @@ import {
   daysBetween,
   dpi,
   entrySnapshot,
+  flowKindOf,
   fromDayNumber,
   holdingPeriodYears,
   indexLevelAt,
@@ -42,7 +43,7 @@ import {
   yieldToMaturity,
   yoyGrowth,
 } from './index.js';
-import type { CashFlow, TypedCashFlow } from './index.js';
+import type { CashFlow, FlowKind, TypedCashFlow } from './index.js';
 
 /** Unit and property tests for behavior the golden fixtures do not pin down. */
 
@@ -359,6 +360,32 @@ describe('multiples', () => {
     ]);
     const empty = summarizeFlows([]);
     expect(empty.firstContributionDate).toBeNull();
+  });
+  it('reads the flow kind of a stored flow type: the taxonomy code without its domain', () => {
+    const kinds: FlowKind[] = [
+      'contribution',
+      'distribution',
+      'fee',
+      'expense',
+      'interest',
+      'principal',
+      'recallable',
+    ];
+    for (const kind of kinds) expect(flowKindOf(`flow_type.${kind}`)).toBe(kind);
+    // A kind that already has no domain is itself.
+    expect(flowKindOf('distribution')).toBe('distribution');
+    // The kind decides the side a flow is summed on, whatever its sign.
+    const stored = [
+      { flowDate: '2024-01-15', flowType: 'flow_type.contribution', amount: '-100' },
+      { flowDate: '2024-06-30', flowType: 'flow_type.principal', amount: '40' },
+      { flowDate: '2024-06-30', flowType: 'flow_type.fee', amount: '-1' },
+    ];
+    const s = summarizeFlows(
+      stored.map((f) => ({ date: f.flowDate, kind: flowKindOf(f.flowType), amount: f.amount })),
+    );
+    expect(s.contributions.eq('100')).toBe(true);
+    expect(s.distributions.eq('40')).toBe(true);
+    expect(s.feesAndExpenses.eq('1')).toBe(true);
   });
 });
 

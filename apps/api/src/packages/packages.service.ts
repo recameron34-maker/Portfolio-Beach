@@ -1,10 +1,10 @@
 import { createHash } from 'node:crypto';
 import { Inject, Injectable } from '@nestjs/common';
-import { and, asc, desc, eq, inArray, lt, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, inArray, sql } from 'drizzle-orm';
 import { alias } from 'drizzle-orm/pg-core';
 import type { AdapterSet, Principal } from '@pb/adapters';
 import { isQuarterEnd } from '@pb/calc';
-import { reportPackageContent } from '@pb/contracts';
+import { canonicalJson, reportPackageContent } from '@pb/contracts';
 import type {
   QaFindingRow,
   ReportPackageCommandBody,
@@ -16,8 +16,8 @@ import type {
 } from '@pb/contracts';
 import { asSystemActor, schema } from '@pb/db';
 import type { Tx } from '@pb/db';
-import { buildPackageSnapshot, qaPassed, runReportQa } from '@pb/report-engine';
-import type { PositionRecord, QaFinding } from '@pb/report-engine';
+import { buildPackageSnapshot, qaPassed, runReportQa, snapshotRequestOf } from '@pb/report-engine';
+import type { QaFinding } from '@pb/report-engine';
 import { attempt, reportingPackageMachine } from '@pb/workflows';
 import { configDecimal, configInteger } from '../common/definitions.js';
 import { ProblemError, workflowProblem } from '../common/problem.js';
@@ -26,7 +26,6 @@ import { ADAPTERS, DEFINITIONS } from '../common/tokens.js';
 import { requireUuid } from '../common/validate.js';
 import { DbService } from '../db/db.service.js';
 import { loadInvestmentsWithMetrics } from '../portfolio/loaders.js';
-import { kindOf } from '../portfolio/metrics.js';
 
 /*
  * Reporting packages (docs/04 M14, docs/18 section 5, docs/08 section 7). A package is one client
@@ -62,18 +61,6 @@ type PackageRecord = typeof pkg.$inferSelect;
 const iso = (value: Date | null): string | null => (value === null ? null : value.toISOString());
 const person = (id: string | null, name: string | null): { id: string; name: string } | null =>
   id === null ? null : { id, name: name ?? '' };
-
-/** JSON with the keys of every object in order, so the same content always hashes the same. */
-function canonicalJson(value: unknown): string {
-  if (Array.isArray(value)) return `[${value.map(canonicalJson).join(',')}]`;
-  if (value !== null && typeof value === 'object') {
-    const entries = Object.entries(value as Record<string, unknown>)
-      .filter(([, v]) => v !== undefined)
-      .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
-    return `{${entries.map(([k, v]) => `${JSON.stringify(k)}:${canonicalJson(v)}`).join(',')}}`;
-  }
-  return JSON.stringify(value);
-}
 
 @Injectable()
 export class PackagesService {
@@ -237,6 +224,8 @@ export class PackagesService {
       }
 
       if (body.command === 'approve') {
+        // The canonical JSON of @pb/contracts (sorted keys, no spaces): the same text the static
+        // preview hashes, so a hash taken on one side verifies on the other.
         const contentHash = createHash('sha256')
           .update(canonicalJson(locked.content))
           .digest('hex');
@@ -313,61 +302,53 @@ export class PackagesService {
             locked.asOf,
             inArray(schema.investment.vehicleId, vehicleIds),
           );
-    const positions: PositionRecord[] = loaded.map((p) => ({
-      ref: p.row.investmentNumber,
-      vehicleRef: p.row.vehicleId,
-      entryDate: p.row.entryDate,
-      exitDate: p.row.exitDate,
-      // Reports read Locked marks only (docs/18 section 1).
-      marks: p.valuations
-        .filter((v) => v.state === 'Locked')
-        .map((v) => ({ periodEnd: v.periodEnd, nav: v.fairValue })),
-      flows: p.flows
-        .filter((f) => f.flowDate <= locked.asOf)
-        .map((f) => ({ date: f.flowDate, kind: kindOf(f.flowType), amount: f.amount })),
-    }));
 
-    // The last package released to this client on this basis, for the tie-out.
-    const prior = (
-      await tx
-        .select({ content: pkg.content })
-        .from(pkg)
-        .where(
-          and(
-            eq(pkg.clientId, locked.clientId),
-            eq(pkg.basis, locked.basis),
-            eq(pkg.state, 'Released'),
-            lt(pkg.periodEnd, locked.periodEnd),
-          ),
-        )
-        .orderBy(desc(pkg.periodEnd), desc(pkg.version))
-        .limit(1)
-    )[0];
-    const priorContent = prior === undefined ? null : reportPackageContent.safeParse(prior.content);
-    const priorRelease = !priorContent?.success
-      ? null
-      : {
-          endNav: Object.fromEntries(
-            priorContent.data.lines.flatMap((l) => (l.endNav === null ? [] : [[l.ref, l.endNav]])),
-          ),
-          explanations: kept,
-        };
+    // Every package released to this client on this basis: the tie-out reads the last one before
+    // this quarter, and snapshotRequestOf picks it.
+    const released = await tx
+      .select({ periodEnd: pkg.periodEnd, version: pkg.version, content: pkg.content })
+      .from(pkg)
+      .where(
+        and(
+          eq(pkg.clientId, locked.clientId),
+          eq(pkg.basis, locked.basis),
+          eq(pkg.state, 'Released'),
+        ),
+      );
 
-    const snapshot = buildPackageSnapshot({
-      periodEnd: locked.periodEnd,
-      asOf: locked.asOf,
-      label: locked.label,
-      basis: locked.basis,
-      positions,
-      shares: commitments.flatMap((c) =>
-        c.ownershipPct === null
-          ? []
-          : [{ clientRef: locked.clientId, vehicleRef: c.vehicleId, ownershipPct: c.ownershipPct }],
-      ),
-      priorRelease,
-      commentary: [],
-      moversCount,
-    });
+    // What the record says becomes the request by the one rule the static preview also runs
+    // (@pb/report-engine): Locked marks only, flows to the as-of date, the shares on record.
+    const snapshot = buildPackageSnapshot(
+      snapshotRequestOf({
+        clientRef: locked.clientId,
+        periodEnd: locked.periodEnd,
+        asOf: locked.asOf,
+        label: locked.label,
+        basis: locked.basis,
+        commitments: commitments.map((c) => ({
+          vehicleRef: c.vehicleId,
+          ownershipPct: c.ownershipPct,
+        })),
+        positions: loaded.map((p) => ({
+          ref: p.row.investmentNumber,
+          vehicleRef: p.row.vehicleId,
+          entryDate: p.row.entryDate,
+          exitDate: p.row.exitDate,
+          valuations: p.valuations,
+          flows: p.flows.map((f) => ({ date: f.flowDate, flowType: f.flowType, amount: f.amount })),
+        })),
+        released: released.map((r) => {
+          const content = reportPackageContent.safeParse(r.content);
+          return {
+            periodEnd: r.periodEnd,
+            version: r.version,
+            lines: content.success ? content.data.lines : null,
+          };
+        }),
+        explanations: kept,
+        moversCount,
+      }),
+    );
     const findings = runReportQa(snapshot, { toleranceUsd: tolerance, moversCount });
     const passed = qaPassed(findings);
     const failed = findings.filter((f) => !f.passed).length;
