@@ -279,6 +279,61 @@ describe('valuation suggestions: accept, applyToDraft and dismiss (decision 0023
       });
       expect(await k.open('ops.one', STALE, q2)).toBeUndefined();
     });
+
+    it('keeps them out of both approvals of the version a reopen starts', async () => {
+      const reopened = await k.valuationCommand('ops.one', draft.id, {
+        command: 'reopen',
+        reason: 'The sponsor reissued the statement',
+      });
+      expect(reopened.id).not.toBe(draft.id);
+      expect(reopened).toMatchObject({
+        state: 'Draft',
+        version: draft.version + 1,
+        fairValue: '38140000.00',
+      });
+      // The new version carries the same mark and the suggestion's keys, while the Accepted
+      // suggestion still names the version it was accepted onto: the rule follows the mark.
+      expect((await versionOf(reopened.id)).inputs).toMatchObject({
+        'suggestion.id': suggestion.id,
+      });
+      expect((await k.detail('audit.one', suggestion.id)).valuationId).toBe(draft.id);
+      await k.valuationCommand('ops.one', reopened.id, { command: 'prepare' });
+      // deal.two approved the statement run the value was read from.
+      const refused = await k
+        .post('deal.two', `/api/v1/valuations/${reopened.id}/commands`, {
+          command: 'dealTeamApprove',
+        })
+        .expect(422);
+      expect(problemOf(refused)).toMatchObject({
+        type: `${PROBLEM}workflow-precondition`,
+        detail: NO_SOURCE_REVIEWER,
+      });
+      expect((await versionOf(reopened.id)).state).toBe('OpsPrepared');
+      await k.valuationCommand('deal.one', reopened.id, { command: 'dealTeamApprove' });
+      // No approver reviews a run in the synthetic book, so a suggestion naming one is written
+      // to the record, accepted onto the version that was reopened.
+      const [written] = await k.rows<{ id: string }>(
+        `insert into mon.valuation_suggestion (investment_id, period_end, basis, method, suggested_value, workings, source_document_id, extraction_run_id, source_reviewer_ids, calc_version)
+         values ($1, $2, 'capital_account_balance', 'valuation_method.sponsor_mark', 20000000, '{"inputs": []}'::jsonb, $3, $4, $5::uuid[], 'test')
+         returning id`,
+        [
+          k.investment(STALE).id,
+          '2024-12-31',
+          suggestion.source.documentId,
+          suggestion.source.extractionRunId,
+          `{${k.userId('head.one')}}`,
+        ],
+      );
+      await k.rows(
+        "update mon.valuation_suggestion set state = 'Accepted', valuation_id = $2, decided_by = $3, decided_at = now() where id = $1",
+        [written!.id, draft.id, k.userId('ops.one')],
+      );
+      const lockRefused = await k
+        .post('head.one', `/api/v1/valuations/${reopened.id}/commands`, { command: 'lock' })
+        .expect(422);
+      expect(problemOf(lockRefused).detail).toBe(NO_SOURCE_REVIEWER);
+      expect((await versionOf(reopened.id)).state).toBe('DealTeamApproved');
+    });
   });
 
   describe('a Draft already open for the quarter', () => {

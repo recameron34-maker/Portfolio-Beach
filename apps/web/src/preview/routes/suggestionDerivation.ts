@@ -562,14 +562,16 @@ export function priorSuggestions(
 }
 
 /**
- * Who cannot approve a valuation version because they stood behind a suggestion accepted onto it
+ * Who cannot approve a valuation version because they stood behind a suggested mark it carries
  * (docs/18 sections 1 and 14): the `sourceReviewers` the valuation machine reads for
- * dealTeamApprove and lock. Read over every suggestion of the session, whoever asks.
+ * dealTeamApprove and lock. `chainIds` are the versions of the version's investment and quarter:
+ * a reopen copies the mark to the next version while the suggestion still names the one it was
+ * accepted onto. Read over every suggestion of the session, whoever asks.
  */
-export function sourceReviewersOn(ctx: SimContext, valuationId: string): string[] {
+export function sourceReviewersOn(ctx: SimContext, chainIds: readonly string[]): string[] {
   return sourceReviewersOf(
     [...ctx.state.suggestions.values()]
-      .filter((sim) => sim.valuationId === valuationId)
+      .filter((sim) => sim.valuationId !== null && chainIds.includes(sim.valuationId))
       .map((sim) => ({ state: sim.state, sourceReviewerIds: sim.sourceReviewerIds })),
   );
 }

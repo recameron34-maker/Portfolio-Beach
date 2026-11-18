@@ -997,6 +997,40 @@ describe('preview: deciding a suggestion', () => {
     expect((await valuationCommand(f, 'head.one', id, { command: 'lock' })).state).toBe('Locked');
   });
 
+  it('keeps a source reviewer out of both approvals of the version a reopen starts', async () => {
+    const { f, open } = await withStatement('all.roles');
+    const accepted = await decided(f, 'ops.one', open, { command: 'accept' });
+    const first = accepted.valuationId!;
+    await valuationCommand(f, 'ops.two', first, { command: 'prepare' });
+    await valuationCommand(f, 'deal.one', first, { command: 'dealTeamApprove' });
+    await valuationCommand(f, 'head.one', first, { command: 'lock' });
+    const reopened = await valuationCommand(f, 'ops.one', first, {
+      command: 'reopen',
+      reason: 'The sponsor reissued the statement',
+    });
+    expect(reopened.id).not.toBe(first);
+    expect(reopened).toMatchObject({ state: 'Draft', version: 2, fairValue: '38140000.00' });
+    // The new version carries the same mark and the suggestion's keys, while the Accepted
+    // suggestion still names the version it was accepted onto: the rule follows the mark.
+    const copy = valuationDetail.parse(
+      await ok(f, 'ops.one', 'GET', `/api/v1/valuations/${reopened.id}`),
+    );
+    expect(copy.inputs['suggestion.id']).toBe(open.id);
+    expect((await detail(f, 'ops.one', open.id)).valuationId).toBe(first);
+    const commands = `/api/v1/valuations/${reopened.id}/commands`;
+    await valuationCommand(f, 'ops.two', reopened.id, { command: 'prepare' });
+    const barred = await send(f, 'all.roles', 'POST', commands, { command: 'dealTeamApprove' });
+    expect(barred.status).toBe(422);
+    expect(problemOf(barred).code).toBe('workflow-precondition');
+    await valuationCommand(f, 'deal.one', reopened.id, { command: 'dealTeamApprove' });
+    const lockBarred = await send(f, 'all.roles', 'POST', commands, { command: 'lock' });
+    expect(lockBarred.status).toBe(422);
+    expect(problemOf(lockBarred).code).toBe('workflow-precondition');
+    expect((await valuationCommand(f, 'head.one', reopened.id, { command: 'lock' })).state).toBe(
+      'Locked',
+    );
+  });
+
   it('puts the value and the method on a Draft already open, which keeps its date and its own inputs', async () => {
     const { f, open } = await withStatement();
     const early = addDays(quarter, -3);

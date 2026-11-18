@@ -15,7 +15,8 @@ const notPreparer = notSameAs(
  * approved a run behind a suggestion accepted onto it, and whoever typed one of its figures. None
  * of them takes either approval of the valuation, so the figures and the mark are never judged by
  * the same person. The record key sourceReviewers is the union over every Accepted suggestion
- * whose valuation is this version; a version with none bars nobody.
+ * whose valuation is a version of the same investment and quarter (a reopen copies the mark to
+ * the next version, and the rule follows the mark); a version with none bars nobody.
  */
 const notSourceReviewer = notAmong(
   'sourceReviewers',

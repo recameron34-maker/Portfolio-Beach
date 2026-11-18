@@ -55,8 +55,9 @@ import { refreshPosition, sourceReviewersOn } from './suggestionDerivation.js';
  * leaves on a Draft's inputs (`suggestion.`) say where the value came from: a create or an edit
  * sent by a person can neither forge, change nor drop them, so the lock hash seals them with
  * the mark. Whoever approved a run behind a suggestion accepted onto a version, or typed one of
- * its figures, can take neither approval of that version (the machine's sourceReviewers). A lock
- * and a reopen derive the Open suggestions of the position again.
+ * its figures, can take neither approval of that version nor of a later version of the same
+ * quarter, which a reopen starts with the same mark (the machine's sourceReviewers). A lock and
+ * a reopen derive the Open suggestions of the position again.
  */
 
 const NOT_FOUND = 'Valuation not found';
@@ -144,6 +145,23 @@ function answered(ctx: SimContext, credential: string, row: ValuationRow): Valua
 function sameQuarterAs(versions: readonly VersionEntry[], periodEnd: string): VersionEntry[] {
   const quarterEnd = alignedQuarterEnd(periodEnd, TOLERANCE_DAYS);
   return versions.filter((v) => alignedQuarterEnd(v.periodEnd, TOLERANCE_DAYS) === quarterEnd);
+}
+
+/**
+ * The versions of a version's investment and quarter, itself included: the chain a reopen
+ * continues, which the source reviewer rule is read over (workflow.service.ts sourceReviewers).
+ */
+function chainIdsOf(sims: Iterable<SimValuation>, row: ValuationRow): string[] {
+  const quarterEnd = alignedQuarterEnd(row.periodEnd, TOLERANCE_DAYS);
+  const ids: string[] = [];
+  for (const sim of sims) {
+    if (
+      sim.row.investmentId === row.investmentId &&
+      alignedQuarterEnd(sim.row.periodEnd, TOLERANCE_DAYS) === quarterEnd
+    )
+      ids.push(sim.row.id);
+  }
+  return ids;
 }
 
 function nextVersion(
@@ -519,7 +537,7 @@ export async function runValuationCommand(
       lockHash,
       // Read for the two approvals that ask for it: no list bars nobody.
       ...(command === 'dealTeamApprove' || command === 'lock'
-        ? { sourceReviewers: sourceReviewersOn(ctx, row.id) }
+        ? { sourceReviewers: sourceReviewersOn(ctx, chainIdsOf(sims.values(), row)) }
         : {}),
     },
   });

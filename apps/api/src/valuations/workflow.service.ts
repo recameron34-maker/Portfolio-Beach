@@ -1,5 +1,5 @@
 import { Inject, Injectable } from '@nestjs/common';
-import { and, asc, eq, gte, lte, max } from 'drizzle-orm';
+import { and, asc, eq, gte, inArray, lte, max } from 'drizzle-orm';
 import type { AdapterSet, Principal } from '@pb/adapters';
 import { D, addDays, alignedQuarterEnd, isQuarterEnd } from '@pb/calc';
 import {
@@ -60,7 +60,8 @@ import { ValuationsService } from './valuations.service.js';
  * (`suggestion.`) say where the value came from: a create or an edit sent by a person can
  * neither forge, change nor drop them, so the lock hash seals them with the mark. Whoever
  * approved a run behind a suggestion accepted onto a version, or typed one of its figures, can
- * take neither approval of that version (the machine's sourceReviewers).
+ * take neither approval of that version nor of a later version of the same quarter, which a
+ * reopen starts with the same mark (the machine's sourceReviewers).
  */
 
 const valuation = schema.valuation;
@@ -493,7 +494,7 @@ export class ValuationWorkflowService {
           lockHash,
           // Read for the two approvals that ask for it: no list bars nobody.
           ...(body.command === 'dealTeamApprove' || body.command === 'lock'
-            ? { sourceReviewers: await this.sourceReviewers(tx, locked.id) }
+            ? { sourceReviewers: await this.sourceReviewers(tx, locked) }
             : {}),
         },
       });
@@ -788,22 +789,36 @@ export class ValuationWorkflowService {
   }
 
   /**
-   * Who cannot approve this version because they stood behind a suggestion accepted onto it
+   * Who cannot approve this version because they stood behind a suggested mark it carries
    * (docs/18 sections 1 and 14): the union of the source reviewers of every Accepted suggestion
-   * whose valuation is this version. Read as the system actor, so the control never passes
-   * because the person asking could not read the suggestion.
+   * whose valuation is a version of the same investment and quarter. A reopen copies the mark and
+   * the suggestion's keys to the next version while the suggestion still names the version it was
+   * accepted onto, so the rule follows the chain and not the one row. Read as the system actor,
+   * so the control never passes because the person asking could not read the suggestion.
    */
-  private async sourceReviewers(tx: Tx, valuationId: string): Promise<string[]> {
-    const accepted = await asSystemActor(tx, (stx) =>
-      stx
+  private async sourceReviewers(tx: Tx, locked: LockedVersion): Promise<string[]> {
+    const tolerance = this.board.tolerance();
+    return asSystemActor(tx, async (stx) => {
+      const chain = await this.sameQuarter(
+        stx,
+        locked.investmentId,
+        alignedQuarterEnd(locked.periodEnd, tolerance),
+        tolerance,
+      );
+      const accepted = await stx
         .select({
           state: schema.valuationSuggestion.state,
           sourceReviewerIds: schema.valuationSuggestion.sourceReviewerIds,
         })
         .from(schema.valuationSuggestion)
-        .where(eq(schema.valuationSuggestion.valuationId, valuationId)),
-    );
-    return sourceReviewersOf(accepted);
+        .where(
+          inArray(
+            schema.valuationSuggestion.valuationId,
+            chain.map((version) => version.id),
+          ),
+        );
+      return sourceReviewersOf(accepted);
+    });
   }
 
   /**
