@@ -1,0 +1,153 @@
+export const meta = {
+  name: 'build-feature',
+  description: 'Build one specified feature in sequential slices, then verify it three ways and fix what is found',
+  phases: [
+    { title: 'Build', detail: 'builders work one after another in the same tree, one commit per slice' },
+    { title: 'Verify', detail: 'full gates, a maths and workflow review, an access and preview review' },
+    { title: 'Fix', detail: 'every confirmed finding fixed with a test, gates run again' },
+  ],
+}
+
+const REPO = '/home/user/Portfolio-Beach'
+const SCRATCH = `/tmp/claude-0/-home-user/9593e3d3-c421-5b4a-b2b1-7c7ce8f36ae0/scratchpad/build-${args.key}`
+const PW = 'PW_CHROMIUM_PATH=/opt/pw-browsers/chromium-1243/chrome-linux64/chrome'
+
+const RULES = `
+You are working on the Portfolio Beach prototype at ${REPO} (git branch claude/gifted-tesla-eg7s85). CLAUDE.md applies in full. Several agents work on this feature one after another in the same working tree; nobody else edits it while you work.
+
+THE FEATURE: ${args.title}
+THE SPEC: ${args.spec}. Read it in full first. It was designed, attacked by an independent reviewer and revised: build what it says. Where the code contradicts the spec (a file moved, a helper has another name), follow the code and say so in your report. The spec's numbers for migrations, decision records, golden fixtures and document sections are placeholders: when you create one, use the next free number in the repository (look at packages/db/migrations, docs/decisions, the headings of docs/08 and docs/18, and the golden fixtures of packages/calc) and say which you used. The spec's questions for the owner are built with the default it names.
+
+Rules of the road, learned in this repository:
+- Tests first for anything in docs/08: the text in docs/08, the golden fixture, the property tests and the Python cross-check case exist before the function is used anywhere. "pnpm test:calc" runs the calc tests and the cross-check.
+- "pnpm typecheck" is "tsc -b". It also rebuilds the package outputs that the API tests and the scripts read, so run it after changing packages/contracts, packages/db, packages/workflows, packages/calc or packages/report-engine and before API tests.
+- Tests: "pnpm exec vitest run --project <name>" (projects: api, calc, contracts, db, synthetic, validation, web, workflows, adapters, xlsx, pdf, ai, site, dependency-check, report-engine); add a file path to run one file. The whole suite is "pnpm exec vitest run" (about 4,700 tests, several minutes).
+- "pnpm lint" (eslint with security rules, then prettier --check). Format with "pnpm exec prettier --write <files>". TypeScript is strict with exactOptionalPropertyTypes; no "any" without a comment saying why.
+- "bash scripts/check-style.sh" (no em dashes anywhere, banned phrases) and "pnpm check:employer-data". Synthetic data only.
+- After a migration or schema change: "pnpm --filter @pb/db build && pnpm check:classification"; "pnpm test:rls" (the access matrix in packages/db/src/rls/matrix.ts and its fixture.ts must cover the new tables); docs/03 updated. Migrations follow the existing ones (pb.add_standard_columns_trigger, audit.add_history, policies with pb.has_role, pb.has_any_role, pb.sees_all_clients, pb.entitled_client, information walls as the neighbouring mon tables do them).
+- A new route: the contract's route lists in packages/contracts; "pnpm openapi:generate"; the conformance tests that list routes must learn it: apps/api/src/test/row-version.test.ts (VALID_BODY, READS and the answer-type pattern, for a route that reads If-Match), packages/contracts/src/openapi.test.ts (the count of If-Match routes), apps/web/src/preview/routes/common.test.ts (the guarded route list), the API parity test, and the dated-parameter count in the contracts tests. Every contract route must also be answered by the static preview (recorded at build time through apps/web/scripts/preview-plan.mjs, or simulated under apps/web/src/preview/routes): the preview's tests fail otherwise.
+- A state change goes through a machine in packages/workflows, with rejection tests for the forbidden transitions; the API calls attempt(machine, from, command, ctx) as the other services do.
+- Web: page copy never cites the build guide (no document paths, SEC ids, module or phase numbers, config keys or file paths); apps/web/src/lib/copy-guard.test.ts enforces it. The API keeps its citations in refusals and the page strips them (apps/web/src/lib/references.ts). A missing value shows the MISSING constant, never zero. Follow docs/06, section 6 included. Reuse components/ui.tsx, components/WorkflowActions.tsx and the charts in components/charts.
+- Browser tests (apps/web/e2e): build the API first ("pnpm --filter @pb/api build"), then from apps/web run: ${PW} PB_E2E_API_PORT=3141 PB_E2E_WEB_PORT=5184 PB_E2E_DIR=${SCRATCH}/e2e pnpm exec playwright test e2e/<spec file> --trace off --reporter=line
+- Static preview: "pnpm --filter @pb/web build:preview", then from the folder apps/web (it fails from anywhere else): ${PW} node scripts/probe-preview.mjs
+- Never run "pnpm --filter @pb/site build" (it records media again). Never run docker, az, terraform, curl or wget. Never read .env files. No network use beyond the package registry.
+- Git: one commit per slice (more if a slice is large), made as soon as the slice's gates are green, so a restart of the machine loses little. When all your slices are committed and green, push once with "git push origin claude/gifted-tesla-eg7s85" (retry up to four times, a few seconds apart, on a network error). Never force-push, never switch branch, never amend, rebase or reset commits, never create a pull request. Each commit message: a plain summary line; a body saying what, why and what was verified; and these two last lines exactly:
+Co-Authored-By: Claude Fable 5.2 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_018Mvt2653NRFx2Vf15toy26
+- Scratch files go under ${SCRATCH} (create it), never in the repository and never loose in /tmp.
+- Never skip, delete or weaken a test to get green. If a gate fails for a reason outside your work, prove it (read the failure, run it on the commit before yours) and say so in the report.
+- If something in the spec cannot be built as written, build the nearest thing that keeps every CLAUDE.md rule and report the difference. If you run out of room, stop at a slice boundary with the tree clean and everything committed.
+`
+
+const REPORT = `
+YOUR REPORT (your final message; plain text, at most 400 words). Its first line is exactly one of: "STATUS: DONE" (all your slices are committed and their gates are green), "STATUS: PARTIAL" (then say which slice is the next one to build), or "STATUS: BLOCKED" (then say why). After it: the slices finished with their commit hashes; the numbers you used (migration, decision record, fixtures, sections); the exact gate commands you ran with their pass counts; every deviation from the spec and why; what the next agent must know.`
+
+const status = (r) => (typeof r === 'string' ? (r.match(/STATUS:\s*(DONE|PARTIAL|BLOCKED)/) || [])[1] || 'UNKNOWN' : 'FAILED')
+
+phase('Build')
+const builds = []
+let stopped = null
+for (const g of args.groups) {
+  const brief = `${RULES}\nYOUR PART: ${g.slices} of the spec's section 11 ("Slices"). First see what is already built: "git log --oneline -30", "git status", and read the code the earlier slices added. If the tree is not clean, an agent before you was cut off when the machine restarted: read what is uncommitted ("git diff", "git status --short"), judge it against the spec and the tests, then finish it or discard it deliberately, and say which in your report. Do not redo finished work. Build your slices in order.${builds.length ? `\n\nWHAT THE AGENTS BEFORE YOU REPORTED:\n${builds.map((b) => `--- ${b.label}\n${b.report}`).join('\n')}` : ''}\n${REPORT}`
+  let report = await agent(brief, { label: `build:${g.label}`, phase: 'Build' })
+  let st = status(report)
+  if (st === 'PARTIAL') {
+    builds.push({ label: `${g.label} (first pass)`, report })
+    report = await agent(
+      `${RULES}\nYOUR PART: finish ${g.slices} of the spec's section 11. The agent before you stopped part way; its report is below. Check "git log --oneline -30" and "git status" (if the tree is not clean, look at what is uncommitted, finish or discard it deliberately, and say which). Continue from the next unbuilt slice.\n\nWHAT THE AGENTS BEFORE YOU REPORTED:\n${builds.map((b) => `--- ${b.label}\n${b.report}`).join('\n')}\n${REPORT}`,
+      { label: `build:${g.label}:continue`, phase: 'Build' },
+    )
+    st = status(report)
+  }
+  builds.push({ label: g.label, report: report || '(no report)' })
+  log(`${g.label}: ${st}`)
+  if (st !== 'DONE') {
+    stopped = { at: g.label, status: st }
+    break
+  }
+}
+
+if (stopped) {
+  return { key: args.key, stopped, builds }
+}
+
+phase('Verify')
+const FINDINGS = {
+  type: 'object',
+  properties: {
+    summary: { type: 'string' },
+    gates: { type: 'array', items: { type: 'object', properties: { command: { type: 'string' }, result: { type: 'string' } }, required: ['command', 'result'] } },
+    findings: {
+      type: 'array',
+      items: {
+        type: 'object',
+        properties: {
+          title: { type: 'string' },
+          severity: { type: 'string', enum: ['blocker', 'major', 'minor'] },
+          file: { type: 'string' },
+          evidence: { type: 'string' },
+          fix: { type: 'string' },
+        },
+        required: ['title', 'severity', 'evidence', 'fix'],
+      },
+    },
+  },
+  required: ['summary', 'findings'],
+}
+const VERIFY = `
+You are an independent verifier of a feature other agents just built in ${REPO} (branch claude/gifted-tesla-eg7s85). CLAUDE.md applies. THE FEATURE: ${args.title}. THE SPEC: ${args.spec}. The feature's commits are "git log --oneline ${args.base}..HEAD"; its change is "git diff ${args.base}..HEAD" (read it by file, it is large).
+You do NOT fix anything and you do NOT edit, commit, stash or reset tracked files. Scratch files go under ${SCRATCH}. Your job is to find what is wrong, not to confirm that it works. Report only what you verified yourself with evidence (a failing command and its output, a file and line, a recomputed figure); say "minor" for polish. Do not report something the spec lists under questions for the owner or review points not taken as a defect.
+What the builders reported:
+${builds.map((b) => `--- ${b.label}\n${b.report}`).join('\n')}
+`
+const verdicts = (
+  await parallel([
+    () =>
+      agent(
+        `${VERIFY}\nYOUR LENS: THE GATES AND THE SPEC. Run every gate from a clean tree and report each with its result: "pnpm typecheck"; "pnpm lint"; "pnpm exec vitest run" (the whole suite); "pnpm test:calc"; "pnpm test:rls"; "pnpm --filter @pb/db build && pnpm check:classification"; "bash scripts/check-style.sh"; "pnpm check:employer-data"; "pnpm openapi:generate" then "git status --short" (nothing tracked may change); "pnpm --filter @pb/web build:preview" then, from apps/web, "${PW} node scripts/probe-preview.mjs"; "pnpm --filter @pb/api build" then, from apps/web, the whole browser suite: "${PW} PB_E2E_API_PORT=3141 PB_E2E_WEB_PORT=5184 PB_E2E_DIR=${SCRATCH}/e2e-verify pnpm exec playwright test --trace off --reporter=line" (about twenty minutes). You are the only agent that builds the preview or runs browsers. Then walk the spec section by section and check that each thing it requires exists and behaves as written (acceptance criteria in docs/04, the docs/08 text, docs/03, docs/18, the decision record, the session log entry, config keys, tests per layer in the spec's section 10). A requirement that is missing or only half built is a finding. A failing gate is a blocker.`,
+        { label: 'verify:gates-and-spec', phase: 'Verify', schema: FINDINGS },
+      ),
+    () =>
+      agent(
+        `${VERIFY}\nYOUR LENS: THE MATHS, THE DATA AND THE WORKFLOW. Do not run builds, the preview or browsers (another verifier does); you may run single vitest files and "pnpm test:calc". Recompute by hand every worked example the feature added to docs/08 and every golden fixture value (show the arithmetic for any that is wrong). Hunt for: a number invented or filled from another period where an input is missing (it must be "not calculable" with a reason, never zero); rounding and sign errors; date arithmetic (day counts, quarter ends, leap years); division by zero; a figure recomputed in the browser or the API that the calc package should own; the Python cross-check not covering a rule; a migration constraint that can be bypassed; history and audit missing on a write; a state change that does not go through the machine, or a forbidden transition with no rejection test; a two-person rule that the same person can defeat (by editing, by a second role, by a retry); idempotency and If-Match on writes; the synthetic generator changing seeded totals it promised not to change, or not being deterministic.`,
+        { label: 'verify:maths-and-workflow', phase: 'Verify', schema: FINDINGS },
+      ),
+    () =>
+      agent(
+        `${VERIFY}\nYOUR LENS: ACCESS, THE STATIC PREVIEW AND THE PAGES. Do not run builds, the preview or browsers (another verifier does); you may run single vitest files. Hunt for: an access hole (a role that reads or writes what it should not; a position behind an information wall leaking through the new routes, the preview's simulation, an export or a count; client entitlement ignored; the access matrix not covering a new table or a write); the API and the preview's in-browser simulation answering the same request differently (statuses, refusal text, ordering, rounding, who may act); the preview reading the system actor's book where the API reads as the caller; new routes missing from the preview; page states missing (loading, empty, unavailable, error, not visible to your role); a missing value drawn as zero; copy that cites the build guide, uses jargon a private equity team would not, or reads as machine written; accessibility basics (labels, table headers, focus after a dialog, reduced motion); a duplicate of something that already exists in the web app (rule 7); config that should not be in code (rule 9).`,
+        { label: 'verify:access-and-preview', phase: 'Verify', schema: FINDINGS },
+      ),
+  ])
+).filter(Boolean)
+
+const seen = new Set()
+const findings = []
+for (const v of verdicts)
+  for (const f of v.findings || []) {
+    const k = `${(f.file || '').toLowerCase()}|${f.title.toLowerCase().slice(0, 60)}`
+    if (seen.has(k)) continue
+    seen.add(k)
+    findings.push(f)
+  }
+const order = { blocker: 0, major: 1, minor: 2 }
+findings.sort((a, b) => order[a.severity] - order[b.severity])
+log(`${findings.length} findings: ${findings.filter((f) => f.severity === 'blocker').length} blockers, ${findings.filter((f) => f.severity === 'major').length} major`)
+
+let fix = 'No findings: nothing to fix.'
+if (findings.length > 0) {
+  phase('Fix')
+  fix = await agent(
+    `${RULES}\nYOUR PART: three independent verifiers reviewed the finished feature (its commits are "git log --oneline ${args.base}..HEAD"). Their findings are below, most serious first. For each one: check it yourself first (a verifier can be wrong); if it is real, fix it, with a test that fails before the fix wherever a test can show it; if it is not real, or the spec deliberately decided otherwise, leave the code and say why. Fix every blocker and major finding; fix the minor ones that are plainly right and cheap. Commit in small commits. When done, run "pnpm typecheck", "pnpm lint", "pnpm exec vitest run" (the whole suite), "pnpm test:calc", "pnpm test:rls", "bash scripts/check-style.sh", "pnpm check:employer-data", and, if you touched the web app or the preview, "pnpm --filter @pb/web build:preview" with the probe and the feature's own browser spec.\n\nGATES AS THE VERIFIER RAN THEM:\n${JSON.stringify((verdicts.find((v) => v.gates && v.gates.length) || {}).gates || [], null, 1)}\n\nFINDINGS:\n${JSON.stringify(findings, null, 1)}\n\nYOUR REPORT (final message, plain text, at most 500 words). First line exactly "STATUS: DONE", "STATUS: PARTIAL" or "STATUS: BLOCKED". Then, for every finding by its title: fixed (commit hash), or not taken (why). Then the gate commands you ran with their pass counts, and anything still open.`,
+    { label: 'fix:findings', phase: 'Fix' },
+  )
+}
+
+return {
+  key: args.key,
+  stopped: null,
+  builds,
+  summaries: verdicts.map((v) => v.summary),
+  gates: (verdicts.find((v) => v.gates && v.gates.length) || {}).gates || [],
+  findings,
+  fix,
+}

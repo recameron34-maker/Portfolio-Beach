@@ -1,0 +1,307 @@
+export const meta = {
+  name: 'decide-open-questions',
+  description: 'Decide every open design question in the repository with a three-lens panel and an adversarial check, then write the build spec for what changes',
+  phases: [
+    { title: 'Collect', detail: 'one reader per theme lists the open questions with their context' },
+    { title: 'Decide', detail: 'three lenses per theme, a judge, then a refuter and one revision' },
+    { title: 'Complete', detail: 'a critic looks for questions nobody listed and decides them' },
+    { title: 'Specify', detail: 'one build spec and a register of decisions, reviewed twice and corrected' },
+  ],
+}
+
+const OUT = args.out
+const COMMON = `
+You are working in the repository /home/user/Portfolio-Beach (branch claude/gifted-tesla-eg7s85). Today is ${args.today}.
+
+THE OWNER'S INSTRUCTION, given ${args.today}, word for word: "I need the system to be smart enough to make these types of decisions its self and make them correctly."
+It was his answer to a list of design questions the build had left "for the owner" (how a fund commitment carries a mark, whether a statement that does not tie is suggested with a flag or held back, what identifies a company-specific statement, whether history tables are walled). The build's reading of it, which you work to:
+1. The build decides design and product questions itself, records each decision with its reason and the alternative it set aside, and builds it. It does not hand them to the owner.
+2. The product, when it runs, decides for itself whatever it can establish from the data on hand with a rule that is written down and tested, shows why, and sends a person only what it cannot establish.
+
+HOW A DECISION IS MADE CORRECTLY. Apply these in order:
+a. The non-negotiable rules of CLAUDE.md and the SEC ids of docs/05_SECURITY.md are fixed. No decision relaxes one. In particular: never invent a number (a missing input gives a reason and no value, never a zero and never another period's figure); every write to a core financial record goes through staging and a person's approval, so nothing here may let the system write or approve a mark, a cash flow or a client figure by itself; every state change goes through a transition table of docs/18; tests first for any financial rule, with a golden fixture and the Python cross-check; config over code for every threshold; synthetic data only.
+b. Least privilege. A decision that narrows who can read or do something may be taken. A decision that would widen access, add a role or permission, add a paid service or licence, delete data, or change the schema of a table the accounting import or export reads is not the build's to take: choose an option that avoids it. Only if no such option exists is the question the owner's.
+c. Follow what institutional private equity limited partners, co-investors and their operations and valuation teams do in practice (for example the ILPA reporting templates for capital account statements and capital calls, the IPEV valuation guidelines, fair value at the sponsor's reported net asset value rolled forward for cash flows since, two-person approval of marks). Where you rely on a public standard, name it. You may use web search and web fetch for public professional sources; a query must never contain a name, figure or phrase taken from this repository, its owner or this project.
+d. Prefer the option in which the system does the work and proves it over the option in which a person is asked. Prefer the option that keeps one rule in one place.
+e. A question is "owner only" when, and only when, it turns on a fact about the outside world that nobody but the owner has, or on an act nobody but the owner can perform (paying a bill, merging a pull request, a setting in an account dashboard, a real document). Even then: if the system can be built to behave correctly whatever the answer turns out to be, decide that and build it, and it is not owner only.
+f. Say plainly when what is built already is the right answer. A decision that confirms the default changes no code; it changes the record from "open" to "decided".
+
+READ ONLY. Another agent is building in this working tree right now (the Reporting, Packages pages, decision record 0024). Do not create, edit, move or delete any file inside /home/user/Portfolio-Beach. Do not run pnpm, node scripts, tests, builds, or any git command that changes state. Reading files, grep, ls, git log and git show are fine. Files you are asked to write go under ${OUT} and nowhere else.
+Write in plain words, no em dashes.`
+
+const QUESTIONS_SCHEMA = {
+  type: 'object',
+  properties: {
+    theme: { type: 'string' },
+    questions: {
+      type: 'array',
+      items: {
+        type: 'object',
+        properties: {
+          id: { type: 'string', description: 'short stable id, theme prefix and a number, for example VS-3' },
+          question: { type: 'string' },
+          source: { type: 'string', description: 'file and section or line where it is recorded as open' },
+          builtDefault: { type: 'string', description: 'what the code does today, with the files that do it' },
+          alternatives: { type: 'string', description: 'the other choices named in the record, and any you see' },
+          context: { type: 'string', description: 'the rules, docs sections, tables, routes and pages a decision would touch, with paths, enough that a reader need not rediscover them' },
+        },
+        required: ['id', 'question', 'source', 'builtDefault', 'alternatives', 'context'],
+      },
+    },
+  },
+  required: ['theme', 'questions'],
+}
+
+const DECISIONS_SCHEMA = {
+  type: 'object',
+  properties: {
+    theme: { type: 'string' },
+    decisions: {
+      type: 'array',
+      items: {
+        type: 'object',
+        properties: {
+          id: { type: 'string' },
+          question: { type: 'string' },
+          source: { type: 'string' },
+          decision: { type: 'string', description: 'the choice, stated so that a builder could not read it two ways' },
+          why: { type: 'string' },
+          setAside: { type: 'string', description: 'the alternative not taken and why' },
+          standsAsBuilt: { type: 'boolean', description: 'true when the code already does this and only the record changes' },
+          change: { type: 'string', description: 'what must be built or changed, by layer (calc, db, workflows, api, web, preview, synthetic, docs); empty when standsAsBuilt' },
+          runtimeRule: { type: 'string', description: 'where the product itself now decides something at run time: the rule, what it needs on hand, and what goes to a person when the rule cannot be applied; empty if none' },
+          ownerOnly: { type: 'boolean' },
+          ownerOnlyWhy: { type: 'string' },
+          references: { type: 'array', items: { type: 'string' } },
+        },
+        required: ['id', 'question', 'source', 'decision', 'why', 'setAside', 'standsAsBuilt', 'change', 'runtimeRule', 'ownerOnly', 'ownerOnlyWhy', 'references'],
+      },
+    },
+  },
+  required: ['theme', 'decisions'],
+}
+
+const REFUTE_SCHEMA = {
+  type: 'object',
+  properties: {
+    problems: {
+      type: 'array',
+      items: {
+        type: 'object',
+        properties: {
+          id: { type: 'string' },
+          problem: { type: 'string' },
+          evidence: { type: 'string' },
+          fix: { type: 'string' },
+        },
+        required: ['id', 'problem', 'evidence', 'fix'],
+      },
+    },
+  },
+  required: ['problems'],
+}
+
+const LENSES = [
+  {
+    key: 'practice',
+    brief: `Your lens is PRACTICE. You are a head of operations and valuation at an institutional private equity limited partner and co-investor. For each question say what a well-run team of that kind does, and why, naming the public standard or common practice behind it (ILPA templates and guidance, IPEV valuation guidelines, the net asset value practical expedient and roll-forward for cash flows, valuation committee and two-person controls, fund administrator practice). Check a public source where you are not sure. Say which option is right in practice and what a careful team would never automate.`,
+  },
+  {
+    key: 'control',
+    brief: `Your lens is CONTROL. You are the reviewer who signs off security and controls. For each question find the rules that bear on it in CLAUDE.md, docs/05_SECURITY.md (cite the SEC ids), docs/18_WORKFLOWS_AND_STATE_MACHINES.md, docs/03_DATA_MODEL.md and docs/08_CALCULATIONS_SPEC.md, and read the code that implements the default. Say which option those rules require or forbid, where an option would leak a figure across an information wall or let one person do two people's work, and what test would prove the chosen option holds.`,
+  },
+  {
+    key: 'product',
+    brief: `Your lens is PRODUCT. You are the person who has to use this tool every quarter end with forty statements arriving in a week. For each question say which option means the system does the work itself and is right, what it must show so that its answer can be trusted at a glance, and exactly which cases it cannot settle and must put in front of a person (and what that person sees and does). Read the pages and the API that exist so your answer fits them. Point out where the default as built makes a person decide something the data on hand already settles.`,
+  },
+]
+
+phase('Collect')
+log(`Deciding the open questions of ${args.themes.length} themes`)
+
+const perTheme = await pipeline(
+  args.themes,
+  // Stage 1: list the questions of the theme with their context.
+  (theme) =>
+    agent(
+      `${COMMON}
+
+TASK: list every question in the theme "${theme.title}" that the repository records as open, undecided, "for the owner", "default", "draft", "not taken" or "left out for now", with enough context that others can decide it without rediscovering the code.
+
+Where to look: ${theme.sources}
+
+For each question give: a short id (prefix ${theme.prefix}), the question in one sentence, where it is recorded, what the code does today (the built default, with the files), the alternatives the record names and any other you see, and the context a decision would touch (rules, docs sections, tables, routes, pages, tests, with paths). Read the code, do not rely on the record's description of it. Include a question even if you think the default is right. Leave out anything that is already decided by the owner in a decision record (say nothing of those). Do not decide anything.`,
+      { label: `collect:${theme.key}`, phase: 'Collect', schema: QUESTIONS_SCHEMA },
+    ),
+  // Stage 2: three lenses, then a judge.
+  async (collected, theme) => {
+    if (!collected || !collected.questions || collected.questions.length === 0) {
+      return { theme: theme.title, decisions: [] }
+    }
+    const qs = JSON.stringify(collected.questions, null, 1)
+    const views = await parallel(
+      LENSES.map((lens) => () =>
+        agent(
+          `${COMMON}
+
+${lens.brief}
+
+THEME: ${theme.title}
+THE QUESTIONS (collected by another reader, with the default as built and the context):
+${qs}
+
+For EACH question, by its id, give: the option you choose, your reasons, what must be built or changed if it is not what is built, what the product should decide by itself at run time and what it must send to a person, and anything in the collected context you found to be wrong when you read the code. Be concrete: name files, tables, routes, config keys and the figures of a worked example where a rule is involved. Return plain text, one section per question id.`,
+          { label: `${lens.key}:${theme.key}`, phase: 'Decide' },
+        ).then((text) => ({ lens: lens.key, text })),
+      ),
+    )
+    const viewText = views
+      .filter(Boolean)
+      .map((v) => `===== LENS: ${v.lens} =====\n${v.text}`)
+      .join('\n\n')
+    const judged = await agent(
+      `${COMMON}
+
+You are the JUDGE for the theme "${theme.title}". Three reviewers, each with a different lens, have given their view on each question. Decide each question once. Where they agree, check the agreement against the code before you adopt it. Where they differ, decide by the order of principles a to f above and say which view lost and why. Verify any claim about the code that your decision rests on by reading the code.
+
+THE QUESTIONS:
+${qs}
+
+THE THREE VIEWS:
+${viewText}
+
+For each question return the decision in the schema. "decision" must be exact enough to build from. "change" lists what must be built by layer, or is empty with standsAsBuilt true. "runtimeRule" states any rule by which the product now decides something itself, what it needs on hand, and what goes to a person when it cannot be applied. Mark ownerOnly only under principle e, and say why no build can make the question moot.`,
+      { label: `judge:${theme.key}`, phase: 'Decide', schema: DECISIONS_SCHEMA },
+    )
+    return judged ? { ...judged, questions: collected.questions } : { theme: theme.title, decisions: [] }
+  },
+  // Stage 3: an adversary tries to break each decision; the judge revises once.
+  async (judged, theme) => {
+    if (!judged || !judged.decisions || judged.decisions.length === 0) return judged
+    const ds = JSON.stringify(judged.decisions, null, 1)
+    const refuted = await agent(
+      `${COMMON}
+
+You are the ADVERSARY for the theme "${theme.title}". Below are decisions another agent has taken on questions the repository had left open. Try to break each one. For each decision look for: a rule of CLAUDE.md, docs/05, docs/08 or docs/18 it breaks; a case in which it produces a wrong number, invents one, or reads another period's figure; a path by which a figure crosses an information wall or one person does two people's work; a table the accounting import or export reads that it changes; a claim about the code that is false (read the code); a "stands as built" that does not match what the code does; an "owner only" that the build could in fact settle; a decision too vague to build one way. Report only problems you can show with evidence from the repository or from a worked example. If a decision holds, say nothing about it.
+
+THE DECISIONS:
+${ds}`,
+      { label: `refute:${theme.key}`, phase: 'Decide', schema: REFUTE_SCHEMA },
+    )
+    if (!refuted || !refuted.problems || refuted.problems.length === 0) return { ...judged, problems: [] }
+    const revised = await agent(
+      `${COMMON}
+
+You are the JUDGE for the theme "${theme.title}" again. An adversary has raised problems with some of your decisions. For each problem: check its evidence in the repository. If it holds, change the decision so the problem is gone (do not weaken a control to do it). If it does not hold, keep the decision and note in "why" what the adversary got wrong. Return the complete list of decisions for the theme, changed and unchanged, in the schema.
+
+YOUR DECISIONS:
+${ds}
+
+THE PROBLEMS RAISED:
+${JSON.stringify(refuted.problems, null, 1)}`,
+      { label: `revise:${theme.key}`, phase: 'Decide', schema: DECISIONS_SCHEMA },
+    )
+    return revised ? { ...revised, problems: refuted.problems } : { ...judged, problems: refuted.problems }
+  },
+)
+
+const themes = perTheme.filter(Boolean)
+const all = themes.flatMap((t) => (t.decisions || []).map((d) => ({ ...d, theme: t.theme })))
+log(`${all.length} questions decided across ${themes.length} themes`)
+
+phase('Complete')
+const critic = await agent(
+  `${COMMON}
+
+You are the COMPLETENESS CRITIC. ${all.length} open questions have been listed and decided (titles below). Find what was missed: sweep docs/decisions/*.md, docs/SESSION_LOG.md, docs/09_ROADMAP_AND_BACKLOG.md, docs/11_CAPABILITY_CHECKLIST.md, docs/04_MODULES.md and the page copy and comments under apps/ and packages/ for anything still recorded as open, "for the owner", "default until the owner", "draft", "not taken", "to be decided" or "proposed" that is not in the list. Also look for places where the product asks a person something the data on hand already settles. Decide each one you find yourself, by the principles above, after reading the code, and return them in the schema with theme "Missed by the first pass" and ids prefixed MX-. If you find nothing, return an empty list.
+
+ALREADY DECIDED (id: question):
+${all.map((d) => `${d.id}: ${d.question}`).join('\n')}`,
+  { label: 'completeness-critic', phase: 'Complete', schema: DECISIONS_SCHEMA },
+)
+const extra = critic && critic.decisions ? critic.decisions.map((d) => ({ ...d, theme: 'Missed by the first pass' })) : []
+const decisions = [...all, ...extra]
+log(`${extra.length} more found by the critic; ${decisions.filter((d) => !d.standsAsBuilt && !d.ownerOnly).length} need a change, ${decisions.filter((d) => d.ownerOnly).length} are the owner's`)
+
+phase('Specify')
+const REGISTER = `${OUT}/decisions-register.md`
+const SPEC = `${OUT}/owner-decisions-spec.md`
+const DEC_JSON = JSON.stringify(decisions, null, 1)
+const specReport = await agent(
+  `${COMMON}
+
+You are the SPEC WRITER. Every open question has been decided (the list is below). Write two files.
+
+FILE 1, ${REGISTER}: the register of decisions. A short opening paragraph that quotes the owner's instruction with its date and states the two-part reading of it. Then one table per theme: id, the question, the decision, the reason in a sentence, and one of "stands as built", "changes (slice n)" or "the owner's (why)". Then a short list, "Still the owner's", of the ownerOnly items with what the owner would have to do. Nothing else.
+
+FILE 2, ${SPEC}: the build specification for everything that changes, in the form of the two specifications you can read as models: ${args.modelSpecs.join(' and ')}. Sections: goal; what exists and is reused; behaviour; data model; calculations with worked examples whose arithmetic you have done by hand and checked; API; web; static preview; synthetic data; tests; slices; risks. Requirements:
+- The first slice is the record: a decision record numbered ${args.decisionNo} named for who decides what (the owner's instruction quoted with its date, the reading of it, principles a to f in the repository's words, what stays with the owner), one dated line in the working agreement of CLAUDE.md section 4 that quotes the instruction and points to the record, and the "Open for the owner" sections of the earlier decision records rewritten as "Decided" with the decision and its reason (the alternative kept in a sentence). No code in that slice.
+- Then slices ordered so that each can be committed alone with the tests passing: financial rules first (tests, golden fixture, Python cross-check before anything uses them), then workflows and config, then the database, then the API, then web, then the static preview, then the browser journey and docs. Group the changes by layer across themes where that makes a slice coherent; say for each slice which decision ids it carries.
+- Numbers: the Reporting, Packages build running now takes decision record 0024 and no migration, fixture, docs/08 section or docs/18 section. As the repository stands, decision records run to 0023 (0024 is being written), migrations to 0023, docs/08 sections to 12, golden fixtures to 31, docs/18 sections to 14, capability rows to E15. Take the next free number of each kind and tell the builder to check what is free when the build starts.
+- Every changed behaviour names its test. Every forbidden transition has a rejection test. Every new or changed column is classified. Every access change has a row-level security policy, an access matrix row and a negative test. Every page change says what each role sees, the loading, empty and unavailable states, and that page copy never names a file, a config key or the build guide.
+- Read the code for everything the spec touches, so file names, function names, table names, routes and config keys in it are real. Where a decision's "change" is wrong about the code, write the spec to the code and note the difference.
+- Keep it to what the decisions require. Do not add features nobody decided.
+
+When both files are written, reply with a short report: the number of decisions by outcome, the slices by title with the ids each carries, and anything you could not specify and why.
+
+THE DECISIONS:
+${DEC_JSON}`,
+  { label: 'spec-writer', phase: 'Specify' },
+)
+
+const REVIEW_SCHEMA = {
+  type: 'object',
+  properties: {
+    findings: {
+      type: 'array',
+      items: {
+        type: 'object',
+        properties: {
+          severity: { type: 'string', enum: ['blocker', 'major', 'minor'] },
+          where: { type: 'string' },
+          problem: { type: 'string' },
+          fix: { type: 'string' },
+        },
+        required: ['severity', 'where', 'problem', 'fix'],
+      },
+    },
+  },
+  required: ['findings'],
+}
+const REVIEWS = [
+  {
+    key: 'rules',
+    brief: `Review it against the rules: CLAUDE.md sections 3, 3b, 3c and 6, docs/05_SECURITY.md, docs/08_CALCULATIONS_SPEC.md, docs/18_WORKFLOWS_AND_STATE_MACHINES.md, docs/03_DATA_MODEL.md and docs/12_TESTING_AND_QUALITY.md. Look for: a rule relaxed; a financial write that skips staging or approval; a number that could be invented; a state change outside a transition table or without a rejection test; a column unclassified; an access path with no policy, no matrix row or no negative test; a threshold in code; a table the accounting import or export reads being changed; anything that widens access; a duplicate of something that exists. Recompute every worked example by hand and report any that is wrong, with the right figure.`,
+  },
+  {
+    key: 'build',
+    brief: `Review it as the person who must build it. Read the code each slice touches. Look for: a file, function, table, route or config key that does not exist or is misnamed; a slice that cannot be committed alone with the tests passing; an order of slices that makes a later slice rewrite an earlier one; a behaviour with no test named; a page change that does not say what each role sees or its loading, empty and unavailable states; a static preview that would differ from the API; a decision in the register that the spec does not carry (every decision that changes something must be in a slice) or that the spec contradicts; a number (decision record, migration, fixture, section) that collides with one in use; anything left for the builder to guess.`,
+  },
+]
+const reviews = await parallel(
+  REVIEWS.map((r) => () =>
+    agent(
+      `${COMMON}
+
+You are a REVIEWER of a build specification, ${SPEC}, written from the register of decisions ${REGISTER}. Read both in full. ${r.brief}
+Report only what you can show. Do not edit either file.`,
+      { label: `spec-review:${r.key}`, phase: 'Specify', schema: REVIEW_SCHEMA },
+    ),
+  ),
+)
+const findings = reviews.filter(Boolean).flatMap((r) => r.findings || [])
+log(`Spec review: ${findings.length} findings`)
+let fix = 'No findings.'
+if (findings.length > 0) {
+  fix = await agent(
+    `${COMMON}
+
+You are the SPEC WRITER again. Two reviewers read ${SPEC} and ${REGISTER} and raised the findings below. Check each against the repository. Correct both files for every finding that holds (edit them in place under ${OUT}); where a finding does not hold, leave the text and say why in your report. Keep the two files consistent with each other. Reply with one line per finding: fixed (what changed) or not taken (why), then the final list of slices by title.
+
+THE FINDINGS:
+${JSON.stringify(findings, null, 1)}`,
+    { label: 'spec-fix', phase: 'Specify' },
+  )
+}
+
+return { register: REGISTER, spec: SPEC, decided: decisions.length, changes: decisions.filter((d) => !d.standsAsBuilt && !d.ownerOnly).length, ownerOnly: decisions.filter((d) => d.ownerOnly).map((d) => ({ id: d.id, question: d.question, why: d.ownerOnlyWhy })), decisions, specReport, findings, fix }

@@ -1,0 +1,47 @@
+{
+ "today": "2026-11-18",
+ "out": "/tmp/claude-0/-home-user/9593e3d3-c421-5b4a-b2b1-7c7ce8f36ae0/scratchpad/decisions",
+ "decisionNo": "0025",
+ "modelSpecs": [
+  "/tmp/claude-0/-home-user/9593e3d3-c421-5b4a-b2b1-7c7ce8f36ae0/scratchpad/specs/valuation-suggestions.md",
+  "/tmp/claude-0/-home-user/9593e3d3-c421-5b4a-b2b1-7c7ce8f36ae0/scratchpad/specs/report-packages-web.md"
+ ],
+ "themes": [
+  {
+   "key": "valuation-suggestions",
+   "prefix": "VS-",
+   "title": "Valuation suggestions from capital account statements and sponsor reports",
+   "sources": "docs/decisions/0023-valuation-suggestions.md (the twelve items under 'Open for the owner', the paragraph 'Left out for now', and 'After the verification'); the last entries of docs/SESSION_LOG.md about valuation suggestions and their open items; docs/18_WORKFLOWS_AND_STATE_MACHINES.md sections 1 and 14; docs/08_CALCULATIONS_SPEC.md section 12; config/definitions.json key valuationSuggestions; packages/workflows/src/controls-suggestion.ts; apps/api/src/suggestions; apps/api/src/valuations/workflow.service.ts; packages/db migrations 0023 and the history policy audit.add_history in 0001; apps/web/src/pages/valuations. Known items to include: how a fund commitment carries a mark, so that a fund-level statement can raise a suggestion; the order of sources; a statement that does not tie or whose contributions differ from the record; cash flows since the last Locked mark; method labels; source reviewers; position-level statements as expected documents; what names a company-specific statement on a real document; relinking a classified document; private credit and positions not in US dollars; who reads the keys a suggestion leaves on a valuation; history tables and the wall (for every walled record, not only this one); a share that was misread where the lines are in fact our own account."
+  },
+  {
+   "key": "base-case",
+   "prefix": "BC-",
+   "title": "Deal performance against the sponsor's underwritten base case",
+   "sources": "docs/decisions/0022-underwritten-base-case.md ('Open for the owner' and everything recorded as not taken or as a deviation, including that no outbox event is written although docs/18 says every transition emits one); the docs/SESSION_LOG.md entries about the base case and its review; docs/08_CALCULATIONS_SPEC.md section 11; docs/18 section 13; docs/14_SYNTHETIC_DATA_SPEC.md section 12; config/definitions.json key underwriting; packages/calc/src/underwriting.ts; apps/api/src/underwriting; tools/synthetic/src/underwriting.ts; apps/web/src/pages/deal/Underwriting*.tsx. Known items to include: which case is compared; the straight line between plan dates; a second person in place of a staging table; when a case is entered and its source; the two tolerances; the MOIC before the exit; the seeded 'ahead of plan' example being a plan in which the company shrinks; whether a loan's yield to maturity is priced on the sponsor's reported fair value or our Locked mark; a primary fund holding no base case."
+  },
+  {
+   "key": "reporting-packages",
+   "prefix": "RP-",
+   "title": "Client reporting packages: the engine, the API and the pages",
+   "sources": "section 12 ('Risks and owner questions') of /tmp/claude-0/-home-user/9593e3d3-c421-5b4a-b2b1-7c7ce8f36ae0/scratchpad/specs/report-packages-web.md, which is being built now with the default named for each (its decision record 0024 may not exist yet: read docs/decisions for it, and the spec if it does not); docs/04_MODULES.md M14; docs/09_ROADMAP_AND_BACKLOG.md Phase 4 and its exit criteria; docs/08 section 7; docs/18 for reportingPackageMachine; packages/report-engine; apps/api/src/packages; packages/db migrations 0019 and 0020; the docs/SESSION_LOG.md entries on reporting packages. Known items to include: a position behind a wall the preparer is not on is left out of a client's package, and whether the package says so; a package's lines being read by every role that reads all clients whatever their own walls; no way back from QA passed or In review, and a stuck package blocking a new one; net packages showing gross figures; the basis not checked against the client's record; no totals row; expected and found shown to the cent; what the Phase 4 exit journey is."
+  },
+  {
+   "key": "analytics-fit-map",
+   "prefix": "AN-",
+   "title": "Value creation analytics, the deal fit measures and the co-investment map",
+   "sources": "docs/decisions/0014-value-creation-analytics.md ('Open for the owner'); docs/decisions/0018-deal-fit-measures.md (the measures are shown as 'Draft measures': find what is draft about them, every threshold and weighting recorded as provisional); docs/decisions/0017-co-investment-map.md; docs/08_CALCULATIONS_SPEC.md sections 8 and the value creation section; config/definitions.json keys for deal fit and value creation; packages/calc/src (dealFit, value creation); apps/web/src/pages (the fit card, the Analytics tabs, the map); the docs/SESSION_LOG.md entries on these. Include the question of when a measure stops being called a draft and what would make it final."
+  },
+  {
+   "key": "platform",
+   "prefix": "PL-",
+   "title": "Platform, sign-in, hosting, CI and the way the build is run",
+   "sources": "docs/decisions/0019-microsoft-365-integration.md (status Proposed, 'Questions for the owner'); docs/decisions/0015-public-site-and-hosting.md and its amendment; docs/decisions/0016-security-checks-on-a-private-repository.md; docs/decisions/0020-demo-video-narration.md; docs/decisions/0021-role-focus.md; docs/16_GITHUB_AND_CLAUDE_CODE_CLOUD.md; docs/13_BUILD_APPROACH.md; .github/workflows; the open items of docs/SESSION_LOG.md that concern CI, the website, hosting, sign-in, the demo videos or the size of pull requests. Facts you should know: this session may push to one branch only and cannot merge; GitHub has not started the ci workflow's jobs since 13 November 2026, before a runner is assigned, which points at the account's Actions minutes or spending limit; the Cloudflare branch build check fails on every push for a cause visible only in the Cloudflare dashboard; no credential to any real system exists here and none may be asked for. For this theme be strict about principle e: say exactly which items only the owner can do, and for every other item decide it."
+  },
+  {
+   "key": "everything-else",
+   "prefix": "EE-",
+   "title": "Everything else the repository records as open",
+   "sources": "all of docs/SESSION_LOG.md (every 'open items' list from the first session to the last, leaving out anything about valuation suggestions, the base case, reporting packages, value creation, deal fit, the map, Microsoft 365, hosting, CI and narration, which other readers have); docs/decisions/0001 to 0013 (open questions, defaults, deviations and anything marked provisional); docs/09_ROADMAP_AND_BACKLOG.md (backlog lines waiting on a decision); docs/11_CAPABILITY_CHECKLIST.md (rows marked partial where the reason is an undecided question); docs/04_MODULES.md and docs/14_SYNTHETIC_DATA_SPEC.md (things marked as a default or a draft: for example the synthetic scenarios qtd_ytd_basis and sign_flip that the session log says are not generated yet, and counts on the role work list); comments and page copy under apps/ and packages/ that say a value is a default, a placeholder or to be decided. Also include this known fault of page copy: apps/web/src/pages/valuations/board.ts builds the title 'Above the 10.0% flag (config/definitions.json)', which names a config file on a page; find every other place where page copy names a file, a config key or a code identifier."
+  }
+ ]
+}

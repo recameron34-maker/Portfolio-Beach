@@ -49,6 +49,7 @@ We are building a secure, vendor-grade platform, **custom-built on Azure inside 
 | API, errors, resilience, logging, performance | `docs/17_ENGINEERING_STANDARDS.md` |
 | Workflow states and transitions | `docs/18_WORKFLOWS_AND_STATE_MACHINES.md` |
 | Past decisions | `docs/decisions/` |
+| Picking up unfinished work | `docs/handoff/README.md` (where the last session stopped and how to resume) |
 
 
 ## 3. Non-negotiable rules
@@ -104,6 +105,7 @@ We are building a secure, vendor-grade platform, **custom-built on Azure inside 
 - **Verify, do not trust.** After any schema migration or workflow change, run the tests and show the output.
 - **Update the logs.** At the end of every session, append to `docs/SESSION_LOG.md`: what changed, what was verified, open items. This is the continuity record.
 - **Ask before:** deleting data, changing security roles, adding app-level permissions, adding a new paid connector or license, or changing a table that the accounting import or export depends on.
+- **Decide, do not defer (owner, 2026-11-18):** "I need the system to be smart enough to make these types of decisions its self and make them correctly." He said it in answer to a list of design questions the build had left for him. The builder's reading: design and product questions are decided by the build, recorded in a decision record with the reason and the alternative set aside, and built; and the product itself settles whatever the data on hand can prove with a written, tested rule, sending a person only what it cannot. This relaxes no rule of section 3 and nothing on the "ask before" list above: choose the option that avoids those. What still goes to the owner is what only he can do or know (`docs/handoff/README.md`, section 8).
 
 ---
 
