@@ -336,6 +336,29 @@ describe('the recording plan', () => {
       expect(planned.has(keyOf(path)), path).toBe(true);
   });
 
+  it('records nothing for the reporting packages: the book seeds none, so the shim answers them', () => {
+    const paths = ['/api/v1/report-packages', `/api/v1/report-packages/${INV}`];
+    for (const path of paths) {
+      expect(simulatedGet(path), path).toBe(true);
+      expect(planned.has(keyOf(path)), path).toBe(false);
+    }
+    expect(
+      plan.families.flatMap((f) => f.paths).filter((p) => p.includes('/report-packages')),
+    ).toEqual([]);
+    // The two writes are simulated beside them, so no package request reaches the recordings.
+    for (const [method, path] of [
+      ['POST', '/api/v1/report-packages'],
+      ['POST', `/api/v1/report-packages/${INV}/commands`],
+    ] as const)
+      expect(
+        SIM_ROUTES.some((r) => r.method === method && r.match(path) !== null),
+        `${method} ${path}`,
+      ).toBe(true);
+    // What a generate reads is recorded for every user: the clients and each position's one-pager.
+    expect(planned.has(keyOf('/api/v1/clients'))).toBe(true);
+    expect(planned.has(keyOf(`/api/v1/investments/${INV}`))).toBe(true);
+  });
+
   it('records every id for every family that takes one, and the audit trail first', () => {
     const paths = (name: string): string[] =>
       plan.families.find((f) => f.name === name)?.paths ?? [];

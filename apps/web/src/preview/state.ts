@@ -46,6 +46,7 @@ import type {
   LookthroughRow,
   QuarterSource,
   RealizationOutlookCode,
+  ReportPackageDetail,
   StagingState,
   SuggestionBasis,
   SuggestionReason,
@@ -452,7 +453,8 @@ export interface SimAuditEvent {
     | 'legal_term'
     | 'investment'
     | 'underwriting_case'
-    | 'valuation_suggestion';
+    | 'valuation_suggestion'
+    | 'report_package';
   entityId: string;
   reason: string | null;
   from: string | null;
@@ -679,6 +681,15 @@ export interface SimSuggestion {
   rowVersion: number;
 }
 
+/**
+ * A reporting package (rpt.package, docs/18 section 5, decision 0024) as the session holds it,
+ * with the findings of its latest QA run (rpt.qa_result): the package as its detail answers it,
+ * less the counts of that run, which are read from the findings each time it is answered.
+ * Nothing is recorded: the synthetic book seeds no package, so one exists only once investor
+ * relations start it here.
+ */
+export type SimReportPackage = Omit<ReportPackageDetail, 'qa'>;
+
 /** The key of a promoted quarter: its investment and period end. */
 export const quarterKey = (investmentId: string, periodEnd: string): string =>
   `${investmentId}|${periodEnd}`;
@@ -742,6 +753,11 @@ export interface PreviewState {
    * is recorded: one exists only once a statement or a sponsor report is approved here.
    */
   suggestions: Map<string, SimSuggestion>;
+  /**
+   * Reporting packages started this session, by id. Nothing is recorded, so a package released
+   * here is the prior release of the next one only until the page is reloaded or reset.
+   */
+  reportPackages: Map<string, SimReportPackage>;
   audit: SimAuditEvent[];
   idempotency: Map<string, StoredResponse>;
 }
@@ -795,6 +811,7 @@ export function createPreviewState(): PreviewState {
     investments: new Map(),
     underwritingCases: null,
     suggestions: new Map(),
+    reportPackages: new Map(),
     audit: [],
     idempotency: new Map(),
   };
@@ -824,6 +841,7 @@ export function resetPreviewState(state: PreviewState): void {
   state.investments.clear();
   state.underwritingCases = null;
   state.suggestions.clear();
+  state.reportPackages.clear();
   state.audit.length = 0;
   state.idempotency.clear();
 }
