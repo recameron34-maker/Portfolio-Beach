@@ -152,6 +152,8 @@ describe('reporting packages: from Draft to Released through the QA gate', () =>
       findings: [],
       qa: { runNo: null, findings: 0, failed: 0, overridden: 0 },
       contentHash: null,
+      // Nothing was generated yet, so there is no run to list.
+      changeLog: [],
     });
     expect(draft.preparedBy.id).toBe(h.dataset.users.find((u) => u.externalId === 'ir.one')?.id);
     // One in progress per client, period and basis.
@@ -197,6 +199,20 @@ describe('reporting packages: from Draft to Released through the QA gate', () =>
       overridden: 0,
     });
     for (const f of generated.findings) expect(QA_RULES).toContain(f.rule);
+
+    // The change log lists the run: who generated it, by name, and what the run counted.
+    const irOne = h.dataset.users.find((u) => u.externalId === 'ir.one');
+    expect(generated.changeLog).toEqual([
+      {
+        at: expect.stringMatching(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z$/) as string,
+        by: { id: irOne?.id, name: irOne?.displayName },
+        runNo: 1,
+        lines: content.lines.length,
+        findings: again.length,
+        failed: again.filter((f) => !f.passed).length,
+      },
+    ]);
+    expect(generated.changeLog[0]?.by.name).not.toBe('');
 
     // Every line is a position the preparer can read, and its end NAV is that position's own.
     const book = investmentPage.parse(
@@ -325,6 +341,9 @@ describe('reporting packages: from Draft to Released through the QA gate', () =>
     expect(d.state).toBe('Released');
     expect(d.releasedAt).not.toBeNull();
     expect(d.releasedBy?.id).toBe(h.dataset.users.find((u) => u.externalId === 'ops.one')?.id);
+    // The override, the submission, the approval and the release are in the audit trail: the
+    // change log lists generation runs only, and this package was generated once.
+    expect(d.changeLog.map((run) => run.runNo)).toEqual([1]);
 
     // Released is the end: nothing moves it, and the database refuses a change outright.
     for (const body of [{ command: 'regenerate' }, { command: 'submit' }, { command: 'release' }])
@@ -466,11 +485,25 @@ describe('reporting packages: from Draft to Released through the QA gate', () =>
     let again = detailOf((await get('ops.one', `${BASE}/${left.id}`).expect(200)).body);
     const preparer = externalIdOf(again.preparedBy.id);
     const runNo = again.qa.runNo ?? 0;
+    const before = again.changeLog;
+    expect(before.map((run) => run.runNo)).toEqual([runNo]);
     again = await stepped(preparer, again, { command: 'regenerate' }, 2);
     expect(again.qa.runNo).toBe(runNo + 1);
     expect(again.state).toBe('QAFailed');
+    // The runs in run order: the first as it was, then this one with what it counted.
+    expect(again.changeLog).toHaveLength(2);
+    expect(again.changeLog[0]).toEqual(before[0]);
+    expect(again.changeLog[1]).toMatchObject({
+      by: again.preparedBy,
+      runNo: runNo + 1,
+      lines: again.content?.lines.length,
+      findings: again.qa.findings,
+      failed: again.qa.failed,
+    });
     again = await stepped('head.one', again, { command: 'overrideQa', reason: 'Seen' }, 1);
     expect(again.state).toBe('QAPassed');
+    // The approver's override is not a run.
+    expect(again.changeLog).toHaveLength(2);
   });
 
   it('audits every step with the state before and after', async () => {

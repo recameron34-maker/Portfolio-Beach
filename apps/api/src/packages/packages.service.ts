@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import { Inject, Injectable } from '@nestjs/common';
 import { and, asc, desc, eq, inArray, sql } from 'drizzle-orm';
 import { alias } from 'drizzle-orm/pg-core';
+import { z } from 'zod';
 import type { AdapterSet, Principal } from '@pb/adapters';
 import { isQuarterEnd } from '@pb/calc';
 import { canonicalJson, reportPackageContent } from '@pb/contracts';
@@ -12,6 +13,7 @@ import type {
   ReportPackageDetail,
   ReportPackageList,
   ReportPackageRow,
+  ReportPackageRun,
   ReportPackageState,
 } from '@pb/contracts';
 import { asSystemActor, schema } from '@pb/db';
@@ -57,6 +59,21 @@ interface Definitions {
 }
 
 type PackageRecord = typeof pkg.$inferSelect;
+
+/**
+ * One generation run as rpt.package.change_log holds it: the person is the user id, and the
+ * detail answers the name (loadDetail). Only this service writes the column.
+ */
+const storedRun = z.object({
+  at: z.string(),
+  by: z.string().uuid(),
+  runNo: z.number().int(),
+  lines: z.number().int(),
+  findings: z.number().int(),
+  failed: z.number().int(),
+});
+type StoredRun = z.infer<typeof storedRun>;
+const storedChangeLog = z.array(storedRun);
 
 const iso = (value: Date | null): string | null => (value === null ? null : value.toISOString());
 const person = (id: string | null, name: string | null): { id: string; name: string } | null =>
@@ -354,17 +371,15 @@ export class PackagesService {
     const failed = findings.filter((f) => !f.passed).length;
     const runNo = ((await this.latestRun(tx, locked.id)) ?? 0) + 1;
 
-    const log = [
-      ...(Array.isArray(locked.changeLog) ? (locked.changeLog as unknown[]) : []),
-      {
-        at: this.adapters.clock.now(),
-        by: principal.userId,
-        runNo,
-        lines: snapshot.lines.length,
-        findings: findings.length,
-        failed,
-      },
-    ];
+    const run: StoredRun = {
+      at: this.adapters.clock.now(),
+      by: principal.userId,
+      runNo,
+      lines: snapshot.lines.length,
+      findings: findings.length,
+      failed,
+    };
+    const log = [...(Array.isArray(locked.changeLog) ? (locked.changeLog as unknown[]) : []), run];
     await this.claim(tx, locked, {
       state: 'Generated',
       content: snapshot,
@@ -546,6 +561,25 @@ export class PackagesService {
       content,
       findings,
       tieOutExplanations: record.tieOutExplanations as Record<string, string>,
+      changeLog: await this.changeLogOf(tx, record),
     };
+  }
+
+  /**
+   * The generation runs of a package in run order, each by a person: the column holds user ids
+   * and a page shows names, so the names are read here, once for every run.
+   */
+  private async changeLogOf(tx: Tx, record: PackageRecord): Promise<ReportPackageRun[]> {
+    const runs = storedChangeLog.parse(record.changeLog).sort((a, b) => a.runNo - b.runNo);
+    if (runs.length === 0) return [];
+    const people = await tx
+      .select({ id: schema.appUser.id, name: schema.appUser.displayName })
+      .from(schema.appUser)
+      .where(inArray(schema.appUser.id, [...new Set(runs.map((r) => r.by))]));
+    const nameOf = new Map(people.map((p) => [p.id, p.name]));
+    return runs.map(({ by, ...counts }) => ({
+      ...counts,
+      by: { id: by, name: nameOf.get(by) ?? '' },
+    }));
   }
 }

@@ -111,6 +111,23 @@ export type ReportPackageRow = z.infer<typeof reportPackageRow>;
 export const reportPackageList = z.object({ items: z.array(reportPackageRow) });
 export type ReportPackageList = z.infer<typeof reportPackageList>;
 
+/**
+ * One generation run of a package, as its change log lists it (rpt.package.change_log): when it
+ * ran, who ran it and what it counted. A generate and every regenerate is a run; the override,
+ * the submission, the approval and the release are in the audit trail, not here.
+ */
+export const reportPackageRun = z.object({
+  at: z.string(),
+  by: s.person,
+  runNo: z.number().int(),
+  /** How many positions the run's snapshot has. */
+  lines: z.number().int(),
+  /** How many findings the run's QA wrote, and how many of them failed. */
+  findings: z.number().int(),
+  failed: z.number().int(),
+});
+export type ReportPackageRun = z.infer<typeof reportPackageRun>;
+
 export const reportPackageDetail = reportPackageRow.extend({
   correctionReason: z.string().nullable(),
   /** SHA-256 of the approved content, hex. */
@@ -120,6 +137,8 @@ export const reportPackageDetail = reportPackageRow.extend({
   /** The findings of the latest run, failed first. */
   findings: z.array(qaFindingRow),
   tieOutExplanations: z.record(z.string(), z.string()),
+  /** The generation runs, in run order. */
+  changeLog: z.array(reportPackageRun),
 });
 export type ReportPackageDetail = z.infer<typeof reportPackageDetail>;
 
