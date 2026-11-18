@@ -172,11 +172,19 @@ Global rules in `CLAUDE.md` apply to every module. Workflow states are defined i
 - Batch approval screen with filters and variance vs. prior.
 - Reporting gate: reports read only Locked valuations.
 - Open deal change requests (M11) shown on the valuation screen.
-**Prototype scope:** fully built.
-**Depends on:** M9.
+- Valuation suggestions (asked by the owner, decision 0023): when a person approves the figures read from a capital account statement or a sponsor's quarterly report, the platform works out the mark they imply for the position and quarter, shows each input with its source, and sets it beside the mark on record. The sources are tried in a configured order (`valuationSuggestions.sourceOrder`): a position-level statement's ending balance, then the last Locked mark scaled by the change in the sponsor's equity value, then the same with the earlier multiple held (`docs/08` section 12). The first with a value is the suggestion and the others sit beside it as cross-checks, never blended. Operations opens a draft valuation from it, puts its value and method on the Draft already open for the quarter, or dismisses it with a reason (`docs/18` section 14); the deal team, approvers and auditors read; nobody else is sent a request. A suggestion never writes a mark: the Draft goes through the workflow above, and whoever approved a run behind the suggestion, or typed one of its figures, can take neither approval of that valuation. Pages: the Suggestions tab with the workings and the decisions, a Suggested column on the board's Missing marks card, a panel on the deal's Valuations tab, a line on the version screen and what the approval did on the extraction run page. A fund-level statement (our account in a fund commitment), a private credit position and a position not held in US dollars raise none.
+**Prototype scope:** fully built. Suggestions for fund-level statements wait on how a commitment carries a mark (decision 0023, question 1).
+**Depends on:** M9; valuation suggestions also on M3 and M4.
 **AC**
 - A Locked valuation cannot be updated in place: database constraint + API test.
 - Preparer cannot be final approver (segregation of duties test).
+- Every figure of a suggestion equals its rule in `docs/08` section 12 over the inputs returned with it; a missing input gives a reason and no value, never a zero and never another quarter's figure (calculation and API tests).
+- At most one suggestion is Open for a position and quarter: a statement approved while a report-based one is Open replaces it, a report approved after a statement changes only the cross-check, and two approvals at once end with one (database constraint + API test).
+- No suggestion is raised for a fund-level statement, a private credit position, a position not in US dollars or not held at the period end, a quarter with a Locked mark for it or a later one, or a value already dismissed or already on a valuation (API tests, each with its sentence on the run page).
+- Accepting a suggestion opens a Draft and nothing else; the Draft carries the suggestion's keys, which an edit cannot change or drop and which the lock hash covers (API test). A suggestion whose figures moved is replaced or closed at accept and the command is refused (API test).
+- Every person who approved a run behind an accepted suggestion, or typed one of its figures, is refused both approvals of that valuation (workflow and API tests).
+- A walled position's statement, run and suggestion are invisible outside the wall (404, RLS test); a viewer, investor relations and a platform admin read no suggestion (RLS and page tests).
+- Approving a capital account statement changes nothing on the quarterly record, its lineage included (API test).
 
 ## M11. Deal Change Requests
 **Features:** one form (add-on, new security, distribution treatment, recap, partial exit, other); routing to operations; status until applied; quarter-end list of unapplied changes.

@@ -17,3 +17,4 @@ Status values: Proposed, Accepted, Superseded (link the replacement).
 - 0018: Deal fit measures and the radar chart (seven draft measures, worked out from recorded figures)
 - 0019: Microsoft 365 integration: sign-in, Copilot Studio agents, Power Apps (proposed, waiting on the owner)
 - 0022: Deal performance against the sponsor's underwritten base case (a draft for the owner to change)
+- 0023: Valuation suggestions from capital account statements and sponsor reports (a draft for the owner to change)
