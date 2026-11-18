@@ -30,6 +30,16 @@ import type {
   UnderwritingTolerances,
 } from '../underwriting.js';
 import type { RollupPosition } from '../rollup.js';
+import {
+  heldMultipleMark,
+  impliedStakeMark,
+  markComparison,
+  sourceCrossCheck,
+  statementMark,
+  statementTieTolerance,
+} from '../suggestion.js';
+import type { StatementLines, TieTolerances } from '../suggestion.js';
+import { toDollars } from '../units.js';
 import { VALUE_CREATION_REASONS } from '../terms.js';
 import { directAlpha, ksPme } from '../pme.js';
 import type { CashFlow, IndexPoint } from '../index.js';
@@ -653,6 +663,193 @@ function run(seed: number, perKind: number): Case[] {
       tolerance: '1e-18',
       input: { case: base, inputs, tolerances },
       result: underwritingComparison(base, inputs, tolerances),
+    });
+  }
+
+  // The mark a capital account statement gives (docs/08 section 12, rule 12.1), last again:
+  // lines printed in each unit and in two, lines on, inside and beyond the tie tolerance, a line
+  // not stated, a share in and out of range, and contributions on and around their tolerance.
+  const tieSettings: TieTolerances = {
+    rollForwardToleranceUsd: '1',
+    tieToleranceByUnit: { USD_K: '2500', USD_M: '25000', USD_B: '25000000' },
+  };
+  const contributionsTolerancePct = '0.02';
+  const moneyUnits = ['USD', 'USD_K', 'USD_M', 'USD_B'] as const;
+  /** A figure as a statement prints it in a unit: cents in dollars, whole thousands, two places above. */
+  const printed = (unit: string, min: number, max: number): string => {
+    if (unit === 'USD') return amount(min * 1_000_000, max * 1_000_000);
+    if (unit === 'USD_K') return String(int(min * 1_000, max * 1_000));
+    if (unit === 'USD_M') return amount(min, max);
+    return D(String(int(min * 10, max * 10)))
+      .div(10_000)
+      .toString();
+  };
+  for (let i = 0; i < perKind; i++) {
+    const unit = pick(moneyUnits);
+    const unitOf = (): string => (rnd() < 0.08 ? pick(moneyUnits) : unit);
+    const read: [string, string][] = [];
+    const line = (value: string, missing: number): string | null => {
+      if (rnd() < missing) return null;
+      const lineUnit = unitOf();
+      read.push([value, lineUnit]);
+      return toDollars(value, lineUnit).toFixed();
+    };
+    const begin = printed(unit, 1, 900);
+    const paidIn = printed(unit, 0, 90);
+    const paidOut = printed(unit, 0, 90);
+    const gain = printed(unit, -90, 90);
+    const beginningBalance = line(begin, 0.08);
+    const contributionsInPeriod = line(paidIn, 0.08);
+    const distributionsInPeriod = line(paidOut, 0.08);
+    const netGainLoss = line(gain, 0.08);
+    // The ending balance the four lines give, in dollars, moved by nothing, by an amount on or
+    // around a tolerance, or by a lot; sometimes not stated, zero or below zero.
+    const sum = toDollars(begin, unit)
+      .plus(toDollars(paidIn, unit))
+      .minus(toDollars(paidOut, unit))
+      .plus(toDollars(gain, unit));
+    const off = pick([
+      '0',
+      '0',
+      '0',
+      '1',
+      '1.01',
+      '2500',
+      '2500.01',
+      '25000',
+      '25000.01',
+      '-20000',
+    ]);
+    let endingBalance: string | null = sum.plus(off).toFixed(2);
+    const how = rnd();
+    if (how < 0.05) endingBalance = null;
+    else if (how < 0.1) endingBalance = pick(['0.00', '-500000.00']);
+    const units = read.map(([, lineUnit]) => lineUnit);
+    if (endingBalance !== null) units.push(unit);
+    const record = rnd() < 0.08 ? '0' : amount(100_000, 900_000_000);
+    const contributionsToDate =
+      rnd() < 0.15
+        ? null
+        : D(record === '0' ? amount(1, 900_000_000) : record)
+            .times(pick(['1', '1.02', '0.98', '1.5', '0.5', '4']))
+            .plus(pick(['-0.01', '0', '0', '0.01']))
+            .toFixed(2);
+    const part = rnd();
+    const share =
+      part < 0.5
+        ? null
+        : part < 0.85
+          ? D(String(int(1, 10_000)))
+              .div(10_000)
+              .toString()
+          : pick(['0', '-0.25', '1.0001', '1']);
+    const lines: StatementLines = {
+      beginningBalance,
+      contributionsInPeriod,
+      distributionsInPeriod,
+      netGainLoss,
+      endingBalance,
+      contributionsToDate,
+      share,
+    };
+    const tieToleranceUsd = statementTieTolerance(units, tieSettings);
+    cases.push({
+      id: id++,
+      kind: 'statement_mark',
+      tolerance: '0',
+      input: { lines, units, record, settings: { ...tieSettings, contributionsTolerancePct } },
+      result: {
+        tieToleranceUsd: wire(tieToleranceUsd),
+        mark: statementMark(lines, record, { tieToleranceUsd, contributionsTolerancePct }),
+      },
+    });
+  }
+
+  // The mark a sponsor's report gives (rules 12.2 and 12.3), last again: with an enterprise
+  // value for the new quarter and without one, and every reason either rule can give.
+  for (let i = 0; i < perKind; i++) {
+    const referenceMark = rnd() < 0.06 ? null : rnd() < 0.04 ? '0.00' : amount(1, 900_000_000);
+    const flowsSinceReferenceMark = rnd() < 0.08;
+    const reference =
+      rnd() < 0.06
+        ? null
+        : {
+            ev: maybe(amount(1_000_000, 9_000_000_000), 0.06),
+            netDebt: maybe(amount(-500_000_000, 6_000_000_000), 0.06),
+            ebitda: maybe(amount(-20_000_000, 900_000_000), 0.08),
+          };
+    const ev = maybe(amount(1_000_000, 9_000_000_000), 0.45);
+    const current = {
+      netDebt: maybe(amount(-500_000_000, 6_000_000_000), 0.08),
+      ebitda: maybe(amount(-20_000_000, 900_000_000), 0.08),
+    };
+    const input = {
+      referenceMark,
+      flowsSinceReferenceMark,
+      reference,
+      current: { ev, ...current },
+    };
+    cases.push({
+      id: id++,
+      kind: 'report_mark',
+      tolerance: '0',
+      input,
+      result:
+        ev === null
+          ? heldMultipleMark({ referenceMark, flowsSinceReferenceMark, reference, current })
+          : impliedStakeMark({
+              referenceMark,
+              flowsSinceReferenceMark,
+              reference,
+              current: { ev, netDebt: current.netDebt },
+            }),
+    });
+  }
+
+  // A value beside the mark on record and beside another source (rules 12.4 and 12.5), last
+  // again: changes on and around the variance flag, a statement that starts on, near and off the
+  // record, and every missing figure.
+  const varianceFlag = '0.1';
+  const beside = (base: string): string =>
+    D(base)
+      .times(pick(['1.1', '0.9', '1.05', '1.25', '1', '0.4']))
+      .plus(pick(['-0.01', '0', '0', '0.01']))
+      .toFixed(2);
+  for (let i = 0; i < perKind; i++) {
+    const mark = rnd() < 0.04 ? '0.00' : amount(100, 900_000_000);
+    const suggested = rnd() < 0.08 ? null : mark === '0.00' ? amount(1, 900_000_000) : beside(mark);
+    const tieToleranceUsd = pick(['1', '2500', '25000']);
+    const statement =
+      rnd() < 0.5
+        ? null
+        : {
+            beginningBalance: maybe(
+              D(mark)
+                .plus(pick(['0', '0', tieToleranceUsd, `-${tieToleranceUsd}`, '0.01', '900000']))
+                .plus(pick(['0', '0', '0.01', '-0.01']))
+                .toFixed(2),
+              0.1,
+            ),
+            contributionsInPeriod: maybe(amount(0, 90_000_000), 0.1),
+            distributionsInPeriod: maybe(amount(0, 90_000_000), 0.1),
+            tieToleranceUsd,
+          };
+    const comparison = {
+      suggested,
+      current: rnd() < 0.08 ? null : mark,
+      currentIsPreviousQuarter: rnd() < 0.75,
+      statement,
+    };
+    const other = rnd() < 0.08 || suggested === null ? null : beside(suggested);
+    cases.push({
+      id: id++,
+      kind: 'mark_comparison',
+      tolerance: '0',
+      input: { comparison, other, varianceFlag },
+      result: {
+        comparison: markComparison({ ...comparison, varianceFlag }),
+        crossCheck: sourceCrossCheck(other, suggested, varianceFlag),
+      },
     });
   }
   return cases;

@@ -19,10 +19,13 @@ import {
   entryStake,
   evToEbitda,
   gainByDriver,
+  heldMultipleMark,
+  impliedStakeMark,
   indexedLevel,
   interestCoverage,
   ksPme,
   latestPeriod,
+  markComparison,
   median,
   leverageThroughTranche,
   loanToValue,
@@ -33,6 +36,9 @@ import {
   planMetrics,
   sameQuarterPriorYear,
   sinceEntryMeasures,
+  sourceCrossCheck,
+  statementMark,
+  statementTieTolerance,
   takahashiAlexander,
   toDollars,
   totalGain,
@@ -51,12 +57,17 @@ import type {
   BridgePoint,
   CashFlow,
   Decimal,
+  HeldMultipleInput,
   IndexPoint,
+  MarkComparisonInput,
   OperatingFigures,
   PaymentFrequency,
   PeriodRow,
   PlanFigures,
   RollupPosition,
+  StakeMarkInput,
+  StatementLines,
+  TieTolerances,
   UnderwritingCase,
   UnderwritingInputs,
   UnderwritingTolerances,
@@ -468,6 +479,81 @@ describe('golden fixtures', () => {
               `case ${i + 1}`,
             ).toEqual(results[i]);
           });
+          break;
+        }
+        case 'statement_mark': {
+          type Read = { value: string; unit: string } | null;
+          const input = fx.input as {
+            settings: TieTolerances & { contributionsTolerancePct: string };
+            cases: {
+              lines: Record<Exclude<keyof StatementLines, 'share'>, Read>;
+              share: string | null;
+              recordContributions: string;
+            }[];
+          };
+          const results = fx.expected.results as { tieToleranceUsd: string; mark: unknown }[];
+          expect(results.length).toBe(input.cases.length);
+          const dollars = (line: Read): string | null =>
+            line === null ? null : toDollars(line.value, line.unit).toFixed();
+          input.cases.forEach((c, i) => {
+            // The tolerance follows the units the five balance lines were read in.
+            const read = [
+              c.lines.beginningBalance,
+              c.lines.contributionsInPeriod,
+              c.lines.distributionsInPeriod,
+              c.lines.netGainLoss,
+              c.lines.endingBalance,
+            ].flatMap((line) => (line === null ? [] : [line.unit]));
+            const tieToleranceUsd = statementTieTolerance(read, input.settings);
+            expect(tieToleranceUsd.toFixed(), `case ${i + 1}`).toBe(results[i]!.tieToleranceUsd);
+            // The answer as it travels: the golden strings, to the letter.
+            expect(
+              statementMark(
+                {
+                  beginningBalance: dollars(c.lines.beginningBalance),
+                  contributionsInPeriod: dollars(c.lines.contributionsInPeriod),
+                  distributionsInPeriod: dollars(c.lines.distributionsInPeriod),
+                  netGainLoss: dollars(c.lines.netGainLoss),
+                  endingBalance: dollars(c.lines.endingBalance),
+                  contributionsToDate: dollars(c.lines.contributionsToDate),
+                  share: c.share,
+                },
+                c.recordContributions,
+                {
+                  tieToleranceUsd,
+                  contributionsTolerancePct: input.settings.contributionsTolerancePct,
+                },
+              ),
+              `case ${i + 1}`,
+            ).toEqual(results[i]!.mark);
+          });
+          break;
+        }
+        case 'suggested_mark': {
+          const input = fx.input as {
+            varianceFlag: string;
+            stake: StakeMarkInput[];
+            heldMultiple: HeldMultipleInput[];
+            comparisons: Omit<MarkComparisonInput, 'varianceFlag'>[];
+            crossChecks: { other: string | null; suggested: string | null }[];
+          };
+          const expected = fx.expected as Record<
+            keyof Omit<typeof input, 'varianceFlag'>,
+            unknown[]
+          >;
+          // Each answer as it travels: the golden strings, to the letter.
+          expect(input.stake.map(impliedStakeMark)).toEqual(expected.stake);
+          expect(input.heldMultiple.map(heldMultipleMark)).toEqual(expected.heldMultiple);
+          expect(
+            input.comparisons.map((c) =>
+              markComparison({ ...c, varianceFlag: input.varianceFlag }),
+            ),
+          ).toEqual(expected.comparisons);
+          expect(
+            input.crossChecks.map((c) =>
+              sourceCrossCheck(c.other, c.suggested, input.varianceFlag),
+            ),
+          ).toEqual(expected.crossChecks);
           break;
         }
         case 'credit_yield': {

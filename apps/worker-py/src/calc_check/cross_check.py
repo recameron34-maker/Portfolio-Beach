@@ -16,6 +16,7 @@ from typing import Any, cast
 from calc_check import CTX, credit, fit, multiples, pme, rollup
 from calc_check import attribution as attr
 from calc_check import bridge as vc
+from calc_check import suggestion as sg
 from calc_check import underwriting as uw
 from calc_check.irr import xirr
 
@@ -148,6 +149,24 @@ def check_case(case: dict[str, Any]) -> list[str]:
     elif kind == "underwriting":
         answer = uw.comparison(inp["case"], inp["inputs"], inp["tolerances"])
         problems.extend(uw.differences(answer, ts, "comparison"))
+    elif kind == "statement_mark":
+        settings = inp["settings"]
+        edge = sg.tie_tolerance(inp["units"], settings)
+        problems.extend(uw.differences(sg.travels(edge), ts["tieToleranceUsd"], "tie tolerance"))
+        mark = sg.statement_mark(
+            inp["lines"], inp["record"], str(edge), settings["contributionsTolerancePct"]
+        )
+        problems.extend(uw.differences(mark, ts["mark"], "mark"))
+    elif kind == "report_mark":
+        # A report with an enterprise value for the new quarter is rule 12.2; one without, 12.3.
+        rule = sg.held_multiple_mark if inp["current"]["ev"] is None else sg.stake_mark
+        problems.extend(uw.differences(rule(inp), ts, "mark"))
+    elif kind == "mark_comparison":
+        flag = inp["varianceFlag"]
+        compared = sg.mark_comparison(inp["comparison"], flag)
+        problems.extend(uw.differences(compared, ts["comparison"], "comparison"))
+        crossed = sg.cross_check(inp["other"], inp["comparison"]["suggested"], flag)
+        problems.extend(uw.differences(crossed, ts["crossCheck"], "crossCheck"))
     else:
         problems.append(f"unknown kind {kind}")
     return problems

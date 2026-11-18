@@ -16,6 +16,7 @@ import type {
   ValuationStoredInputs,
   VehicleSummary,
 } from '@pb/contracts';
+import { atOrAboveVarianceFlag } from '@pb/calc';
 import { valuationMachine } from '@pb/workflows';
 import definitions from '../../../../../config/definitions.json';
 import type { InvestmentFilters } from '../../app/queries.js';
@@ -51,11 +52,17 @@ export function isValuationState(value: string): value is ValuationState {
   return (VALUATION_STATES as readonly string[]).includes(value);
 }
 
-/** True when the change against the prior Locked mark is at or above the configured flag. */
+/**
+ * True when the change against the prior Locked mark is at or above the configured flag. The rule
+ * is the calculation library's, so the board, a suggested mark and a cross-check between two
+ * sources are flagged by one rule and no other. Text that is not a decimal carries no flag.
+ */
 export function aboveVarianceFlag(changePct: string | null): boolean {
-  if (changePct === null) return false;
-  const n = Number(changePct);
-  return Number.isFinite(n) && Math.abs(n) >= VARIANCE_FLAG;
+  return (
+    changePct !== null &&
+    decimalString.safeParse(changePct).success &&
+    atOrAboveVarianceFlag(changePct, String(VARIANCE_FLAG))
+  );
 }
 
 /** "2025-08-09T15:00:00Z" to "Aug 9, 2025"; the missing placeholder when not approved. */

@@ -24,6 +24,7 @@ from calc_check import (
     rollup,
     units,
 )
+from calc_check import suggestion as sg
 from calc_check import underwriting as uw
 from calc_check.irr import Flow, xirr
 from calc_check.periods import PeriodRow
@@ -323,6 +324,57 @@ def _underwriting(inp: dict[str, Any], exp: dict[str, Any], tol: str) -> None:
             raise MismatchError("; ".join(found))
 
 
+def _fail_on(found: list[str]) -> None:
+    if found:
+        raise MismatchError("; ".join(found))
+
+
+def _statement_mark(inp: dict[str, Any], exp: dict[str, Any], _tol: str) -> None:
+    settings = inp["settings"]
+    for n, (case, want) in enumerate(zip(inp["cases"], exp["results"], strict=True), start=1):
+        read = case["lines"]
+        # Each line is converted from the unit it was read in before anything is worked out.
+        lines: dict[str, str | None] = {
+            key: None
+            if line is None
+            else str(units.to_dollars(Decimal(line["value"]), line["unit"]))
+            for key, line in read.items()
+        }
+        lines["share"] = case["share"]
+        balance_units = [
+            read[key]["unit"]
+            for key in (
+                "beginningBalance",
+                "contributionsInPeriod",
+                "distributionsInPeriod",
+                "netGainLoss",
+                "endingBalance",
+            )
+            if read[key] is not None
+        ]
+        edge = sg.tie_tolerance(balance_units, settings)
+        _fail_on(uw.differences(sg.travels(edge), want["tieToleranceUsd"], f"case {n} tolerance"))
+        mark = sg.statement_mark(
+            lines, case["recordContributions"], str(edge), settings["contributionsTolerancePct"]
+        )
+        _fail_on(uw.differences(mark, want["mark"], f"case {n}"))
+
+
+def _suggested_mark(inp: dict[str, Any], exp: dict[str, Any], _tol: str) -> None:
+    flag = inp["varianceFlag"]
+    answers = {
+        "stake": [sg.stake_mark(case) for case in inp["stake"]],
+        "heldMultiple": [sg.held_multiple_mark(case) for case in inp["heldMultiple"]],
+        "comparisons": [sg.mark_comparison(case, flag) for case in inp["comparisons"]],
+        "crossChecks": [
+            sg.cross_check(case["other"], case["suggested"], flag) for case in inp["crossChecks"]
+        ],
+    }
+    assert set(answers) == set(exp)
+    for name, mine in answers.items():
+        _fail_on(uw.differences(mine, exp[name], name))
+
+
 def _credit_yield(inp: dict[str, Any], exp: dict[str, Any], tol: str) -> None:
     t = inp["terms"]
     close(
@@ -447,6 +499,8 @@ HANDLERS: dict[str, Callable[[dict[str, Any], dict[str, Any], str], None]] = {
     "deal_fit": _deal_fit,
     "plan_tracking": _plan_tracking,
     "underwriting_comparison": _underwriting,
+    "statement_mark": _statement_mark,
+    "suggested_mark": _suggested_mark,
     "credit_yield": _credit_yield,
     "pik_roll": _pik,
     "credit_ratios": _credit_ratios,

@@ -7,6 +7,7 @@ from hypothesis import assume, given, settings
 from hypothesis import strategies as st
 
 from calc_check import attribution, bridge, credit, multiples, rollup
+from calc_check import suggestion as sg
 from calc_check import underwriting as uw
 from calc_check.irr import Flow, npv, xirr
 
@@ -616,3 +617,166 @@ def test_series_holds_each_plan_date_and_each_quarter_so_far_once_and_in_order(
             assert row["interpolated"] is line
             if metric == "net_debt":
                 assert row["plan"] is None and row["actual"] is None
+
+
+# ---- Valuation suggestions (docs/08 section 12) ----
+
+HALF_A_CENT = Decimal("0.005")
+
+
+def stake_input(mark: Decimal, then: Decimal, now: Decimal) -> dict[str, Any]:
+    """Rule 12.2's inputs for a company with no net debt at either end."""
+    return {
+        "referenceMark": str(mark),
+        "flowsSinceReferenceMark": False,
+        "reference": {"ev": str(then), "netDebt": "0.00"},
+        "current": {"ev": str(now), "netDebt": "0.00"},
+    }
+
+
+def statement_value(ending: Decimal, share: Decimal | None) -> Decimal | None:
+    lines: dict[str, str | None] = {
+        "beginningBalance": None,
+        "contributionsInPeriod": None,
+        "distributionsInPeriod": None,
+        "netGainLoss": None,
+        "endingBalance": str(ending),
+        "contributionsToDate": None,
+        "share": None if share is None else str(share),
+    }
+    return cast(Decimal | None, sg.statement_mark(lines, "0", "25000", "0.02")["value"])
+
+
+@settings(max_examples=150, deadline=None)
+@given(
+    cents(1, 900_000_000),
+    st.integers(2, 9),
+    cents(1, 900_000_000),
+    cents(1, 900_000_000),
+)
+def test_scaling_the_reference_mark_scales_the_suggested_value_to_the_cent(
+    mark: Decimal, k: int, then: Decimal, now: Decimal
+) -> None:
+    one = sg.stake_mark(stake_input(mark, then, now))["value"]
+    many = sg.stake_mark(stake_input(mark * k, then, now))["value"]
+    if one is None or many is None:
+        # Only a figure under half a cent has no value here.
+        assert (one is None) == (mark * now / then < HALF_A_CENT)
+        return
+    # Each value is within half a cent of the exact figure.
+    assert abs(many - one * k) <= HALF_A_CENT * (k + 1)
+
+
+@settings(max_examples=150, deadline=None)
+@given(
+    cents(1, 900_000_000),
+    cents(1, 900_000_000),
+    cents(-200_000_000, 900_000_000),
+    cents(-200_000_000, 900_000_000),
+)
+def test_an_unchanged_equity_value_gives_back_the_reference_mark(
+    mark: Decimal, equity: Decimal, debt_then: Decimal, debt_now: Decimal
+) -> None:
+    answer = sg.stake_mark(
+        {
+            "referenceMark": str(mark),
+            "flowsSinceReferenceMark": False,
+            "reference": {"ev": str(equity + debt_then), "netDebt": str(debt_then)},
+            "current": {"ev": str(equity + debt_now), "netDebt": str(debt_now)},
+        }
+    )
+    assert answer["reason"] is None
+    assert answer["value"] == mark
+    assert answer["referenceEquity"] == answer["equity"] == equity
+
+
+@settings(max_examples=150, deadline=None)
+@given(cents(1, 900_000_000), st.integers(1, 2500), st.integers(2, 4))
+def test_a_statement_value_is_linear_in_our_share_to_the_cent(
+    ending: Decimal, ten_thousandths: int, k: int
+) -> None:
+    share = Decimal(ten_thousandths) / Decimal(10_000)
+    one = statement_value(ending, share)
+    many = statement_value(ending, share * k)
+    assert statement_value(ending, Decimal(1)) == ending == statement_value(ending, None)
+    if one is None or many is None:
+        assert (one is None) == (ending * share < HALF_A_CENT)
+        return
+    assert abs(many - one * k) <= HALF_A_CENT * (k + 1)
+    assert many <= ending
+
+
+@settings(max_examples=150, deadline=None)
+@given(
+    cents(1, 900_000_000),
+    st.integers(1, 900_000_000),
+    st.integers(4, 20),
+    cents(-200_000_000, 900_000_000),
+    st.integers(1, 900_000_000),
+    cents(-200_000_000, 900_000_000),
+)
+def test_the_multiple_held_is_rule_12_2_at_the_enterprise_value_it_implies(
+    mark: Decimal,
+    ebitda_then: int,
+    multiple: int,
+    debt_then: Decimal,
+    ebitda_now: int,
+    debt_now: Decimal,
+) -> None:
+    # A whole multiple, so the enterprise value it gives is exact and rule 12.2 can be asked.
+    then = {"ev": f"{ebitda_then * multiple}.00", "netDebt": str(debt_then)}
+    by_multiple = sg.held_multiple_mark(
+        {
+            "referenceMark": str(mark),
+            "flowsSinceReferenceMark": False,
+            "reference": {**then, "ebitda": f"{ebitda_then}.00"},
+            "current": {"ebitda": f"{ebitda_now}.00", "netDebt": str(debt_now)},
+        }
+    )
+    by_value = sg.stake_mark(
+        {
+            "referenceMark": str(mark),
+            "flowsSinceReferenceMark": False,
+            "reference": then,
+            "current": {"ev": f"{ebitda_now * multiple}.00", "netDebt": str(debt_now)},
+        }
+    )
+    assert by_multiple["value"] == by_value["value"]
+    assert by_multiple["reason"] == by_value["reason"]
+    assert (by_multiple["value"] is None) == (by_multiple["reason"] is not None)
+
+
+@settings(max_examples=150, deadline=None)
+@given(
+    cents(1, 900_000_000),
+    cents(1, 900_000_000),
+    st.booleans(),
+    cents(0, 90_000_000),
+    cents(0, 90_000_000),
+)
+def test_the_mark_plus_the_change_is_the_value_and_the_net_of_flows_follows_from_it(
+    suggested: Decimal, current: Decimal, previous: bool, paid_in: Decimal, paid_out: Decimal
+) -> None:
+    answer = sg.mark_comparison(
+        {
+            "suggested": str(suggested),
+            "current": str(current),
+            "currentIsPreviousQuarter": previous,
+            "statement": {
+                "beginningBalance": str(current),
+                "contributionsInPeriod": str(paid_in),
+                "distributionsInPeriod": str(paid_out),
+                "tieToleranceUsd": "0",
+            },
+        },
+        "0.1",
+    )
+    assert current + answer["change"] == suggested
+    assert answer["variance"] is (previous and abs(answer["changePct"]) >= Decimal("0.1"))
+    if previous:
+        assert answer["netOfFlows"] == answer["change"] - paid_in + paid_out
+    else:
+        assert answer["netOfFlows"] is None and answer["netOfFlowsPct"] is None
+    crossed = sg.cross_check(str(suggested), str(current), "0.1")
+    assert crossed["difference"] == answer["change"]
+    assert crossed["differencePct"] == answer["changePct"]

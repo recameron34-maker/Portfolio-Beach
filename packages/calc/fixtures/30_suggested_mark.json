@@ -1,0 +1,1112 @@
+{
+  "id": "30_suggested_mark",
+  "function": "suggested_mark",
+  "note": "The mark a sponsor's report gives and a value beside the record, by hand (docs/08 section 12, rules 12.2 to 12.5), with a variance flag of 10%. Stake 1, worked example 4: E0 = 413,000,000 - 150,000,000 = 263,000,000 and E1 = 428,050,000 - 146,300,000 = 281,750,000, so S = 7,310,450.25 x 281,750,000 / 263,000,000 = 7,831,632.5396..., 7,831,632.54. Stake 2, worked example 6: 100.00 x 1,000,000 / 3,000,000 = 33.3333..., 33.33. Stake 3: 100.01 x 1 / 2 = 50.005, half a cent, rounds up to 50.01. Stake 4: an equity value of 263,000,000 at both ends gives back the mark. Stake 5: net cash, 100,000,000 + 20,000,000 = 120,000,000 = 110,000,000 + 10,000,000, gives back the mark. Stakes 6 to 15 are the reasons in their order, each with a later reason applying as well where one can: no reference mark; a cash flow since it; no reference figures (none at all, no enterprise value, no net debt); a reference equity value of zero and of -10,000,000; no new net debt; a new equity value of zero and of -6,300,000. Stake 16: a Locked mark of zero scales to zero, and stake 17: 1.00 x 1,000 / 263,000,000 is under half a cent: no value (value_not_positive). Held 1, worked example 5: EV1 = 43,900,000 x 413,000,000 / 41,300,000 = 439,000,000, E1 = 439,000,000 - 146,300,000 = 292,700,000, S = 7,310,450.25 x 292,700,000 / 263,000,000 = 8,136,002.9968..., 8,136,003.00. Held 2: EV1 = 31,000,000 x 400,000,000 / 30,000,000 = 413,333,333.33..., E1 = 318,333,333.33..., S = 1,000,000 x 318,333,333.33... / 300,000,000 = 1,061,111.11. Held 3: the same EBITDA and net debt give back the mark. Held 4 to 7: rule 12.2's first four reasons come first. Held 8 to 10: no EBITDA in the earlier quarter, none in the new one, and none in one quarter with one below zero in the other (no_ebitda is the first). Held 11 to 13: an EBITDA of zero or below it in either quarter. Held 14: no new net debt; the enterprise value held is still shown. Held 15: 14,630,000 x 10 = 146,300,000 leaves an equity value of exactly zero, and held 16 one of -46,300,000. Held 17: a Locked mark of zero. Comparison 1, worked example 1: 20,940,000 against 18,420,000, the previous quarter's mark, is +2,520,000, 13.68078176%, flagged; net of flows 20,940,000 - 18,420,000 - 2,000,000 + 350,000 = 870,000, 4.72312704%. Comparisons 2 to 4, worked examples 4, 5 and 6: +521,182.29 (7.12927757%, no flag); +825,552.75 (11.29277571%, flagged); -66.67 (-66.67% over the rounded value, flagged). Comparison 5: the same figures as 1 against a mark older than the previous quarter: the change stands, no flag, no net of flows. Comparison 6: no mark on record. Comparison 7: no suggested value. Comparisons 8 to 11: exactly +10% and exactly -10% are flagged; 10,999,999.99 against 10,000,000 is 0.099999999 and is not; 1,099,999,999.96 against 1,000,000,000 is 0.09999999996, travels as 0.1 and is flagged. Comparison 12: a statement whose beginning balance is 500,000 off the mark has no net of flows; 13: exactly the 25,000 tolerance away it has; 14: a cent beyond, it has not. Comparisons 15 to 17: no distributions, no contributions or no beginning balance stated: no net of flows. Comparison 18: against a mark of zero there is a change and no percent, and a net of flows (2,500,000 - 0 - 2,000,000 + 0 = 500,000) with no percent. Comparison 19: a net of flows of -3,070,000, a change of -7.7%, not flagged. Cross-check 1, worked example 7: 7,831,632.54 against 7,810,000.00 is +21,632.54, 0.27698515%: the sources do not differ. Cross-checks 2 to 4: 8,591,000 is exactly 10% above and 7,029,000 exactly 10% below (both differ); 7,029,000.01 is a hair inside (they do not). Cross-checks 5 to 7: a source with no value, a suggestion with none, and the same value.",
+  "tolerance": "0",
+  "input": {
+    "varianceFlag": "0.1",
+    "stake": [
+      {
+        "referenceMark": "7310450.25",
+        "flowsSinceReferenceMark": false,
+        "reference": {
+          "ev": "413000000.00",
+          "netDebt": "150000000.00"
+        },
+        "current": {
+          "ev": "428050000.00",
+          "netDebt": "146300000.00"
+        }
+      },
+      {
+        "referenceMark": "100.00",
+        "flowsSinceReferenceMark": false,
+        "reference": {
+          "ev": "3000000.00",
+          "netDebt": "0.00"
+        },
+        "current": {
+          "ev": "1000000.00",
+          "netDebt": "0.00"
+        }
+      },
+      {
+        "referenceMark": "100.01",
+        "flowsSinceReferenceMark": false,
+        "reference": {
+          "ev": "2000000.00",
+          "netDebt": "0.00"
+        },
+        "current": {
+          "ev": "1000000.00",
+          "netDebt": "0.00"
+        }
+      },
+      {
+        "referenceMark": "7310450.25",
+        "flowsSinceReferenceMark": false,
+        "reference": {
+          "ev": "413000000.00",
+          "netDebt": "150000000.00"
+        },
+        "current": {
+          "ev": "500000000.00",
+          "netDebt": "237000000.00"
+        }
+      },
+      {
+        "referenceMark": "5000000.00",
+        "flowsSinceReferenceMark": false,
+        "reference": {
+          "ev": "100000000.00",
+          "netDebt": "-20000000.00"
+        },
+        "current": {
+          "ev": "110000000.00",
+          "netDebt": "-10000000.00"
+        }
+      },
+      {
+        "referenceMark": null,
+        "flowsSinceReferenceMark": true,
+        "reference": null,
+        "current": {
+          "ev": "428050000.00",
+          "netDebt": null
+        }
+      },
+      {
+        "referenceMark": "7310450.25",
+        "flowsSinceReferenceMark": true,
+        "reference": null,
+        "current": {
+          "ev": "428050000.00",
+          "netDebt": "146300000.00"
+        }
+      },
+      {
+        "referenceMark": "7310450.25",
+        "flowsSinceReferenceMark": false,
+        "reference": null,
+        "current": {
+          "ev": "428050000.00",
+          "netDebt": "146300000.00"
+        }
+      },
+      {
+        "referenceMark": "7310450.25",
+        "flowsSinceReferenceMark": false,
+        "reference": {
+          "ev": null,
+          "netDebt": "150000000.00"
+        },
+        "current": {
+          "ev": "428050000.00",
+          "netDebt": "146300000.00"
+        }
+      },
+      {
+        "referenceMark": "7310450.25",
+        "flowsSinceReferenceMark": false,
+        "reference": {
+          "ev": "413000000.00",
+          "netDebt": null
+        },
+        "current": {
+          "ev": "428050000.00",
+          "netDebt": "146300000.00"
+        }
+      },
+      {
+        "referenceMark": "7310450.25",
+        "flowsSinceReferenceMark": false,
+        "reference": {
+          "ev": "150000000.00",
+          "netDebt": "150000000.00"
+        },
+        "current": {
+          "ev": "428050000.00",
+          "netDebt": "146300000.00"
+        }
+      },
+      {
+        "referenceMark": "7310450.25",
+        "flowsSinceReferenceMark": false,
+        "reference": {
+          "ev": "140000000.00",
+          "netDebt": "150000000.00"
+        },
+        "current": {
+          "ev": "428050000.00",
+          "netDebt": null
+        }
+      },
+      {
+        "referenceMark": "7310450.25",
+        "flowsSinceReferenceMark": false,
+        "reference": {
+          "ev": "413000000.00",
+          "netDebt": "150000000.00"
+        },
+        "current": {
+          "ev": "428050000.00",
+          "netDebt": null
+        }
+      },
+      {
+        "referenceMark": "7310450.25",
+        "flowsSinceReferenceMark": false,
+        "reference": {
+          "ev": "413000000.00",
+          "netDebt": "150000000.00"
+        },
+        "current": {
+          "ev": "146300000.00",
+          "netDebt": "146300000.00"
+        }
+      },
+      {
+        "referenceMark": "7310450.25",
+        "flowsSinceReferenceMark": false,
+        "reference": {
+          "ev": "413000000.00",
+          "netDebt": "150000000.00"
+        },
+        "current": {
+          "ev": "140000000.00",
+          "netDebt": "146300000.00"
+        }
+      },
+      {
+        "referenceMark": "0.00",
+        "flowsSinceReferenceMark": false,
+        "reference": {
+          "ev": "413000000.00",
+          "netDebt": "150000000.00"
+        },
+        "current": {
+          "ev": "428050000.00",
+          "netDebt": "146300000.00"
+        }
+      },
+      {
+        "referenceMark": "1.00",
+        "flowsSinceReferenceMark": false,
+        "reference": {
+          "ev": "413000000.00",
+          "netDebt": "150000000.00"
+        },
+        "current": {
+          "ev": "1000.00",
+          "netDebt": "0.00"
+        }
+      }
+    ],
+    "heldMultiple": [
+      {
+        "referenceMark": "7310450.25",
+        "flowsSinceReferenceMark": false,
+        "reference": {
+          "ev": "413000000.00",
+          "netDebt": "150000000.00",
+          "ebitda": "41300000.00"
+        },
+        "current": {
+          "ebitda": "43900000.00",
+          "netDebt": "146300000.00"
+        }
+      },
+      {
+        "referenceMark": "1000000.00",
+        "flowsSinceReferenceMark": false,
+        "reference": {
+          "ev": "400000000.00",
+          "netDebt": "100000000.00",
+          "ebitda": "30000000.00"
+        },
+        "current": {
+          "ebitda": "31000000.00",
+          "netDebt": "95000000.00"
+        }
+      },
+      {
+        "referenceMark": "7310450.25",
+        "flowsSinceReferenceMark": false,
+        "reference": {
+          "ev": "413000000.00",
+          "netDebt": "150000000.00",
+          "ebitda": "41300000.00"
+        },
+        "current": {
+          "ebitda": "41300000.00",
+          "netDebt": "150000000.00"
+        }
+      },
+      {
+        "referenceMark": null,
+        "flowsSinceReferenceMark": true,
+        "reference": null,
+        "current": {
+          "ebitda": null,
+          "netDebt": null
+        }
+      },
+      {
+        "referenceMark": "7310450.25",
+        "flowsSinceReferenceMark": true,
+        "reference": {
+          "ev": "413000000.00",
+          "netDebt": "150000000.00",
+          "ebitda": "41300000.00"
+        },
+        "current": {
+          "ebitda": "43900000.00",
+          "netDebt": "146300000.00"
+        }
+      },
+      {
+        "referenceMark": "7310450.25",
+        "flowsSinceReferenceMark": false,
+        "reference": {
+          "ev": null,
+          "netDebt": "150000000.00",
+          "ebitda": null
+        },
+        "current": {
+          "ebitda": "43900000.00",
+          "netDebt": "146300000.00"
+        }
+      },
+      {
+        "referenceMark": "7310450.25",
+        "flowsSinceReferenceMark": false,
+        "reference": {
+          "ev": "140000000.00",
+          "netDebt": "150000000.00",
+          "ebitda": null
+        },
+        "current": {
+          "ebitda": "43900000.00",
+          "netDebt": "146300000.00"
+        }
+      },
+      {
+        "referenceMark": "7310450.25",
+        "flowsSinceReferenceMark": false,
+        "reference": {
+          "ev": "413000000.00",
+          "netDebt": "150000000.00",
+          "ebitda": null
+        },
+        "current": {
+          "ebitda": "43900000.00",
+          "netDebt": "146300000.00"
+        }
+      },
+      {
+        "referenceMark": "7310450.25",
+        "flowsSinceReferenceMark": false,
+        "reference": {
+          "ev": "413000000.00",
+          "netDebt": "150000000.00",
+          "ebitda": "41300000.00"
+        },
+        "current": {
+          "ebitda": null,
+          "netDebt": null
+        }
+      },
+      {
+        "referenceMark": "7310450.25",
+        "flowsSinceReferenceMark": false,
+        "reference": {
+          "ev": "413000000.00",
+          "netDebt": "150000000.00",
+          "ebitda": "-5000000.00"
+        },
+        "current": {
+          "ebitda": null,
+          "netDebt": "146300000.00"
+        }
+      },
+      {
+        "referenceMark": "7310450.25",
+        "flowsSinceReferenceMark": false,
+        "reference": {
+          "ev": "413000000.00",
+          "netDebt": "150000000.00",
+          "ebitda": "0.00"
+        },
+        "current": {
+          "ebitda": "43900000.00",
+          "netDebt": "146300000.00"
+        }
+      },
+      {
+        "referenceMark": "7310450.25",
+        "flowsSinceReferenceMark": false,
+        "reference": {
+          "ev": "413000000.00",
+          "netDebt": "150000000.00",
+          "ebitda": "41300000.00"
+        },
+        "current": {
+          "ebitda": "-1000000.00",
+          "netDebt": null
+        }
+      },
+      {
+        "referenceMark": "7310450.25",
+        "flowsSinceReferenceMark": false,
+        "reference": {
+          "ev": "413000000.00",
+          "netDebt": "150000000.00",
+          "ebitda": "-41300000.00"
+        },
+        "current": {
+          "ebitda": "43900000.00",
+          "netDebt": "146300000.00"
+        }
+      },
+      {
+        "referenceMark": "7310450.25",
+        "flowsSinceReferenceMark": false,
+        "reference": {
+          "ev": "413000000.00",
+          "netDebt": "150000000.00",
+          "ebitda": "41300000.00"
+        },
+        "current": {
+          "ebitda": "43900000.00",
+          "netDebt": null
+        }
+      },
+      {
+        "referenceMark": "7310450.25",
+        "flowsSinceReferenceMark": false,
+        "reference": {
+          "ev": "413000000.00",
+          "netDebt": "150000000.00",
+          "ebitda": "41300000.00"
+        },
+        "current": {
+          "ebitda": "14630000.00",
+          "netDebt": "146300000.00"
+        }
+      },
+      {
+        "referenceMark": "7310450.25",
+        "flowsSinceReferenceMark": false,
+        "reference": {
+          "ev": "413000000.00",
+          "netDebt": "150000000.00",
+          "ebitda": "41300000.00"
+        },
+        "current": {
+          "ebitda": "10000000.00",
+          "netDebt": "146300000.00"
+        }
+      },
+      {
+        "referenceMark": "0.00",
+        "flowsSinceReferenceMark": false,
+        "reference": {
+          "ev": "413000000.00",
+          "netDebt": "150000000.00",
+          "ebitda": "41300000.00"
+        },
+        "current": {
+          "ebitda": "43900000.00",
+          "netDebt": "146300000.00"
+        }
+      }
+    ],
+    "comparisons": [
+      {
+        "suggested": "20940000.00",
+        "current": "18420000.00",
+        "currentIsPreviousQuarter": true,
+        "statement": {
+          "beginningBalance": "18420000.00",
+          "contributionsInPeriod": "2000000.00",
+          "distributionsInPeriod": "350000.00",
+          "tieToleranceUsd": "25000"
+        }
+      },
+      {
+        "suggested": "7831632.54",
+        "current": "7310450.25",
+        "currentIsPreviousQuarter": true,
+        "statement": null
+      },
+      {
+        "suggested": "8136003.00",
+        "current": "7310450.25",
+        "currentIsPreviousQuarter": true,
+        "statement": null
+      },
+      {
+        "suggested": "33.33",
+        "current": "100.00",
+        "currentIsPreviousQuarter": true,
+        "statement": null
+      },
+      {
+        "suggested": "20940000.00",
+        "current": "18420000.00",
+        "currentIsPreviousQuarter": false,
+        "statement": {
+          "beginningBalance": "18420000.00",
+          "contributionsInPeriod": "2000000.00",
+          "distributionsInPeriod": "350000.00",
+          "tieToleranceUsd": "25000"
+        }
+      },
+      {
+        "suggested": "20940000.00",
+        "current": null,
+        "currentIsPreviousQuarter": false,
+        "statement": {
+          "beginningBalance": "18420000.00",
+          "contributionsInPeriod": "2000000.00",
+          "distributionsInPeriod": "350000.00",
+          "tieToleranceUsd": "25000"
+        }
+      },
+      {
+        "suggested": null,
+        "current": "18420000.00",
+        "currentIsPreviousQuarter": true,
+        "statement": null
+      },
+      {
+        "suggested": "11000000.00",
+        "current": "10000000.00",
+        "currentIsPreviousQuarter": true,
+        "statement": null
+      },
+      {
+        "suggested": "9000000.00",
+        "current": "10000000.00",
+        "currentIsPreviousQuarter": true,
+        "statement": null
+      },
+      {
+        "suggested": "10999999.99",
+        "current": "10000000.00",
+        "currentIsPreviousQuarter": true,
+        "statement": null
+      },
+      {
+        "suggested": "1099999999.96",
+        "current": "1000000000.00",
+        "currentIsPreviousQuarter": true,
+        "statement": null
+      },
+      {
+        "suggested": "20940000.00",
+        "current": "18420000.00",
+        "currentIsPreviousQuarter": true,
+        "statement": {
+          "beginningBalance": "17920000.00",
+          "contributionsInPeriod": "2000000.00",
+          "distributionsInPeriod": "350000.00",
+          "tieToleranceUsd": "25000"
+        }
+      },
+      {
+        "suggested": "20940000.00",
+        "current": "18420000.00",
+        "currentIsPreviousQuarter": true,
+        "statement": {
+          "beginningBalance": "18445000.00",
+          "contributionsInPeriod": "2000000.00",
+          "distributionsInPeriod": "350000.00",
+          "tieToleranceUsd": "25000"
+        }
+      },
+      {
+        "suggested": "20940000.00",
+        "current": "18420000.00",
+        "currentIsPreviousQuarter": true,
+        "statement": {
+          "beginningBalance": "18445000.01",
+          "contributionsInPeriod": "2000000.00",
+          "distributionsInPeriod": "350000.00",
+          "tieToleranceUsd": "25000"
+        }
+      },
+      {
+        "suggested": "20940000.00",
+        "current": "18420000.00",
+        "currentIsPreviousQuarter": true,
+        "statement": {
+          "beginningBalance": "18420000.00",
+          "contributionsInPeriod": "2000000.00",
+          "distributionsInPeriod": null,
+          "tieToleranceUsd": "25000"
+        }
+      },
+      {
+        "suggested": "20940000.00",
+        "current": "18420000.00",
+        "currentIsPreviousQuarter": true,
+        "statement": {
+          "beginningBalance": "18420000.00",
+          "contributionsInPeriod": null,
+          "distributionsInPeriod": "350000.00",
+          "tieToleranceUsd": "25000"
+        }
+      },
+      {
+        "suggested": "20940000.00",
+        "current": "18420000.00",
+        "currentIsPreviousQuarter": true,
+        "statement": {
+          "beginningBalance": null,
+          "contributionsInPeriod": "2000000.00",
+          "distributionsInPeriod": "350000.00",
+          "tieToleranceUsd": "25000"
+        }
+      },
+      {
+        "suggested": "2500000.00",
+        "current": "0.00",
+        "currentIsPreviousQuarter": true,
+        "statement": {
+          "beginningBalance": "0.00",
+          "contributionsInPeriod": "2000000.00",
+          "distributionsInPeriod": "0.00",
+          "tieToleranceUsd": "25000"
+        }
+      },
+      {
+        "suggested": "17000000.00",
+        "current": "18420000.00",
+        "currentIsPreviousQuarter": true,
+        "statement": {
+          "beginningBalance": "18420000.00",
+          "contributionsInPeriod": "2000000.00",
+          "distributionsInPeriod": "350000.00",
+          "tieToleranceUsd": "25000"
+        }
+      }
+    ],
+    "crossChecks": [
+      {
+        "other": "7831632.54",
+        "suggested": "7810000.00"
+      },
+      {
+        "other": "8591000.00",
+        "suggested": "7810000.00"
+      },
+      {
+        "other": "7029000.00",
+        "suggested": "7810000.00"
+      },
+      {
+        "other": "7029000.01",
+        "suggested": "7810000.00"
+      },
+      {
+        "other": null,
+        "suggested": "7810000.00"
+      },
+      {
+        "other": "7831632.54",
+        "suggested": null
+      },
+      {
+        "other": "7810000.00",
+        "suggested": "7810000.00"
+      }
+    ]
+  },
+  "expected": {
+    "stake": [
+      {
+        "basis": "sponsor_equity_value",
+        "method": "valuation_method.report_indication",
+        "value": "7831632.54",
+        "reason": null,
+        "referenceEquity": "263000000",
+        "equity": "281750000"
+      },
+      {
+        "basis": "sponsor_equity_value",
+        "method": "valuation_method.report_indication",
+        "value": "33.33",
+        "reason": null,
+        "referenceEquity": "3000000",
+        "equity": "1000000"
+      },
+      {
+        "basis": "sponsor_equity_value",
+        "method": "valuation_method.report_indication",
+        "value": "50.01",
+        "reason": null,
+        "referenceEquity": "2000000",
+        "equity": "1000000"
+      },
+      {
+        "basis": "sponsor_equity_value",
+        "method": "valuation_method.report_indication",
+        "value": "7310450.25",
+        "reason": null,
+        "referenceEquity": "263000000",
+        "equity": "263000000"
+      },
+      {
+        "basis": "sponsor_equity_value",
+        "method": "valuation_method.report_indication",
+        "value": "5000000",
+        "reason": null,
+        "referenceEquity": "120000000",
+        "equity": "120000000"
+      },
+      {
+        "basis": "sponsor_equity_value",
+        "method": "valuation_method.report_indication",
+        "value": null,
+        "reason": "no_reference_mark",
+        "referenceEquity": null,
+        "equity": null
+      },
+      {
+        "basis": "sponsor_equity_value",
+        "method": "valuation_method.report_indication",
+        "value": null,
+        "reason": "flows_since_reference_mark",
+        "referenceEquity": null,
+        "equity": null
+      },
+      {
+        "basis": "sponsor_equity_value",
+        "method": "valuation_method.report_indication",
+        "value": null,
+        "reason": "no_reference_figures",
+        "referenceEquity": null,
+        "equity": null
+      },
+      {
+        "basis": "sponsor_equity_value",
+        "method": "valuation_method.report_indication",
+        "value": null,
+        "reason": "no_reference_figures",
+        "referenceEquity": null,
+        "equity": null
+      },
+      {
+        "basis": "sponsor_equity_value",
+        "method": "valuation_method.report_indication",
+        "value": null,
+        "reason": "no_reference_figures",
+        "referenceEquity": null,
+        "equity": null
+      },
+      {
+        "basis": "sponsor_equity_value",
+        "method": "valuation_method.report_indication",
+        "value": null,
+        "reason": "non_positive_reference_equity",
+        "referenceEquity": "0",
+        "equity": null
+      },
+      {
+        "basis": "sponsor_equity_value",
+        "method": "valuation_method.report_indication",
+        "value": null,
+        "reason": "non_positive_reference_equity",
+        "referenceEquity": "-10000000",
+        "equity": null
+      },
+      {
+        "basis": "sponsor_equity_value",
+        "method": "valuation_method.report_indication",
+        "value": null,
+        "reason": "no_net_debt",
+        "referenceEquity": "263000000",
+        "equity": null
+      },
+      {
+        "basis": "sponsor_equity_value",
+        "method": "valuation_method.report_indication",
+        "value": null,
+        "reason": "non_positive_equity",
+        "referenceEquity": "263000000",
+        "equity": "0"
+      },
+      {
+        "basis": "sponsor_equity_value",
+        "method": "valuation_method.report_indication",
+        "value": null,
+        "reason": "non_positive_equity",
+        "referenceEquity": "263000000",
+        "equity": "-6300000"
+      },
+      {
+        "basis": "sponsor_equity_value",
+        "method": "valuation_method.report_indication",
+        "value": null,
+        "reason": "value_not_positive",
+        "referenceEquity": "263000000",
+        "equity": "281750000"
+      },
+      {
+        "basis": "sponsor_equity_value",
+        "method": "valuation_method.report_indication",
+        "value": null,
+        "reason": "value_not_positive",
+        "referenceEquity": "263000000",
+        "equity": "1000"
+      }
+    ],
+    "heldMultiple": [
+      {
+        "basis": "held_multiple",
+        "method": "valuation_method.report_indication",
+        "value": "8136003",
+        "reason": null,
+        "referenceEquity": "263000000",
+        "impliedEv": "439000000",
+        "equity": "292700000"
+      },
+      {
+        "basis": "held_multiple",
+        "method": "valuation_method.report_indication",
+        "value": "1061111.11",
+        "reason": null,
+        "referenceEquity": "300000000",
+        "impliedEv": "413333333.3333333333",
+        "equity": "318333333.3333333333"
+      },
+      {
+        "basis": "held_multiple",
+        "method": "valuation_method.report_indication",
+        "value": "7310450.25",
+        "reason": null,
+        "referenceEquity": "263000000",
+        "impliedEv": "413000000",
+        "equity": "263000000"
+      },
+      {
+        "basis": "held_multiple",
+        "method": "valuation_method.report_indication",
+        "value": null,
+        "reason": "no_reference_mark",
+        "referenceEquity": null,
+        "impliedEv": null,
+        "equity": null
+      },
+      {
+        "basis": "held_multiple",
+        "method": "valuation_method.report_indication",
+        "value": null,
+        "reason": "flows_since_reference_mark",
+        "referenceEquity": "263000000",
+        "impliedEv": null,
+        "equity": null
+      },
+      {
+        "basis": "held_multiple",
+        "method": "valuation_method.report_indication",
+        "value": null,
+        "reason": "no_reference_figures",
+        "referenceEquity": null,
+        "impliedEv": null,
+        "equity": null
+      },
+      {
+        "basis": "held_multiple",
+        "method": "valuation_method.report_indication",
+        "value": null,
+        "reason": "non_positive_reference_equity",
+        "referenceEquity": "-10000000",
+        "impliedEv": null,
+        "equity": null
+      },
+      {
+        "basis": "held_multiple",
+        "method": "valuation_method.report_indication",
+        "value": null,
+        "reason": "no_ebitda",
+        "referenceEquity": "263000000",
+        "impliedEv": null,
+        "equity": null
+      },
+      {
+        "basis": "held_multiple",
+        "method": "valuation_method.report_indication",
+        "value": null,
+        "reason": "no_ebitda",
+        "referenceEquity": "263000000",
+        "impliedEv": null,
+        "equity": null
+      },
+      {
+        "basis": "held_multiple",
+        "method": "valuation_method.report_indication",
+        "value": null,
+        "reason": "no_ebitda",
+        "referenceEquity": "263000000",
+        "impliedEv": null,
+        "equity": null
+      },
+      {
+        "basis": "held_multiple",
+        "method": "valuation_method.report_indication",
+        "value": null,
+        "reason": "non_positive_ebitda",
+        "referenceEquity": "263000000",
+        "impliedEv": null,
+        "equity": null
+      },
+      {
+        "basis": "held_multiple",
+        "method": "valuation_method.report_indication",
+        "value": null,
+        "reason": "non_positive_ebitda",
+        "referenceEquity": "263000000",
+        "impliedEv": null,
+        "equity": null
+      },
+      {
+        "basis": "held_multiple",
+        "method": "valuation_method.report_indication",
+        "value": null,
+        "reason": "non_positive_ebitda",
+        "referenceEquity": "263000000",
+        "impliedEv": null,
+        "equity": null
+      },
+      {
+        "basis": "held_multiple",
+        "method": "valuation_method.report_indication",
+        "value": null,
+        "reason": "no_net_debt",
+        "referenceEquity": "263000000",
+        "impliedEv": "439000000",
+        "equity": null
+      },
+      {
+        "basis": "held_multiple",
+        "method": "valuation_method.report_indication",
+        "value": null,
+        "reason": "non_positive_equity",
+        "referenceEquity": "263000000",
+        "impliedEv": "146300000",
+        "equity": "0"
+      },
+      {
+        "basis": "held_multiple",
+        "method": "valuation_method.report_indication",
+        "value": null,
+        "reason": "non_positive_equity",
+        "referenceEquity": "263000000",
+        "impliedEv": "100000000",
+        "equity": "-46300000"
+      },
+      {
+        "basis": "held_multiple",
+        "method": "valuation_method.report_indication",
+        "value": null,
+        "reason": "value_not_positive",
+        "referenceEquity": "263000000",
+        "impliedEv": "439000000",
+        "equity": "292700000"
+      }
+    ],
+    "comparisons": [
+      {
+        "change": "2520000",
+        "changePct": "0.1368078176",
+        "variance": true,
+        "netOfFlows": "870000",
+        "netOfFlowsPct": "0.0472312704",
+        "beginningBalance": "18420000"
+      },
+      {
+        "change": "521182.29",
+        "changePct": "0.0712927757",
+        "variance": false,
+        "netOfFlows": null,
+        "netOfFlowsPct": null,
+        "beginningBalance": null
+      },
+      {
+        "change": "825552.75",
+        "changePct": "0.1129277571",
+        "variance": true,
+        "netOfFlows": null,
+        "netOfFlowsPct": null,
+        "beginningBalance": null
+      },
+      {
+        "change": "-66.67",
+        "changePct": "-0.6667",
+        "variance": true,
+        "netOfFlows": null,
+        "netOfFlowsPct": null,
+        "beginningBalance": null
+      },
+      {
+        "change": "2520000",
+        "changePct": "0.1368078176",
+        "variance": false,
+        "netOfFlows": null,
+        "netOfFlowsPct": null,
+        "beginningBalance": "18420000"
+      },
+      {
+        "change": null,
+        "changePct": null,
+        "variance": false,
+        "netOfFlows": null,
+        "netOfFlowsPct": null,
+        "beginningBalance": "18420000"
+      },
+      {
+        "change": null,
+        "changePct": null,
+        "variance": false,
+        "netOfFlows": null,
+        "netOfFlowsPct": null,
+        "beginningBalance": null
+      },
+      {
+        "change": "1000000",
+        "changePct": "0.1",
+        "variance": true,
+        "netOfFlows": null,
+        "netOfFlowsPct": null,
+        "beginningBalance": null
+      },
+      {
+        "change": "-1000000",
+        "changePct": "-0.1",
+        "variance": true,
+        "netOfFlows": null,
+        "netOfFlowsPct": null,
+        "beginningBalance": null
+      },
+      {
+        "change": "999999.99",
+        "changePct": "0.099999999",
+        "variance": false,
+        "netOfFlows": null,
+        "netOfFlowsPct": null,
+        "beginningBalance": null
+      },
+      {
+        "change": "99999999.96",
+        "changePct": "0.1",
+        "variance": true,
+        "netOfFlows": null,
+        "netOfFlowsPct": null,
+        "beginningBalance": null
+      },
+      {
+        "change": "2520000",
+        "changePct": "0.1368078176",
+        "variance": true,
+        "netOfFlows": null,
+        "netOfFlowsPct": null,
+        "beginningBalance": "17920000"
+      },
+      {
+        "change": "2520000",
+        "changePct": "0.1368078176",
+        "variance": true,
+        "netOfFlows": "870000",
+        "netOfFlowsPct": "0.0472312704",
+        "beginningBalance": "18445000"
+      },
+      {
+        "change": "2520000",
+        "changePct": "0.1368078176",
+        "variance": true,
+        "netOfFlows": null,
+        "netOfFlowsPct": null,
+        "beginningBalance": "18445000.01"
+      },
+      {
+        "change": "2520000",
+        "changePct": "0.1368078176",
+        "variance": true,
+        "netOfFlows": null,
+        "netOfFlowsPct": null,
+        "beginningBalance": "18420000"
+      },
+      {
+        "change": "2520000",
+        "changePct": "0.1368078176",
+        "variance": true,
+        "netOfFlows": null,
+        "netOfFlowsPct": null,
+        "beginningBalance": "18420000"
+      },
+      {
+        "change": "2520000",
+        "changePct": "0.1368078176",
+        "variance": true,
+        "netOfFlows": null,
+        "netOfFlowsPct": null,
+        "beginningBalance": null
+      },
+      {
+        "change": "2500000",
+        "changePct": null,
+        "variance": false,
+        "netOfFlows": "500000",
+        "netOfFlowsPct": null,
+        "beginningBalance": "0"
+      },
+      {
+        "change": "-1420000",
+        "changePct": "-0.0770901194",
+        "variance": false,
+        "netOfFlows": "-3070000",
+        "netOfFlowsPct": "-0.1666666667",
+        "beginningBalance": "18420000"
+      }
+    ],
+    "crossChecks": [
+      {
+        "difference": "21632.54",
+        "differencePct": "0.0027698515",
+        "differs": false
+      },
+      {
+        "difference": "781000",
+        "differencePct": "0.1",
+        "differs": true
+      },
+      {
+        "difference": "-781000",
+        "differencePct": "-0.1",
+        "differs": true
+      },
+      {
+        "difference": "-780999.99",
+        "differencePct": "-0.0999999987",
+        "differs": false
+      },
+      {
+        "difference": null,
+        "differencePct": null,
+        "differs": false
+      },
+      {
+        "difference": null,
+        "differencePct": null,
+        "differs": false
+      },
+      {
+        "difference": "0",
+        "differencePct": "0",
+        "differs": false
+      }
+    ]
+  }
+}

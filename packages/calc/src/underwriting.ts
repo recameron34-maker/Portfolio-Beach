@@ -8,10 +8,10 @@ import {
   D,
   Decimal as Dec,
   ONE,
-  RESULT_PLACES,
   ZERO,
+  decimalStringOf,
+  heldAsItTravels,
   toDecimalString,
-  trimFractionZeros,
 } from './decimal.js';
 import type { IrrFlag } from './pooled.js';
 import { PLAN_METRICS } from './terms.js';
@@ -57,10 +57,7 @@ const FIELD = {
 } as const satisfies Record<PlanMetric, keyof PlanFigures>;
 
 /** Held to the places a result travels with; a figure that rounds to nothing is zero, never a negative zero. */
-function held(value: Decimal): Decimal {
-  const rounded = value.toDecimalPlaces(RESULT_PLACES);
-  return rounded.isZero() ? ZERO : rounded;
-}
+const held = heldAsItTravels;
 
 /** A plan figure at a date, or none and always the reason why. */
 export type PlanFigure =
@@ -487,7 +484,7 @@ function plannedBridge(
 }
 
 /** A figure as it travels: the one rendering of toDecimalString, for a figure that is there. */
-const travels = (value: Decimal): string => trimFractionZeros(value.toFixed(RESULT_PLACES));
+const travels = decimalStringOf;
 
 const driverStrings = (drivers: DriverFigures<Decimal>): DriverFigures<string> => ({
   ebitdaGrowth: travels(drivers.ebitdaGrowth),
