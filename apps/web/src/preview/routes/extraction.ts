@@ -13,6 +13,7 @@ import {
   loadExtractionSchemas,
   outputSchemaFor,
   parseTruth,
+  promotesToRecord,
   promptRef,
   redact,
   validateExtraction,
@@ -1231,7 +1232,9 @@ function statusOnRecord(
  * promotion never writes a number the document did not give; an undecided target is named,
  * never silently left out. The period end must be the quarter the run was opened for, and the
  * quarter on record must not be the entry snapshot or a superseded quarter (422 otherwise:
- * docs/08 section 5, docs/03 record_status, rule 10).
+ * docs/08 section 5, docs/03 record_status, rule 10). A schema with no record figure (no field
+ * with a target: a capital account statement) skips the position requirement and the promotion,
+ * as the API does: the run is approved and the simulated quarters are not touched.
  */
 function approve(
   ctx: SimContext,
@@ -1263,7 +1266,10 @@ function approve(
         instance,
       );
   }
-  if (run.investmentId === null)
+  // Only a schema that writes to the quarterly record needs a position to write it on.
+  const promotes = promotesToRecord(schema);
+  const investmentId = run.investmentId;
+  if (promotes && investmentId === null)
     return refused(
       'extraction: the document is not linked to an investment; classify it with one first',
       instance,
@@ -1278,6 +1284,23 @@ function approve(
       `extraction: the period end ${periodEnd} is not the quarter the run covers (${run.periodEnd ?? 'a quarter end'}); edit it`,
       instance,
     );
+  const approvalReason = reason ?? DEFAULT_APPROVAL_REASON;
+  // Nothing is ever promoted without a position: the refusal above already said so.
+  if (!promotes || investmentId === null) {
+    run.approvedById = actor.userId;
+    run.approvedBy = actor.displayName;
+    run.approvedAt = at;
+    run.rowVersion += 1;
+    recordActivity(ctx, actor, {
+      action: 'extraction_run.approve',
+      entity: 'extraction_run',
+      entityId: run.id,
+      reason: approvalReason,
+      from: null,
+      to: 'approved',
+    });
+    return null;
+  }
   const figures: QuarterlyFigures = {};
   const promotedFields: string[] = [];
   for (const field of schema.fields) {
@@ -1306,7 +1329,6 @@ function approve(
   // The quarter on record, read again at approval (decision 0009): the book's approved quarter
   // for the period, or the one an earlier approval promoted; the entry snapshot is never written
   // and a superseded quarter is history that a promotion never revives (docs/03 record_status).
-  const investmentId = run.investmentId;
   const onRecord = (book.quarters[investmentId] ?? []).find((q) => q.periodEnd === periodEnd);
   if (onRecord?.isEntrySnapshot === true)
     return refused(
@@ -1333,7 +1355,6 @@ function approve(
   const citedRow = cited === undefined ? undefined : byField.get(cited.key);
   const highlightsRow = byField.get(HIGHLIGHTS_FIELD);
   const commentaryRow = byField.get(COMMENTARY_FIELD);
-  const approvalReason = reason ?? DEFAULT_APPROVAL_REASON;
   const promoted: SimPromotedQuarter = {
     id: onRecord?.id ?? previous?.id ?? ctx.env.newId(),
     investmentId,

@@ -1,7 +1,7 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { and, eq } from 'drizzle-orm';
 import type { AdapterSet, Principal } from '@pb/adapters';
-import { UNITS_BY_KIND, boundsFrom } from '@pb/ai';
+import { UNITS_BY_KIND, boundsFrom, promotesToRecord } from '@pb/ai';
 import type { ExtractionField, ExtractionSchema, ExtractionSchemas, TargetColumn } from '@pb/ai';
 import { CalcError, isQuarterEnd, toDollars, unitSanityFlag } from '@pb/calc';
 import {
@@ -56,6 +56,9 @@ import {
  * accounting import uses (intake/promote.ts), as the system actor, in the same transaction, with
  * the lineage of the run and the document, citing the first promoted figure read from the
  * document; the highlights and the commentary are written only when their rows are accepted.
+ * A schema with no record figure (no field with a target: a capital account statement) is
+ * approved the same way and promotes nothing: it needs no linked position, and the quarter on
+ * record, its approver and its lineage stay exactly as they were (promotesToRecord of @pb/ai).
  * The default approval reason is a fixed sentence, since the file name names the company and
  * the audit trail is read by role, not by wall (W3). Every decision and the approval are audited
  * with before and after. retry drives a NeedsRetry run again through the machine, or queues a
@@ -469,7 +472,9 @@ export class ExtractionReviewService {
    * target leaves the record's column as it was, and so does an accepted value the document did
    * not state (null), since a promotion never writes a number the document did not give; an
    * undecided target is named, never silently left out. The period end must be the quarter the
-   * run was opened for (422 otherwise: docs/08 section 5, rule 10).
+   * run was opened for (422 otherwise: docs/08 section 5, rule 10). A schema with no record
+   * figure skips the position requirement and the promotion: the run is approved, nothing is
+   * written to the quarterly record, and promoted_record_id stays empty.
    */
   private async approve(
     tx: Tx,
@@ -498,7 +503,10 @@ export class ExtractionReviewService {
           `extraction: ${field.label} is a record figure and undecided; accept, edit or reject it`,
         );
     }
-    if (locked.investmentId === null)
+    // Only a schema that writes to the quarterly record needs a position to write it on.
+    const promotes = promotesToRecord(extractionSchema);
+    const investmentId = locked.investmentId;
+    if (promotes && investmentId === null)
       throw new ProblemError(
         422,
         'workflow-precondition',
@@ -517,6 +525,20 @@ export class ExtractionReviewService {
         'workflow-precondition',
         `extraction: the period end ${periodEnd} is not the quarter the run covers (${locked.periodEnd ?? 'a quarter end'}); edit it`,
       );
+    const approvalReason = reason ?? DEFAULT_APPROVAL_REASON;
+    // Nothing is ever promoted without a position: the refusal above already said so.
+    if (!promotes || investmentId === null) {
+      await this.approveWithoutPromotion(
+        tx,
+        audit,
+        principal,
+        locked,
+        periodEnd,
+        approvalReason,
+        at,
+      );
+      return;
+    }
     // An edited row converts with the edit's own unit, the model's value with the model's (WF-1).
     const unitOf = (row: LoadedValue): string | null =>
       row.decision === EDITED ? row.editedUnit : row.unit;
@@ -557,8 +579,6 @@ export class ExtractionReviewService {
         : {}),
       ...(commentaryRow?.decision === ACCEPTED ? { commentary: commentaryRow.value } : {}),
     };
-    const approvalReason = reason ?? DEFAULT_APPROVAL_REASON;
-    const investmentId = locked.investmentId;
     const promoted = await asSystemActor(tx, (stx) =>
       promoteQuarterlyPerformance(stx, audit, {
         label: 'extraction',
@@ -604,6 +624,45 @@ export class ExtractionReviewService {
         after: { approvedBy: principal.userId, promotedRecordId: promoted.id },
         created: promoted.created,
         figures: { before: promoted.before, after: promoted.after },
+      },
+    });
+  }
+
+  /**
+   * The approval of a run whose schema has no record figure: the run's approval columns are
+   * claimed on the row version the command read and the approval is audited; nothing is promoted,
+   * so mon.quarterly_performance, its status, its approver and its lineage are not touched and
+   * no promotion event is written.
+   */
+  private async approveWithoutPromotion(
+    tx: Tx,
+    audit: (entry: AuditEntry) => Promise<void>,
+    principal: Principal,
+    locked: LockedRun,
+    periodEnd: string,
+    approvalReason: string,
+    at: Date,
+  ): Promise<void> {
+    const claimed = await tx
+      .update(run)
+      .set({ approvedBy: principal.userId, approvedAt: at })
+      .where(and(eq(run.id, locked.id), eq(run.rowVersion, locked.rowVersion)))
+      .returning();
+    if (claimed[0] === undefined) throw conflict();
+    await audit({
+      action: 'extraction_run.approve',
+      entity: ENTITY,
+      entityId: locked.id,
+      reason: approvalReason,
+      details: {
+        documentId: locked.documentId,
+        fileName: locked.fileName,
+        investmentId: locked.investmentId,
+        periodEnd,
+        schemaId: locked.schemaId,
+        before: { approvedBy: null, promotedRecordId: null },
+        after: { approvedBy: principal.userId, promotedRecordId: null },
+        promoted: false,
       },
     });
   }

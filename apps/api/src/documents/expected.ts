@@ -15,11 +15,12 @@ export const QUARTERLY_REPORTING_DEAL_TYPES: readonly string[] = [
   'deal_type.cv_multi_asset',
 ];
 
-/** The two document types the tracker expects: a report per investment, a statement per sponsor fund. */
-export const EXPECTED_DOC_TYPES = {
-  quarterlyFinancials: 'doc_type.quarterly_financials',
-  capitalAccountStatement: 'doc_type.capital_account_statement',
-} as const;
+/**
+ * The two document types the tracker expects (a report per investment, a statement per sponsor
+ * fund) and which expected row a classified document answers: shared with the preview through
+ * @pb/validation, so a position-level statement fills a fund's row on neither side.
+ */
+export { EXPECTED_DOC_TYPES, expectedParentOf } from '@pb/validation';
 
 /** When a quarter's document is due: the period end plus the configured days. */
 export function dueDateFor(

@@ -25,6 +25,7 @@ import type {
 import { SYSTEM_USER_ID, asSystemActor, schema } from '@pb/db';
 import type { Tx } from '@pb/db';
 import type { PdfDocument } from '@pb/pdf';
+import { EXPECTED_DOC_TYPES, statementHold } from '@pb/validation';
 import { attempt, documentClassificationMachine } from '@pb/workflows';
 import type { DocumentCommand, DocumentState } from '@pb/workflows';
 import type { z } from 'zod';
@@ -72,7 +73,11 @@ import type { DocumentDefinitions } from '@pb/contracts';
  * then classified through the model client (the keyword classifier in the prototype) when the
  * ai.classifier switch is on: the investment is linked again by the number the model read or the
  * name, and a confidence at or above definitions.classifierConfidenceThreshold classifies the
- * document, below it goes to the review queue with the evidence. With the switch off, a refused
+ * document, below it goes to the review queue with the evidence. A capital account statement
+ * that names a position (a company in the file name, our reference on page one) which does not
+ * come to exactly one position is held for a person whatever the confidence (statementHold of
+ * @pb/validation): Classified is terminal, and a statement read as the wrong position's, or as a
+ * fund's, could not be put right. With the switch off, a refused
  * or failed call, or an item the reader refuses, the document is flagged for review instead
  * (docs/18 section 6: nothing stays in Received), the unreadable one with a data exception
  * (DOC-READ-01). Every state change goes through documentClassificationMachine; the
@@ -425,9 +430,11 @@ export class DocumentsService {
 
   /**
    * One model call over the redacted pages, then the links and the transition: autoClassify at
-   * or above the threshold, flagForReview below it or when the call fails (the row then keeps
-   * the links its file name resolved). The input is the shared frame of @pb/ai (metadata, then
-   * the pages as data); the log line carries ids, token counts, latency and redaction counts only.
+   * or above the threshold, flagForReview below it, when the call fails (the row then keeps
+   * the links its file name resolved) or when a statement names a position that did not link
+   * (the reason is kept in the evidence, never a name). The input is the shared frame of @pb/ai
+   * (metadata, then the pages as data); the log line carries ids, token counts, latency and
+   * redaction counts only.
    */
   private async classify(
     stx: Tx,
@@ -514,32 +521,55 @@ export class DocumentsService {
       directory,
     );
     const confident = D(output.confidence).gte(threshold);
-    const command: DocumentCommand = confident ? 'autoClassify' : 'flagForReview';
+    // The review rule of a statement (docs/18 section 6): the links stay as the document names
+    // them, so the wall of a position it names still holds; only a person classifies it.
+    const hold =
+      output.docType === EXPECTED_DOC_TYPES.capitalAccountStatement
+        ? statementHold(
+            {
+              investmentNumber: output.investmentNumber ?? null,
+              companyName: fromName?.companyName ?? null,
+            },
+            directory.investments,
+            directory.guards,
+          )
+        : null;
+    const classified = confident && hold === null;
+    const command: DocumentCommand = classified ? 'autoClassify' : 'flagForReview';
     const result = attempt(machine, machine.initial, command, {
       ...SYSTEM,
       record: { confidenceAboveThreshold: confident },
     });
     if (!result.ok) throw workflowProblem(result);
-    const candidates = confident
+    const candidates = classified
       ? links.candidates
-      : [...links.candidates, { reason: `classifier suggestion: ${output.docType}` }];
+      : [
+          ...links.candidates,
+          ...(hold === null ? [] : [{ reason: hold }]),
+          { reason: `classifier suggestion: ${output.docType}` },
+        ];
+    const reason = classified ? null : !confident ? 'confidence below the threshold' : hold;
     const periodEnd = output.periodEnd ?? null;
     await stx
       .update(d)
       .set({
         reviewStatus: result.to,
-        docType: confident ? output.docType : null,
+        docType: classified ? output.docType : null,
         investmentId: links.investmentId,
         sponsorFundId: links.sponsorFundId,
         sponsorId: links.sponsorId,
         periodEnd,
         classificationConfidence: output.confidence,
-        classifierEvidence: { keywords: output.evidence, candidates },
+        classifierEvidence: {
+          keywords: output.evidence,
+          candidates,
+          ...(hold === null ? {} : { reason: hold }),
+        },
         classifiedBy: null,
-        classifiedAt: confident ? now : null,
+        classifiedAt: classified ? now : null,
       })
       .where(eq(d.id, row.id));
-    if (confident)
+    if (classified)
       await matchExpectedDocument(stx, {
         id: row.id,
         docType: output.docType,
@@ -552,8 +582,8 @@ export class DocumentsService {
       id: row.id,
       command,
       state: result.to,
-      docType: confident ? output.docType : null,
-      reason: confident ? null : 'confidence below the threshold',
+      docType: classified ? output.docType : null,
+      reason,
     };
   }
 

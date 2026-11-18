@@ -49,8 +49,16 @@ Draft > Generated > QAFailed | QAPassed; QAFailed > Generated (after fix); QAPas
 ## 6. Document classification
 Received > Classified (confidence >= threshold) | NeedsReview; NeedsReview > Classified (human). Duplicate (same hash) > linked to the original, not reprocessed.
 
+**Review rule of a capital account statement** (decision 0023; `statementHold` in `packages/validation/src/documents.ts`, shared by the API and the static preview). A statement is one of two kinds, and the kind is its link, not a field: linked to a position it is our capital account for that one co-investment or continuation vehicle; linked to no position it is our account in a fund we committed to. Classified is terminal, so a statement the classifier would link wrongly, or read as a fund's, is stopped first. A statement that names a position (a company in the file name, our reference on page one) goes to NeedsReview whatever the confidence when what it names does not come to exactly one position:
+- a reference that is no investment number on record, whatever the name says;
+- with no reference, a company name that links to no position or to several (never fuzzy);
+- a reference that links to one position and a company name that is exactly another's.
+
+A reference that links wins over a name that links to nothing, and picks one of several positions the name fits. A statement that names no position is a fund statement and is never held by this rule. The held document keeps the links it names (so the wall of a position it names still holds) and its evidence keeps the reason in words, never a company or a number. The reviewer chooses the position, or leaves it empty for a fund statement. Only a statement linked to no position fills a fund's expected-document row (`expectedParentOf`).
+
 ## 7. Extraction run
 Queued > Running > Succeeded | Failed | NeedsRetry; NeedsRetry > Running (max 1 automatic retry for schema failure, 3 for transient errors); Failed is surfaced as a Data Exception.
+Approval of a Succeeded run promotes the accepted record figures into the quarter on record. A schema with no record figure (no field with a target column: a capital account statement) is reviewed and approved the same way and promotes nothing: it needs no linked position, the quarter on record keeps its figures, its approver and its lineage, and its runs never answer for a position on the monitoring board (`promotesToRecord` in `packages/ai`).
 
 ## 8. Deal change request
 Submitted > Routed > InProgress > Applied | Rejected; quarter-end job lists any not Applied.

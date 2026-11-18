@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { INestApplication } from '@nestjs/common';
 import request from 'supertest';
+import type { ExtractionSchemas } from '@pb/ai';
 import type { AppRole } from '@pb/db';
 import { loadSyntheticDataset } from '@pb/db';
 import { createTestDb } from '@pb/db/testing';
@@ -35,6 +36,11 @@ export interface HarnessOptions {
   accountingLayout?: unknown;
   /** Feature flags switched on through the flags endpoint as platform_admin once the app is up (audited), such as 'ai.extraction'. */
   enableFlags?: readonly string[];
+  /**
+   * Extraction schemas added to those of config/extraction_schema.json, by id, before the app is
+   * built: a test schema proves a rule of the engine before config holds a schema that needs it.
+   */
+  extraExtractionSchemas?: ExtractionSchemas;
 }
 
 /**
@@ -94,6 +100,11 @@ export async function startHarness(options: HarnessOptions = {}): Promise<Harnes
     Object.entries(runtime.definitions).filter(([key]) => !dropped.has(key)),
   );
   if ('accountingLayout' in options) runtime.accountingLayout = options.accountingLayout;
+  if (options.extraExtractionSchemas !== undefined)
+    runtime.extractionSchemas = {
+      ...runtime.extractionSchemas,
+      ...options.extraExtractionSchemas,
+    };
   const app = await createApp(runtime);
   const server = app.getHttpServer() as Parameters<typeof request>[0];
   const as = (roleOrExternalId: string): string => {

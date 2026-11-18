@@ -60,6 +60,8 @@ export {
   isoDateText,
   loadExtractionSchemas,
   outputSchemaFor,
+  promotesToRecord,
+  recordSchemaIds,
   PAGE_STORAGE_MAX,
   classifierOutputSchema,
   type TargetColumn,

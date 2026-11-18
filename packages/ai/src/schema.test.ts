@@ -8,6 +8,8 @@ import {
   classifierOutputSchema,
   loadExtractionSchemas,
   outputSchemaFor,
+  promotesToRecord,
+  recordSchemaIds,
 } from './schema.js';
 import type { ExtractionOutput } from './schema.js';
 
@@ -271,5 +273,41 @@ describe('classifierOutputSchema', () => {
     expect(() =>
       classifierOutputSchema.parse({ docType: 'doc_type.other', confidence: 0.9, evidence: [] }),
     ).toThrow();
+  });
+});
+
+describe('promotesToRecord and recordSchemaIds: which schemas write to the quarterly record', () => {
+  /** The config with a second schema whose fields are the quarterly ones with every target taken out. */
+  const withStatement = (): unknown => {
+    const copy = JSON.parse(JSON.stringify(CONFIG)) as {
+      schemas: Record<string, { fields: { target: string | null; bounds: string | null }[] }>;
+    };
+    const statement = JSON.parse(JSON.stringify(copy.schemas.quarterly_financials)) as {
+      fields: { target: string | null; bounds: string | null }[];
+    };
+    for (const f of statement.fields) f.target = null;
+    copy.schemas.test_statement = statement;
+    return copy;
+  };
+
+  it('is true for the quarterly schema, which has record figures', () => {
+    const schemas = loadExtractionSchemas(CONFIG);
+    expect(promotesToRecord(schemas.quarterly_financials!)).toBe(true);
+    expect(recordSchemaIds(schemas)).toContain('quarterly_financials');
+  });
+
+  it('is false for a schema with no target, which is left out of the record schemas', () => {
+    const schemas = loadExtractionSchemas(withStatement());
+    expect(promotesToRecord(schemas.test_statement!)).toBe(false);
+    expect(recordSchemaIds(schemas)).toContain('quarterly_financials');
+    expect(recordSchemaIds(schemas)).not.toContain('test_statement');
+  });
+
+  it('is decided by one target alone', () => {
+    const schemas = loadExtractionSchemas(withStatement());
+    const [first, ...rest] = schemas.test_statement!.fields;
+    const cash = rest.find((f) => f.key === 'cash')!;
+    expect(promotesToRecord({ fields: [first!, { ...cash, target: 'cash' }] })).toBe(true);
+    expect(promotesToRecord({ fields: [first!, cash] })).toBe(false);
   });
 });

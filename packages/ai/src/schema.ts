@@ -115,6 +115,23 @@ export function loadExtractionSchemas(config: unknown): ExtractionSchemas {
   return out;
 }
 
+/**
+ * Whether a schema writes to the quarterly record: true when one of its fields has a target
+ * column. A schema with none (a capital account statement) is read and reviewed like any other,
+ * and its approval promotes nothing: it needs no linked position, it leaves the quarter on
+ * record as it stands, and its runs never answer for a position on the monitoring board.
+ */
+export function promotesToRecord(schema: Pick<ExtractionSchema, 'fields'>): boolean {
+  return schema.fields.some((field) => field.target !== null);
+}
+
+/** The ids of the schemas that write to the quarterly record, in config order. */
+export function recordSchemaIds(schemas: ExtractionSchemas): string[] {
+  return Object.values(schemas)
+    .filter(promotesToRecord)
+    .map((schema) => schema.id);
+}
+
 /** A decimal amount, rate or fraction as text, never a float (the contracts pattern). */
 export const DECIMAL_TEXT = /^-?\d+(\.\d+)?$/;
 /** A whole number of zero or more as text. */

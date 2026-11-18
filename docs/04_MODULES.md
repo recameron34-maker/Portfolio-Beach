@@ -48,6 +48,7 @@ Global rules in `CLAUDE.md` apply to every module. Workflow states are defined i
 - AI classifier assigns metadata with a confidence score; below the threshold (`classifierConfidenceThreshold`) it goes to a review queue.
 - Doc types (config): quarterly financials, quarterly letter, capital call, distribution notice, capital account statement, K-1, audited financials, CIM, management presentation, LPA, side letter, subscription docs, closing set, valuation support, AGM materials, other.
 - Expected Document tracker per investment and period with aging and "missing" alerts.
+- A capital account statement is one of two kinds, and the kind is its link (decision 0023): linked to a position it is our capital account for that one co-investment or continuation vehicle; linked to no position it is our account in a fund we committed to. The tracker expects one fund-level statement per committed fund, and only a statement linked to no position fills that row. A statement that names a position which does not link to exactly one, or whose reference and company name disagree, goes to the review queue whatever the classifier's confidence (`docs/18` section 6); the reviewer chooses the position or leaves it empty for a fund statement.
 - Full-text and semantic search, filtered by permissions.
 - Duplicate detection by content hash.
 **Prototype scope:** local folder adapter; synthetic PDFs from `tools/synthetic`.
@@ -139,7 +140,7 @@ Global rules in `CLAUDE.md` apply to every module. Workflow states are defined i
 ## M9. Portfolio Monitoring
 **Purpose:** the quarterly view of the whole portfolio.
 **Features**
-- Monitoring board: investment x quarter status with aging, fed by Expected Documents and extraction status.
+- Monitoring board: investment x quarter status with aging, fed by Expected Documents and extraction status. The run shown for a position is the latest run of a schema that writes to the quarterly record (the report's), never a run over a capital account statement of the position.
 - Metrics from `packages/calc` (`docs/08`): MOIC, IRR, TVPI, DPI, RVPI, entry vs. current EV/EBITDA, net debt/EBITDA, margin, YoY (exact fiscal quarter), growth since entry, holding period.
 - Watchlist rules in config (leverage, EBITDA decline, markdown, covenant flags, missing financials); alerts to the deal team.
 - Realization outlook (next 18 months, partial or full) changes **only** by explicit edit, audited.

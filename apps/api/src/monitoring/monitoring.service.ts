@@ -2,6 +2,8 @@ import { Inject, Injectable } from '@nestjs/common';
 import { and, desc, eq, inArray, isNull, or, sql } from 'drizzle-orm';
 import type { SQL } from 'drizzle-orm';
 import type { AdapterSet, Principal } from '@pb/adapters';
+import { recordSchemaIds } from '@pb/ai';
+import type { ExtractionSchemas } from '@pb/ai';
 import { latestQuarterEndOnOrBefore } from '@pb/calc';
 import { extractionRunState } from '@pb/contracts';
 import type {
@@ -20,7 +22,7 @@ import { requireUuid } from '../common/validate.js';
 import { DbService } from '../db/db.service.js';
 import { EXPECTED_DOC_TYPES } from '../documents/expected.js';
 import { receivedOnSql } from '../documents/rows.js';
-import { documentSettingsOf } from '../documents/settings.js';
+import { EXTRACTION_SCHEMAS, documentSettingsOf } from '../documents/settings.js';
 import { APPROVED } from '../intake/promote.js';
 import { heldOn, loadInvestmentRows } from '../portfolio/loaders.js';
 import type { InvestmentBaseRow } from '../portfolio/loaders.js';
@@ -85,6 +87,7 @@ export class MonitoringService {
     private readonly db: DbService,
     @Inject(ADAPTERS) private readonly adapters: AdapterSet,
     @Inject(DEFINITIONS) private readonly definitions: unknown,
+    @Inject(EXTRACTION_SCHEMAS) private readonly schemas: ExtractionSchemas,
   ) {}
 
   /**
@@ -218,14 +221,21 @@ export class MonitoringService {
     return out;
   }
 
-  /** The newest run of each investment for the period, by (created_at, id), with its undecided flags counted. */
+  /**
+   * The newest run of each investment for the period, by (created_at, id), with its undecided
+   * flags counted. Only runs of a schema that writes to the quarterly record count
+   * (recordSchemaIds of @pb/ai): the board follows the quarter's figures to their approval, and
+   * a run over a capital account statement of the position, which promotes nothing, never takes
+   * the place of the report's run.
+   */
   private async loadRuns(
     tx: Tx,
     ids: readonly string[],
     periodEnd: string,
   ): Promise<Map<string, BoardRun>> {
     const out = new Map<string, BoardRun>();
-    if (ids.length === 0) return out;
+    const recordSchemas = recordSchemaIds(this.schemas);
+    if (ids.length === 0 || recordSchemas.length === 0) return out;
     const rows = await tx
       .selectDistinctOn([run.investmentId], {
         id: run.id,
@@ -235,7 +245,13 @@ export class MonitoringService {
         approvedAt: run.approvedAt,
       })
       .from(run)
-      .where(and(inArray(run.investmentId, [...ids]), eq(run.periodEnd, periodEnd)))
+      .where(
+        and(
+          inArray(run.investmentId, [...ids]),
+          eq(run.periodEnd, periodEnd),
+          inArray(run.schemaId, recordSchemas),
+        ),
+      )
       .orderBy(run.investmentId, desc(run.createdAt), desc(run.id));
     if (rows.length === 0) return out;
     const flags = await tx
