@@ -215,12 +215,6 @@ export function currentMarkNote(mark: NonNullable<ValuationSuggestionRow['curren
   return `${formatDate(mark.periodEnd)}, ${markAge(mark.ageQuarters)}`;
 }
 
-/** "$2.5M (13.7%)": a change in money with its percent; the placeholder when there is none. */
-export function changeText(amount: string | null, pct: string | null): string {
-  if (amount === null) return MISSING;
-  return pct === null ? formatMoneyM(amount) : `${formatMoneyM(amount)} (${formatPct(pct)})`;
-}
-
 /* ---- Badges ---- */
 
 export interface SuggestionBadge {
@@ -574,6 +568,74 @@ export function splitSuggestionKeys(inputs: ValuationStoredInputs): {
   for (const [name, value] of Object.entries(inputs))
     (isSuggestionKey(name) ? kept : own)[name] = value;
   return { own, kept };
+}
+
+/** One thing a suggestion wrote on a version, in words. */
+export interface SuggestionFact {
+  label: string;
+  value: string;
+}
+
+const isBasis = (value: string): value is SuggestionBasis => value in SOURCE_LABEL;
+
+/**
+ * What the keys a suggestion wrote on a version say, in words and in a fixed order: the source,
+ * the suggested mark, its quarter, each input its rule read and what each other source gave. The
+ * identifiers among the keys (the suggestion, the document, the run) and the page are left to the
+ * links the version screen gives beside them. The lock text keeps every key as stored.
+ */
+export function suggestionFacts(inputs: ValuationStoredInputs): SuggestionFact[] {
+  const read = (key: string): string | null => textOf(inputs[`${SUGGESTION_KEY_PREFIX}${key}`]);
+  const under = (group: string): [string, string][] =>
+    Object.keys(inputs)
+      .filter((name) => name.startsWith(`${SUGGESTION_KEY_PREFIX}${group}.`))
+      .sort((a, b) => a.localeCompare(b))
+      .flatMap((name): [string, string][] => {
+        const value = textOf(inputs[name]);
+        const key = name.slice(SUGGESTION_KEY_PREFIX.length + group.length + 1);
+        return value === null ? [] : [[key, value]];
+      });
+  const basis = read('basis');
+  const value = read('value');
+  const periodEnd = read('periodEnd');
+  return [
+    ...(basis === null
+      ? []
+      : [
+          { label: 'Suggested from', value: isBasis(basis) ? SOURCE_LABEL[basis] : labelOf(basis) },
+        ]),
+    ...(value === null
+      ? []
+      : [{ label: 'Suggested mark', value: formatDollars(value) ?? MISSING }]),
+    ...(periodEnd === null ? [] : [{ label: 'For the quarter', value: formatDate(periodEnd) }]),
+    ...under('input').map(([key, figure]) => ({
+      label: inputLabel(key),
+      value: inputValueText({ key, value: figure }),
+    })),
+    ...under('crossCheck').map(([key, figure]) => ({
+      label: `${isBasis(key) ? SOURCE_LABEL[key] : labelOf(key)}, beside it`,
+      value: formatDollars(figure) ?? MISSING,
+    })),
+  ];
+}
+
+/**
+ * True when a figure of the suggestion was read from, or typed over, the document of the run that
+ * produced it. A report-based suggestion raised by the approval of a statement with no value
+ * rests on the record alone: the page then names the statement as what raised it, never as what
+ * the mark was worked out from.
+ */
+export function restsOnSourceDocument(
+  row: Pick<ValuationSuggestionRow, 'basis'> & {
+    workings: { inputs: readonly Pick<SuggestionInput, 'source'>[] };
+  },
+): boolean {
+  return (
+    row.basis === 'capital_account_balance' ||
+    row.workings.inputs.some(
+      (input) => input.source.kind === 'document' || input.source.kind === 'reviewer',
+    )
+  );
 }
 
 /** "Started from a suggestion of $20.9M." */

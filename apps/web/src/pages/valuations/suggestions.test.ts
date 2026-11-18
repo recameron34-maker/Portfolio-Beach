@@ -3,7 +3,7 @@ import { NO_SUGGESTION_REASON_CODES } from '@pb/contracts';
 import { SUGGESTION_BASES, SUGGESTION_REASONS } from '@pb/calc';
 import { SUGGESTIONS_OFF_REFUSAL } from '@pb/workflows';
 import { SUGGESTIONS_PATH, VALUATION_TABS } from '../../app/nav.js';
-import { clearTaxonomyLabels, MISSING, registerTaxonomyLabels } from '../../lib/format.js';
+import { clearTaxonomyLabels, registerTaxonomyLabels } from '../../lib/format.js';
 import {
   notCalculableFixture,
   reportSuggestionFixture,
@@ -16,7 +16,6 @@ import {
   applySentence,
   canDecideSuggestions,
   canReadSuggestions,
-  changeText,
   contributionsSentence,
   crossCheckSentence,
   currentMarkNote,
@@ -30,12 +29,14 @@ import {
   offerFor,
   parseSuggestionsSearch,
   REASON_SENTENCE,
+  restsOnSourceDocument,
   ruleSentence,
   runOutcomeText,
   searchFor,
   SOURCE_LABEL,
   splitSuggestionKeys,
   startedFromSentence,
+  suggestionFacts,
   suggestionOnDraft,
   SUGGESTIONS_OFF,
   suggestionsOn,
@@ -140,9 +141,6 @@ describe('the words of a suggestion (docs/08 section 12)', () => {
     expect(markAge(1)).toBe('one quarter old');
     expect(markAge(3)).toBe('3 quarters old');
     expect(currentMarkNote(suggestionFixture().currentMark!)).toBe('Mar 31, 2025, one quarter old');
-    expect(changeText('2520000', '0.1368078176')).toBe('$2.5M (13.7%)');
-    expect(changeText('2520000', null)).toBe('$2.5M');
-    expect(changeText(null, null)).toBe(MISSING);
   });
 
   it('gives each raised flag a badge and a sentence, in one order', () => {
@@ -393,6 +391,48 @@ describe('a draft started from a suggestion (the version screen)', () => {
     expect(own).toEqual({ basis: 'LTM EBITDA' });
     expect(Object.keys(kept)).toHaveLength(7);
     expect(Object.keys(kept).every((name) => name.startsWith('suggestion.'))).toBe(true);
+  });
+
+  it('says what the suggestion wrote in words, and leaves the identifiers to the links', () => {
+    const facts = suggestionFacts({
+      ...inputs,
+      'suggestion.periodEnd': '2025-06-30',
+      'suggestion.input.investor_share_pct': '0.2500',
+      'suggestion.crossCheck.sponsor_equity_value': '7831632.54',
+      // A key the page has no word for reads from its name; an empty one says nothing.
+      'suggestion.input.some_new_line': '12',
+      'suggestion.crossCheck.held_multiple': '',
+    });
+    expect(facts).toEqual([
+      { label: 'Suggested from', value: 'Capital account statement' },
+      { label: 'Suggested mark', value: '$20,940,000.00' },
+      { label: 'For the quarter', value: 'Jun 30, 2025' },
+      { label: 'Ending capital balance', value: '$20,940,000.00' },
+      { label: 'Our share of the vehicle', value: '25.00%' },
+      { label: 'Some new line', value: '$12.00' },
+      { label: 'Sponsor report, beside it', value: '$7,831,632.54' },
+    ]);
+    // No identifier, no page and no stored key name is among them.
+    const text = JSON.stringify(facts);
+    expect(text).not.toContain('suggestion.');
+    expect(text).not.toContain(SUGGESTION_ID.statement);
+    expect(text).not.toContain(SUGGESTION_ID.report);
+    expect(suggestionFacts({ basis: 'LTM EBITDA' })).toEqual([]);
+  });
+
+  it('names the source document as what a mark was worked out from only when a figure came from it', () => {
+    const fromDocument = { source: { kind: 'document' as const } };
+    const typed = { source: { kind: 'reviewer' as const } };
+    const fromRecord = { source: { kind: 'record' as const } };
+    const fromMark = { source: { kind: 'valuation' as const } };
+    const row = (basis: 'capital_account_balance' | 'sponsor_equity_value', inputs: object[]) =>
+      ({ basis, workings: { inputs } }) as Parameters<typeof restsOnSourceDocument>[0];
+    expect(restsOnSourceDocument(row('sponsor_equity_value', [fromMark, fromDocument]))).toBe(true);
+    expect(restsOnSourceDocument(row('sponsor_equity_value', [fromMark, typed]))).toBe(true);
+    // Raised by a statement with no value: every figure is the record's or the Locked mark.
+    expect(restsOnSourceDocument(row('sponsor_equity_value', [fromMark, fromRecord]))).toBe(false);
+    // A statement's own suggestion is the statement's, with or without a value.
+    expect(restsOnSourceDocument(row('capital_account_balance', []))).toBe(true);
   });
 });
 

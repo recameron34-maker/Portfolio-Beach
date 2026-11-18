@@ -297,6 +297,44 @@ describe('valuation suggestions', () => {
     expect(within(others).queryByText('Sources differ')).not.toBeInTheDocument();
   });
 
+  it('names a statement with no value as what raised a report-based suggestion, never as what it was worked out from', async () => {
+    const record = {
+      kind: 'record' as const,
+      id: SOURCE.recordQuarter,
+      page: null,
+      fileName: null,
+    };
+    const base = reportSuggestionFixture();
+    const raised = reportSuggestionFixture({
+      // Every figure is the record's or the Locked mark: the statement's approval only raised it.
+      workings: {
+        inputs: base.workings.inputs.map((input) =>
+          input.source.kind === 'valuation' ? input : { ...input, source: record, edited: false },
+        ),
+      },
+      source: {
+        documentId: SOURCE.statementDocument,
+        fileName: STATEMENT_FILE,
+        extractionRunId: SOURCE.statementRun,
+        page: null,
+        locator: null,
+      },
+    });
+    mockApi(routes({ [OPEN]: ok(suggestionPageFixture([raised])) }));
+    route.search = { id: raised.id };
+    renderWithQuery(<SuggestionsPage />);
+    const card = await screen.findByTestId('suggestion-detail');
+    const source = within(card).getByTestId('suggestion-source');
+    expect(source).toHaveTextContent(
+      `Raised when ${STATEMENT_FILE} was approved. Its figures come from the record.`,
+    );
+    expect(source).not.toHaveTextContent('Worked out from');
+    expect(within(source).getByRole('link', { name: STATEMENT_FILE })).toHaveAttribute(
+      'href',
+      `/documents/extraction/${SOURCE.statementRun}`,
+    );
+  });
+
   it('shows the placeholder and the reason for a suggestion that is not calculable, and offers only its dismissal', async () => {
     mockApi(routes({ [OPEN]: ok(suggestionPageFixture([notCalculableFixture()])) }));
     route.search = { id: SUGGESTION_ID.notCalculable };

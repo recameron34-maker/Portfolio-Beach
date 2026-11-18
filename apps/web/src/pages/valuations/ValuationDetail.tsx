@@ -81,7 +81,9 @@ import { suggestionsQuery } from './suggestions-api.js';
 import {
   canReadSuggestions,
   NEWER_SUGGESTION,
+  splitSuggestionKeys,
   startedFromSentence,
+  suggestionFacts,
   suggestionOnDraft,
 } from './suggestions.js';
 import './valuations.css';
@@ -359,13 +361,17 @@ function inputText(value: unknown): string {
  * and operations edits them while the version is a Draft.
  */
 function InputsCard({ detail }: { detail: ValuationDetail }): ReactNode {
-  const rows = Object.entries(detail.inputs).sort(([a], [b]) => a.localeCompare(b));
+  // What a suggestion wrote is said in words; its identifiers are the links of the note above.
+  const { own, kept } = splitSuggestionKeys(detail.inputs);
+  const rows = Object.entries(own).sort(([a], [b]) => a.localeCompare(b));
+  const facts = suggestionFacts(kept);
+  const count = rows.length + facts.length;
   return (
     <Card testId="valuation-inputs">
-      <SectionHeader aside={rows.length === 0 ? undefined : plural(rows.length, 'input')}>
+      <SectionHeader aside={count === 0 ? undefined : plural(count, 'input')}>
         Method inputs
       </SectionHeader>
-      {rows.length === 0 ? (
+      {count === 0 ? (
         <EmptyState
           title="No method inputs"
           detail={
@@ -376,24 +382,49 @@ function InputsCard({ detail }: { detail: ValuationDetail }): ReactNode {
         />
       ) : (
         <>
-          <TableWrap label="Method inputs">
-            <table className="pb-table" aria-label="Method inputs">
-              <thead>
-                <tr>
-                  <th>Input</th>
-                  <th>Value</th>
-                </tr>
-              </thead>
-              <tbody>
-                {rows.map(([name, value]) => (
-                  <tr key={name}>
-                    <td>{name}</td>
-                    <td>{inputText(value)}</td>
+          {rows.length === 0 ? null : (
+            <TableWrap label="Method inputs">
+              <table className="pb-table" aria-label="Method inputs">
+                <thead>
+                  <tr>
+                    <th>Input</th>
+                    <th>Value</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </TableWrap>
+                </thead>
+                <tbody>
+                  {rows.map(([name, value]) => (
+                    <tr key={name}>
+                      <td>{name}</td>
+                      <td>{inputText(value)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </TableWrap>
+          )}
+          {facts.length === 0 ? null : (
+            <>
+              <h3 className="pb-val-sub">From the suggestion</h3>
+              <TableWrap label="From the suggestion">
+                <table className="pb-table" aria-label="From the suggestion">
+                  <thead>
+                    <tr>
+                      <th>What</th>
+                      <th>Value</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {facts.map((fact) => (
+                      <tr key={fact.label}>
+                        <td>{fact.label}</td>
+                        <td>{fact.value}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </TableWrap>
+            </>
+          )}
           <p className="pb-meta">The lock covers these with the method and the fair value.</p>
         </>
       )}
@@ -607,12 +638,21 @@ function SuggestionNotes({
           {/* One child, so the links stay inside the sentence: a notice lays its children out in a row. */}
           <span>
             {startedFromSentence(started)}{' '}
-            {started.documentId === null ? null : (
+            {started.documentId === null ? null : started.page === null ? (
+              // No figure was read from a page of it: typed by the reviewer, or the record's.
+              <>
+                Raised when{' '}
+                <Link to="/documents/$id" params={{ id: started.documentId }}>
+                  this document
+                </Link>{' '}
+                was approved.{' '}
+              </>
+            ) : (
               <>
                 <Link to="/documents/$id" params={{ id: started.documentId }}>
                   Source document
                 </Link>
-                {started.page === null ? '.' : `, page ${started.page}.`}{' '}
+                {`, page ${started.page}.`}{' '}
               </>
             )}
             {reader ? (

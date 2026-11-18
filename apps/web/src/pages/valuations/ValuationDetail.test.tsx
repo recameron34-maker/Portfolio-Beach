@@ -697,8 +697,45 @@ describe('valuation version screen', () => {
       'href',
       `/valuations/suggestions?id=${SUGGESTION_ID.replacement}`,
     );
-    // The keys the suggestion wrote are among the inputs the lock will cover.
-    expect(screen.getByTestId('valuation-inputs')).toHaveTextContent('suggestion.value');
+    // What the suggestion wrote is among the inputs the lock will cover, said in words: no stored
+    // key name and no identifier is drawn.
+    const inputs = screen.getByTestId('valuation-inputs');
+    const kept = within(inputs).getByRole('table', { name: 'From the suggestion' });
+    expect(within(kept).getByRole('row', { name: /Suggested from/ })).toHaveTextContent(
+      'Capital account statement',
+    );
+    expect(within(kept).getByRole('row', { name: /Suggested mark/ })).toHaveTextContent(
+      '$20,940,000.00',
+    );
+    expect(within(kept).getByRole('row', { name: /Ending capital balance/ })).toHaveTextContent(
+      '$20,940,000.00',
+    );
+    expect(inputs).not.toHaveTextContent('suggestion.');
+    expect(inputs).not.toHaveTextContent(SOURCE.statementDocument);
+    expect(inputs).not.toHaveTextContent(SOURCE.statementRun);
+    expect(inputs).not.toHaveTextContent(SUGGESTION_ID.statement);
+    // The lock text keeps every key as stored.
+    expect(SUGGESTED_INPUTS['suggestion.documentId']).toBe(SOURCE.statementDocument);
+  });
+
+  it('says a document raised the suggestion when no figure was read from a page of it', async () => {
+    const { 'suggestion.page': _page, ...withoutPage } = SUGGESTED_INPUTS;
+    mockApi(
+      draftRoutes(['operations'], {
+        [detailPath(VAL_ID.draft)]: ok(draftDetail({ inputs: withoutPage })),
+        [OPEN_FOR_QUARTER]: ok(suggestionPageFixture([])),
+      }),
+    );
+    renderWithQuery(<ValuationDetailPage />);
+    const from = await screen.findByTestId('valuation-from-suggestion');
+    expect(from).toHaveTextContent(
+      'Started from a suggestion of $20.9M. Raised when this document was approved.',
+    );
+    expect(from).not.toHaveTextContent('Source document');
+    expect(within(from).getByRole('link', { name: 'this document' })).toHaveAttribute(
+      'href',
+      `/documents/${SOURCE.statementDocument}`,
+    );
   });
 
   it('shows no newer suggestion when the one open is the one the draft started from, and none at all for a draft made by hand with nothing open', async () => {

@@ -70,6 +70,7 @@ import {
   isSuggestionStateFilter,
   offerFor,
   REASON_SENTENCE,
+  restsOnSourceDocument,
   searchFor,
   SOURCE_LABEL,
   SUGGESTION_STATES,
@@ -534,11 +535,12 @@ function SuggestionCard({
           </Link>
         </span>
       </p>
-      <p className="pb-meta pb-val-source-file">
-        Worked out from{' '}
+      <p className="pb-meta pb-val-source-file" data-testid="suggestion-source">
+        {restsOnSourceDocument(row) ? 'Worked out from' : 'Raised when'}{' '}
         <Link to="/documents/extraction/$id" params={{ id: row.source.extractionRunId }}>
           {fileName ?? 'the source document'}
         </Link>
+        {restsOnSourceDocument(row) ? null : ' was approved. Its figures come from the record.'}
       </p>
       <Tiles row={row} />
       <Badges row={row} />
