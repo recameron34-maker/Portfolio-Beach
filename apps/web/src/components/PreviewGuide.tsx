@@ -17,7 +17,7 @@ interface Walkthrough {
   steps: ReactNode[];
 }
 
-/** Twelve walkthroughs of two to four steps each, in the order a reviewer would try them. */
+/** Thirteen walkthroughs of two to four steps each, in the order a reviewer would try them. */
 function walkthroughs(p: GuidePeople): Walkthrough[] {
   return [
     {
@@ -194,6 +194,34 @@ function walkthroughs(p: GuidePeople): Walkthrough[] {
       ],
     },
     {
+      id: 'suggestions',
+      title: 'Valuation suggestions',
+      steps: [
+        <>
+          With the documents indexed and ai.extraction on (the two walkthroughs above), as{' '}
+          {p.operations} open <Link to="/documents/extraction">Extraction</Link> and start two
+          batches for the latest quarter: its quarterly financials, then its capital account
+          statements.
+        </>,
+        <>
+          Open the report run of the position that <Link to="/valuations">Valuations</Link> lists
+          under Missing marks, decide its values and approve it: the run page says a valuation
+          suggestion was opened, the last Locked mark scaled by the sponsor's equity value.
+        </>,
+        <>
+          Switch to {p.dealTeam} and approve the statement run of the same position: its ending
+          balance replaces the first suggestion. Open{' '}
+          <Link to="/valuations/suggestions">Suggestions</Link> under Valuations to read the
+          workings, the page each figure came from and the report's indication beside it.
+        </>,
+        <>
+          Back as {p.operations}, choose Open a draft valuation and Prepare the draft: no mark is
+          written until it is approved and locked, and {p.dealTeam}, who approved the statement, is
+          refused Deal team approve.
+        </>,
+      ],
+    },
+    {
       id: 'monitoring',
       title: 'Monitoring board',
       steps: [
@@ -320,8 +348,8 @@ function Guide({
       </div>
       <p className="pb-meta pb-guide-intro">
         {compact
-          ? 'Twelve short walkthroughs on synthetic data. Sign in as the user a step names; after that, switch users with the user menu at the top of any page.'
-          : 'Twelve short walkthroughs on synthetic data. Switch users with the user menu at the top of any page.'}
+          ? 'Thirteen short walkthroughs on synthetic data. Sign in as the user a step names; after that, switch users with the user menu at the top of any page.'
+          : 'Thirteen short walkthroughs on synthetic data. Switch users with the user menu at the top of any page.'}
       </p>
       {folded ? (
         <div className="pb-guide-compact">
