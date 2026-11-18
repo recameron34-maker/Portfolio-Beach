@@ -17,7 +17,7 @@ import {
   snapshotRequestOf,
 } from '@pb/report-engine';
 import type { QaFinding, QaSnapshot, SnapshotSource } from '@pb/report-engine';
-import { generateDataset, previewBook } from '@pb/synthetic';
+import { failingPackageCase, generateDataset, previewBook } from '@pb/synthetic';
 import definitions from '../../../../../config/definitions.json';
 import { parseBook } from '../book.js';
 import type { PreviewBook } from '../book.js';
@@ -551,6 +551,34 @@ describe('reporting packages in the preview: generating and the QA gate', () => 
     }
     // Every client of the book carries at least one of the two: the test is not vacuous.
     expect(seen).toBeGreaterThanOrEqual(3);
+  });
+
+  it('fails the gate for the package the generator names as failing, on the position it names', async () => {
+    const found = failingPackageCase(dataset);
+    if (found === null) throw new Error('the book has no failing package case');
+    const { f } = session();
+    const who = found.user.externalId;
+    const ref = found.positionNumber;
+    // Preliminary, so the label check passes: what fails is the record of the position alone.
+    const draft = await started(f, who, found.client.id, period);
+    const d = await run(f, who, draft.id, { command: 'generate' });
+    expect(d.state).toBe('QAFailed');
+    expect([...failedOf(d)].sort()).toEqual([
+      `QA-QTD-01 ${ref}`,
+      `QA-RF-01 ${ref}`,
+      `QA-SIGN-01 ${ref}`,
+    ]);
+    // The line is in the package with no begin NAV and no gain, never a zero, and the client's
+    // share of its end NAV is there: the case names a client with a share of the vehicle.
+    const content = contentOf(d);
+    const line = content.lines.find((l) => l.ref === ref);
+    expect(line).toMatchObject({ beginNav: null, gainLoss: null, enteredInPeriod: false });
+    expect(line?.endNav).not.toBeNull();
+    expect(content.clientLines.some((c) => c.ref === ref)).toBe(true);
+    // Labelled final it fails on the same position, whatever else the label adds.
+    const final = await started(f, who, found.client.id, period, { basis: 'net', label: 'final' });
+    const failed = failedOf(await run(f, who, final.id, { command: 'generate' }));
+    expect(failed.has(`QA-QTD-01 ${ref}`)).toBe(true);
   });
 
   it('leaves out a position behind a wall the preparer is not on', async () => {

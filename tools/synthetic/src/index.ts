@@ -109,6 +109,8 @@ export type {
   WireInstructionState,
 } from './controls.js';
 export { activePositions, latestLockedMark, takeRows, walledInvestment } from './marks.js';
+export { FAILING_PACKAGE_SCENARIOS, failingPackageCase } from './package-case.js';
+export type { FailingPackageCase, FailingPackageScenario } from './package-case.js';
 export {
   UNDERWRITING_CREDIT_DEAL_TYPE,
   UNDERWRITING_EXISTING_SCENARIOS,
