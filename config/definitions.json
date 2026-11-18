@@ -84,6 +84,12 @@
     "revenueMax": 50000000000
   },
   "valuationVarianceFlag": 0.1,
+  "valuationSuggestions": {
+    "_note": "Valuation suggestions (docs/04 M10, docs/08 section 12, docs/18 section 14, decision 0023): a draft set, with every setting here and none in code. sourceOrder is the order the sources are tried in for a position and quarter, each of the three exactly once: the first with a value is the suggestion and the others sit beside it as cross-checks. tieToleranceByUnit is how far apart, in dollars, the five balance lines of a capital account statement may be and still add up, by the coarsest unit a line was read in (a statement read in dollars uses rollForwardToleranceUsd). contributionsTolerancePct is the share of the approved contributions on record beyond which a statement's contributions to date differ from it (0.02 = 2%). The variance flag of a suggested mark, and of two sources that differ, is valuationVarianceFlag.",
+    "sourceOrder": ["capital_account_balance", "sponsor_equity_value", "held_multiple"],
+    "tieToleranceByUnit": { "USD_K": 2500, "USD_M": 25000, "USD_B": 25000000 },
+    "contributionsTolerancePct": 0.02
+  },
   "_units": "All percentages in this file are decimals (0.10 = 10%).",
   "reporting": {
     "weeklyMoversCount": 5,

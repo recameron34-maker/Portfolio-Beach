@@ -8,11 +8,12 @@ States are Postgres enums. Transitions happen only through API commands that che
 | (new) | Draft | Operations | Investment active |
 | Draft | OpsPrepared | Operations | Inputs complete; validation passed |
 | OpsPrepared | Draft | Operations, Deal Team | Reason required |
-| OpsPrepared | DealTeamApproved | Deal Team (not the preparer) | |
-| DealTeamApproved | Locked | Approver (not the preparer) | Lock hash computed over inputs + value |
+| OpsPrepared | DealTeamApproved | Deal Team (not the preparer, nor a source reviewer) | |
+| DealTeamApproved | Locked | Approver (not the preparer, nor a source reviewer) | Lock hash computed over inputs + value |
 | Locked | Reopened | Operations, Approver | Reason; creates a new version in Draft; alerts prior approvers |
 Reports read Locked only. One Locked version per investment and period (unique partial index).
 A Draft is the only state that can be edited: operations may correct its method, inputs and fair value (`PATCH /valuations/{id}`, audited as `valuation.edit`, no approval row), which is how a reopened version takes its corrected mark; every other state answers 409. The lock hash is the SHA-256 of the lock text: the investment, the period end, the version, the method, the method inputs (keys sorted at every depth) and the fair value.
+A version that carries a suggested mark (section 14) has source reviewers: whoever approved an extraction run behind a suggestion accepted onto the version, and whoever typed one of its figures over what was read. None of them takes either approval (`sourceReviewers`, the union over every Accepted suggestion whose valuation is the version; SEC-5.6), so the figures and the mark are never judged by the same person. The preparer is judged first, then the source reviewers, then the lock hash. A version with no suggestion on it names nobody and the rule of the table alone stands; a source reviewer may still prepare, send back and reopen. The keys a suggestion writes on a Draft's inputs (`suggestion.` and what follows) are kept by every edit whatever its body sends, so the lock hash seals them with the mark.
 
 ## 2. Staging records (`stg.*.status`)
 new > validated | flagged; flagged > validated (after edit) | rejected; validated > approved (reviewer) > promoted (system, single transaction). rejected is terminal.
@@ -97,3 +98,34 @@ What operations confirmed stays as confirmed: while the closing is OpsConfirmed,
 | Confirmed | Withdrawn | Approver | `retire`: reason required; for a case confirmed in error |
 Superseded and Withdrawn are terminal: a revision is always a new version, and nothing is deleted. Only a Confirmed case is compared with the actuals (`docs/08` section 11); the entry case, the Confirmed one with the earliest case date, unless the reader picks another, so a later version dated after it is a re-underwriting and both stay Confirmed.
 A Draft is the only state that can be edited, by the deal team: an edit replaces the figures and the plan points together and makes its editor the person who last changed the figures (`entered_by`, with `entered_at`), so whoever edits a Draft cannot confirm it and the person who entered it before them can. Every other state answers 409. Withdrawing takes no second person. The database holds the same line (migrations 0021 and 0022): a case starts as a Draft; inside a user transaction a new case and an edit name the person acting, a plan point is written only by the person the Draft names, and a confirmation names the person confirming and changes nothing else; a Confirmed case keeps its figures; a terminal case never changes.
+
+## 14. Valuation suggestion (`mon.valuation_suggestion.state`, decision 0023)
+| From | To | Who | Preconditions |
+|---|---|---|---|
+| (new) | Open | System actor | Derived when a capital account statement or a sponsor report run is approved for a position and quarter, in the approval's own transaction; one Open suggestion per position and quarter at most; none while a "none when" rule below applies |
+| Open | Accepted | Operations | `accept`: the suggestion has a value; no version for the position and quarter is in progress (`versionInProgress`: a Draft, OpsPrepared or DealTeamApproved one). Opens a draft valuation at the suggested value, for the suggestion's period end, through the "(new) to Draft" row of section 1 |
+| Open | Accepted | Operations | `applyToDraft`: the suggestion has a value; a Draft is open for the position and quarter (`draftOpen`). Puts the value and its method on that Draft, which keeps its own date |
+| Open | Dismissed | Operations | `dismiss`: reason required |
+| Open | Superseded | System actor | `supersede`: with its reason, one of `better_source`, `figures_changed`, `mark_locked` and `position_closed`. A step of the derivation that replaces or closes the suggestion, in the same transaction; nobody sends it |
+Accepted, Dismissed and Superseded are terminal: a suggestion is never reopened, and a later approval writes a new one. "Not calculable" is data, not a state: a suggestion with a reason in place of a value is Open like any other and can only be dismissed or superseded. Accepting writes no mark. The Draft it opens, or the Draft it is put on, is prepared, approved and Locked by the valuation workflow of section 1, where the suggestion's source reviewers can take neither approval. Deal team, approvers and auditors read suggestions; viewers, investor relations and platform admins are given nothing. A suggestion sits behind the wall of its position.
+
+**Sources and their order.** A suggestion rests on one source, never a blend (`docs/08` section 12): the ending balance of a position-level capital account statement, the equity value the sponsor's report states, or that report with the earlier multiple held. `valuationSuggestions.sourceOrder` in `config/definitions.json` is the order they are tried in. The first source on hand with a value is the suggestion; when none has one, the first on hand gives the reason. The others sit beside it as cross-checks. One pure function decides it for the API and for the static preview (`selectSuggestion` in `packages/workflows/src/controls-suggestion.ts`).
+
+**None when** (`suggestionBar`, then the suggestions decided before), in this order:
+- the statement is linked to no position, or to a primary fund position: our account in a fund commitment has no valuation record (`fund_commitment`);
+- the position is private credit (`private_credit`);
+- the position is not held in US dollars: nothing is converted (`not_usd`);
+- the position is inactive, or was not held at the period end (`not_held`);
+- a mark for that quarter or a later one is Locked (`mark_locked`);
+- the same basis, value and inputs were dismissed (`dismissed`);
+- or are on a valuation version in progress or Locked (`on_valuation`).
+
+**What a derivation does** (`derivationStep`). It runs as the system actor when a statement or a report run is approved, and may then open a suggestion. Everywhere else it only refreshes the Open one and never creates one: when an accounting import is promoted, when a valuation is locked or reopened, and again inside `accept` and `applyToDraft` before anything is written.
+- One of the first five "none when" rules applies: an Open suggestion is superseded (`mark_locked` for a Locked mark, `position_closed` for the others) and nothing is written.
+- No source is on hand: nothing is written, and an Open suggestion left without one is superseded (`figures_changed`).
+- The Open suggestion has the same basis, value and inputs as the sources now give: nothing.
+- The same basis, value and inputs were dismissed, or are on a version in progress or Locked: nothing is written, and an Open suggestion that says something else is superseded (`figures_changed`).
+- Otherwise the suggestion is written. With one Open, that one is superseded and names its replacement: `better_source` when the new basis comes earlier in the order of sources, `figures_changed` otherwise. A statement approved while a report-based suggestion is Open therefore supersedes it; a report approved after a statement changes only the cross-check; of two approved statements for a quarter the later counts.
+Two suggestions are the same when their basis, their value (or their reason for none) and their inputs agree, key by key, figure by figure and period by period. Where a figure was read from and who typed it are not part of it, so the same balance read from a second copy of a statement is not raised again after a dismissal.
+
+**At accept.** `accept` and `applyToDraft` lock the row and derive again. If the basis, the value or an input differs, or no suggestion applies any more, the suggestion is superseded, any replacement is written, the transaction commits and the answer is 409, "The figures behind this suggestion changed. It has been replaced or closed." With the flag `valuation.suggestions` off nothing is derived and both commands answer 409; reads and `dismiss` still work.
