@@ -8,6 +8,7 @@ import {
   SUGGESTIONS_OFF_REFUSAL,
   SUGGESTION_CHANGED_REFUSAL,
   attempt,
+  quarterVersions,
   suggestionCommandRecord,
   suggestionDraftKeys,
   suggestionReading,
@@ -27,7 +28,6 @@ import type { SimContext, SimRequest } from './common.js';
 import {
   gatherFor,
   previewSuggestionSettings,
-  quarterVersions,
   refreshOne,
   runOutcomeOf,
   storedOf,

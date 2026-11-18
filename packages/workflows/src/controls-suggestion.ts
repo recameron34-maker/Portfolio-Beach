@@ -24,6 +24,7 @@ import type {
   SuggestionBasis,
   SuggestionReason,
 } from '@pb/calc';
+import { VALUATION_IN_FLIGHT_STATES } from './machines.js';
 import type { SupersededReason, ValuationState, ValuationSuggestionState } from './machines.js';
 
 /*
@@ -145,12 +146,20 @@ export function suggestionSettings(definitions: unknown): SuggestionSettings {
 
 /* ---- When no suggestion applies (docs/18 section 14) ---- */
 
-/** The deal types a suggestion is worked out for: an equity co-investment and a continuation vehicle. */
-export const SUGGESTION_DEAL_TYPES: readonly string[] = [
+/**
+ * The equity deal types: an equity co-investment and the two continuation vehicles. Their
+ * sponsors report a company's figures each quarter, so the expected-document tracker expects a
+ * quarterly report for them, and a suggestion is worked out for them and for no other. One list,
+ * for both uses.
+ */
+export const EQUITY_DEAL_TYPES: readonly string[] = [
   'deal_type.co_invest_equity',
   'deal_type.cv_single_asset',
   'deal_type.cv_multi_asset',
 ];
+
+/** The deal types a suggestion is worked out for: the equity deal types. */
+export const SUGGESTION_DEAL_TYPES: readonly string[] = EQUITY_DEAL_TYPES;
 
 const CREDIT_DEAL_TYPE = 'deal_type.private_credit';
 
@@ -326,6 +335,69 @@ export function referenceOnHand(input: {
     ),
     quarter,
   };
+}
+
+/* ---- The versions of a quarter, and which schema is which (docs/18 section 14) ---- */
+
+/**
+ * The versions of a position that report for a quarter end, as the valuation workflow finds the
+ * chain of a quarter (`alignedQuarterEnd`): the same rule for the API and the static preview.
+ */
+export function quarterVersions<T extends { periodEnd: string }>(
+  versions: readonly T[],
+  quarterEnd: string,
+  toleranceDays: number,
+): T[] {
+  return versions.filter(
+    (version) => alignedQuarterEnd(version.periodEnd, toleranceDays) === quarterEnd,
+  );
+}
+
+/** An extraction schema of config/extraction_schema.json, as far as the suggestions read it. */
+export interface SchemaForSuggestions {
+  id: string;
+  docType: string;
+  fields: readonly { key: string; kind: string }[];
+}
+
+/** A statement schema that lacks a line the rules read: the message says which, never a value. */
+export class SuggestionSchemaError extends Error {
+  constructor(public readonly detail: string) {
+    super(`config/extraction_schema.json ${detail}`);
+    this.name = 'SuggestionSchemaError';
+  }
+}
+
+/**
+ * Which extraction schemas are a sponsor report and which a capital account statement, by id. A
+ * report schema is one that writes to the quarterly record (`promotesToRecord`, the rule of
+ * @pb/ai). A statement schema is one of the capital account statement document type that writes
+ * nothing to it; it must carry the lines of rule 12.1 as money fields and our share as a percent,
+ * or it is refused by name. Any other schema is neither.
+ */
+export function suggestionSchemasOf<S extends SchemaForSuggestions>(
+  schemas: Iterable<S>,
+  rule: { promotesToRecord: (schema: S) => boolean; statementDocType: string },
+): { statements: Map<string, S>; reports: Map<string, S> } {
+  const statements = new Map<string, S>();
+  const reports = new Map<string, S>();
+  for (const schema of schemas) {
+    if (rule.promotesToRecord(schema)) {
+      reports.set(schema.id, schema);
+      continue;
+    }
+    if (schema.docType !== rule.statementDocType) continue;
+    const kindOf = new Map(schema.fields.map((field) => [field.key, field.kind]));
+    for (const key of Object.values(STATEMENT_LINE_KEYS))
+      if (kindOf.get(key) !== 'money')
+        throw new SuggestionSchemaError(`has no money field ${key} in the schema ${schema.id}`);
+    if (kindOf.get(STATEMENT_SHARE_KEY) !== 'percent')
+      throw new SuggestionSchemaError(
+        `has no percent field ${STATEMENT_SHARE_KEY} in the schema ${schema.id}`,
+      );
+    statements.set(schema.id, schema);
+  }
+  return { statements, reports };
 }
 
 /* ---- Reading an approved run (docs/18 section 14) ---- */
@@ -940,7 +1012,7 @@ export function sameSuggestion(a: StoredSuggestion, b: StoredSuggestion): boolea
 }
 
 /** The valuation states in which a version is still on its way to Locked. */
-const IN_PROGRESS: readonly ValuationState[] = ['Draft', 'OpsPrepared', 'DealTeamApproved'];
+const IN_PROGRESS = VALUATION_IN_FLIGHT_STATES;
 
 /** What one derivation does. Whoever calls it writes exactly this, in one transaction, and audits it. */
 export type DerivationStep =

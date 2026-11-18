@@ -17,7 +17,7 @@ import type {
   VehicleSummary,
 } from '@pb/contracts';
 import { atOrAboveVarianceFlag } from '@pb/calc';
-import { valuationMachine } from '@pb/workflows';
+import { VALUATION_IN_FLIGHT_STATES, valuationMachine } from '@pb/workflows';
 import definitions from '../../../../../config/definitions.json';
 import type { InvestmentFilters } from '../../app/queries.js';
 import { formatDate, formatPct, MISSING } from '../../lib/format.js';
@@ -37,11 +37,7 @@ export const ACTIVE_POSITIONS: InvestmentFilters = { active: 'true', limit: 200 
 export const VALUATION_STATES: readonly ValuationState[] = valuationMachine.states;
 
 /** Versions on their way to Locked: someone still has to prepare, approve or lock them. */
-export const IN_FLIGHT_STATES: readonly ValuationState[] = [
-  'Draft',
-  'OpsPrepared',
-  'DealTeamApproved',
-];
+export const IN_FLIGHT_STATES: readonly ValuationState[] = VALUATION_IN_FLIGHT_STATES;
 
 /** Period ends latest first (ISO dates sort as text), whatever order they arrive in. */
 export function latestFirst(periods: readonly string[]): string[] {

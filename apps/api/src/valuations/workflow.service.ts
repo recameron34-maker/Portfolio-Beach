@@ -24,7 +24,13 @@ import type {
 } from '@pb/contracts';
 import { asSystemActor, schema } from '@pb/db';
 import type { Tx } from '@pb/db';
-import { attempt, keepSuggestionKeys, sourceReviewersOf, valuationMachine } from '@pb/workflows';
+import {
+  VALUATION_IN_FLIGHT_STATES,
+  attempt,
+  keepSuggestionKeys,
+  sourceReviewersOf,
+  valuationMachine,
+} from '@pb/workflows';
 import { valuationLockHash } from '../common/lock.js';
 import { isUniqueViolationOn } from '../common/pg-errors.js';
 import { ProblemError, workflowProblem } from '../common/problem.js';
@@ -69,7 +75,7 @@ const approval = schema.valuationApproval;
 const NOT_FOUND = 'Valuation not found';
 const ENTITY = 'mon.valuation';
 /** The states a version is still being worked in: one chain per investment and quarter. */
-const IN_FLIGHT: readonly ValuationState[] = ['Draft', 'OpsPrepared', 'DealTeamApproved'];
+const IN_FLIGHT = VALUATION_IN_FLIGHT_STATES;
 /** A core.taxonomy_term code of the valuation_method domain. */
 const METHOD_CODE = /^valuation_method\.[a-z0-9_]+$/;
 /** The unique key of mon.valuation (migration 0004): one row per investment, period end and version. */

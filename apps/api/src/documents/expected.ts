@@ -1,5 +1,6 @@
 import { addDays, daysBetween } from '@pb/calc';
 import type { DocumentDefinitions, ExpectedDocumentStatus } from '@pb/contracts';
+import { EQUITY_DEAL_TYPES } from '@pb/workflows';
 
 /*
  * The expected-document tracker's rules (docs/04 M3, decision 0012), pure so the list, the
@@ -8,12 +9,12 @@ import type { DocumentDefinitions, ExpectedDocumentStatus } from '@pb/contracts'
  * config/definitions.json documents.*, so changing a threshold changes every row at once.
  */
 
-/** The deal types whose sponsors report quarterly figures, so a quarterly_financials row is expected each quarter. */
-export const QUARTERLY_REPORTING_DEAL_TYPES: readonly string[] = [
-  'deal_type.co_invest_equity',
-  'deal_type.cv_single_asset',
-  'deal_type.cv_multi_asset',
-];
+/**
+ * The deal types whose sponsors report quarterly figures, so a quarterly_financials row is
+ * expected each quarter: the equity deal types, the list a valuation suggestion is worked out for
+ * (EQUITY_DEAL_TYPES of @pb/workflows).
+ */
+export const QUARTERLY_REPORTING_DEAL_TYPES: readonly string[] = EQUITY_DEAL_TYPES;
 
 /**
  * The two document types the tracker expects (a report per investment, a statement per sponsor

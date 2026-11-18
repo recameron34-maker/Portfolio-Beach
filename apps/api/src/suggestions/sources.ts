@@ -407,14 +407,3 @@ export async function gatherSources(
     reviewersByKey,
   };
 }
-
-/** The versions of a position that report for a quarter end, as the valuation workflow finds the chain of a quarter. */
-export function quarterVersions(
-  versions: readonly PositionVersion[],
-  quarterEnd: string,
-  toleranceDays: number,
-): PositionVersion[] {
-  return versions.filter(
-    (version) => alignedQuarterEnd(version.periodEnd, toleranceDays) === quarterEnd,
-  );
-}

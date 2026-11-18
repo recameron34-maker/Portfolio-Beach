@@ -6,6 +6,8 @@ import {
   STATEMENT_LINE_KEYS,
   STATEMENT_SHARE_KEY,
   SuggestionConfigError,
+  SuggestionSchemaError,
+  suggestionSchemasOf as schemasByKind,
   suggestionSettings,
 } from '@pb/workflows';
 import type { SuggestionSettings } from '@pb/workflows';
@@ -50,33 +52,24 @@ export interface SuggestionSchemas {
   reports: ReadonlyMap<string, ExtractionSchema>;
 }
 
-const configuration = (detail: string): ProblemError =>
-  new ProblemError(500, 'configuration', `config/extraction_schema.json ${detail}`);
-
 /**
- * The extraction schemas the suggestions read. A statement schema is one of the capital account
- * statement document type that writes nothing to the quarterly record; it must carry the lines
- * of rule 12.1 as money fields and the share as a percent, or it is refused by name. A report
- * schema is one that writes to the quarterly record.
+ * The extraction schemas the suggestions read, by the one rule the static preview uses too
+ * (suggestionSchemasOf of @pb/workflows): a report schema writes to the quarterly record; a
+ * statement schema is one of the capital account statement document type that writes nothing to
+ * it and carries the lines of rule 12.1 as money fields and the share as a percent. A statement
+ * schema that lacks one is a 500 'configuration' problem naming the field and the schema.
  */
 export function suggestionSchemasOf(schemas: ExtractionSchemas): SuggestionSchemas {
-  const statements = new Map<string, ExtractionSchema>();
-  const reports = new Map<string, ExtractionSchema>();
-  for (const schema of Object.values(schemas)) {
-    if (promotesToRecord(schema)) {
-      reports.set(schema.id, schema);
-      continue;
-    }
-    if (schema.docType !== EXPECTED_DOC_TYPES.capitalAccountStatement) continue;
-    const kindOf = new Map(schema.fields.map((field) => [field.key, field.kind]));
-    for (const key of Object.values(STATEMENT_LINE_KEYS))
-      if (kindOf.get(key) !== 'money')
-        throw configuration(`has no money field ${key} in the schema ${schema.id}`);
-    if (kindOf.get(STATEMENT_SHARE_KEY) !== 'percent')
-      throw configuration(`has no percent field ${STATEMENT_SHARE_KEY} in the schema ${schema.id}`);
-    statements.set(schema.id, schema);
+  try {
+    return schemasByKind(Object.values(schemas), {
+      promotesToRecord,
+      statementDocType: EXPECTED_DOC_TYPES.capitalAccountStatement,
+    });
+  } catch (error) {
+    if (error instanceof SuggestionSchemaError)
+      throw new ProblemError(500, 'configuration', error.message);
+    throw error;
   }
-  return { statements, reports };
 }
 
 /** The key of the field a report schema promotes to a column of the quarterly record, or null when it has none. */

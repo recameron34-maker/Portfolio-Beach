@@ -18,6 +18,7 @@ import {
   SUGGESTION_CHANGED_REFUSAL,
   attempt,
   derivationStep,
+  quarterVersions,
   selectSuggestion,
   suggestionBar,
   suggestionCommandRecord,
@@ -59,7 +60,7 @@ import {
 import type { LoadedSuggestion } from './rows.js';
 import { PERIOD_END_KEY } from './settings.js';
 import type { SuggestionSchemas } from './settings.js';
-import { gatherSources, quarterVersions } from './sources.js';
+import { gatherSources } from './sources.js';
 
 /*
  * Reading valuation suggestions (docs/04 M10, docs/18 section 14, decision 0023). The deal

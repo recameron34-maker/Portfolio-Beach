@@ -4,6 +4,7 @@ import { describe, expect, it } from 'vitest';
 import { CalcError, SUGGESTION_BASES } from '@pb/calc';
 import type { SuggestionBasis } from '@pb/calc';
 import {
+  EQUITY_DEAL_TYPES,
   NO_SUGGESTION_REASONS,
   PERIOD_END_KEY,
   STATEMENT_LINE_KEYS,
@@ -15,6 +16,7 @@ import {
   SUGGESTION_SOURCE_KINDS,
   SUGGESTIONS_OFF_REFUSAL,
   SuggestionConfigError,
+  SuggestionSchemaError,
   derivationStep,
   figureReviewersOf,
   figureSourceOf,
@@ -22,6 +24,7 @@ import {
   keepSuggestionKeys,
   linesRestingOnOpenShare,
   openShareRefusal,
+  quarterVersions,
   readSources,
   readStatement,
   recordFigureOf,
@@ -35,10 +38,16 @@ import {
   suggestionCommandRecord,
   suggestionDraftKeys,
   suggestionReading,
+  suggestionSchemasOf,
   suggestionSettings,
   withSuggestionKeys,
 } from './controls-suggestion.js';
-import { SUPERSEDED_REASONS, attempt, valuationSuggestionMachine } from './index.js';
+import {
+  SUPERSEDED_REASONS,
+  VALUATION_IN_FLIGHT_STATES,
+  attempt,
+  valuationSuggestionMachine,
+} from './index.js';
 import type {
   DerivationInput,
   FinalValue,
@@ -472,6 +481,81 @@ describe('reading an approved run: what its approval stands behind', () => {
     });
     expect(STATEMENT_SHARE_KEY).toBe('investor_share_pct');
     expect(PERIOD_END_KEY).toBe('period_end');
+  });
+
+  it('finds the versions of a quarter as the valuation workflow does', () => {
+    const versions = [
+      { id: 'a', periodEnd: '2025-06-27' },
+      { id: 'b', periodEnd: '2025-06-30' },
+      { id: 'c', periodEnd: '2025-07-03' },
+      { id: 'd', periodEnd: '2025-06-22' },
+      { id: 'e', periodEnd: '2025-03-31' },
+    ];
+    // Within seven days of the quarter end on either side; eight days before it is its own date.
+    expect(quarterVersions(versions, '2025-06-30', 7).map((v) => v.id)).toEqual(['a', 'b', 'c']);
+    expect(quarterVersions(versions, '2025-06-30', 0).map((v) => v.id)).toEqual(['b']);
+    expect(quarterVersions([], '2025-06-30', 7)).toEqual([]);
+  });
+
+  it('tells a report schema from a statement schema, and refuses a statement schema that lacks a line', () => {
+    const money = (key: string) => ({ key, kind: 'money' });
+    const statement = {
+      id: 'capital_account_statement',
+      docType: 'doc_type.capital_account_statement',
+      fields: [
+        ...Object.values(STATEMENT_LINE_KEYS).map(money),
+        { key: STATEMENT_SHARE_KEY, kind: 'percent' },
+      ],
+      writes: false,
+    };
+    const report = {
+      id: 'quarterly',
+      docType: 'doc_type.quarterly_financials',
+      fields: [],
+      writes: true,
+    };
+    const other = { id: 'letter', docType: 'doc_type.quarterly_letter', fields: [], writes: false };
+    const rule = {
+      promotesToRecord: (schema: { writes: boolean }) => schema.writes,
+      statementDocType: 'doc_type.capital_account_statement',
+    };
+    const found = suggestionSchemasOf([statement, report, other], rule);
+    expect([...found.statements.keys()]).toEqual(['capital_account_statement']);
+    expect([...found.reports.keys()]).toEqual(['quarterly']);
+    // A schema of the statement type that writes to the record is a report, whatever its fields.
+    expect([...suggestionSchemasOf([{ ...statement, writes: true }], rule).reports.keys()]).toEqual(
+      ['capital_account_statement'],
+    );
+    const without = (key: string) => ({
+      ...statement,
+      fields: statement.fields.filter((field) => field.key !== key),
+    });
+    expect(() => suggestionSchemasOf([without(STATEMENT_LINE_KEYS.endingBalance)], rule)).toThrow(
+      new SuggestionSchemaError(
+        'has no money field ending_capital_balance in the schema capital_account_statement',
+      ),
+    );
+    expect(() => suggestionSchemasOf([without(STATEMENT_SHARE_KEY)], rule)).toThrow(
+      'config/extraction_schema.json has no percent field investor_share_pct in the schema capital_account_statement',
+    );
+    // A line of the wrong kind is no better than a missing one.
+    const wrongKind = {
+      ...statement,
+      fields: statement.fields.map((field) =>
+        field.key === STATEMENT_LINE_KEYS.netGainLoss ? { ...field, kind: 'percent' } : field,
+      ),
+    };
+    expect(() => suggestionSchemasOf([wrongKind], rule)).toThrow(SuggestionSchemaError);
+  });
+
+  it('names the equity deal types and the states in flight once', () => {
+    expect(SUGGESTION_DEAL_TYPES).toBe(EQUITY_DEAL_TYPES);
+    expect(EQUITY_DEAL_TYPES).toEqual([
+      'deal_type.co_invest_equity',
+      'deal_type.cv_single_asset',
+      'deal_type.cv_multi_asset',
+    ]);
+    expect(VALUATION_IN_FLIGHT_STATES).toEqual(['Draft', 'OpsPrepared', 'DealTeamApproved']);
   });
 
   it('keeps an accepted value as read and a typed one as typed, and nothing else', () => {

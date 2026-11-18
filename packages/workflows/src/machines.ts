@@ -23,6 +23,17 @@ const notSourceReviewer = notAmong(
   'whoever approved or typed a figure behind the suggestion on this valuation cannot approve the valuation (SEC-5.6)',
 );
 
+/**
+ * The states in which a version is still on its way to Locked: someone still has to prepare,
+ * approve or lock it. One chain per investment and quarter is in flight at a time. Named once,
+ * for the API, the pages and the static preview.
+ */
+export const VALUATION_IN_FLIGHT_STATES: readonly ValuationState[] = [
+  'Draft',
+  'OpsPrepared',
+  'DealTeamApproved',
+];
+
 export const valuationMachine: Machine<ValuationState, ValuationCommand> = {
   name: 'valuation',
   states: ['Draft', 'OpsPrepared', 'DealTeamApproved', 'Locked', 'Reopened'],

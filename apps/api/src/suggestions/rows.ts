@@ -11,7 +11,12 @@ import {
 import type { ValuationSuggestionRow } from '@pb/contracts';
 import { SYSTEM_USER_ID, schema } from '@pb/db';
 import type { Tx } from '@pb/db';
-import { SUGGESTION_SOURCE_KINDS, suggestionReading } from '@pb/workflows';
+import {
+  SUGGESTION_SOURCE_KINDS,
+  VALUATION_IN_FLIGHT_STATES,
+  quarterVersions,
+  suggestionReading,
+} from '@pb/workflows';
 import type {
   PriorSuggestion,
   StoredSuggestion,
@@ -22,7 +27,7 @@ import type {
 import { z } from 'zod';
 import { EXACT_AT_FORMAT } from '../common/cursor.js';
 import { ProblemError } from '../common/problem.js';
-import { gatherSources, quarterVersions } from './sources.js';
+import { gatherSources } from './sources.js';
 import type { Gathered } from './sources.js';
 import type { SuggestionSchemas } from './settings.js';
 
@@ -43,7 +48,7 @@ const decider = alias(schema.appUser, 'suggestion_decider');
 const sourceDocument = alias(schema.document, 'suggestion_source_document');
 
 /** The valuation states in which a version is still on its way to Locked: one chain per position and quarter. */
-const IN_FLIGHT: readonly string[] = ['Draft', 'OpsPrepared', 'DealTeamApproved'];
+const IN_FLIGHT: readonly string[] = VALUATION_IN_FLIGHT_STATES;
 
 /** A suggestion as the select reads it, before anything is derived. */
 export interface LoadedSuggestion {

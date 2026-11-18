@@ -18,10 +18,12 @@ import {
   PERIOD_END_KEY,
   STATEMENT_LINE_KEYS,
   STATEMENT_SHARE_KEY,
+  VALUATION_IN_FLIGHT_STATES,
   attempt,
   derivationStep,
   figureReviewersOf,
   finalValuesOf,
+  quarterVersions,
   recordFigureOf,
   referenceOnHand,
   selectSuggestion,
@@ -29,6 +31,7 @@ import {
   statementOnHandOf,
   suggestionBar,
   suggestionReading,
+  suggestionSchemasOf,
   suggestionSettings,
   valuationSuggestionMachine,
 } from '@pb/workflows';
@@ -92,7 +95,7 @@ import type { SimContext } from './common.js';
 export const SUGGESTIONS_SWITCH = 'valuation.suggestions';
 const APPROVED = 'record_status.approved';
 /** The valuation states in which a version is still on its way to Locked. */
-const IN_FLIGHT: readonly string[] = ['Draft', 'OpsPrepared', 'DealTeamApproved'];
+const IN_FLIGHT: readonly string[] = VALUATION_IN_FLIGHT_STATES;
 
 let settingsCache: SuggestionSettings | null = null;
 /** The settings of config/definitions.json through the one reader the API uses (rule 9): a missing key throws, naming it. */
@@ -110,21 +113,16 @@ export interface SuggestionSchemas {
 
 let schemasCache: SuggestionSchemas | null = null;
 /**
- * Which schemas of config/extraction_schema.json are a statement and a report, by the rule of
- * apps/api/src/suggestions/settings.ts: a report writes to the quarterly record (promotesToRecord
- * of @pb/ai); a statement is a schema of the capital account statement type that does not.
+ * Which schemas of config/extraction_schema.json are a statement and a report, by the rule the
+ * API reads them with (suggestionSchemasOf of @pb/workflows): a report writes to the quarterly
+ * record (promotesToRecord of @pb/ai); a statement is a schema of the capital account statement
+ * type that does not, and it must carry the lines the rules read.
  */
 export function suggestionSchemas(): SuggestionSchemas {
-  if (schemasCache !== null) return schemasCache;
-  const statements = new Map<string, ExtractionSchema>();
-  const reports = new Map<string, ExtractionSchema>();
-  for (const schema of Object.values(loadExtractionSchemas(extractionSchemaJson))) {
-    if (promotesToRecord(schema)) reports.set(schema.id, schema);
-    else if (schema.docType === EXPECTED_DOC_TYPES.capitalAccountStatement)
-      statements.set(schema.id, schema);
-  }
-  schemasCache = { statements, reports };
-  return schemasCache;
+  return (schemasCache ??= suggestionSchemasOf(
+    Object.values(loadExtractionSchemas(extractionSchemaJson)),
+    { promotesToRecord, statementDocType: EXPECTED_DOC_TYPES.capitalAccountStatement },
+  ));
 }
 
 /** Whether the switch is on: this session's change, else the credential's recorded flag list, else the migration's default. */
@@ -187,17 +185,6 @@ export function versionsOf(ctx: SimContext, investmentId: string): PositionVersi
       rowVersion: row.rowVersion,
     }))
     .sort((a, b) => byText(a.periodEnd, b.periodEnd) || b.version - a.version);
-}
-
-/** The versions of a position that report for a quarter end, as the valuation workflow finds the chain of a quarter. */
-export function quarterVersions(
-  versions: readonly PositionVersion[],
-  quarterEnd: string,
-  toleranceDays: number,
-): PositionVersion[] {
-  return versions.filter(
-    (version) => alignedQuarterEnd(version.periodEnd, toleranceDays) === quarterEnd,
-  );
 }
 
 interface ApprovedFlow {
