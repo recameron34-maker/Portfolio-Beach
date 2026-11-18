@@ -1,13 +1,30 @@
 import { isCalendarDate, latestQuarterEndOnOrBefore, previousQuarterEnd } from '@pb/calc';
-import { REPORT_PACKAGE_STATES } from '@pb/contracts';
-import type { ReportPackageLine, ReportPackageRow, ReportPackageState } from '@pb/contracts';
+import {
+  REPORT_PACKAGE_STATES,
+  reportPackageBasis,
+  reportPackageCreateBody,
+  reportPackageLabel,
+} from '@pb/contracts';
+import type {
+  ReportPackageCreateBody,
+  ReportPackageLine,
+  ReportPackageRow,
+  ReportPackageState,
+} from '@pb/contracts';
 import { STALE_FOOTNOTE } from '@pb/report-engine';
 import type { QaRule } from '@pb/report-engine';
 import { reportingPackageMachine } from '@pb/workflows';
 import type { ReportingPackageCommand } from '@pb/workflows';
 import definitions from '../../../../../../config/definitions.json';
 import type { Step, StepStatus } from '../../../components/StepStrip.js';
-import { formatDate, formatUsdExact, labelOf, MISSING } from '../../../lib/format.js';
+import {
+  formatDate,
+  formatQuarter,
+  formatUsdExact,
+  labelOf,
+  MISSING,
+} from '../../../lib/format.js';
+import { WHO_READS_EVERY_CLIENT } from '../../../lib/roles.js';
 import { commandOptions, humanizeState } from '../../../lib/states.js';
 import type { CommandOption } from '../../../lib/states.js';
 
@@ -271,3 +288,204 @@ export function personCommands(
     })
     .filter((option) => option.roles.length > 0);
 }
+
+/* ---- The list ---- */
+
+export interface PackageFilters {
+  /** The client whose packages are listed; empty for every client the reader sees. */
+  clientId: string;
+  state: ReportPackageState | '';
+}
+
+/** Client-side filters over the one read, in the list's own order (newest period first). */
+export function filterPackages(
+  items: readonly ReportPackageRow[],
+  filters: PackageFilters,
+): ReportPackageRow[] {
+  return items.filter(
+    (row) =>
+      (filters.clientId === '' || row.client.id === filters.clientId) &&
+      (filters.state === '' || row.state === filters.state),
+  );
+}
+
+/** The clients that have a package on the list, each once, by name. */
+export function clientChoices(items: readonly ReportPackageRow[]): ReportPackageRow['client'][] {
+  const byId = new Map<string, ReportPackageRow['client']>();
+  for (const row of items) byId.set(row.client.id, row.client);
+  return [...byId.values()].sort((a, b) => a.name.localeCompare(b.name));
+}
+
+/* ---- Basis and label ---- */
+
+export type PackageBasis = ReportPackageRow['basis'];
+export type PackageLabel = ReportPackageRow['label'];
+
+export const PACKAGE_BASES: readonly PackageBasis[] = reportPackageBasis.options;
+export const PACKAGE_LABELS: readonly PackageLabel[] = reportPackageLabel.options;
+
+export const BASIS_WORDS: Readonly<Record<PackageBasis, string>> = { gross: 'Gross', net: 'Net' };
+export const LABEL_WORDS: Readonly<Record<PackageLabel, string>> = {
+  preliminary: 'Preliminary',
+  final: 'Final',
+};
+
+export function isPackageBasis(value: string): value is PackageBasis {
+  return (PACKAGE_BASES as readonly string[]).includes(value);
+}
+
+export function isPackageLabel(value: string): value is PackageLabel {
+  return (PACKAGE_LABELS as readonly string[]).includes(value);
+}
+
+/** What a net package says of its figures until net figures are worked out. */
+export const NET_NOTICE =
+  'Net figures are not worked out yet. These figures are gross of fees and carry.';
+
+/** What the start form says of a basis the client's record does not list; it is still allowed. */
+export const BASIS_NOT_ON_RECORD = "Not on this client's record";
+
+/**
+ * Whether a client's record lists a basis. The record holds the basis as a bare word ("net") or
+ * as a taxonomy code ("reporting_basis.net"); either names it.
+ */
+export function basisOnRecord(reportingBases: readonly string[], basis: PackageBasis): boolean {
+  return reportingBases.some((code) => code === basis || code.endsWith(`.${basis}`));
+}
+
+/* ---- Starting a package ---- */
+
+export interface StartForm {
+  clientId: string;
+  /** A quarter end of quarterChoices. */
+  periodEnd: string;
+  basis: PackageBasis | '';
+  label: PackageLabel | '';
+  /** Why a released package is being corrected; asked for only when one was released. */
+  correctionReason: string;
+}
+
+export const EMPTY_START_FORM: StartForm = {
+  clientId: '',
+  periodEnd: '',
+  basis: '',
+  label: '',
+  correctionReason: '',
+};
+
+/**
+ * Where a client, quarter and basis stand before a package is started for them: nothing yet (the
+ * first version), one still on its way through the gate (a second cannot be started beside it),
+ * or a released one (the next is a new version and needs a reason).
+ */
+export type StartStanding =
+  | { kind: 'first' }
+  | { kind: 'inProgress'; row: ReportPackageRow }
+  | { kind: 'correction'; row: ReportPackageRow };
+
+/**
+ * The standing of the form's client, quarter and basis, read from the packages the reader sees.
+ * The API judges again when the package is started; this only spares a request it would refuse.
+ */
+export function startStanding(
+  items: readonly ReportPackageRow[],
+  form: Pick<StartForm, 'clientId' | 'periodEnd' | 'basis'>,
+): StartStanding {
+  let latest: ReportPackageRow | undefined;
+  for (const row of items) {
+    if (
+      row.client.id === form.clientId &&
+      row.periodEnd === form.periodEnd &&
+      row.basis === form.basis &&
+      (latest === undefined || row.version > latest.version)
+    )
+      latest = row;
+  }
+  if (latest === undefined) return { kind: 'first' };
+  return latest.state === 'Released'
+    ? { kind: 'correction', row: latest }
+    : { kind: 'inProgress', row: latest };
+}
+
+/** The body as the contract shapes it: no as-of date (the API reads its own), a trimmed reason only for a new version. */
+export function startBody(form: StartForm, standing: StartStanding): unknown {
+  return {
+    clientId: form.clientId,
+    periodEnd: form.periodEnd,
+    basis: form.basis,
+    label: form.label,
+    ...(standing.kind === 'correction' ? { correctionReason: form.correctionReason.trim() } : {}),
+  };
+}
+
+export type StartField = keyof StartForm;
+
+/** What the form says about each field, in plain words, before anything is sent. */
+const START_FIELD_WORDS: Readonly<Record<StartField, string>> = {
+  clientId: 'Choose the client.',
+  periodEnd: 'Choose the quarter.',
+  basis: 'Choose gross or net.',
+  label: 'Choose preliminary or final.',
+  correctionReason: 'Say why the released package is being corrected, in 3 to 500 characters.',
+};
+
+function isStartField(value: string): value is StartField {
+  return Object.hasOwn(START_FIELD_WORDS, value);
+}
+
+/**
+ * The problems of the form by field, judged by the contract's own body: an empty map means the
+ * body is ready. A package in progress is not a problem of a field; the form says that itself.
+ */
+export function startProblems(
+  form: StartForm,
+  standing: StartStanding,
+): Partial<Record<StartField, string>> {
+  const out: Partial<Record<StartField, string>> = {};
+  const parsed = reportPackageCreateBody.safeParse(startBody(form, standing));
+  if (parsed.success) return out;
+  for (const issue of parsed.error.issues) {
+    const path = String(issue.path[0] ?? '');
+    const field: StartField = isStartField(path) ? path : 'clientId';
+    out[field] ??= START_FIELD_WORDS[field];
+  }
+  return out;
+}
+
+/** The parsed body, or null while the form has problems or a package is already in progress. */
+export function parsedStartBody(
+  form: StartForm,
+  standing: StartStanding,
+): ReportPackageCreateBody | null {
+  if (standing.kind === 'inProgress') return null;
+  const parsed = reportPackageCreateBody.safeParse(startBody(form, standing));
+  return parsed.success ? parsed.data : null;
+}
+
+/** "Client Alpha Pension, Q2 2025, gross, version 2": a package in one line, for a link or a result. */
+export function packageWords(
+  row: Pick<ReportPackageRow, 'client' | 'periodEnd' | 'basis' | 'version'>,
+): string {
+  return `${row.client.name}, ${formatQuarter(row.periodEnd)}, ${BASIS_WORDS[row.basis].toLowerCase()}, version ${row.version}`;
+}
+
+/** The fields of a start as the form names them, for a refusal that points at one. */
+const START_FIELD_LABELS: Readonly<Record<string, string>> = {
+  clientId: 'Client',
+  periodEnd: 'Quarter',
+  basis: 'Basis',
+  label: 'Label',
+  correctionReason: 'Reason for the new version',
+  asOf: 'As-of date',
+};
+
+/** The form's name for a field a validation refusal points at; null for one it has no word for. */
+export function startFieldLabel(path: string): string | null {
+  return START_FIELD_LABELS[path] ?? null;
+}
+
+/** The role that starts a package, generates it and submits it (docs/18 section 5). */
+export const START_ROLES: readonly string[] = ['investor_relations'];
+
+/** Who reads packages, in the words both pages use for a reader they are not shown to. */
+export const WHO_READS_PACKAGES = `Investor relations read the packages of the clients they are entitled to; ${WHO_READS_EVERY_CLIENT} read every client's. Ask a platform administrator if you need access.`;

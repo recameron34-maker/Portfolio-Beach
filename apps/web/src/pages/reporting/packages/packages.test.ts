@@ -7,22 +7,44 @@ import { reportingPackageMachine } from '@pb/workflows';
 import definitions from '../../../../../../config/definitions.json';
 import { MISSING } from '../../../lib/format.js';
 import {
+  CLIENT,
+  CLIENT_ID,
+  PKG_ID,
+  PKG_PERIOD,
+  PKG_PRIOR_PERIOD,
+  packageRowFixture,
+  packageRows,
+} from '../../../test/fixtures-packages.js';
+import {
+  basisOnRecord,
   checksSummary,
+  clientChoices,
+  EMPTY_START_FORM,
   entityWords,
+  filterPackages,
   findingValue,
   FOOTNOTE_WORDS,
   footnoteWords,
   gateSteps,
+  isPackageBasis,
+  isPackageLabel,
+  isPackageState,
   NEXT_STEP_WORDS,
   PACKAGE_QUARTER_CHOICES,
   PACKAGE_STATES,
+  packageWords,
+  parsedStartBody,
   personCommands,
   positionNames,
   positionWords,
   quarterChoices,
   RULE_WORDS,
   ruleWords,
+  startBody,
+  startProblems,
+  startStanding,
 } from './packages.js';
+import type { StartForm } from './packages.js';
 
 const qa = (
   runNo: number | null,
@@ -344,5 +366,154 @@ describe('the states of a package', () => {
   it('lists them in the order of the transition table', () => {
     expect(PACKAGE_STATES).toEqual(reportingPackageMachine.states);
     expect(PACKAGE_STATES).toEqual(REPORT_PACKAGE_STATES);
+  });
+});
+
+describe('the list of packages', () => {
+  const rows = packageRows();
+
+  it('filters by client and by state over the one read, keeping the order it came in', () => {
+    expect(filterPackages(rows, { clientId: '', state: '' })).toEqual(rows);
+    expect(filterPackages(rows, { clientId: CLIENT_ID.beta, state: '' }).map((r) => r.id)).toEqual([
+      PKG_ID.inReview,
+    ]);
+    expect(filterPackages(rows, { clientId: CLIENT_ID.alpha, state: '' }).map((r) => r.id)).toEqual(
+      [PKG_ID.failed, PKG_ID.draft, PKG_ID.approved, PKG_ID.released],
+    );
+    expect(filterPackages(rows, { clientId: '', state: 'Released' }).map((r) => r.id)).toEqual([
+      PKG_ID.released,
+    ]);
+    expect(filterPackages(rows, { clientId: CLIENT_ID.beta, state: 'Released' })).toEqual([]);
+  });
+
+  it('offers each client on the list once, by name', () => {
+    expect(clientChoices(rows)).toEqual([CLIENT.alpha, CLIENT.beta]);
+    expect(clientChoices([...rows].reverse())).toEqual([CLIENT.alpha, CLIENT.beta]);
+    expect(clientChoices([])).toEqual([]);
+  });
+
+  it('knows a state, a basis and a label from any other text', () => {
+    expect(isPackageState('QAFailed')).toBe(true);
+    expect(isPackageState('Locked')).toBe(false);
+    expect(isPackageBasis('net')).toBe(true);
+    expect(isPackageBasis('net_of_fees_and_carry')).toBe(false);
+    expect(isPackageLabel('final')).toBe(true);
+    expect(isPackageLabel('')).toBe(false);
+  });
+
+  it('says a package in one line, with no id in it', () => {
+    const words = packageWords(rows[3]!);
+    expect(words).toBe('Client Alpha Pension, Q1 2025, gross, version 2');
+    expect(words).not.toMatch(IDENTIFIER);
+  });
+});
+
+describe('starting a package', () => {
+  const rows = packageRows();
+  const form = (overrides: Partial<StartForm> = {}): StartForm => ({
+    clientId: CLIENT_ID.beta,
+    periodEnd: PKG_PRIOR_PERIOD,
+    basis: 'net',
+    label: 'preliminary',
+    correctionReason: '',
+    ...overrides,
+  });
+
+  it('reads whether a client, quarter and basis have no package, one in progress or a released one', () => {
+    expect(startStanding(rows, form())).toEqual({ kind: 'first' });
+    // The same client and quarter on the other basis is another package.
+    expect(
+      startStanding(rows, form({ clientId: CLIENT_ID.alpha, periodEnd: PKG_PERIOD, basis: 'net' })),
+    ).toEqual({ kind: 'inProgress', row: rows[1] });
+    expect(startStanding(rows, form({ periodEnd: PKG_PERIOD }))).toEqual({
+      kind: 'inProgress',
+      row: rows[2],
+    });
+    // The latest version decides: version 2 is still on its way, whatever version 1 is.
+    expect(startStanding(rows, form({ clientId: CLIENT_ID.alpha, basis: 'gross' }))).toEqual({
+      kind: 'inProgress',
+      row: rows[3],
+    });
+    const released = packageRowFixture({ id: PKG_ID.released, state: 'Released' });
+    expect(
+      startStanding([released], form({ clientId: CLIENT_ID.alpha, periodEnd: PKG_PERIOD })),
+    ).toEqual({ kind: 'correction', row: released });
+    // The order of the list does not matter.
+    expect(
+      startStanding([rows[4]!, rows[3]!], form({ clientId: CLIENT_ID.alpha, basis: 'gross' })),
+    ).toEqual({ kind: 'inProgress', row: rows[3] });
+    expect(startStanding(rows, { clientId: '', periodEnd: '', basis: '' })).toEqual({
+      kind: 'first',
+    });
+  });
+
+  it('sends the four choices and no as-of date: the API reads its own', () => {
+    const body = startBody(form({ correctionReason: 'not sent for a first version' }), {
+      kind: 'first',
+    });
+    expect(body).toEqual({
+      clientId: CLIENT_ID.beta,
+      periodEnd: PKG_PRIOR_PERIOD,
+      basis: 'net',
+      label: 'preliminary',
+    });
+    expect(parsedStartBody(form(), { kind: 'first' })).toEqual(body);
+  });
+
+  it('asks for every choice in plain words before anything is sent', () => {
+    expect(startProblems(EMPTY_START_FORM, { kind: 'first' })).toEqual({
+      clientId: 'Choose the client.',
+      periodEnd: 'Choose the quarter.',
+      basis: 'Choose gross or net.',
+      label: 'Choose preliminary or final.',
+    });
+    expect(parsedStartBody(EMPTY_START_FORM, { kind: 'first' })).toBeNull();
+    expect(startProblems(form(), { kind: 'first' })).toEqual({});
+    expect(startProblems(form({ label: '' }), { kind: 'first' })).toEqual({
+      label: 'Choose preliminary or final.',
+    });
+    // A date that is not a date never leaves the page either.
+    expect(startProblems(form({ periodEnd: 'Q2' }), { kind: 'first' })).toEqual({
+      periodEnd: 'Choose the quarter.',
+    });
+  });
+
+  it('needs a reason for a new version of a released package, trimmed, and only then', () => {
+    const standing = { kind: 'correction', row: rows[4]! } as const;
+    const why = 'Say why the released package is being corrected, in 3 to 500 characters.';
+    expect(startProblems(form(), standing)).toEqual({ correctionReason: why });
+    expect(startProblems(form({ correctionReason: '  ab ' }), standing)).toEqual({
+      correctionReason: why,
+    });
+    expect(startProblems(form({ correctionReason: 'x'.repeat(501) }), standing)).toEqual({
+      correctionReason: why,
+    });
+    expect(parsedStartBody(form(), standing)).toBeNull();
+    const reason = '  The June mark of one position was restated.  ';
+    expect(startProblems(form({ correctionReason: reason }), standing)).toEqual({});
+    expect(parsedStartBody(form({ correctionReason: reason }), standing)).toEqual({
+      clientId: CLIENT_ID.beta,
+      periodEnd: PKG_PRIOR_PERIOD,
+      basis: 'net',
+      label: 'preliminary',
+      correctionReason: 'The June mark of one position was restated.',
+    });
+  });
+
+  it('sends nothing while a package for the three is still in progress', () => {
+    const standing = { kind: 'inProgress', row: rows[1]! } as const;
+    expect(parsedStartBody(form(), standing)).toBeNull();
+    // That is the form's to say in one place, not a fault of any one field.
+    expect(startProblems(form(), standing)).toEqual({});
+  });
+
+  it("knows whether a basis is on the client's record, as a bare word or a taxonomy code", () => {
+    expect(basisOnRecord(['gross', 'net'], 'net')).toBe(true);
+    expect(basisOnRecord(['net'], 'gross')).toBe(false);
+    expect(basisOnRecord(['reporting_basis.gross'], 'gross')).toBe(true);
+    expect(basisOnRecord(['reporting_basis.gross'], 'net')).toBe(false);
+    // Net of fees and carry is a basis of its own, not net.
+    expect(basisOnRecord(['net_of_fees_and_carry'], 'net')).toBe(false);
+    expect(basisOnRecord([], 'gross')).toBe(false);
   });
 });

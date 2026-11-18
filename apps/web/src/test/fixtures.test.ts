@@ -9,8 +9,11 @@ import {
   intakeImportResult,
   investmentPage,
   investmentPerformance,
+  clientList,
   principal,
   problemDetails,
+  reportPackageDetail,
+  reportPackageList,
   watchlist,
 } from '@pb/contracts';
 import { problemFixture } from './api-mock.js';
@@ -22,6 +25,12 @@ import {
   intakeImportResultFixture,
   rejectedDetailFixture,
 } from './fixtures-intake.js';
+import {
+  generatedDetailFixture,
+  packageClientsFixture,
+  packageDetailFixture,
+  packageListFixture,
+} from './fixtures-packages.js';
 import {
   analyticsFixture,
   capitalNoticePageFixture,
@@ -50,6 +59,10 @@ describe('test fixtures match the contracts', () => {
     ['intake file detail after reject', intakeFileDetail, rejectedDetailFixture('Not ours')],
     ['intake import result', intakeImportResult, intakeImportResultFixture(true)],
     ['intake export list', intakeExportList, intakeExportListFixture()],
+    ['reporting package list', reportPackageList, packageListFixture()],
+    ['reporting package draft', reportPackageDetail, packageDetailFixture()],
+    ['reporting package after a generation', reportPackageDetail, generatedDetailFixture()],
+    ['clients behind the package start form', clientList, packageClientsFixture()],
     ['problem', problemDetails, problemFixture(501, '/api/v1/x')],
   ])('%s', (_name, schema, fixture) => {
     const result = schema.safeParse(fixture);

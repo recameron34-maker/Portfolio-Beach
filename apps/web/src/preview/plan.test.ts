@@ -53,6 +53,7 @@ import {
   lookthroughRunQuery,
   lookthroughRunsQuery,
 } from '../pages/lookthrough/lookthrough-queries.js';
+import { reportPackageQuery, reportPackagesQuery } from '../pages/reporting/packages/api.js';
 import { suggestionQuery, suggestionsQuery } from '../pages/valuations/suggestions-api.js';
 import { weeklyDropsQuery, weeklyFileQuery, weeklyFilesQuery } from '../pages/weekly/queries.js';
 import { getKey, isPublicPath, normalizeKey } from './keys.js';
@@ -257,6 +258,8 @@ describe('the recording plan', () => {
       suggestionsQuery({ investmentId: INV, periodEnd: '2025-06-30' }),
       suggestionsQuery({ extractionRunId: INV, state: 'all' }),
       suggestionQuery(INV),
+      reportPackagesQuery(),
+      reportPackageQuery(INV),
     ];
     for (const limit of [undefined, ...INVESTMENT_LIMITS])
       for (const dealType of [undefined, ...DEAL_TYPES])
@@ -318,6 +321,10 @@ describe('the recording plan', () => {
       `/api/v1/valuation-suggestions?investmentId=${INV}&limit=200&periodEnd=2025-06-30`,
       `/api/v1/valuation-suggestions?extractionRunId=${INV}&limit=200&state=all`,
       `/api/v1/valuation-suggestions/${INV}`,
+      // Reporting packages are never recorded either: the book seeds none, so the shim answers
+      // the list and each package from what the session started.
+      '/api/v1/report-packages',
+      `/api/v1/report-packages/${INV}`,
     ]);
     // The hub's empty state, each investment's documents, its outlook and its base case are
     // recorded all the same, so the recordings hold the API's own answer before the simulation

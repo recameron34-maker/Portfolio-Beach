@@ -68,6 +68,9 @@ import { PortfolioPage } from '../pages/Portfolio.js';
 import { VehicleDetailPage, VehiclesPage } from '../pages/portfolio/Vehicles.js';
 import { WatchlistPage } from '../pages/portfolio/Watchlist.js';
 import { ClientsPage, DisclosuresPage, WeeklyReportPage } from '../pages/reporting/Reporting.js';
+// Reporting packages (decision 0024): the list, starting one, and a package with its release gate.
+import { PackageDetailPage } from '../pages/reporting/packages/PackageDetail.js';
+import { PackagesPage } from '../pages/reporting/packages/Packages.js';
 import { SignInPage } from '../pages/SignIn.js';
 import { SponsorDetailPage, SponsorsPage } from '../pages/sponsors/Sponsors.js';
 import { ValuationsPage } from '../pages/valuations/Valuations.js';
@@ -175,6 +178,10 @@ const capitalTicketsRoute = child('/capital-activity/tickets', TradeTicketsPage)
 const reportingRoute = child('/reporting', WeeklyReportPage);
 const clientsRoute = child('/reporting/clients', ClientsPage);
 const disclosuresRoute = child('/reporting/disclosures', DisclosuresPage);
+// Reporting packages (decision 0024). The other Reporting pages are static segments, which
+// outrank a package's $id under its own segment whatever the order.
+const packagesRoute = child('/reporting/packages', PackagesPage);
+const packageRoute = child('/reporting/packages/$id', PackageDetailPage);
 
 const analyticsRoute = createRoute({
   getParentRoute: () => appRoute,
@@ -299,6 +306,8 @@ const routeTree = rootRoute.addChildren([
     reportingRoute,
     clientsRoute,
     disclosuresRoute,
+    packagesRoute,
+    packageRoute,
     analyticsRoute.addChildren([
       analyticsExposureRoute,
       analyticsPerformanceRoute,

@@ -153,3 +153,49 @@ describe('tabsFor and orderByFocus', () => {
     expect(tabsFor(row, operations)).toEqual(row);
   });
 });
+
+describe('the client packages in the role focus (decision 0024)', () => {
+  const reporting = TAB_ROWS['/reporting'] ?? [];
+  const PACKAGES = '/reporting/packages';
+
+  it('opens Reporting on the packages for the two roles that move them through the gate', () => {
+    for (const role of ['investor_relations', 'approver'])
+      expect(
+        tabsFor(reporting, focusOf([role])).map((t) => t.to),
+        role,
+      ).toEqual([PACKAGES, '/reporting', '/reporting/clients', '/reporting/disclosures']);
+    // Every other role keeps the usual order: the weekly report, then the packages.
+    for (const role of ['operations', 'deal_team', 'auditor', 'viewer', 'platform_admin'])
+      expect(
+        tabsFor(reporting, focusOf([role])).map((t) => t.to),
+        role,
+      ).toEqual(['/reporting', PACKAGES, '/reporting/clients', '/reporting/disclosures']);
+  });
+
+  it('lists them first in the work of investor relations, and after the trade tickets for an approver', () => {
+    expect(ROLE_FOCUS.roles.investor_relations?.work[0]).toEqual({
+      to: PACKAGES,
+      label: 'Client packages',
+      what: "Start a client's quarterly package, run the checks and release it",
+    });
+    const approver = ROLE_FOCUS.roles.approver?.work ?? [];
+    const at = approver.findIndex((link) => link.to === PACKAGES);
+    expect(approver[at - 1]?.to).toBe('/capital-activity/tickets');
+    expect(approver[at]).toEqual({
+      to: PACKAGES,
+      label: 'Client packages',
+      what: 'Decide on failed checks and approve the packages in review',
+    });
+  });
+
+  it('gives the roles that only read packages no work link: they use the Reporting tab', () => {
+    for (const role of ['operations', 'auditor', 'deal_team', 'viewer', 'platform_admin'])
+      expect(
+        ROLE_FOCUS.roles[role]?.work.some((link) => link.to === PACKAGES),
+        role,
+      ).toBe(false);
+    // No landing changes: the Reporting link still opens the weekly report for every role.
+    for (const [role, focus] of Object.entries(ROLE_FOCUS.roles))
+      expect(focus.landing['/reporting'], role).toBeUndefined();
+  });
+});

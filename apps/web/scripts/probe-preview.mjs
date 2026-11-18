@@ -783,6 +783,10 @@ function visitsFor(externalId, paths) {
       visits.push(path.replace('$id', walkDocumentId));
     } else if (path === '/documents/extraction/$id') {
       visits.push(path.replace('$id', walkExtractionRunId));
+    } else if (path === '/reporting/packages/$id') {
+      // No package is recorded (the book seeds none), so the walk opens the page of an id nobody
+      // started: "Package not found" for a role that reads packages, "not visible" for the rest.
+      visits.push(path.replace('$id', '00000000-0000-4000-8000-0000000000f0'));
     } else {
       throw new Error(`the probe does not know how to fill ${path}`);
     }

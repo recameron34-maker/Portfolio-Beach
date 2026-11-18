@@ -152,6 +152,8 @@ const WORKFLOW_PAGES: Visit[] = [
   { path: `/capital-activity/wires/${wire}`, ready: (p) => p.getByTestId('wire-instruction') },
   { path: '/capital-activity/tickets', ready: (p) => p.getByTestId('trade-tickets') },
   { path: '/reporting', ready: heading },
+  // Reporting packages (decision 0024): the list as operations reads it, with none started.
+  { path: '/reporting/packages', ready: (p) => p.getByTestId('packages-card') },
   { path: '/reporting/clients', ready: heading },
   { path: '/assistants', ready: heading },
 ];

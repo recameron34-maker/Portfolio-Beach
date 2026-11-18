@@ -48,8 +48,10 @@ export const CAPITAL_TABS = [
   { to: '/capital-activity/wires', label: 'Wire register' },
   { to: '/capital-activity/tickets', label: 'Trade tickets' },
 ];
+/** Reporting group tabs: the weekly report, the client packages and their release gate (decision 0024), the clients and the disclosures. */
 export const REPORTING_TABS = [
   { to: '/reporting', label: 'Weekly report', exact: true },
+  { to: '/reporting/packages', label: 'Packages' },
   { to: '/reporting/clients', label: 'Clients' },
   { to: '/reporting/disclosures', label: 'Disclosures' },
 ];

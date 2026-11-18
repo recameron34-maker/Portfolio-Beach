@@ -162,6 +162,12 @@
           "/capital-activity/tickets",
           "/capital-activity/wires",
           "/capital-activity/commitments"
+        ],
+        "/reporting": [
+          "/reporting/packages",
+          "/reporting",
+          "/reporting/clients",
+          "/reporting/disclosures"
         ]
       },
       "home": ["work", "tiles", "attention", "capital", "charts", "dataHealth"],
@@ -175,6 +181,11 @@
           "to": "/capital-activity/tickets",
           "label": "Trade tickets",
           "what": "Approve a release that someone else prepared"
+        },
+        {
+          "to": "/reporting/packages",
+          "label": "Client packages",
+          "what": "Decide on failed checks and approve the packages in review"
         },
         {
           "to": "/pipeline",
@@ -199,11 +210,21 @@
       "does": "Report to the clients you are entitled to.",
       "nav": ["/reporting", "/portfolio", "/analytics", "/sponsors"],
       "tabs": {
-        "/reporting": ["/reporting", "/reporting/clients", "/reporting/disclosures"],
+        "/reporting": [
+          "/reporting/packages",
+          "/reporting",
+          "/reporting/clients",
+          "/reporting/disclosures"
+        ],
         "/analytics": ["/analytics", "/analytics/clients", "/analytics/performance"]
       },
       "home": ["work", "tiles", "charts", "attention"],
       "work": [
+        {
+          "to": "/reporting/packages",
+          "label": "Client packages",
+          "what": "Start a client's quarterly package, run the checks and release it"
+        },
         {
           "to": "/reporting/clients",
           "label": "Clients",

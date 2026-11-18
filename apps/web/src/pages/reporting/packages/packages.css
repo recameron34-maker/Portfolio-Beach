@@ -1,0 +1,56 @@
+/* Reporting, Packages (decision 0024): the list, the start form and the package page. Scoped to
+   pages/reporting/packages; the release gate's strip is the shared one (components/StepStrip). */
+.pb-toolbar .pb-pkg-filter {
+  min-width: 0;
+  width: 190px;
+}
+.pb-toolbar .pb-pkg-filter.is-wide {
+  width: 260px;
+}
+
+/* The start form: the four choices side by side where there is room, the reason across the row. */
+.pb-pkg-form {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 220px), 1fr));
+  align-items: start;
+  gap: 12px 16px;
+  margin: 12px 0;
+}
+/* A control fills its column: the kit's own minimum width would push it into the next one. */
+.pb-pkg-form .pb-pkg-control {
+  min-width: 0;
+  width: 100%;
+}
+.pb-pkg-form > .is-wide {
+  grid-column: 1 / -1;
+  max-width: 78ch;
+}
+.pb-pkg-form-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+/* What the form says of the three choices together: one in progress, or no client to choose. */
+.pb-notice.pb-pkg-standing {
+  margin: 0 0 12px;
+}
+
+/* The package page */
+.pb-pkg-back {
+  margin: 0 0 6px;
+}
+.pb-pkg-next {
+  max-width: 78ch;
+  margin: 0 0 12px;
+  font-size: 14px;
+  line-height: 22px;
+  color: var(--pb-text);
+}
+
+@media (max-width: 760px) {
+  .pb-toolbar .pb-pkg-filter,
+  .pb-toolbar .pb-pkg-filter.is-wide {
+    width: 100%;
+  }
+}
