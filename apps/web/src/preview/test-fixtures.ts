@@ -309,18 +309,29 @@ export function defaultOutlookFixture(inv: BookInvestment): RealizationOutlookDe
   };
 }
 
+/** What a generated world records beyond the book: the positions' valuation versions and approved cash flows, and further switches. */
+export interface RecordedPositions {
+  valuations?: readonly ValuationRow[];
+  cashFlows?: ReadonlyMap<string, InvestmentDetail['cashFlows']>;
+  /** Switches recorded beside the two every generated world lists. */
+  flags?: readonly { key: string; enabled: boolean; description: string }[];
+}
+
 /**
  * The recordings of a world over the real generator's book (the simulated intake, document,
  * extraction and monitoring tests): every mock user's own sign-in and flag list, their view of
  * each of the book's investments with its performance and default outlook (the walled deal
  * answers 404 outside the wall, as the build records it), an empty valuations board for the
  * simulated Drafts to land on, and Data Health with no open exception for the overlay to count
- * onto. `quarterStatuses` records the named quarters with another status than approved.
+ * onto. `quarterStatuses` records the named quarters with another status than approved. `record`
+ * adds what the valuation suggestions read of a position: its valuation versions, on the board
+ * and on its one-pager, and its approved cash flows (the walled position's for its members only).
  */
 export function generatedWorld(
   book: PreviewBook,
   walledId: string,
   quarterStatuses: readonly RecordedQuarterStatus[] = [],
+  record: RecordedPositions = {},
 ): PreviewFixtures {
   const users = Object.values(USERS);
   const b = new FixtureBuilder(users, book.asOf);
@@ -337,9 +348,16 @@ export function generatedWorld(
     lockedValuationsLatestQuarter: 0,
     activeInvestments: book.investments.filter((i) => i.isActive).length,
   };
-  const board: ValuationPage = { items: [], nextCursor: null, asOf: book.asOf, periods: [] };
+  const versions = record.valuations ?? [];
   for (const user of users) {
     const c = user.externalId;
+    const seen = versions.filter((v) => v.investmentId !== walledId || WALL_MEMBERS.includes(c));
+    const board: ValuationPage = {
+      items: seen,
+      nextCursor: null,
+      asOf: book.asOf,
+      periods: [...new Set(seen.map((v) => v.quarterEnd))].sort().reverse(),
+    };
     b.add(c, '/api/v1/auth/me', {
       userId: user.userId,
       externalId: c,
@@ -354,6 +372,7 @@ export function generatedWorld(
       flags: [
         { key: 'ai.classifier', enabled: true, description: 'Classifier switch' },
         { key: 'ai.extraction', enabled: false, description: 'Extraction kill switch' },
+        ...(record.flags ?? []),
       ],
     });
     for (const inv of book.investments) {
@@ -369,6 +388,23 @@ export function generatedWorld(
             entryDate: inv.entryDate,
             exitDate: inv.exitDate,
             isActive: inv.isActive,
+            cashFlows: [...(record.cashFlows?.get(inv.id) ?? [])],
+            valuations: seen
+              .filter((v) => v.investmentId === inv.id)
+              .map(({ periodEnd, version, state, fairValue, method }) => ({
+                periodEnd,
+                version,
+                state,
+                fairValue,
+                method,
+              }))
+              .sort((x, y) =>
+                x.periodEnd === y.periodEnd
+                  ? x.version - y.version
+                  : x.periodEnd < y.periodEnd
+                    ? -1
+                    : 1,
+              ),
           }),
         );
         b.add(c, `${path}/performance`, performanceFixture(book, inv, quarterStatuses));

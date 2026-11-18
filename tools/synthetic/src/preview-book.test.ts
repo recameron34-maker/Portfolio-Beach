@@ -28,6 +28,8 @@ describe('the preview book: the system actor view of a generated dataset', () =>
       expect(inv.sponsorFundId).toBe(source?.sponsorFundId);
       expect(inv.vehicleId).toBe(source?.vehicleId);
       expect(inv.vehicleName).toBe(dataset.vehicles.find((v) => v.id === inv.vehicleId)?.name);
+      // Every seeded position is held in US dollars (the column's default, which the seed keeps).
+      expect(inv.currency).toBe('USD');
     }
     expect(book.sponsorFunds.map((f) => f.id)).toEqual(dataset.sponsorFunds.map((f) => f.id));
     expect(dataset.fundAliases.length).toBeGreaterThan(0);

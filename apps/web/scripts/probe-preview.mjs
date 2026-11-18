@@ -2911,6 +2911,215 @@ check(
   `${await vcRows.count()} rows`,
 );
 
+// ---- Valuation suggestions (decision 0023): the example sequence in the built preview ------
+// Nothing is recorded: a suggestion exists only once a statement or a sponsor report is approved
+// in the session. The session starts afresh, so the sequence is the one the walkthrough names.
+await api('viewer.one', 'POST', '/api/v1/preview/reset');
+const SUGGESTIONS = '/api/v1/valuation-suggestions';
+const suggestionsOf = async (who, query = '') =>
+  (await api(who, 'GET', `${SUGGESTIONS}?limit=200${query}`)).json;
+check(
+  'suggestions: none before anything is approved, and a viewer is refused',
+  (await suggestionsOf('ops.one', '&state=all'))?.items?.length === 0 &&
+    (await api('viewer.one', 'GET', `${SUGGESTIONS}?limit=200`)).status === 403,
+);
+await api('ops.one', 'POST', '/api/v1/documents/index');
+await api('admin.one', 'PATCH', '/api/v1/flags/ai.extraction', {
+  enabled: true,
+  reason: 'probe: valuation suggestions',
+});
+const staleDocuments =
+  (await api('ops.one', 'GET', `/api/v1/documents?limit=200&investmentId=${staleId}`)).json
+    ?.items ?? [];
+const staleDocument = (docType) =>
+  staleDocuments.find(
+    (x) => x.docType === docType && x.periodEnd === quarterEnd && x.reviewStatus === 'Classified',
+  );
+/** One run for one document, as operations queue it (a batch covers one document type). */
+const runFor = async (doc) => {
+  const batch = await api('ops.one', 'POST', '/api/v1/extraction/batches', {
+    documentIds: [doc.id],
+  });
+  const runs =
+    (await api('ops.one', 'GET', `/api/v1/extraction/runs?limit=200&batchId=${batch.json?.id}`))
+      .json?.items ?? [];
+  return runs.find((r) => r.documentId === doc.id);
+};
+/** Decides every value of a run (clean and flagged accepted, the rest rejected) and approves it. */
+const approveRun = async (who, runId) => {
+  const commands = `/api/v1/extraction/runs/${runId}/commands`;
+  const before = (await api(who, 'GET', `/api/v1/extraction/runs/${runId}`)).json;
+  for (const v of before?.values ?? []) {
+    if (v.decision !== null || v.validationState === 'clean') continue;
+    await api(
+      who,
+      'POST',
+      commands,
+      v.validationState === 'flagged'
+        ? { command: 'accept', field: v.field }
+        : { command: 'reject', field: v.field, reason: 'probe: not read' },
+    );
+  }
+  await api(who, 'POST', commands, { command: 'acceptClean' });
+  return api(who, 'POST', commands, { command: 'approve' });
+};
+const staleReport = staleDocument('doc_type.quarterly_financials');
+const staleStatement = staleDocument('doc_type.capital_account_statement');
+const statementExpected = docExpectations.positionStatements.find(
+  (p) => p.investmentId === staleId && p.periodEnd === quarterEnd,
+);
+if (staleReport === undefined || staleStatement === undefined || statementExpected === undefined) {
+  check(
+    'suggestions: the stale position has a report and a statement for the latest quarter',
+    false,
+    `report ${staleReport?.fileName}, statement ${staleStatement?.fileName}`,
+  );
+} else {
+  const reportRun = await runFor(staleReport);
+  const statementRun = await runFor(staleStatement);
+  const reportApproved = await approveRun('ops.one', reportRun.id);
+  const afterReport = await suggestionsOf('ops.one');
+  const fromReport = afterReport?.items?.[0];
+  check(
+    'suggestions: approving the sponsor report opens one, the last Locked mark scaled by the equity value',
+    reportApproved.status === 200 &&
+      afterReport?.openCount === 1 &&
+      fromReport?.investmentId === staleId &&
+      fromReport.periodEnd === quarterEnd &&
+      fromReport.basis === 'sponsor_equity_value' &&
+      fromReport.method === 'valuation_method.report_indication' &&
+      fromReport.suggestedValue !== null &&
+      fromReport.currentMark?.previousQuarter === true &&
+      fromReport.source.extractionRunId === reportRun.id &&
+      fromReport.workings.inputs.map((i) => i.key).join() ===
+        'reference_mark,reference_enterprise_value,reference_net_debt,enterprise_value,net_debt',
+    `${reportApproved.status}: ${fromReport?.basis} ${fromReport?.suggestedValue}`,
+  );
+  // A deal team reviewer approves the statement: they stand behind its figure from here on.
+  const statementApproved = await approveRun('deal.one', statementRun.id);
+  const afterStatement = await suggestionsOf('ops.one');
+  const fromStatement = afterStatement?.items?.[0];
+  const replaced = (await api('ops.one', 'GET', `${SUGGESTIONS}/${fromReport?.id}`)).json;
+  const beside = fromStatement?.crossChecks?.[0];
+  check(
+    'suggestions: approving the statement replaces it with the ending balance, the report indication beside it',
+    statementApproved.status === 200 &&
+      afterStatement?.openCount === 1 &&
+      fromStatement?.basis === 'capital_account_balance' &&
+      fromStatement.method === 'valuation_method.sponsor_mark' &&
+      D(fromStatement.suggestedValue).eq(statementExpected.endingBalance) &&
+      fromStatement.checks?.ties === true &&
+      fromStatement.crossChecks.length === 1 &&
+      beside.basis === 'sponsor_equity_value' &&
+      D(beside.value).eq(fromReport.suggestedValue) &&
+      beside.differs === false &&
+      D(beside.difference).abs().lt(10_000) &&
+      replaced?.state === 'Superseded' &&
+      replaced.supersededReason === 'better_source' &&
+      replaced.supersededById === fromStatement.id &&
+      replaced.suggestedValue === fromReport.suggestedValue,
+    `${fromStatement?.basis} ${fromStatement?.suggestedValue} beside ${beside?.value}; the first is ${replaced?.state}`,
+  );
+  const outcomes = {
+    report: (await suggestionsOf('ops.one', `&extractionRunId=${reportRun.id}&state=all`))
+      ?.runOutcome,
+    statement: (await suggestionsOf('ops.one', `&extractionRunId=${statementRun.id}&state=all`))
+      ?.runOutcome,
+  };
+  check(
+    'suggestions: each run says what its approval did',
+    outcomes.report?.outcome === 'opened' &&
+      outcomes.statement?.outcome === 'replaced' &&
+      outcomes.statement.suggestionId === fromStatement?.id,
+    JSON.stringify(outcomes),
+  );
+
+  // The pages, as operations: the run, the list, the workings and the draft opened from them.
+  await switchTo('ops.one');
+  await page.goto(`${origin}/#/documents/extraction/${statementRun.id}`);
+  await page.getByTestId('run-suggestion').waitFor();
+  check(
+    'suggestions: the statement run page says the suggestion was replaced, and what to do about a wrong position',
+    (await page.getByTestId('run-suggestion').innerText()).includes(
+      'Valuation suggestion replaced',
+    ) && (await page.getByTestId('run-relink-note').isVisible()),
+    await page.getByTestId('run-suggestion').innerText(),
+  );
+  await page.goto(`${origin}/#/valuations/suggestions`);
+  await page.getByTestId('suggestions-table').waitFor();
+  check(
+    'suggestions: the tab lists the open suggestion with its position and its source',
+    (await page.getByTestId('suggestions-table').innerText()).includes(staleDetail.companyName) &&
+      (await page.getByTestId('suggestions-table').innerText()).includes(
+        'Capital account statement',
+      ),
+    await page.getByTestId('suggestions-table').innerText(),
+  );
+  await page
+    .getByRole('link', { name: /^Workings, / })
+    .first()
+    .click();
+  await page.getByTestId('suggestion-detail').waitFor();
+  check(
+    'suggestions: the workings give the rule and the other source of the quarter',
+    (await page.getByTestId('suggestion-rule').innerText()).includes('ending capital balance') &&
+      (await page.getByTestId('suggestion-detail').innerText()).includes('Sponsor report'),
+    await page.getByTestId('suggestion-rule').innerText(),
+  );
+  await page.getByRole('button', { name: 'Open a draft valuation' }).click();
+  await page.getByRole('dialog').getByRole('button', { name: 'Open a draft valuation' }).click();
+  await page
+    .getByTestId('suggestion-action-status')
+    .filter({ hasText: 'Draft valuation opened' })
+    .waitFor();
+  const accepted = (await api('ops.one', 'GET', `${SUGGESTIONS}/${fromStatement?.id}`)).json;
+  const draft = (await api('ops.one', 'GET', `/api/v1/valuations/${accepted?.valuationId}`)).json;
+  check(
+    'suggestions: Open a draft valuation opens a Draft at the suggested value, with where it came from',
+    accepted?.state === 'Accepted' &&
+      draft?.state === 'Draft' &&
+      draft.investmentId === staleId &&
+      draft.periodEnd === quarterEnd &&
+      draft.method === 'valuation_method.sponsor_mark' &&
+      draft.fairValue === fromStatement.suggestedValue &&
+      draft.inputs?.['suggestion.id'] === fromStatement.id &&
+      draft.inputs['suggestion.documentId'] === staleStatement.id &&
+      (await suggestionsOf('ops.one'))?.openCount === 0,
+    `${accepted?.state}; draft ${draft?.state} ${draft?.fairValue}`,
+  );
+  await page.getByRole('link', { name: 'Open the valuation it went onto' }).click();
+  await page.getByTestId('valuation-from-suggestion').waitFor();
+  check(
+    'suggestions: the version screen says the valuation was started from a suggestion',
+    (await page.getByTestId('valuation-from-suggestion').innerText()).includes(
+      'Started from a suggestion of',
+    ),
+    await page.getByTestId('valuation-from-suggestion').innerText(),
+  );
+  // Whoever approved the run behind the figure cannot approve the valuation it went onto.
+  const versionCommands = `/api/v1/valuations/${draft?.id}/commands`;
+  await api('ops.two', 'POST', versionCommands, { command: 'prepare' });
+  const barred = await api('deal.one', 'POST', versionCommands, { command: 'dealTeamApprove' });
+  const another = await api('deal.two', 'POST', versionCommands, { command: 'dealTeamApprove' });
+  check(
+    'suggestions: the reviewer who approved the statement cannot approve the valuation; another deal team user can',
+    barred.status === 422 &&
+      (barred.json?.detail ?? '').includes('cannot approve the valuation') &&
+      another.status === 200 &&
+      another.json?.state === 'DealTeamApproved',
+    `barred ${barred.status}: ${barred.json?.detail ?? ''}; another ${another.status}`,
+  );
+  await switchTo('viewer.one');
+  await page.goto(`${origin}/#/valuations/suggestions`);
+  await page.getByTestId('suggestions-not-shown').waitFor();
+  check(
+    'suggestions: a viewer is told who suggestions are for, and the tab is not in the row',
+    !(await page.getByRole('navigation', { name: 'Valuations' }).innerText()).includes(
+      'Suggestions',
+    ),
+  );
+}
+
 check(
   'no recording misses in the whole session',
   (await misses()).length === 0,

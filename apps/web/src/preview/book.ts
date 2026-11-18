@@ -21,6 +21,8 @@ const bookInvestment = z.object({
   canonicalName: z.string(),
   aliases: z.array(z.string()),
   dealType: z.string(),
+  /** The currency the position is held in (core.investment.currency), which the simulated valuation suggestions read. */
+  currency: z.string().length(3),
   entryDate: isoDate,
   exitDate: isoDate.nullable(),
   isActive: z.boolean(),

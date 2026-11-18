@@ -47,6 +47,7 @@ import {
   restageable,
 } from './common.js';
 import type { SimContext } from './common.js';
+import { refreshPosition } from './suggestionDerivation.js';
 
 /**
  * The accounting intake (docs/04 M2, SEC-9.1) simulated in the browser, the way
@@ -593,6 +594,13 @@ export const intakeCommandRoute = defineSimRoute({
         else reject(target, req.actor, reason);
       }
       sim.rowVersion += 1;
+      // A promotion derives the Open valuation suggestions of its position again, whoever
+      // approves it, and raises none (docs/18 section 14). The preview's standing rule keeps the
+      // figures on record as they were, so what a refresh can find here is what else moved in
+      // the session since the suggestion was written (a cash flow booked by a reconciled notice).
+      if (command === 'approve')
+        for (const investmentId of new Set(targets.map((target) => target.link.investmentId)))
+          if (investmentId !== null) refreshPosition(ctx, req, investmentId);
     }
     recordActivity(ctx, req.actor, {
       action: `intake.${command}`,

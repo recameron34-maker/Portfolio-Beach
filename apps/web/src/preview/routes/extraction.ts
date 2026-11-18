@@ -90,6 +90,7 @@ import {
   toSummary,
   visibleDocument,
 } from './documents.js';
+import { runApproved } from './suggestionDerivation.js';
 
 /**
  * AI extraction (docs/04 M4, docs/18 section 7, decision 0012) simulated in the browser, the way
@@ -111,8 +112,9 @@ import {
  * period end off the run's quarter and a superseded quarter, then promotes the final values of
  * the target fields, converted to dollars, into the simulated quarters the Performance tab
  * overlay reads, with the run's lineage citing the first accepted figure and a fixed default
- * reason that never names the file (W3). A reader sees the runs of documents their own
- * recordings let them open.
+ * reason that never names the file (W3). Once a statement or a report run is approved, the
+ * valuation suggestion of its position and quarter is derived (suggestionDerivation.ts, docs/18
+ * section 14). A reader sees the runs of documents their own recordings let them open.
  */
 
 /** The kill switch for batch creation and run processing (migration 0003, SEC-8.10): off by default. */
@@ -1290,6 +1292,7 @@ function approve(
     run.approvedById = actor.userId;
     run.approvedBy = actor.displayName;
     run.approvedAt = at;
+    run.approvalOrder = nextApprovalOrder(ctx);
     run.rowVersion += 1;
     recordActivity(ctx, actor, {
       action: 'extraction_run.approve',
@@ -1299,6 +1302,7 @@ function approve(
       from: null,
       to: 'approved',
     });
+    deriveSuggestion(ctx, req, run, periodEnd);
     return null;
   }
   const figures: QuarterlyFigures = {};
@@ -1397,6 +1401,7 @@ function approve(
   run.approvedById = actor.userId;
   run.approvedBy = actor.displayName;
   run.approvedAt = at;
+  run.approvalOrder = nextApprovalOrder(ctx);
   run.promotedRecordId = promoted.id;
   run.rowVersion += 1;
   recordActivity(ctx, actor, {
@@ -1407,7 +1412,40 @@ function approve(
     from: null,
     to: 'approved',
   });
+  deriveSuggestion(ctx, req, run, periodEnd);
   return null;
+}
+
+/** The place of an approval among this session's: one more than the runs approved so far. */
+function nextApprovalOrder(ctx: SimContext): number {
+  let approved = 0;
+  for (const run of ctx.state.runs.values()) if (run.approvalOrder !== undefined) approved += 1;
+  return approved + 1;
+}
+
+/**
+ * What the approval of a statement or a report means for the valuation suggestions (docs/18
+ * section 14, decision 0023), as the system actor: the suggestion of the run's position and
+ * quarter is derived and may be opened, and the other Open suggestions of the position are
+ * derived again. It is called once the run is approved, since a suggestion names an approved
+ * run. A statement linked to no position raises none.
+ */
+function deriveSuggestion(
+  ctx: SimContext,
+  req: { actor: SimActor; credential: string },
+  run: SimRun,
+  periodEnd: string,
+): void {
+  runApproved(ctx, req, {
+    id: run.id,
+    documentId: run.documentId,
+    approvedBy: req.actor.userId,
+    promptVersion: run.promptVersion,
+    modelId: run.modelId,
+    investmentId: run.investmentId,
+    periodEnd,
+    schemaId: run.schemaId,
+  });
 }
 
 /**

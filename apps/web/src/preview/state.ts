@@ -47,12 +47,16 @@ import type {
   QuarterSource,
   RealizationOutlookCode,
   StagingState,
+  SuggestionBasis,
+  SuggestionReason,
+  SuggestionSupersededReason,
   UnderwritingCaseVersion,
   ValuationRow,
   ValuationStoredInputs,
+  ValuationSuggestionState,
   WeeklyPriorSource,
 } from '@pb/contracts';
-import type { AllocationTotals } from '@pb/workflows';
+import type { AllocationTotals, WorkingInput } from '@pb/workflows';
 import type { z } from 'zod';
 import { LIST_LIMIT } from '../app/queries.js';
 import type { PreviewUser, Recordings } from './fixtures.js';
@@ -447,7 +451,8 @@ export interface SimAuditEvent {
     | 'closing_item'
     | 'legal_term'
     | 'investment'
-    | 'underwriting_case';
+    | 'underwriting_case'
+    | 'valuation_suggestion';
   entityId: string;
   reason: string | null;
   from: string | null;
@@ -554,6 +559,12 @@ export interface SimRun {
   approvedById: string | null;
   approvedBy: string | null;
   approvedAt: string | null;
+  /**
+   * The place of the run among this session's approvals, set when it is approved: the later of
+   * two approved statements counts (docs/18 section 14), and a clock that stamps two approvals
+   * alike must not decide which that is.
+   */
+  approvalOrder?: number;
   promotedRecordId: string | null;
   createdAt: string;
   rowVersion: number;
@@ -630,6 +641,44 @@ export interface SimOutlook {
   rowVersion: number;
 }
 
+/**
+ * A valuation suggestion (mon.valuation_suggestion, docs/18 section 14, decision 0023) as the
+ * session holds it: what the approval that produced it worked out, and what became of it. The
+ * figures never change once written; a new suggestion replaces it. The mark on record, the
+ * comparison, the checks, the other sources and the badges are worked out when it is read.
+ */
+export interface SimSuggestion {
+  id: string;
+  investmentId: string;
+  /** The calendar quarter end the suggestion is for. */
+  periodEnd: string;
+  basis: SuggestionBasis;
+  method: string;
+  /** Dollars to the cent, as the column holds it; null when there is a reason instead. */
+  suggestedValue: string | null;
+  reasonCode: SuggestionReason | null;
+  inputs: WorkingInput[];
+  sourceDocumentId: string;
+  extractionRunId: string;
+  sourcePage: number | null;
+  sourceLocator: string | null;
+  /** The approver of each run an input came from, and whoever typed one: user ids. */
+  sourceReviewerIds: string[];
+  promptVersion: string | null;
+  modelId: string | null;
+  calcVersion: string;
+  state: ValuationSuggestionState;
+  /** The person who accepted or dismissed it; null while it is Open and for one the system superseded. */
+  decidedBy: Person | null;
+  decidedAt: string | null;
+  decisionReason: string | null;
+  valuationId: string | null;
+  supersededReason: SuggestionSupersededReason | null;
+  supersededById: string | null;
+  createdAt: string;
+  rowVersion: number;
+}
+
 /** The key of a promoted quarter: its investment and period end. */
 export const quarterKey = (investmentId: string, periodEnd: string): string =>
   `${investmentId}|${periodEnd}`;
@@ -688,6 +737,11 @@ export interface PreviewState {
    * from the versions beside it whenever it is answered.
    */
   underwritingCases: Map<string, UnderwritingCaseVersion> | null;
+  /**
+   * Valuation suggestions derived this session, by id, in the order they were written. Nothing
+   * is recorded: one exists only once a statement or a sponsor report is approved here.
+   */
+  suggestions: Map<string, SimSuggestion>;
   audit: SimAuditEvent[];
   idempotency: Map<string, StoredResponse>;
 }
@@ -740,6 +794,7 @@ export function createPreviewState(): PreviewState {
     closings: null,
     investments: new Map(),
     underwritingCases: null,
+    suggestions: new Map(),
     audit: [],
     idempotency: new Map(),
   };
@@ -768,6 +823,7 @@ export function resetPreviewState(state: PreviewState): void {
   state.closings = null;
   state.investments.clear();
   state.underwritingCases = null;
+  state.suggestions.clear();
   state.audit.length = 0;
   state.idempotency.clear();
 }
