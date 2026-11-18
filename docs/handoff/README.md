@@ -4,14 +4,16 @@ Written 2026-11-18, about 17:10 UTC, by the build session, because the week's us
 
 Read this before `docs/SESSION_LOG.md` when you pick the work up. Update or delete it when it no longer describes the state.
 
+**Who builds what (the owner, 2026-11-18):** the work listed in section 10 is to be built by Fable only, the builder model `CLAUDE.md` names. A session on any other model works within section 11 (UI work) and leaves section 10 alone.
+
 ## 1. State in one table
 
 | Work | State | Where |
 |---|---|---|
 | Everything up to valuation suggestions (decisions 0016 to 0023) | Built, reviewed three ways, fixed, pushed | Pull request 18, commits up to `44104ff` |
-| Reporting, Packages pages (decision 0024) | Slices 1 to 6 of 8 pushed. Slice 7 was being written and slice 8 was not started when this was written. **Not reviewed yet.** | Section 2 |
+| Reporting, Packages pages (decision 0024) | All eight slices built and pushed (check `git log` for slice 8's last commits). **Not reviewed yet:** the three reviews and their fixes have not run. | Section 2 |
 | The review of every open design question | Paused after collecting. 177 questions listed, none decided | Section 4 |
-| The demo artifact | Version 18: has valuation suggestions, does not have the Packages pages | Section 3 |
+| The demo artifact | Version 19, built from `62fb769`: has valuation suggestions and the Packages pages (its preview probe passed 223 of 223) | Section 3 |
 | Pull request 18 | Open. Not merged. A human merges | Section 5 |
 
 Branch: `claude/gifted-tesla-eg7s85` (the only branch the session may push to). Run `git log --oneline 44104ff..HEAD` to see what landed after this was written.
@@ -62,7 +64,7 @@ With every slice committed, pass one group whose `slices` text says "no slice re
 
 ## 3. The demo artifact
 
-`https://claude.ai/artifact/UmZvjUFs6NYWwbMbxUFepW`, private to the owner, Version 18. To republish after the Packages pages are in:
+`https://claude.ai/artifact/UmZvjUFs6NYWwbMbxUFepW`, the owner's, Version 19 (the owner has shared it by link; it holds synthetic data only). To republish after a change:
 
 1. `pnpm --filter @pb/api build && pnpm --filter @pb/web build:preview`
 2. From `apps/web`: `node scripts/probe-preview.mjs` (223 checks passed before the Packages pages; slice 8 adds some).
@@ -139,4 +141,46 @@ In the cloud sandbox set `PW_CHROMIUM_PATH=/opt/pw-browsers/chromium-1243/chrome
 | `workflow-decide-open-questions.js.txt`, `workflow-decide-open-questions.args.json.txt` | The paused review of open questions and its arguments |
 | `open-questions-collected.md` | What that review had collected and reviewed when it was paused |
 
-The scripts are saved as `.txt` so the lint gate does not read them as source.
+The scripts are saved as `.txt` so the lint gate does not read them as source. In the copy of the build script the email address of the commit attribution line is replaced by a placeholder (the employer-data guard blocks any address that is not an example): use the attribution lines the session itself gives.
+
+## 10. What still needs to be built: Fable only
+
+By the owner's instruction of 2026-11-18, everything in this section is built by Fable only, the builder model `CLAUDE.md` names. A session running on any other model does not start, continue, review or change this work, and does not run or resume the workflows in this folder. If such a session finds a fault in this work, it writes it in `docs/SESSION_LOG.md` under open items and leaves the code as it is.
+
+In order:
+
+1. **Reporting, Packages pages: the review.** Finish anything of slice 8 that has no commit, then the three reviews and their fixes (section 2). Until then the pages are built and not reviewed.
+2. **The open design questions.** Decide the 177 collected questions (section 4), then build what the decisions change: decision record 0025 first, then the slices of the specification that review writes.
+3. **The rest of Phase 4** (`docs/09`): the template engine with layout locks and the external change log; the weekly report; the client reports themselves (PowerPoint, Word, Excel) with mover commentary, the disclosure library, approved statistics and the distribution log; the reporting views for analytics. The Phase 4 exit journey needs the template engine.
+4. **Phases 5 to 8** as `docs/09` lists them: front office (pipeline, diligence and IC, relationship capture, commitments and pacing); analytics, access and assistants (exposures, benchmarking, liquidity, the read API, Ask Portfolio Beach); Beach Ops; merge readiness.
+5. **Data and rules left over:** the synthetic scenarios `qtd_ytd_basis` and `sign_flip`; the counts on the role work list; a fund commitment carrying a mark, so that a fund-level statement can raise a suggestion (question 1 of decision 0023, one of the 177).
+6. **Microsoft 365 integration** (decision 0019), once the owner has answered its four questions.
+
+What marks this work: it touches a financial rule, a state machine, the database and its access policies, the API and its contracts, extraction, the synthetic data, or the static preview's simulation of the API. Those are the layers where a mistake produces a wrong number or shows a figure to the wrong person, and where the tests-first and review process of `CLAUDE.md` applies in full.
+
+## 11. A UI session on another model
+
+The owner plans UI work in a separate session after this one stops. It serves the roadmap line "A UI pass with motion" (`docs/09`, asked 2026-11-12) and `docs/06`.
+
+**Start from this branch's head, not from `main`.** Pull request 18 is not merged, so `main` has none of the work since 12 November (the map, the fit card, the role focus, the base case, valuation suggestions, the Packages pages). Either the owner merges pull request 18 first, or the UI session branches from `claude/gifted-tesla-eg7s85`.
+
+May change: layout, spacing, type, colour within the brand tokens, components, motion, wording and accessibility, in `apps/web/src/components`, the `.tsx` and `.css` files under `apps/web/src/pages` and `apps/web/src/app`, and the website's look in `apps/site`.
+
+Leaves alone:
+
+- `packages/` (calc, workflows, contracts, db, ai, validation, report-engine), `apps/api`, `apps/worker-py`, `tools/`, every migration, `docs/08` and `docs/18`.
+- `apps/web/src/preview/routes` and `apps/web/scripts`: the static preview simulates the API there, rule for rule.
+- Values in `config/` that are rules (thresholds, tolerances, role lists) and the number formats in `apps/web/src/lib/format.ts`.
+- What a page does: which requests it sends, which figures it shows, who is offered which action. The Packages pages in particular are not reviewed yet: restyle them, do not change their logic.
+
+Rules a page keeps (`docs/06`, `CLAUDE.md` section 3):
+
+- No arithmetic on money in a page. A missing value shows the placeholder with its reason, never a zero.
+- Who may see or do something comes from the contract's role lists, never from a rule written in a component. Role focus orders and describes; it never grants or hides.
+- Page copy never names a file, a config key, a code identifier or the build guide (`lib/copy-guard.test.ts`). No em dashes. Plain words.
+- Motion is decoration: it stops under the reduced-motion setting and never carries meaning alone. Every chart keeps its table twin.
+
+Checks for a UI change: `pnpm typecheck && pnpm lint`; `pnpm exec vitest run --project web` (many tests assert visible words, so a wording change updates its test in the same commit); `bash scripts/check-style.sh`; the preview build and its probe (section 3); the accessibility spec, `apps/web/e2e/a11y.spec.ts`; and the whole browser suite once before the session ends (section 6). Record what changed in `docs/SESSION_LOG.md`.
+
+A first small item for it: section 7's page copy that names a config file.
+

@@ -32,7 +32,7 @@ Rules of the road, learned in this repository:
 - Static preview: "pnpm --filter @pb/web build:preview", then from the folder apps/web (it fails from anywhere else): ${PW} node scripts/probe-preview.mjs
 - Never run "pnpm --filter @pb/site build" (it records media again). Never run docker, az, terraform, curl or wget. Never read .env files. No network use beyond the package registry.
 - Git: one commit per slice (more if a slice is large), made as soon as the slice's gates are green, so a restart of the machine loses little. When all your slices are committed and green, push once with "git push origin claude/gifted-tesla-eg7s85" (retry up to four times, a few seconds apart, on a network error). Never force-push, never switch branch, never amend, rebase or reset commits, never create a pull request. Each commit message: a plain summary line; a body saying what, why and what was verified; and these two last lines exactly:
-Co-Authored-By: Claude Fable 5.2 <noreply@anthropic.com>
+Co-Authored-By: Claude Fable 5.2 <the address in the session attribution line>
 Claude-Session: https://claude.ai/code/session_018Mvt2653NRFx2Vf15toy26
 - Scratch files go under ${SCRATCH} (create it), never in the repository and never loose in /tmp.
 - Never skip, delete or weaken a test to get green. If a gate fails for a reason outside your work, prove it (read the failure, run it on the commit before yours) and say so in the report.
