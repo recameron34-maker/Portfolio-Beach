@@ -4,10 +4,13 @@ import { readPdf } from '@pb/pdf';
 import { nodeInflate } from '@pb/pdf/node';
 import {
   INJECTION_TEXT,
+  STATEMENT_EXAMPLES,
   UNTAGGED_FILE_NAME,
   generateDataset,
   generateDocuments,
+  statementExample,
 } from '@pb/synthetic';
+import type { StatementExample } from '@pb/synthetic';
 import { beforeAll, describe, expect, it } from 'vitest';
 import { z } from 'zod';
 import { parseInput } from '../input.js';
@@ -64,7 +67,9 @@ const root = new URL('../../../../', import.meta.url);
 const read = (path: string): unknown => JSON.parse(readFileSync(new URL(path, root), 'utf8'));
 const definitions = read('config/definitions.json');
 const styleJson = read('config/style.json');
-const schema = loadExtractionSchemas(read('config/extraction_schema.json')).quarterly_financials!;
+const schemas = loadExtractionSchemas(read('config/extraction_schema.json'));
+const schema = schemas.quarterly_financials!;
+const statementSchema = schemas.capital_account_statement!;
 const threshold = classifierThresholdFrom(definitions);
 const readLimits = z
   .object({ documents: z.object({ maxPdfBytes: z.number().int(), maxPages: z.number().int() }) })
@@ -76,14 +81,18 @@ const readPages: ReadPagesFn = (bytes) =>
     limits: { maxBytes: readLimits.maxPdfBytes, maxPages: readLimits.maxPages },
   });
 
-const validate: ValidateFn = (output, pageTexts) =>
-  validateExtraction(output, {
-    schema,
-    pageTexts,
-    bounds: boundsFrom(definitions),
-    style: highlightStyleFrom(styleJson),
-    ...extractionSettingsFrom(definitions),
-  });
+const validatorFor =
+  (against: typeof schema): ValidateFn =>
+  (output, pageTexts) =>
+    validateExtraction(output, {
+      schema: against,
+      pageTexts,
+      bounds: boundsFrom(definitions),
+      style: highlightStyleFrom(styleJson),
+      ...extractionSettingsFrom(definitions),
+    });
+const validate = validatorFor(schema);
+const validateStatement = validatorFor(statementSchema);
 
 const say = (lines: readonly string[]): void => {
   process.stdout.write(`${lines.map((line) => `  eval | ${line}`).join('\n')}\n`);
@@ -357,6 +366,126 @@ describe('the extraction eval (docs/04 M4)', () => {
     expect(checkThresholds({ extraction: r })).toEqual([
       'extraction: 1 values not in the truth, at most 0 allowed',
     ]);
+  });
+});
+
+describe('the statement extraction eval (docs/04 M4, decision 0023)', () => {
+  const statements = (): GoldSetCase[] =>
+    cases.filter((c) => c.docType === statementSchema.docType);
+  /** The cases a seeded statement never shows, written for the stale valuation position. */
+  const exampleCases = async (): Promise<Map<StatementExample, GoldSetCase>> => {
+    const inv = dataset.investments.find((i) => i.id === dataset.scenarios.stale_valuation?.[0])!;
+    const target = {
+      periodEnd: dataset.asOf,
+      fund: dataset.sponsorFunds.find((f) => f.id === inv.sponsorFundId)!,
+      vehicleName: dataset.vehicles.find((v) => v.id === inv.vehicleId)!.name,
+      investment: {
+        id: inv.id,
+        investmentNumber: inv.investmentNumber,
+        companyName: dataset.portfolioCompanies.find((c) => c.id === inv.portfolioCompanyId)!.name,
+      },
+    };
+    const keys = Object.keys(STATEMENT_EXAMPLES) as StatementExample[];
+    const documents = keys.map((key) => statementExample(key, target));
+    const built = redactGoldCases(await goldCasesFromSet({ documents }, readPages)).cases;
+    return new Map(keys.map((key, i) => [key, built[i]!]));
+  };
+
+  it('holds both kinds of statement: the fund-level ones and the position-level ones, with the eleven fields of the schema', () => {
+    const all = statements();
+    const fundLevel = all.filter((c) => c.investmentNumber === null);
+    const positionLevel = all.filter((c) => c.investmentNumber !== null);
+    expect(fundLevel).toHaveLength(new Set(dataset.commitments.map((c) => c.sponsorFundId)).size);
+    expect(positionLevel).toHaveLength(set.expectations.positionStatements.length);
+    expect(positionLevel.length).toBeGreaterThanOrEqual(6);
+    for (const c of all)
+      expect(Object.keys(c.truth.fields), c.fileName).toEqual(
+        statementSchema.fields.map((f) => f.key),
+      );
+    // A fund-level statement states no balance of ours; a position-level one states all five.
+    const balance = statementSchema.fields.map((f) => f.key).slice(5, 10);
+    for (const c of fundLevel)
+      for (const key of balance) expect(c.truth.fields[key]?.value, c.fileName).toBeNull();
+    for (const c of positionLevel)
+      for (const key of balance) expect(c.truth.fields[key]?.value, c.fileName).not.toBeNull();
+  });
+
+  it('meets every threshold over the seeded statements and the example ones: no unit error, no value without a citation', async () => {
+    const examples = await exampleCases();
+    const all = [...statements(), ...examples.values()];
+    const r = runExtractionEval(all, fixtureExtractor(truthsOf(all)), validateStatement);
+    say(
+      evalSummaryLines({ extraction: r }).map((line) => line.replace('extraction:', 'statements:')),
+    );
+    expect(r.cases).toBe(all.length);
+    expect(r.errors).toBe(0);
+    expect(r.mismatches).toEqual([]);
+    expect(r.numericAccuracy).toBe(1);
+    expect(r.unitErrors).toBe(0);
+    expect(r.missingCitations).toBe(0);
+    expect(r.hallucinations).toBe(0);
+    expect(r.injectionCasesChanged).toBe(0);
+    expect(checkThresholds({ extraction: r })).toEqual([]);
+  });
+
+  it('finds every stated value clean, and writes no narrative', async () => {
+    const examples = await exampleCases();
+    const all = [...statements(), ...examples.values()];
+    const extract = fixtureExtractor(truthsOf(all));
+    for (const c of all) {
+      const output = extract(buildCaseInput(c));
+      expect(output.highlights, c.fileName).toEqual([]);
+      expect(output.commentary, c.fileName).toBeNull();
+      const validation = validateStatement(output, c.pageTexts);
+      for (const [field, result] of Object.entries(validation.fields))
+        expect(result.findings, `${c.fileName} ${field}`).toEqual([]);
+      expect(validation.highlights, c.fileName).toEqual([]);
+      expect(validation.commentary, c.fileName).toEqual([]);
+    }
+  });
+
+  it('answers no balance of ours for a whole vehicle with no share, and no money line for another currency', async () => {
+    const examples = await exampleCases();
+    const extract = fixtureExtractor(truthsOf([...examples.values()]));
+    const answered = (key: StatementExample): Record<string, string | null> =>
+      Object.fromEntries(
+        Object.entries(extract(buildCaseInput(examples.get(key)!)).fields).map(([k, f]) => [
+          k,
+          f.value,
+        ]),
+      );
+    const balance = statementSchema.fields.map((f) => f.key).slice(5, 10);
+    const noShare = answered('wholeVehicleNoShare');
+    for (const key of [...balance, 'investor_share_pct']) expect(noShare[key], key).toBeNull();
+    const shared = answered('wholeVehicle');
+    expect(shared.investor_share_pct).toBe('0.2500');
+    for (const key of balance) expect(shared[key], key).not.toBeNull();
+    const euro = answered('euro');
+    for (const f of statementSchema.fields)
+      if (f.kind === 'money') expect(euro[f.key], f.key).toBeNull();
+    expect(euro.period_end).toBe(dataset.asOf);
+    // The whole vehicle's page still prints its balance: a model that read it as ours would
+    // invent a mark, and the gate counts it.
+    const inventing: ExtractFn = (input) => {
+      const output = extract(input);
+      output.fields.ending_capital_balance = {
+        value: '83.76',
+        unit: 'USD_M',
+        page: 1,
+        quote: 'Ending capital balance 83.76',
+        confidence: '1',
+      };
+      return output;
+    };
+    const r = runExtractionEval(
+      [examples.get('wholeVehicleNoShare')!],
+      inventing,
+      validateStatement,
+    );
+    expect(r.hallucinations).toBe(1);
+    expect(checkThresholds({ extraction: r })).toContain(
+      'extraction: 1 values not in the truth, at most 0 allowed',
+    );
   });
 });
 

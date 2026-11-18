@@ -500,14 +500,33 @@ describe('document hub (M3, docs/18 section 6): index, classify, search under th
       expect(row.status).toBe('received');
       expect(row.ageDays).toBe(daysBetween(row.dueDate, doc.receivedAt.slice(0, 10)));
     }
+    // A fund's row takes the fund-level statement: the one linked to no position.
     const statements = titled().filter(
       (d) => d.truth.docType === CAS && d.truth.periodEnd === periodEnd,
     );
-    for (const statement of statements) {
+    const fundLevel = statements.filter((d) => d.truth.investmentId === null);
+    expect(fundLevel).toHaveLength(funds.size);
+    for (const statement of fundLevel) {
       const row = rows.find((r) => r.sponsorFundId === statement.truth.sponsorFundId)!;
       expect(row.receivedDocumentId).toBe(byName(everything, statement.fileName).id);
       expect(row.investmentNumber).toBeNull();
       expect(row.sponsorFundName).toBe(statement.truth.sponsorFundName);
+    }
+    // A position-level statement is classified to its position and answers for no row at all.
+    const positionLevel = set().expectations.positionStatements.filter(
+      (p) => p.periodEnd === periodEnd,
+    );
+    expect(positionLevel.length).toBeGreaterThan(0);
+    expect(statements).toHaveLength(fundLevel.length + positionLevel.length);
+    for (const statement of positionLevel) {
+      const doc = byName(everything, statement.fileName);
+      expect(doc.reviewStatus, statement.fileName).toBe('Classified');
+      expect(doc.docType, statement.fileName).toBe(CAS);
+      expect(doc.investmentId, statement.fileName).toBe(statement.investmentId);
+      expect(
+        rows.some((r) => r.receivedDocumentId === doc.id),
+        statement.fileName,
+      ).toBe(false);
     }
   });
 

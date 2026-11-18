@@ -19,6 +19,8 @@ import {
   rejectedDetailFixture,
   RUN_ID,
   runFixture,
+  STATEMENT_RUN_ID,
+  statementDetailFixture,
 } from './test-fixtures.js';
 
 const route = vi.hoisted(() => ({ id: '' }));
@@ -441,6 +443,100 @@ describe('extraction run review', () => {
       expect(sentPosts()).toEqual([[commandsPath(RUN_ID.succeeded), { command: 'approve' }]]);
     },
   );
+
+  it(
+    'says how a position-level statement will be read, shows no narrative card and approves without promoting',
+    TIMEOUT,
+    async () => {
+      const id = STATEMENT_RUN_ID;
+      mockApi(
+        routes(
+          ['operations'],
+          {
+            [detailPath(id)]: () =>
+              ok(statementDetailFixture({ stage: sentPosts().length > 0 ? 'approved' : 'ready' })),
+            [commandsPath(id)]: ok(statementDetailFixture({ stage: 'approved' })),
+          },
+          id,
+        ),
+      );
+      renderWithQuery(<ExtractionRunPage />);
+      await screen.findByTestId('run-fields');
+      // The eleven lines of the statement, the ones it does not state shown as missing.
+      expect(tile('Values')).toHaveTextContent('11');
+      expect(rowOf('Ending capital balance')).toHaveTextContent('20.94');
+      expect(rowOf('Our share of the vehicle')).toBeInTheDocument();
+      expect(screen.getByTestId('run-read-as')).toHaveTextContent(
+        'Once approved, this is read as: Our account for Meridian Data Partners, INV-0001.',
+      );
+      expect(screen.getByTestId('run-review')).toHaveTextContent(
+        'Approving a statement writes nothing to the quarterly record.',
+      );
+      expect(screen.getByTestId('run-review')).not.toHaveTextContent('promoted');
+      // No highlights and no commentary are drafted for a statement: the card is not there.
+      expect(screen.queryByTestId('run-narrative')).not.toBeInTheDocument();
+      expect(screen.queryByText('Highlights and commentary')).not.toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: 'Approve and promote' })).not.toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Accept clean values' })).toHaveAttribute(
+        'title',
+        'Every clean value is decided',
+      );
+
+      await userEvent.click(screen.getByRole('button', { name: 'Approve' }));
+      const dialog = await screen.findByRole('dialog');
+      expect(within(dialog).getByRole('heading', { name: 'Approve' })).toBeInTheDocument();
+      expect(dialog).toHaveTextContent(
+        'The accepted and edited lines are read as: Our account for Meridian Data Partners, INV-0001. Nothing is written to the quarterly record.',
+      );
+      expect(dialog).not.toHaveTextContent('quarter on record');
+      await userEvent.click(within(dialog).getByRole('button', { name: 'Approve' }));
+      await dialogClosed();
+      expect(
+        await screen.findByText(
+          'Approved: the statement for Jun 30, 2025; nothing was written to the quarterly record (audited)',
+        ),
+      ).toBeInTheDocument();
+      expect(sentPosts()).toEqual([[commandsPath(id), { command: 'approve' }]]);
+      expect(await screen.findByText('Read as:', { exact: false })).toBeInTheDocument();
+      expect(screen.getByTestId('run-read-as')).toHaveTextContent(
+        'Read as: Our account for Meridian Data Partners, INV-0001.',
+      );
+      const again = screen.getByRole('button', { name: 'Approve' });
+      expect(again).toHaveAttribute('aria-disabled', 'true');
+      expect(again).toHaveAttribute('title', 'This run is approved');
+    },
+  );
+
+  it('reads a statement linked to no position as our account in the fund', async () => {
+    const id = STATEMENT_RUN_ID;
+    mockApi(
+      routes(
+        ['deal_team'],
+        { [detailPath(id)]: ok(statementDetailFixture({ fundLevel: true })) },
+        id,
+      ),
+    );
+    renderWithQuery(<ExtractionRunPage />);
+    await screen.findByTestId('run-fields');
+    expect(screen.getByTestId('run-read-as')).toHaveTextContent(
+      'Once approved, this is read as: Our account in Kelpwood Fund IV.',
+    );
+    expect(screen.getByTestId('run-banner')).toHaveTextContent('No linked investment');
+    expect(screen.queryByTestId('run-narrative')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Accept clean values' })).toHaveAttribute(
+      'title',
+      'Accepts 11 undecided clean values',
+    );
+  });
+
+  it('keeps the narrative card and no reading line for a quarterly report', async () => {
+    mockApi(routes());
+    renderWithQuery(<ExtractionRunPage />);
+    await screen.findByTestId('run-fields');
+    expect(screen.getByTestId('run-narrative')).toBeInTheDocument();
+    expect(screen.queryByTestId('run-read-as')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Approve and promote' })).toBeInTheDocument();
+  });
 
   it('shows a review refusal as the problem sentence', async () => {
     mockApi(

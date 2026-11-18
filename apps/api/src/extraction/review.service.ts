@@ -81,6 +81,12 @@ const TARGET_KEYS: Readonly<Record<TargetColumn, QuarterlyFigureKey>> = {
   cash: 'cash',
   total_equity: 'totalEquity',
 };
+/**
+ * How an approved run that promotes nothing is read, as its approval's audit event records it:
+ * a document linked to a position is our account for that position, one linked to none is our
+ * account in a fund.
+ */
+export const STATEMENT_READ_AS = { position: 'position_account', fund: 'fund_account' } as const;
 /** The approval reason when the reviewer gives none: a fixed sentence, never the file name (W3, SEC-5.3). */
 export const DEFAULT_APPROVAL_REASON = 'Approved from the AI extraction review';
 
@@ -660,6 +666,10 @@ export class ExtractionReviewService {
         investmentId: locked.investmentId,
         periodEnd,
         schemaId: locked.schemaId,
+        // How the approved lines will be read (decision 0023): our account for the one position
+        // the document is linked to, or our account in a fund when it is linked to none. By
+        // code and id only: the trail is read by role, not by wall (W3).
+        readAs: locked.investmentId === null ? STATEMENT_READ_AS.fund : STATEMENT_READ_AS.position,
         before: { approvedBy: null, promotedRecordId: null },
         after: { approvedBy: principal.userId, promotedRecordId: null },
         promoted: false,

@@ -101,6 +101,19 @@ const bookDocumentExpectations = z.object({
   byDocType: z.record(z.string(), z.number().int()),
   scenarioFiles: z.record(z.string(), z.array(z.string())),
   walledFiles: z.array(z.string()),
+  /** The position-level capital account statements of the set; every other statement is fund-level. */
+  positionStatements: z.array(
+    z.object({
+      fileName: z.string(),
+      investmentId: z.string(),
+      investmentNumber: z.string(),
+      companyName: z.string(),
+      periodEnd: isoDate,
+      endingBalance: money,
+      beginningBalance: money,
+      fromLockedMark: z.boolean(),
+    }),
+  ),
   total: z.number().int(),
   lateFinancials: z
     .object({

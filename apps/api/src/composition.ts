@@ -211,10 +211,10 @@ export function loadTruths(documentRoot: string): Map<string, Truth> {
 }
 
 /**
- * The prototype models behind the mock client (decision 0012): the keyword classifier answers
- * the document_classifier prompt from the input, and the fixture extractor answers the
- * quarterly_extraction prompt from the recorded truth of the document's content hash. A client
- * that is not the mock is left as it is.
+ * The prototype models behind the mock client (decisions 0012 and 0023): the keyword classifier
+ * answers the document_classifier prompt from the input, and the fixture extractor answers the
+ * two extraction prompts (quarterly_extraction, capital_account_extraction) from the recorded
+ * truth of the document's content hash. A client that is not the mock is left as it is.
  */
 export function registerPrototypeModels(
   ai: AdapterSet['ai'],
@@ -223,6 +223,7 @@ export function registerPrototypeModels(
   if (!(ai instanceof MockAiClient)) return;
   ai.register('document_classifier', keywordClassifier);
   ai.register('quarterly_extraction', fixtureExtractor(truths));
+  ai.register('capital_account_extraction', fixtureExtractor(truths));
 }
 
 /** The drop folders under PB_DROP_ROOT, one per intake that reads files from a folder. */

@@ -66,6 +66,7 @@ Global rules in `CLAUDE.md` apply to every module. Workflow states are defined i
 - Review-by-exception UI: page image beside fields, flagged fields first, accept / edit / reject, bulk-accept clean items.
 - Batch runs with a status board (Received, Extracted, In review, Approved, Exported), concurrency limits, retries and cost logging.
 - Variants: co-invest quarterly financials; primary fund reports and capital account statements; CIM / pitchbook to a draft Pipeline Opportunity.
+- Capital account statements (decision 0023; schema `capital_account_statement`, prompt `capital_account_extraction`): eleven lines, the period end, the four commitment lines of a fund statement, the five balance lines of our account (beginning balance, contributions and distributions in the period, net gain or loss, ending balance) and our share of the vehicle when the lines are the whole vehicle's. No field has a target and no narrative is written, so a statement is extracted and reviewed like a report and its approval writes nothing to the quarterly record. The review page says how the approved lines will be read: our account for the position the document is linked to, or our account in a fund when it is linked to none. A balance of a whole vehicle with no share of ours, or of a statement not in US dollars, is answered null: nothing is assumed and nothing is converted.
 - Commentary drafts from **approved** numbers only (`docs/07`).
 **Prototype scope:** mock AI client returns fixture outputs; an optional real model on synthetic PDFs only.
 **Depends on:** M2, M3.

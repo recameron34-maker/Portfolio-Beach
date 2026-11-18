@@ -59,6 +59,8 @@ import {
   REVIEW_READ_ONLY,
   reviewOrder,
   runGates,
+  runSchemaTraits,
+  statementReading,
   tokensText,
   undecidedClean,
   validationTone,
@@ -454,6 +456,9 @@ function RunBody({
   const [hovered, setHovered] = useState<string | null>(null);
   const [pageNumber, setPageNumber] = useState<number>(() => firstPage(detail));
   const gates = runGates(detail.run, roles);
+  const traits = runSchemaTraits(detail.run.schemaId);
+  const readAs = statementReading(detail);
+  const approveLabel = traits.promotes ? 'Approve and promote' : 'Approve';
   const offered = canReview(roles);
   const values = reviewOrder(detail.values);
   const busy = command.isPending;
@@ -569,9 +574,13 @@ function RunBody({
                   disabledFocusable={!gates.reviewable || busy}
                   title={
                     gates.blocked ??
-                    (cleanLeft === 0
-                      ? 'Every clean value is decided; this also accepts the drafted highlights and commentary'
-                      : `Accepts ${plural(cleanLeft, 'undecided clean value')} and the drafted narrative`)
+                    (!traits.narrative
+                      ? cleanLeft === 0
+                        ? 'Every clean value is decided'
+                        : `Accepts ${plural(cleanLeft, 'undecided clean value')}`
+                      : cleanLeft === 0
+                        ? 'Every clean value is decided; this also accepts the drafted highlights and commentary'
+                        : `Accepts ${plural(cleanLeft, 'undecided clean value')} and the drafted narrative`)
                   }
                   onClick={() =>
                     issue({ body: { command: 'acceptClean' }, label: 'Accept clean values' })
@@ -589,17 +598,23 @@ function RunBody({
                     : { title: gates.blocked ?? blocker ?? '' })}
                   onClick={() => open({ kind: 'approve' }, 'approve')}
                 >
-                  Approve and promote
+                  {approveLabel}
                 </Button>
               </>
             }
           >
             <p className="pb-meta">
-              Accept, edit or reject each flagged or invalid value, accept the clean ones in one go,
-              then approve: the accepted and edited values are promoted into the quarter on record
-              with their source.
+              {traits.promotes
+                ? 'Accept, edit or reject each flagged or invalid value, accept the clean ones in one go, then approve: the accepted and edited values are promoted into the quarter on record with their source.'
+                : 'Accept, edit or reject each flagged or invalid value, accept the clean ones in one go, then approve. Approving a statement writes nothing to the quarterly record.'}
             </p>
           </Toolbar>
+        )}
+        {readAs === null ? null : (
+          <p className="pb-notice" data-testid="run-read-as">
+            {detail.run.approvedBy === null ? 'Once approved, this is read as: ' : 'Read as: '}
+            <strong>{readAs}</strong>.
+          </p>
         )}
         <ActionStatus latest={log.latest} testId="run-action-status" />
         {values.length === 0 ? (
@@ -607,7 +622,9 @@ function RunBody({
             title="No values staged"
             detail={
               detail.run.state === 'Succeeded'
-                ? 'The run succeeded without values; nothing can be promoted from it.'
+                ? traits.promotes
+                  ? 'The run succeeded without values; nothing can be promoted from it.'
+                  : 'The run succeeded without values; there is nothing to approve.'
                 : 'Values are staged when a run succeeds; this one has none.'
             }
             testId="run-no-values"
@@ -689,15 +706,17 @@ function RunBody({
           </>
         )}
       </Card>
-      <NarrativeCard
-        detail={detail}
-        reviewable={gates.reviewable}
-        blocked={gates.blocked}
-        busy={busy}
-        offered={offered}
-        onIssue={issue}
-        capture={capture}
-      />
+      {traits.narrative ? (
+        <NarrativeCard
+          detail={detail}
+          reviewable={gates.reviewable}
+          blocked={gates.blocked}
+          busy={busy}
+          offered={offered}
+          onIssue={issue}
+          capture={capture}
+        />
+      ) : null}
       {dialog?.kind === 'edit' ? (
         <EditValueDialog
           value={dialog.value}
@@ -723,11 +742,12 @@ function RunBody({
       ) : dialog?.kind === 'approve' ? (
         <ApproveDialog
           subject={`${plural(accepted, 'accepted value')} and ${plural(edited, 'edited value')} of ${detail.run.companyName ?? detail.run.fileName}, ${formatDate(promotedPeriod(detail))}`}
+          readAs={readAs}
           onCancel={() => setDialog(null)}
           onSubmit={(reason) => {
             issue({
               body: reason === undefined ? { command: 'approve' } : { command: 'approve', reason },
-              label: 'Approve and promote',
+              label: approveLabel,
             });
             setDialog(null);
           }}
@@ -742,6 +762,9 @@ function RunBody({
  * confidence, validation and decisions, flagged and invalid first; the page they were read from,
  * drawn from its text with the quote under review highlighted (click-to-source, I1); the drafted
  * narrative; and the commands the signed-in roles may issue, up to the approval that promotes.
+ * A capital account statement (a schema with no record figure and no narrative, decision 0023)
+ * shows how its lines will be read (our account for a position, or in a fund), has no narrative
+ * card, and its approval promotes nothing.
  */
 export function ExtractionRunPage(): ReactNode {
   const { id } = useParams({ from: '/app/documents/extraction/$id' });

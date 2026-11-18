@@ -3,12 +3,11 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { INestApplication } from '@nestjs/common';
 import request from 'supertest';
-import type { ExtractionSchemas } from '@pb/ai';
 import type { AppRole } from '@pb/db';
 import { loadSyntheticDataset } from '@pb/db';
 import { createTestDb } from '@pb/db/testing';
 import { generateDataset, generateDocuments } from '@pb/synthetic';
-import type { DocumentSet } from '@pb/synthetic';
+import type { DocumentSet, SyntheticDocument } from '@pb/synthetic';
 import type { SyntheticDataset } from '@pb/db';
 import { FixedClock } from '@pb/adapters';
 import { createApp } from '../app.js';
@@ -23,6 +22,8 @@ export interface Harness {
   dataset: SyntheticDataset;
   /** The synthetic document set written to PB_DOCUMENT_ROOT before the runtime was built; its expectations drive assertions. */
   documents: DocumentSet;
+  /** The documents a test added to the inbox beside the set (HarnessOptions.extraDocuments); none by default. */
+  extraDocuments: SyntheticDocument[];
   http: () => request.Agent;
   /** Bearer credential for the first user holding a role (or the named external id). */
   as: (roleOrExternalId: string) => string;
@@ -37,10 +38,12 @@ export interface HarnessOptions {
   /** Feature flags switched on through the flags endpoint as platform_admin once the app is up (audited), such as 'ai.extraction'. */
   enableFlags?: readonly string[];
   /**
-   * Extraction schemas added to those of config/extraction_schema.json, by id, before the app is
-   * built: a test schema proves a rule of the engine before config holds a schema that needs it.
+   * Documents written into the inbox beside the synthetic set, each with its truth sidecar,
+   * before the runtime is built: statements the seed does not hold (lines that do not tie, a
+   * name that does not link), written with the generator's own builder so the prototype
+   * extractor answers them like any other document.
    */
-  extraExtractionSchemas?: ExtractionSchemas;
+  extraDocuments?: (dataset: SyntheticDataset) => SyntheticDocument[];
 }
 
 /**
@@ -82,7 +85,11 @@ export async function startHarness(options: HarnessOptions = {}): Promise<Harnes
   // The document root is written before the runtime is built, so the composition loads the
   // truths and registers the prototype models over them.
   const documents = generateDocuments(dataset);
-  writeDocumentRoot(config.PB_DOCUMENT_ROOT, documents);
+  const extraDocuments = options.extraDocuments?.(dataset) ?? [];
+  writeDocumentRoot(config.PB_DOCUMENT_ROOT, {
+    documents: [...documents.documents, ...extraDocuments],
+    expectations: documents.expectations,
+  });
   const runtime = await buildRuntime(config, {
     db,
     logger: createLogger('silent'),
@@ -100,11 +107,6 @@ export async function startHarness(options: HarnessOptions = {}): Promise<Harnes
     Object.entries(runtime.definitions).filter(([key]) => !dropped.has(key)),
   );
   if ('accountingLayout' in options) runtime.accountingLayout = options.accountingLayout;
-  if (options.extraExtractionSchemas !== undefined)
-    runtime.extractionSchemas = {
-      ...runtime.extractionSchemas,
-      ...options.extraExtractionSchemas,
-    };
   const app = await createApp(runtime);
   const server = app.getHttpServer() as Parameters<typeof request>[0];
   const as = (roleOrExternalId: string): string => {
@@ -126,6 +128,7 @@ export async function startHarness(options: HarnessOptions = {}): Promise<Harnes
     runtime,
     dataset,
     documents,
+    extraDocuments,
     http: () => request(server),
     as,
     close: async () => {

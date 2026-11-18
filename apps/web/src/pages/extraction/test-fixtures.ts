@@ -482,3 +482,112 @@ export function runPageFixture(
 ): ExtractionRunPage {
   return { items, nextCursor };
 }
+
+/* ---- A capital account statement run (decision 0023): no record figure, no narrative ---- */
+
+export const STATEMENT_RUN_ID = '00000000-0000-4000-8000-000000000705';
+export const STATEMENT_FILE_NAME =
+  '2025-06-30 Kelpwood Fund IV - Capital account statement - Meridian Data Partners.pdf';
+const STATEMENT_SCHEMA = schemaConfig.schemas.capital_account_statement;
+
+/** Our own account in US$ millions: the lines of a position-level statement, the commitment lines and the share not stated. */
+const STATEMENT_ANSWERS: Record<string, string> = {
+  period_end: PERIOD,
+  contributions_to_date: '12.40',
+  distributions_to_date: '0.35',
+  beginning_capital_balance: '18.42',
+  contributions_in_period: '2.00',
+  distributions_in_period: '0.35',
+  net_gain_loss: '0.87',
+  ending_capital_balance: '20.94',
+};
+
+/** The eleven fields of the statement schema, each clean; `decided` accepts every one. */
+export function statementValues(decided = false): ExtractedValue[] {
+  return STATEMENT_SCHEMA.fields.map((field, i) => {
+    const value = STATEMENT_ANSWERS[field.key] ?? null;
+    return {
+      id: `00000000-0000-4000-8000-0000000009${String(i).padStart(2, '0')}`,
+      field: field.key,
+      label: field.label,
+      kind: field.kind as ExtractedValue['kind'],
+      required: field.required,
+      value,
+      unit: value === null ? null : field.kind === 'date' ? 'DATE' : 'USD_M',
+      page: value === null ? null : 1,
+      quote: value === null ? null : `${field.label} ${value}`,
+      confidence: '1.0000',
+      validationState: 'clean',
+      findings: [],
+      decision: decided ? 'accepted' : null,
+      editedValue: null,
+      editedUnit: null,
+      decidedBy: decided ? REVIEWER : null,
+      decidedAt: decided ? RUN_AT : null,
+    };
+  });
+}
+
+/**
+ * A statement run as the review page reads it: linked to a position (our account for that
+ * position) unless `fundLevel`, with no highlights and no commentary. `stage` is how far the
+ * review has come.
+ */
+export function statementDetailFixture(
+  options: { stage?: 'staged' | 'ready' | 'approved'; fundLevel?: boolean } = {},
+): ExtractionRunDetail {
+  const stage = options.stage ?? 'staged';
+  const fundLevel = options.fundLevel === true;
+  const values = statementValues(stage !== 'staged');
+  const fileName = fundLevel
+    ? '2025-06-30 Kelpwood Fund IV - Capital account statement.pdf'
+    : STATEMENT_FILE_NAME;
+  const title = fundLevel
+    ? 'Capital Account Statement: Kelpwood Fund IV, quarter ended 30 June 2025'
+    : 'Capital Account Statement: Meridian Data Partners, Kelpwood Fund IV, quarter ended 30 June 2025';
+  const position = fundLevel
+    ? { investmentId: null, investmentNumber: null, companyName: null }
+    : {
+        investmentId: ID.inv1,
+        investmentNumber: 'INV-0001',
+        companyName: 'Meridian Data Partners',
+      };
+  return {
+    run: runFixture({
+      id: STATEMENT_RUN_ID,
+      documentTitle: title,
+      fileName,
+      ...position,
+      schemaId: 'capital_account_statement',
+      promptId: 'capital_account_extraction',
+      counts: countsOf(values),
+      ...(stage === 'approved' ? { approvedBy: REVIEWER, approvedAt: RUN_AT, rowVersion: 13 } : {}),
+    }),
+    document: documentFixture({
+      title,
+      fileName,
+      docType: 'doc_type.capital_account_statement',
+      ...position,
+      pageCount: 1,
+      classifierEvidence: { keywords: ['capital account statement'], candidates: [] },
+    }),
+    values,
+    highlights: [],
+    commentary: null,
+    pages: [
+      {
+        number: 1,
+        width: 612,
+        height: 792,
+        runs: [
+          { x: 72, y: 720, size: 14, text: 'Kelpwood Fund IV' },
+          { x: 72, y: 690, size: 20, text: 'Capital Account Statement' },
+          { x: 72, y: 668, size: 11, text: 'for the quarter ended 30 June 2025' },
+          ...values
+            .filter((v) => v.quote !== null)
+            .map((v, i) => ({ x: 72, y: 640 - i * 18, size: 10.5, text: v.quote ?? '' })),
+        ],
+      },
+    ],
+  };
+}

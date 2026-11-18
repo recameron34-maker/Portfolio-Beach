@@ -37,6 +37,7 @@ import {
   approvalTone,
   BATCH_READ_ONLY,
   batchDocTypeOptions,
+  extractableTypesText,
   batchFormProblem,
   batchStartedPhrase,
   batchStateWord,
@@ -128,8 +129,8 @@ function BatchForm(): ReactNode {
         ) : null}
         <p className="pb-notice">
           Every Classified document of the type for that quarter is read, redacted and sent to the
-          extraction model; the values wait in staging for review. Only quarterly financials have an
-          extraction schema today.
+          extraction model; the values wait in staging for review. These types have an extraction
+          schema today: {extractableTypesText()}.
         </p>
       </form>
       <ActionStatus latest={log.latest} testId="extraction-action-status" />

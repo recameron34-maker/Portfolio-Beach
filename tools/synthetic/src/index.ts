@@ -186,6 +186,8 @@ export type {
   OpsDropSheet,
   OpsDropWorkbook,
 } from './ops-drop.js';
+export { STATEMENT_EXAMPLES, statementExample } from './statement-examples.js';
+export type { StatementExample, StatementExampleTarget } from './statement-examples.js';
 export {
   DOCUMENT_DEFAULTS,
   DOCUMENT_FOOTER,
@@ -194,8 +196,11 @@ export {
   INJECTION_PAGE_ONE_TEXT,
   INJECTION_TEXT,
   NOTICE_FIELDS,
+  PLAIN_POSITION_STATEMENTS,
   QUARTERLY_FIELDS,
   RESTATEMENT_DRIFT,
+  STATEMENT_BALANCE_FIELDS,
+  STATEMENT_DENOMINATIONS,
   STATEMENT_FIELDS,
   SYNTHETIC_DOC_TYPES,
   UNTAGGED_FILE_NAME,
@@ -203,6 +208,8 @@ export {
   documentFileName,
   generateDocuments,
   millions,
+  positionStatementDocument,
+  positionStatementFileName,
   sanitizeFileName,
   sha256Hex,
   wrapText,
@@ -213,7 +220,12 @@ export type {
   DocumentSetExpectations,
   GenerateDocumentsOptions,
   LateFinancials,
+  PositionStatementExpectation,
+  PositionStatementInput,
   QuarterlyField,
+  StatementDenomination,
+  StatementField,
+  StatementLines,
   SyntheticDocType,
   SyntheticDocument,
   Truth,

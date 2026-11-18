@@ -649,6 +649,7 @@ export function testBook(): PreviewBook {
       byDocType: {},
       scenarioFiles: {},
       walledFiles: [],
+      positionStatements: [],
       total: 0,
       lateFinancials: null,
     },
