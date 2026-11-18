@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { cleanup, screen, waitFor, within } from '@testing-library/react';
+import { act, cleanup, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { SUGGESTION_CHANGED_REFUSAL } from '@pb/workflows';
 import { clearTaxonomyLabels, registerTaxonomyLabels } from '../../lib/format.js';
@@ -23,13 +23,35 @@ import { statementDetailFixture } from '../extraction/test-fixtures.js';
 import { SuggestionsPage } from './Suggestions.js';
 import type { SuggestionsSearch } from './suggestions.js';
 
-/** The address the page reads: tests set it before they render. */
+/**
+ * The address the page reads: tests set it before they render, and `goTo` moves it while the page
+ * is up, as following a link or the page's own navigate does.
+ */
 const route: { search: SuggestionsSearch } = { search: {} };
+const listeners = new Set<() => void>();
+function goTo(search: SuggestionsSearch): void {
+  route.search = search;
+  for (const listener of listeners) listener();
+}
 
-vi.mock('@tanstack/react-router', async () => ({
-  ...(await import('../../test/router-mock.js')).routerMockWithSearch(),
-  useSearch: () => route.search,
-}));
+vi.mock('@tanstack/react-router', async () => {
+  const { useSyncExternalStore } = await import('react');
+  return {
+    ...(await import('../../test/router-mock.js')).routerMockWithSearch(),
+    useSearch: () =>
+      useSyncExternalStore(
+        (listener) => {
+          listeners.add(listener);
+          return () => listeners.delete(listener);
+        },
+        () => route.search,
+      ),
+    useNavigate: () => (to: { search?: SuggestionsSearch }) => {
+      goTo(to.search ?? {});
+      return Promise.resolve();
+    },
+  };
+});
 
 const ME = '/api/v1/auth/me';
 const FLAGS = '/api/v1/flags';
@@ -724,5 +746,62 @@ describe('valuation suggestions', () => {
     );
     // The count of open suggestions is the caller's, whatever the filter.
     expect(screen.getByText('2 open')).toBeInTheDocument();
+    // The state chosen is in the address, so a reload and a link keep it.
+    expect(route.search).toEqual({ state: 'all' });
+  });
+
+  it('lists the state the address names, and follows the address when it changes', async () => {
+    const dismissed = suggestionFixture({
+      state: 'Dismissed',
+      decidedBy: PERSON.ops,
+      decidedAt: '2025-08-02T09:00:00.000Z',
+      decisionReason: 'Superseded by a signed copy',
+    });
+    mockApi(routes({ [`${OPEN}&state=Dismissed`]: ok(suggestionPageFixture([dismissed])) }));
+    route.search = { state: 'Dismissed' };
+    renderWithQuery(<SuggestionsPage />);
+    const table = await screen.findByTestId('suggestions-table');
+    expect(await within(table).findByText('Dismissed')).toBeInTheDocument();
+    expect(screen.getByRole('combobox', { name: 'State' })).toHaveValue('Dismissed');
+    // Following the tab's own link while the page is up names no state: the open ones are listed.
+    act(() => goTo({}));
+    await waitFor(() =>
+      expect(screen.getByRole('combobox', { name: 'State' })).toHaveValue('Open'),
+    );
+    await waitFor(() =>
+      expect(
+        within(screen.getByTestId('suggestions-table')).queryByRole('columnheader', {
+          name: 'State',
+        }),
+      ).not.toBeInTheDocument(),
+    );
+    expect(suggestionRequests().map(([url]) => url)).toEqual([`${OPEN}&state=Dismissed`, OPEN]);
+  });
+
+  it('moves focus to the workings when they open, and back to the row when they close', async () => {
+    mockApi(routes());
+    renderWithQuery(<SuggestionsPage />);
+    const table = await screen.findByTestId('suggestions-table');
+    const id = SUGGESTION_ID.statement;
+    const workings = (): HTMLElement =>
+      within(table).getByRole('link', { name: /^Workings, Meridian Data Partners/ });
+    expect(workings()).toHaveAttribute('href', `/valuations/suggestions?id=${id}`);
+    // Following the row's link shows the card above the list: its title takes focus.
+    act(() => goTo({ id }));
+    const title = await screen.findByTestId('suggestion-title');
+    await waitFor(() => expect(title).toHaveFocus());
+    expect(title).toHaveAttribute('tabindex', '-1');
+    // Close removes the card: focus returns to the link the workings were opened from.
+    act(() => goTo({}));
+    await waitFor(() => expect(screen.queryByTestId('suggestion-detail')).not.toBeInTheDocument());
+    await waitFor(() => expect(workings()).toHaveFocus());
+  });
+
+  it('leaves focus where it is when the page opens on a suggestion named in the address', async () => {
+    mockApi(routes());
+    route.search = { id: SUGGESTION_ID.statement };
+    renderWithQuery(<SuggestionsPage />);
+    const title = await screen.findByTestId('suggestion-title');
+    expect(title).not.toHaveFocus();
   });
 });

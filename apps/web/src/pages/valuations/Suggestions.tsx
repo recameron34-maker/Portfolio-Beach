@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
-import { Link, useSearch } from '@tanstack/react-router';
+import { Link, useNavigate, useSearch } from '@tanstack/react-router';
 import { keepPreviousData, useQuery } from '@tanstack/react-query';
 import {
   Button,
@@ -504,6 +504,7 @@ function SuggestionCard({
   state,
   switchedOn,
   busy,
+  takeFocus,
   onAsk,
 }: {
   row: ValuationSuggestionRow;
@@ -511,15 +512,23 @@ function SuggestionCard({
   state: SuggestionStateFilter;
   switchedOn: boolean;
   busy: boolean;
+  /** True when the card was opened from the page: its title then takes focus. */
+  takeFocus: boolean;
   onAsk: (pending: Pending) => void;
 }): ReactNode {
   const fileName = row.source.fileName;
+  const title = useRef<HTMLSpanElement | null>(null);
+  useEffect(() => {
+    if (takeFocus) title.current?.focus();
+  }, [takeFocus, row.id]);
   return (
     <Card testId="suggestion-detail">
       <SectionHeader
         aside={<Badge tone={suggestionTone(row.state)}>{suggestionStateWord(row.state)}</Badge>}
       >
-        {suggestionLabel(row)}
+        <span ref={title} tabIndex={-1} data-testid="suggestion-title">
+          {suggestionLabel(row)}
+        </span>
       </SectionHeader>
       <p className="pb-meta pb-meta-list">
         <span>
@@ -618,16 +627,36 @@ function useDecide(log: ActionLog): {
   return { decide, busy: command.isPending };
 }
 
+/** The link that opens a row's workings, when the row is in the list shown. */
+function workingsLinkOf(id: string): HTMLElement | null {
+  return document.querySelector<HTMLElement>(
+    `[data-testid="suggestion-row-${id}"] a[aria-label^="Workings"]`,
+  );
+}
+
 function Queue({
   roles,
-  initialState,
+  state,
   selectedId,
 }: {
   roles: readonly string[];
-  initialState: SuggestionStateFilter;
+  /** The state listed: the address holds it, so a reload and a link keep it. */
+  state: SuggestionStateFilter;
   selectedId: string | undefined;
 }): ReactNode {
-  const [state, setState] = useState<SuggestionStateFilter>(initialState);
+  const navigate = useNavigate();
+  // The suggestion the page shows moves with the address. When it changes while the page is up,
+  // focus follows it: to the card that opened above the list, and back to the row's link when
+  // the card closes, so a keyboard or screen reader user is never left on the page body.
+  const lastShown = useRef(selectedId);
+  const [focusFor, setFocusFor] = useState<string | undefined>(undefined);
+  useEffect(() => {
+    const was = lastShown.current;
+    lastShown.current = selectedId;
+    if (was === selectedId) return;
+    setFocusFor(selectedId);
+    if (selectedId === undefined && was !== undefined) workingsLinkOf(was)?.focus();
+  }, [selectedId]);
   const flags = useQuery(flagsQuery);
   const list = useQuery({
     ...suggestionsQuery(state === 'Open' ? {} : { state }),
@@ -681,6 +710,7 @@ function Queue({
               state={state}
               switchedOn={switchedOn}
               busy={busy}
+              takeFocus={focusFor === row.id}
               onAsk={ask}
             />
           )}
@@ -708,7 +738,12 @@ function Queue({
               value={suggestionStateWord(state)}
               selectedOptions={[state]}
               onOptionSelect={(_e, d) => {
-                if (isSuggestionStateFilter(d.optionValue)) setState(d.optionValue);
+                if (isSuggestionStateFilter(d.optionValue))
+                  void navigate({
+                    to: SUGGESTIONS_PATH,
+                    search: searchFor(selectedId, d.optionValue),
+                    replace: true,
+                  });
               }}
             >
               {FILTERS.map((f) => (
@@ -805,5 +840,5 @@ export function SuggestionsPage(): ReactNode {
       </>
     );
   }
-  return <Queue roles={roles} initialState={search.state ?? 'Open'} selectedId={search.id} />;
+  return <Queue roles={roles} state={search.state ?? 'Open'} selectedId={search.id} />;
 }

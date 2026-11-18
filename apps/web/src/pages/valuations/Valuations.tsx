@@ -376,6 +376,8 @@ function MissingMarksCard({
   period,
   canStart,
   suggested,
+  suggestedError,
+  suggestedTruncated,
   onStart,
 }: {
   status: MarksStatus;
@@ -383,6 +385,10 @@ function MissingMarksCard({
   canStart: boolean;
   /** The Open suggestion of each position for this quarter; null when the reader is shown none. */
   suggested: ReadonlyMap<string, ValuationSuggestionRow> | null;
+  /** Why the suggested marks could not be read, for a role that reads them; null otherwise. */
+  suggestedError: unknown;
+  /** True when more open suggestions exist for the quarter than the one page read holds. */
+  suggestedTruncated: boolean;
   onStart: (investmentId: string) => void;
 }): ReactNode {
   let body: ReactNode;
@@ -459,6 +465,21 @@ function MissingMarksCard({
     <Card testId="missing-marks">
       <SectionHeader aside={formatDate(period)}>Missing marks</SectionHeader>
       {body}
+      {/* The column is left out when its read failed, and the card says so: never a silent gap. */}
+      {suggestedError === null || status.kind !== 'ready' || status.missing.length === 0 ? null : (
+        <UnavailableState
+          inline
+          error={suggestedError}
+          subject="Suggested marks"
+          testId="missing-marks-suggested-unavailable"
+        />
+      )}
+      {suggestedTruncated ? (
+        <p className="pb-meta" data-testid="missing-marks-suggested-truncated">
+          Showing the suggested marks of the first {LIST_LIMIT} open suggestions for this quarter;
+          more exist.
+        </p>
+      ) : null}
     </Card>
   );
 }
@@ -647,7 +668,6 @@ function Board({ page, roles }: { page: ValuationPage; roles: readonly string[] 
   const [confirmReset, setConfirmReset] = useState(false);
   // The suggested marks are read for the roles that read suggestions and for nobody else.
   const reader = canReadSuggestions(roles);
-  const suggestions = useQuery({ ...suggestionsQuery(), enabled: reader });
   const log = useActionLog();
   const actions = useBoardActions(log);
 
@@ -656,6 +676,12 @@ function Board({ page, roles }: { page: ValuationPage; roles: readonly string[] 
   const periods = latestFirst([...page.periods, ...page.items.map((r) => r.quarterEnd)]);
   const period =
     periodChoice !== null && periods.includes(periodChoice) ? periodChoice : periods[0];
+  // The open suggestions of the quarter shown and of no other, so the one page read holds that
+  // quarter's alone.
+  const suggestions = useQuery({
+    ...suggestionsQuery({ periodEnd: period }),
+    enabled: reader && period !== undefined,
+  });
   const activeItems = active.data?.items ?? [];
   // The form offers the positions a version may start for; with only the first page of versions
   // loaded that cannot be told, so every active position is offered and the write decides.
@@ -894,6 +920,10 @@ function Board({ page, roles }: { page: ValuationPage; roles: readonly string[] 
             reader && suggestions.data !== undefined
               ? suggestedForQuarter(suggestions.data.items, period)
               : null
+          }
+          suggestedError={reader && suggestions.isError ? suggestions.error : null}
+          suggestedTruncated={
+            suggestions.data !== undefined && suggestions.data.nextCursor !== null
           }
           onStart={(investmentId) => setNewFor({ investmentId })}
         />

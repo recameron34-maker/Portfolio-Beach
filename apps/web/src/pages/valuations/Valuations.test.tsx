@@ -34,7 +34,9 @@ const BOARD = '/api/v1/valuations?limit=200';
 const ACTIVE = '/api/v1/investments?limit=200&active=true';
 const VEHICLES = '/api/v1/vehicles';
 const BATCH = '/api/v1/valuations/batch-commands';
-const SUGGESTIONS = '/api/v1/valuation-suggestions?limit=200';
+/** The open suggestions of the quarter the board shows: the latest by default. */
+const SUGGESTIONS = '/api/v1/valuation-suggestions?limit=200&periodEnd=2025-06-30';
+const SUGGESTIONS_PRIOR = `/api/v1/valuation-suggestions?limit=200&periodEnd=${PRIOR_PERIOD}`;
 /** Dialog and checkbox journeys drive Fluent controls; give them room on a loaded test runner. */
 const TIMEOUT = { timeout: 15_000 };
 
@@ -295,7 +297,9 @@ describe('valuation board', () => {
       // suggestions (never recorded: the preview answers them itself) for a role that reads them.
       const urls = sentRequests().map(([url]) => url);
       expect(urls.filter((u) => u.startsWith('/api/v1/valuations'))).toEqual([BOARD]);
-      expect([...new Set(urls)].sort()).toEqual([ME, VEHICLES, ACTIVE, BOARD, SUGGESTIONS].sort());
+      expect([...new Set(urls)].sort()).toEqual(
+        [ME, VEHICLES, ACTIVE, BOARD, SUGGESTIONS, SUGGESTIONS_PRIOR].sort(),
+      );
     },
   );
 
@@ -363,6 +367,69 @@ describe('valuation board', () => {
     expect(
       within(again).queryByRole('link', { name: /suggested mark for/ }),
     ).not.toBeInTheDocument();
+  });
+
+  it(
+    'asks for the suggestions of the quarter shown, and of another when the period changes',
+    TIMEOUT,
+    async () => {
+      const earlier = reportSuggestionFixture({
+        investmentId: POSITION_ID.summit,
+        investmentNumber: 'INV-0013',
+        companyName: 'Summit Services Co',
+        periodEnd: PRIOR_PERIOD,
+      });
+      mockApi(
+        routes({
+          [SUGGESTIONS]: ok(suggestionPageFixture([])),
+          [SUGGESTIONS_PRIOR]: ok(suggestionPageFixture([earlier])),
+        }),
+      );
+      renderWithQuery(<ValuationsPage />);
+      const card = await screen.findByTestId('missing-marks');
+      await within(card).findByRole('columnheader', { name: 'Suggested' });
+      expect(
+        within(card).queryByRole('link', { name: /suggested mark for/ }),
+      ).not.toBeInTheDocument();
+      await pick('Period', 'Mar 31, 2025');
+      expect(
+        await within(card).findByRole('link', {
+          name: '$7.8M, suggested mark for Summit Services Co',
+        }),
+      ).toBeInTheDocument();
+      expect(
+        sentRequests()
+          .map(([url]) => url)
+          .filter((url) => url.includes('valuation-suggestions')),
+      ).toEqual([SUGGESTIONS, SUGGESTIONS_PRIOR]);
+    },
+  );
+
+  it('says the suggested marks are unavailable when their read fails, and lists the positions without them', async () => {
+    mockApi(routes({ [SUGGESTIONS]: failing(501, '/api/v1/valuation-suggestions') }));
+    renderWithQuery(<ValuationsPage />);
+    const card = await screen.findByTestId('missing-marks');
+    const table = await within(card).findByRole('table', { name: 'Missing marks' });
+    expect(
+      await within(card).findByTestId('missing-marks-suggested-unavailable'),
+    ).toBeInTheDocument();
+    expect(
+      within(table).queryByRole('columnheader', { name: 'Suggested' }),
+    ).not.toBeInTheDocument();
+    expect(within(table).getByText('Summit Care Holdings')).toBeInTheDocument();
+  });
+
+  it('says when more open suggestions exist for the quarter than the page read holds', async () => {
+    mockApi(
+      routes({
+        [SUGGESTIONS]: ok(suggestionPageFixture([], { nextCursor: 'more' })),
+      }),
+    );
+    renderWithQuery(<ValuationsPage />);
+    const card = await screen.findByTestId('missing-marks');
+    expect(await within(card).findByTestId('missing-marks-suggested-truncated')).toHaveTextContent(
+      'Showing the suggested marks of the first 200 open suggestions for this quarter; more exist.',
+    );
   });
 
   it.each(['viewer', 'investor_relations', 'platform_admin'] as const)(
