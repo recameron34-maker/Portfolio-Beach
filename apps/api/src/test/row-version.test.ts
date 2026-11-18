@@ -94,6 +94,10 @@ const VALID_BODY: Readonly<Record<string, object>> = {
     grossIrr: '0.2',
   },
   'POST /api/v1/underwriting-cases/{id}/commands': { command: 'confirm' },
+  'POST /api/v1/valuation-suggestions/{id}/commands': {
+    command: 'dismiss',
+    reason: 'The statement is for another vehicle',
+  },
 };
 
 /**
@@ -120,6 +124,52 @@ describe('the routes the contract marks ifMatch', () => {
         label: 'preliminary',
       })
       .expect(201);
+    // Nor does it seed a valuation suggestion: one appears only when a statement or a report
+    // is approved. A statement of an open position with its approved run is written to the
+    // record here, with the suggestion that run gave, as the owner connection.
+    const position = h.dataset.investments.find(
+      (i) => i.id === h.dataset.scenarios.stale_valuation?.[0],
+    );
+    const reviewer = h.dataset.users.find((u) => u.externalId === 'ops.two');
+    if (position === undefined || reviewer === undefined)
+      throw new Error('the synthetic book lost the stale valuation position or ops.two');
+    const quarterEnd = latestQuarterEndOnOrBefore(h.dataset.asOf);
+    const [document, run] = [
+      '9a000000-0000-4000-8000-000000000001',
+      '9a000000-0000-4000-8000-000000000002',
+    ];
+    await h.runtime.db.query(
+      `insert into doc.document (id, source_system, source_item_id, file_name, folder, title, doc_type, sponsor_id, sponsor_fund_id, investment_id, period_end, content_hash, size_bytes, page_count, received_at, review_status, classification_confidence)
+       values ($1, 'local_folder', 'inbox/row-version-statement.pdf', 'row-version-statement.pdf', 'inbox', 'Capital account statement', 'doc_type.capital_account_statement', $2, $3, $4, $5, 'row-version-test-hash', 8192, 1, now(), 'Classified', 0.97)`,
+      [document, position.sponsorId, position.sponsorFundId, position.id, quarterEnd],
+    );
+    await h.runtime.db.query(
+      `insert into doc.extraction_run (id, document_id, investment_id, period_end, schema_id, prompt_id, prompt_version, model_id, state, requested_by, approved_by, approved_at)
+       values ($1, $2, $3, $4, 'capital_account_statement', 'capital_account_extraction', '1', 'mock', 'Succeeded', $5, $5, now())`,
+      [run, document, position.id, quarterEnd, reviewer.id],
+    );
+    await h.runtime.db.query(
+      `insert into mon.valuation_suggestion (investment_id, period_end, basis, method, suggested_value, workings, source_document_id, extraction_run_id, source_page, source_reviewer_ids, prompt_version, model_id, calc_version)
+       values ($1, $2, 'capital_account_balance', 'valuation_method.sponsor_mark', 38140000, $3::jsonb, $4, $5, 1, $6::uuid[], '1', 'mock', 'row-version-test')`,
+      [
+        position.id,
+        quarterEnd,
+        JSON.stringify({
+          inputs: [
+            {
+              key: 'ending_capital_balance',
+              value: '38140000',
+              periodEnd: quarterEnd,
+              source: { kind: 'document', id: document, page: 1 },
+              edited: false,
+            },
+          ],
+        }),
+        document,
+        run,
+        `{${reviewer.id}}`,
+      ],
+    );
   });
   afterAll(async () => {
     await h.close();
@@ -176,6 +226,10 @@ describe('the routes the contract marks ifMatch', () => {
     opportunity: { path: '/api/v1/opportunities/{id}', table: 'deal.opportunity' },
     closing: { path: '/api/v1/closings/{id}', table: 'deal.closing' },
     reporting_package: { path: '/api/v1/report-packages/{id}', table: 'rpt.package' },
+    valuation_suggestion: {
+      path: '/api/v1/valuation-suggestions/{id}',
+      table: 'mon.valuation_suggestion',
+    },
     underwriting_case: {
       path: '/api/v1/investments/{id}/underwriting',
       table: 'mon.underwriting_case',
@@ -239,7 +293,7 @@ describe('the routes the contract marks ifMatch', () => {
       const text = readFileSync(`${src}/${file}`, 'utf8');
       if (!text.includes('ifMatchVersions(')) continue;
       const answers = text.match(
-        /\): Promise<(ValuationRow|ValuationDetail|CapitalNoticeControlDetail|TradeTicketRow|WireInstructionDetail|ChangeRequestRow|ChangeRequestDetail|OpportunityDetail|ClosingDetail|ReportPackageDetail|UnderwritingCaseVersion)> \{/g,
+        /\): Promise<(ValuationRow|ValuationDetail|CapitalNoticeControlDetail|TradeTicketRow|WireInstructionDetail|ChangeRequestRow|ChangeRequestDetail|OpportunityDetail|ClosingDetail|ReportPackageDetail|UnderwritingCaseVersion|ValuationSuggestionRow)> \{/g,
       );
       expect(text.split('withEtag(').length - 1, file).toBe(answers?.length ?? 0);
     }

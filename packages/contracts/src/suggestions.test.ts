@@ -261,4 +261,23 @@ describe('the valuation suggestion contract', () => {
     for (const route of reads)
       expect([...route.roles].sort()).toEqual(['approver', 'auditor', 'deal_team', 'operations']);
   });
+
+  it('lets operations alone decide, on a route that is idempotent and guarded by the row version', () => {
+    const command = ROUTES.find(
+      (r) => r.method === 'POST' && r.path === '/api/v1/valuation-suggestions/{id}/commands',
+    );
+    expect(command).toMatchObject({
+      roles: ['operations'],
+      idempotent: true,
+      ifMatch: 'valuation_suggestion',
+      body: valuationSuggestionCommandBody,
+      response: valuationSuggestionRow,
+    });
+    // Nothing else writes a suggestion: no create, no edit, no delete.
+    expect(
+      ROUTES.filter(
+        (r) => r.method !== 'GET' && r.path.startsWith('/api/v1/valuation-suggestions'),
+      ),
+    ).toHaveLength(1);
+  });
 });

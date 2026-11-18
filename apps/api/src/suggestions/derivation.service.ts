@@ -285,9 +285,10 @@ export class SuggestionDerivationService {
   /**
    * The advisory lock of a position and quarter, held to the end of the transaction, taken
    * before anything is read. The wait is bounded for this one statement and the session's own
-   * setting is put back, so nothing else in the transaction inherits the bound.
+   * setting is put back, so nothing else in the transaction inherits the bound. A command on a
+   * suggestion takes it before it locks the row, in the order every derivation takes the two.
    */
-  private async lockQuarter(tx: Tx, investmentId: string, periodEnd: string): Promise<void> {
+  async lockQuarter(tx: Tx, investmentId: string, periodEnd: string): Promise<void> {
     const before = await tx.execute<{ timeout: string }>(
       sql`select current_setting('lock_timeout') as timeout`,
     );

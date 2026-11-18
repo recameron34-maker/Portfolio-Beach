@@ -123,6 +123,19 @@ export const CONTROL_ROUTES: readonly RouteDefinition[] = [
     auth: true,
     response: v.valuationSuggestionRow,
   },
+  {
+    method: 'POST',
+    path: `${API_PREFIX}/valuation-suggestions/{id}/commands`,
+    summary:
+      'Decide an Open suggestion (docs/18 section 14): accept opens a draft valuation at the suggested value, applyToDraft puts the value and its method on the Draft open for the quarter, dismiss sets it aside with a reason; a suggestion whose figures changed is replaced or closed and the answer is 409',
+    tags: ['valuations'],
+    roles: ['operations'],
+    auth: true,
+    body: v.valuationSuggestionCommandBody,
+    response: v.valuationSuggestionRow,
+    idempotent: true,
+    ifMatch: 'valuation_suggestion',
+  },
 
   // ---- Capital notices (M16, docs/18 section 3) ----
   {
