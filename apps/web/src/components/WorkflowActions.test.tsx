@@ -126,6 +126,37 @@ describe('workflow action pieces', () => {
     expect(button.className).toBe(screen.getByRole('button', { name: 'Reference' }).className);
   });
 
+  it("draws the commands that step back as quiet buttons, the others in the page's appearance", () => {
+    render(
+      <CommandButtons
+        options={[
+          option(),
+          option({ command: 'sendBack', to: 'Draft', roles: ['deal_team'], allowed: true }),
+        ]}
+        busy={false}
+        appearance="outline"
+        quiet={['sendBack']}
+        onIssue={vi.fn()}
+      />,
+    );
+    render(
+      <>
+        <Button size="small" appearance="outline">
+          Outline
+        </Button>
+        <Button size="small" appearance="subtle">
+          Subtle
+        </Button>
+      </>,
+    );
+    expect(screen.getByRole('button', { name: 'Deal team approve' }).className).toBe(
+      screen.getByRole('button', { name: 'Outline' }).className,
+    );
+    expect(screen.getByRole('button', { name: 'Send back' }).className).toBe(
+      screen.getByRole('button', { name: 'Subtle' }).className,
+    );
+  });
+
   it('shows no blocked reason unless the page asks for it', () => {
     render(
       <CommandButtons

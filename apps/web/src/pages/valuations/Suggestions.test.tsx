@@ -193,9 +193,16 @@ describe('valuation suggestions', () => {
     route.search = { id: SUGGESTION_ID.statement };
     renderWithQuery(<SuggestionsPage />);
     const card = await screen.findByTestId('suggestion-detail');
+    // The section's header: the company, its state, then the quarter and where it came from.
     expect(within(card).getByRole('heading', { level: 2 })).toHaveTextContent(
-      'Meridian Data Partners, Jun 30, 2025',
+      /^Meridian Data Partners$/,
     );
+    expect(card).toHaveTextContent('Jun 30, 2025INV-0001');
+    // The queue comes first; the chosen suggestion follows it.
+    expect(
+      screen.getByTestId('suggestions-card').compareDocumentPosition(card) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
     const tiles = within(card).getByTestId('suggestion-tiles');
     const tile = (name: string): HTMLElement => within(tiles).getByRole('group', { name });
     expect(within(tile('Suggested mark')).getByText('$20.9M')).toBeInTheDocument();
@@ -226,7 +233,9 @@ describe('valuation suggestions', () => {
     ).toBeInTheDocument();
     // The row is in the list, so it is not read a second time.
     expect(suggestionRequests()).toEqual([[OPEN, 'GET']]);
-    expect(screen.getByText('Shown above')).toBeInTheDocument();
+    expect(
+      within(screen.getByTestId('suggestions-table')).getByText('Selected'),
+    ).toBeInTheDocument();
     expect(within(card).getByRole('link', { name: 'Close' })).toHaveAttribute(
       'href',
       '/valuations/suggestions',

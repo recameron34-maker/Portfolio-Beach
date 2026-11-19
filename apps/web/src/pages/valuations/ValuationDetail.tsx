@@ -18,17 +18,21 @@ import { previewMode } from '../../app/env.js';
 import { SUGGESTIONS_PATH } from '../../app/nav.js';
 import { useValuationCommand } from '../../app/mutations.js';
 import { meQuery } from '../../app/queries.js';
+import { StepStrip } from '../../components/StepStrip.js';
 import { UnavailableState } from '../../components/UnavailableState.js';
 import {
   Badge,
+  Breadcrumbs,
   Card,
-  EmptyState,
+  EmptyLine,
   ErrorState,
+  KeyValueTable,
   PageHeader,
   PageSkeleton,
   SectionHeader,
   SimulatedBadge,
   StatTile,
+  Subhead,
   TableWrap,
 } from '../../components/ui.js';
 import {
@@ -110,39 +114,27 @@ const DECISION_TONES: Readonly<Record<ValuationApproval['decision'], 'good' | 'w
   reopen: 'watch',
 };
 
-function BackLink(): ReactNode {
-  return (
-    <p className="pb-meta pb-val-back">
-      <Link to="/valuations">Valuation board</Link>
-    </p>
-  );
-}
+/** Where a version sits: the Valuations area, then its board. */
+const TRAIL = [
+  { label: 'Valuations', to: '/valuations' },
+  { label: 'Board', to: '/valuations' },
+];
 
+/** The commands that move a version on (the rest step back: send back, reopen). */
+const FORWARD: ReadonlySet<ValuationCommand> = new Set(['prepare', 'dealTeamApprove', 'lock']);
+const BACK: readonly ValuationCommand[] = ['sendBack', 'reopen'];
+
+/** The four steps of docs/18 section 1 in the shared step strip. */
 function ProgressStrip({ state }: { state: ValuationState }): ReactNode {
   return (
-    <ol className="pb-val-progress" aria-label="Valuation progress">
-      {valuationSteps(state).map((step, i) => (
-        <li
-          key={step.state}
-          data-status={step.status}
-          {...(step.status === 'current' ? { 'aria-current': 'step' as const } : {})}
-        >
-          <span className="pb-val-step">
-            <span className="pb-val-step-number" aria-hidden="true">
-              {i + 1}
-            </span>
-            {humanizeState(step.state)}
-          </span>
-          {step.status === 'done' ? (
-            <Badge tone="good">Done</Badge>
-          ) : step.status === 'current' ? (
-            <Badge tone="brand">Current</Badge>
-          ) : (
-            <Badge plain>Upcoming</Badge>
-          )}
-        </li>
-      ))}
-    </ol>
+    <StepStrip
+      label="Valuation progress"
+      steps={valuationSteps(state).map((step) => ({
+        key: step.state,
+        label: humanizeState(step.state),
+        status: step.status,
+      }))}
+    />
   );
 }
 
@@ -182,7 +174,13 @@ function Tiles({ detail }: { detail: ValuationDetail }): ReactNode {
   );
 }
 
-function WorkflowCard({
+/**
+ * The version's commands, directly under the header with no heading or frame: the forward command
+ * leads, a step back is quiet, the edit of a Draft sits beside them, and why a command is blocked
+ * reads under the buttons. The result line, the reopened version, the last-step sentence and the
+ * notes follow as quiet lines, so everything about what can be done next stays in one block.
+ */
+function CommandBlock({
   detail,
   roles,
   log,
@@ -202,6 +200,7 @@ function WorkflowCard({
   const [editing, setEditing] = useState<ValuationDetail | null>(null);
   const [editError, setEditError] = useState<string | null>(null);
   const options = commandOptions(valuationMachine, detail.state, roles);
+  const forward = options.find((o) => FORWARD.has(o.command))?.command;
   const subject = versionLabel(detail);
   // Only a Draft is edited (docs/18 section 1), by the roles the route table names.
   const editBlocked = blockedTitle({ allowed: canEditDraft(roles), roles: EDIT_ROLES });
@@ -261,17 +260,7 @@ function WorkflowCard({
   };
   const notes = options.filter((o) => o.note !== undefined);
   return (
-    <Card testId="valuation-workflow">
-      <SectionHeader aside={previewMode ? <SimulatedBadge /> : undefined}>Workflow</SectionHeader>
-      <ActionStatus latest={log.latest} testId="valuation-action-status" />
-      {reopenedTo === null ? null : (
-        <p className="pb-notice pb-notice-good" data-testid="valuation-reopened">
-          Reopened into a new Draft:{' '}
-          <Link to="/valuations/$id" params={{ id: reopenedTo.id }}>
-            {versionLabel(reopenedTo)}
-          </Link>
-        </p>
-      )}
+    <div className="pb-command-block" data-testid="valuation-workflow">
       {options.length === 0 ? (
         <p className="pb-meta">
           {detail.state === 'Reopened'
@@ -279,16 +268,19 @@ function WorkflowCard({
             : `${humanizeState(detail.state)} is the last step; nothing further to do.`}
         </p>
       ) : (
-        <div className="pb-val-actions">
+        <div className="pb-command-row">
           <CommandButtons
             options={options}
             busy={command.isPending || edit.isPending}
             appearance="secondary"
+            size="medium"
+            primary={forward}
+            quiet={BACK}
+            showBlockedReason
             onIssue={(o) => (o.needsReason ? setReasonFor(o) : issue(o))}
           />
           {detail.state === 'Draft' ? (
             <Button
-              size="small"
               appearance="secondary"
               disabled={editBlocked !== null || command.isPending || edit.isPending}
               {...(editBlocked === null ? {} : { title: editBlocked })}
@@ -300,25 +292,31 @@ function WorkflowCard({
               Edit draft
             </Button>
           ) : null}
+          {previewMode ? <SimulatedBadge /> : null}
         </div>
       )}
+      <ActionStatus latest={log.latest} testId="valuation-action-status" />
+      {reopenedTo === null ? null : (
+        <p className="pb-notice pb-notice-good" data-testid="valuation-reopened">
+          Reopened into a new Draft:{' '}
+          <Link to="/valuations/$id" params={{ id: reopenedTo.id }}>
+            {versionLabel(reopenedTo)}
+          </Link>
+        </p>
+      )}
       {detail.state === 'Draft' ? (
-        <p className="pb-meta">
+        <p className="pb-note">
           Edit draft: operations corrects the method, the fair value and the method inputs before
           preparing the version. Only a Draft can be edited.
         </p>
       ) : null}
-      {notes.length > 0 ? (
-        <ul className="pb-list">
-          {notes.map((o) => (
-            <li key={o.command} className="pb-meta">
-              {commandLabel(o.command)}: {o.note}
-            </li>
-          ))}
-        </ul>
-      ) : null}
+      {notes.map((o) => (
+        <p key={o.command} className="pb-note">
+          {commandLabel(o.command)}: {o.note}
+        </p>
+      ))}
       {detail.reopenReason === null ? null : (
-        <p className="pb-meta">Reopen reason: {detail.reopenReason}</p>
+        <p className="pb-note">Reopen reason: {detail.reopenReason}</p>
       )}
       {reasonFor !== null ? (
         <ReasonDialog
@@ -340,7 +338,7 @@ function WorkflowCard({
           onSubmit={(body) => saveEdit(editing, body)}
         />
       )}
-    </Card>
+    </div>
   );
 }
 
@@ -353,6 +351,12 @@ function inputText(value: unknown): string {
   } catch {
     return MISSING;
   }
+}
+
+/** A dollar figure among the inputs, set to the right so its digits line up; other values as written. */
+function inputValue(value: unknown): ReactNode {
+  const text = inputText(value);
+  return /^-?\$\d/.test(text) ? <span className="pb-val-money">{text}</span> : text;
 }
 
 /**
@@ -372,7 +376,7 @@ function InputsCard({ detail }: { detail: ValuationDetail }): ReactNode {
         Method inputs
       </SectionHeader>
       {count === 0 ? (
-        <EmptyState
+        <EmptyLine
           title="No method inputs"
           detail={
             detail.state === 'Draft'
@@ -381,52 +385,26 @@ function InputsCard({ detail }: { detail: ValuationDetail }): ReactNode {
           }
         />
       ) : (
-        <>
+        <div className="pb-val-inputs">
           {rows.length === 0 ? null : (
-            <TableWrap label="Method inputs">
-              <table className="pb-table" aria-label="Method inputs">
-                <thead>
-                  <tr>
-                    <th>Input</th>
-                    <th>Value</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {rows.map(([name, value]) => (
-                    <tr key={name}>
-                      <td>{name}</td>
-                      <td>{inputText(value)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </TableWrap>
+            <KeyValueTable
+              label="Method inputs"
+              columns={1}
+              rows={rows.map(([name, value]) => ({ label: name, value: inputValue(value) }))}
+            />
           )}
           {facts.length === 0 ? null : (
             <>
-              <h3 className="pb-val-sub">From the suggestion</h3>
-              <TableWrap label="From the suggestion">
-                <table className="pb-table" aria-label="From the suggestion">
-                  <thead>
-                    <tr>
-                      <th>What</th>
-                      <th>Value</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {facts.map((fact) => (
-                      <tr key={fact.label}>
-                        <td>{fact.label}</td>
-                        <td>{fact.value}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </TableWrap>
+              <Subhead>From the suggestion</Subhead>
+              <KeyValueTable
+                label="From the suggestion"
+                columns={1}
+                rows={facts.map((fact) => ({ label: fact.label, value: inputValue(fact.value) }))}
+              />
             </>
           )}
-          <p className="pb-meta">The lock covers these with the method and the fair value.</p>
-        </>
+          <p className="pb-note">The lock covers these with the method and the fair value.</p>
+        </div>
       )}
     </Card>
   );
@@ -439,7 +417,7 @@ function LockCard({ detail }: { detail: ValuationDetail }): ReactNode {
       <SectionHeader>Lock</SectionHeader>
       {detail.lockText === null && detail.state === 'Reopened' && detail.lockHash !== null ? (
         <>
-          <EmptyState
+          <EmptyLine
             title="Reopened after its lock"
             detail="This version was Locked and then reopened, so reports no longer read it. The work continues on the next version, which gets a lock of its own."
           />
@@ -448,7 +426,7 @@ function LockCard({ detail }: { detail: ValuationDetail }): ReactNode {
           </p>
         </>
       ) : detail.lockText === null ? (
-        <EmptyState
+        <EmptyLine
           title="Not locked"
           detail="The lock text and its hash appear once an approver locks the version. Reports read Locked versions only."
         />
@@ -509,11 +487,11 @@ function ApprovalsCard({ detail }: { detail: ValuationDetail }): ReactNode {
               <tbody>
                 {signOffs.map((s) => (
                   <tr key={s.step}>
-                    <td>{STEP_WORDS[s.step]}</td>
-                    <td>
+                    <td className="pb-nowrap">{STEP_WORDS[s.step]}</td>
+                    <td className="pb-nowrap">
                       <Badge tone={DECISION_TONES.approve}>{DECISION_WORDS.approve}</Badge>
                     </td>
-                    <td>{s.by}</td>
+                    <td className="pb-nowrap">{s.by}</td>
                     <td className="pb-nowrap">{s.at === null ? MISSING : formatDateTime(s.at)}</td>
                     <td>{MISSING}</td>
                   </tr>
@@ -521,12 +499,12 @@ function ApprovalsCard({ detail }: { detail: ValuationDetail }): ReactNode {
               </tbody>
             </table>
           </TableWrap>
-          <p className="pb-meta">
+          <p className="pb-note">
             These names are on the version itself; it holds no step by step decisions.
           </p>
         </>
       ) : approvals.length === 0 ? (
-        <EmptyState
+        <EmptyLine
           title="No decisions yet"
           detail="Each prepare, approval, send back, lock and reopen is recorded here with who decided and why."
         />
@@ -545,11 +523,11 @@ function ApprovalsCard({ detail }: { detail: ValuationDetail }): ReactNode {
             <tbody>
               {approvals.map((a) => (
                 <tr key={a.id}>
-                  <td>{STEP_WORDS[a.step]}</td>
-                  <td>
+                  <td className="pb-nowrap">{STEP_WORDS[a.step]}</td>
+                  <td className="pb-nowrap">
                     <Badge tone={DECISION_TONES[a.decision]}>{DECISION_WORDS[a.decision]}</Badge>
                   </td>
-                  <td>{a.actorName}</td>
+                  <td className="pb-nowrap">{a.actorName}</td>
                   <td className="pb-nowrap">{formatDateTime(a.at)}</td>
                   <td>{a.reason ?? MISSING}</td>
                 </tr>
@@ -571,7 +549,7 @@ function OpenChangesCard({ detail }: { detail: ValuationDetail }): ReactNode {
         Open change requests
       </SectionHeader>
       {rows.length === 0 ? (
-        <EmptyState
+        <EmptyLine
           title="No open change requests"
           detail="Every change request on this position is applied or rejected."
         />
@@ -593,8 +571,8 @@ function OpenChangesCard({ detail }: { detail: ValuationDetail }): ReactNode {
                   <td>{labelOf(r.changeType)}</td>
                   <td className="pb-nowrap">{formatDate(r.effectiveDate)}</td>
                   <td>{r.summary}</td>
-                  <td>{r.owner?.name ?? MISSING}</td>
-                  <td>
+                  <td className="pb-nowrap">{r.owner?.name ?? MISSING}</td>
+                  <td className="pb-nowrap">
                     <Badge tone={changeRequestTone(r.state)}>{humanizeState(r.state)}</Badge>
                   </td>
                 </tr>
@@ -603,7 +581,7 @@ function OpenChangesCard({ detail }: { detail: ValuationDetail }): ReactNode {
           </table>
         </TableWrap>
       )}
-      <p className="pb-meta">
+      <p className="pb-note">
         <Link to="/valuations/changes">Open the change request queue</Link>
       </p>
     </Card>
@@ -687,10 +665,21 @@ function DetailBody({
   const log = useActionLog();
   return (
     <div data-testid="valuation-detail">
-      <BackLink />
       <PageHeader
         testId="valuation-banner"
-        title={`${detail.companyName}: ${formatDate(detail.periodEnd)} v${detail.version}`}
+        crumbs={TRAIL}
+        title={
+          <>
+            {detail.companyName}
+            {/* The version is part of the heading; the colon is heard, a gap and a dot are seen. */}
+            <span className="pb-visually-hidden">:</span>{' '}
+            <span className="pb-title-suffix">
+              {formatDate(detail.periodEnd)}{' '}
+              <span className="pb-title-part">v{detail.version}</span>
+            </span>
+          </>
+        }
+        titleAside={<Badge tone={valuationTone(detail.state)}>{humanizeState(detail.state)}</Badge>}
         meta={
           <span className="pb-meta-list">
             <span>
@@ -703,23 +692,20 @@ function DetailBody({
             <span>Quarter {formatDate(detail.quarterEnd)}</span>
           </span>
         }
-        actions={<Badge tone={valuationTone(detail.state)}>{humanizeState(detail.state)}</Badge>}
       />
+      <CommandBlock detail={detail} roles={roles} log={log} />
       <ProgressStrip state={detail.state} />
       <Tiles detail={detail} />
       <SuggestionNotes detail={detail} roles={roles} />
       <div className="pb-two-col">
-        <WorkflowCard detail={detail} roles={roles} log={log} />
         <InputsCard detail={detail} />
-      </div>
-      <div className="pb-two-col">
         <LockCard detail={detail} />
-        <ApprovalsCard detail={detail} />
       </div>
       <div className="pb-two-col">
+        <ApprovalsCard detail={detail} />
         <OpenChangesCard detail={detail} />
-        <ActionLogCard entries={log.entries} />
       </div>
+      <ActionLogCard entries={log.entries} />
     </div>
   );
 }
@@ -740,7 +726,7 @@ export function ValuationDetailPage(): ReactNode {
       q.error instanceof ApiError && (q.error.status === 404 || q.error.status === 403);
     return (
       <>
-        <BackLink />
+        <Breadcrumbs items={TRAIL} />
         {hidden ? (
           <ErrorState
             title="Valuation not found or not visible to you"

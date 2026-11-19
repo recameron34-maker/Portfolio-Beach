@@ -133,19 +133,16 @@ function AttentionCard({ page }: { page: CapitalNoticePage }): ReactNode {
               {rows.map((n) => (
                 <tr key={n.id}>
                   <DueCell notice={n} alertDays={page.alertDaysBeforeDue} />
-                  <td>{labelOf(n.noticeType)}</td>
+                  <td className="pb-nowrap">{labelOf(n.noticeType)}</td>
                   <td>
-                    <span className="pb-cap-subject">
-                      <SubjectLink notice={n} />
-                      {n.scenarioTag === null ? null : (
-                        <Badge plain tone="neutral">
-                          {labelOf(n.scenarioTag)}
-                        </Badge>
-                      )}
-                    </span>
+                    <SubjectLink notice={n} />
+                    {n.scenarioTag === null ? null : (
+                      // The scenario a synthetic notice plays, as quiet words after a dot.
+                      <span className="pb-cap-scenario">{labelOf(n.scenarioTag)}</span>
+                    )}
                   </td>
                   <NumCell>{noticeAmount(n.amount, n.currency)}</NumCell>
-                  <td>
+                  <td className="pb-nowrap">
                     <StateBadge state={n.state} />
                   </td>
                 </tr>
@@ -255,7 +252,7 @@ function NoticesCard({ page }: { page: CapitalNoticePage }): ReactNode {
           detail="Pick another state, type or vehicle, or include reconciled notices."
         />
       ) : (
-        <TableWrap label="Capital notices">
+        <TableWrap label="Capital notices" tall>
           <table className="pb-table" aria-label="Capital notices">
             <thead>
               <tr>
@@ -273,7 +270,7 @@ function NoticesCard({ page }: { page: CapitalNoticePage }): ReactNode {
               {shown.map((n) => (
                 <tr key={n.id}>
                   <DueCell notice={n} alertDays={page.alertDaysBeforeDue} />
-                  <td>{labelOf(n.noticeType)}</td>
+                  <td className="pb-nowrap">{labelOf(n.noticeType)}</td>
                   <td>
                     <SubjectLink notice={n} />
                   </td>
@@ -281,7 +278,7 @@ function NoticesCard({ page }: { page: CapitalNoticePage }): ReactNode {
                   <td className="pb-nowrap">{formatDate(n.issueDate)}</td>
                   <NumCell>{noticeAmount(n.amount, n.currency)}</NumCell>
                   <NumCell>{noticeAmount(n.settledAmount, n.currency)}</NumCell>
-                  <td>
+                  <td className="pb-nowrap">
                     <StateBadge state={n.state} />
                   </td>
                 </tr>

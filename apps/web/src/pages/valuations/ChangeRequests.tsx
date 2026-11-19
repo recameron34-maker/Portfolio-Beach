@@ -79,7 +79,7 @@ import {
 } from './changes.js';
 import type { NamedOption } from './changes.js';
 import './valuations.css';
-import { dialogSurfaceMotion, useReducedMotion } from '../../components/motion.js';
+import { dialogSurfaceMotion, useJustChanged, useReducedMotion } from '../../components/motion.js';
 
 type RequestOption = CommandOption<ChangeRequestState, ChangeRequestCommand>;
 
@@ -270,11 +270,14 @@ function QueueTable({
   roles,
   busy,
   onIssue,
+  rowProps,
 }: {
   rows: readonly ChangeRequestRow[];
   roles: readonly string[];
   busy: boolean;
   onIssue: (row: ChangeRequestRow, option: RequestOption) => void;
+  /** The wash on the row the reader's own command changed. */
+  rowProps: ReturnType<typeof useJustChanged>['rowProps'];
 }): ReactNode {
   return (
     <TableWrap label="Change requests">
@@ -291,12 +294,17 @@ function QueueTable({
             <th>Owner</th>
             <th>Submitted</th>
             <th>State</th>
-            <th>Actions</th>
+            <th className="pb-val-actions-col">
+              <span className="pb-val-actions-head">
+                Actions
+                <SimulatedBadge />
+              </span>
+            </th>
           </tr>
         </thead>
         <tbody>
           {rows.map((r) => (
-            <tr key={r.id}>
+            <tr key={r.id} {...rowProps(r.id)}>
               <td className="pb-val-position">
                 <Link to="/portfolio/$id" params={{ id: r.investmentId }}>
                   {r.investmentName}
@@ -309,7 +317,7 @@ function QueueTable({
                 </span>
               </td>
               <td>{r.summary}</td>
-              <td>{r.owner?.name ?? MISSING}</td>
+              <td className="pb-nowrap">{r.owner?.name ?? MISSING}</td>
               <td className="pb-val-period">
                 <span>{r.submittedBy.name}</span>
                 <span className="pb-cell-sub">
@@ -329,7 +337,7 @@ function QueueTable({
                   </span>
                 )}
               </td>
-              <td data-testid="change-request-actions">
+              <td className="pb-val-actions-col" data-testid="change-request-actions">
                 <CommandButtons
                   options={commandOptions(dealChangeRequestMachine, r.state, roles)}
                   busy={busy}
@@ -400,24 +408,25 @@ function QuarterEndCard({
   };
   return (
     <Card testId="quarter-end-check">
-      <SectionHeader aside={previewMode ? <SimulatedBadge /> : undefined}>
-        Quarter-end check
-      </SectionHeader>
+      <SectionHeader>Quarter-end check</SectionHeader>
       <p className="pb-meta">
         Lists every request not applied by the quarter end and opens a data exception for each one
         still missing from the exceptions list. Running it again opens nothing more.
       </p>
       <Toolbar
         end={
-          <Button
-            size="small"
-            appearance="primary"
-            disabled={blocked !== null || check.isPending || period === ''}
-            {...(blocked === null ? {} : { title: blocked })}
-            onClick={run}
-          >
-            Run quarter-end check
-          </Button>
+          <>
+            <Button
+              size="small"
+              appearance="primary"
+              disabled={blocked !== null || check.isPending || period === ''}
+              {...(blocked === null ? {} : { title: blocked })}
+              onClick={run}
+            >
+              Run quarter-end check
+            </Button>
+            {previewMode ? <SimulatedBadge /> : null}
+          </>
         }
       >
         <Field>
@@ -523,6 +532,7 @@ function Queue({
   const [pending, setPending] = useState<Pending | null>(null);
   const [routeError, setRouteError] = useState<string | null>(null);
   const log = useActionLog();
+  const wash = useJustChanged();
   const command = useChangeRequestCommand();
   const counts = requestCounts(page.items);
   const partial = page.nextCursor !== null;
@@ -541,6 +551,7 @@ function Queue({
       { id: row.id, body },
       {
         onSuccess: (updated) => {
+          wash.mark(row.id);
           log.record(
             'good',
             `${requestLabel(updated)} is now ${humanizeState(updated.state)} ${resultSuffix()}`,
@@ -605,14 +616,7 @@ function Queue({
         />
       </div>
       <Card testId="change-requests-card">
-        <SectionHeader
-          aside={
-            <>
-              {`${rows.length} of ${plural(page.items.length, 'request')}`}
-              <SimulatedBadge />
-            </>
-          }
-        >
+        <SectionHeader aside={`${rows.length} of ${plural(page.items.length, 'request')}`}>
           Queue
         </SectionHeader>
         <Toolbar>
@@ -666,7 +670,13 @@ function Queue({
             testId="change-requests-empty"
           />
         ) : (
-          <QueueTable rows={rows} roles={roles} busy={command.isPending} onIssue={start} />
+          <QueueTable
+            rows={rows}
+            roles={roles}
+            busy={command.isPending}
+            onIssue={start}
+            rowProps={wash.rowProps}
+          />
         )}
         {partial ? (
           <p className="pb-meta" data-testid="change-requests-truncated">

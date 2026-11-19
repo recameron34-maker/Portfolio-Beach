@@ -83,6 +83,13 @@ describe('wire instruction page', () => {
     expect(banner).toHaveTextContent('Source: Typed from the signed subscription pack');
     expect(within(banner).getByText('Verified')).toHaveClass('pb-badge-good');
     expect(within(banner).getByText('Active')).toHaveClass('pb-badge-good');
+    // The trail back to the register; the state stays outside the heading.
+    const trail = within(banner).getByRole('navigation', { name: 'Breadcrumb' });
+    expect(within(trail).getByRole('link', { name: 'Wire register' })).toHaveAttribute(
+      'href',
+      '/capital-activity/wires',
+    );
+    expect(within(banner).getByRole('heading', { level: 1 })).not.toHaveTextContent('Verified');
 
     const card = screen.getByTestId('wire-instruction');
     expect(within(card).getByTestId('wire-masked')).toHaveTextContent(

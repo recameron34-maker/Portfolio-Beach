@@ -560,6 +560,27 @@ export function EmptyState({
 }
 
 /**
+ * Nothing to show inside a section, in one muted line: what is missing, then why or what would
+ * fill it. A section keeps its title above it, so the line needs no title of its own.
+ */
+export function EmptyLine({
+  title,
+  detail,
+  testId,
+}: {
+  title: string;
+  detail?: string | undefined;
+  testId?: string | undefined;
+}): ReactNode {
+  return (
+    <p className="pb-meta pb-empty-line" data-testid={testId}>
+      <span className="pb-empty-line-title">{title}</span>
+      {detail === undefined ? null : `. ${detail}`}
+    </p>
+  );
+}
+
+/**
  * A sentence on a quiet band with a dot in its tone (docs/06 section 2): info for what the reader
  * should know, good, watch or bad when it reports an outcome. No frame and no bar.
  */

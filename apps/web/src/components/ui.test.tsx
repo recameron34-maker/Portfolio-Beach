@@ -4,6 +4,7 @@ import {
   Breadcrumbs,
   Card,
   CheckList,
+  EmptyLine,
   EmptyState,
   KeyValueTable,
   Notice,
@@ -344,6 +345,21 @@ describe('states', () => {
     const empty = screen.getByTestId('empty');
     expect(empty).toHaveTextContent('No requestsNothing is waiting.');
     expect(empty.querySelector('svg')).toBeNull();
+  });
+
+  it('says an empty section in one muted line: what is missing, then why', () => {
+    render(
+      <>
+        <EmptyLine title="No notes" testId="bare" />
+        <EmptyLine title="No cash flows yet" detail="They come with funding." testId="line" />
+      </>,
+    );
+    const line = screen.getByTestId('line');
+    expect(line.tagName).toBe('P');
+    expect(line).toHaveClass('pb-meta');
+    expect(line).toHaveTextContent(/^No cash flows yet\. They come with funding\.$/);
+    expect(within(line).getByText('No cash flows yet')).toHaveClass('pb-empty-line-title');
+    expect(screen.getByTestId('bare')).toHaveTextContent(/^No notes$/);
   });
 
   it('sets a notice in its tone, info by default', () => {

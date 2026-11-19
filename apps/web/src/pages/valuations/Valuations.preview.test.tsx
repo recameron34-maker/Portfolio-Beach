@@ -76,11 +76,14 @@ describe('valuation board (preview)', () => {
     await screen.findByRole('table', { name: 'Valuations' });
     await screen.findByRole('button', { name: 'New valuation' });
     expect(screen.getAllByText('Simulated').length).toBeGreaterThanOrEqual(1);
+    // The marker stands beside the commands it qualifies: over the table's Actions column.
+    const table = screen.getByRole('table', { name: 'Valuations' });
     expect(
-      screen.getByText(
-        'Simulated changes do not recalculate NAV, MOIC or IRR; portfolio figures stay as recorded.',
-      ),
+      within(within(table).getByRole('columnheader', { name: /^Actions/ })).getByText('Simulated'),
     ).toBeInTheDocument();
+    expect(screen.getByTestId('valuation-gate')).toHaveTextContent(
+      'Reports read Locked valuations only. In this preview, simulated changes do not recalculate NAV, MOIC or IRR.',
+    );
     // What a role may do follows the signed-in user, who is read on their own.
     await waitFor(() => expect(button('New valuation')).toBeEnabled());
     expect(button('Reset preview')).toBeEnabled();

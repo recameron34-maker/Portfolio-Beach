@@ -6,7 +6,7 @@ import { Button } from '@fluentui/react-components';
 import type { SuggestionInput, ValuationSuggestionRow } from '@pb/contracts';
 import { extractionRunQuery } from '../../app/queries.js';
 import { UnavailableState } from '../../components/UnavailableState.js';
-import { Badge, NumCell, PageSkeleton, TableWrap } from '../../components/ui.js';
+import { Badge, NumCell, RowsSkeleton, Subhead, TableWrap } from '../../components/ui.js';
 import { formatDate, formatMoneyM2, MISSING } from '../../lib/format.js';
 import { findQuote } from '../extraction/extraction.js';
 import { PageView } from '../extraction/PageView.js';
@@ -38,7 +38,7 @@ function SourcePage({
   fileName: string;
 }): ReactNode {
   const q = useQuery(extractionRunQuery(runId));
-  if (q.isPending) return <PageSkeleton rows={3} />;
+  if (q.isPending) return <RowsSkeleton rows={3} label="Loading the source page" />;
   if (q.isError)
     return (
       <UnavailableState
@@ -217,7 +217,7 @@ export function SuggestionWorkings({ row }: { row: ValuationSuggestionRow }): Re
       )}
       {checks === null ? null : (
         <>
-          <h3 className="pb-val-sub">Checks on the statement</h3>
+          <Subhead>Checks on the statement</Subhead>
           <ul className="pb-list" aria-label="Checks on the statement">
             <li>
               {tieSentence(checks)}
@@ -250,7 +250,7 @@ export function SuggestionWorkings({ row }: { row: ValuationSuggestionRow }): Re
           <p className="pb-meta">A check never changes the suggested value.</p>
         </>
       )}
-      <h3 className="pb-val-sub">Other sources for this quarter</h3>
+      <Subhead>Other sources for this quarter</Subhead>
       {row.crossChecks.length === 0 ? (
         <p className="pb-meta">No other source is on hand for this quarter.</p>
       ) : (

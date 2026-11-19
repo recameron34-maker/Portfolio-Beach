@@ -26,7 +26,8 @@ import type { ActionEntry } from '../lib/workflow.js';
  * with a single group of commands may show why a command is blocked (`showBlockedReason`), one
  * line per reason under the buttons, and each blocked button points to its own. `label` words a
  * command more fully than its name ("Advance to IC"); `size` is medium for a page's own commands
- * in its header.
+ * in its header. `quiet` draws the commands that step back (send back, reopen) as subtle buttons,
+ * so the one that moves the record on reads first.
  */
 export function CommandButtons<S extends string, C extends string>({
   options,
@@ -35,6 +36,7 @@ export function CommandButtons<S extends string, C extends string>({
   notAllowedTitle,
   appearance = 'subtle',
   primary,
+  quiet,
   showBlockedReason = false,
   label: labelFor,
   size = 'small',
@@ -46,6 +48,7 @@ export function CommandButtons<S extends string, C extends string>({
   notAllowedTitle?: ((option: CommandOption<S, C>) => string | undefined) | undefined;
   appearance?: 'subtle' | 'outline' | 'secondary';
   primary?: C | undefined;
+  quiet?: readonly C[] | undefined;
   showBlockedReason?: boolean;
   label?: ((option: CommandOption<S, C>) => string) | undefined;
   size?: 'small' | 'medium';
@@ -66,7 +69,13 @@ export function CommandButtons<S extends string, C extends string>({
           <Button
             key={`${o.command}-${o.to}`}
             size={size}
-            appearance={o.command === primary ? 'primary' : appearance}
+            appearance={
+              o.command === primary
+                ? 'primary'
+                : quiet?.includes(o.command) === true
+                  ? 'subtle'
+                  : appearance
+            }
             disabled={why !== null || busy}
             {...(why === null ? {} : { title: why })}
             {...(why !== null && reasons.includes(why)

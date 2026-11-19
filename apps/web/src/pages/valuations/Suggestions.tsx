@@ -33,6 +33,7 @@ import {
   NumCell,
   PageHeader,
   PageSkeleton,
+  RowsSkeleton,
   SectionHeader,
   SimulatedBadge,
   StatTile,
@@ -164,15 +165,18 @@ function SuggestionsTable({
   rows,
   state,
   selectedId,
+  busy,
 }: {
   rows: readonly ValuationSuggestionRow[];
   state: SuggestionStateFilter;
   selectedId: string | undefined;
+  /** True while the list of another state replaces this one. */
+  busy: boolean;
 }): ReactNode {
   // Listing the open suggestions, every row would say Open: the column is shown for the other lists.
   const withState = state !== 'Open';
   return (
-    <TableWrap label={TITLE}>
+    <TableWrap label={TITLE} busy={busy}>
       <table className="pb-table pb-val-table" aria-label={TITLE} data-testid="suggestions-table">
         <thead>
           <tr>
@@ -245,7 +249,7 @@ function SuggestionsTable({
                 ) : null}
                 <td>
                   {selected ? (
-                    <span className="pb-meta">Shown above</span>
+                    <span className="pb-meta">Selected</span>
                   ) : (
                     <Link
                       to={SUGGESTIONS_PATH}
@@ -422,9 +426,10 @@ function Tiles({ row }: { row: ValuationSuggestionRow }): ReactNode {
 /**
  * What operations can do with an Open suggestion: open a draft valuation, put the value on the
  * Draft already open, or dismiss it with a reason. Which of the first two is offered follows the
- * valuation version in progress for the quarter; the API judges the command all the same.
+ * valuation version in progress for the quarter; the API judges the command all the same. The
+ * buttons sit on the right of the suggestion's header.
  */
-function Actions({
+function ActionButtons({
   row,
   roles,
   switchedOn,
@@ -438,19 +443,12 @@ function Actions({
   onAsk: (pending: Pending) => void;
 }): ReactNode {
   const offer = offerFor(row);
-  if (offer.kind === 'decided') return null;
-  if (!canDecideSuggestions(roles))
-    return (
-      <p className="pb-meta" data-testid="suggestion-read-only">
-        {DECIDE_READ_ONLY}
-      </p>
-    );
+  if (offer.kind === 'decided' || !canDecideSuggestions(roles)) return null;
   const off = switchedOn ? {} : { title: 'Suggestions are switched off' };
   return (
-    <div className="pb-val-actions" data-testid="suggestion-actions">
+    <div className="pb-actions" data-testid="suggestion-actions">
       {offer.kind === 'accept' ? (
         <Button
-          size="small"
           appearance="primary"
           disabledFocusable={busy || !switchedOn}
           {...off}
@@ -460,7 +458,6 @@ function Actions({
         </Button>
       ) : offer.kind === 'applyToDraft' ? (
         <Button
-          size="small"
           appearance="primary"
           disabledFocusable={busy || !switchedOn}
           {...off}
@@ -472,7 +469,6 @@ function Actions({
         </Button>
       ) : null}
       <Button
-        size="small"
         appearance="secondary"
         disabledFocusable={busy}
         onClick={() => onAsk({ kind: 'dismiss', row })}
@@ -480,27 +476,52 @@ function Actions({
         Dismiss
       </Button>
       {previewMode ? <SimulatedBadge /> : null}
-      {offer.kind === 'blocked' ? (
-        <p className="pb-meta" data-testid="suggestion-blocked">
-          {VERSION_IN_APPROVAL}{' '}
-          <Link to="/valuations/$id" params={{ id: offer.version.valuationId }}>
-            Open the valuation
-          </Link>
-        </p>
-      ) : offer.kind === 'applyToDraft' ? (
-        <p className="pb-meta">
-          A draft is open for this quarter:{' '}
-          <Link to="/valuations/$id" params={{ id: offer.draft.valuationId }}>
-            {formatMoneyM(offer.draft.fairValue)}, {labelOf(offer.draft.method)}, dated{' '}
-            {formatDate(offer.draft.periodEnd)}
-          </Link>
-        </p>
-      ) : null}
     </div>
   );
 }
 
-/** One suggestion with its figures, its workings and what can be done with it. */
+/** What the reader should know about the commands: a version in approval, the draft open, or a role that reads. */
+function ActionNote({
+  row,
+  roles,
+}: {
+  row: ValuationSuggestionRow;
+  roles: readonly string[];
+}): ReactNode {
+  const offer = offerFor(row);
+  if (offer.kind === 'decided') return null;
+  if (!canDecideSuggestions(roles))
+    return (
+      <p className="pb-note" data-testid="suggestion-read-only">
+        {DECIDE_READ_ONLY}
+      </p>
+    );
+  if (offer.kind === 'blocked')
+    return (
+      <p className="pb-note" data-testid="suggestion-blocked">
+        {VERSION_IN_APPROVAL}{' '}
+        <Link to="/valuations/$id" params={{ id: offer.version.valuationId }}>
+          Open the valuation
+        </Link>
+      </p>
+    );
+  if (offer.kind === 'applyToDraft')
+    return (
+      <p className="pb-note">
+        A draft is open for this quarter:{' '}
+        <Link to="/valuations/$id" params={{ id: offer.draft.valuationId }}>
+          {formatMoneyM(offer.draft.fairValue)}, {labelOf(offer.draft.method)}, dated{' '}
+          {formatDate(offer.draft.periodEnd)}
+        </Link>
+      </p>
+    );
+  return null;
+}
+
+/**
+ * One suggestion under the queue: its header (the company, its state, the quarter and where it
+ * came from, the commands on the right), the figures, its workings and what became of it.
+ */
 function SuggestionCard({
   row,
   roles,
@@ -526,27 +547,41 @@ function SuggestionCard({
   }, [takeFocus, row.id]);
   return (
     <Card testId="suggestion-detail">
-      <SectionHeader
-        aside={<Badge tone={suggestionTone(row.state)}>{suggestionStateWord(row.state)}</Badge>}
-      >
-        <span ref={title} tabIndex={-1} data-testid="suggestion-title">
-          {suggestionLabel(row)}
-        </span>
-      </SectionHeader>
-      <p className="pb-meta pb-meta-list">
-        <span>
-          <Link to="/portfolio/$id" params={{ id: row.investmentId }}>
-            {row.investmentNumber}
-          </Link>
-        </span>
-        <span>{row.vehicleName}</span>
-        <span>{SOURCE_LABEL[row.basis]}</span>
-        <span>
-          <Link to={SUGGESTIONS_PATH} search={searchFor(undefined, state)}>
-            Close
-          </Link>
-        </span>
-      </p>
+      <div className="pb-val-detail-head">
+        <div className="pb-val-detail-title">
+          <h2>
+            <span ref={title} tabIndex={-1} data-testid="suggestion-title">
+              {row.companyName}
+            </span>
+          </h2>
+          <Badge tone={suggestionTone(row.state)}>{suggestionStateWord(row.state)}</Badge>
+        </div>
+        <p className="pb-meta pb-meta-list">
+          <span>{formatDate(row.periodEnd)}</span>
+          <span>
+            <Link to="/portfolio/$id" params={{ id: row.investmentId }}>
+              {row.investmentNumber}
+            </Link>
+          </span>
+          <span>{row.vehicleName}</span>
+          <span>{SOURCE_LABEL[row.basis]}</span>
+          <span>
+            <Link to={SUGGESTIONS_PATH} search={searchFor(undefined, state)}>
+              Close
+            </Link>
+          </span>
+        </p>
+        <div className="pb-val-detail-actions">
+          <ActionButtons
+            row={row}
+            roles={roles}
+            switchedOn={switchedOn}
+            busy={busy}
+            onAsk={onAsk}
+          />
+        </div>
+      </div>
+      <ActionNote row={row} roles={roles} />
       <p className="pb-meta pb-val-source-file" data-testid="suggestion-source">
         {restsOnSourceDocument(row) ? 'Worked out from' : 'Raised when'}{' '}
         <Link to="/documents/extraction/$id" params={{ id: row.source.extractionRunId }}>
@@ -558,7 +593,6 @@ function SuggestionCard({
       <Badges row={row} />
       <DecisionNote row={row} state={state} />
       <SuggestionWorkings row={row} />
-      <Actions row={row} roles={roles} switchedOn={switchedOn} busy={busy} onAsk={onAsk} />
     </Card>
   );
 }
@@ -598,7 +632,7 @@ function Selected({
   }
   return (
     <Card>
-      <PageSkeleton rows={4} />
+      <RowsSkeleton rows={4} label="Loading the suggestion" />
     </Card>
   );
 }
@@ -649,7 +683,7 @@ function Queue({
 }): ReactNode {
   const navigate = useNavigate();
   // The suggestion the page shows moves with the address. When it changes while the page is up,
-  // focus follows it: to the card that opened above the list, and back to the row's link when
+  // focus follows it: to the section that opened under the list, and back to the row's link when
   // the card closes, so a keyboard or screen reader user is never left on the page body.
   const lastShown = useRef(selectedId);
   const [focusFor, setFocusFor] = useState<string | undefined>(undefined);
@@ -692,43 +726,17 @@ function Queue({
     <>
       {header}
       {tabs}
-      <div className="pb-val-gates">
-        <p className="pb-notice" data-testid="suggestions-gate">
-          {NOT_A_MARK}
+      <p className="pb-meta pb-tab-rule" data-testid="suggestions-gate">
+        {NOT_A_MARK}
+      </p>
+      {switchedOn ? null : (
+        <p className="pb-notice" data-testid="suggestions-off">
+          {SUGGESTIONS_OFF}
         </p>
-        {switchedOn ? null : (
-          <p className="pb-notice" data-testid="suggestions-off">
-            {SUGGESTIONS_OFF}
-          </p>
-        )}
-      </div>
-      {/* Above the suggestion acted on, so the result of a decision is read where it was taken. */}
-      <ActionStatus latest={log.latest} testId="suggestion-action-status" />
-      {selectedId === undefined ? null : (
-        <Selected id={selectedId} list={page} listSettled={!list.isPending}>
-          {(row) => (
-            <SuggestionCard
-              row={row}
-              roles={roles}
-              state={state}
-              switchedOn={switchedOn}
-              busy={busy}
-              takeFocus={focusFor === row.id}
-              onAsk={ask}
-            />
-          )}
-        </Selected>
       )}
       <Card testId="suggestions-card">
         <SectionHeader
-          aside={
-            page === undefined ? undefined : (
-              <>
-                {plural(page.items.length, 'suggestion')}
-                <SimulatedBadge />
-              </>
-            )
-          }
+          aside={page === undefined ? undefined : plural(page.items.length, 'suggestion')}
         >
           Suggestions
         </SectionHeader>
@@ -758,7 +766,7 @@ function Queue({
           </Field>
         </Toolbar>
         {list.isPending ? (
-          <PageSkeleton rows={4} />
+          <RowsSkeleton rows={4} label="Loading suggestions" />
         ) : list.isError ? (
           <UnavailableState
             inline
@@ -781,7 +789,12 @@ function Queue({
             />
           )
         ) : (
-          <SuggestionsTable rows={list.data.items} state={state} selectedId={selectedId} />
+          <SuggestionsTable
+            rows={list.data.items}
+            state={state}
+            selectedId={selectedId}
+            busy={list.isPlaceholderData}
+          />
         )}
         {page !== undefined && page.nextCursor !== null ? (
           <p className="pb-meta" data-testid="suggestions-truncated">
@@ -789,6 +802,26 @@ function Queue({
           </p>
         ) : null}
       </Card>
+      {/* Over the suggestion acted on, so the result of a decision is read where it was taken. */}
+      <ActionStatus latest={log.latest} testId="suggestion-action-status" />
+      {selectedId === undefined ? null : (
+        // Keyed on the suggestion, so a new choice settles into place once (valuations.css).
+        <div className="pb-val-detail" key={selectedId}>
+          <Selected id={selectedId} list={page} listSettled={!list.isPending}>
+            {(row) => (
+              <SuggestionCard
+                row={row}
+                roles={roles}
+                state={state}
+                switchedOn={switchedOn}
+                busy={busy}
+                takeFocus={focusFor === row.id}
+                onAsk={ask}
+              />
+            )}
+          </Selected>
+        </div>
+      )}
       <ActionLogCard entries={log.entries} />
       {pending === null ? null : pending.kind === 'dismiss' ? (
         <ReasonDialog
@@ -833,13 +866,11 @@ export function SuggestionsPage(): ReactNode {
       <>
         <PageHeader title={TITLE} />
         <ValuationTabs />
-        <Card>
-          <EmptyState
-            title="Not shown to your role"
-            detail={SUGGESTIONS_READERS}
-            testId="suggestions-not-shown"
-          />
-        </Card>
+        <EmptyState
+          title="Suggestions are not shown to your role."
+          detail={SUGGESTIONS_READERS}
+          testId="suggestions-not-shown"
+        />
       </>
     );
   }

@@ -66,7 +66,9 @@ describe('capital activity board', () => {
     ]);
     const call = within(attention).getByRole('link', { name: 'Silverline Staffing Holdings' });
     expect(call).toHaveAttribute('href', `/capital-activity/${NOTICE_ID.extracted}`);
-    expect(within(call.closest('tr')!).getByText('Wire change')).toHaveClass('pb-badge-plain');
+    // The scenario is quiet words after a dot on the company's line, not a tag.
+    expect(within(call.closest('tr')!).getByText('Wire change')).toHaveClass('pb-cap-scenario');
+    expect(call.closest('td')).toHaveTextContent('Silverline Staffing HoldingsWire change');
     expect(within(call.closest('tr')!).getByText('Extracted')).toBeInTheDocument();
     expect(within(attention).getByText('Overdue by 3 days')).toHaveClass('pb-badge-bad');
     expect(within(attention).getByText('Due in 2 days')).toHaveClass('pb-badge-watch');
@@ -208,13 +210,33 @@ describe('commitments and unfunded', () => {
     );
 
     const table = screen.getByRole('table', { name: 'Commitments' });
-    expect(within(table).getByRole('columnheader', { name: 'Client' })).toBeInTheDocument();
+    // Folded to its figures: the descriptive columns are second lines of the fund and the vehicle.
+    expect(
+      within(table)
+        .getAllByRole('columnheader')
+        .map((h) => h.textContent),
+    ).toEqual([
+      'Sponsor fund',
+      'Vehicle',
+      'Committed',
+      'Called',
+      'Distributed',
+      'Recallable',
+      'Unfunded',
+      'Committed on',
+    ]);
+    const kelpwood = within(table).getByText('Kelpwood Fund I').closest('td')!;
+    expect(kelpwood).toHaveTextContent(/^Kelpwood Fund I.+2015Buyout$/);
     const client = within(table).getByText('Client Gamma Insurance').closest('tr')!;
+    expect(within(client).getByText('Client Gamma Insurance')).toHaveClass('pb-cell-sub');
     expect(within(client).getAllByText('-').length).toBeGreaterThanOrEqual(4);
     const over = within(table).getByText('Oysterbed Credit Fund I').closest('tr')!;
-    expect(within(over).getByText('Over-called')).toBeInTheDocument();
-    expect(within(over).getByText('-$0.4M')).toBeInTheDocument();
+    // The over-called word sits on the figure's line, before it.
+    expect(within(over).getByText('Over-called').closest('td')).toHaveTextContent(
+      'Over-called-$0.4M',
+    );
     const total = within(table).getByRole('rowheader', { name: 'Total' }).closest('tr')!;
+    expect(total.closest('tfoot')).not.toBeNull();
     expect(within(total).getByText('$120.0M')).toBeInTheDocument();
     expect(within(total).getByText('$6.1M')).toBeInTheDocument();
     expect(screen.getByTestId('commitments-note')).toHaveTextContent(

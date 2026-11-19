@@ -518,6 +518,47 @@ p:last-child {
   align-items: center;
   gap: var(--pb-space-2);
 }
+/* What follows a record's name inside its title (a version's quarter and number): lighter, in
+   even figures, set off by a gap; the colon a screen reader hears is hidden from sight. */
+.pb-title-suffix {
+  font-weight: 400;
+  white-space: nowrap;
+  letter-spacing: 0;
+  color: var(--pb-muted);
+  font-variant-numeric: tabular-nums;
+}
+.pb-title-part::before {
+  content: '\00B7';
+  margin-right: var(--pb-space-1);
+}
+/* A record's commands directly under its header (a valuation version, a capital notice), with no
+   heading, rule or frame: the command row, then the result of the reader's command, then the
+   quiet lines that say what a command needs or why none is left. */
+.pb-command-block {
+  margin: 0 0 var(--pb-space-5);
+}
+.pb-command-block > * {
+  margin: 0;
+}
+.pb-command-block > * + :not(:empty) {
+  margin-top: var(--pb-space-2);
+}
+.pb-command-block .pb-action-status > .pb-notice,
+.pb-command-block > .pb-notice {
+  width: fit-content;
+  max-width: 100%;
+  margin: 0;
+}
+.pb-command-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: var(--pb-space-2) var(--pb-space-3);
+}
+/* The marker sits level with the buttons, whatever reason lines hang under them. */
+.pb-command-row > .pb-simulated {
+  margin-top: var(--pb-space-2);
+}
 /* The trail of a record's page: earlier steps as quiet links, a slash between them. */
 .pb-crumbs > ol {
   display: flex;
@@ -583,6 +624,12 @@ p:last-child {
   vertical-align: bottom;
 }
 
+/* A tab's rule in one quiet line at the top of its body, under the tab row (the valuation board,
+   the suggestions, the trade tickets, the wire register); the section under it draws no rule. */
+.pb-tab-rule {
+  margin: 0 0 var(--pb-space-4);
+}
+
 /* ---- Sections and section titles ---- */
 /* A section (Card) is flat: a hairline rule above its content and space below, no frame. The first
    section after the page header, the tabs, the figures strip or the analytics context row carries
@@ -600,15 +647,19 @@ p:last-child {
 .pb-card > :last-child {
   margin-bottom: 0;
 }
-:is(.pb-banner, .pb-tabs, .pb-tiles, .pb-page-context) + .pb-card,
-:is(.pb-banner, .pb-tabs, .pb-tiles, .pb-page-context) + .pb-two-col > .pb-card,
-:is(.pb-banner, .pb-tabs, .pb-tiles, .pb-page-context) + .pb-action-status:empty + .pb-card,
-:is(.pb-banner, .pb-tabs, .pb-tiles, .pb-page-context)
+:is(.pb-banner, .pb-tabs, .pb-tiles, .pb-page-context, .pb-tab-rule) + .pb-card,
+:is(.pb-banner, .pb-tabs, .pb-tiles, .pb-page-context, .pb-tab-rule) + .pb-two-col > .pb-card,
+:is(.pb-banner, .pb-tabs, .pb-tiles, .pb-page-context, .pb-tab-rule)
+  + .pb-action-status:empty
+  + .pb-card,
+:is(.pb-banner, .pb-tabs, .pb-tiles, .pb-page-context, .pb-tab-rule)
   + .pb-action-status:empty
   + .pb-two-col
   > .pb-card,
-:is(.pb-banner, .pb-tabs, .pb-tiles, .pb-page-context) + .pb-page-body > .pb-card:first-child,
-:is(.pb-banner, .pb-tabs, .pb-tiles, .pb-page-context)
+:is(.pb-banner, .pb-tabs, .pb-tiles, .pb-page-context, .pb-tab-rule)
+  + .pb-page-body
+  > .pb-card:first-child,
+:is(.pb-banner, .pb-tabs, .pb-tiles, .pb-page-context, .pb-tab-rule)
   + .pb-page-body
   > .pb-two-col:first-child
   > .pb-card {
@@ -954,9 +1005,10 @@ p:last-child {
 .pb-table td.is-missing {
   color: var(--pb-muted-strong);
 }
-/* Totals sit in tfoot, under a stronger rule. */
+/* Totals sit in tfoot, under a stronger rule; a total's row header too, with no hairline under it. */
 .pb-table tfoot td,
-.pb-table tfoot th {
+.pb-table tfoot th,
+.pb-table tfoot th[scope='row'] {
   border-top: 1px solid var(--pb-border-strong);
   border-bottom: 0;
   font-weight: 600;
@@ -1145,6 +1197,10 @@ p:last-child {
   gap: var(--pb-space-3) var(--pb-space-4);
   margin: 0 0 var(--pb-space-4);
 }
+/* A row of controls under a table (a pager, a count) keeps a little room from the last row. */
+.pb-table-wrap + .pb-toolbar {
+  margin-top: var(--pb-space-3);
+}
 .pb-toolbar-end {
   display: inline-flex;
   flex-wrap: wrap;
@@ -1312,6 +1368,14 @@ p:last-child {
   justify-items: start;
   padding: var(--pb-space-3) 0;
   text-align: left;
+}
+/* Nothing to show inside a section, in one muted line (EmptyLine): what is missing, then why. */
+.pb-empty-line {
+  margin: 0;
+}
+.pb-empty-line-title {
+  font-weight: 500;
+  color: var(--pb-muted-strong);
 }
 .pb-card > .pb-empty:only-child,
 .pb-main > .pb-empty {

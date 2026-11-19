@@ -13,22 +13,28 @@ export function WireStateBadge({ state }: { state: WireInstructionState }): Reac
 
 /**
  * The versions of the register as one table, masked (SEC-12.2): the whole register on the
- * register page, one counterparty's history on the instruction page (currentId marks the version
- * the page is about). Every row links to its version.
+ * register page, held in a tall region whose header stays in view, and one counterparty's history
+ * on the instruction page (currentId marks the version the page is about). Every row links to its
+ * version.
  */
 export function WireTable({
   rows,
   label,
   showCounterparty = true,
   currentId,
+  tall = false,
+  rowProps,
 }: {
   rows: readonly WireInstructionRow[];
   label: string;
   showCounterparty?: boolean;
   currentId?: string | undefined;
+  tall?: boolean;
+  /** The wash on the row the reader's own command added. */
+  rowProps?: ((id: string) => object) | undefined;
 }): ReactNode {
   return (
-    <TableWrap label={label}>
+    <TableWrap label={label} tall={tall}>
       <table className="pb-table" aria-label={label}>
         <thead>
           <tr>
@@ -43,17 +49,17 @@ export function WireTable({
         </thead>
         <tbody>
           {rows.map((w) => (
-            <tr key={w.id} {...(w.id === currentId ? { 'aria-current': 'true' as const } : {})}>
+            <tr
+              key={w.id}
+              {...(w.id === currentId ? { 'aria-current': 'true' as const } : {})}
+              {...rowProps?.(w.id)}
+            >
               {showCounterparty ? (
                 <td>
-                  <span className="pb-cap-subject">
-                    <Link to="/capital-activity/wires/$id" params={{ id: w.id }}>
-                      {w.counterparty.name}
-                    </Link>
-                    <Badge plain tone="neutral">
-                      {kindLabel(w.counterparty.kind)}
-                    </Badge>
-                  </span>
+                  <Link to="/capital-activity/wires/$id" params={{ id: w.id }}>
+                    {w.counterparty.name}
+                  </Link>
+                  <span className="pb-cell-sub">{kindLabel(w.counterparty.kind)}</span>
                 </td>
               ) : null}
               <td className="pb-nowrap">
@@ -70,7 +76,7 @@ export function WireTable({
                 <WireStateBadge state={w.state} />
               </td>
               <td className="pb-nowrap pb-wire-masked">{w.bankDetailsMasked}</td>
-              <td>
+              <td className="pb-nowrap">
                 {w.proposedBy.name}, {formatDate(dayOf(w.proposedAt))}
               </td>
               <td>

@@ -47,19 +47,50 @@ describe('capital notice detail', () => {
     expect(banner).toHaveTextContent('Issued Jul 10, 2025');
     expect(banner).toHaveTextContent('Due Jul 12, 2025');
     expect(banner).toHaveTextContent('$2.5M USD');
+    // The trail replaces the back link; the state sits on the title's line, outside the heading.
+    const trail = within(banner).getByRole('navigation', { name: 'Breadcrumb' });
+    expect(within(trail).getByRole('link', { name: 'Capital activity' })).toHaveAttribute(
+      'href',
+      '/capital-activity',
+    );
+    expect(within(trail).getByRole('link', { name: 'Notices' })).toHaveAttribute(
+      'href',
+      '/capital-activity',
+    );
+    expect(screen.queryByRole('link', { name: 'All capital notices' })).not.toBeInTheDocument();
+    expect(within(banner).getByText('Extracted')).toHaveClass('pb-badge-watch');
+    expect(within(banner).getByRole('heading', { level: 1 })).not.toHaveTextContent('Extracted');
+    // The command that moves the notice on leads, in the block under the header, with no heading.
+    const block = screen.getByTestId('notice-workflow');
+    expect(within(block).queryByRole('heading')).not.toBeInTheDocument();
+    expect(within(block).getByRole('button', { name: 'Review' })).toBeEnabled();
+    // Currency joins the amount's hint; the header already states it.
+    expect(within(tile('notice-tiles', 'Amount')).getByText('USD')).toBeInTheDocument();
+    expect(
+      within(screen.getByTestId('notice-tiles')).queryByRole('group', { name: 'Currency' }),
+    ).not.toBeInTheDocument();
 
     const progress = screen.getByRole('list', { name: 'Notice progress' });
     const steps = within(progress).getAllByRole('listitem');
     expect(steps).toHaveLength(7);
-    expect(steps[0]).toHaveTextContent('ReceivedDone');
+    // The shared step strip: a done step says so, the current one too, a step ahead to a screen
+    // reader only.
+    expect(steps[0]).toHaveAttribute('data-status', 'done');
+    expect(steps[0]).toHaveTextContent(/^Received.*Done$/);
     expect(steps[1]).toHaveAttribute('aria-current', 'step');
     expect(steps[1]).toHaveTextContent('ExtractedCurrent');
     expect(steps[2]).toHaveTextContent('ReviewedUpcoming');
+    expect(within(steps[2]!).getByText('Upcoming')).toHaveClass('pb-visually-hidden');
     expect(within(progress).getAllByText('Done')).toHaveLength(1);
 
-    expect(screen.getByTestId('wire-hold')).toHaveTextContent(
-      'Wire instructions changed within the hold window. Ticket approval is held until Jul 30, 2025 (30 days).',
+    // The hold and the alerts are one block under the header, on the page's one bad band.
+    const holds = screen.getByRole('region', { name: 'Holds and alerts' });
+    expect(holds).toHaveClass('is-bad');
+    expect(within(holds).getByTestId('wire-hold')).toHaveTextContent(
+      'HeldWire instructions changed within the hold window. Ticket approval is held until Jul 30, 2025 (30 days).',
     );
+    expect(within(screen.getByTestId('wire-hold')).getByText('Held')).toHaveClass('pb-badge-bad');
+    expect(within(holds).getByTestId('notice-alerts')).toBeInTheDocument();
     // The SEC-12.4 alerts: a badge and a plain sentence each, in the contract's order.
     const alerts = within(screen.getByTestId('notice-alerts')).getAllByRole('listitem');
     expect(alerts).toHaveLength(3);
@@ -83,9 +114,9 @@ describe('capital notice detail', () => {
     expect(
       within(screen.getByRole('table', { name: 'Split' })).getByText('Investment'),
     ).toBeInTheDocument();
-    expect(
-      screen.getByText('They are created when the ticket is approved and funding is confirmed.'),
-    ).toBeInTheDocument();
+    expect(screen.getByTestId('notice-cash-flows')).toHaveTextContent(
+      'No cash flows yet. They are created when the ticket is approved and funding is confirmed.',
+    );
     expect(
       screen.getByText(/changed bank details; the instructions on file are unchanged/),
     ).toBeInTheDocument();
@@ -111,7 +142,9 @@ describe('capital notice detail', () => {
     // No approver and no instruction version yet: the missing placeholder, never a blank or a zero.
     expect(within(ticket).getAllByText('-')).toHaveLength(3);
     const release = within(panel).getByTestId('ticket-release');
-    expect(release).toHaveClass('pb-notice-bad');
+    // A dot list with no box: the page's one band is the holds and alerts block.
+    expect(release).not.toHaveClass('pb-notice-bad');
+    expect(release).toHaveTextContent(/^Release is blocked:/);
     const blockers = within(release).getAllByRole('listitem');
     expect(blockers.map((b) => b.textContent)).toEqual([
       "The wire instructions changed within the hold window and wait for a second person's callback.",
@@ -161,7 +194,7 @@ describe('capital notice detail', () => {
     );
     expect(within(ticket).getByText('Meridian Clearing ****2204')).toBeInTheDocument();
     const release = within(panel).getByTestId('ticket-release');
-    expect(release).toHaveClass('pb-notice-good');
+    expect(release).not.toHaveClass('pb-notice-good');
     expect(release).toHaveTextContent(RELEASE_ALLOWED);
   });
 
@@ -298,7 +331,7 @@ describe('capital notice detail', () => {
     });
     renderWithQuery(<CapitalNoticePage />);
     const release = await screen.findByTestId('ticket-release');
-    expect(release).toHaveClass('pb-notice-bad');
+    expect(release).toHaveTextContent(/^Release is blocked:/);
     expect(
       within(release)
         .getAllByRole('listitem')

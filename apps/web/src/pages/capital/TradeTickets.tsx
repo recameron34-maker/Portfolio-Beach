@@ -20,10 +20,10 @@ import {
   TabNav,
   Toolbar,
 } from '../../components/ui.js';
-import { formatDate, MISSING, plural } from '../../lib/format.js';
+import { formatDate, labelOf, MISSING, plural } from '../../lib/format.js';
 import { humanizeState } from '../../lib/states.js';
 import { tradeTicketsQuery } from './api.js';
-import { noticeAmount } from './notices.js';
+import { noticeAmount, noticeSubject } from './notices.js';
 import {
   BLOCKER_WORDS,
   blockerLabel,
@@ -61,6 +61,40 @@ function ReleaseCell({ ticket }: { ticket: TradeTicketRow }): ReactNode {
   );
 }
 
+/**
+ * The notice a ticket pays: the company or fund as the link, the notice type on a second line.
+ * The link's name reads as the notice board names the notice ("Capital call: Summit Services
+ * Co"), the type heard once; the short id stands in when the notice list is not at hand.
+ */
+function NoticeCell({
+  ticket,
+  notices,
+}: {
+  ticket: TradeTicketRow;
+  notices: ReadonlyMap<string, CapitalNoticeRow>;
+}): ReactNode {
+  const notice = notices.get(ticket.capitalNoticeId);
+  if (notice === undefined)
+    return (
+      <td>
+        <Link to="/capital-activity/$id" params={{ id: ticket.capitalNoticeId }}>
+          {ticketNoticeLabel(ticket, notices)}
+        </Link>
+      </td>
+    );
+  const type = labelOf(notice.noticeType);
+  return (
+    <td>
+      <Link to="/capital-activity/$id" params={{ id: ticket.capitalNoticeId }}>
+        <span className="pb-visually-hidden">{type}:</span> {noticeSubject(notice)}
+      </Link>
+      <span className="pb-cell-sub" aria-hidden="true">
+        {type}
+      </span>
+    </td>
+  );
+}
+
 function TicketsTable({
   rows,
   notices,
@@ -69,7 +103,7 @@ function TicketsTable({
   notices: ReadonlyMap<string, CapitalNoticeRow>;
 }): ReactNode {
   return (
-    <TableWrap label="Trade tickets">
+    <TableWrap label="Trade tickets" tall>
       <table className="pb-table" aria-label="Trade tickets">
         <thead>
           <tr>
@@ -86,15 +120,11 @@ function TicketsTable({
         <tbody>
           {rows.map((t) => (
             <tr key={t.id}>
-              <td>
-                <Link to="/capital-activity/$id" params={{ id: t.capitalNoticeId }}>
-                  {ticketNoticeLabel(t, notices)}
-                </Link>
-              </td>
+              <NoticeCell ticket={t} notices={notices} />
               <NumCell>{noticeAmount(t.amount, t.currency)}</NumCell>
               <td className="pb-nowrap">{formatDate(t.fundingDate)}</td>
-              <td>{t.preparedBy.name}</td>
-              <td>{t.approvedBy === null ? MISSING : t.approvedBy.name}</td>
+              <td className="pb-nowrap">{t.preparedBy.name}</td>
+              <td className="pb-nowrap">{t.approvedBy === null ? MISSING : t.approvedBy.name}</td>
               <td className="pb-nowrap pb-wire-masked">
                 {t.wireInstruction !== null
                   ? `Version ${t.wireInstruction.version}: ${t.wireInstruction.bankDetailsMasked}`
@@ -102,7 +132,7 @@ function TicketsTable({
                     ? REGISTER_RESTRICTED
                     : MISSING}
               </td>
-              <td>
+              <td className="pb-nowrap">
                 <Badge tone={ticketTone(t.state)}>{humanizeState(t.state)}</Badge>
               </td>
               <ReleaseCell ticket={t} />
@@ -127,11 +157,12 @@ export function TradeTicketsPage(): ReactNode {
   const [state, setState] = useState<TradeTicketState | ''>('');
   const header = (
     <>
-      <PageHeader
-        title="Trade tickets"
-        meta="One ticket per notice. The preparer and the approver must differ, and a ticket releases only against a Verified wire instruction that did not change within the hold window."
-      />
+      <PageHeader title="Trade tickets" />
       <TabNav label="Capital activity" items={CAPITAL_TABS} />
+      <p className="pb-meta pb-tab-rule">
+        One ticket per notice. The preparer and the approver must differ, and a ticket releases only
+        against a Verified wire instruction that did not change within the hold window.
+      </p>
     </>
   );
   if (q.isPending) return <PageSkeleton rows={8} />;

@@ -159,16 +159,29 @@ describe('valuation version screen', () => {
       `/portfolio/${POSITION_ID.meridian}`,
     );
     expect(within(banner).getByText('Locked')).toHaveClass('pb-badge-good');
-    expect(screen.getByRole('link', { name: 'Valuation board' })).toHaveAttribute(
+    // The trail replaces the back link; the state sits on the title's line, outside the heading.
+    const trail = within(banner).getByRole('navigation', { name: 'Breadcrumb' });
+    expect(within(trail).getByRole('link', { name: 'Valuations' })).toHaveAttribute(
       'href',
       '/valuations',
     );
+    expect(within(trail).getByRole('link', { name: 'Board' })).toHaveAttribute(
+      'href',
+      '/valuations',
+    );
+    expect(screen.queryByRole('link', { name: 'Valuation board' })).not.toBeInTheDocument();
+    expect(within(banner).getByRole('heading', { level: 1 })).not.toHaveTextContent('Locked');
+    // The commands sit in a flat block under the header, with no heading of their own.
+    const block = screen.getByTestId('valuation-workflow');
+    expect(within(block).queryByRole('heading')).not.toBeInTheDocument();
 
     const steps = within(screen.getByRole('list', { name: 'Valuation progress' })).getAllByRole(
       'listitem',
     );
+    // The shared step strip: each step done says so, the current one too.
     expect(steps).toHaveLength(4);
-    expect(steps[0]).toHaveTextContent('DraftDone');
+    expect(steps[0]).toHaveAttribute('data-status', 'done');
+    expect(steps[0]).toHaveTextContent(/^Draft.*Done$/);
     expect(steps[3]).toHaveAttribute('aria-current', 'step');
     expect(steps[3]).toHaveTextContent('LockedCurrent');
 
@@ -358,9 +371,10 @@ describe('valuation version screen', () => {
     renderWithQuery(<ValuationDetailPage />);
     const card = await screen.findByTestId('valuation-inputs');
     expect(card).toHaveTextContent('3 inputs');
-    const rows = within(within(card).getByRole('table', { name: 'Method inputs' }))
-      .getAllByRole('row')
-      .slice(1);
+    // Key and value pairs, one a row, with no header row.
+    const rows = within(within(card).getByRole('table', { name: 'Method inputs' })).getAllByRole(
+      'row',
+    );
     expect(rows.map((r) => r.textContent)).toEqual([
       'basisLTM EBITDA',
       'comps{"count":6,"set":"peers"}',
@@ -876,7 +890,11 @@ describe('valuation version screen', () => {
     expect(
       await screen.findByText('Valuation not found or not visible to you'),
     ).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: 'Valuation board' })).toBeInTheDocument();
+    expect(
+      within(screen.getByRole('navigation', { name: 'Breadcrumb' })).getByRole('link', {
+        name: 'Board',
+      }),
+    ).toHaveAttribute('href', '/valuations');
   });
 
   it('degrades to a not-available state on a 501', async () => {

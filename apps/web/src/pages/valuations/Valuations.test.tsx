@@ -71,9 +71,11 @@ describe('valuation board', () => {
     renderWithQuery(<ValuationsPage />);
     const table = await screen.findByRole('table', { name: 'Valuations' });
     expect(screen.getByText('As of Jun 30, 2025')).toBeInTheDocument();
+    // The board's rule is one quiet line at the top of the tab, not a notice.
     expect(screen.getByTestId('valuation-gate')).toHaveTextContent(
-      'Reports read Locked valuations only. Draft, Ops prepared and Deal team approved versions never reach a report.',
+      /^Reports read Locked valuations only\.$/,
     );
+    expect(screen.getByTestId('valuation-gate')).not.toHaveClass('pb-notice');
     expect(within(tile('Locked')).getByText('2')).toBeInTheDocument();
     expect(within(tile('In flight')).getByText('3')).toBeInTheDocument();
     expect(within(tile('Reopened')).getByText('1')).toBeInTheDocument();
@@ -490,9 +492,9 @@ describe('valuation board', () => {
       }),
     );
     renderWithQuery(<ValuationsPage />);
-    expect(
-      await screen.findByText('Every active position has a mark for this period'),
-    ).toBeInTheDocument();
+    expect(await screen.findByTestId('missing-marks-none')).toHaveTextContent(
+      'Every active position has at least one valuation version for Jun 30, 2025.',
+    );
     expect(tile('Missing marks')).not.toHaveAttribute('data-tone');
   });
 
@@ -551,6 +553,24 @@ describe('valuation board', () => {
     renderWithQuery(<ValuationsPage />);
     await screen.findByRole('table', { name: 'Valuations' });
     expect(screen.queryByRole('button', { name: 'New valuation' })).not.toBeInTheDocument();
+  });
+
+  it('says under New valuation why it is not offered, and the button points to it', async () => {
+    mockApi(
+      routes({
+        [ACTIVE]: ok(
+          investmentPageFixture(activePositions().filter((p) => p.id !== POSITION_ID.summitCare)),
+        ),
+      }),
+    );
+    renderWithQuery(<ValuationsPage />);
+    await screen.findByTestId('missing-marks-none');
+    const start = screen.getByRole('button', { name: 'New valuation' });
+    expect(start).toBeDisabled();
+    expect(start).toHaveAccessibleDescription(
+      'Every active position has a version for Jun 30, 2025',
+    );
+    expect(screen.getByText('Every active position has a version for Jun 30, 2025')).toBeVisible();
   });
 
   it('never shows an em dash', async () => {
