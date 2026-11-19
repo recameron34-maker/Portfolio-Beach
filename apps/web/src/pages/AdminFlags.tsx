@@ -19,6 +19,7 @@ import {
   TabNav,
 } from '../components/ui.js';
 import { useNarrowScreen } from '../lib/media.js';
+import { withoutReferences } from '../lib/references.js';
 
 /** A switch the reader can change, or not yet: the reason unlocks it, the role allows it. */
 interface FlagRowProps {
@@ -30,14 +31,15 @@ interface FlagRowProps {
 }
 
 /**
- * One flag: its description (the key is never shown), its state as a dot and a word, and the
- * switch. On a phone the switch comes second so it stays on screen. The switch keeps the key in
- * its accessible name, which the preview's probe reads (docs/SESSION_LOG.md, open items).
+ * One flag: its description without the control it cites (the key is never shown), its state as a
+ * dot and a word, and the switch. On a phone the switch comes second so it stays on screen. The
+ * switch keeps the key in its accessible name, which the preview's probe reads
+ * (docs/SESSION_LOG.md, open items).
  */
 function FlagRow({ flag, disabled, narrow, onChange, washing }: FlagRowProps): ReactNode {
   const name = (
     <th scope="row" className="pb-flag-name">
-      {flag.description}
+      {withoutReferences(flag.description)}
       {flag.description.includes('Kill switch') ? (
         <span className="pb-flag-marker">Kill switch</span>
       ) : null}
@@ -82,8 +84,9 @@ export function AdminFlagsPage(): ReactNode {
     mutationFn: ({ key, enabled }: { key: string; enabled: boolean }) =>
       patchFlag({ key, enabled, reason }),
     onSuccess: (f) => {
+      // The flag by its description, as the table names it; the key stays with the switch.
       setMessage(
-        `${f.key} is now ${f.enabled ? 'on' : 'off'} ${previewMode ? '(simulated in this preview, not audited)' : '(audited)'}.`,
+        `${withoutReferences(f.description)} is now ${f.enabled ? 'on' : 'off'} ${previewMode ? '(simulated in this preview, not audited)' : '(audited)'}.`,
       );
       changed.mark(f.key);
       void queryClient.invalidateQueries({ queryKey: ['flags'] });

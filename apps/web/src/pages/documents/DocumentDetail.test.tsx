@@ -217,7 +217,9 @@ describe('a document', () => {
       await screen.findByTestId('document-banner');
       expect(within(banner()).getByText('Needs review')).toHaveClass('pb-badge-watch');
       expect(within(banner()).getAllByText('-').length).toBeGreaterThan(0);
-      expect(value('Candidates')).toHaveTextContent('suggested doc_type.other below the threshold');
+      // A document type inside a candidate's reason reads as its label, not its code.
+      expect(value('Candidates')).toHaveTextContent('suggested Other below the threshold');
+      expect(value('Candidates')).not.toHaveTextContent('doc_type.');
       expect(value('Classified by')).toHaveTextContent('-');
       expect(screen.queryByTestId('document-duplicates')).not.toBeInTheDocument();
 
@@ -294,12 +296,17 @@ describe('a document', () => {
       companyName: 'Meridian Data Partners',
       classifierEvidence: {
         keywords: ['capital account statement'],
-        candidates: [{ reason: STATEMENT_HOLD_REASONS.disagree }],
+        candidates: [
+          { reason: STATEMENT_HOLD_REASONS.disagree },
+          { reason: 'classifier suggestion: doc_type.capital_account_statement' },
+        ],
       },
     });
     mockApi(routes(['operations'], held));
     renderWithQuery(<DocumentDetailPage />);
     const form = await screen.findByTestId('document-classify');
+    // The classifier's suggestion as the API words it, said as a type.
+    expect(value('Candidates')).toHaveTextContent('Suggested type: Capital account statement');
     expect(within(form).getByTestId('document-statement-hold')).toHaveTextContent(
       'The reference and the company named on this statement disagree. Choose the position it is for; left empty, it keeps the one linked now.',
     );

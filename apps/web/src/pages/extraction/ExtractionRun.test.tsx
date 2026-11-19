@@ -122,9 +122,16 @@ describe('extraction run review', () => {
     );
     expect(banner).toHaveTextContent('INV-0001');
     expect(banner).toHaveTextContent('Period Jun 30, 2025');
-    expect(banner).toHaveTextContent('Model mock, prompt quarterly_extraction v1');
-    expect(banner).toHaveTextContent('Tokens 2048 in, 64 out');
-    expect(banner).toHaveTextContent('Cost $0.0071');
+    // How the run was made sits folded under the header, in words: no schema or prompt name.
+    expect(banner).not.toHaveTextContent('quarterly_');
+    const details = screen.getByTestId('run-details');
+    expect(details).not.toHaveAttribute('open');
+    expect(within(details).getByText('Run details')).toBeInTheDocument();
+    expect(details).toHaveTextContent('Read as Quarterly financials');
+    expect(details).toHaveTextContent('Model: mock, prompt version 1');
+    expect(details).toHaveTextContent('2048 tokens in, 64 out');
+    expect(details).toHaveTextContent('Cost $0.0071');
+    expect(details).not.toHaveTextContent('quarterly_');
     expect(within(banner).getByText('Succeeded')).toHaveClass('pb-badge-good');
     expect(within(banner).getByText('Awaiting approval')).toHaveClass('pb-badge-watch');
     // The trail names where the run sits: Documents, then Extraction.

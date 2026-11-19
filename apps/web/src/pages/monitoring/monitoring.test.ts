@@ -172,7 +172,7 @@ describe('monitoring helpers', () => {
     expect(LATE_AFTER_DAYS).toBe(definitions.documents.lateAfterDays);
     expect(MISSING_AFTER_DAYS).toBe(definitions.documents.missingAfterDays);
     expect(thresholdsLine()).toBe(
-      `A report counts as late ${definitions.documents.lateAfterDays} days after its due date and as missing after ${definitions.documents.missingAfterDays} days (config/definitions.json documents).`,
+      `A report counts as late ${definitions.documents.lateAfterDays} days after its due date and as missing after ${definitions.documents.missingAfterDays} days.`,
     );
   });
 

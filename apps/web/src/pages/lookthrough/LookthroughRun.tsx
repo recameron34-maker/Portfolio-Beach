@@ -2,8 +2,9 @@ import { Fragment } from 'react';
 import type { ReactNode } from 'react';
 import { Link, useParams, useSearch } from '@tanstack/react-router';
 import { useQuery } from '@tanstack/react-query';
-import type { LookthroughRow, LookthroughRunDetail } from '@pb/contracts';
+import type { LookthroughDifference, LookthroughRow, LookthroughRunDetail } from '@pb/contracts';
 import { ApiError } from '../../api/client.js';
+import { codeWords } from '../../components/plain-words.js';
 import { UnavailableState } from '../../components/UnavailableState.js';
 import {
   Badge,
@@ -106,6 +107,19 @@ function ExposureCell({
   );
 }
 
+/**
+ * A difference in words: the record's code by its label, and the provider's own label without the
+ * code it mapped to ("Sector Energy transition on record, provider Healthcare"). Figures are left
+ * as they came, so the money reads as the record holds it.
+ */
+function differenceWords(d: LookthroughDifference): string {
+  return describeDifference({
+    ...d,
+    expected: d.expected === null ? null : codeWords(d.expected),
+    actual: d.actual === null ? null : codeWords(d.actual),
+  });
+}
+
 /** The fields that disagree with the record, in words; each one's title says both sides. */
 function DifferencesCell({ row }: { row: LookthroughRow }): ReactNode {
   if (row.differences.length === 0) {
@@ -122,13 +136,13 @@ function DifferencesCell({ row }: { row: LookthroughRow }): ReactNode {
         {row.differences.map((d, i) => (
           <Fragment key={d.field}>
             {i === 0 ? null : ', '}
-            <span title={describeDifference(d)}>{DIFFERENCE_LABELS[d.field]}</span>
+            <span title={differenceWords(d)}>{DIFFERENCE_LABELS[d.field]}</span>
           </Fragment>
         ))}
       </span>
       {row.differences.map((d) => (
         <span key={d.field} className="pb-visually-hidden">
-          {describeDifference(d)}
+          {differenceWords(d)}
         </span>
       ))}
     </td>

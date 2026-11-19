@@ -520,7 +520,7 @@ export function VehicleDetailPage(): ReactNode {
       <FundCommitmentsCard vehicle={v} />
       <ClientCommitmentsCard vehicle={v} />
       <p className="pb-meta pb-vehicles-foot" data-testid="vehicle-calc-version">
-        Calc version {v.calcVersion}.
+        Figures use calculation rules version {v.calcVersion}.
       </p>
     </>
   );

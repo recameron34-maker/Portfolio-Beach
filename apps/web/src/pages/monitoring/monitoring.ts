@@ -27,7 +27,7 @@ export const MISSING_AFTER_DAYS: number = definitions.documents.missingAfterDays
 
 /** What the thresholds line under the board says, from config, never a copy of the numbers. */
 export function thresholdsLine(): string {
-  return `A report counts as late ${plural(LATE_AFTER_DAYS, 'day')} after its due date and as missing after ${plural(MISSING_AFTER_DAYS, 'day')} (config/definitions.json documents).`;
+  return `A report counts as late ${plural(LATE_AFTER_DAYS, 'day')} after its due date and as missing after ${plural(MISSING_AFTER_DAYS, 'day')}.`;
 }
 
 export const DOCUMENT_STATUS_WORDS: Readonly<Record<ExpectedDocumentStatus, string>> = {

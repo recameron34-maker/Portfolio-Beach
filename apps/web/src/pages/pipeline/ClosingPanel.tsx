@@ -421,8 +421,8 @@ function ItemsCard({
       )}
       {lock === null ? (
         <p className="pb-note">
-          From config/closing_checklist.json. Operations cannot confirm the closing while a required
-          item is open; an optional item is tracked but never blocks.
+          Operations cannot confirm the closing while a required item is open. Optional items are
+          tracked but never block.
         </p>
       ) : lock === move ? null : (
         <p className="pb-note" data-testid="closing-items-lock">

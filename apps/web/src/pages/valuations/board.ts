@@ -25,7 +25,8 @@ import { formatDate, formatPct, MISSING } from '../../lib/format.js';
 /** Fair value change at or above this share of the prior Locked mark is flagged (config/definitions.json). */
 export const VARIANCE_FLAG: number = definitions.valuationVarianceFlag;
 
-export const VARIANCE_TITLE = `Above the ${formatPct(String(VARIANCE_FLAG))} flag (config/definitions.json)`;
+/** The flag in words: it fires at or above the share, up or down (`aboveVarianceFlag`). */
+export const VARIANCE_TITLE = `Moved ${formatPct(String(VARIANCE_FLAG))} or more from the prior Locked mark`;
 
 /**
  * Active positions, with exactly the filters the analytics exposure tab sends, so both pages share

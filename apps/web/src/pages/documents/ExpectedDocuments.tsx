@@ -75,7 +75,7 @@ function GenerateCard({ defaultPeriodEnd }: { defaultPeriodEnd: string }): React
       <p className="pb-meta">
         One quarterly report per position that reports quarterly figures and one capital account
         statement per sponsor fund with a commitment, due a fixed number of days after the quarter
-        end (config). Rows a quarter already has are kept.
+        end. Rows a quarter already has are kept.
       </p>
       <div className="pb-documents-form">
         <div className="pb-field">

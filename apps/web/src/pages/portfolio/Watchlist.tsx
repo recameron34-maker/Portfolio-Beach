@@ -21,7 +21,7 @@ import {
   TabNav,
   Toolbar,
 } from '../../components/ui.js';
-import { formatDate, labelOf, plural } from '../../lib/format.js';
+import { formatDate, formatMultiple, formatPct, labelOf, plural } from '../../lib/format.js';
 import { watchFlagLabel } from '../../lib/labels.js';
 import { useNarrowScreen } from '../../lib/media.js';
 import { balanceTiles } from '../../lib/tiles.js';
@@ -34,14 +34,28 @@ const SEVERITY_LABELS: Record<Severity, string> = {
   watch: 'Watch',
 };
 
-/** Readable names for the config keys; an unknown key shows as itself. */
+/** Readable names for the thresholds; an unknown one shows as it came. */
 const THRESHOLD_LABELS: Record<string, string> = {
   netDebtToEbitdaMax: 'Net debt / EBITDA, maximum',
   ebitdaYoYDeclinePct: 'EBITDA decline year on year',
   markdownPct: 'Markdown against the prior Locked mark',
-  missingFinancialsDays: 'Days without approved financials',
-  maturityWithinMonths: 'Maturity within (months)',
+  missingFinancialsDays: 'Without approved financials for',
+  maturityWithinMonths: 'Maturity within',
 };
+
+/**
+ * A threshold in the reader's units, from the unit its name carries: a share as a percentage,
+ * months and days as words, the leverage limit as a multiple. Any other value shows as recorded.
+ */
+function thresholdText(key: string, value: number | string): string {
+  const text = String(value);
+  if (key.endsWith('Pct')) return formatPct(text);
+  if (key === 'netDebtToEbitdaMax') return formatMultiple(text);
+  const n = typeof value === 'number' ? value : Number.NaN;
+  if (Number.isInteger(n) && key.endsWith('Months')) return plural(n, 'month');
+  if (Number.isInteger(n) && key.endsWith('Days')) return plural(n, 'day');
+  return text;
+}
 
 const needsAction = (item: WatchlistItem): boolean => item.flags.some((f) => f.severity === 'bad');
 
@@ -192,24 +206,15 @@ function WatchlistBody({ data }: { data: Watchlist }): ReactNode {
         )}
       </Card>
       <Card>
-        <SectionHeader aside="Percentages are decimals (0.15 = 15%)">
-          Thresholds (config/definitions.json)
-        </SectionHeader>
+        <SectionHeader>Monitoring thresholds</SectionHeader>
         <KeyValueTable
-          label="Thresholds (config/definitions.json)"
+          label="Monitoring thresholds"
           rows={Object.entries(data.thresholds).map(([key, value]) => ({
             label: THRESHOLD_LABELS[key] ?? key,
-            value: (
-              <>
-                {String(value)} <span className="pb-key">{key}</span>
-              </>
-            ),
+            value: thresholdText(key, value),
           }))}
         />
-        <p className="pb-meta">
-          Thresholds change in configuration, never in code; every flag above cites the limit it was
-          tested against.
-        </p>
+        <p className="pb-meta">Each flag above names the limit it was tested against.</p>
       </Card>
     </>
   );

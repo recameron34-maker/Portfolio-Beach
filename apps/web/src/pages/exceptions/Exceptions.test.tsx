@@ -115,6 +115,11 @@ describe('the exceptions queue', () => {
     expect(within(nav).queryAllByText('-')).toHaveLength(0);
     expect(within(nav).getAllByRole('cell')[9]).toHaveTextContent(/^(today|\d+ days?)$/);
 
+    // A taxonomy code reads as its label; the provider's label loses the code it mapped to.
+    const sector = rowOf('Energy transition');
+    expect(within(sector).getByText('Healthcare')).toBeInTheDocument();
+    expect(sector).not.toHaveTextContent('sector.');
+
     const unmatched = rowOf('Meridian Data Partner');
     expect(within(unmatched).getByText(/, row 5$/)).toBeInTheDocument();
     expect(within(unmatched).queryByRole('link', { name: /INV-/ })).not.toBeInTheDocument();

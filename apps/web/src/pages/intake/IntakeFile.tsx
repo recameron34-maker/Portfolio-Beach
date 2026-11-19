@@ -9,6 +9,7 @@ import type { StagingState } from '@pb/contracts';
 import { ApiError } from '../../api/client.js';
 import { describeActionError, useIntakeCommand } from '../../app/mutations.js';
 import { intakeFileQuery, meQuery } from '../../app/queries.js';
+import { plainWords } from '../../components/plain-words.js';
 import { UnavailableState } from '../../components/UnavailableState.js';
 import {
   Badge,
@@ -112,7 +113,7 @@ export function FileFindingsCard({
             <li key={`${f.ruleId}-${i}`}>
               <span className={`pb-dot pb-status-${findingTone(f.severity)}`} aria-hidden="true" />
               <span className="pb-rule-id">{f.ruleId}</span>
-              <span>{f.message}</span>
+              <span>{plainWords(f.message)}</span>
               {detail === null ? null : <span className="pb-note">{detail}</span>}
             </li>
           );
@@ -224,7 +225,7 @@ export function FindingsCell({ findings }: { findings: readonly IntakeFinding[] 
             const detail = findingDetail(f);
             return (
               <li key={`${f.ruleId}-${i}`}>
-                {f.ruleId}: {f.message}
+                {f.ruleId}: {plainWords(f.message)}
                 {detail === null ? '' : ` (${detail})`}
               </li>
             );
@@ -235,7 +236,7 @@ export function FindingsCell({ findings }: { findings: readonly IntakeFinding[] 
         {findings.map((f, i) => (
           <Fragment key={`${f.ruleId}-${i}`}>
             {i === 0 ? null : ', '}
-            <span title={f.message}>{f.ruleId}</span>
+            <span title={plainWords(f.message)}>{f.ruleId}</span>
           </Fragment>
         ))}
       </span>

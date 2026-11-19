@@ -535,12 +535,12 @@ export function SponsorDetailPage(): ReactNode {
       <Card testId="sponsor-relationship">
         <SectionHeader>Contacts and interactions</SectionHeader>
         <EmptyLine>
-          Contacts and interactions are not built yet. That release adds the relationship score,
-          warm paths, coverage and AGM notes.
+          Not built yet. This section will hold contacts, the relationship score, warm paths,
+          coverage and AGM notes.
         </EmptyLine>
       </Card>
       <p className="pb-note" data-testid="sponsor-calc-version">
-        Calc version {s.calcVersion}.
+        Figures use calculation rules version {s.calcVersion}.
       </p>
     </>
   );

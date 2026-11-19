@@ -228,9 +228,11 @@ describe('sponsor 360', () => {
     expect(screen.getByText(/no recorded cash flow yet shows -/)).toBeInTheDocument();
 
     expect(screen.getByTestId('sponsor-relationship')).toHaveTextContent(
-      'Contacts and interactions are not built yet',
+      'Not built yet. This section will hold contacts, the relationship score, warm paths, coverage and AGM notes.',
     );
-    expect(screen.getByTestId('sponsor-calc-version')).toHaveTextContent('Calc version 0.1.0.');
+    expect(screen.getByTestId('sponsor-calc-version')).toHaveTextContent(
+      'Figures use calculation rules version 0.1.0.',
+    );
     // Funds first, then our positions and the NAV of each, the commitments and the contacts.
     expect(
       screen.getAllByRole('heading', { level: 2 }).map((h) => h.firstChild?.textContent),

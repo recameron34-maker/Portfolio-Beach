@@ -209,6 +209,30 @@
   color: var(--pb-muted-strong);
 }
 
+/* How the run was made, folded under the header's meta line and over the figures: the header's
+   space below closes up to it, and it keeps that space below itself. */
+.pb-run-details {
+  margin: calc(var(--pb-space-4) * -1) 0 var(--pb-space-5);
+}
+.pb-run-details > summary {
+  min-height: 24px;
+  font-size: var(--pb-text-sm);
+  line-height: var(--pb-text-sm-lh);
+}
+.pb-run-details > .pb-meta-list {
+  display: flex;
+  margin: var(--pb-space-1) 0 0;
+}
+/* On a phone its items stand one under another, as the header's meta items above it do. */
+@media (max-width: 560px) {
+  .pb-run-details > .pb-meta-list {
+    flex-direction: column;
+  }
+  .pb-run-details > .pb-meta-list > span + span::before {
+    content: none;
+  }
+}
+
 /* Motion policy: each animated selector of this file, repeated exactly, switched off under reduced
    motion or on a slow display (docs/06 section 5). */
 @media (prefers-reduced-motion: reduce), (update: slow) {

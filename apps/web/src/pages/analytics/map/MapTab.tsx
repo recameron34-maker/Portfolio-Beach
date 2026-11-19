@@ -39,7 +39,6 @@ import {
 } from './map-model.js';
 import type { MapFilters, MapStatus, Site } from './map-model.js';
 import { useMapView } from './use-map-view.js';
-import { WORLD_SOURCE } from './world.js';
 import './map.css';
 
 /** One page of every position the reader may see; the map picks its own out of it. */
@@ -368,7 +367,8 @@ export function MapTab(): ReactNode {
             Showing the first {POSITIONS.limit} positions; more exist.
           </p>
         ) : null}
-        <p className="pb-map-credit">Outline: {WORLD_SOURCE}.</p>
+        {/* The outline's source in words; its package and file names stay in world.ts. */}
+        <p className="pb-map-credit">Map outline: Natural Earth, public domain.</p>
       </Card>
 
       <Card testId="map-positions">

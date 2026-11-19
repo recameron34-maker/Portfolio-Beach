@@ -68,7 +68,7 @@ describe('valuation fixtures match the contracts', () => {
 describe('valuation board helpers', () => {
   it('reads the variance flag from config/definitions.json and flags at or above it, either way', () => {
     expect(VARIANCE_FLAG).toBe(0.1);
-    expect(VARIANCE_TITLE).toBe('Above the 10.0% flag (config/definitions.json)');
+    expect(VARIANCE_TITLE).toBe('Moved 10.0% or more from the prior Locked mark');
     expect(aboveVarianceFlag('0.1')).toBe(true);
     expect(aboveVarianceFlag('-0.2059')).toBe(true);
     expect(aboveVarianceFlag('0.0999')).toBe(false);

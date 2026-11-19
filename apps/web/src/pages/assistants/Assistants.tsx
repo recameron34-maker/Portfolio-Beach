@@ -23,12 +23,7 @@ import {
   RowsSkeleton,
   SectionHeader,
 } from '../../components/ui.js';
-import {
-  answerQuestion,
-  matchQuestion,
-  MOCK_ASSISTANT_LINE,
-  QUESTIONS,
-} from '../../lib/assistant.js';
+import { answerQuestion, matchQuestion, QUESTIONS } from '../../lib/assistant.js';
 import type { AssistantInputs, QuestionId } from '../../lib/assistant.js';
 import { AssistantSwitch } from './AssistantSwitch.js';
 
@@ -37,6 +32,14 @@ interface Asked {
   /** The typed question when the fixed one was chosen by keyword overlap. */
   typed: string | null;
 }
+
+/**
+ * Under every answer: who answered, in the reader's words. The same facts as the library's
+ * MOCK_ASSISTANT_LINE (lib/assistant.ts), which also names the configuration key that picks the
+ * mock; a page never names one (docs/06 section 6).
+ */
+const MOCK_LINE =
+  'Answered by the mock assistant: built from the recorded figures by a fixed template, not by a model.';
 
 /** The off state in one line; the header's dot says Off, and the meta says no model is called. */
 const FLAG_OFF = 'Switched off. A platform admin turns it on under Admin, Flags.';
@@ -184,7 +187,7 @@ export function AssistantsPage(): ReactNode {
               </>
             )}
             <p className="pb-meta pb-mock-line" data-testid="assistant-mock-line">
-              {MOCK_ASSISTANT_LINE}
+              {MOCK_LINE}
             </p>
           </Card>
         ) : enabled ? (

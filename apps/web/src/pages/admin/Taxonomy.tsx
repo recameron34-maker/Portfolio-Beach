@@ -128,7 +128,7 @@ export function TaxonomyPage(): ReactNode {
                 contentBefore={<Search16Regular />}
                 value={filter}
                 onChange={(_e, d) => setFilter(d.value)}
-                placeholder="deal_type, credit, healthcare"
+                placeholder="Deal type, credit, healthcare"
               />
             </Field>
             <p className="pb-meta pb-toolbar-count" aria-live="polite" data-testid="taxonomy-count">

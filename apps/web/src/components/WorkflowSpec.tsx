@@ -2,6 +2,7 @@ import type { ReactNode } from 'react';
 import type { Machine } from '@pb/workflows';
 import { humanizeState } from '../lib/states.js';
 import { stepRows } from '../lib/workflow-spec.js';
+import { plainWords } from './plain-words.js';
 import { Card, TableWrap } from './ui.js';
 
 /*
@@ -49,7 +50,9 @@ export function WorkflowSpec({
                   <td>{r.step}</td>
                   <td>{r.to}</td>
                   <td>{r.who}</td>
-                  <td className="pb-col-text">{r.rule ?? <span className="pb-meta">None</span>}</td>
+                  <td className="pb-col-text">
+                    {r.rule !== null ? plainWords(r.rule) : <span className="pb-meta">None</span>}
+                  </td>
                 </tr>
               ))}
             </tbody>

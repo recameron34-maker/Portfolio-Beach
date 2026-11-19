@@ -91,6 +91,7 @@ describe('access and walls page', () => {
     const wall = await screen.findByTestId('wall-10000000-0000-4000-8000-000000000081');
     expect(wall).toHaveTextContent('Project Dune');
     expect(wall).toHaveTextContent('Restricted: named members only.');
+    expect(wall).not.toHaveTextContent('SEC-');
     expect(within(wall).getByText('Deal Three')).toBeVisible();
     expect(within(wall).getByText('Head One')).toBeVisible();
     expect(within(wall).getByText('Dune Logistics')).toBeVisible();
@@ -174,6 +175,22 @@ describe('integration health page', () => {
     expect(rows[1]).toHaveTextContent('Mail and calendar capture adapter');
     expect(within(rows[1]!).getByText('Off')).toBeVisible();
     expect(within(rows[2]!).getByText('On')).toBeVisible();
+    // The note names the other switches in words, not by their keys.
+    expect(
+      screen.getByText(/the switches for the assistant and AI processing are there too/),
+    ).toBeVisible();
+    expect(document.body).not.toHaveTextContent('ai.*');
+  });
+
+  it('says in one sentence when no integration switch is configured', async () => {
+    mockApi({
+      '/health/ready': { body: healthReadyFixture() },
+      '/api/v1/flags': { body: { flags: [] } },
+    });
+    render(withQueries(<HealthPage />));
+    expect(await screen.findByText('No integration switches are configured.')).toBeVisible();
+    expect(screen.queryByRole('table', { name: 'Kill switches' })).toBeNull();
+    expect(document.body).not.toHaveTextContent('adapter.');
   });
 
   it('names every check the API reports in words, and any new one from its code', () => {

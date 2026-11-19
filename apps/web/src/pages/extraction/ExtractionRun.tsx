@@ -16,6 +16,7 @@ import { useExtractionRunCommand } from '../../app/mutations.js';
 import { extractionRunQuery, meQuery } from '../../app/queries.js';
 import { useJustChanged, useReducedMotion } from '../../components/motion.js';
 import type { JustChangedProps } from '../../components/motion.js';
+import { plainWords } from '../../components/plain-words.js';
 import { UnavailableState } from '../../components/UnavailableState.js';
 import {
   AiDraftBadge,
@@ -35,7 +36,7 @@ import {
   Toolbar,
 } from '../../components/ui.js';
 import { ActionStatus, ReasonDialog } from '../../components/WorkflowActions.js';
-import { formatDate, formatDateTime, MISSING, plural } from '../../lib/format.js';
+import { formatDate, formatDateTime, labelOf, MISSING, plural } from '../../lib/format.js';
 import { balanceTiles } from '../../lib/tiles.js';
 import { runStateTone, runStateWord } from '../../lib/states.js';
 import { resultSuffix, useActionLog } from '../../lib/workflow.js';
@@ -122,17 +123,37 @@ function Banner({ detail }: { detail: ExtractionRunDetail }): ReactNode {
               {run.fileName}
             </span>
           </span>
-          <span>Schema {run.schemaId}</span>
-          <span>
-            Model {run.modelId ?? MISSING}, prompt {run.promptId} v{run.promptVersion}
-          </span>
-          <span>Tokens {tokensText(run.tokensIn, run.tokensOut)}</span>
-          <span>Cost {costText(run.costUsd)}</span>
           {run.requestedBy === null ? null : <span>Requested by {run.requestedBy}</span>}
         </span>
       }
       testId="run-banner"
     />
+  );
+}
+
+/**
+ * How the run was made, folded under the header: what it was read as, the model and prompt
+ * version, the tokens and the cost, in words. The prompt's and schema's own names stay in the
+ * record; the reader gets the document type and the version.
+ */
+function RunDetails({ detail }: { detail: ExtractionRunDetail }): ReactNode {
+  const { run } = detail;
+  const tokens =
+    run.tokensIn !== null && run.tokensOut !== null
+      ? `${run.tokensIn} tokens in, ${run.tokensOut} out`
+      : `Tokens ${tokensText(run.tokensIn, run.tokensOut)}`;
+  return (
+    <details className="pb-details pb-run-details" data-testid="run-details">
+      <summary>Run details</summary>
+      <p className="pb-meta-list">
+        <span>Read as {labelOf(run.schemaId)}</span>
+        <span>
+          Model: {run.modelId ?? MISSING}, prompt version {run.promptVersion}
+        </span>
+        <span>{tokens}</span>
+        <span>Cost {costText(run.costUsd)}</span>
+      </p>
+    </details>
   );
 }
 
@@ -480,9 +501,8 @@ function NarrativeCard({
         </div>
       )}
       <p className="pb-meta pb-extraction-page-note">
-        Drafted from the extracted figures only. Accept clean values accepts the draft when it
-        passed the style rules; the approval writes it to the quarter only once accepted. The API
-        does not yet report the draft&apos;s own decision.
+        Drafted from the extracted figures only. Accepting the clean values accepts the draft if it
+        passed the style rules.
       </p>
     </Card>
   );
@@ -600,7 +620,8 @@ function RunBody({
           if (updated.run.id !== detail.run.id)
             void navigate({ to: '/documents/extraction/$id', params: { id: updated.run.id } });
         },
-        onError: (error) => log.record('bad', `${label}: ${describeExtractionError(error)}`),
+        onError: (error) =>
+          log.record('bad', `${label}: ${plainWords(describeExtractionError(error))}`),
       },
     );
   };
@@ -647,6 +668,7 @@ function RunBody({
   return (
     <>
       <Banner detail={detail} />
+      <RunDetails detail={detail} />
       <Tiles detail={detail} />
       {detail.run.state === 'Failed' || detail.run.state === 'NeedsRetry' ? (
         <Card tone="error" testId="run-failed">

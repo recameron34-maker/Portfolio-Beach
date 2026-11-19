@@ -21,7 +21,7 @@ const renderAs = (principal = admin): void => {
       body: {
         key: 'ai.extraction',
         enabled: true,
-        description: 'Kill switch for AI extraction calls',
+        description: 'Kill switch for AI extraction calls (SEC-8.10)',
       },
     },
   });
@@ -53,8 +53,10 @@ describe('feature flags page', () => {
       'Document hub adapter',
       'Accounting import and export adapter',
     ]);
-    // A key is in no cell's text; the switch keeps it in its name for the preview's probe.
+    // A key is in no cell's text; the switch keeps it in its name for the preview's probe. The
+    // control a description cites ("(SEC-8.10)") is not shown either.
     expect(table).not.toHaveTextContent('ai.extraction');
+    expect(table).not.toHaveTextContent('SEC-');
     expect(table).not.toHaveTextContent('adapter.');
     expect(screen.getByRole('switch', { name: 'ai.extraction enabled' })).toBeInTheDocument();
     const mail = within(table).getByRole('rowheader', {
@@ -77,7 +79,11 @@ describe('feature flags page', () => {
     await userEvent.type(reason, '!');
     expect(extraction).toBeEnabled();
     await userEvent.click(extraction);
-    expect(await screen.findByTestId('flag-message')).toHaveTextContent('ai.extraction is now on');
+    // The result names the flag as the table does, by its description with no key or control.
+    const message = await screen.findByTestId('flag-message');
+    expect(message).toHaveTextContent('Kill switch for AI extraction calls is now on (audited).');
+    expect(message).not.toHaveTextContent('ai.extraction');
+    expect(message).not.toHaveTextContent('SEC-');
     const patch = vi
       .mocked(globalThis.fetch)
       .mock.calls.find(([input]) => urlOf(input) === '/api/v1/flags/ai.extraction');

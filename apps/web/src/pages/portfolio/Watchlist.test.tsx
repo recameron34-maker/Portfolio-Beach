@@ -54,10 +54,23 @@ describe('watchlist page', () => {
       within(table).getByText('EBITDA LTM of -3484738.35 for 2025-06-30 is at or below zero'),
     ).toHaveClass('pb-flag-message');
 
-    const thresholds = screen.getByRole('table', { name: 'Thresholds (config/definitions.json)' });
-    expect(within(thresholds).getByText('netDebtToEbitdaMax')).toHaveClass('pb-key');
-    expect(within(thresholds).getByText('Net debt / EBITDA, maximum')).toBeInTheDocument();
-    expect(thresholds).toHaveTextContent('0.15');
+    // The thresholds in the reader's units, named in words; no key and no file.
+    expect(screen.getByRole('heading', { name: 'Monitoring thresholds' })).toBeInTheDocument();
+    const thresholds = screen.getByRole('table', { name: 'Monitoring thresholds' });
+    const valueOf = (label: string): string | null | undefined =>
+      within(thresholds).getByText(label).nextElementSibling?.textContent;
+    expect(valueOf('Net debt / EBITDA, maximum')).toBe('6.0x');
+    expect(valueOf('EBITDA decline year on year')).toBe('15.0%');
+    expect(valueOf('Markdown against the prior Locked mark')).toBe('20.0%');
+    expect(valueOf('Without approved financials for')).toBe('75 days');
+    expect(valueOf('Maturity within')).toBe('12 months');
+    expect(thresholds).not.toHaveTextContent('netDebtToEbitdaMax');
+    expect(thresholds).not.toHaveTextContent('0.15');
+    expect(thresholds.querySelector('.pb-key')).toBeNull();
+    expect(
+      screen.getByText('Each flag above names the limit it was tested against.'),
+    ).toBeInTheDocument();
+    expect(document.body).not.toHaveTextContent('config/');
     expect(screen.queryByRole('status')).not.toBeInTheDocument();
   });
 

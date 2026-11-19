@@ -90,7 +90,7 @@ describe('valuation board', () => {
     expect(within(silverline).getByText('-20.6%')).toBeInTheDocument();
     expect(within(silverline).getByText('Variance').closest('[title]')).toHaveAttribute(
       'title',
-      'Above the 10.0% flag (config/definitions.json)',
+      'Moved 10.0% or more from the prior Locked mark',
     );
     expect(within(silverline).getByText('$10.2M')).toBeInTheDocument();
     expect(within(silverline).getByText('$8.1M')).toBeInTheDocument();

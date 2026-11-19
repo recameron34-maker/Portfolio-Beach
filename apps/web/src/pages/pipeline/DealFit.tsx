@@ -96,8 +96,8 @@ function FitBody({ fit, detail }: { fit: OpportunityFit; detail: OpportunityDeta
             testId="opportunity-fit-chart"
           />
           <p className="pb-meta pb-fit-note">
-            A draft set of measures: the rules and every threshold are configuration, and none of
-            them is a recommendation. A measure whose figure is not recorded has no score.
+            A draft set of measures, not a recommendation. Every threshold can be changed. A measure
+            whose figure is not recorded has no score.
           </p>
         </div>
         <ul className="pb-fit-list" aria-label="Fit measures">

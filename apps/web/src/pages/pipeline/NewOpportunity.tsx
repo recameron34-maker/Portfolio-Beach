@@ -278,8 +278,7 @@ function Form({ roles }: { roles: readonly string[] }): ReactNode {
           </Button>
           <Link to="/pipeline">Back to the board</Link>
           <span className="pb-note">
-            Starts at Sourced with the diligence template of its deal type
-            (config/diligence_templates.json).
+            Starts at Sourced with the standard diligence tasks for its deal type.
           </span>
         </div>
       </form>

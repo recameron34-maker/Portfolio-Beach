@@ -25,6 +25,7 @@ import {
 } from '../../components/ui.js';
 import { UnavailableState } from '../../components/UnavailableState.js';
 import { formatDateTime, plural } from '../../lib/format.js';
+import { withoutReferences } from '../../lib/references.js';
 import { checkWords } from '../data-display.js';
 import { ROLE_ROWS, ROLE_SOURCE } from './roles.js';
 
@@ -164,7 +165,9 @@ function WallCard({ wall }: { wall: WallList['walls'][number] }): ReactNode {
       >
         {wall.name}
       </SectionHeader>
-      {wall.description !== null ? <p className="pb-wall-description">{wall.description}</p> : null}
+      {wall.description !== null ? (
+        <p className="pb-wall-description">{withoutReferences(wall.description)}</p>
+      ) : null}
       <dl className="pb-wall-facts">
         <dt>Members</dt>
         <dd>
@@ -322,7 +325,7 @@ export function HealthPage(): ReactNode {
               check: checkWords(name),
               tone: check.ok ? 'good' : 'bad',
               result: check.ok ? 'OK' : 'Degraded',
-              detail: check.detail,
+              detail: check.detail === undefined ? undefined : withoutReferences(check.detail),
             }))}
           />
         ) : null}
@@ -338,7 +341,7 @@ export function HealthPage(): ReactNode {
         ) : null}
         {flags.data !== undefined ? (
           switches.length === 0 ? (
-            <EmptyState title="No adapter flags" detail="No adapter.* flag is configured." />
+            <EmptyState title="No integration switches are configured." />
           ) : (
             <TableWrap label="Kill switches">
               <table className="pb-table pb-table-short" aria-label="Kill switches">
@@ -351,7 +354,7 @@ export function HealthPage(): ReactNode {
                 <tbody>
                   {switches.map((f) => (
                     <tr key={f.key}>
-                      <td>{f.description}</td>
+                      <td>{withoutReferences(f.description)}</td>
                       <td className="pb-col-fit">
                         <Badge tone={f.enabled ? 'good' : 'neutral'}>
                           {f.enabled ? 'On' : 'Off'}
@@ -366,7 +369,7 @@ export function HealthPage(): ReactNode {
         ) : null}
         <p className="pb-meta">
           Off stops the integration at once. Platform admins change these under Flags, with a
-          reason; the AI kill switches (ai.*) are there as well.
+          reason; the switches for the assistant and AI processing are there too.
         </p>
       </Card>
     </>

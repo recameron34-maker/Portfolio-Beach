@@ -140,9 +140,7 @@ describe('a reconcile run', () => {
     expect(within(sector).getByText('Healthcare')).toBeInTheDocument();
     expect(within(sector).getByText('Sector', { selector: 'span[title]' })).toBeInTheDocument();
     expect(
-      within(sector).getByText(
-        'Sector sector.energy_transition on record, provider Healthcare (sector.healthcare)',
-      ),
+      within(sector).getByText('Sector Energy transition on record, provider Healthcare'),
     ).toBeInTheDocument();
 
     const unmapped = rowOf('Ashby Renewables Group');
@@ -153,7 +151,7 @@ describe('a reconcile run', () => {
     expect(within(unmapped).getByText('1 finding')).toHaveClass('pb-badge-bad');
     expect(
       within(unmapped).getByText(
-        'LT-MAP-01: The sector label is not in config/lookthrough_mapping.json; the taxonomy is never guessed from a label (Expected a sector label the mapping lists, actual Other)',
+        'LT-MAP-01: The sector label is not in the look-through mapping; the taxonomy is never guessed from a label (Expected a sector label the mapping lists, actual Other)',
       ),
     ).toBeInTheDocument();
 

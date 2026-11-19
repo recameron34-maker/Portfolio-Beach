@@ -75,7 +75,12 @@ describe('an exception', () => {
     mockApi(routes());
     renderWithQuery(<ExceptionDetailPage />);
     await screen.findByTestId('exception-banner');
-    expect(within(banner()).getByRole('heading', { level: 1 })).toHaveTextContent('LT-TIE-01');
+    // Titled by what it is about, the position and the row; the rule is an identifier in the meta.
+    expect(within(banner()).getByRole('heading', { level: 1 })).toHaveTextContent(
+      'Silverline Staffing Holdings, row 2',
+    );
+    expect(within(banner()).getByText('LT-TIE-01')).toHaveClass('pb-rule-id');
+    expect(banner()).toHaveTextContent('Rule LT-TIE-01');
     expect(banner()).toHaveTextContent('Look-through reconcile');
     expect(banner()).toHaveTextContent('Opened Jul 2, 2025 10:15:00 UTC');
     expect(within(banner()).getByText('High')).toHaveClass('pb-badge-bad');
@@ -114,6 +119,52 @@ describe('an exception', () => {
     expect(screen.getByRole('textbox', { name: 'External ticket' })).toHaveValue('');
     expect(screen.getByRole('button', { name: 'Set ticket' })).toBeDisabled();
     expect(screen.getByRole('status')).toBeEmptyDOMElement();
+  });
+
+  it('names a row that linked to no position by its file, and one with no context by its rule', async () => {
+    const unlinked = exceptionFixture({
+      ruleId: 'LT-DIFF-01',
+      expected: 'sector.energy_transition',
+      actual: 'Healthcare (sector.healthcare)',
+      context: {
+        ...exceptionFixture().context,
+        investmentId: null,
+        investmentNumber: null,
+        companyName: null,
+      },
+    });
+    mockApi(routes(['operations'], { [detailPath(EXCEPTION_ID.nav)]: ok(unlinked) }));
+    renderWithQuery(<ExceptionDetailPage />);
+    await screen.findByTestId('exception-banner');
+    expect(within(banner()).getByRole('heading', { level: 1 })).toHaveTextContent(
+      'lookthrough-2025-06-30.json, row 2',
+    );
+    // A code reads as its label, the provider's label without the code it mapped to.
+    const found = screen.getByTestId('exception-detail');
+    const pair = (term: string): HTMLElement =>
+      within(found).getByText(term, { selector: 'dt' }).nextElementSibling as HTMLElement;
+    expect(pair('Expected')).toHaveTextContent(/^Energy transition$/);
+    expect(pair('Actual')).toHaveTextContent(/^Healthcare$/);
+    cleanup();
+
+    const bare = exceptionFixture({
+      context: {
+        intakeFileId: null,
+        intakeFileName: null,
+        rowNo: null,
+        investmentId: null,
+        investmentNumber: null,
+        companyName: null,
+      },
+    });
+    mockApi(routes(['operations'], { [detailPath(EXCEPTION_ID.nav)]: ok(bare) }));
+    renderWithQuery(<ExceptionDetailPage />);
+    await screen.findByTestId('exception-banner');
+    expect(within(banner()).getByRole('heading', { level: 1 })).toHaveTextContent(
+      /^Rule LT-TIE-01$/,
+    );
+    // Said once: the meta does not repeat the rule its title already is.
+    expect(banner().querySelector('.pb-rule-id')).toBeNull();
   });
 
   it('acknowledges with one click: the operator takes it and the state moves', async () => {

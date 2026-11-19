@@ -8,6 +8,7 @@ import type { ExceptionCommand } from '@pb/workflows';
 import { ApiError } from '../../api/client.js';
 import { describeActionError } from '../../app/mutations.js';
 import { meQuery } from '../../app/queries.js';
+import { codeWords } from '../../components/plain-words.js';
 import { UnavailableState } from '../../components/UnavailableState.js';
 import {
   Badge,
@@ -73,6 +74,20 @@ function Context({ x }: { x: DataException }): ReactNode {
       )}
     </span>
   );
+}
+
+const ruleTitle = (x: DataException): string => `Rule ${x.ruleId}`;
+
+/**
+ * What the exception is about, as its page's title: the position and the row ("Silverline Staffing
+ * Holdings, row 2"); the file in place of a position the row did not link to; the rule when the
+ * record names none of them.
+ */
+function exceptionTitle(x: DataException): string {
+  const subject = x.context.companyName ?? positionText(x) ?? x.context.intakeFileName;
+  const row = rowText(x);
+  if (subject === null) return row ?? ruleTitle(x);
+  return row === null ? subject : `${subject}, ${row.toLowerCase()}`;
 }
 
 function ActionsCard({ x, roles }: { x: DataException; roles: readonly string[] }): ReactNode {
@@ -229,13 +244,19 @@ function ActionsCard({ x, roles }: { x: DataException; roles: readonly string[] 
 }
 
 function ExceptionBody({ x, roles }: { x: DataException; roles: readonly string[] }): ReactNode {
+  const title = exceptionTitle(x);
   return (
     <>
       <PageHeader
         crumbs={CRUMBS}
-        title={x.ruleId}
+        title={title}
         meta={
           <span className="pb-meta-list">
+            {title === ruleTitle(x) ? null : (
+              <span>
+                Rule <span className="pb-rule-id">{x.ruleId}</span>
+              </span>
+            )}
             <span>
               <Badge tone={severityTone(x.severity)}>{severityLabel(x.severity)}</Badge>
             </span>
@@ -254,12 +275,14 @@ function ExceptionBody({ x, roles }: { x: DataException; roles: readonly string[
           <div>
             <dt>Expected</dt>
             <dd className={x.expected === null ? 'is-missing' : undefined}>
-              {x.expected ?? MISSING}
+              {x.expected === null ? MISSING : codeWords(x.expected)}
             </dd>
           </div>
           <div>
             <dt>Actual</dt>
-            <dd className={x.actual === null ? 'is-missing' : undefined}>{x.actual ?? MISSING}</dd>
+            <dd className={x.actual === null ? 'is-missing' : undefined}>
+              {x.actual === null ? MISSING : codeWords(x.actual)}
+            </dd>
           </div>
         </dl>
         <KeyValueTable
@@ -271,7 +294,7 @@ function ExceptionBody({ x, roles }: { x: DataException; roles: readonly string[
               value:
                 x.candidates.length === 0
                   ? MISSING
-                  : `${x.candidates.length} (${x.candidates.map((c) => c.reason).join(', ')}); listed on the staged row`,
+                  : `${x.candidates.length} (${x.candidates.map((c) => codeWords(c.reason)).join(', ')}); listed on the staged row`,
             },
             { label: 'Owner', value: x.owner ?? MISSING },
             { label: 'External ticket', value: x.externalTicket ?? MISSING },
