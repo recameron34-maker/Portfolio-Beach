@@ -240,7 +240,7 @@ describe('commitments and unfunded', () => {
     expect(within(total).getByText('$120.0M')).toBeInTheDocument();
     expect(within(total).getByText('$6.1M')).toBeInTheDocument();
     expect(screen.getByTestId('commitments-note')).toHaveTextContent(
-      'Totals sum the commitments whose figures are known; a commitment with no recorded cash flow shows -. Calc version 0.1.0.',
+      'Totals add the commitments whose figures are known; one with no recorded cash flow shows -. Figures use calculation rules version 0.1.0.',
     );
   });
 
@@ -282,7 +282,11 @@ describe('commitments and unfunded', () => {
     expect(within(table).getAllByRole('row')).toHaveLength(5);
     expect(within(table).queryByRole('columnheader', { name: 'Client' })).not.toBeInTheDocument();
     expect(within(table).queryByRole('rowheader', { name: 'Total' })).not.toBeInTheDocument();
-    expect(screen.getByText(/The total row covers every vehicle/)).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        'The total covers every vehicle, so it shows only with All vehicles selected.',
+      ),
+    ).toBeInTheDocument();
   });
 
   it('degrades when commitments are hidden from the role', async () => {

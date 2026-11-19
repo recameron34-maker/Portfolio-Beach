@@ -15,6 +15,7 @@ import {
   sponsorsQuery,
   taxonomyQuery,
 } from '../../app/queries.js';
+import { codeWords } from '../../components/plain-words.js';
 import { UnavailableState } from '../../components/UnavailableState.js';
 import { useReducedMotion } from '../../components/motion.js';
 import {
@@ -55,6 +56,31 @@ import {
 } from './documents.js';
 import type { ClassifyForm } from './documents.js';
 import './documents.css';
+
+/** The candidate the API writes for the classifier's own suggestion: "classifier suggestion: <code>". */
+const SUGGESTION = /^classifier suggestion: (\S+)$/;
+
+/**
+ * The classifier's candidates as a reader says them: its suggestion as "Suggested type: Other",
+ * and a code inside any other reason by its label.
+ */
+function readableEvidence(
+  evidence: DocumentDetail['classifierEvidence'],
+): DocumentDetail['classifierEvidence'] {
+  return {
+    ...evidence,
+    candidates: evidence.candidates.map((c) => {
+      const suggested = SUGGESTION.exec(c.reason);
+      return {
+        ...c,
+        reason:
+          suggested === null
+            ? codeWords(c.reason)
+            : `Suggested type: ${docTypeLabel(suggested[1] ?? null)}`,
+      };
+    }),
+  };
+}
 
 /** Where a document's page sits: under the hub. */
 const CRUMBS = [{ label: 'Documents', to: '/documents' }];
@@ -111,7 +137,7 @@ function MetadataCard({ doc }: { doc: DocumentDetail }): ReactNode {
           { label: 'Indexed', value: dayOf(doc.indexedAt) },
           { label: 'Confidence', value: confidenceText(doc.classificationConfidence) },
           { label: 'Evidence keywords', value: keywordsText(doc.classifierEvidence) },
-          { label: 'Candidates', value: candidatesText(doc.classifierEvidence) },
+          { label: 'Candidates', value: candidatesText(readableEvidence(doc.classifierEvidence)) },
           {
             label: 'Classified by',
             value:

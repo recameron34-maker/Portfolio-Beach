@@ -230,9 +230,11 @@ describe('extraction page', () => {
     const form = await screen.findByTestId('extraction-batch-form');
     await userEvent.type(within(form).getByLabelText('Period end'), '2025-06-30');
     await userEvent.click(within(form).getByRole('button', { name: 'Start extraction' }));
+    // The API's sentence names the switch's key in brackets; the page says it in words only.
     expect(
-      await screen.findByText('Start extraction: AI extraction is switched off (ai.extraction)'),
+      await screen.findByText('Start extraction: AI extraction is switched off'),
     ).toBeInTheDocument();
+    expect(screen.queryByText(/ai\.extraction/)).toBeNull();
     expect(screen.getByTestId('extraction-action-status').firstChild).toHaveClass('pb-notice-bad');
   });
 

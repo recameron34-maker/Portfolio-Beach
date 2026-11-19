@@ -364,6 +364,8 @@ describe('capital notice detail', () => {
           state: 'Funded',
           wireChangeHold: null,
           notes: [
+            // As the API words the hold, with the control it cites; the page shows it without.
+            'Wire instructions changed on Jul 1, 2025; release is held until Jul 31, 2025 (SEC-12.3).',
             'No cash flow has been recorded for this notice.',
             'Funded amount differs from the notice amount.',
           ],
@@ -378,6 +380,7 @@ describe('capital notice detail', () => {
         .getAllByRole('listitem')
         .map((n) => n.textContent),
     ).toEqual([
+      'Wire instructions changed on Jul 1, 2025; release is held until Jul 31, 2025.',
       'No cash flow has been recorded for this notice.',
       'Funded amount differs from the notice amount.',
     ]);

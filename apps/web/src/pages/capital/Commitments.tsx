@@ -268,13 +268,12 @@ export function CommitmentsPage(): ReactNode {
         )}
         {vehicle === '' ? null : (
           <p className="pb-meta">
-            The total row covers every vehicle and comes from the API, so it shows only with All
-            vehicles selected.
+            The total covers every vehicle, so it shows only with All vehicles selected.
           </p>
         )}
         <p className="pb-meta" data-testid="commitments-note">
-          Totals sum the commitments whose figures are known; a commitment with no recorded cash
-          flow shows {MISSING}. Calc version {list.calcVersion}.
+          Totals add the commitments whose figures are known; one with no recorded cash flow shows{' '}
+          {MISSING}. Figures use calculation rules version {list.calcVersion}.
         </p>
       </Card>
     </>

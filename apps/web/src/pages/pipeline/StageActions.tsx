@@ -24,6 +24,7 @@ import type {
 import { dealStageMachine } from '@pb/workflows';
 import { describeActionError } from '../../app/mutations.js';
 import { taxonomyQuery } from '../../app/queries.js';
+import { plainWords } from '../../components/plain-words.js';
 import { CommandButtons, ReasonDialog } from '../../components/WorkflowActions.js';
 import { formatMoneyM, labelOf } from '../../lib/format.js';
 import { commandLabel, commandOptions, humanizeState } from '../../lib/states.js';
@@ -168,8 +169,8 @@ function ClosingDialog({
                 </p>
               ) : (
                 <p className="pb-meta">
-                  The close date is the single source for every report; the checklist from
-                  config/closing_checklist.json opens with it.
+                  The close date becomes the single date every report uses, and the closing
+                  checklist opens with it.
                 </p>
               )}
               <FluentField
@@ -321,7 +322,7 @@ export function StageActions({
       )}
       {notes.map((o) => (
         <p key={`${o.command}-${o.to}`} className="pb-note">
-          {stageCommandLabel(o)}: {o.note}
+          {stageCommandLabel(o)}: {plainWords(o.note ?? '')}
         </p>
       ))}
       {pending?.kind === 'pass' ? (

@@ -61,7 +61,10 @@ describe('portfolio fit card', () => {
     );
     // The meter is the score again as a length.
     expect(rows[3]?.querySelector('.pb-fit-meter > span')).toHaveStyle({ width: '20%' });
-    expect(card).toHaveTextContent('A draft set of measures');
+    expect(card).toHaveTextContent(
+      'A draft set of measures, not a recommendation. Every threshold can be changed.',
+    );
+    expect(card).not.toHaveTextContent('configuration');
   });
 
   it('gives a measure with no recorded figure no score, no point and no meter, and says why', async () => {

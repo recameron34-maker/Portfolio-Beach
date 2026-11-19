@@ -49,7 +49,7 @@ export const ROLE_ROWS: readonly RoleRow[] = [
   {
     role: 'service',
     label: 'Service',
-    sees: 'Background jobs and agents under a managed identity; their output lands in staging tables for human approval and never straight to production records (CLAUDE.md rule 5).',
+    sees: 'Background jobs and agents under a managed identity; their output lands in staging tables for human approval and never straight to production records.',
   },
 ];
 

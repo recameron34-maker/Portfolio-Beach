@@ -221,7 +221,8 @@ export const wallListFixture = (over: Partial<WallList> = {}): WallList => ({
     {
       id: uuid(81),
       name: 'Project Dune',
-      description: 'Restricted: named members only.',
+      // As the synthetic data writes it, with the control it cites; the page shows it without.
+      description: 'Restricted: named members only (SEC-5.3).',
       members: [
         { userId: uuid(91), displayName: 'Deal Three' },
         { userId: uuid(92), displayName: 'Head One' },
@@ -253,7 +254,12 @@ export const flagsFixture = (
   assistant: boolean,
 ): { flags: { key: string; enabled: boolean; description: string }[] } => ({
   flags: [
-    { key: 'ai.extraction', enabled: false, description: 'Kill switch for AI extraction calls' },
+    // As the database seeds it, with the control it cites; a page shows it without.
+    {
+      key: 'ai.extraction',
+      enabled: false,
+      description: 'Kill switch for AI extraction calls (SEC-8.10)',
+    },
     { key: 'ai.assistant', enabled: assistant, description: 'Kill switch for Ask Portfolio Beach' },
     { key: 'adapter.mail', enabled: false, description: 'Mail and calendar capture adapter' },
     { key: 'adapter.documents', enabled: true, description: 'Document hub adapter' },

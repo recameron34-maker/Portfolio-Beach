@@ -68,9 +68,12 @@ describe('Ask Portfolio Beach (mock assistant)', () => {
     );
     expect(answer).toHaveTextContent('PB-0015 Tidewater Foods');
     expect(within(answer).getByText('AI draft')).toBeVisible();
+    // Who answered, in words; the library's line names a configuration key and is not shown.
     expect(within(answer).getByTestId('assistant-mock-line')).toHaveTextContent(
-      MOCK_ASSISTANT_LINE,
+      'Answered by the mock assistant: built from the recorded figures by a fixed template, not by a model.',
     );
+    expect(answer).not.toHaveTextContent(MOCK_ASSISTANT_LINE);
+    expect(answer).not.toHaveTextContent('config/');
     const sources = within(answer).getByTestId('assistant-sources');
     expect(within(sources).getByRole('link', { name: 'Weekly report' })).toHaveAttribute(
       'href',

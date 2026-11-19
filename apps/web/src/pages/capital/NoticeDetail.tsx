@@ -17,6 +17,7 @@ import { previewMode } from '../../app/env.js';
 import { describeActionError, useCapitalNoticeCommand } from '../../app/mutations.js';
 import type { CommandBody } from '../../app/mutations.js';
 import { capitalNoticeQuery, meQuery } from '../../app/queries.js';
+import { plainWords } from '../../components/plain-words.js';
 import { StepStrip } from '../../components/StepStrip.js';
 import { UnavailableState } from '../../components/UnavailableState.js';
 import {
@@ -462,7 +463,7 @@ function CommandBlock({
       <ActionStatus latest={onLog.latest} testId="notice-action-status" />
       {notes.map((o) => (
         <p key={o.command} className="pb-note">
-          {commandLabel(o.command)}: {o.note}
+          {commandLabel(o.command)}: {plainWords(o.note ?? '')}
         </p>
       ))}
       <p className="pb-note" data-testid="bank-details-note">
@@ -574,7 +575,7 @@ function NoticeBody({
           ) : (
             <ul className="pb-list">
               {notice.notes.map((note, i) => (
-                <li key={i}>{note}</li>
+                <li key={i}>{plainWords(note)}</li>
               ))}
             </ul>
           )}

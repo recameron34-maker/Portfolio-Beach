@@ -247,7 +247,9 @@ describe('vehicle detail', () => {
     ).toHaveTextContent('$200.0M');
     expect(screen.queryByTestId('client-commitments-hidden')).not.toBeInTheDocument();
 
-    expect(screen.getByTestId('vehicle-calc-version')).toHaveTextContent('Calc version 0.1.0.');
+    expect(screen.getByTestId('vehicle-calc-version')).toHaveTextContent(
+      'Figures use calculation rules version 0.1.0.',
+    );
     expect(screen.queryByRole('status')).not.toBeInTheDocument();
     expect(document.body.textContent).not.toContain(EM_DASH);
   });

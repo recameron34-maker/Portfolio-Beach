@@ -5,6 +5,7 @@ import { keepPreviousData, useQuery } from '@tanstack/react-query';
 import { Dropdown, Label, Option } from '@fluentui/react-components';
 import type { DataException, DataExceptionPage } from '@pb/contracts';
 import { LIST_LIMIT } from '../../app/queries.js';
+import { codeWords } from '../../components/plain-words.js';
 import { UnavailableState } from '../../components/UnavailableState.js';
 import {
   Badge,
@@ -113,8 +114,12 @@ function QueueTable({
               </td>
               <td className="pb-nowrap">{sourceLabel(x.source)}</td>
               <ContextCell x={x} />
-              <td className="pb-exceptions-text">{x.expected ?? MISSING}</td>
-              <td className="pb-exceptions-text">{x.actual ?? MISSING}</td>
+              <td className="pb-exceptions-text">
+                {x.expected === null ? MISSING : codeWords(x.expected)}
+              </td>
+              <td className="pb-exceptions-text">
+                {x.actual === null ? MISSING : codeWords(x.actual)}
+              </td>
               <td className="pb-nowrap">
                 <Badge tone={severityTone(x.severity)}>{severityLabel(x.severity)}</Badge>
               </td>

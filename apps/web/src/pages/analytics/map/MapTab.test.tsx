@@ -97,6 +97,9 @@ describe('co-investment map', () => {
     expect(document.body).not.toHaveTextContent('Fir Finance');
     expect(document.body).not.toHaveTextContent('Elm Energy');
     expect(document.body.textContent).not.toContain(String.fromCharCode(0x2014));
+    // The outline's source in words, not its package and file.
+    expect(screen.getByText('Map outline: Natural Earth, public domain.')).toBeInTheDocument();
+    expect(document.body).not.toHaveTextContent('world-atlas');
   });
 
   it('lists a position with no head office apart and never places it', async () => {

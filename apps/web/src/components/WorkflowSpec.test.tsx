@@ -27,6 +27,11 @@ describe('workflow specification card', () => {
     expect(within(table).getAllByRole('row', { hidden: true })).toHaveLength(1 + 9);
     expect(table).toHaveTextContent('An IC decision record is required.');
     expect(card).toHaveTextContent('Starts at Sourced; anything not listed is refused.');
+    // A note that points at the guide's section for a step is shown without the pointer.
+    expect(table).toHaveTextContent(
+      'Opens the closing record with the close date and commitment given.',
+    );
+    expect(table).not.toHaveTextContent('(section');
   });
 
   it('says None where a step has no rule', () => {

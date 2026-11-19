@@ -18,6 +18,7 @@ import { previewMode } from '../../app/env.js';
 import { SUGGESTIONS_PATH } from '../../app/nav.js';
 import { useValuationCommand } from '../../app/mutations.js';
 import { meQuery } from '../../app/queries.js';
+import { plainWords } from '../../components/plain-words.js';
 import { StepStrip } from '../../components/StepStrip.js';
 import { UnavailableState } from '../../components/UnavailableState.js';
 import {
@@ -312,7 +313,7 @@ function CommandBlock({
       ) : null}
       {notes.map((o) => (
         <p key={o.command} className="pb-note">
-          {commandLabel(o.command)}: {o.note}
+          {commandLabel(o.command)}: {plainWords(o.note ?? '')}
         </p>
       ))}
       {detail.reopenReason === null ? null : (

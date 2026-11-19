@@ -13,6 +13,7 @@ import {
   meQuery,
   taxonomyQuery,
 } from '../../app/queries.js';
+import { plainWords } from '../../components/plain-words.js';
 import { UnavailableState } from '../../components/UnavailableState.js';
 import {
   Badge,
@@ -87,7 +88,7 @@ function BatchForm(): ReactNode {
             onSuccess: (batch) =>
               log.record('good', `${batchStartedPhrase(batch)} ${resultSuffix()}`),
             onError: (error) =>
-              log.record('bad', `Start extraction: ${describeExtractionError(error)}`),
+              log.record('bad', `Start extraction: ${plainWords(describeExtractionError(error))}`),
           });
         }}
       >
