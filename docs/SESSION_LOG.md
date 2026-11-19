@@ -1240,3 +1240,26 @@ The copy slice of `docs/handoff/ui-pass-plan.md` (finding P106), with the copy e
 - `world.ts` still exports `WORLD_SOURCE` (the package and file the outline came from), which no page shows now; `lookthrough.ts` `describeDifference` still writes codes for a caller that passes them (the page passes words). Both are `.ts` files this pass does not edit for copy.
 - "Calculation version" on the weekly report (slice 10, restyled only) was left as it is; it names no file or key.
 - `shots/after` holds the shell, portfolio, pipeline, dataops, valuations and analytics areas from this slice; the open run details are in `scratchpad/ui/s14scripts/shots/s14extra`.
+
+### Session 13 (2026-11-19): the UI pass merged, and where it stops
+
+**What changed**
+
+- The owner asked to merge everything as soon as possible. Pull request 18 (all work since 12 November, with slices 1 to 13 of the UI pass) merged as `0ea9dda`, after a one-file fix to the extraction journey (`25558a0`): slice 8 hides an approved run's action column, and the journey still read a disabled Accept button. Pull request 22 (slice 14) merged as `fcd077c`. Both with merge commits, so the branch's history is in `main`.
+- Dependabot: pull request 20 (`@types/node` 26) merged as `187c469` with every check green. Left open: 10 (TypeScript 6) and 21 (jsdom 31), whose `ci` fails; 2 to 6 (GitHub Actions majors), last tested on 7 October against an old `main`; 19 was declared superseded by Dependabot itself. The session's comment tool breaks @mentions, so its requests for a Dependabot rebase did not reach Dependabot; the owner can comment `@dependabot rebase` on 2 to 6.
+- The demo artifact (Version 22) was rebuilt from `main` and republished; the website's private preview was republished from slice 13's commit.
+- `docs/09` ticks the UI pass; the handoff's section 11 says where it stops.
+
+**Verified**
+
+- On pull request 22's head: guard, security, CodeQL, `ci` and the whole browser suite passed on GitHub.
+- On `main` at `187c469`: the static preview builds and its probe passes 238 of 238.
+- The website's production build (`pnpm --filter @pb/site build:site-only`, 177 files) and a dry run of the deploy from `main` both pass locally. The session cannot read cameroncastle.com or the Cloudflare dashboard, so the live deploy itself was not seen.
+
+**Open items**
+
+- The UI pass's second round of reviews (slices 10 to 14) and the plan's close (`docs/handoff/ui-pass-plan.md`, "The close").
+- The website's screenshots, videos and brochures still show the old look until the media is re-recorded.
+- The base case card keeps uppercase figure labels while the preview probe reads them in capitals.
+- Everything in `docs/handoff/README.md` section 10 (for the builder model).
+
