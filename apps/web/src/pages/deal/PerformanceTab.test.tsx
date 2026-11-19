@@ -70,6 +70,10 @@ const sentPuts = (): [string, unknown][] =>
     .filter(([, method]) => method === 'PUT')
     .map(([url, , body]) => [url, body]);
 
+/** A table's body rows: the quarterly tables carry two header rows (the groups, then the columns). */
+const bodyRows = (table: HTMLElement): HTMLElement[] =>
+  within(within(table).getAllByRole('rowgroup')[1]!).getAllByRole('row');
+
 const outlookCard = (): HTMLElement => screen.getByTestId('outlook-card');
 const outlookTable = (): HTMLElement =>
   within(outlookCard()).getByRole('table', { name: 'Realization outlook' });
@@ -108,7 +112,18 @@ describe('performance tab, equity position', () => {
 
     const table = screen.getByRole('table', { name: 'Quarterly financials' });
     expect(table).toHaveAttribute('data-testid', 'performance-sources');
-    const rows = within(table).getAllByRole('row').slice(1);
+    // The columns sit in groups under a header row of their own; every column keeps one header
+    // cell, and a column the group names on screen keeps its whole name.
+    expect(
+      within(table)
+        .getAllByRole('columnheader')
+        .filter((h) => h.getAttribute('scope') === 'colgroup')
+        .map((h) => h.textContent),
+    ).toEqual(['LTM', 'Balance sheet', 'Multiples', 'Year on year']);
+    expect(within(table).getAllByRole('columnheader', { name: 'Source' })).toHaveLength(1);
+    expect(within(table).getByRole('columnheader', { name: 'Revenue YoY' })).toBeInTheDocument();
+    expect(table.querySelectorAll('thead tr')).toHaveLength(2);
+    const rows = bodyRows(table);
     expect(rows.map((r) => within(r).getAllByRole('cell')[0]?.textContent)).toEqual([
       'Jun 30, 2025',
       'Mar 31, 2025',
@@ -144,7 +159,7 @@ describe('performance tab, equity position', () => {
     expect(kv).toHaveTextContent('Sponsor has engaged advisors.');
     expect(kv).toHaveTextContent('Emerson Marchetti');
     expect(kv).toHaveTextContent('May 2, 2025 09:30:00 UTC');
-    expect(outlookCard()).toHaveTextContent('Changes only by explicit edit');
+    expect(outlookCard()).toHaveTextContent('Set by hand. The reason is kept on the audit trail.');
     // The deal team gets the edit form; its status region is empty until an edit is made.
     expect(within(outlookCard()).getByTestId('outlook-form')).toBeInTheDocument();
     expect(screen.getByRole('status')).toBeEmptyDOMElement();
@@ -239,6 +254,48 @@ describe('performance tab, equity position', () => {
     expect(underwriting).toHaveTextContent("Against the sponsor's base case");
   });
 
+  it('keeps value creation inside Since entry, under the range of the snapshots, and links the sections of the tab', async () => {
+    mockApi(
+      routes(['viewer'], {
+        [`${DEAL_PATHS.detail}/value-creation`]: ok(
+          investmentValueCreationFixture({ investmentId: DEAL_ID }),
+        ),
+        [UW_PATH]: ok(readFixture()),
+      }),
+    );
+    renderWithQuery(<PerformanceTab />);
+    const since = await screen.findByTestId('deal-since-entry');
+    const block = await within(since).findByTestId('deal-value-creation');
+    // One section: its title, the growth strip, then value creation under a sub-title.
+    expect(
+      within(since)
+        .getAllByRole('heading', { level: 2 })
+        .map((h) => h.textContent),
+    ).toEqual(['Since entryEntry snapshot Sep 30, 2018 to Mar 31, 2025']);
+    expect(within(block).getByRole('heading', { level: 3, name: 'Value creation' })).toBeVisible();
+    // The bridge runs over other quarters than the growth figures here, so it names its own range.
+    expect(block).toHaveTextContent('Entry snapshot Mar 31, 2021 to Jun 30, 2025');
+    expect(screen.queryByRole('heading', { level: 2, name: 'Value creation' })).toBeNull();
+
+    // On this tab: a link to each section, which takes focus there and leaves the address alone.
+    const jump = screen.getByRole('navigation', { name: 'On this tab' });
+    expect(
+      within(jump)
+        .getAllByRole('link')
+        .map((a) => a.textContent),
+    ).toEqual(['Since entry', 'Base case', 'Quarterly', 'Highlights', 'Outlook']);
+    const scrolled = vi.fn();
+    Element.prototype.scrollIntoView = scrolled;
+    const address = window.location.href;
+    await userEvent.click(within(jump).getByRole('link', { name: 'Quarterly' }));
+    expect(document.activeElement).toBe(screen.getByTestId('deal-quarterly'));
+    expect(scrolled).toHaveBeenCalledWith({ block: 'start' });
+    expect(window.location.href).toBe(address);
+    await userEvent.click(within(jump).getByRole('link', { name: 'Base case' }));
+    expect(document.activeElement).toBe(screen.getByTestId('deal-underwriting'));
+    Reflect.deleteProperty(Element.prototype, 'scrollIntoView');
+  });
+
   it('says the entry snapshot is dated after the as-of date instead of comparing against it', async () => {
     mockApi(
       routes(['deal_team'], {
@@ -257,7 +314,7 @@ describe('performance tab, equity position', () => {
     expect(within(since).queryByRole('group')).not.toBeInTheDocument();
     // The forward-dated snapshot still sits in the table, at the top, marked as the entry.
     const table = screen.getByRole('table', { name: 'Quarterly financials' });
-    expect(within(table).getAllByRole('row')[1]).toHaveTextContent('Sep 30, 2025Entry');
+    expect(bodyRows(table)[0]).toHaveTextContent('Sep 30, 2025Entry');
   });
 
   it('says so when no entry snapshot is recorded, and when nothing is recorded at all', async () => {
@@ -359,8 +416,10 @@ describe('realization outlook card', () => {
       renderWithQuery(<PerformanceTab />);
       const form = await screen.findByTestId('outlook-form');
       const button = within(form).getByRole('button', { name: 'Set outlook' });
-      // Nothing is sent without a reason: the button cannot act yet, but keeps keyboard focus.
+      // Nothing is sent without a reason: the button cannot act yet, but keeps keyboard focus,
+      // and the words beside it say what it still needs.
       expect(button).toHaveAttribute('aria-disabled', 'true');
+      expect(button).toHaveAccessibleDescription('Add a reason to save.');
 
       await userEvent.click(within(form).getByRole('combobox', { name: 'Outlook' }));
       await userEvent.click(await screen.findByRole('option', { name: 'Full' }, TIMEOUT));
@@ -426,6 +485,7 @@ describe('realization outlook card', () => {
       await userEvent.type(horizon, '121');
       expect(button).toHaveAttribute('aria-disabled', 'true');
       expect(button).toHaveAttribute('title', expect.stringContaining('1 to 120 months'));
+      expect(within(form).getByText('Set a horizon of 1 to 120 months to save.')).toBeVisible();
       await userEvent.clear(horizon);
       await userEvent.type(horizon, '12');
       await waitFor(() => expect(button).not.toHaveAttribute('aria-disabled'));
@@ -536,7 +596,16 @@ describe('performance tab, private credit position', () => {
 
     expect(screen.getByRole('group', { name: 'Par and fair value' })).toBeInTheDocument();
     const metrics = screen.getByRole('table', { name: 'Quarterly credit metrics' });
-    const rows = within(metrics).getAllByRole('row').slice(1);
+    expect(
+      within(metrics)
+        .getAllByRole('columnheader')
+        .filter((h) => h.getAttribute('scope') === 'colgroup')
+        .map((h) => h.textContent),
+    ).toEqual(['Position', 'LTM flows', 'Ratios']);
+    expect(
+      within(metrics).getByRole('columnheader', { name: 'Cash interest LTM' }),
+    ).toBeInTheDocument();
+    const rows = bodyRows(metrics);
     expect(rows[0]).toHaveTextContent('Jun 30, 2025');
     expect(rows[0]).toHaveTextContent('11.23%');
     expect(rows[0]).toHaveTextContent('1.8x');

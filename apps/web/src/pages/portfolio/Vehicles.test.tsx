@@ -177,12 +177,31 @@ describe('vehicle detail', () => {
     ]) {
       expect(within(banner).getByText(item)).toBeInTheDocument();
     }
-    expect(screen.getByRole('link', { name: 'All vehicles' })).toHaveAttribute(
+    // The trail over the title leads back to the list.
+    const trail = within(banner).getByRole('navigation', { name: 'Breadcrumb' });
+    expect(within(trail).getByRole('link', { name: 'Vehicles' })).toHaveAttribute(
       'href',
       '/portfolio/vehicles',
     );
+    expect(within(trail).getByRole('link', { name: 'Portfolio' })).toHaveAttribute(
+      'href',
+      '/portfolio',
+    );
 
+    // The pooled figures in two labelled groups: capital, then returns.
     const tiles = screen.getByTestId('vehicle-tiles');
+    const capital = within(tiles).getByRole('group', { name: 'Capital' });
+    const returns = within(tiles).getByRole('group', { name: 'Returns' });
+    expect(
+      within(capital)
+        .getAllByRole('group')
+        .map((g) => g.getAttribute('aria-label')),
+    ).toEqual(['Positions', 'Invested', 'Distributions', 'NAV']);
+    expect(
+      within(returns)
+        .getAllByRole('group')
+        .map((g) => g.getAttribute('aria-label')),
+    ).toEqual(['DPI', 'TVPI', 'Gross MOIC', 'Gross IRR']);
     const tile = (label: string): HTMLElement => within(tiles).getByRole('group', { name: label });
     expect(tile('Positions')).toHaveTextContent('21 active');
     expect(tile('Invested')).toHaveTextContent('$73.1M');
@@ -323,10 +342,11 @@ describe('vehicle detail', () => {
       expect(await screen.findByTestId('error-state')).toHaveTextContent(
         'Vehicle not found or not visible to you',
       );
-      expect(screen.getByRole('link', { name: 'All vehicles' })).toHaveAttribute(
-        'href',
-        '/portfolio/vehicles',
-      );
+      expect(
+        within(screen.getByRole('navigation', { name: 'Breadcrumb' })).getByRole('link', {
+          name: 'Vehicles',
+        }),
+      ).toHaveAttribute('href', '/portfolio/vehicles');
       expect(screen.queryByTestId('vehicle-banner')).not.toBeInTheDocument();
       cleanup();
       vi.restoreAllMocks();

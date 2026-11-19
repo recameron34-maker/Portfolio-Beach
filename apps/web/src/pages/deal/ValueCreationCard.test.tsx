@@ -12,7 +12,7 @@ import {
   tidepool,
   VC_ID,
 } from '../analytics/value-creation.fixtures.js';
-import { ValueCreationCard } from './ValueCreationCard.js';
+import { ValueCreationBlock } from './ValueCreationCard.js';
 
 vi.mock('@tanstack/react-router', async () =>
   (await import('../../test/router-mock.js')).routerMock(),
@@ -36,7 +36,7 @@ describe('deal workspace: value creation card', () => {
 
   it('leads with the change in equity value and its three drivers, each with its share', async () => {
     mockApi({ [PATH]: ok(investmentValueCreationFixture()) });
-    renderWithQuery(<ValueCreationCard id={VC_ID.saltmarsh} company="Saltmarsh Holdings" />);
+    renderWithQuery(<ValueCreationBlock id={VC_ID.saltmarsh} company="Saltmarsh Holdings" />);
     const tiles = await screen.findByTestId('deal-value-creation-tiles');
     const tile = (name: string): HTMLElement => within(tiles).getByRole('group', { name });
     expect(tile('Equity value change')).toHaveTextContent('+$345.0M');
@@ -52,9 +52,25 @@ describe('deal workspace: value creation card', () => {
     expect(groups[0]).toBe(tile('Equity value change'));
   });
 
+  it('names its own range only when the section above it shows another', async () => {
+    mockApi({ [PATH]: ok(investmentValueCreationFixture()) });
+    renderWithQuery(
+      <ValueCreationBlock
+        id={VC_ID.saltmarsh}
+        company="Saltmarsh Holdings"
+        shownSpan="Entry snapshot Mar 31, 2021 to Jun 30, 2025"
+      />,
+    );
+    await screen.findByTestId('deal-value-creation-tiles');
+    expect(card()).not.toHaveTextContent('Entry snapshot');
+    expect(within(card()).getByRole('heading', { level: 3, name: 'Value creation' })).toBeVisible();
+    // Our gain reads as prose under the bridge, not as a muted note.
+    expect(screen.getByTestId('deal-value-creation-ours')).toHaveClass('pb-deal-narrative');
+  });
+
   it('draws the company bridge from entry to now, opens EBITDA growth on request and has a table twin', async () => {
     mockApi({ [PATH]: ok(investmentValueCreationFixture()) });
-    renderWithQuery(<ValueCreationCard id={VC_ID.saltmarsh} company="Saltmarsh Holdings" />);
+    renderWithQuery(<ValueCreationBlock id={VC_ID.saltmarsh} company="Saltmarsh Holdings" />);
     const bridge = await screen.findByRole('group', { name: 'Value creation bridge' });
     for (const name of [
       'Equity value at entry: $250.0M',
@@ -89,7 +105,7 @@ describe('deal workspace: value creation card', () => {
 
   it('charts the indexed lines by quarter, with a gap where a figure is missing', async () => {
     mockApi({ [PATH]: ok(investmentValueCreationFixture()) });
-    renderWithQuery(<ValueCreationCard id={VC_ID.saltmarsh} company="Saltmarsh Holdings" />);
+    renderWithQuery(<ValueCreationBlock id={VC_ID.saltmarsh} company="Saltmarsh Holdings" />);
     const figure = await screen.findByTestId('deal-value-creation-index');
     expect(within(figure).getByRole('group', { name: 'Indexed since entry' })).toBeInTheDocument();
     expect(
@@ -115,7 +131,7 @@ describe('deal workspace: value creation card', () => {
 
   it('sets entry against current metrics, with the change since entry', async () => {
     mockApi({ [PATH]: ok(investmentValueCreationFixture()) });
-    renderWithQuery(<ValueCreationCard id={VC_ID.saltmarsh} company="Saltmarsh Holdings" />);
+    renderWithQuery(<ValueCreationBlock id={VC_ID.saltmarsh} company="Saltmarsh Holdings" />);
     const table = await screen.findByRole('table', { name: 'Entry against current' });
     expect(
       within(table)
@@ -136,7 +152,7 @@ describe('deal workspace: value creation card', () => {
         investmentValueCreationFixture({ investmentId: VC_ID.kelp, position: kelp() }),
       ),
     });
-    renderWithQuery(<ValueCreationCard id={VC_ID.kelp} company="Kelp Forest Foods" />);
+    renderWithQuery(<ValueCreationBlock id={VC_ID.kelp} company="Kelp Forest Foods" />);
     const bridge = await screen.findByRole('group', { name: 'Value creation bridge' });
     expect(
       within(bridge).getByRole('img', { name: 'Multiple expansion: -$35.0M' }),
@@ -181,7 +197,7 @@ describe('deal workspace: value creation card', () => {
         }),
       ),
     });
-    renderWithQuery(<ValueCreationCard id={VC_ID.tidepool} company="Tidepool Analytics" />);
+    renderWithQuery(<ValueCreationBlock id={VC_ID.tidepool} company="Tidepool Analytics" />);
     expect(
       await screen.findByText('The value creation bridge is not calculable'),
     ).toBeInTheDocument();
@@ -210,7 +226,7 @@ describe('deal workspace: value creation card', () => {
         investmentValueCreationFixture({ investmentId: VC_ID.dune, position: dune(), series: [] }),
       ),
     });
-    renderWithQuery(<ValueCreationCard id={VC_ID.dune} company="Dune Grass Logistics" />);
+    renderWithQuery(<ValueCreationBlock id={VC_ID.dune} company="Dune Grass Logistics" />);
     expect(
       await screen.findByText('EBITDA is at or below zero at entry or in the current quarter.'),
     ).toBeInTheDocument();
@@ -247,7 +263,7 @@ describe('deal workspace: value creation card', () => {
       },
     });
     mockApi({ [PATH]: ok(investmentValueCreationFixture({ position: flat })) });
-    renderWithQuery(<ValueCreationCard id={VC_ID.saltmarsh} company="Saltmarsh Holdings" />);
+    renderWithQuery(<ValueCreationBlock id={VC_ID.saltmarsh} company="Saltmarsh Holdings" />);
     const tiles = await screen.findByTestId('deal-value-creation-tiles');
     expect(within(tiles).getByRole('group', { name: 'Equity value change' })).toHaveTextContent(
       '$0.0M',
@@ -268,7 +284,7 @@ describe('deal workspace: value creation card', () => {
       gainNotCalculable: 'non_positive_entry_equity',
     });
     mockApi({ [PATH]: ok(investmentValueCreationFixture({ position: under })) });
-    renderWithQuery(<ValueCreationCard id={VC_ID.saltmarsh} company="Saltmarsh Holdings" />);
+    renderWithQuery(<ValueCreationBlock id={VC_ID.saltmarsh} company="Saltmarsh Holdings" />);
     await screen.findByTestId('deal-value-creation-tiles');
     expect(screen.getByTestId('deal-value-creation-ours')).toHaveTextContent(
       'Our gain on this position is $14.5M. It is not split by driver: The company equity value at entry is not positive, so our stake has no size.',
@@ -287,7 +303,7 @@ describe('deal workspace: value creation card', () => {
       ),
     });
     const { container } = renderWithQuery(
-      <ValueCreationCard id={VC_ID.credit} company="Summit Services Co" />,
+      <ValueCreationBlock id={VC_ID.credit} company="Summit Services Co" />,
     );
     await waitFor(() => expect(vi.mocked(fetch)).toHaveBeenCalled());
     await waitFor(() => expect(container.querySelector('[aria-busy]')).toBeNull());
@@ -296,7 +312,7 @@ describe('deal workspace: value creation card', () => {
     cleanup();
     vi.restoreAllMocks();
     mockApi({});
-    const missing = renderWithQuery(<ValueCreationCard id={VC_ID.saltmarsh} company="X" />);
+    const missing = renderWithQuery(<ValueCreationBlock id={VC_ID.saltmarsh} company="X" />);
     await waitFor(() => expect(vi.mocked(fetch)).toHaveBeenCalled());
     await waitFor(() => expect(missing.container.querySelector('[aria-busy]')).toBeNull());
     expect(missing.container).toBeEmptyDOMElement();
@@ -304,12 +320,12 @@ describe('deal workspace: value creation card', () => {
 
   it('degrades a 501 to the not-built wording and shows any other failure in the card', async () => {
     mockApi({ [PATH]: failing(501, PATH) });
-    renderWithQuery(<ValueCreationCard id={VC_ID.saltmarsh} company="Saltmarsh Holdings" />);
+    renderWithQuery(<ValueCreationBlock id={VC_ID.saltmarsh} company="Saltmarsh Holdings" />);
     expect(await screen.findByText('Value creation: not available yet')).toBeInTheDocument();
     cleanup();
     vi.restoreAllMocks();
     mockApi({ [PATH]: failing(403, PATH) });
-    renderWithQuery(<ValueCreationCard id={VC_ID.saltmarsh} company="Saltmarsh Holdings" />);
+    renderWithQuery(<ValueCreationBlock id={VC_ID.saltmarsh} company="Saltmarsh Holdings" />);
     expect(await screen.findByText('Value creation: not visible to your role')).toBeInTheDocument();
   });
 });

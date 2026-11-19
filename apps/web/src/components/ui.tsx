@@ -44,31 +44,27 @@ export function Subhead({ children }: { children: ReactNode }): ReactNode {
 
 /**
  * A section of a page: a hairline rule above its content, no frame (docs/06 section 2). `panel`
- * frames the few things that stand apart from the page, such as a form opened in place.
+ * frames the few things that stand apart from the page, such as a form opened in place. `id`
+ * names a section a row of in-page links jumps to (JumpLinks).
  */
 export function Card({
   children,
-  tinted = false,
   panel = false,
   tone,
   testId,
+  id,
 }: {
   children: ReactNode;
-  tinted?: boolean;
   panel?: boolean;
   tone?: 'error' | undefined;
   testId?: string;
+  id?: string | undefined;
 }): ReactNode {
-  const className = [
-    'pb-card',
-    tinted ? 'pb-card-tinted' : '',
-    panel ? 'is-panel' : '',
-    tone === 'error' ? 'pb-card-error' : '',
-  ]
+  const className = ['pb-card', panel ? 'is-panel' : '', tone === 'error' ? 'pb-card-error' : '']
     .filter(Boolean)
     .join(' ');
   return (
-    <section className={className} data-testid={testId}>
+    <section className={className} data-testid={testId} id={id}>
       {children}
     </section>
   );
@@ -153,9 +149,17 @@ export function StatTile({
 }
 
 /** A right-aligned numeric table cell; the missing placeholder and NM render muted. */
-export function NumCell({ children }: { children: string }): ReactNode {
+export function NumCell({
+  children,
+  className,
+}: {
+  children: string;
+  /** Added after the cell's own classes (a group's first column, say). */
+  className?: string | undefined;
+}): ReactNode {
   const missing = children === MISSING || children === 'NM';
-  return <td className={missing ? 'num is-missing' : 'num'}>{children}</td>;
+  const own = missing ? 'num is-missing' : 'num';
+  return <td className={className === undefined ? own : `${own} ${className}`}>{children}</td>;
 }
 
 export function AiDraftBadge(): ReactNode {
@@ -182,18 +186,45 @@ export function ErrorState({
 }
 
 /**
+ * The trail of where a record's page sits (docs/06 section 2): each earlier step a link, in a
+ * navigation named Breadcrumb. PageHeader draws it over the title; a page that cannot show its
+ * record (not found) still shows the way back with it alone.
+ */
+export function Breadcrumbs({
+  items,
+}: {
+  items: readonly { label: string; to?: string | undefined }[];
+}): ReactNode {
+  return (
+    <nav aria-label="Breadcrumb" className="pb-crumbs">
+      <ol>
+        {items.map((c) => (
+          <li key={`${c.label}|${c.to ?? ''}`}>
+            {c.to !== undefined ? <Link to={c.to}>{c.label}</Link> : <span>{c.label}</span>}
+          </li>
+        ))}
+      </ol>
+    </nav>
+  );
+}
+
+/**
  * Page header (docs/06 section 2): on a record's page, the trail of where it sits (`crumbs`, each
  * earlier step a link); the title, with the page's actions on the right; and one meta line (the
- * as-of date, whose view it is), which wraps rather than hides anything.
+ * as-of date, whose view it is), which wraps rather than hides anything. `titleAside` sits on the
+ * title's line after the heading, outside it (a record's identifier and its state), so the
+ * heading's name stays the record's name.
  */
 export function PageHeader({
   title,
+  titleAside,
   meta,
   actions,
   crumbs,
   testId,
 }: {
   title: ReactNode;
+  titleAside?: ReactNode;
   meta?: ReactNode;
   actions?: ReactNode;
   crumbs?: { label: string; to?: string }[] | undefined;
@@ -201,18 +232,15 @@ export function PageHeader({
 }): ReactNode {
   return (
     <div className="pb-banner" data-testid={testId}>
-      {crumbs !== undefined && crumbs.length > 0 ? (
-        <nav aria-label="Breadcrumb" className="pb-crumbs">
-          <ol>
-            {crumbs.map((c) => (
-              <li key={`${c.label}|${c.to ?? ''}`}>
-                {c.to !== undefined ? <Link to={c.to}>{c.label}</Link> : <span>{c.label}</span>}
-              </li>
-            ))}
-          </ol>
-        </nav>
-      ) : null}
-      <h1>{title}</h1>
+      {crumbs !== undefined && crumbs.length > 0 ? <Breadcrumbs items={crumbs} /> : null}
+      {titleAside === undefined ? (
+        <h1>{title}</h1>
+      ) : (
+        <div className="pb-banner-title">
+          <h1>{title}</h1>
+          <span className="pb-banner-title-aside">{titleAside}</span>
+        </div>
+      )}
       {meta !== undefined ? <span className="pb-meta">{meta}</span> : null}
       {actions !== undefined ? <span className="pb-banner-actions">{actions}</span> : null}
     </div>
@@ -228,6 +256,7 @@ export function PageHeader({
 export function TabNav({
   items,
   label,
+  className,
 }: {
   items: {
     to: string;
@@ -236,6 +265,8 @@ export function TabNav({
     search?: Record<string, string | number> | undefined;
   }[];
   label: string;
+  /** Added after pb-tabs, so the row keeps the tabs' look and stays out of the page's entrance. */
+  className?: string | undefined;
 }): ReactNode {
   // The role's order for this row, when its configuration gives one (config/role_focus.json).
   const ordered = tabsFor(items, useRoleFocus());
@@ -271,8 +302,38 @@ export function TabNav({
       nav.removeAttribute('data-more-after');
     };
   }, [narrow]);
+  useEffect(() => {
+    const nav = row.current;
+    if (nav === null || typeof IntersectionObserver === 'undefined') return undefined;
+    // A row the stylesheet keeps in view under the top bar (the deal workspace's) says when it is
+    // held there, so its rule can darken: it is held when its top has reached its sticky offset,
+    // which an observer whose top edge sits 1px below that offset sees as the row crossing it.
+    const style = getComputedStyle(nav);
+    if (style.position !== 'sticky') return undefined;
+    const offset = Number.parseFloat(style.top) || 0;
+    const seen = new IntersectionObserver(
+      (entries) => {
+        const entry = entries[entries.length - 1];
+        if (entry === undefined || entry.rootBounds === null) return;
+        nav.toggleAttribute(
+          'data-stuck',
+          entry.intersectionRatio < 1 && entry.boundingClientRect.top < entry.rootBounds.top,
+        );
+      },
+      { rootMargin: `-${offset + 1}px 0px 0px 0px`, threshold: [0, 1] },
+    );
+    seen.observe(nav);
+    return () => {
+      seen.disconnect();
+      nav.removeAttribute('data-stuck');
+    };
+  }, [narrow]);
   return (
-    <nav className="pb-tabs" aria-label={label} ref={row}>
+    <nav
+      className={className === undefined ? 'pb-tabs' : `pb-tabs ${className}`}
+      aria-label={label}
+      ref={row}
+    >
       {ordered.map((t) => (
         <Link
           key={t.to}
@@ -596,30 +657,5 @@ export function SimulatedBadge(): ReactNode {
     >
       Simulated
     </span>
-  );
-}
-
-/**
- * A page that is planned and not built: says so, and what it will show. Which phase of the build
- * brings it is the roadmap's business (docs/09), not the reader's, so the page does not say.
- */
-export function PhasePage({
-  title,
-  summary,
-  children,
-}: {
-  title: string;
-  /** What the page will hold, in a few words. */
-  summary: string;
-  children?: ReactNode;
-}): ReactNode {
-  return (
-    <>
-      <PageHeader title={title} meta={summary} />
-      <Card>
-        <EmptyState title="Not built yet" detail={`${title} is planned for a later release.`} />
-        {children}
-      </Card>
-    </>
   );
 }

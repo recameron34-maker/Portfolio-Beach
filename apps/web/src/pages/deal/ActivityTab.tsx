@@ -1,7 +1,6 @@
 import type { ReactNode } from 'react';
 import { Link } from '@tanstack/react-router';
 import { useQuery } from '@tanstack/react-query';
-import { Spinner } from '@fluentui/react-components';
 import type { AuditEventRow } from '@pb/contracts';
 import { auditQuery, capitalNoticesQuery, meQuery } from '../../app/queries.js';
 import { UnavailableState } from '../../components/UnavailableState.js';
@@ -10,6 +9,7 @@ import {
   Card,
   EmptyState,
   PageSkeleton,
+  RowsSkeleton,
   SectionHeader,
   TableWrap,
 } from '../../components/ui.js';
@@ -60,13 +60,19 @@ function AuditCard({ id }: { id: string }): ReactNode {
   const me = useQuery(meQuery);
   const allowed = me.data !== undefined && canReadAudit(me.data.roles);
   const q = useQuery({ ...auditQuery({ entityId: id }), enabled: allowed });
+  // Nothing until the roles are known: then the section for a role the audit route admits, and
+  // for any other role one line saying who may read it, not an empty section.
+  if (me.isPending) return null;
+  if (!allowed) {
+    return (
+      <p className="pb-meta pb-deal-audit-note" data-testid="deal-audit">
+        {AUDIT_AUDIENCE}
+      </p>
+    );
+  }
   let body: ReactNode;
-  if (me.isPending) {
-    body = <Spinner size="tiny" label="Checking your roles" />;
-  } else if (!allowed) {
-    body = <p className="pb-meta">{AUDIT_AUDIENCE}</p>;
-  } else if (q.isPending) {
-    body = <Spinner size="tiny" label="Loading the audit trail" />;
+  if (q.isPending) {
+    body = <RowsSkeleton rows={3} label="Loading the audit trail" />;
   } else if (q.isLoadingError) {
     body = (
       <UnavailableState
@@ -98,7 +104,7 @@ function AuditCard({ id }: { id: string }): ReactNode {
       </>
     );
   }
-  const data = allowed ? q.data : undefined;
+  const data = q.data;
   return (
     <Card testId="deal-audit">
       <SectionHeader
@@ -145,9 +151,7 @@ export function ActivityTab(): ReactNode {
                 <time className="pb-deal-timeline-date" dateTime={e.date}>
                   {formatDate(e.date)}
                 </time>
-                <span>
-                  <Badge plain>{e.kind}</Badge>
-                </span>
+                <span className="pb-deal-timeline-kind">{e.kind}</span>
                 <span className="pb-deal-timeline-text">{e.text}</span>
               </li>
             ))}
@@ -160,7 +164,7 @@ export function ActivityTab(): ReactNode {
         ) : null}
         {notices.isPending ? (
           <div className="pb-deal-gap">
-            <Spinner size="tiny" label="Loading capital notices" />
+            <RowsSkeleton rows={2} label="Loading capital notices" />
           </div>
         ) : null}
         {notices.isLoadingError ? (

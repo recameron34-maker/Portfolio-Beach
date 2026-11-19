@@ -633,7 +633,7 @@ function CaseCard({
   if (form !== null) {
     const from = form.kind === 'record' ? undefined : form.kind === 'edit' ? form.draft : form.from;
     return (
-      <Card testId="deal-underwriting">
+      <Card testId="deal-underwriting" id="base-case">
         {header}
         {status}
         {form.kind === 'revise' ? (
@@ -672,7 +672,7 @@ function CaseCard({
   }
 
   return (
-    <Card testId="deal-underwriting">
+    <Card testId="deal-underwriting" id="base-case">
       {header}
       {status}
       {comparison !== null && compared !== undefined ? (
@@ -867,7 +867,7 @@ export function UnderwritingCard({ id, company }: { id: string; company: string 
   if (q.data === undefined) {
     if (q.isPending) {
       return (
-        <Card testId="deal-underwriting-loading">
+        <Card testId="deal-underwriting-loading" id="base-case">
           <PageSkeleton rows={3} />
         </Card>
       );
@@ -875,7 +875,7 @@ export function UnderwritingCard({ id, company }: { id: string; company: string 
     // The read failed before it ever answered. A read that fails later keeps the card, and a
     // form open on it, as they are (the convention of the other tabs of the workspace).
     return (
-      <Card testId="deal-underwriting">
+      <Card testId="deal-underwriting" id="base-case">
         <SectionHeader>{CARD_TITLE}</SectionHeader>
         <ActionStatus latest={log.latest} testId="underwriting-action-status" />
         {notFound ? (

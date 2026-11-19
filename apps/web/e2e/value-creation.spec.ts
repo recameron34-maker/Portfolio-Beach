@@ -542,7 +542,10 @@ test('deal workspace: a position shows its own bridge, indexed lines and entry a
   const goneSeries = await oneFor(page, 'viewer.one', gone.id);
   expect(goneSeries.series.every((point) => point.periodEnd <= gone.exitDate!)).toBe(true);
   await page.goto(`/portfolio/${gone.id}/performance`);
-  await expect(page.getByTestId('deal-value-creation')).toContainText(
+  // The range shows once in the "Since entry" section: in its title, or over the bridge when the
+  // bridge runs over other quarters than the growth figures.
+  await expect(page.getByTestId('deal-value-creation')).toBeVisible();
+  await expect(page.getByTestId('deal-since-entry')).toContainText(
     `Entry snapshot ${day(gone.entry!.periodEnd)} to ${day(gone.current!.periodEnd)}`,
   );
 

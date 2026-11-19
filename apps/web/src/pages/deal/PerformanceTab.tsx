@@ -63,9 +63,9 @@ import {
   useDealDetail,
   useDealId,
 } from './data.js';
-import { HubLink, PeriodCell, RecordStatusBadge } from './parts.js';
+import { HubLink, JumpLinks, PeriodCell, RecordStatusBadge } from './parts.js';
 import { UnderwritingCard } from './UnderwritingCard.js';
-import { ValueCreationCard } from './ValueCreationCard.js';
+import { ValueCreationBlock } from './ValueCreationCard.js';
 import './deal.css';
 import { balanceTiles } from '../../lib/tiles.js';
 
@@ -73,73 +73,77 @@ type CreditBlock = NonNullable<InvestmentPerformance['credit']>;
 
 /* ---- Equity and CV positions ---- */
 
-function SinceEntryCard({ perf }: { perf: InvestmentPerformance }): ReactNode {
+/**
+ * Since entry: the company's growth and multiples against the entry snapshot, then its value
+ * creation (the bridge, our gain in a sentence, the indexed lines and entry against current), in
+ * one section whose title carries the range of the snapshots compared.
+ */
+function SinceEntrySection({
+  perf,
+  company,
+}: {
+  perf: InvestmentPerformance;
+  company: string;
+}): ReactNode {
   const s = perf.sinceEntry;
   const gap = sinceEntryGap(perf);
-  if (s === null) {
-    const entryDate = perf.entry?.periodEnd ?? null;
-    return (
-      <Card testId="deal-since-entry">
-        <SectionHeader>Since entry</SectionHeader>
-        {gap === 'forward_entry' && entryDate !== null ? (
-          <EmptyState
-            title="The entry snapshot is dated after the as-of date"
-            detail={`The snapshot is dated ${formatDate(entryDate)}, after ${formatDate(perf.asOf)}, so nothing is compared against it yet.`}
-          />
-        ) : gap === 'no_quarter' ? (
-          <EmptyState
-            title="No approved quarter to compare with the entry snapshot"
-            detail={`Growth since entry needs an approved quarter on or before ${formatDate(perf.asOf)}.`}
-          />
-        ) : (
-          <EmptyState
-            title="No entry snapshot recorded"
-            detail="Growth since entry is measured against the financials pinned at the investment date; none are on record for this position."
-          />
-        )}
-      </Card>
-    );
-  }
-  const latest = perf.quarters.find((q) => q.periodEnd === s.periodEnd) ?? null;
   const entryDate = perf.entry?.periodEnd ?? null;
+  const span =
+    s === null
+      ? undefined
+      : entryDate === null
+        ? `To ${formatDate(s.periodEnd)}`
+        : `Entry snapshot ${formatDate(entryDate)} to ${formatDate(s.periodEnd)}`;
+  const latest =
+    s === null ? null : (perf.quarters.find((q) => q.periodEnd === s.periodEnd) ?? null);
   return (
-    <Card testId="deal-since-entry">
-      <SectionHeader
-        aside={
-          entryDate === null
-            ? `To ${formatDate(s.periodEnd)}`
-            : `Entry snapshot ${formatDate(entryDate)} to ${formatDate(s.periodEnd)}`
-        }
-      >
-        Since entry
-      </SectionHeader>
-      <div ref={balanceTiles} className="pb-tiles pb-deal-tiles pb-deal-aligned">
-        <StatTile
-          label="Revenue growth"
-          value={formatPct(s.revenueGrowth)}
-          hint="LTM revenue against entry"
+    <Card testId="deal-since-entry" id="since-entry">
+      <SectionHeader aside={span}>Since entry</SectionHeader>
+      {s !== null ? (
+        <div ref={balanceTiles} className="pb-tiles pb-deal-tiles pb-deal-aligned">
+          <StatTile
+            label="Revenue growth"
+            value={formatPct(s.revenueGrowth)}
+            hint="LTM revenue against entry"
+          />
+          <StatTile
+            label="EBITDA growth"
+            value={formatPct(s.ebitdaGrowth)}
+            hint="LTM EBITDA against entry"
+          />
+          <StatTile
+            label="Multiple change"
+            value={formatMultiple(s.multipleDelta)}
+            hint={`EV / EBITDA ${formatMultiple(s.evToEbitdaAtEntry)} at entry`}
+          />
+          <StatTile
+            label="EV / EBITDA at entry"
+            value={formatMultiple(s.evToEbitdaAtEntry)}
+            hint={`Latest ${formatMultiple(latest?.evToEbitda ?? null)}`}
+          />
+          <StatTile
+            label="Net debt / EBITDA at entry"
+            value={formatMultiple(s.netDebtToEbitdaAtEntry)}
+            hint={`Latest ${formatMultiple(latest?.netDebtToEbitda ?? null)}`}
+          />
+        </div>
+      ) : gap === 'forward_entry' && entryDate !== null ? (
+        <EmptyState
+          title="The entry snapshot is dated after the as-of date"
+          detail={`The snapshot is dated ${formatDate(entryDate)}, after ${formatDate(perf.asOf)}, so nothing is compared against it yet.`}
         />
-        <StatTile
-          label="EBITDA growth"
-          value={formatPct(s.ebitdaGrowth)}
-          hint="LTM EBITDA against entry"
+      ) : gap === 'no_quarter' ? (
+        <EmptyState
+          title="No approved quarter to compare with the entry snapshot"
+          detail={`Growth since entry needs an approved quarter on or before ${formatDate(perf.asOf)}.`}
         />
-        <StatTile
-          label="Multiple change"
-          value={formatMultiple(s.multipleDelta)}
-          hint={`EV / EBITDA ${formatMultiple(s.evToEbitdaAtEntry)} at entry`}
+      ) : (
+        <EmptyState
+          title="No entry snapshot recorded"
+          detail="Growth since entry is measured against the financials pinned at the investment date; none are on record for this position."
         />
-        <StatTile
-          label="EV / EBITDA at entry"
-          value={formatMultiple(s.evToEbitdaAtEntry)}
-          hint={`Latest ${formatMultiple(latest?.evToEbitda ?? null)}`}
-        />
-        <StatTile
-          label="Net debt / EBITDA at entry"
-          value={formatMultiple(s.netDebtToEbitdaAtEntry)}
-          hint={`Latest ${formatMultiple(latest?.netDebtToEbitda ?? null)}`}
-        />
-      </div>
+      )}
+      <ValueCreationBlock id={perf.investmentId} company={company} shownSpan={span} />
     </Card>
   );
 }
@@ -182,12 +186,12 @@ function SourceCell({ q }: { q: QuarterRow }): ReactNode {
   const testId = `performance-source-${q.periodEnd}`;
   if (q.source === null)
     return (
-      <td className="is-missing">
+      <td className="is-missing pb-deal-source-col">
         <span data-testid={testId}>{MISSING}</span>
       </td>
     );
   return (
-    <td>
+    <td className="pb-deal-source-col">
       <span className="pb-deal-source">
         <HubLink href={documentHref(q.source.documentId)} testId={testId}>
           {sourceLabel(q.source)}
@@ -213,7 +217,7 @@ function QuarterlyCard({
 }): ReactNode {
   const rows = quarterRowsNewestFirst(perf);
   return (
-    <Card testId="deal-quarterly">
+    <Card testId="deal-quarterly" id="quarterly">
       <SectionHeader aside={`LTM figures, newest first, as of ${formatDate(perf.asOf)}`}>
         Quarterly financials
       </SectionHeader>
@@ -231,22 +235,45 @@ function QuarterlyCard({
               aria-label="Quarterly financials"
               data-testid="performance-sources"
             >
+              {/* Two header rows: the groups over their columns, and each column once (the single
+                  columns span both rows), so every column keeps exactly one header cell. */}
               <thead>
                 <tr>
-                  <th>Period</th>
-                  <th>Status</th>
-                  <th className="num">Revenue</th>
+                  <th rowSpan={2}>Period</th>
+                  <th rowSpan={2}>Status</th>
+                  <th scope="colgroup" colSpan={3} className="pb-deal-group-start">
+                    LTM
+                  </th>
+                  <th scope="colgroup" colSpan={4} className="pb-deal-group-start">
+                    Balance sheet
+                  </th>
+                  <th scope="colgroup" colSpan={2} className="pb-deal-group-start">
+                    Multiples
+                  </th>
+                  <th scope="colgroup" colSpan={2} className="pb-deal-group-start">
+                    Year on year
+                  </th>
+                  <th rowSpan={2} className="pb-deal-source-col">
+                    Source
+                  </th>
+                </tr>
+                <tr>
+                  <th className="num pb-deal-group-start">Revenue</th>
                   <th className="num">EBITDA</th>
                   <th className="num">Margin</th>
-                  <th className="num">EV</th>
+                  <th className="num pb-deal-group-start">EV</th>
                   <th className="num">Net debt</th>
                   <th className="num">Cash</th>
                   <th className="num">Equity</th>
-                  <th className="num">EV / EBITDA</th>
+                  <th className="num pb-deal-group-start">EV / EBITDA</th>
                   <th className="num">Net debt / EBITDA</th>
-                  <th className="num">Revenue YoY</th>
-                  <th className="num">EBITDA YoY</th>
-                  <th>Source</th>
+                  <th className="num pb-deal-group-start">
+                    {/* The group names it on screen; the column keeps its whole name. */}
+                    Revenue <span className="pb-visually-hidden">YoY</span>
+                  </th>
+                  <th className="num">
+                    EBITDA <span className="pb-visually-hidden">YoY</span>
+                  </th>
                 </tr>
               </thead>
               <tbody>
@@ -258,16 +285,18 @@ function QuarterlyCard({
                     <td>
                       <RecordStatusBadge status={q.status} />
                     </td>
-                    <NumCell>{formatMoneyM(q.revenueLtm)}</NumCell>
+                    <NumCell className="pb-deal-group-start">{formatMoneyM(q.revenueLtm)}</NumCell>
                     <NumCell>{formatMoneyM(q.ebitdaLtm)}</NumCell>
                     <NumCell>{formatPct(q.ebitdaMargin)}</NumCell>
-                    <NumCell>{formatMoneyM(q.ev)}</NumCell>
+                    <NumCell className="pb-deal-group-start">{formatMoneyM(q.ev)}</NumCell>
                     <NumCell>{formatMoneyM(q.netDebt)}</NumCell>
                     <NumCell>{formatMoneyM(q.cash)}</NumCell>
                     <NumCell>{formatMoneyM(q.totalEquity)}</NumCell>
-                    <NumCell>{formatMultiple(q.evToEbitda)}</NumCell>
+                    <NumCell className="pb-deal-group-start">
+                      {formatMultiple(q.evToEbitda)}
+                    </NumCell>
                     <NumCell>{formatMultiple(q.netDebtToEbitda)}</NumCell>
-                    <NumCell>{formatPct(q.revenueYoy)}</NumCell>
+                    <NumCell className="pb-deal-group-start">{formatPct(q.revenueYoy)}</NumCell>
                     <NumCell>{formatPct(q.ebitdaYoy)}</NumCell>
                     <SourceCell q={q} />
                   </tr>
@@ -276,9 +305,9 @@ function QuarterlyCard({
             </table>
           </TableWrap>
           <p className="pb-meta pb-deal-note">
-            Year on year compares with the same fiscal quarter one year earlier only; when that
-            quarter is missing the change is not calculated ({MISSING}). Source is the document page
-            the quarter's figures were read from; a quarter with no source document shows {MISSING}.
+            Year on year compares the same fiscal quarter a year earlier; without it the change
+            shows {MISSING}. Source opens the page the figures were read from; a quarter with no
+            source document shows {MISSING}.
           </p>
         </>
       )}
@@ -290,7 +319,7 @@ function HighlightsCard({ perf }: { perf: InvestmentPerformance }): ReactNode {
   const latest = newestFirst(perf.quarters).slice(0, HIGHLIGHT_QUARTERS);
   const recorded = latest.some((q) => q.highlights.length > 0);
   return (
-    <Card testId="deal-highlights">
+    <Card testId="deal-highlights" id="highlights">
       <SectionHeader
         aside={latest.length > 0 ? `Latest ${plural(latest.length, 'quarter')}` : undefined}
       >
@@ -345,7 +374,13 @@ function OutlookForm({
   investmentId: string;
   log: ActionLog;
 }): ReactNode {
-  const ids = { outlook: useId(), horizon: useId(), note: useId(), reason: useId() };
+  const ids = {
+    outlook: useId(),
+    horizon: useId(),
+    note: useId(),
+    reason: useId(),
+    blocked: useId(),
+  };
   const set = useSetRealizationOutlook();
   const [outlook, setOutlook] = useState<RealizationOutlookCode>(detail.outlook);
   const [horizon, setHorizon] = useState(String(detail.horizonMonths));
@@ -439,20 +474,28 @@ function OutlookForm({
             onChange={(_e, d) => setReason(d.value)}
           />
         </Field>
-        {/* Stays focusable while it cannot act, so keyboard focus is not lost mid-edit. */}
-        <Button
-          type="submit"
-          size="small"
-          appearance="primary"
-          disabledFocusable={!valid || busy}
-          {...(valid
-            ? {}
-            : {
-                title: `Needs a horizon of ${HORIZON_MONTHS.min} to ${HORIZON_MONTHS.max} months and a reason of at least three characters`,
-              })}
-        >
-          Set outlook
-        </Button>
+        <span className="pb-deal-outlook-submit">
+          {/* Stays focusable while it cannot act, so keyboard focus is not lost mid-edit. */}
+          <Button
+            type="submit"
+            disabledFocusable={!valid || busy}
+            {...(valid
+              ? {}
+              : {
+                  title: `Needs a horizon of ${HORIZON_MONTHS.min} to ${HORIZON_MONTHS.max} months and a reason of at least three characters`,
+                  'aria-describedby': ids.blocked,
+                })}
+          >
+            Set outlook
+          </Button>
+          {valid ? null : (
+            <span className="pb-deal-outlook-blocked" id={ids.blocked}>
+              {!isReason(reason)
+                ? 'Add a reason to save.'
+                : `Set a horizon of ${HORIZON_MONTHS.min} to ${HORIZON_MONTHS.max} months to save.`}
+            </span>
+          )}
+        </span>
       </form>
     </>
   );
@@ -520,12 +563,10 @@ function OutlookCard({ id }: { id: string }): ReactNode {
     );
   }
   return (
-    <Card testId="outlook-card">
+    <Card testId="outlook-card" id="outlook">
       <SectionHeader aside={<SimulatedBadge />}>Realization outlook</SectionHeader>
       {body}
-      <p className="pb-meta pb-deal-note">
-        Changes only by explicit edit, with a reason on the audit trail; nothing automated sets it.
-      </p>
+      <p className="pb-meta pb-deal-note">Set by hand. The reason is kept on the audit trail.</p>
     </Card>
   );
 }
@@ -539,8 +580,16 @@ function EquityPerformance({
 }): ReactNode {
   return (
     <>
-      <SinceEntryCard perf={perf} />
-      <ValueCreationCard id={perf.investmentId} company={company} />
+      <JumpLinks
+        items={[
+          { id: 'since-entry', label: 'Since entry' },
+          { id: 'base-case', label: 'Base case' },
+          { id: 'quarterly', label: 'Quarterly' },
+          { id: 'highlights', label: 'Highlights' },
+          { id: 'outlook', label: 'Outlook' },
+        ]}
+      />
+      <SinceEntrySection perf={perf} company={company} />
       <UnderwritingCard id={perf.investmentId} company={company} />
       <QuarterlyCard perf={perf} company={company} />
       <div className="pb-two-col">
@@ -648,56 +697,80 @@ function CreditQuartersCard({
         <>
           <CreditChart credit={credit} company={company} />
           <TableWrap label="Quarterly credit metrics">
-            <table className="pb-table pb-deal-dense" aria-label="Quarterly credit metrics">
+            <table
+              className="pb-table pb-deal-dense pb-deal-credit"
+              aria-label="Quarterly credit metrics"
+            >
               <thead>
                 <tr>
-                  <th>Period</th>
-                  <th className="num">Par</th>
+                  <th rowSpan={2}>Period</th>
+                  <th scope="colgroup" colSpan={5} className="pb-deal-group-start">
+                    Position
+                  </th>
+                  <th scope="colgroup" colSpan={3} className="pb-deal-group-start">
+                    LTM flows
+                  </th>
+                  <th scope="colgroup" colSpan={4} className="pb-deal-group-start">
+                    Ratios
+                  </th>
+                  <th rowSpan={2} className="pb-deal-group-start">
+                    Covenant
+                  </th>
+                  <th rowSpan={2}>Payment</th>
+                </tr>
+                <tr>
+                  <th className="num pb-deal-group-start">Par</th>
                   <th className="num">Cost</th>
                   <th className="num">Fair value</th>
                   <th className="num">Accrued</th>
-                  <th className="num">Cash interest LTM</th>
-                  <th className="num">PIK LTM</th>
-                  <th className="num">Principal repaid LTM</th>
                   <th className="num">Funded</th>
-                  <th className="num">Current yield</th>
+                  {/* The group names the period on screen; each column keeps its whole name. */}
+                  <th className="num pb-deal-group-start">
+                    Cash interest <span className="pb-visually-hidden">LTM</span>
+                  </th>
+                  <th className="num">
+                    PIK <span className="pb-visually-hidden">LTM</span>
+                  </th>
+                  <th className="num">
+                    Principal repaid <span className="pb-visually-hidden">LTM</span>
+                  </th>
+                  <th className="num pb-deal-group-start">Current yield</th>
                   <th className="num">Coverage</th>
                   <th className="num">Leverage</th>
                   <th className="num">LTV</th>
-                  <th>Covenant / payment</th>
                 </tr>
               </thead>
               <tbody>
                 {rows.map((q) => (
                   <tr key={q.periodEnd}>
                     <td className="pb-nowrap">{formatDate(q.periodEnd)}</td>
-                    <NumCell>{formatMoneyM(q.parValue)}</NumCell>
+                    <NumCell className="pb-deal-group-start">{formatMoneyM(q.parValue)}</NumCell>
                     <NumCell>{formatMoneyM(q.costBasis)}</NumCell>
                     <NumCell>{formatMoneyM(q.fairValue)}</NumCell>
                     <NumCell>{formatMoneyM(q.accruedInterest)}</NumCell>
-                    <NumCell>{formatMoneyM(q.cashInterestLtm)}</NumCell>
+                    <NumCell>{formatMoneyM(q.fundedAmount)}</NumCell>
+                    <NumCell className="pb-deal-group-start">
+                      {formatMoneyM(q.cashInterestLtm)}
+                    </NumCell>
                     <NumCell>{formatMoneyM(q.pikCapitalizedLtm)}</NumCell>
                     <NumCell>{formatMoneyM(q.principalRepaidLtm)}</NumCell>
-                    <NumCell>{formatMoneyM(q.fundedAmount)}</NumCell>
-                    <NumCell>{formatPct(q.currentYield, 2)}</NumCell>
+                    <NumCell className="pb-deal-group-start">
+                      {formatPct(q.currentYield, 2)}
+                    </NumCell>
                     <NumCell>{formatMultiple(q.interestCoverage)}</NumCell>
                     <NumCell>{formatMultiple(q.leverageThroughTranche)}</NumCell>
                     <NumCell>{formatPct(q.loanToValue)}</NumCell>
-                    <td>
-                      <span className="pb-deal-stack">
-                        <span title="Covenant status">
-                          <Badge tone={creditStatusTone(q.covenantStatus)}>
-                            <span className="pb-visually-hidden">Covenant</span>{' '}
-                            {labelOf(q.covenantStatus)}
-                          </Badge>
-                        </span>
-                        <span title="Payment status">
-                          <Badge tone={creditStatusTone(q.paymentStatus)}>
-                            <span className="pb-visually-hidden">Payment</span>{' '}
-                            {labelOf(q.paymentStatus)}
-                          </Badge>
-                        </span>
-                      </span>
+                    <td className="pb-deal-group-start pb-nowrap">
+                      <Badge tone={creditStatusTone(q.covenantStatus)}>
+                        <span className="pb-visually-hidden">Covenant</span>{' '}
+                        {labelOf(q.covenantStatus)}
+                      </Badge>
+                    </td>
+                    <td className="pb-nowrap">
+                      <Badge tone={creditStatusTone(q.paymentStatus)}>
+                        <span className="pb-visually-hidden">Payment</span>{' '}
+                        {labelOf(q.paymentStatus)}
+                      </Badge>
                     </td>
                   </tr>
                 ))}

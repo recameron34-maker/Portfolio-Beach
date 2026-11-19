@@ -33,7 +33,11 @@ describe('capital activity tab', () => {
     });
     renderWithQuery(<CapitalTab />);
     const tiles = await screen.findByTestId('deal-capital-tiles');
-    expect(within(tiles).getByRole('group', { name: 'Invested' })).toHaveTextContent('$6.9M');
+    expect(within(tiles).getByRole('group', { name: 'Invested capital' })).toHaveTextContent(
+      '$6.9M',
+    );
+    // Two figures: a compact strip, its cells as wide as they need.
+    expect(tiles).toHaveClass('is-compact');
     expect(within(tiles).getByRole('group', { name: 'Distributions' })).toHaveTextContent('$2.2M');
 
     const table = await screen.findByRole('table', { name: 'Capital notices' });

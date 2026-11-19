@@ -1,7 +1,6 @@
 import type { ReactNode } from 'react';
 import { Link } from '@tanstack/react-router';
 import { useQuery } from '@tanstack/react-query';
-import { Spinner } from '@fluentui/react-components';
 import type { CapitalNoticePage, InvestmentDetail } from '@pb/contracts';
 import { capitalNoticesQuery } from '../../app/queries.js';
 import { UnavailableState } from '../../components/UnavailableState.js';
@@ -11,6 +10,7 @@ import {
   EmptyState,
   NumCell,
   PageSkeleton,
+  RowsSkeleton,
   SectionHeader,
   StatTile,
   TableWrap,
@@ -19,7 +19,6 @@ import { formatDate, formatMoneyM, labelOf } from '../../lib/format.js';
 import { dueLabel, dueTone, humanizeState, noticeTone } from '../../lib/states.js';
 import { ALERT_DAYS_BEFORE_DUE, isSettled, useDealDetail, useDealId } from './data.js';
 import './deal.css';
-import { balanceTiles } from '../../lib/tiles.js';
 
 function NoticesTable({ page }: { page: CapitalNoticePage }): ReactNode {
   const rows = [...page.items].sort((a, b) => b.dueDate.localeCompare(a.dueDate));
@@ -134,9 +133,9 @@ export function CapitalTab(): ReactNode {
   const n = q.data?.items.length ?? 0;
   return (
     <>
-      <div ref={balanceTiles} className="pb-tiles pb-deal-tiles" data-testid="deal-capital-tiles">
+      <div className="pb-tiles pb-deal-tiles is-compact" data-testid="deal-capital-tiles">
         <StatTile
-          label={d.credit !== null ? 'Funded' : 'Invested'}
+          label={d.credit !== null ? 'Funded' : 'Invested capital'}
           value={formatMoneyM(d.invested)}
           hint="Contributions to date"
         />
@@ -173,7 +172,7 @@ export function CapitalTab(): ReactNode {
           >
             Capital notices
           </SectionHeader>
-          {q.isPending ? <Spinner size="tiny" label="Loading capital notices" /> : null}
+          {q.isPending ? <RowsSkeleton rows={3} label="Loading capital notices" /> : null}
           {q.data !== undefined ? (
             n === 0 ? (
               <EmptyState

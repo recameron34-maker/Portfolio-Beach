@@ -11,12 +11,11 @@ import { ApiError } from '../../api/client.js';
 import { BridgeChart, LineChart } from '../../components/charts/index.js';
 import { UnavailableState } from '../../components/UnavailableState.js';
 import {
-  Card,
   EmptyState,
   NumCell,
-  PageSkeleton,
-  SectionHeader,
+  RowsSkeleton,
   StatTile,
+  Subhead,
   TableWrap,
   Toolbar,
 } from '../../components/ui.js';
@@ -81,7 +80,7 @@ function OursLine({ p }: { p: ValueCreationPosition }): ReactNode {
   const g = p.gainByDriver;
   const reason = p.gainNotCalculable === null ? null : REASON_TEXT[p.gainNotCalculable];
   return (
-    <p className="pb-meta pb-deal-note" data-testid="deal-value-creation-ours">
+    <p className="pb-deal-narrative" data-testid="deal-value-creation-ours">
       {g !== null
         ? `Our gain on this position is ${formatMoneyM(p.gain)}: at our entry stake of ${formatPct(p.stake)}, ${formatSignedMoneyM(g.ebitdaGrowth)} from EBITDA growth, ${formatSignedMoneyM(g.multipleExpansion)} from multiple expansion and ${formatSignedMoneyM(g.debtPaydown)} from debt paydown, and ${formatSignedMoneyM(g.other)} from mark and timing (our mark against the company's value, fees, the timing of cash flows, follow-on investments and realizations).`
         : p.gain === null
@@ -239,29 +238,40 @@ function EntryCurrentTable({ p }: { p: ValueCreationPosition }): ReactNode {
 }
 
 /**
- * Value creation of one position (docs/04 M13 and M20, docs/08 section 8): the company's bridge
- * from the entry snapshot to the latest approved quarter (or to the exit of a realized position),
- * the indexed lines by quarter and entry against current metrics. Equity and continuation vehicle positions only: for any other deal
- * type the API answers no row and the card shows nothing. A figure that is not calculable is the
- * missing placeholder with its reason, never a zero.
+ * Value creation of one position (docs/04 M13 and M20, docs/08 section 8), inside the Performance
+ * tab's "Since entry" section: the company's bridge from the entry snapshot to the latest approved
+ * quarter (or to the exit of a realized position), our gain in a sentence, the indexed lines by
+ * quarter and entry against current metrics. Equity and continuation vehicle positions only: for
+ * any other deal type the API answers no row and nothing shows. The section's title carries the
+ * range of the snapshots; the block names its own range only when it differs (`shownSpan`). A
+ * figure that is not calculable is the missing placeholder with its reason, never a zero.
  */
-export function ValueCreationCard({ id, company }: { id: string; company: string }): ReactNode {
+export function ValueCreationBlock({
+  id,
+  company,
+  shownSpan,
+}: {
+  id: string;
+  company: string;
+  /** The range the section's title already shows; the block repeats its own only if it differs. */
+  shownSpan?: string | undefined;
+}): ReactNode {
   const q = useQuery(investmentValueCreationQuery(id));
   if (q.isPending) {
     return (
-      <Card testId="deal-value-creation-loading">
-        <PageSkeleton rows={3} />
-      </Card>
+      <div className="pb-deal-vc" data-testid="deal-value-creation-loading">
+        <RowsSkeleton rows={3} label="Loading value creation" />
+      </div>
     );
   }
   if (q.isError) {
     // Not found here means there is nothing of this position to show; the workspace says so itself.
     if (q.error instanceof ApiError && q.error.status === 404) return null;
     return (
-      <Card testId="deal-value-creation">
-        <SectionHeader>Value creation</SectionHeader>
+      <div className="pb-deal-vc" data-testid="deal-value-creation">
+        <Subhead>Value creation</Subhead>
         <UnavailableState inline error={q.error} subject="Value creation" />
-      </Card>
+      </div>
     );
   }
   const p = q.data.position;
@@ -271,14 +281,13 @@ export function ValueCreationCard({ id, company }: { id: string; company: string
       ? `Entry snapshot ${formatDate(p.entry.periodEnd)} to ${formatDate(p.current.periodEnd)}`
       : `As of ${formatDate(q.data.asOf)}`;
   return (
-    <Card testId="deal-value-creation">
-      <SectionHeader aside={span}>Value creation</SectionHeader>
+    <div className="pb-deal-vc" data-testid="deal-value-creation">
+      <Subhead>Value creation</Subhead>
+      {span === shownSpan ? null : <p className="pb-meta pb-deal-vc-span">{span}</p>}
       <BridgeBlock p={p} company={company} />
       <OursLine p={p} />
-      <div className="pb-deal-gap">
-        <IndexedLines data={q.data} company={company} />
-      </div>
+      <IndexedLines data={q.data} company={company} />
       <EntryCurrentTable p={p} />
-    </Card>
+    </div>
   );
 }

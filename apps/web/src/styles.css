@@ -479,7 +479,8 @@ p:last-child {
   grid-area: crumbs;
   margin-bottom: 2px;
 }
-.pb-banner > h1 {
+.pb-banner > h1,
+.pb-banner-title > h1 {
   grid-area: title;
   min-width: 0;
   margin: 0;
@@ -493,6 +494,21 @@ p:last-child {
 .pb-banner > .pb-meta {
   grid-area: meta;
   min-width: 0;
+}
+/* A record's identifier and state on the title's line, after the heading and outside it. */
+.pb-banner-title {
+  grid-area: title;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0 var(--pb-space-3);
+  min-width: 0;
+}
+.pb-banner-title-aside {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0 var(--pb-space-3);
 }
 .pb-banner-actions {
   grid-area: actions;
@@ -598,6 +614,14 @@ p:last-child {
   > .pb-card {
   border-top: 0;
   padding-top: 0;
+}
+/* A section that ends on a figures strip: the strip's lower rule is the next section's rule, so
+   the next section draws none and starts as close under it as a section starts under its own. */
+.pb-card:has(> .pb-tiles:last-child):has(+ .pb-card) {
+  margin-bottom: 0;
+}
+.pb-card:has(> .pb-tiles:last-child) + .pb-card {
+  border-top: 0;
 }
 .pb-card.is-panel {
   border: 1px solid var(--pb-border);
@@ -723,6 +747,43 @@ p:last-child {
    rule sets the phone's minimum). */
 .pb-home-figures {
   --pb-tile-min: 116px;
+}
+/* A short strip (two or three figures): cells as wide as their figures need, not spread across
+   the page, and the rules as long as the cells. */
+.pb-tiles.is-compact {
+  grid-template-columns: none;
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(160px, 220px);
+  width: max-content;
+  max-width: calc(100% + var(--pb-space-4));
+}
+/* Figures in labelled groups (a vehicle's capital and its returns): each group a strip with its
+   name over it, side by side while both fit with four cells across, else one over the other. */
+.pb-tiles-groups {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 480px), 1fr));
+  gap: 0 var(--pb-space-6);
+  margin-bottom: var(--pb-space-6);
+}
+.pb-tiles-group {
+  display: grid;
+  grid-template-rows: auto 1fr;
+  gap: var(--pb-space-1);
+  min-width: 0;
+}
+.pb-tiles-group > .pb-tiles {
+  --pb-tile-min: 120px;
+  margin-bottom: 0;
+}
+.pb-tiles-group-label {
+  font-size: var(--pb-text-sm);
+  line-height: var(--pb-text-sm-lh);
+  font-weight: 600;
+  color: var(--pb-muted-strong);
+}
+.pb-tiles-groups + .pb-card {
+  border-top: 0;
+  padding-top: 0;
 }
 .pb-stat-tile.is-wide {
   grid-column: span 2;
@@ -1385,34 +1446,6 @@ p:last-child {
   gap: 0;
 }
 
-/* ---- Lists of links (the deal workspace's other positions): a link and its detail a row ---- */
-.pb-linklist {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-}
-.pb-linklist li {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: space-between;
-  gap: 4px 16px;
-  padding: 9px 0;
-  border-top: 1px solid var(--pb-hairline);
-  font-size: 14px;
-  line-height: 20px;
-}
-.pb-linklist li:first-child {
-  border-top: 0;
-  padding-top: 0;
-}
-.pb-linklist li:last-child {
-  padding-bottom: 0;
-}
-.pb-linklist .pb-meta {
-  flex: 1 1 200px;
-  text-align: right;
-}
-
 /* ---- Lists on Home ---- */
 /* The work of the signed-in role: the sentence that says what the role does as the section's meta
    line, then a 36px row for each place it does it, the link and what is there on one line (cut
@@ -1904,10 +1937,10 @@ p:last-child {
   color: var(--pb-bad-ink);
 }
 
-/* ---- Flag list inside a table cell (Watchlist): a badge and its message per flag ---- */
+/* ---- Flag list inside a table cell (Watchlist): per flag a dot, the flag in words, its message ---- */
 .pb-flag-list {
   display: grid;
-  gap: 6px;
+  gap: var(--pb-space-1);
   margin: 0;
   padding: 0;
   list-style: none;
@@ -1915,18 +1948,86 @@ p:last-child {
 .pb-flag-list > li {
   display: flex;
   flex-wrap: wrap;
-  align-items: center;
-  gap: 2px 8px;
+  align-items: baseline;
+  gap: 0 var(--pb-space-2);
 }
-.pb-flag-list .pb-meta {
-  line-height: 18px;
+.pb-flag-list .pb-badge {
+  font-weight: 600;
+}
+.pb-flag-message {
+  color: var(--pb-muted-strong);
+}
+/* The watchlist: the position takes a third and wraps; on a phone its flags follow under it. */
+.pb-watchlist-position {
+  width: 34%;
+  min-width: 200px;
+}
+.pb-watchlist td > .pb-flag-list:not(:first-child) {
+  margin-top: var(--pb-space-2);
+}
+/* On a phone the table is one column, which nothing scrolls past: no held column, no edge. */
+@media (max-width: 760px) {
+  .pb-watchlist :is(th, td):first-child {
+    position: static;
+    box-shadow: none;
+  }
 }
 
 /* ---- AG Grid companions ---- */
 /* The grid reaches 8px past its section, as a table does, so its text starts on the title's edge. */
 .pb-grid {
-  height: clamp(360px, calc(100vh - 340px), 760px);
+  height: max(360px, calc(100dvh - var(--pb-header-h) - 220px));
   margin-inline: calc(var(--pb-space-2) * -1);
+}
+/* The grid's controls in one row over it: search, deal type, active only, then on the right the
+   count, the row density and the export. Previous and Next sit under the grid, right-aligned, and
+   only when there is a second page. On a phone the search takes its own line. */
+.pb-grid-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--pb-space-2) var(--pb-space-4);
+  margin: 0 0 var(--pb-space-3);
+}
+.pb-grid-search {
+  flex: 0 1 280px;
+  min-width: 260px;
+}
+.pb-grid-search > .fui-Input {
+  width: 100%;
+}
+.pb-grid-field {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--pb-space-2);
+}
+.pb-grid-field > .fui-Label {
+  font-size: var(--pb-text-sm);
+  line-height: var(--pb-text-sm-lh);
+  font-weight: 500;
+  color: var(--pb-muted-strong);
+  white-space: nowrap;
+}
+.pb-grid-field > .pb-grid-deal-type {
+  width: 200px;
+  min-width: 0;
+}
+.pb-grid-toolbar-end {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--pb-space-1) var(--pb-space-2);
+  margin-left: auto;
+}
+.pb-grid-toolbar-end > .pb-meta {
+  margin: 0 var(--pb-space-2) 0 0;
+  white-space: nowrap;
+}
+.pb-grid-pager {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--pb-space-2);
+  margin-top: var(--pb-space-2);
 }
 .pb-grid .ag-row {
   cursor: pointer;
@@ -1953,9 +2054,6 @@ p:last-child {
 }
 .pb-grid .ag-cell.pb-cell-nm {
   color: var(--pb-muted-strong);
-}
-.pb-grid .ag-cell .pb-badge {
-  vertical-align: middle;
 }
 
 /* ---- Reporting, assistants and admin pages ---- */
@@ -2509,6 +2607,20 @@ p:last-child {
   }
   .pb-grid {
     height: 62vh;
+  }
+  .pb-grid-search {
+    flex: 1 1 100%;
+    min-width: 0;
+  }
+  .pb-grid-toolbar-end {
+    flex: 1 1 100%;
+    margin-left: 0;
+  }
+  .pb-grid-toolbar-end > .pb-meta {
+    flex: 1 1 100%;
+  }
+  .pb-grid-toolbar-end > .fui-Button {
+    white-space: nowrap;
   }
   /* Sign-in: the data rule under the wordmark, the column at the phone's gutter. */
   .pb-signin-bar {

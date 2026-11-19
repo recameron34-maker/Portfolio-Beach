@@ -44,6 +44,22 @@ describe('deal workspace', () => {
     expect(banner).toHaveTextContent('Investment date November 2018');
     expect(banner).toHaveTextContent('As of Jun 30, 2025');
     expect(within(banner).getByText('Active')).toBeInTheDocument();
+    // The trail: the portfolio, then the position's vehicle.
+    const trail = within(banner).getByRole('navigation', { name: 'Breadcrumb' });
+    expect(within(trail).getByRole('link', { name: 'Portfolio' })).toHaveAttribute(
+      'href',
+      '/portfolio',
+    );
+    expect(within(trail).getByRole('link', { name: 'Beach Co-Invest Fund I' })).toHaveAttribute(
+      'href',
+      `/portfolio/vehicles/${dealDetailFixture().vehicleId}`,
+    );
+    // The investment number and the state sit on the title's line, outside the heading.
+    const aside = banner.querySelector('.pb-banner-title-aside');
+    expect(aside).toHaveTextContent('INV-0001Active');
+    expect(aside?.closest('h1')).toBeNull();
+    // The vehicle is named once, in the trail; the meta line holds the rest.
+    expect(banner.querySelector('.pb-meta')).not.toHaveTextContent('Beach Co-Invest Fund I');
 
     const tiles = screen.getByTestId('deal-tiles');
     expect(within(tiles).getByRole('group', { name: 'Invested capital' })).toHaveTextContent(
@@ -57,6 +73,8 @@ describe('deal workspace', () => {
     expect(within(tiles).queryByRole('group', { name: 'Par' })).not.toBeInTheDocument();
 
     const nav = screen.getByRole('navigation', { name: 'Deal workspace' });
+    // Still the tabs' row (and so still out of the page's entrance), kept in view by the stylesheet.
+    expect(nav).toHaveClass('pb-tabs', 'pb-deal-tabs');
     const links = within(nav).getAllByRole('link');
     expect(links.map((l) => l.textContent)).toEqual([
       'Overview',
@@ -187,9 +205,11 @@ describe('overview tab (the one-pager body)', () => {
     }));
     mockApi({ [DEAL_PATHS.detail]: ok(dealDetailFixture({ valuations: many })) });
     renderWithQuery(<InvestmentDetailPage />);
-    expect(await screen.findByRole('table', { name: 'Deal details' })).toHaveTextContent(
-      'Kelpwood Capital Partners',
-    );
+    const details = await screen.findByRole('table', { name: 'Deal details' });
+    expect(details).toHaveTextContent('Kelpwood Capital Partners');
+    // The number as plain text; the state is the header's, so the details do not repeat it.
+    expect(within(details).getByText('INV-0001')).not.toHaveClass('pb-key');
+    expect(within(details).queryByText('Status')).not.toBeInTheDocument();
     const financials = screen.getByRole('table', { name: 'Financial performance' });
     expect(financials).toHaveTextContent('Prior year (Mar 31, 2024)');
     // Revenue: current, the prior year's own figure, then the growth between them.

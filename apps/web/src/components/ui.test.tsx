@@ -1,10 +1,13 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import {
+  Breadcrumbs,
+  Card,
   CheckList,
   EmptyState,
   KeyValueTable,
   Notice,
+  NumCell,
   PageHeader,
   PageSkeleton,
   RowsSkeleton,
@@ -130,6 +133,57 @@ describe('page header', () => {
   it('has no trail on an area page', () => {
     render(<PageHeader title="Valuations" meta="As of Jun 30, 2025" />);
     expect(screen.queryByRole('navigation', { name: 'Breadcrumb' })).toBeNull();
+  });
+
+  it("sets a record's identifier and state on the title's line, outside the heading", () => {
+    render(
+      <PageHeader
+        title="Meridian Data Partners"
+        titleAside={
+          <>
+            <span>INV-0001</span>
+            <span>Active</span>
+          </>
+        }
+      />,
+    );
+    const heading = screen.getByRole('heading', { level: 1, name: 'Meridian Data Partners' });
+    const aside = screen.getByText('INV-0001').parentElement;
+    expect(aside).toHaveClass('pb-banner-title-aside');
+    expect(heading.contains(aside)).toBe(false);
+    expect(heading.parentElement).toBe(aside?.parentElement);
+  });
+
+  it('draws the trail alone, for a page that cannot show its record', () => {
+    render(
+      <Breadcrumbs items={[{ label: 'Portfolio', to: '/portfolio' }, { label: 'Vehicles' }]} />,
+    );
+    const trail = screen.getByRole('navigation', { name: 'Breadcrumb' });
+    expect(within(trail).getByRole('link', { name: 'Portfolio' })).toHaveAttribute(
+      'href',
+      '/portfolio',
+    );
+    expect(within(trail).queryByRole('link', { name: 'Vehicles' })).toBeNull();
+  });
+});
+
+describe('sections and cells a page names', () => {
+  afterEach(cleanup);
+
+  it('gives a section the id a link jumps to, and a figure cell a class of its own', () => {
+    render(
+      <Card id="quarterly" testId="quarterly">
+        <table>
+          <tbody>
+            <tr>
+              <NumCell className="pb-deal-group-start">-</NumCell>
+            </tr>
+          </tbody>
+        </table>
+      </Card>,
+    );
+    expect(screen.getByTestId('quarterly')).toHaveAttribute('id', 'quarterly');
+    expect(screen.getByRole('cell')).toHaveClass('num', 'is-missing', 'pb-deal-group-start');
   });
 });
 
@@ -382,5 +436,18 @@ describe('tab row on a phone', () => {
     const row = screen.getByRole('navigation', { name: 'Admin' });
     expect(row).not.toHaveAttribute('data-more-before');
     expect(row).not.toHaveAttribute('data-more-after');
+  });
+
+  it("keeps the tabs' class first when a page adds its own, and marks no row held that is not sticky", () => {
+    render(
+      <TabNav
+        label="Deal workspace"
+        className="pb-deal-tabs"
+        items={[{ to: '/portfolio/1', label: 'Overview' }]}
+      />,
+    );
+    const row = screen.getByRole('navigation', { name: 'Deal workspace' });
+    expect(row.className).toBe('pb-tabs pb-deal-tabs');
+    expect(row).not.toHaveAttribute('data-stuck');
   });
 });

@@ -21,7 +21,7 @@ const PAD = { top: 12, right: 96, bottom: 28, left: 56 };
 /**
  * Trend over time for one or more series: 2px lines, end markers with a surface ring, a wash
  * under a single series, a crosshair tooltip that lists every series at the nearest x, keyboard
- * navigation with the arrow keys, direct end labels for up to four series and the table twin. A
+ * navigation with the arrow keys, direct end labels for two to four series and the table twin. A
  * null value is a gap: the line stops before it and starts again after it.
  *
  * The points sit at even steps unless `at` places them: one number per point, rising (days since
@@ -131,9 +131,10 @@ export function LineChart({
           })),
         };
 
-  // End labels for up to four series; a label too close to the previous one is dropped (the legend carries it).
+  // End labels for two to four series; a label too close to the previous one is dropped (the
+  // legend carries it). One series needs none: the chart's title names it.
   const endLabels: { name: string; y: number; color: string }[] = [];
-  if (series.length <= 4) {
+  if (series.length >= 2 && series.length <= 4) {
     const candidates = series
       .map((s, i) => {
         let last = -1;

@@ -1,11 +1,17 @@
 import type { ReactNode } from 'react';
 import { Link } from '@tanstack/react-router';
 import { useQuery } from '@tanstack/react-query';
-import { Spinner } from '@fluentui/react-components';
 import type { DocumentSummary } from '@pb/contracts';
 import { documentsOfInvestmentQuery, LIST_LIMIT } from '../../app/queries.js';
 import { UnavailableState } from '../../components/UnavailableState.js';
-import { Badge, Card, EmptyState, SectionHeader, TableWrap } from '../../components/ui.js';
+import {
+  Badge,
+  Card,
+  EmptyState,
+  RowsSkeleton,
+  SectionHeader,
+  TableWrap,
+} from '../../components/ui.js';
 import { formatDate, labelOf, MISSING, plural } from '../../lib/format.js';
 import { humanizeState, reviewStatusTone, runStateTone } from '../../lib/states.js';
 import { datePart, documentHref, runHref, useDealId } from './data.js';
@@ -73,12 +79,10 @@ export function DocumentsTab(): ReactNode {
   const n = q.data?.items.length ?? 0;
   return (
     <Card testId="deal-documents">
-      <SectionHeader
-        aside={q.data === undefined ? undefined : `${plural(n, 'document')}, newest first`}
-      >
+      <SectionHeader aside={n > 0 ? `${plural(n, 'document')}, newest first` : undefined}>
         Documents
       </SectionHeader>
-      {q.isPending ? <Spinner size="tiny" label="Loading documents" /> : null}
+      {q.isPending ? <RowsSkeleton rows={3} label="Loading documents" /> : null}
       {q.isLoadingError ? (
         <UnavailableState
           inline

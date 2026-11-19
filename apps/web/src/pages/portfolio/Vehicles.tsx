@@ -1,7 +1,7 @@
+import { useId } from 'react';
 import type { ReactNode } from 'react';
 import { Link, useParams } from '@tanstack/react-router';
 import { keepPreviousData, useQuery } from '@tanstack/react-query';
-import { ChevronLeft16Regular } from '@fluentui/react-icons';
 import type {
   InvestmentSummary,
   PooledMetrics,
@@ -16,6 +16,7 @@ import { NavTrendCard } from '../../components/NavTrendCard.js';
 import { UnavailableState } from '../../components/UnavailableState.js';
 import {
   Badge,
+  Breadcrumbs,
   Card,
   EmptyState,
   ErrorState,
@@ -89,15 +90,19 @@ function ActivePositionsCard({ items }: { items: VehicleSummary[] }): ReactNode 
   const total = bars.reduce((sum, b) => sum + b.value, 0);
   return (
     <Card>
-      <SectionHeader aside="Realized positions are not counted">Active positions</SectionHeader>
+      {/* The chart's own title is the section's: no second heading over it. */}
       {top === undefined || top.value === 0 ? (
-        <EmptyState
-          title="No active positions"
-          detail="No vehicle you can see holds an active position."
-        />
+        <>
+          <SectionHeader>Active positions</SectionHeader>
+          <EmptyState
+            title="No active positions"
+            detail="No vehicle you can see holds an active position."
+          />
+        </>
       ) : (
         <HorizontalBars
           title="Active positions by vehicle"
+          subtitle="Realized positions are not counted"
           data={bars}
           kind="count"
           valueColumn="Active positions"
@@ -122,8 +127,9 @@ function VehiclesBody({ items }: { items: VehicleSummary[] }): ReactNode {
     );
   }
   const noClientData = items.every((v) => v.lpCommitmentsTotal === null);
+  // The table and its chart side by side on a wide screen (the chart a third), else stacked.
   return (
-    <>
+    <div className="pb-two-col pb-vehicles-split">
       <Card>
         <SectionHeader aside={plural(items.length, 'vehicle')}>Funds and vehicles</SectionHeader>
         <VehiclesTable items={items} />
@@ -134,7 +140,7 @@ function VehiclesBody({ items }: { items: VehicleSummary[] }): ReactNode {
         </p>
       </Card>
       <ActivePositionsCard items={items} />
-    </>
+    </div>
   );
 }
 
@@ -160,41 +166,67 @@ export function VehiclesPage(): ReactNode {
 
 /* ---- Vehicle detail (/portfolio/vehicles/$id) ---- */
 
-function BackToVehicles(): ReactNode {
-  return (
-    <p className="pb-vehicles-back">
-      <Link to="/portfolio/vehicles">
-        <ChevronLeft16Regular />
-        All vehicles
-      </Link>
-    </p>
-  );
-}
+/** Where a vehicle's page sits: Portfolio, then the list of vehicles. */
+const VEHICLE_TRAIL = [
+  { label: 'Portfolio', to: '/portfolio' },
+  { label: 'Vehicles', to: '/portfolio/vehicles' },
+];
 
 function StatusBadge({ active }: { active: boolean }): ReactNode {
   return active ? <Badge tone="brand">Active</Badge> : <Badge tone="neutral">Realized</Badge>;
 }
 
+/**
+ * The pooled figures in two labelled groups: what went in and what is held (capital), and what it
+ * has returned (returns). Side by side on a wide screen, one over the other below that.
+ */
 function VehicleTiles({ vehicle }: { vehicle: VehicleDetail }): ReactNode {
   const m = vehicle.metrics;
+  const ids = { capital: useId(), returns: useId() };
   return (
-    <div ref={balanceTiles} className="pb-tiles pb-vehicles-tiles" data-testid="vehicle-tiles">
-      <StatTile
-        label="Positions"
-        value={String(m.count)}
-        hint={`${vehicle.activeInvestments} active`}
-      />
-      <StatTile label="Invested" value={formatMoneyM(m.invested)} hint="Contributions to date" />
-      <StatTile label="Distributions" value={formatMoneyM(m.distributions)} />
-      <StatTile label="NAV" value={formatMoneyM(m.nav)} hint="Locked marks only" />
-      <StatTile label="DPI" value={formatMoic(m.dpi)} hint="Distributions / invested" />
-      <StatTile label="TVPI" value={formatMoic(m.tvpi)} hint="(Distributions + NAV) / invested" />
-      <StatTile label="Gross MOIC" value={formatMoic(m.grossMoic)} hint="Before fees and carry" />
-      <StatTile
-        label="Gross IRR"
-        value={irrDisplay(m)}
-        hint={irrFlagHint(m.irrFlag) ?? 'Pooled cash flows, XIRR'}
-      />
+    <div className="pb-tiles-groups" data-testid="vehicle-tiles">
+      <div role="group" aria-labelledby={ids.capital} className="pb-tiles-group">
+        <span className="pb-tiles-group-label" id={ids.capital}>
+          Capital
+        </span>
+        <div ref={balanceTiles} className="pb-tiles pb-vehicles-tiles">
+          <StatTile
+            label="Positions"
+            value={String(m.count)}
+            hint={`${vehicle.activeInvestments} active`}
+          />
+          <StatTile
+            label="Invested"
+            value={formatMoneyM(m.invested)}
+            hint="Contributions to date"
+          />
+          <StatTile label="Distributions" value={formatMoneyM(m.distributions)} />
+          <StatTile label="NAV" value={formatMoneyM(m.nav)} hint="Locked marks only" />
+        </div>
+      </div>
+      <div role="group" aria-labelledby={ids.returns} className="pb-tiles-group">
+        <span className="pb-tiles-group-label" id={ids.returns}>
+          Returns
+        </span>
+        <div ref={balanceTiles} className="pb-tiles pb-vehicles-tiles">
+          <StatTile label="DPI" value={formatMoic(m.dpi)} hint="Distributions / invested" />
+          <StatTile
+            label="TVPI"
+            value={formatMoic(m.tvpi)}
+            hint="(Distributions + NAV) / invested"
+          />
+          <StatTile
+            label="Gross MOIC"
+            value={formatMoic(m.grossMoic)}
+            hint="Before fees and carry"
+          />
+          <StatTile
+            label="Gross IRR"
+            value={irrDisplay(m)}
+            hint={irrFlagHint(m.irrFlag) ?? 'Pooled cash flows, XIRR'}
+          />
+        </div>
+      </div>
     </div>
   );
 }
@@ -428,7 +460,7 @@ function VehicleUnavailable({ error }: { error: Error }): ReactNode {
   const hidden = error instanceof ApiError && (error.status === 404 || error.status === 403);
   return (
     <>
-      <BackToVehicles />
+      <Breadcrumbs items={VEHICLE_TRAIL} />
       {hidden ? (
         <ErrorState
           title="Vehicle not found or not visible to you"
@@ -460,9 +492,9 @@ export function VehicleDetailPage(): ReactNode {
   const pooled = v.metrics.count > 0;
   return (
     <>
-      <BackToVehicles />
       <PageHeader
         testId="vehicle-banner"
+        crumbs={VEHICLE_TRAIL}
         title={v.name}
         meta={
           <span className="pb-meta-list">
@@ -486,7 +518,7 @@ export function VehicleDetailPage(): ReactNode {
       <ScheduleCard vehicle={v} />
       <FundCommitmentsCard vehicle={v} />
       <ClientCommitmentsCard vehicle={v} />
-      <p className="pb-meta" data-testid="vehicle-calc-version">
+      <p className="pb-meta pb-vehicles-foot" data-testid="vehicle-calc-version">
         Calc version {v.calcVersion}.
       </p>
     </>

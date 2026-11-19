@@ -26,22 +26,32 @@ import { irrFlagHint } from '../../lib/labels.js';
 import './deal.css';
 import { balanceTiles } from '../../lib/tiles.js';
 
-/** The one-pager banner (docs/06 section 2): company, vehicle, deal type, investment date and as-of period. */
+/**
+ * The workspace header (docs/06 section 2): the trail (Portfolio, then the position's vehicle),
+ * the company with its investment number and its state beside the title, and one meta line with
+ * the deal type, the investment date and the as-of date. Every tab shares it.
+ */
 function DealBanner({ detail: d }: { detail: InvestmentDetail }): ReactNode {
   return (
     <PageHeader
       testId="detail-banner"
+      crumbs={[
+        { label: 'Portfolio', to: '/portfolio' },
+        { label: d.vehicleName, to: `/portfolio/vehicles/${d.vehicleId}` },
+      ]}
       title={d.companyName}
+      titleAside={
+        <>
+          <span className="pb-deal-number">{d.investmentNumber}</span>
+          {d.isActive ? <Badge tone="brand">Active</Badge> : <Badge tone="neutral">Realized</Badge>}
+        </>
+      }
       meta={
         <span className="pb-meta-list">
-          <span>{d.vehicleName}</span>
           <span>{labelOf(d.dealType)}</span>
           <span>Investment date {formatMonthYear(d.entryDate)}</span>
           <span>As of {formatDate(d.navDate ?? d.latestPeriodEnd)}</span>
         </span>
-      }
-      actions={
-        d.isActive ? <Badge tone="brand">Active</Badge> : <Badge tone="neutral">Realized</Badge>
       }
     />
   );
@@ -93,8 +103,9 @@ function DealTiles({ detail: d }: { detail: InvestmentDetail }): ReactNode {
 }
 
 /**
- * The deal workspace (docs/06 section 2): loads the position once, shows the banner and the stat
- * tiles every tab shares, then the tab bar and the active tab. The tabs read the same cached query.
+ * The deal workspace (docs/06 section 2): loads the position once, shows the header and the
+ * figures every tab shares, then the tab bar, which stays in view under the top bar while the tab
+ * scrolls, and the active tab. The tabs read the same cached query.
  */
 export function DealWorkspace(): ReactNode {
   const { id } = useParams({ from: '/app/portfolio/$id' });
@@ -120,6 +131,7 @@ export function DealWorkspace(): ReactNode {
       <DealTiles detail={d} />
       <TabNav
         label="Deal workspace"
+        className="pb-deal-tabs"
         items={DEAL_TABS.map((t) => ({
           to: `/portfolio/${id}${t.path}`,
           label: t.label,

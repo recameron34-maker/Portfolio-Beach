@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react';
+import type { MouseEvent, ReactNode } from 'react';
 import { Link } from '@tanstack/react-router';
 import type { RegisteredRouter } from '@tanstack/react-router';
 import { Badge } from '../../components/ui.js';
@@ -6,7 +6,10 @@ import { formatDate, labelOf } from '../../lib/format.js';
 import { isApproved } from './data.js';
 import './deal.css';
 
-/** A period-end date, optionally marked as the entry snapshot. */
+/**
+ * A period-end date, optionally marked as the entry snapshot: "Entry" follows the date in muted
+ * words, set apart by a margin rather than a space, so the cell still reads "Sep 30, 2018Entry".
+ */
 export function PeriodCell({
   periodEnd,
   entry = false,
@@ -15,9 +18,9 @@ export function PeriodCell({
   entry?: boolean;
 }): ReactNode {
   return (
-    <span className="pb-deal-period">
-      <span className="pb-nowrap">{formatDate(periodEnd)}</span>
-      {entry ? <Badge tone="brand">Entry</Badge> : null}
+    <span className="pb-nowrap">
+      {formatDate(periodEnd)}
+      {entry ? <span className="pb-deal-entry-mark">Entry</span> : null}
     </span>
   );
 }
@@ -52,5 +55,41 @@ export function HubLink({
     >
       {children}
     </Link>
+  );
+}
+
+/**
+ * A row of links to the sections of a long tab ("On this tab"). The router owns the address's
+ * fragment (the preview routes by it), so a link scrolls its section into view and moves focus
+ * to it without touching the address, as "Skip to content" does. Never a smooth scroll.
+ */
+export function JumpLinks({
+  items,
+}: {
+  items: readonly { id: string; label: string }[];
+}): ReactNode {
+  const jump = (event: MouseEvent<HTMLAnchorElement>, id: string): void => {
+    event.preventDefault();
+    const target = document.getElementById(id);
+    if (target === null) return;
+    if (!target.hasAttribute('tabindex')) target.setAttribute('tabindex', '-1');
+    target.scrollIntoView({ block: 'start' });
+    target.focus({ preventScroll: true });
+  };
+  return (
+    <nav className="pb-deal-jump" aria-label="On this tab">
+      <span className="pb-deal-jump-label" aria-hidden="true">
+        On this tab
+      </span>
+      <ul>
+        {items.map((item) => (
+          <li key={item.id}>
+            <a href={`#${item.id}`} onClick={(event) => jump(event, item.id)}>
+              {item.label}
+            </a>
+          </li>
+        ))}
+      </ul>
+    </nav>
   );
 }

@@ -54,24 +54,31 @@ describe('sponsor and contacts tab', () => {
     expect(rows[1]).toHaveTextContent('Kelpwood Fund I2015Growth$3,916.7M1-');
     expect(within(rows[1]!).queryByText('This position')).not.toBeInTheDocument();
 
-    const others = screen.getByRole('list', { name: 'Other positions with this sponsor' });
-    const items = within(others).getAllByRole('listitem');
-    // The open position is left out of its own list.
+    // A table under the funds: company, vehicle and deal type, the open position left out.
+    const others = screen.getByRole('table', { name: 'Other positions with this sponsor' });
+    expect(
+      within(others)
+        .getAllByRole('columnheader')
+        .map((h) => h.textContent),
+    ).toEqual(['Company', 'Vehicle', 'Deal type']);
+    const items = within(others).getAllByRole('row').slice(1);
     expect(items).toHaveLength(2);
     expect(within(others).queryByText('Meridian Data Partners')).not.toBeInTheDocument();
     expect(
       within(items[0]!).getByRole('link', { name: 'Juniper Financial Group' }),
     ).toHaveAttribute('href', `/portfolio/${ID.inv2}`);
-    expect(items[0]).toHaveTextContent('Client Gamma Separate Account, Co invest equity');
+    expect(items[0]).toHaveTextContent(
+      'Juniper Financial GroupClient Gamma Separate AccountCo invest equity',
+    );
     expect(within(items[1]!).getByText('Realized')).toBeInTheDocument();
-    expect(items[1]).toHaveTextContent('Beach CV Opportunities I, Cv single asset');
+    expect(items[1]).toHaveTextContent('Beach CV Opportunities ICv single asset');
+    expect(funds.compareDocumentPosition(others) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
 
-    expect(screen.getByTestId('deal-contacts')).toHaveTextContent(
-      'Contacts and interactions are not built yet',
-    );
-    expect(screen.getByTestId('deal-contacts')).toHaveTextContent(
-      'Relationship score, warm paths and coverage',
-    );
+    // Contacts are one muted line, not a section of their own.
+    const contacts = screen.getByTestId('deal-contacts');
+    expect(contacts.tagName).toBe('P');
+    expect(contacts).toHaveTextContent('Contacts and interactions are not built yet');
+    expect(contacts).toHaveTextContent('Relationship score, warm paths and coverage');
     expect(screen.queryByRole('status')).not.toBeInTheDocument();
     expect(document.body.textContent).not.toContain(EM_DASH);
   });

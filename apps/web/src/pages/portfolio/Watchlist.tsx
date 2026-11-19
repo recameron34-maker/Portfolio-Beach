@@ -23,6 +23,7 @@ import {
 } from '../../components/ui.js';
 import { formatDate, labelOf, plural } from '../../lib/format.js';
 import { watchFlagLabel } from '../../lib/labels.js';
+import { useNarrowScreen } from '../../lib/media.js';
 import { balanceTiles } from '../../lib/tiles.js';
 
 type Severity = 'all' | 'bad' | 'watch';
@@ -48,42 +49,72 @@ function isSeverity(value: string): value is Severity {
   return value === 'all' || value === 'bad' || value === 'watch';
 }
 
+function PositionCell({ item }: { item: WatchlistItem }): ReactNode {
+  return (
+    <>
+      <Link to="/portfolio/$id" params={{ id: item.investmentId }}>
+        {item.companyName}
+      </Link>
+      <span className="pb-cell-sub">
+        {[item.investmentNumber, item.vehicleName, labelOf(item.dealType)].join(' \u00B7 ')}
+      </span>
+    </>
+  );
+}
+
+function FlagList({ item }: { item: WatchlistItem }): ReactNode {
+  return (
+    <ul className="pb-flag-list">
+      {item.flags.map((f) => (
+        <li key={f.code}>
+          <Badge tone={f.severity}>{watchFlagLabel(f.code)}</Badge>
+          <span className="pb-flag-message">{f.message}</span>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+/**
+ * The flagged positions in two columns: the position (the company, then its number, vehicle and
+ * deal type on a second line) and its flags (each a dot, the flag in words, then the message). On
+ * a phone the flags sit under the position in one column, still one table.
+ */
 function FlaggedTable({ items }: { items: WatchlistItem[] }): ReactNode {
+  const narrow = useNarrowScreen();
   return (
     <TableWrap label="Flagged positions">
-      <table className="pb-table" aria-label="Flagged positions">
+      <table className="pb-table pb-watchlist" aria-label="Flagged positions">
         <thead>
           <tr>
-            <th>Inv #</th>
-            <th>Company</th>
-            <th>Vehicle</th>
-            <th>Deal type</th>
-            <th>Flags</th>
+            {narrow ? (
+              <th>Position and flags</th>
+            ) : (
+              <>
+                <th>Position</th>
+                <th>Flags</th>
+              </>
+            )}
           </tr>
         </thead>
         <tbody>
           {items.map((item) => (
             <tr key={item.investmentId}>
-              <td>
-                <span className="pb-key">{item.investmentNumber}</span>
-              </td>
-              <td>
-                <Link to="/portfolio/$id" params={{ id: item.investmentId }}>
-                  {item.companyName}
-                </Link>
-              </td>
-              <td>{item.vehicleName}</td>
-              <td>{labelOf(item.dealType)}</td>
-              <td>
-                <ul className="pb-flag-list">
-                  {item.flags.map((f) => (
-                    <li key={f.code}>
-                      <Badge tone={f.severity}>{watchFlagLabel(f.code)}</Badge>
-                      <span className="pb-meta">{f.message}</span>
-                    </li>
-                  ))}
-                </ul>
-              </td>
+              {narrow ? (
+                <td>
+                  <PositionCell item={item} />
+                  <FlagList item={item} />
+                </td>
+              ) : (
+                <>
+                  <td className="pb-watchlist-position">
+                    <PositionCell item={item} />
+                  </td>
+                  <td>
+                    <FlagList item={item} />
+                  </td>
+                </>
+              )}
             </tr>
           ))}
         </tbody>
@@ -115,6 +146,7 @@ function WatchlistBody({ data }: { data: Watchlist }): ReactNode {
           tone={data.counts.watch > 0 ? 'watch' : undefined}
         />
         <StatTile label="Clear" value={String(data.counts.clear)} hint="No flags" tone="good" />
+        {/* The hint is the only place the page says how many active positions were tested. */}
         <StatTile
           label="Flagged positions"
           value={String(data.items.length)}

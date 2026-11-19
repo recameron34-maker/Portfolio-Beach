@@ -100,7 +100,8 @@ describe('documents tab', () => {
     const empty = await screen.findByTestId('deal-documents-empty');
     expect(empty).toHaveTextContent('No documents for this position');
     expect(empty).toHaveTextContent('once operations indexes the document store');
-    expect(screen.getByTestId('deal-documents')).toHaveTextContent('0 documents, newest first');
+    // Nothing to count: the title carries no aside.
+    expect(screen.getByTestId('deal-documents')).not.toHaveTextContent('newest first');
     expect(screen.queryByRole('table', { name: 'Documents' })).not.toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'Open the document hub' })).toBeInTheDocument();
   });
