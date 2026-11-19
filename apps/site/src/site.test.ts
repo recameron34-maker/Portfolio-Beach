@@ -5,6 +5,7 @@ import { describe, expect, it } from 'vitest';
 import { contrast, tokenSets, tokensCss } from '../scripts/lib/tokens.mjs';
 import * as content from './content/site.js';
 import { demoAddress, fragmentFiles, toFragment } from './render/artifact.js';
+import { renderFavicon } from './render/favicon.js';
 import { escapeHtml, html, trusted } from './render/html.js';
 import { lengthText, sizeText } from './render/media.js';
 import type { Media } from './render/media.js';
@@ -13,6 +14,10 @@ import { renderPage } from './render/page.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const site = join(here, '..');
+const SITE_CSS = readFileSync(join(here, 'styles', 'site.css'), 'utf8').replace(
+  /\/\*[\s\S]*?\*\//g,
+  '',
+);
 
 /** Every screenshot of the tour: each area's first one and the smaller ones under it. */
 function tourShots(): { shot: string; alt: string }[] {
@@ -377,6 +382,111 @@ describe('the 404 page', () => {
     expect(renderNotFound('', '/')).toContain('href="/"');
     expect(page).toContain(content.SITE.footer);
     expect(page).not.toMatch(/<(link|script|img)\b/);
+  });
+});
+
+describe('the look (decision 0026)', () => {
+  const page = renderPage(media());
+  const lost = renderNotFound(':root{--pb-bg:#ffffff}', '/');
+
+  it('draws no beach: no scene, no wave dividers, no wave under a label, no sand bands', () => {
+    for (const markup of [page, lost]) {
+      expect(markup).not.toMatch(/class="(scene|crest|ripple)\b/);
+      expect(markup).not.toMatch(/band-(sand|shore)/);
+      expect(markup).not.toContain('scene-sky');
+    }
+    expect(SITE_CSS).not.toMatch(/\.(scene|crest|ripple)\b|band-(sand|shore)|@keyframes/);
+  });
+
+  it('sets no capitals and no tracked lettering: only the headings draw their letters closer', () => {
+    expect(SITE_CSS).not.toMatch(/text-transform\s*:\s*uppercase/i);
+    const tracking = [...SITE_CSS.matchAll(/letter-spacing\s*:\s*([^;]+);/g)].map((m) =>
+      (m[1] ?? '').trim(),
+    );
+    expect(tracking.length).toBeGreaterThan(0);
+    for (const value of tracking) {
+      const em = /^(-?[\d.]+)em$/.exec(value);
+      expect(value === '0' || (em !== null && Number(em[1]) <= 0.01), value).toBe(true);
+    }
+  });
+
+  it('rounds nothing into a pill: a full radius only on a dot', () => {
+    expect(SITE_CSS).not.toMatch(/border-radius\s*:\s*999px/);
+    for (const [, body] of SITE_CSS.matchAll(/\{([^{}]*border-radius\s*:\s*50%[^{}]*)\}/g))
+      expect(body).toMatch(/width\s*:\s*6px/);
+  });
+
+  it('shows the product in the opening, and the prototype notice beside the name', () => {
+    const opening = page.slice(page.indexOf('<section class="hero"'), page.indexOf('</section>'));
+    expect(opening).toContain(`alt="${escapeHtml(content.OVERVIEW.heroShot.alt)}"`);
+    expect(opening).toContain(content.SITE.notice);
+    expect(opening).toContain(content.SITE.noticeDetail);
+  });
+
+  it('draws the tab icon as the product mark, in the brand primary and the page colour', () => {
+    const { light } = tokenSets();
+    const icon = renderFavicon();
+    expect(icon).toContain(`fill="${light.primary}"`);
+    expect(icon.split(`fill="${light.bg}"`).length - 1).toBe(3);
+    expect(icon).not.toContain(light.sceneSky);
+  });
+});
+
+describe('the motion (docs/06 section 5)', () => {
+  /** The custom properties of a stylesheet's first :root block. */
+  function rootTokens(css: string): Map<string, string> {
+    const root = /:root\s*\{([^}]*)\}/.exec(css.replace(/\/\*[\s\S]*?\*\//g, ''))?.[1] ?? '';
+    return new Map(
+      [...root.matchAll(/(--[\w-]+)\s*:\s*([^;]+);/g)].map((m) => [
+        m[1] ?? '',
+        (m[2] ?? '').trim().replace(/\s+/g, ' '),
+      ]),
+    );
+  }
+
+  it("uses the tool's motion tokens, name for name and value for value", () => {
+    const tool = rootTokens(readFileSync(join(site, '..', 'web', 'src', 'styles.css'), 'utf8'));
+    const ours = rootTokens(SITE_CSS);
+    const names = [...tool.keys()].filter((name) => /^--pb-(ease|dur|stagger|rise)/.test(name));
+    expect(names).toHaveLength(11);
+    for (const name of names) expect(ours.get(name), name).toBe(tool.get(name));
+  });
+
+  it('switches every moving selector off, exactly as written, under reduced motion or a slow display', () => {
+    // The tool's guard (apps/web/src/components/motion.test.ts), for this one stylesheet: a media
+    // block adds no specificity, so only the same selector, later in the file, stops the motion.
+    const rules: { selectors: string[]; body: string; reduced: boolean }[] = [];
+    const preludes: string[] = [];
+    let buffer = '';
+    for (const ch of SITE_CSS) {
+      if (ch === '{') {
+        preludes.push(buffer.trim());
+        buffer = '';
+      } else if (ch === '}') {
+        const prelude = preludes.pop();
+        if (prelude !== undefined && !prelude.startsWith('@'))
+          rules.push({
+            selectors: prelude.split(',').map((part) => part.trim().replace(/\s+/g, ' ')),
+            body: buffer,
+            reduced: preludes.some((p) => p.startsWith('@media') && p.includes('reduced-motion')),
+          });
+        buffer = '';
+      } else buffer += ch;
+    }
+    const query = SITE_CSS.match(/@media[^{]*prefers-reduced-motion[^{]*\{/g) ?? [];
+    expect(query).toEqual(['@media (prefers-reduced-motion: reduce), (update: slow) {']);
+    const stopped = new Set(
+      rules
+        .filter((r) => r.reduced && /(?:^|;)\s*transition\s*:\s*none\s*(?:;|$)/.test(r.body))
+        .flatMap((r) => r.selectors),
+    );
+    const moving = rules.filter(
+      (r) => !r.reduced && /(?:^|;)\s*(transition|animation(-name)?)\s*:(?!\s*none)/.test(r.body),
+    );
+    expect(moving.length).toBeGreaterThan(5);
+    expect(moving.flatMap((r) => r.selectors).filter((s) => !stopped.has(s))).toEqual([]);
+    // The site animates by transition alone: no keyframes, no loop.
+    expect(SITE_CSS).not.toMatch(/(?:^|[;{\s])animation(-name)?\s*:/);
   });
 });
 
