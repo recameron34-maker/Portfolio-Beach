@@ -1,7 +1,7 @@
 import type { ReactNode } from 'react';
 import { Link } from '@tanstack/react-router';
 import { keepPreviousData, useQuery } from '@tanstack/react-query';
-import { Button, Spinner } from '@fluentui/react-components';
+import { Button } from '@fluentui/react-components';
 import type { AnalyticsSummary, CapitalNoticePage, Watchlist, WatchlistItem } from '@pb/contracts';
 import {
   analyticsQuery,
@@ -12,15 +12,18 @@ import {
 } from '../app/queries.js';
 import { HorizontalBars, knownRuns, Sparkline } from '../components/charts/index.js';
 import { NavTrendCard } from '../components/NavTrendCard.js';
+import { roleWords } from '../components/people.js';
 import { PreviewGuide } from '../components/PreviewGuide.js';
 import { UnavailableState } from '../components/UnavailableState.js';
 import {
   Badge,
   Card,
+  CheckList,
   EmptyState,
   NumCell,
   PageHeader,
   PageSkeleton,
+  RowsSkeleton,
   SectionHeader,
   StatTile,
   TableWrap,
@@ -36,8 +39,10 @@ import {
 import { irrFlagHint, watchFlagLabel } from '../lib/labels.js';
 import { usePreviewGuide } from '../lib/preview-guide.js';
 import { DEFAULT_HOME, focusOf, homeRows } from '../lib/role-focus.js';
-import type { HomeSection, RoleFocus } from '../lib/role-focus.js';
+import type { HomeSection, RoleFocus, WorkLink } from '../lib/role-focus.js';
+import { dataCheckRows } from './data-display.js';
 import { humanizeState, noticeTone } from '../lib/states.js';
+import { balanceTiles } from '../lib/tiles.js';
 
 /** Rows the dashboard shows before pointing at the full list. */
 const ATTENTION_ROWS = 8;
@@ -53,15 +58,17 @@ function Tiles({ summary }: { summary: AnalyticsSummary }): ReactNode {
   const series = summary.navSeries.map((p) => toNumber(p.value));
   const latestRun = knownRuns(series).at(-1) ?? [];
   const navPoints = latestRun.at(-1)?.i === series.length - 1 ? latestRun.map((p) => p.v) : [];
+  // Seven cells: one row from about 1100px, four and three below that, two on a phone. Each hint
+  // names the figure's basis; how the figure is worked out is under the pointer.
   return (
-    <div className="pb-tiles pb-home-tiles" data-testid="home-tiles">
+    <div ref={balanceTiles} className="pb-tiles pb-home-figures" data-testid="home-tiles">
       <StatTile label="Active positions" value={String(summary.activeInvestments)} />
       <StatTile label="Invested capital" value={formatMoneyM(a.invested)} hint="Active positions" />
       <StatTile
-        wide
         label="Current NAV"
         value={formatMoneyM(a.nav)}
-        hint="Latest Locked valuations"
+        hint="Locked marks"
+        title="Latest Locked valuations"
         figure={
           navPoints.length >= 2 ? (
             <Sparkline
@@ -74,14 +81,26 @@ function Tiles({ summary }: { summary: AnalyticsSummary }): ReactNode {
       <StatTile
         label="Gross MOIC"
         value={formatMoic(a.grossMoic)}
-        hint="(distributions + NAV) / invested"
+        hint="Pooled"
+        title="(distributions + NAV) / invested"
       />
-      <StatTile label="DPI" value={formatMoic(a.dpi)} hint="Distributions / invested" />
-      <StatTile label="TVPI" value={formatMoic(a.tvpi)} hint="Total value / invested" />
+      <StatTile
+        label="DPI"
+        value={formatMoic(a.dpi)}
+        hint="Pooled"
+        title="Distributions / invested"
+      />
+      <StatTile
+        label="TVPI"
+        value={formatMoic(a.tvpi)}
+        hint="Pooled"
+        title="Total value / invested"
+      />
       <StatTile
         label="Gross IRR"
         value={irrDisplay(a)}
-        hint={irrFlagHint(a.irrFlag) ?? 'Pooled cash flows, XIRR'}
+        hint={irrFlagHint(a.irrFlag) ?? 'Pooled, XIRR'}
+        title="Pooled cash flows, XIRR"
       />
     </div>
   );
@@ -89,21 +108,36 @@ function Tiles({ summary }: { summary: AnalyticsSummary }): ReactNode {
 
 function AttentionRow({ item }: { item: WatchlistItem }): ReactNode {
   return (
-    <li>
-      <span className="pb-attention-main">
+    <tr>
+      <td>
         <Link to="/portfolio/$id" params={{ id: item.investmentId }}>
           {item.companyName}
         </Link>
-        <span className="pb-meta">{item.vehicleName}</span>
-      </span>
-      <span className="pb-chips">
-        {item.flags.map((f) => (
-          <span key={f.code} title={f.message}>
-            <Badge tone={f.severity}>{watchFlagLabel(f.code)}</Badge>
-          </span>
-        ))}
-      </span>
-    </li>
+        <span className="pb-cell-sub">{item.vehicleName}</span>
+      </td>
+      <td>
+        <span className="pb-marker-row">
+          {item.flags.map((f) => (
+            <span key={f.code} title={f.message}>
+              <Badge tone={f.severity}>{watchFlagLabel(f.code)}</Badge>
+            </span>
+          ))}
+        </span>
+      </td>
+    </tr>
+  );
+}
+
+/** The watchlist's counts in one line of dots for the section's aside. */
+function AttentionCounts({ counts }: { counts: Watchlist['counts'] }): ReactNode {
+  return (
+    <span className="pb-count-dots">
+      <Badge tone={counts.bad > 0 ? 'bad' : 'neutral'}>
+        {counts.bad} {counts.bad === 1 ? 'needs' : 'need'} action
+      </Badge>
+      <Badge tone={counts.watch > 0 ? 'watch' : 'neutral'}>{counts.watch} watch</Badge>
+      <Badge tone="good">{counts.clear} clear</Badge>
+    </span>
   );
 }
 
@@ -111,30 +145,34 @@ function AttentionBody({ data }: { data: Watchlist }): ReactNode {
   const shown = data.items.slice(0, ATTENTION_ROWS);
   return (
     <>
-      <p className="pb-chips">
-        <Badge tone={data.counts.bad > 0 ? 'bad' : 'neutral'}>
-          Needs action: {data.counts.bad}
-        </Badge>
-        <Badge tone={data.counts.watch > 0 ? 'watch' : 'neutral'}>Watch: {data.counts.watch}</Badge>
-        <Badge tone="good">Clear: {data.counts.clear}</Badge>
-      </p>
       {shown.length === 0 ? (
         <EmptyState
           title="Nothing flagged"
           detail="No active position breaches a monitoring threshold."
         />
       ) : (
-        <ul className="pb-attention" aria-label="Flagged positions">
-          {shown.map((item) => (
-            <AttentionRow key={item.investmentId} item={item} />
-          ))}
-        </ul>
+        <TableWrap label="Flagged positions">
+          <table className="pb-table" aria-label="Flagged positions">
+            <thead>
+              <tr>
+                <th>Company</th>
+                <th>Flags</th>
+              </tr>
+            </thead>
+            <tbody>
+              {shown.map((item) => (
+                <AttentionRow key={item.investmentId} item={item} />
+              ))}
+            </tbody>
+          </table>
+        </TableWrap>
       )}
       <p className="pb-meta">
         <Link to="/portfolio/watchlist">Open the watchlist</Link>
         {data.items.length > shown.length
           ? ` for all ${data.items.length} flagged positions.`
-          : ' for the thresholds and every flag.'}
+          : ' for the thresholds and every flag.'}{' '}
+        Flags as of {formatDate(data.asOf)}.
       </p>
     </>
   );
@@ -144,10 +182,12 @@ function AttentionCard(): ReactNode {
   const q = useQuery({ ...watchlistQuery, placeholderData: keepPreviousData });
   return (
     <Card testId="home-attention">
-      <SectionHeader aside={q.data !== undefined ? `As of ${formatDate(q.data.asOf)}` : undefined}>
+      <SectionHeader
+        aside={q.data !== undefined ? <AttentionCounts counts={q.data.counts} /> : undefined}
+      >
         Attention
       </SectionHeader>
-      {q.isPending ? <Spinner size="tiny" label="Loading the watchlist" /> : null}
+      {q.isPending ? <RowsSkeleton rows={4} label="Loading the watchlist" /> : null}
       {q.isError ? <UnavailableState inline error={q.error} subject="The watchlist" /> : null}
       {q.data !== undefined ? <AttentionBody data={q.data} /> : null}
     </Card>
@@ -188,12 +228,14 @@ function NoticesBody({ page }: { page: CapitalNoticePage }): ReactNode {
                   </span>
                 </td>
                 <td className="pb-nowrap">
-                  {formatDate(n.dueDate)}
                   {n.daysToDue < 0 ? (
-                    <span className="pb-cell-sub">
+                    <span className="pb-marker-row">
+                      <span className="pb-overdue-date">{formatDate(n.dueDate)}</span>
                       <Badge tone="bad">Overdue</Badge>
                     </span>
-                  ) : null}
+                  ) : (
+                    formatDate(n.dueDate)
+                  )}
                 </td>
                 <NumCell>{formatMoneyM(n.amount)}</NumCell>
                 <td>
@@ -227,7 +269,7 @@ function CapitalActivityCard(): ReactNode {
       >
         Capital activity
       </SectionHeader>
-      {q.isPending ? <Spinner size="tiny" label="Loading capital notices" /> : null}
+      {q.isPending ? <RowsSkeleton rows={4} label="Loading capital notices" /> : null}
       {q.isError ? (
         <UnavailableState
           inline
@@ -248,10 +290,10 @@ function ChartsRow({ summary }: { summary: AnalyticsSummary }): ReactNode {
     display: formatMoneyM(b.nav),
   }));
   const largest = vehicles[0];
+  // Each chart's title is its section's title: no second heading over it.
   return (
     <div className="pb-two-col">
       <Card>
-        <SectionHeader aside="Active positions">Exposure</SectionHeader>
         {largest === undefined ? (
           <EmptyState
             title="No active positions"
@@ -269,7 +311,7 @@ function ChartsRow({ summary }: { summary: AnalyticsSummary }): ReactNode {
           />
         )}
       </Card>
-      <NavTrendCard points={summary.navSeries} heading="Trend" testId="home-nav-series" />
+      <NavTrendCard points={summary.navSeries} testId="home-nav-series" />
     </div>
   );
 }
@@ -278,35 +320,16 @@ function DataHealthCard(): ReactNode {
   const health = useQuery({ ...dataHealthQuery, placeholderData: keepPreviousData });
   return (
     <Card>
-      <SectionHeader
-        aside={
-          health.data !== undefined ? <>Stale after {health.data.staleAfterDays} days</> : undefined
-        }
-      >
-        Data health
-      </SectionHeader>
-      {health.isPending ? <Spinner size="tiny" label="Loading data health" /> : null}
+      <SectionHeader>Data health</SectionHeader>
+      {health.isPending ? <RowsSkeleton rows={3} label="Loading data health" /> : null}
       {health.isError ? (
         <UnavailableState inline error={health.error} subject="Data health" />
       ) : null}
       {health.data !== undefined ? (
         <>
-          <p className="pb-chips">
-            <Badge tone={health.data.orphanInvestments === 0 ? 'good' : 'bad'}>
-              {health.data.orphanInvestments === 0
-                ? 'No orphan investments'
-                : `${health.data.orphanInvestments} orphan investments`}
-            </Badge>
-            <Badge tone={health.data.openExceptions === 0 ? 'neutral' : 'watch'}>
-              {health.data.openExceptions} open data exceptions
-            </Badge>
-            <Badge tone={health.data.staleInvestments === 0 ? 'neutral' : 'watch'}>
-              {health.data.staleInvestments} stale positions
-            </Badge>
-          </p>
+          <CheckList label="Data checks" rows={dataCheckRows(health.data).slice(0, 3)} />
           <p className="pb-meta">
-            Stale means no approved financials in the last {health.data.staleAfterDays} days.{' '}
-            <Link to="/data/health">Open Data Health</Link>.
+            <Link to="/data/health">Open data health</Link> for every check.
           </p>
         </>
       ) : null}
@@ -319,59 +342,66 @@ function DataHealthCard(): ReactNode {
  * a link to each place it does it (config/role_focus.json). It orders and describes; what a
  * person may open or change is the API's to decide.
  */
+/** Places to go, one a row: the link, then what is there on the same line. */
+function WorkList({ links, label }: { links: readonly WorkLink[]; label: string }): ReactNode {
+  return (
+    <ul className="pb-home-work" aria-label={label}>
+      {links.map((link) => (
+        <li key={link.to}>
+          <Link to={link.to}>{link.label}</Link>
+          <span className="pb-home-work-what" title={link.what}>
+            {link.what}
+          </span>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
 function WorkCard({ focus }: { focus: RoleFocus }): ReactNode {
   return (
     <Card testId="home-work">
       <SectionHeader aside={focus.area}>Your work</SectionHeader>
-      <p className="pb-home-work-does" data-testid="home-work-does">
+      <p className="pb-meta pb-home-work-does" data-testid="home-work-does">
         {focus.does}
       </p>
-      <ul className="pb-linklist pb-home-work" aria-label="Your work">
-        {focus.work.map((link) => (
-          <li key={link.to}>
-            <Link to={link.to}>{link.label}</Link>
-            <span className="pb-meta">{link.what}</span>
-          </li>
-        ))}
-      </ul>
+      <WorkList links={focus.work} label="Your work" />
     </Card>
   );
 }
+
+/** Where a user with no configured role (the service account) starts. */
+const START_HERE: readonly WorkLink[] = [
+  {
+    to: '/portfolio',
+    label: 'Portfolio grid',
+    what: 'Every position with invested capital, NAV, MOIC and IRR',
+  },
+  {
+    to: '/analytics',
+    label: 'Analytics',
+    what: 'Exposure, performance, credit book and realizations',
+  },
+  { to: '/valuations', label: 'Valuations', what: 'Versions and states across the portfolio' },
+  { to: '/capital-activity', label: 'Capital activity', what: 'Calls, distributions and funding' },
+  { to: '/sponsors', label: 'Sponsors', what: 'Funds, positions and commitments by sponsor' },
+  {
+    to: '/data/health',
+    label: 'Data health',
+    what: 'Orphans, open exceptions and stale positions',
+  },
+  {
+    to: '/data/dictionary',
+    label: 'Data dictionary',
+    what: 'Field definitions and display rules',
+  },
+];
 
 function StartHereCard(): ReactNode {
   return (
     <Card>
       <SectionHeader>Start here</SectionHeader>
-      <ul className="pb-linklist">
-        <li>
-          <Link to="/portfolio">Portfolio grid</Link>
-          <span className="pb-meta">Every position with invested capital, NAV, MOIC and IRR</span>
-        </li>
-        <li>
-          <Link to="/analytics">Analytics</Link>
-          <span className="pb-meta">Exposure, performance, credit book and realizations</span>
-        </li>
-        <li>
-          <Link to="/valuations">Valuations</Link>
-          <span className="pb-meta">Versions and states across the portfolio</span>
-        </li>
-        <li>
-          <Link to="/capital-activity">Capital Activity</Link>
-          <span className="pb-meta">Calls, distributions and funding</span>
-        </li>
-        <li>
-          <Link to="/sponsors">Sponsors</Link>
-          <span className="pb-meta">Funds, positions and commitments by sponsor</span>
-        </li>
-        <li>
-          <Link to="/data/health">Data Health</Link>
-          <span className="pb-meta">Orphans, open exceptions and stale positions</span>
-        </li>
-        <li>
-          <Link to="/data/dictionary">Data Dictionary</Link>
-          <span className="pb-meta">Field definitions and display rules</span>
-        </li>
-      </ul>
+      <WorkList links={START_HERE} label="Start here" />
     </Card>
   );
 }
@@ -388,6 +418,7 @@ export function HomePage(): ReactNode {
   if (me.isPending || analytics.isPending) return <PageSkeleton tiles={7} rows={3} />;
   const summary = analytics.data;
   const name = me.data?.displayName;
+  const roles = me.data === undefined ? '' : roleWords(me.data.roles);
   const focus = focusOf(me.data?.roles);
   const section = (key: HomeSection): ReactNode => {
     switch (key) {
@@ -412,11 +443,12 @@ export function HomePage(): ReactNode {
   return (
     <>
       <PageHeader
-        title={name === undefined ? 'Welcome' : `Welcome, ${name}`}
+        title="Home"
         meta={
           <>
             {summary !== undefined ? `As of ${formatDate(summary.asOf)}. ` : ''}
-            Figures cover the positions you are entitled to see.
+            {name === undefined ? '' : `${name}${roles === '' ? '' : `, ${roles}`}. `}
+            Figures cover the positions visible to you.
           </>
         }
         actions={

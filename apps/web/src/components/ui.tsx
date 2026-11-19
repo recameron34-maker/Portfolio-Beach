@@ -113,6 +113,7 @@ export function StatTile({
   tone,
   figure,
   wide = false,
+  title,
 }: {
   label: string;
   value: string;
@@ -121,6 +122,8 @@ export function StatTile({
   figure?: ReactNode;
   /** Spans two grid columns, for the headline figure of a row of tiles. */
   wide?: boolean;
+  /** How the figure is worked out, shown under the pointer ("Distributions / invested"). */
+  title?: string | undefined;
 }): ReactNode {
   const missing = value === MISSING || value === 'NM';
   const number = (
@@ -131,6 +134,7 @@ export function StatTile({
       className={wide ? 'pb-stat-tile is-wide' : 'pb-stat-tile'}
       role="group"
       aria-label={label}
+      title={title}
       data-tone={tone}
       data-zero={value === '0' ? '' : undefined}
     >
@@ -322,11 +326,13 @@ export function TableWrap({
   label,
   tall = false,
   busy = false,
+  testId,
   children,
 }: {
   label: string;
   tall?: boolean;
   busy?: boolean;
+  testId?: string | undefined;
   children: ReactNode;
 }): ReactNode {
   return (
@@ -336,6 +342,7 @@ export function TableWrap({
       aria-label={label}
       aria-busy={busy ? true : undefined}
       tabIndex={0}
+      data-testid={testId}
     >
       {children}
     </div>
@@ -370,6 +377,84 @@ export function KeyValueTable({
                   <td>{r.value}</td>
                 </Fragment>
               ))}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </TableWrap>
+  );
+}
+
+/** One row of a check list: what was checked, its result, why or where, and a command for it. */
+export interface CheckRow {
+  check: ReactNode;
+  /** Draws a dot before the result; the result's words are the caller's, never added here. */
+  tone?: Tone | undefined;
+  result: ReactNode;
+  detail?: ReactNode;
+  action?: ReactNode;
+  /** The result is a sentence: it runs on across the detail column. */
+  wide?: boolean | undefined;
+}
+
+/**
+ * Checks and their results as one compact table (docs/06 section 2): Check, Result, Detail and,
+ * when any row has one, a command at the end. A tone only draws the dot before the result, so a
+ * page states exactly the result it states today; a row with no tone keeps the dot's room, so the
+ * results line up. An empty detail stays blank. On a phone a command closes its row's detail
+ * instead of taking a column, so the detail keeps room to read.
+ */
+export function CheckList({
+  label,
+  testId,
+  rows,
+}: {
+  label: string;
+  testId?: string | undefined;
+  rows: CheckRow[];
+}): ReactNode {
+  const narrow = useNarrowScreen();
+  const withActions = !narrow && rows.some((r) => r.action !== undefined);
+  const inline = (r: CheckRow): ReactNode =>
+    narrow && r.action !== undefined ? <span className="pb-check-command">{r.action}</span> : null;
+  return (
+    <TableWrap label={label} testId={testId}>
+      <table className="pb-table pb-checks" aria-label={label}>
+        <thead>
+          <tr>
+            <th scope="col">Check</th>
+            <th scope="col" className="pb-checks-result-col">
+              Result
+            </th>
+            <th scope="col">Detail</th>
+            {withActions ? (
+              <th scope="col">
+                <span className="pb-visually-hidden">Command</span>
+              </th>
+            ) : null}
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((r, i) => (
+            <tr key={i}>
+              <th scope="row">{r.check}</th>
+              <td
+                className={r.wide === true ? 'pb-check-cell is-wide' : 'pb-check-cell'}
+                colSpan={r.wide === true ? 2 : undefined}
+              >
+                <div className="pb-check-result" data-tone={r.tone}>
+                  <span className="pb-check-dot" aria-hidden="true" />
+                  <div className="pb-check-value">{r.result}</div>
+                </div>
+                {r.wide === true ? inline(r) : null}
+              </td>
+              {r.wide === true ? null : (
+                <td className="pb-check-detail">
+                  {r.detail}
+                  {inline(r)}
+                </td>
+              )}
+              {withActions ? <td className="pb-checks-action">{r.action}</td> : null}
             </tr>
           ))}
         </tbody>

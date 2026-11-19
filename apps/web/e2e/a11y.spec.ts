@@ -233,6 +233,20 @@ test('pages and loading states arrive composed under reduced motion @a11y', asyn
   await page.unrouteAll({ behavior: 'wait' });
 });
 
+test('the NAV sparkline draws in once and is still under reduced motion @a11y', async ({
+  page,
+}) => {
+  await signInAs(page, 'ops.one', d);
+  const line = page.getByTestId('home-tiles').locator('.pb-sparkline-line');
+  await line.waitFor();
+  await movingThenStill(page, () => animationNames(line), 'pb-draw');
+  await movingThenStill(
+    page,
+    () => animationNames(page.getByTestId('home-tiles').locator('.pb-sparkline-dot')),
+    'pb-fade',
+  );
+});
+
 // ---- Every page added this round, at a laptop and a phone width --------------------------------
 
 /** A page to scan and what shows once its own data has arrived. */

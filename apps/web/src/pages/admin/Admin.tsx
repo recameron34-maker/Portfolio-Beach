@@ -1,3 +1,4 @@
+import { Fragment } from 'react';
 import type { ReactNode } from 'react';
 import { keepPreviousData, useQuery } from '@tanstack/react-query';
 import type { AuditEventRow, WallList } from '@pb/contracts';
@@ -13,15 +14,18 @@ import {
 import {
   Badge,
   Card,
+  CheckList,
   EmptyState,
   PageHeader,
   PageSkeleton,
+  RowsSkeleton,
   SectionHeader,
   TableWrap,
   TabNav,
 } from '../../components/ui.js';
 import { UnavailableState } from '../../components/UnavailableState.js';
 import { formatDateTime, plural } from '../../lib/format.js';
+import { checkWords } from '../data-display.js';
 import { ROLE_ROWS, ROLE_SOURCE } from './roles.js';
 
 /* ---- Audit trail (SEC-11) ---- */
@@ -135,6 +139,20 @@ export function AuditPage(): ReactNode {
 
 /* ---- Access and walls (SEC-5) ---- */
 
+/** Names one after another, comma-separated, each its own element so it can be found and read. */
+function NameList({
+  names,
+}: {
+  names: { key: string; name: string; title?: string }[];
+}): ReactNode {
+  return names.map((n, i) => (
+    <Fragment key={n.key}>
+      {i > 0 ? ', ' : null}
+      <span title={n.title}>{n.name}</span>
+    </Fragment>
+  ));
+}
+
 function WallCard({ wall }: { wall: WallList['walls'][number] }): ReactNode {
   return (
     <Card testId={`wall-${wall.id}`}>
@@ -144,30 +162,30 @@ function WallCard({ wall }: { wall: WallList['walls'][number] }): ReactNode {
         {wall.name}
       </SectionHeader>
       {wall.description !== null ? <p className="pb-wall-description">{wall.description}</p> : null}
-      <p className="pb-meta">Members</p>
-      <p className="pb-chips">
-        {wall.members.length === 0 ? (
-          <span className="pb-meta">No members yet</span>
-        ) : (
-          wall.members.map((m) => (
-            <Badge key={m.userId} tone="brand">
-              {m.displayName}
-            </Badge>
-          ))
-        )}
-      </p>
-      <p className="pb-meta">Records</p>
-      <p className="pb-chips">
-        {wall.records.length === 0 ? (
-          <span className="pb-meta">No records yet</span>
-        ) : (
-          wall.records.map((r) => (
-            <span key={r.entityId} className="pb-key" title={r.entity}>
-              {r.label ?? 'a record you cannot see'}
-            </span>
-          ))
-        )}
-      </p>
+      <dl className="pb-wall-facts">
+        <dt>Members</dt>
+        <dd>
+          {wall.members.length === 0 ? (
+            <span className="pb-meta">No members yet</span>
+          ) : (
+            <NameList names={wall.members.map((m) => ({ key: m.userId, name: m.displayName }))} />
+          )}
+        </dd>
+        <dt>Records</dt>
+        <dd>
+          {wall.records.length === 0 ? (
+            <span className="pb-meta">No records yet</span>
+          ) : (
+            <NameList
+              names={wall.records.map((r) => ({
+                key: r.entityId,
+                name: r.label ?? 'a record you cannot see',
+                title: r.entity,
+              }))}
+            />
+          )}
+        </dd>
+      </dl>
     </Card>
   );
 }
@@ -229,16 +247,13 @@ export function AccessPage(): ReactNode {
                 const names = holders(r.role);
                 return (
                   <tr key={r.role}>
-                    <td>
-                      <div className="pb-role-cell">
-                        <span className="pb-key">{r.role}</span>
-                        <span>{r.label}</span>
-                        {myRoles.has(r.role) ? <Badge tone="accent">Your role</Badge> : null}
-                        {names.length > 0 ? (
-                          <span className="pb-meta">Prototype users: {names.join(', ')}</span>
-                        ) : null}
-                      </div>
-                    </td>
+                    <th scope="row" className="pb-role-cell">
+                      <span className="pb-role-name">{r.label}</span>
+                      {myRoles.has(r.role) ? <span className="pb-role-mine">Your role</span> : null}
+                      {names.length > 0 ? (
+                        <span className="pb-cell-sub">Prototype users: {names.join(', ')}</span>
+                      ) : null}
+                    </th>
                     <td>{r.sees}</td>
                   </tr>
                 );
@@ -281,7 +296,7 @@ export function HealthPage(): ReactNode {
         >
           Readiness checks
         </SectionHeader>
-        {ready.isPending ? <PageSkeleton rows={4} /> : null}
+        {ready.isPending ? <RowsSkeleton rows={4} label="Loading the readiness checks" /> : null}
         {ready.isError ? (
           <EmptyState
             title="Readiness is unavailable"
@@ -290,35 +305,20 @@ export function HealthPage(): ReactNode {
           />
         ) : null}
         {ready.data !== undefined ? (
-          <TableWrap label="Readiness checks">
-            <table className="pb-table" aria-label="Readiness checks">
-              <thead>
-                <tr>
-                  <th>Check</th>
-                  <th>Status</th>
-                  <th>Detail</th>
-                </tr>
-              </thead>
-              <tbody>
-                {Object.entries(ready.data.checks).map(([name, check]) => (
-                  <tr key={name}>
-                    <td>
-                      <span className="pb-key">{name}</span>
-                    </td>
-                    <td>
-                      <Badge tone={check.ok ? 'good' : 'bad'}>{check.ok ? 'OK' : 'Degraded'}</Badge>
-                    </td>
-                    <td>{check.detail ?? <span className="pb-meta">no detail</span>}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </TableWrap>
+          <CheckList
+            label="Readiness checks"
+            rows={Object.entries(ready.data.checks).map(([name, check]) => ({
+              check: checkWords(name),
+              tone: check.ok ? 'good' : 'bad',
+              result: check.ok ? 'OK' : 'Degraded',
+              detail: check.detail,
+            }))}
+          />
         ) : null}
       </Card>
       <Card>
         <SectionHeader aside={`${switches.length} adapters`}>Kill switches</SectionHeader>
-        {flags.isPending ? <PageSkeleton rows={3} /> : null}
+        {flags.isPending ? <RowsSkeleton rows={3} label="Loading the kill switches" /> : null}
         {flags.isError ? (
           <EmptyState
             title="Flags are unavailable"
@@ -333,19 +333,15 @@ export function HealthPage(): ReactNode {
               <table className="pb-table" aria-label="Kill switches">
                 <thead>
                   <tr>
-                    <th>Flag</th>
                     <th>Integration</th>
-                    <th>State</th>
+                    <th className="pb-col-fit">State</th>
                   </tr>
                 </thead>
                 <tbody>
                   {switches.map((f) => (
                     <tr key={f.key}>
-                      <td>
-                        <span className="pb-key">{f.key}</span>
-                      </td>
                       <td>{f.description}</td>
-                      <td>
+                      <td className="pb-col-fit">
                         <Badge tone={f.enabled ? 'good' : 'neutral'}>
                           {f.enabled ? 'On' : 'Off'}
                         </Badge>

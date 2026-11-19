@@ -74,13 +74,10 @@ describe('preview guide', () => {
     mockApi({ '/api/v1/auth/mock-users': ok(USERS) });
     renderWithQuery(<PreviewGuide variant="home" onHide={() => undefined} />);
     const guide = screen.getByTestId('preview-guide');
-    expect(
-      within(guide).getByRole('heading', { name: 'What to try in this preview' }),
-    ).toBeVisible();
+    expect(within(guide).getByRole('heading', { name: 'Preview walkthroughs (14)' })).toBeVisible();
     expect(guide).toHaveTextContent('Fourteen short walkthroughs');
-    const titles = within(guide)
-      .getAllByRole('heading', { level: 3 })
-      .map((h) => h.textContent);
+    // Folded on Home as on sign-in: each walkthrough's title is its disclosure.
+    const titles = [...guide.querySelectorAll('details > summary')].map((h) => h.textContent);
     expect(titles).toEqual([
       'Walls and entitlements',
       'Valuation approval',
@@ -121,6 +118,8 @@ describe('preview guide', () => {
     const weekly = screen.getByTestId('guide-weekly');
     expect(weekly).toHaveTextContent('As Opal Ops (operations), open Weekly values under Data');
     expect(weekly).toHaveTextContent('weekly-values-defects.csv');
+    // A sample file's name is set as an identifier.
+    expect(weekly.querySelector('.pb-key')).toHaveTextContent('weekly-values-defects.csv');
     expect(weekly).toHaveTextContent('Switch to Wade Wall (deal team) and look at the same file');
     const lookthrough = screen.getByTestId('guide-lookthrough');
     expect(lookthrough).toHaveTextContent('As Opal Ops (operations), open Look-through under Data');
@@ -128,11 +127,17 @@ describe('preview guide', () => {
     const opsDrop = screen.getByTestId('guide-ops-drop');
     expect(opsDrop).toHaveTextContent('ops-drop-clean.xlsx');
     expect(opsDrop).toHaveTextContent('ops-drop-unknown-template.xlsx');
+    expect([...opsDrop.querySelectorAll('.pb-key')].map((k) => k.textContent)).toEqual([
+      'ops-drop-clean.xlsx',
+      'ops-drop-unknown-template.xlsx',
+    ]);
     const documents = screen.getByTestId('guide-documents');
     expect(documents).toHaveTextContent('As Opal Ops (operations), open Documents');
     expect(documents).toHaveTextContent('Switch to Wade Wall (deal team) and search the hub');
     const extraction = screen.getByTestId('guide-extraction');
-    expect(extraction).toHaveTextContent('As Abe Admin (platform admin), turn ai.extraction on');
+    expect(extraction).toHaveTextContent(
+      'As Abe Admin (platform admin), turn on AI extraction under Flags',
+    );
     expect(extraction).toHaveTextContent('then as Opal Ops (operations), open Extraction');
     expect(extraction).toHaveTextContent('Approve and promote');
     const suggestions = screen.getByTestId('guide-suggestions');
@@ -211,6 +216,8 @@ describe('preview guide', () => {
       expect(steps.length, w).toBeLessThanOrEqual(4);
     }
     expect(guide.textContent).not.toContain(EM_DASH);
+    // The flag is named in words, never by its key.
+    expect(guide.textContent).not.toContain('ai.extraction');
   });
 
   it('keeps the sign-in card compact: each walkthrough folds, with no reset there', async () => {
@@ -228,21 +235,24 @@ describe('preview guide', () => {
     expect(within(guide).queryByRole('button', { name: 'Hide guide' })).toBeNull();
   });
 
-  it('folds the walkthroughs on Home at phone width, keeping the reset', async () => {
-    vi.stubGlobal('matchMedia', (query: string) => ({
-      matches: query === '(max-width: 760px)',
-      addEventListener: () => undefined,
-      removeEventListener: () => undefined,
-    }));
+  it('folds the walkthroughs on Home at every width, keeping the reset', async () => {
     mockApi({ '/api/v1/auth/mock-users': ok(USERS) });
     renderWithQuery(<PreviewGuide variant="home" onHide={() => undefined} />);
     const guide = screen.getByTestId('preview-guide');
     expect(guide.querySelectorAll('details > summary')).toHaveLength(14);
-    expect(guide.querySelector('.pb-guide-list')).toBeNull();
+    expect(guide.querySelectorAll('details[open]')).toHaveLength(0);
+    expect(within(guide).queryByRole('heading', { level: 3 })).toBeNull();
     await waitFor(() =>
       expect(screen.getByTestId('guide-walls')).toHaveTextContent('Vera Viewer (viewer)'),
     );
     expect(within(guide).getByRole('button', { name: 'Reset preview' })).toBeVisible();
+    // The reset row reads button, sentence, then the marker.
+    const reset = guide.querySelector('.pb-guide-reset');
+    expect([...(reset?.children ?? [])].map((c) => c.textContent)).toEqual([
+      'Reset preview',
+      'Simulated changes stay in this browser tab and reset when the page reloads.',
+      'Simulated',
+    ]);
   });
 
   it('resets the simulated changes from Home and says so', async () => {

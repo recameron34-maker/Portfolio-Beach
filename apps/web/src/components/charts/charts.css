@@ -182,6 +182,15 @@
 .pb-sparkline {
   display: block;
 }
+/* The sparkline under a key figure draws in once, then its latest point appears. The path's
+   length is 1 (pathLength), so one dash covers it whole and the offset alone draws it. */
+.pb-sparkline-line {
+  stroke-dasharray: 1;
+  animation: pb-draw var(--pb-dur-draw) var(--pb-ease-inout) 120ms backwards;
+}
+.pb-sparkline-dot {
+  animation: pb-fade var(--pb-dur) var(--pb-ease) var(--pb-dur-draw) backwards;
+}
 
 /* ---- Radar chart (RadarChart.tsx): a web of rings and spokes, the scores joined into a shape ---- */
 .pb-radar-ring,
@@ -276,6 +285,8 @@
 
 /* ---- Reduced motion: every animated selector of the charts, switched off (docs/06 section 5) ---- */
 @media (prefers-reduced-motion: reduce), (update: slow) {
+  .pb-sparkline-line,
+  .pb-sparkline-dot,
   .pb-radar-web,
   .pb-radar-shape,
   .pb-radar-point {

@@ -67,6 +67,8 @@ describe('intake list', () => {
     const table = await screen.findByRole('table', { name: 'Intake files' });
     expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('Intake');
     expect(screen.getByText('Staging, validation, approval, then production')).toBeInTheDocument();
+    // Intake is a tab of the Admin row, so the row shows here as on every page in it.
+    expect(screen.getByRole('navigation', { name: 'Admin' })).toHaveTextContent('Intake');
     expect(screen.getByTestId('intake-files')).toBe(table);
     const rows = within(table).getAllByRole('row');
     expect(rows).toHaveLength(4);
@@ -400,6 +402,7 @@ describe('intake list', () => {
     renderWithQuery(<IntakePage />);
     expect(await screen.findByText('Intake is for operations and reviewers')).toBeInTheDocument();
     expect(screen.getByTestId('intake-unavailable')).toBeInTheDocument();
+    expect(screen.getByRole('navigation', { name: 'Admin' })).toBeInTheDocument();
     expect(screen.queryByTestId('intake-upload')).not.toBeInTheDocument();
     expect(screen.queryByTestId('error-state')).not.toBeInTheDocument();
 

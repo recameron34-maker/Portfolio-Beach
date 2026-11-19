@@ -2,8 +2,8 @@ import { useState } from 'react';
 import type { FormEvent, ReactNode } from 'react';
 import { Link } from '@tanstack/react-router';
 import { useQuery } from '@tanstack/react-query';
-import { Button, Input, Label, Spinner } from '@fluentui/react-components';
-import { Send20Regular } from '@fluentui/react-icons';
+import { Button, Input, Label } from '@fluentui/react-components';
+import { ChevronRight16Regular, Send20Regular } from '@fluentui/react-icons';
 import {
   analyticsQuery,
   capitalNoticesQuery,
@@ -20,6 +20,7 @@ import {
   Field,
   PageHeader,
   PageSkeleton,
+  RowsSkeleton,
   SectionHeader,
 } from '../../components/ui.js';
 import {
@@ -37,8 +38,8 @@ interface Asked {
   typed: string | null;
 }
 
-const FLAG_OFF =
-  'The assistant is switched off. A platform admin can turn it on under Admin, Flags. In this prototype it answers from the figures on this page, not from a model.';
+/** The off state in one line; the header's dot says Off, and the meta says no model is called. */
+const FLAG_OFF = 'Switched off. A platform admin turns it on under Admin, Flags.';
 
 /**
  * Ask Portfolio Beach, honest by construction: eight fixed questions answered by templates in
@@ -92,103 +93,107 @@ export function AssistantsPage(): ReactNode {
       <PageHeader
         title="Ask Portfolio Beach"
         meta="Answers are assembled from figures you can already see; nothing is sent to a model in the prototype."
-        actions={
-          enabled ? (
-            <Badge tone="good">Assistant on</Badge>
-          ) : (
-            <Badge tone="watch">Assistant off</Badge>
-          )
-        }
+        actions={<Badge tone={enabled ? 'good' : 'watch'}>{enabled ? 'On' : 'Off'}</Badge>}
       />
       {enabled ? null : (
-        <>
-          <p className="pb-notice" data-testid="assistant-disabled">
-            {FLAG_OFF}
-          </p>
+        <div className="pb-assistant-off">
+          <p data-testid="assistant-disabled">{FLAG_OFF}</p>
           <AssistantSwitch />
-        </>
-      )}
-      <Card>
-        <SectionHeader aside={`${QUESTIONS.length} fixed questions`}>Questions</SectionHeader>
-        <div className="pb-questions" data-testid="assistant-questions">
-          {QUESTIONS.map((q) => (
-            <Button
-              key={q.id}
-              appearance={asked?.id === q.id ? 'primary' : 'secondary'}
-              aria-pressed={asked?.id === q.id}
-              disabled={!enabled}
-              onClick={() => ask(q.id, null)}
-            >
-              {q.text}
-            </Button>
-          ))}
         </div>
-        <form className="pb-ask" onSubmit={onSubmit}>
-          <Field>
-            <Label htmlFor="assistant-question">Or type a question</Label>
-            <Input
-              id="assistant-question"
-              value={text}
-              disabled={!enabled}
-              placeholder="Which deals are stale?"
-              onChange={(_e, d) => setText(d.value)}
-            />
-          </Field>
-          <Button
-            type="submit"
-            appearance="primary"
-            icon={<Send20Regular />}
-            disabled={!enabled || text.trim() === ''}
-          >
-            Ask
-          </Button>
-        </form>
-        <p className="pb-meta">
-          A typed question is mapped to the fixed question it shares the most words with; the answer
-          says which one it used.
-        </p>
-        {unmatched !== null ? (
-          <p className="pb-notice pb-notice-bad" data-testid="assistant-unmatched">
-            No fixed question matches &quot;{unmatched}&quot;. The mock assistant answers only the
-            questions listed above.
+      )}
+      <div className="pb-assistant">
+        <Card>
+          <SectionHeader aside={`${QUESTIONS.length} fixed questions`}>Questions</SectionHeader>
+          {/* Readable while the assistant is off: marked unavailable, never greyed out of reach. */}
+          <ul className="pb-questions" data-testid="assistant-questions" aria-label="Questions">
+            {QUESTIONS.map((q) => (
+              <li key={q.id}>
+                <button
+                  type="button"
+                  className="pb-question"
+                  aria-pressed={asked?.id === q.id}
+                  aria-disabled={enabled ? undefined : true}
+                  onClick={() => {
+                    if (enabled) ask(q.id, null);
+                  }}
+                >
+                  <span>{q.text}</span>
+                  <ChevronRight16Regular className="pb-question-chevron" aria-hidden="true" />
+                </button>
+              </li>
+            ))}
+          </ul>
+          <form className="pb-ask" onSubmit={onSubmit}>
+            <Field>
+              <Label htmlFor="assistant-question">Or type a question</Label>
+              <Input
+                id="assistant-question"
+                value={text}
+                disabled={!enabled}
+                placeholder="Which deals are stale?"
+                onChange={(_e, d) => setText(d.value)}
+              />
+            </Field>
+            <Button
+              type="submit"
+              appearance="primary"
+              icon={<Send20Regular />}
+              disabled={!enabled || text.trim() === ''}
+            >
+              Ask
+            </Button>
+          </form>
+          <p className="pb-meta">
+            A typed question is mapped to the fixed question it shares the most words with; the
+            answer says which one it used.
           </p>
-        ) : null}
-      </Card>
-      {asked !== null ? (
-        <Card testId="assistant-answer">
-          <SectionHeader aside={<AiDraftBadge />}>
-            {QUESTIONS.find((q) => q.id === asked.id)?.text ?? 'Answer'}
-          </SectionHeader>
-          {asked.typed !== null ? (
-            <p className="pb-meta" data-testid="assistant-answered-as">
-              Answered as the fixed question above for: &quot;{asked.typed}&quot;
+          {unmatched !== null ? (
+            <p className="pb-notice pb-notice-bad" data-testid="assistant-unmatched">
+              No fixed question matches &quot;{unmatched}&quot;. The mock assistant answers only the
+              questions listed above.
             </p>
           ) : null}
-          {answer === null ? (
-            <Spinner size="tiny" label="Gathering the figures" />
-          ) : (
-            <>
-              <div className="pb-prose" data-testid="assistant-paragraphs">
-                {answer.paragraphs.map((p, i) => (
-                  <p key={i}>{p}</p>
-                ))}
-              </div>
-              <p className="pb-meta">Sources</p>
-              <ul className="pb-linklist" data-testid="assistant-sources">
-                {answer.sources.map((s) => (
-                  <li key={s.to}>
-                    <Link to={s.to}>{s.label}</Link>
-                    <span className="pb-meta">{s.to}</span>
-                  </li>
-                ))}
-              </ul>
-            </>
-          )}
-          <p className="pb-meta pb-mock-line" data-testid="assistant-mock-line">
-            {MOCK_ASSISTANT_LINE}
-          </p>
         </Card>
-      ) : null}
+        {asked !== null ? (
+          <Card testId="assistant-answer">
+            <SectionHeader aside={<AiDraftBadge />}>
+              {QUESTIONS.find((q) => q.id === asked.id)?.text ?? 'Answer'}
+            </SectionHeader>
+            {asked.typed !== null ? (
+              <p className="pb-meta" data-testid="assistant-answered-as">
+                Answered as the fixed question above for: &quot;{asked.typed}&quot;
+              </p>
+            ) : null}
+            {answer === null ? (
+              <RowsSkeleton rows={3} label="Gathering the figures" />
+            ) : (
+              <>
+                <div className="pb-prose" data-testid="assistant-paragraphs">
+                  {answer.paragraphs.map((p, i) => (
+                    <p key={i}>{p}</p>
+                  ))}
+                </div>
+                <p className="pb-sources-label">Sources</p>
+                <ul className="pb-source-list" data-testid="assistant-sources">
+                  {answer.sources.map((s) => (
+                    <li key={s.to}>
+                      <Link to={s.to}>{s.label}</Link>
+                    </li>
+                  ))}
+                </ul>
+              </>
+            )}
+            <p className="pb-meta pb-mock-line" data-testid="assistant-mock-line">
+              {MOCK_ASSISTANT_LINE}
+            </p>
+          </Card>
+        ) : enabled ? (
+          // From 1100px the answer sits beside the questions; until one is asked, this says so.
+          <section className="pb-card pb-assistant-waiting">
+            <p className="pb-meta">Choose a question to see the answer and its sources.</p>
+          </section>
+        ) : null}
+      </div>
     </>
   );
 }

@@ -718,16 +718,14 @@ p:last-child {
 .pb-tiles :focus-visible {
   outline-offset: -2px;
 }
-/* Home: four columns with Current NAV across two, so seven tiles fill two even rows */
-.pb-home-tiles {
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+/* Home's seven figures: cells a little narrower than elsewhere, so the seven sit in one row from
+   about 1100px; balanceTiles makes it four and three below that, and two on a phone (the 480px
+   rule sets the phone's minimum). */
+.pb-home-figures {
+  --pb-tile-min: 116px;
 }
 .pb-stat-tile.is-wide {
   grid-column: span 2;
-}
-.pb-stat-tile.is-wide .pb-sparkline {
-  width: 126px;
-  height: 36px;
 }
 .pb-stat-tile {
   display: flex;
@@ -902,13 +900,10 @@ p:last-child {
   border-bottom: 0;
   font-weight: 600;
 }
-/* A dense table: 28px rows, for the long lists read line by line. */
+/* A dense table: 28px rows, for the long lists read line by line. Its cells keep their 8px sides,
+   so the text still starts under the header and on the section title's edge. */
 .pb-table.is-dense {
   --pb-cell-py: 4px;
-}
-.pb-table.is-dense td,
-.pb-table.is-dense th[scope='row'] {
-  padding: var(--pb-cell-py) var(--pb-space-1);
 }
 .pb-table a {
   color: var(--pb-brand-primary);
@@ -1390,7 +1385,7 @@ p:last-child {
   gap: 0;
 }
 
-/* ---- Lists on Home ---- */
+/* ---- Lists of links (the deal workspace's other positions): a link and its detail a row ---- */
 .pb-linklist {
   list-style: none;
   margin: 0;
@@ -1418,46 +1413,78 @@ p:last-child {
   text-align: right;
 }
 
-/* The work of the signed-in role: the sentence that says what the role does, then one link for
-   each place it does it, in columns when there is room. Each link leads; its description sits
-   under it, so a narrow column still reads as a list of places and not as a table. */
+/* ---- Lists on Home ---- */
+/* The work of the signed-in role: the sentence that says what the role does as the section's meta
+   line, then a 36px row for each place it does it, the link and what is there on one line (cut
+   short, whole in its title). Two columns from 1100px; on a phone the description wraps under. */
 .pb-home-work-does {
-  margin: 0 0 12px;
-  max-width: 76ch;
-  font-size: 15px;
-  line-height: 22px;
-  color: var(--pb-text);
+  margin: calc(var(--pb-space-2) * -1) 0 var(--pb-space-3);
+  max-width: 72ch;
 }
 .pb-home-work {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(232px, 1fr));
-  gap: 0 28px;
+  grid-template-columns: minmax(0, 1fr);
+  column-gap: var(--pb-space-6);
+  margin: 0;
+  padding: 0;
+  list-style: none;
 }
-.pb-home-work li,
-.pb-home-work li:first-child,
-.pb-home-work li:last-child {
-  display: block;
-  padding: 10px 0;
+.pb-home-work > li {
+  display: flex;
+  align-items: baseline;
+  gap: var(--pb-space-3);
+  min-width: 0;
+  min-height: 36px;
+  padding: var(--pb-space-2) 0;
   border-top: 1px solid var(--pb-hairline);
 }
-.pb-home-work li a {
-  display: inline-block;
+.pb-home-work a {
+  flex: none;
   font-weight: 600;
+  color: var(--pb-text);
+  text-decoration: none;
 }
-.pb-home-work .pb-meta {
-  display: block;
-  margin-top: 2px;
-  text-align: left;
+.pb-home-work a:hover,
+.pb-home-work a:focus-visible {
+  text-decoration: underline;
+  text-decoration-color: currentColor;
+}
+.pb-home-work-what {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--pb-muted);
+}
+@media (min-width: 1100px) {
+  .pb-home-work {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+@media (max-width: 760px) {
+  .pb-home-work > li {
+    display: block;
+  }
+  .pb-home-work-what {
+    display: block;
+    white-space: normal;
+  }
 }
 
-/* ---- Stat tile figure: a sparkline beside the key number ---- */
+/* ---- Stat tile figure: a small figure beside the key number, or a sparkline under it ---- */
 .pb-stat-row {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
-  gap: 4px 10px;
+  gap: var(--pb-space-1) var(--pb-space-2);
   min-width: 0;
+}
+.pb-stat-row:has(> .pb-sparkline) {
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--pb-space-1);
 }
 .pb-stat-row > .pb-sparkline {
   flex: none;
@@ -1470,66 +1497,64 @@ p:last-child {
   flex-wrap: wrap;
   align-items: baseline;
   justify-content: space-between;
-  gap: 4px 12px;
-  margin: 0 0 14px;
+  gap: var(--pb-space-1) var(--pb-space-3);
+  margin: 0 0 var(--pb-space-3);
 }
 .pb-guide-head > .pb-section-header {
   margin: 0;
 }
 .pb-guide-intro {
-  margin: -4px 0 12px;
-}
-.pb-guide-list {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(min(100%, 280px), 1fr));
-  gap: 16px 28px;
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
-.pb-guide-list h3 {
-  margin: 0 0 6px;
-  font-size: 13px;
-  line-height: 20px;
-  font-weight: 600;
-  color: var(--pb-text);
+  margin: calc(var(--pb-space-1) * -1) 0 var(--pb-space-3);
 }
 .pb-guide-steps {
   margin: 0;
-  padding-left: 18px;
-  font-size: 13px;
-  line-height: 20px;
+  padding-left: var(--pb-space-5);
+  font-size: var(--pb-text-md);
+  line-height: var(--pb-text-md-lh);
 }
 .pb-guide-steps > li + li {
-  margin-top: 4px;
+  margin-top: var(--pb-space-1);
 }
+/* A sample file's name, in the identifier style, inside a sentence. */
+.pb-guide-steps .pb-key {
+  margin-right: 0;
+}
+/* A walkthrough a row: its title as a disclosure (pb-details), its steps under it once opened.
+   On Home, two columns from 1100px; a row keeps the height of the taller of its two. */
 .pb-guide-compact > details {
   border-top: 1px solid var(--pb-hairline);
 }
-.pb-guide-compact summary {
-  padding: 8px 0;
-  font-size: 13px;
-  line-height: 20px;
+.pb-guide-compact > details > summary {
+  display: flex;
   font-weight: 600;
-  color: var(--pb-brand-primary);
-  cursor: pointer;
 }
 .pb-guide-compact .pb-guide-steps {
-  padding-bottom: 10px;
+  padding-bottom: var(--pb-space-3);
+}
+@media (min-width: 1100px) {
+  .pb-guide-compact.is-columns {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    column-gap: var(--pb-space-6);
+    align-items: start;
+  }
 }
 .pb-guide-foot {
-  margin-top: 16px;
-  padding-top: 12px;
+  margin-top: var(--pb-space-4);
+  padding-top: var(--pb-space-3);
   border-top: 1px solid var(--pb-hairline);
 }
 .pb-guide-reset {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 8px 12px;
+  gap: var(--pb-space-2) var(--pb-space-3);
+}
+.pb-guide-reset > .pb-simulated {
+  margin-left: 0;
 }
 .pb-guide-result {
-  margin: 8px 0 0;
+  margin: var(--pb-space-2) 0 0;
 }
 .pb-guide-result:empty {
   margin: 0;
@@ -1547,17 +1572,125 @@ p:last-child {
   color: var(--pb-muted-strong);
 }
 
-/* ---- Assistant switch (preview only): the simulated flag change beside its label ---- */
-.pb-assistant-switch {
+/* ---- Assistant: the off state in one line, the questions and the answer ---- */
+/* Off: the sentence, then (preview only) the simulated switch and its marker, on one line. */
+.pb-assistant-off {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 8px 12px;
-  margin: 0 0 16px;
+  gap: var(--pb-space-2) var(--pb-space-4);
+  margin: 0 0 var(--pb-space-5);
+}
+.pb-assistant-off > p {
+  margin: 0;
+}
+.pb-assistant-switch {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--pb-space-2) var(--pb-space-3);
+}
+.pb-assistant-switch > .pb-simulated {
+  margin-left: 0;
 }
 .pb-assistant-switch > .pb-notice {
   flex-basis: 100%;
   margin: 0;
+}
+/* The questions and the answer: one column, then from 1100px the questions on the left (360px)
+   and the answer beside them, each a section with its own rule. The first one after the header
+   (and the off line) has none, like any first section. */
+.pb-assistant {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  column-gap: var(--pb-space-6);
+  align-items: start;
+}
+:is(.pb-banner, .pb-assistant-off) + .pb-assistant > .pb-card:first-child {
+  border-top: 0;
+  padding-top: 0;
+}
+.pb-assistant-waiting {
+  display: none;
+}
+@media (min-width: 1100px) {
+  .pb-assistant {
+    grid-template-columns: 360px minmax(0, 1fr);
+  }
+  :is(.pb-banner, .pb-assistant-off) + .pb-assistant > .pb-card {
+    border-top: 0;
+    padding-top: 0;
+  }
+  .pb-assistant-waiting {
+    display: block;
+  }
+}
+/* A question a row: 36px of words and a chevron, a tint under the pointer; the one asked in ink at
+   600 with the accent along its edge. Off, the words stay readable in the stronger grey. */
+.pb-questions {
+  margin: 0 calc(var(--pb-space-2) * -1) var(--pb-space-4);
+  padding: 0;
+  list-style: none;
+}
+.pb-questions > li + li {
+  border-top: 1px solid var(--pb-hairline);
+}
+.pb-question {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--pb-space-3);
+  width: 100%;
+  min-height: 36px;
+  padding: var(--pb-space-2);
+  margin: 0;
+  border: 0;
+  border-radius: 0;
+  background: none;
+  color: var(--pb-text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition:
+    color var(--pb-dur-fast) var(--pb-ease),
+    background-color var(--pb-dur-fast) var(--pb-ease);
+}
+.pb-question:hover {
+  background: var(--pb-primary-tint-4);
+}
+.pb-question:focus-visible {
+  outline-offset: -2px;
+}
+.pb-question[aria-pressed='true'] {
+  font-weight: 600;
+  background: var(--pb-primary-tint-8);
+  box-shadow: inset 2px 0 0 var(--pb-brand-accent);
+}
+.pb-question[aria-disabled='true'] {
+  color: var(--pb-muted-strong);
+  cursor: default;
+}
+.pb-question[aria-disabled='true']:hover {
+  background: none;
+}
+.pb-question-chevron {
+  flex: none;
+  color: var(--pb-muted-strong);
+}
+.pb-sources-label {
+  margin: var(--pb-space-4) 0 var(--pb-space-1);
+  font-size: var(--pb-text-sm);
+  line-height: var(--pb-text-sm-lh);
+  font-weight: 500;
+  color: var(--pb-muted-strong);
+}
+.pb-source-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--pb-space-1) var(--pb-space-4);
+  margin: 0;
+  padding: 0;
+  list-style: none;
 }
 
 /* ---- Workflow actions (valuation board, capital notices): command buttons, the page's one status
@@ -1760,33 +1893,15 @@ p:last-child {
   gap: var(--pb-space-2);
 }
 
-/* ---- Attention list (Home): position, vehicle and its flags ---- */
-.pb-attention {
-  list-style: none;
-  margin: 0 0 10px;
-  padding: 0;
-}
-.pb-attention > li {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 4px;
-  padding: 8px 0;
-  border-top: 1px solid var(--pb-hairline);
-}
-.pb-attention > li:first-child {
-  border-top: 0;
-  padding-top: 0;
-}
-.pb-attention-main {
+/* ---- Home: the watchlist's counts as one line of dots, and a date that is overdue ---- */
+.pb-count-dots {
   display: inline-flex;
   flex-wrap: wrap;
-  align-items: baseline;
-  gap: 2px 10px;
-  min-width: 0;
+  justify-content: flex-end;
+  gap: var(--pb-space-1) var(--pb-space-4);
 }
-.pb-attention .pb-chips {
-  margin: 0;
+.pb-overdue-date {
+  color: var(--pb-bad-ink);
 }
 
 /* ---- Flag list inside a table cell (Watchlist): a badge and its message per flag ---- */
@@ -1844,12 +1959,6 @@ p:last-child {
 }
 
 /* ---- Reporting, assistants and admin pages ---- */
-/* The flags page marks a kill switch after its description: the bad dot and the word, set apart
-   from the sentence. */
-.pb-flag-marker {
-  margin-left: var(--pb-space-1);
-  white-space: nowrap;
-}
 .pb-report-actions {
   display: inline-flex;
   flex-wrap: wrap;
@@ -1867,30 +1976,19 @@ p:last-child {
 .pb-prose p:last-child {
   margin-bottom: 0;
 }
-.pb-questions {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
-  gap: 8px;
-  margin: 0 0 14px;
-}
-.pb-questions > button {
-  justify-content: flex-start;
-  text-align: left;
-  min-height: 36px;
-}
 .pb-ask {
   display: flex;
   flex-wrap: wrap;
   align-items: end;
-  gap: 10px;
-  margin: 0 0 10px;
+  gap: var(--pb-space-2) var(--pb-space-3);
+  margin: 0 0 var(--pb-space-2);
 }
 .pb-ask > .pb-field {
-  flex: 1 1 320px;
+  flex: 1 1 200px;
 }
 .pb-mock-line {
-  margin-top: 12px;
-  padding-top: 10px;
+  margin-top: var(--pb-space-3);
+  padding-top: var(--pb-space-3);
   border-top: 1px solid var(--pb-hairline);
 }
 .pb-nowrap {
@@ -1900,18 +1998,291 @@ p:last-child {
   font-variant-numeric: tabular-nums;
   cursor: help;
 }
+/* The role table: the role in words, "Your role" after it in muted words, its users under it. */
 .pb-role-cell {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 6px 8px;
-  min-width: 220px;
+  min-width: 200px;
 }
-.pb-role-cell > .pb-meta {
-  flex-basis: 100%;
+.pb-role-mine {
+  margin-left: var(--pb-space-2);
+  font-size: var(--pb-text-sm);
+  line-height: var(--pb-text-sm-lh);
+  font-weight: 400;
+  color: var(--pb-muted);
+  white-space: nowrap;
 }
 .pb-wall-description {
-  margin: 0 0 10px;
+  margin: 0 0 var(--pb-space-3);
+  max-width: 72ch;
+}
+/* A wall's members and records: a label and a comma-separated list of names, a pair a line. */
+.pb-wall-facts {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: var(--pb-space-1) var(--pb-space-4);
+  margin: 0;
+}
+.pb-wall-facts > dt {
+  font-size: var(--pb-text-sm);
+  line-height: var(--pb-text-md-lh);
+  font-weight: 500;
+  color: var(--pb-muted-strong);
+}
+.pb-wall-facts > dd {
+  margin: 0;
+}
+
+/* ---- Flags: the reason that unlocks the switches, then a row a flag ---- */
+.pb-flag-reason {
+  max-width: 480px;
+  margin: 0 0 var(--pb-space-4);
+}
+.pb-flag-reason-row {
+  display: flex;
+  align-items: center;
+  gap: var(--pb-space-2);
+}
+.pb-flag-reason-row > .fui-Input {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.pb-flag-reason > .pb-note {
+  margin: 0;
+}
+.pb-flags th[scope='row'] {
+  font-weight: 500;
+}
+/* A kill switch says so after its description, in plain words set apart from the sentence. */
+.pb-flag-marker {
+  margin-left: var(--pb-space-2);
+  font-size: var(--pb-text-sm);
+  font-weight: 400;
+  color: var(--pb-muted-strong);
+  white-space: nowrap;
+}
+.pb-flags .pb-flag-change {
+  text-align: right;
+}
+.pb-switch-cell {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--pb-space-2);
+  /* The cell sits right; the switch's thumb is placed by its own left edge, so it must not be. */
+  text-align: left;
+}
+/* The switch's own box is taller than a 20px line: the row centres it rather than growing. */
+.pb-flags .pb-switch-cell > .fui-Switch {
+  margin-block: calc(var(--pb-space-2) * -1);
+}
+
+/* ---- Check lists (CheckList): a check, its result after a dot, its detail, a command ---- */
+.pb-checks th[scope='row'] {
+  min-width: 14ch;
+}
+/* On a wide screen the check is as wide as its name, so each result sits close to its check. */
+@media (min-width: 761px) {
+  .pb-checks th[scope='row'] {
+    width: 1%;
+    padding-right: var(--pb-space-6);
+    white-space: nowrap;
+  }
+}
+.pb-checks .pb-checks-result-col {
+  width: 1%;
+}
+.pb-check-cell:not(.is-wide) {
+  white-space: nowrap;
+}
+.pb-check-result {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--pb-space-2);
+  font-variant-numeric: tabular-nums lining-nums;
+}
+/* A row with no tone keeps the dot's room, so every result starts on the same edge. */
+.pb-check-dot {
+  flex: none;
+  width: 6px;
+  height: 6px;
+  margin-top: 7px;
+  border-radius: 50%;
+}
+.pb-check-result[data-tone='good'] > .pb-check-dot {
+  background: var(--pb-good);
+}
+.pb-check-result[data-tone='watch'] > .pb-check-dot {
+  background: var(--pb-watch);
+}
+.pb-check-result[data-tone='bad'] > .pb-check-dot {
+  background: var(--pb-bad);
+}
+.pb-check-result[data-tone='neutral'] > .pb-check-dot {
+  background: var(--pb-border-strong);
+}
+.pb-check-result[data-tone='brand'] > .pb-check-dot {
+  background: var(--pb-brand-primary);
+}
+.pb-check-result[data-tone='accent'] > .pb-check-dot {
+  background: var(--pb-brand-accent);
+}
+.pb-check-value {
+  min-width: 0;
+  max-width: 80ch;
+}
+.pb-check-note {
+  color: var(--pb-muted-strong);
+}
+.pb-check-lines {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.pb-checks-action {
+  width: 1%;
+  text-align: right;
+  white-space: nowrap;
+}
+/* The detail never folds to a word a line; on a phone the row's command closes it. */
+.pb-check-detail {
+  min-width: 16ch;
+}
+.pb-check-command {
+  display: block;
+  white-space: nowrap;
+}
+.pb-check-detail:not(:empty) > .pb-check-command:not(:first-child) {
+  margin-top: var(--pb-space-1);
+}
+
+/* ---- Data dictionary: a term a group of rows, its settings indented under it ---- */
+/* Two classes, so no row of a term carries the table's hairline: only the groups are ruled. */
+.pb-dict.pb-table tbody > tr > * {
+  border-bottom: 0;
+}
+.pb-dict tbody + tbody > tr:first-child > * {
+  border-top: 1px solid var(--pb-hairline);
+}
+.pb-dict .pb-dict-name {
+  width: 32%;
+  min-width: 20ch;
+}
+.pb-dict .pb-dict-name[data-depth='1'] {
+  padding-left: calc(var(--pb-space-2) + var(--pb-space-4));
+  font-weight: 400;
+  color: var(--pb-muted-strong);
+}
+.pb-dict .pb-dict-name[data-depth='2'] {
+  padding-left: calc(var(--pb-space-2) + var(--pb-space-4) * 2);
+  font-weight: 400;
+  color: var(--pb-muted-strong);
+}
+.pb-dict-value {
+  min-width: 24ch;
+  overflow-wrap: anywhere;
+  font-variant-numeric: tabular-nums lining-nums;
+}
+
+/* ---- Taxonomy: one table of every domain, a sticky index beside it from 1100px ---- */
+.pb-taxonomy-table {
+  table-layout: fixed;
+  min-width: 640px;
+}
+.pb-taxonomy-code,
+.pb-taxonomy-label {
+  width: 36%;
+}
+.pb-taxonomy-parent {
+  width: 16%;
+}
+.pb-taxonomy-status {
+  width: 12%;
+}
+.pb-taxonomy-table td {
+  overflow-wrap: anywhere;
+}
+.pb-taxonomy-table .pb-key {
+  white-space: normal;
+}
+/* A domain opens its rows: its name and count on the panel grey, under the sticky header (two
+   classes, so the phone's held first column keeps the grey). */
+.pb-taxonomy-table .pb-group-row > th {
+  padding: var(--pb-cell-py) var(--pb-space-2);
+  background: var(--pb-surface-2);
+  border-bottom: 1px solid var(--pb-hairline);
+  text-align: left;
+  scroll-margin-top: 33px;
+}
+.pb-taxonomy-table .pb-group-row > th:focus-visible {
+  outline-offset: -2px;
+}
+.pb-group-name {
+  font-size: var(--pb-text-md);
+  line-height: var(--pb-text-md-lh);
+  font-weight: 600;
+  color: var(--pb-text);
+}
+.pb-group-count {
+  margin-left: var(--pb-space-3);
+  font-size: var(--pb-text-sm);
+  line-height: var(--pb-text-sm-lh);
+  font-weight: 400;
+  color: var(--pb-muted-strong);
+}
+.pb-taxonomy-table tbody tr.pb-group-row:hover > th {
+  background: var(--pb-surface-2);
+}
+.pb-taxonomy-index {
+  display: none;
+  margin-left: calc(var(--pb-space-2) * -1);
+}
+@media (min-width: 1100px) {
+  .pb-taxonomy {
+    display: grid;
+    grid-template-columns: 200px minmax(0, 1fr);
+    column-gap: var(--pb-space-5);
+    align-items: start;
+  }
+  .pb-taxonomy-index {
+    display: block;
+    position: sticky;
+    top: var(--pb-space-4);
+  }
+}
+.pb-taxonomy-index > ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.pb-taxonomy-index button {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--pb-space-2);
+  width: 100%;
+  min-height: 28px;
+  padding: var(--pb-space-1) var(--pb-space-2);
+  border: 0;
+  border-radius: var(--pb-radius);
+  background: none;
+  color: var(--pb-text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: background-color var(--pb-dur-fast) var(--pb-ease);
+}
+.pb-taxonomy-index button:hover {
+  background: var(--pb-primary-tint-4);
+}
+.pb-taxonomy-index-count {
+  font-size: var(--pb-text-sm);
+  color: var(--pb-muted-strong);
+  font-variant-numeric: tabular-nums;
+}
+
+/* A count beside a filter, on the input's line. */
+.pb-toolbar > .pb-toolbar-count {
+  align-self: end;
+  margin: 0;
+  line-height: 32px;
 }
 
 /* ---- Sign-in page ---- */
@@ -2031,12 +2402,6 @@ p:last-child {
   }
   .pb-topbar {
     padding: 0 var(--pb-space-5);
-  }
-}
-/* Below this the sidebar leaves too little room for four of Home's tiles across */
-@media (max-width: 960px) {
-  .pb-home-tiles {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
 @media (max-width: 760px) {
@@ -2164,7 +2529,9 @@ p:last-child {
   .pb-details > summary,
   .pb-guide-compact summary,
   .pb-btn-quiet,
-  .pb-segmented > button {
+  .pb-segmented > button,
+  .pb-question,
+  .pb-taxonomy-index button {
     min-height: 44px;
   }
   .pb-command-buttons,
@@ -2242,9 +2609,6 @@ p:last-child {
 @media (max-width: 480px) {
   .pb-tiles {
     --pb-tile-min: 140px;
-  }
-  .pb-home-tiles {
-    grid-template-columns: minmax(0, 1fr);
   }
   .pb-stat-tile.is-wide {
     grid-column: auto;
@@ -2515,6 +2879,8 @@ p:last-child {
   .pb-segmented > button,
   .pb-details > summary::before,
   .pb-signin-row,
+  .pb-question,
+  .pb-taxonomy-index button,
   .pb-table-wrap,
   .pb-grid .ag-header-cell-filter-button,
   .pb-grid .ag-header-cell-resize {

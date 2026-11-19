@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import {
+  CheckList,
   EmptyState,
   KeyValueTable,
   Notice,
@@ -169,6 +170,115 @@ describe('figures strip cell', () => {
     const flagged = screen.getByRole('group', { name: 'Flagged' });
     expect(flagged).toHaveAttribute('data-tone', 'watch');
     expect(flagged).toHaveAttribute('data-zero');
+  });
+});
+
+describe('figures strip cell, how a figure is worked out', () => {
+  afterEach(cleanup);
+
+  it('keeps the formula under the pointer and the basis as the hint', () => {
+    render(<StatTile label="DPI" value="0.10x" hint="Pooled" title="Distributions / invested" />);
+    const cell = screen.getByRole('group', { name: 'DPI' });
+    expect(cell).toHaveAttribute('title', 'Distributions / invested');
+    expect(cell).toHaveTextContent('Pooled');
+    expect(cell).not.toHaveTextContent('Distributions / invested');
+  });
+});
+
+describe('check list', () => {
+  afterEach(cleanup);
+
+  it('is one compact table named for its checks, with the test id on its frame', () => {
+    render(
+      <CheckList
+        label="Readiness checks"
+        testId="checks"
+        rows={[
+          { check: 'Database', tone: 'good', result: 'OK' },
+          { check: 'Mail', tone: 'bad', result: 'Degraded', detail: 'Switched off' },
+        ]}
+      />,
+    );
+    const frame = screen.getByTestId('checks');
+    expect(frame).toHaveAttribute('role', 'region');
+    const table = within(frame).getByRole('table', { name: 'Readiness checks' });
+    expect(
+      within(table)
+        .getAllByRole('columnheader')
+        .map((h) => h.textContent),
+    ).toEqual(['Check', 'Result', 'Detail']);
+    const rows = within(table).getAllByRole('row').slice(1);
+    expect(rows.map((r) => r.textContent)).toEqual(['DatabaseOK', 'MailDegradedSwitched off']);
+    // An empty detail stays blank: no filler words.
+    expect(within(rows[0]!).getAllByRole('cell')[1]).toBeEmptyDOMElement();
+  });
+
+  it('draws the tone as a dot before the result and adds no word of its own', () => {
+    const { container } = render(
+      <CheckList
+        label="Data checks"
+        rows={[
+          { check: 'Orphan investments', result: '0' },
+          { check: 'Open exceptions', tone: 'watch', result: '3' },
+        ]}
+      />,
+    );
+    const results = [...container.querySelectorAll('.pb-check-result')];
+    expect(results.map((r) => r.getAttribute('data-tone'))).toEqual([null, 'watch']);
+    expect(results.map((r) => r.textContent)).toEqual(['0', '3']);
+    // Every result keeps the dot's room, hidden from a screen reader, so the results line up.
+    for (const r of results)
+      expect(r.querySelector('.pb-check-dot')).toHaveAttribute('aria-hidden', 'true');
+  });
+
+  it('adds a command column only when a row has a command, and lets a sentence run across', () => {
+    render(
+      <CheckList
+        label="Data checks"
+        rows={[
+          { check: 'Open exceptions', result: '3', action: <a href="/q">Open the queue</a> },
+          { check: 'Client ownership', wide: true, result: 'Every vehicle sums to 100%.' },
+        ]}
+      />,
+    );
+    const table = screen.getByRole('table', { name: 'Data checks' });
+    expect(within(table).getAllByRole('columnheader')).toHaveLength(4);
+    expect(within(table).getByRole('columnheader', { name: 'Command' })).toBeInTheDocument();
+    const [, open, ownership] = within(table).getAllByRole('row');
+    expect(within(open!).getByRole('link', { name: 'Open the queue' })).toBeVisible();
+    const sentence = within(ownership!).getAllByRole('cell')[0];
+    expect(sentence).toHaveAttribute('colspan', '2');
+    expect(sentence).toHaveTextContent('Every vehicle sums to 100%.');
+  });
+});
+
+describe('check list on a phone', () => {
+  afterEach(() => {
+    cleanup();
+    vi.unstubAllGlobals();
+  });
+
+  it("puts the command at the end of its row's detail instead of a column of its own", () => {
+    vi.stubGlobal('matchMedia', (query: string) => ({
+      matches: query === '(max-width: 760px)',
+      addEventListener: () => undefined,
+      removeEventListener: () => undefined,
+    }));
+    render(
+      <CheckList
+        label="Data checks"
+        rows={[
+          { check: 'Open exceptions', result: '3', action: <a href="/q">Open the queue</a> },
+          { check: 'Stale positions', result: '1', detail: 'No approved financials in 75 days' },
+        ]}
+      />,
+    );
+    const table = screen.getByRole('table', { name: 'Data checks' });
+    expect(within(table).getAllByRole('columnheader')).toHaveLength(3);
+    const open = within(table).getAllByRole('row')[1]!;
+    expect(within(within(open).getAllByRole('cell')[1]!).getByRole('link')).toHaveTextContent(
+      'Open the queue',
+    );
   });
 });
 

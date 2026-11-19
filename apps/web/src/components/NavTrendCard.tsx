@@ -2,7 +2,7 @@ import type { ReactNode } from 'react';
 import type { SeriesPoint } from '@pb/contracts';
 import { formatMoneyM, formatQuarter, joinList, moneyLabel, plural } from '../lib/format.js';
 import { LineChart } from './charts/index.js';
-import { Card, EmptyState, SectionHeader } from './ui.js';
+import { Card, EmptyState } from './ui.js';
 
 /** Quarters the note under the chart names one by one; more than this are counted instead. */
 const NAMED_GAPS = 3;
@@ -13,15 +13,14 @@ const NAMED_GAPS = 3;
  * section 2). A quarter in which a held position has no Locked mark yet is not calculable: the
  * line breaks there and the note under the chart names it, never a partial sum or the nearest
  * quarter's figure (CLAUDE.md rule 10). Two calculable quarters are the least that makes a trend.
+ * The chart's own title is the section's title: no second heading over it.
  */
 export function NavTrendCard({
   points,
-  heading = 'NAV trend',
   testId,
   emptyTestId,
 }: {
   points: readonly SeriesPoint[];
-  heading?: string | undefined;
   testId: string;
   emptyTestId?: string | undefined;
 }): ReactNode {
@@ -35,7 +34,6 @@ export function NavTrendCard({
       : `Not calculable for ${gaps.length <= NAMED_GAPS ? joinList(gaps) : plural(gaps.length, 'quarter')}`;
   return (
     <Card>
-      <SectionHeader aside="Positions held at each quarter end">{heading}</SectionHeader>
       {known.length < 2 || first === undefined || last === undefined ? (
         <EmptyState
           title="No NAV trend yet"

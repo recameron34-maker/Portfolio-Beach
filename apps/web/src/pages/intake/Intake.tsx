@@ -12,6 +12,7 @@ import type {
 } from '@pb/contracts';
 import { previewMode } from '../../app/env.js';
 import { describeActionError, useIntakeImport } from '../../app/mutations.js';
+import { ADMIN_TABS } from '../../app/nav.js';
 import { intakeExportsQuery, intakeFilesQuery, LIST_LIMIT, meQuery } from '../../app/queries.js';
 import { UnavailableState } from '../../components/UnavailableState.js';
 import {
@@ -24,6 +25,7 @@ import {
   SectionHeader,
   SimulatedBadge,
   TableWrap,
+  TabNav,
 } from '../../components/ui.js';
 import { MISSING, plural } from '../../lib/format.js';
 import { humanizeState, stagingTone } from '../../lib/states.js';
@@ -445,6 +447,7 @@ export function IntakePage(): ReactNode {
     return (
       <>
         <PageHeader title="Intake" meta={INTAKE_META} />
+        <TabNav label="Admin" items={ADMIN_TABS} />
         <UnavailableState
           card
           error={files.error}
@@ -460,6 +463,7 @@ export function IntakePage(): ReactNode {
   return (
     <>
       <PageHeader title="Intake" meta={INTAKE_META} />
+      <TabNav label="Admin" items={ADMIN_TABS} />
       {isOps ? (
         <UploadCard
           onStaged={(result) =>

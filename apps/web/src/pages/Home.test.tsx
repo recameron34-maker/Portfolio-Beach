@@ -38,7 +38,13 @@ describe('home dashboard', () => {
     mockApi(routes());
     renderWithQuery(<HomePage />);
     const tiles = await screen.findByTestId('home-tiles');
-    expect(screen.getByRole('heading', { name: 'Welcome, Emerson Marchetti' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { level: 1, name: 'Home' })).toBeInTheDocument();
+    // The meta line says as of when, whose view it is and what it covers.
+    expect(
+      screen.getByText(
+        'As of Jun 30, 2025. Emerson Marchetti, deal team. Figures cover the positions visible to you.',
+      ),
+    ).toBeInTheDocument();
     expect(within(tiles).getByRole('group', { name: 'Active positions' })).toHaveTextContent('2');
     expect(within(tiles).getByRole('group', { name: 'Invested capital' })).toHaveTextContent(
       '$390.7M',
@@ -51,15 +57,28 @@ describe('home dashboard', () => {
     expect(
       within(tiles).getByRole('img', { name: 'NAV trend over the last 3 quarters' }),
     ).toBeInTheDocument();
+    // Each hint names the basis; how the figure is worked out moves to the cell's title.
+    const moic = within(tiles).getByRole('group', { name: 'Gross MOIC' });
+    expect(moic).toHaveTextContent('Pooled');
+    expect(moic).toHaveAttribute('title', '(distributions + NAV) / invested');
+    expect(within(tiles).getByRole('group', { name: 'Current NAV' })).toHaveTextContent(
+      'Locked marks',
+    );
+    expect(within(tiles).getByRole('group', { name: 'Gross IRR' })).toHaveTextContent(
+      'Pooled, XIRR',
+    );
 
-    const attention = await screen.findByRole('list', { name: 'Flagged positions' });
+    const attention = await screen.findByRole('table', { name: 'Flagged positions' });
     expect(
       within(attention).getByRole('link', { name: 'Silverline Staffing Holdings' }),
     ).toHaveAttribute('href', `/portfolio/${ID.inv1}`);
     expect(within(attention).getByTitle(/at or below zero/)).toHaveTextContent('Negative EBITDA');
-    expect(screen.getByText('Needs action: 1')).toBeInTheDocument();
-    expect(screen.getByText('Watch: 1')).toBeInTheDocument();
-    expect(screen.getByText('Clear: 3')).toBeInTheDocument();
+    const counts = within(screen.getByTestId('home-attention')).getByRole('heading', {
+      name: /^Attention/,
+    });
+    expect(within(counts).getByText('1 needs action')).toBeInTheDocument();
+    expect(within(counts).getByText('1 watch')).toBeInTheDocument();
+    expect(within(counts).getByText('3 clear')).toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'Open the watchlist' })).toHaveAttribute(
       'href',
       '/portfolio/watchlist',
@@ -68,8 +87,19 @@ describe('home dashboard', () => {
     expect(screen.getByRole('group', { name: 'Exposure by vehicle' })).toBeInTheDocument();
     expect(screen.getByRole('group', { name: 'NAV by quarter' })).toBeInTheDocument();
     expect(screen.getAllByText('Locked marks only').length).toBeGreaterThan(0);
+    // A chart's title is its section's title: no second heading over either chart.
+    expect(screen.queryByRole('heading', { name: 'Exposure' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: /^Trend/ })).not.toBeInTheDocument();
 
-    expect(await screen.findByText('1 stale positions')).toBeInTheDocument();
+    // Data health: the first three checks, each with its count.
+    const checks = await screen.findByRole('table', { name: 'Data checks' });
+    const rows = within(checks).getAllByRole('row').slice(1);
+    expect(rows.map((r) => within(r).getByRole('rowheader').textContent)).toEqual([
+      'Orphan investments',
+      'Open exceptions',
+      'Stale positions',
+    ]);
+    expect(rows[2]).toHaveTextContent('1');
     expect(screen.queryByRole('status')).not.toBeInTheDocument();
   });
 
@@ -132,7 +162,7 @@ describe('home dashboard', () => {
     expect(screen.getByTestId('home-work')).toHaveTextContent('Investor relations');
     expect(screen.getByTestId('home-attention')).toBeInTheDocument();
     expect(screen.queryByTestId('home-capital')).not.toBeInTheDocument();
-    expect(screen.queryByText(/stale positions/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/stale positions/i)).not.toBeInTheDocument();
   });
 
   it('pairs half-width cards that follow each other, and gives every other section its own row', () => {
@@ -186,6 +216,8 @@ describe('home dashboard', () => {
       `/capital-activity/${ID.notice1}`,
     );
     expect(within(table).getByText('Overdue')).toBeInTheDocument();
+    // Overdue: the date itself in the bad ink, a dot and the word beside it.
+    expect(within(table).getByText('Jun 28, 2025')).toHaveClass('pb-overdue-date');
     expect(within(table).getByText('Reviewed')).toBeInTheDocument();
     expect(within(table).getByText('$2.5M')).toBeInTheDocument();
     expect(within(table).getByText('Jun 28, 2025')).toBeInTheDocument();
@@ -214,7 +246,7 @@ describe('home dashboard', () => {
     expect(
       await screen.findByText('Portfolio analytics: not visible to your role'),
     ).toBeInTheDocument();
-    expect(await screen.findByRole('list', { name: 'Flagged positions' })).toBeInTheDocument();
+    expect(await screen.findByRole('table', { name: 'Flagged positions' })).toBeInTheDocument();
     expect(screen.queryByTestId('home-tiles')).not.toBeInTheDocument();
   });
 });

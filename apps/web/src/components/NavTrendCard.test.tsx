@@ -46,11 +46,12 @@ describe('NavTrendCard', () => {
           { periodEnd: '2025-03-31', value: '110000000.00' },
           { periodEnd: '2025-06-30', value: '125000000.00' },
         ]}
-        heading="Trend"
         testId="nav"
       />,
     );
-    expect(screen.getByRole('heading', { name: /^Trend/ })).toBeInTheDocument();
+    // The chart's title is the section's only title.
+    expect(screen.queryByRole('heading')).not.toBeInTheDocument();
+    expect(screen.getByRole('group', { name: 'NAV by quarter' })).toBeInTheDocument();
     expect(screen.getByTestId('nav-gaps')).toHaveTextContent(/^Not calculable for 4 quarters:/);
   });
 

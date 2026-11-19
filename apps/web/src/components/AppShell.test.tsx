@@ -126,7 +126,7 @@ describe('the main navigation for a role (config/role_focus.json)', () => {
     const own = await screen.findByRole('group', { name: 'Operations' });
     expect(labelsOf(own)).toEqual([
       'Home',
-      'Capital Activity',
+      'Capital activity',
       'Valuations',
       'Documents',
       'Portfolio',
@@ -143,7 +143,7 @@ describe('the main navigation for a role (config/role_focus.json)', () => {
     ]);
     const data = labelsOf(screen.getByRole('group', { name: 'Data' }));
     expect(data).not.toContain('Intake');
-    expect(data).toContain('Data Dictionary');
+    expect(data).toContain('Data dictionary');
     // Nothing is left out, and every link keeps its icon.
     const nav = screen.getByRole('navigation', { name: 'Main' });
     for (const link of [...NAV_GROUPS, ...DATA_LINKS]) {

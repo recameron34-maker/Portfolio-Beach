@@ -6,7 +6,7 @@ export const NAV_GROUPS: { label: string; to: string }[] = [
   { label: 'Sponsors', to: '/sponsors' },
   { label: 'Documents', to: '/documents' },
   { label: 'Valuations', to: '/valuations' },
-  { label: 'Capital Activity', to: '/capital-activity' },
+  { label: 'Capital activity', to: '/capital-activity' },
   { label: 'Reporting', to: '/reporting' },
   { label: 'Analytics', to: '/analytics' },
   { label: 'Assistants', to: '/assistants' },
@@ -78,8 +78,8 @@ export const ADMIN_TABS = [
 
 /** The Data group of the main navigation (docs/03 section 4, docs/04 M2); icons live in AppShell. */
 export const DATA_LINKS: { label: string; to: string }[] = [
-  { label: 'Data Health', to: '/data/health' },
-  { label: 'Data Dictionary', to: '/data/dictionary' },
+  { label: 'Data health', to: '/data/health' },
+  { label: 'Data dictionary', to: '/data/dictionary' },
   { label: 'Taxonomy', to: '/data/taxonomy' },
   { label: 'Intake', to: '/data/intake' },
   { label: 'Weekly values', to: '/data/weekly' },
