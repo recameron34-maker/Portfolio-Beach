@@ -21,6 +21,12 @@ import { refusalFixture, rolePrincipal, sentPosts } from '../../test/fixtures-va
 import { renderWithQuery } from '../../test/render.js';
 import { ClosingPage } from './Closing.js';
 
+/** A row of the tie-out ledger (Commitment, Allocated, Difference) inside the tie-out section. */
+const ledgerRow = (section: HTMLElement, label: string): HTMLElement =>
+  within(within(section).getByRole('table', { name: 'Allocation tie-out' })).getByRole('row', {
+    name: new RegExp(`^${label}`),
+  });
+
 const params = vi.hoisted(() => ({ id: '' }));
 
 vi.mock('../../app/env.js', () => ({ previewMode: true }));
@@ -91,10 +97,17 @@ describe('closing page', () => {
     expect(
       screen.getByRole('heading', { level: 1, name: 'Closing: Project Cove' }),
     ).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: 'Back to the opportunity' })).toHaveAttribute(
+    // The trail: the board, then the opportunity this closing belongs to, by its name.
+    const trail = screen.getByRole('navigation', { name: 'Breadcrumb' });
+    expect(within(trail).getByRole('link', { name: 'Pipeline' })).toHaveAttribute(
+      'href',
+      '/pipeline',
+    );
+    expect(within(trail).getByRole('link', { name: 'Project Cove' })).toHaveAttribute(
       'href',
       `/pipeline/${OPP_ID.closing}`,
     );
+    expect(screen.getByTestId('closing-banner')).toHaveTextContent('Closing, ');
     const record = within(panel).getByTestId('closing-record');
     expect(within(record).getByTestId('closing-close-date')).toHaveTextContent('Aug 15, 2025');
     expect(record).toHaveTextContent('$20.0M');
@@ -142,12 +155,10 @@ describe('closing page', () => {
     ).toHaveClass('pb-badge-neutral');
 
     const tieOut = within(panel).getByTestId('closing-tie-out');
-    expect(within(tieOut).getByRole('group', { name: 'Commitment' })).toHaveTextContent('$20.0M');
-    expect(within(tieOut).getByRole('group', { name: 'Allocated' })).toHaveTextContent('$20.0M');
-    expect(within(tieOut).getByRole('group', { name: 'Allocated' })).toHaveTextContent(
-      'Sum of the received amounts',
-    );
-    expect(within(tieOut).getByRole('group', { name: 'Difference' })).toHaveTextContent('$0.0M');
+    expect(ledgerRow(tieOut, 'Commitment')).toHaveTextContent('$20.0M');
+    expect(ledgerRow(tieOut, 'Allocated')).toHaveTextContent('$20.0M');
+    expect(ledgerRow(tieOut, 'Allocated')).toHaveTextContent('Sum of the received amounts');
+    expect(ledgerRow(tieOut, 'Difference')).toHaveTextContent('$0.0M');
     expect(within(tieOut).getByText('Tied out')).toHaveClass('pb-badge-good');
     expect(
       within(tieOut).getByRole('link', { name: 'Edit the allocations on the opportunity page' }),
@@ -157,10 +168,17 @@ describe('closing page', () => {
     const termRows = within(within(terms).getByRole('table', { name: 'Legal terms' }))
       .getAllByRole('row')
       .slice(1);
+    // Each field on its own line in words, true and false as Yes and No; a term with nothing
+    // left to do leaves its actions cell blank to the eye.
     expect(termRows[0]).toHaveTextContent(
-      'Management feerate: 2%; basis: committed capitalDocumentConfirmedRowan CastellanosConfirmed',
+      'Management feeRate: 2%Basis: committed capitalDocumentConfirmedRowan CastellanosNo actions',
     );
-    expect(termRows[1]).toHaveTextContent('Mfnelected: true; deadline: 2025-09-30-Draft-Confirm');
+    expect(
+      within(termRows[0]!)
+        .getAllByRole('listitem')
+        .map((l) => l.textContent),
+    ).toEqual(['Rate: 2%', 'Basis: committed capital']);
+    expect(termRows[1]).toHaveTextContent('MfnElected: YesDeadline: 2025-09-30-Draft-Confirm');
     expect(within(termRows[1]!).getByRole('button', { name: 'Confirm, Mfn' })).toBeEnabled();
     expect(within(terms).getByTestId('legal-term-form')).toBeInTheDocument();
     expect(document.body.textContent).not.toContain(String.fromCharCode(0x2014));
@@ -309,7 +327,7 @@ describe('closing page', () => {
     const blockers = within(within(panel).getByTestId('closing-blockers')).getAllByRole('listitem');
     expect(blockers.map((b) => b.textContent)).toEqual(['Received amounts are missing on 1 line']);
     const tieOut = within(panel).getByTestId('closing-tie-out');
-    expect(within(tieOut).getByRole('group', { name: 'Allocated' })).toHaveTextContent('$12.0M');
+    expect(ledgerRow(tieOut, 'Allocated')).toHaveTextContent('$12.0M');
     expect(within(tieOut).getByText('Short by $8.0M')).toHaveClass('pb-badge-bad');
     // The vehicle rows lead with the vehicle's totals; a vehicle with nothing received shows the
     // placeholder, never its requested amount. The client line sits under it, behind a disclosure.
@@ -346,8 +364,8 @@ describe('closing page', () => {
     const panel = await screen.findByTestId('closing-panel');
     const tieOut = within(panel).getByTestId('closing-tie-out');
     // The commitment and the received total lead: the deal's figures, not the visible line's.
-    expect(within(tieOut).getByRole('group', { name: 'Commitment' })).toHaveTextContent('$20.0M');
-    expect(within(tieOut).getByRole('group', { name: 'Allocated' })).toHaveTextContent('$12.0M');
+    expect(ledgerRow(tieOut, 'Commitment')).toHaveTextContent('$20.0M');
+    expect(ledgerRow(tieOut, 'Allocated')).toHaveTextContent('$12.0M');
     expect(within(tieOut).getByText('Short by $8.0M')).toHaveClass('pb-badge-bad');
     const note = within(tieOut).getByTestId('allocations-hidden-lines');
     expect(note).toHaveTextContent(
@@ -375,7 +393,7 @@ describe('closing page', () => {
     const tieOut = within(await screen.findByTestId('closing-panel')).getByTestId(
       'closing-tie-out',
     );
-    expect(within(tieOut).getByRole('group', { name: 'Allocated' })).toHaveTextContent('$20.0M');
+    expect(ledgerRow(tieOut, 'Allocated')).toHaveTextContent('$20.0M');
     expect(within(tieOut).getByText('Tied out')).toHaveClass('pb-badge-good');
     expect(tieOut).not.toHaveTextContent('No allocation lines');
     expect(within(tieOut).queryByRole('table', { name: 'Allocations' })).toBeNull();
@@ -481,10 +499,13 @@ describe('closing page', () => {
     expect(reopen).toBeDisabled();
     expect(reopen).toHaveAttribute('title', POSITION);
     expect(within(panel).getByTestId('closing-record')).toHaveTextContent(
-      `Confirmed by operations. ${POSITION}.`,
+      'Confirmed by operations.',
     );
     expect(button('Receive, Side letter')).toHaveAttribute('title', POSITION);
-    expect(within(panel).getByTestId('closing-items-lock')).toHaveTextContent(`${POSITION}.`);
+    // Said once, at the top of the panel; each command it stops names it in its title.
+    expect(within(panel).getByTestId('closing-position-note')).toHaveTextContent(`${POSITION}.`);
+    expect(panel.textContent?.split(POSITION)).toHaveLength(2);
+    expect(within(panel).queryByTestId('closing-items-lock')).toBeNull();
     expect(document.body.textContent).not.toContain(String.fromCharCode(0x2014));
   });
 
@@ -560,10 +581,13 @@ describe('closing page', () => {
     await userEvent.click(within(form).getByRole('button', { name: 'Add field' }));
     await userEvent.type(within(form).getByLabelText('Field name 2'), 'suspension');
     await userEvent.type(within(form).getByLabelText('Field value 2'), 'investment period');
-    await userEvent.type(within(form).getByLabelText(/Source document id/), 'nope');
+    await userEvent.type(within(form).getByLabelText(/Source document \(optional\)/), 'nope');
     expect(add).toBeDisabled();
-    await userEvent.clear(within(form).getByLabelText(/Source document id/));
-    await userEvent.type(within(form).getByLabelText(/Source document id/), PIPE_ID.document);
+    await userEvent.clear(within(form).getByLabelText(/Source document \(optional\)/));
+    await userEvent.type(
+      within(form).getByLabelText(/Source document \(optional\)/),
+      PIPE_ID.document,
+    );
     await userEvent.click(add);
     expect(await screen.findByTestId('closing-action-status')).toHaveTextContent(
       'Legal term added in draft: Key person',

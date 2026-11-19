@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import type { ReactNode } from 'react';
+import type { CSSProperties, ReactNode } from 'react';
 import { Link, useNavigate } from '@tanstack/react-router';
 import { keepPreviousData, useQuery } from '@tanstack/react-query';
 import { Button, Dropdown, Label, Option } from '@fluentui/react-components';
@@ -14,9 +14,12 @@ import {
   CountTile,
   EmptyState,
   Field,
+  NumCell,
   PageHeader,
   PageSkeleton,
   SectionHeader,
+  Subhead,
+  TableWrap,
   Toolbar,
 } from '../../components/ui.js';
 import { WorkflowSpec } from '../../components/WorkflowSpec.js';
@@ -28,7 +31,6 @@ import { opportunitiesQuery } from './api.js';
 import {
   agingHint,
   agingTone,
-  daysInStageLabel,
   dealTypeOptions,
   filterOpportunities,
   groupByStage,
@@ -42,63 +44,171 @@ import type { PipelineFilters } from './pipeline.js';
 import './pipeline.css';
 
 const META =
-  'Every deal from first look to close, one column per stage. Passed deals keep their reason code.';
+  'Every deal from first look to close: one column a stage in flight, then the closed and passed deals. Passed deals keep their reason code.';
 
-/** How many days a card has sat in its stage; aging reads as a watch badge with the guide in its title. */
-function DaysInStage({ row }: { row: OpportunityRow }): ReactNode {
-  const label = daysInStageLabel(row.daysInStage);
-  if (!isAging(row.stage, row.daysInStage)) return <span>{label}</span>;
-  return (
-    <span title={agingHint(row.stage, row.daysInStage) ?? undefined}>
-      <Badge tone="watch">{label}</Badge>
+/** The stages drawn as columns, Sourced through Closing; Closed and Passed follow the board as a table. */
+const BOARD_STAGES: readonly DealStage[] = STAGES.filter((s) => s !== 'Closed' && s !== 'Passed');
+
+function isSettled(stage: DealStage): boolean {
+  return stage === 'Closed' || stage === 'Passed';
+}
+
+function sponsorText(row: OpportunityRow): string {
+  return row.sponsorFund === null
+    ? row.sponsor.name
+    : `${row.sponsor.name}, ${row.sponsorFund.name}`;
+}
+
+/** The target commitment; a deal with none says so to a screen reader and shows the placeholder. */
+function Target({ value }: { value: string | null }): ReactNode {
+  return value === null ? (
+    <span className="pb-pipe-target is-missing">
+      <span aria-hidden="true">{MISSING}</span>
+      <span className="pb-visually-hidden">Target not recorded</span>
+    </span>
+  ) : (
+    <span className="pb-pipe-target">
+      <span className="pb-visually-hidden">Target </span>
+      {formatMoneyM(value)}
     </span>
   );
 }
 
+/**
+ * How many days a deal has sat in its stage. Past the stage's guide it reads as a watch dot and the
+ * days in the watch ink, with the guide in its title; within the guide it is plain text.
+ */
+function DaysInStage({ row }: { row: OpportunityRow }): ReactNode {
+  const words = (
+    <>
+      {plural(row.daysInStage, 'day')}
+      <span className="pb-visually-hidden"> in stage</span>
+    </>
+  );
+  const hint = agingHint(row.stage, row.daysInStage);
+  if (hint === null) return <span className="pb-pipe-days">{words}</span>;
+  return (
+    <span className="pb-pipe-days" title={hint}>
+      <Badge tone="watch">{words}</Badge>
+    </span>
+  );
+}
+
+/**
+ * A deal on the board: four rows of one line each, so every card has the same shape and cards
+ * compare down a column, the figures (target, days in stage) on the right. The whole card opens
+ * the deal; a line cut short keeps its whole text in its title.
+ */
 function OpportunityCard({ row }: { row: OpportunityRow }): ReactNode {
+  const context = `${row.companyName}, ${sponsorText(row)}`;
+  const type = labelOf(row.dealType);
+  const lead = row.owner === null ? 'No deal lead' : row.owner.name;
   return (
     <li
       className="pb-pipe-card"
       data-testid={`opportunity-card-${row.id}`}
       data-tone={agingTone(row.stage, row.daysInStage)}
     >
-      <Link to="/pipeline/$id" params={{ id: row.id }}>
+      <Link
+        className="pb-pipe-card-name"
+        to="/pipeline/$id"
+        params={{ id: row.id }}
+        title={row.name}
+      >
         {row.name}
       </Link>
-      <span className="pb-meta">{row.companyName}</span>
-      <span className="pb-meta">
-        {row.sponsor.name}
-        {row.sponsorFund === null ? '' : `, ${row.sponsorFund.name}`}
+      <span className="pb-pipe-card-line" title={context}>
+        {context}
       </span>
-      <span className="pb-pipe-card-foot">
-        <span className="pb-pipe-card-type">{labelOf(row.dealType)}</span>
-        <span>{formatMoneyM(row.targetCommitment)}</span>
+      <span className="pb-pipe-card-row">
+        <span className="pb-pipe-card-line" title={type}>
+          {type}
+        </span>
+        <Target value={row.targetCommitment} />
       </span>
-      <span className="pb-pipe-card-foot">
-        <span>{row.owner === null ? 'No deal lead' : row.owner.name}</span>
+      <span className="pb-pipe-card-row">
+        <span className="pb-pipe-card-line" title={lead}>
+          {lead}
+        </span>
         <DaysInStage row={row} />
       </span>
     </li>
   );
 }
 
-function Column({ stage, rows }: { stage: DealStage; rows: readonly OpportunityRow[] }): ReactNode {
+function Column({
+  stage,
+  rows,
+  index,
+}: {
+  stage: DealStage;
+  rows: readonly OpportunityRow[];
+  index: number;
+}): ReactNode {
+  const name = humanizeState(stage);
   return (
-    <li className="pb-pipe-column" data-testid={`pipeline-column-${stage}`}>
+    <li
+      className="pb-pipe-column"
+      data-testid={`pipeline-column-${stage}`}
+      style={{ '--i': index } as CSSProperties}
+    >
       <h3>
-        <span>{humanizeState(stage)}</span>
-        <Badge plain>{rows.length}</Badge>
+        <span>{name}</span>
+        <span className="pb-pipe-count">{rows.length}</span>
       </h3>
       {rows.length === 0 ? (
-        <p className="pb-pipe-empty">No deals at {humanizeState(stage)}</p>
+        <p className="pb-pipe-empty">None</p>
       ) : (
-        <ul className="pb-pipe-cards" aria-label={`${humanizeState(stage)} deals`}>
+        <ul className="pb-pipe-cards" aria-label={`${name} deals`}>
           {rows.map((r) => (
             <OpportunityCard key={r.id} row={r} />
           ))}
         </ul>
       )}
     </li>
+  );
+}
+
+/** Closed and Passed deals, with the fields of a card, as one open table after the board. */
+function SettledTable({ rows }: { rows: readonly OpportunityRow[] }): ReactNode {
+  return (
+    <>
+      <Subhead>Closed and passed</Subhead>
+      <TableWrap label="Closed and passed">
+        <table className="pb-table" aria-label="Closed and passed">
+          <thead>
+            <tr>
+              <th>Deal</th>
+              <th>Company</th>
+              <th>Sponsor and fund</th>
+              <th>Deal type</th>
+              <th className="num">Target</th>
+              <th>Deal lead</th>
+              <th className="num">Days in stage</th>
+              <th>Stage</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((r) => (
+              <tr key={r.id} data-testid={`opportunity-row-${r.id}`}>
+                <td className="pb-nowrap">
+                  <Link to="/pipeline/$id" params={{ id: r.id }}>
+                    {r.name}
+                  </Link>
+                </td>
+                <td className="pb-col-text">{r.companyName}</td>
+                <td className="pb-col-text">{sponsorText(r)}</td>
+                <td>{labelOf(r.dealType)}</td>
+                <NumCell>{formatMoneyM(r.targetCommitment)}</NumCell>
+                <td className="pb-nowrap">{r.owner === null ? 'No deal lead' : r.owner.name}</td>
+                <NumCell>{String(r.daysInStage)}</NumCell>
+                <td>{humanizeState(r.stage)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </TableWrap>
+    </>
   );
 }
 
@@ -128,6 +238,7 @@ function Board({ page, roles }: { page: OpportunityPage; roles: readonly string[
   const newBlocked = blockedTitle({ allowed: canCreate, roles: PIPELINE_ROLES.createOpportunity });
   const rows = filterOpportunities(page.items, filters);
   const columns = groupByStage(rows);
+  const settled = rows.filter((r) => isSettled(r.stage));
   const owners = ownerOptions(page.items);
   const dealTypes = dealTypeOptions(page.items);
   const owner = owners.find((o) => o.id === filters.ownerId);
@@ -229,16 +340,18 @@ function Board({ page, roles }: { page: OpportunityPage; roles: readonly string[
             detail="Pick another deal lead or deal type."
             testId="pipeline-empty"
           />
-        ) : null}
-        {page.items.length === 0 ? null : (
-          <ol className="pb-pipe-board" data-testid="pipeline-board" aria-label="Pipeline board">
-            {STAGES.map((stage) => (
-              <Column key={stage} stage={stage} rows={columns.get(stage) ?? []} />
-            ))}
-          </ol>
+        ) : (
+          <>
+            <ol className="pb-pipe-board" data-testid="pipeline-board" aria-label="Pipeline board">
+              {BOARD_STAGES.map((stage, i) => (
+                <Column key={stage} stage={stage} rows={columns.get(stage) ?? []} index={i} />
+              ))}
+            </ol>
+            {settled.length === 0 ? null : <SettledTable rows={settled} />}
+          </>
         )}
         {partial ? (
-          <p className="pb-meta" data-testid="pipeline-truncated">
+          <p className="pb-meta pb-pipe-note" data-testid="pipeline-truncated">
             Showing the first {page.items.length} deals; more exist, so the counts above read{' '}
             {MISSING}.
           </p>
@@ -247,6 +360,7 @@ function Board({ page, roles }: { page: OpportunityPage; roles: readonly string[
       <WorkflowSpec
         machine={dealStageMachine}
         title="Deal stages"
+        summary="How a deal moves between stages"
         detail="Every deal moves from sourcing to close through these stages, with the IC gate and the closing checks in the table."
       />
     </>
@@ -254,9 +368,10 @@ function Board({ page, roles }: { page: OpportunityPage; roles: readonly string[
 }
 
 /**
- * The pipeline board (docs/04 M5): one column per stage in the order of docs/18 section 4 with
- * Passed last, a card per deal with its days in stage against the aging guide, filters by deal
- * lead and deal type, and the way in to a new opportunity for the deal team.
+ * The pipeline board (docs/04 M5): one column per live stage in the order of docs/18 section 4, a
+ * card per deal with its days in stage against the aging guide, then the Closed and Passed deals
+ * as a table with the same fields; filters by deal lead and deal type over both, the way in to a
+ * new opportunity for the deal team, and how a deal moves between stages, folded.
  */
 export function PipelinePage(): ReactNode {
   const me = useQuery(meQuery);

@@ -24,7 +24,9 @@ import type { ActionEntry } from '../lib/workflow.js';
  * accessible name in a table of rows. With no command the cell stays blank to the eye and says
  * "No actions" to a screen reader. `primary` marks the one command the page leads with; a page
  * with a single group of commands may show why a command is blocked (`showBlockedReason`), one
- * line per reason under the buttons, and each blocked button points to its own.
+ * line per reason under the buttons, and each blocked button points to its own. `label` words a
+ * command more fully than its name ("Advance to IC"); `size` is medium for a page's own commands
+ * in its header.
  */
 export function CommandButtons<S extends string, C extends string>({
   options,
@@ -34,6 +36,8 @@ export function CommandButtons<S extends string, C extends string>({
   appearance = 'subtle',
   primary,
   showBlockedReason = false,
+  label: labelFor,
+  size = 'small',
   onIssue,
 }: {
   options: readonly CommandOption<S, C>[];
@@ -43,6 +47,8 @@ export function CommandButtons<S extends string, C extends string>({
   appearance?: 'subtle' | 'outline' | 'secondary';
   primary?: C | undefined;
   showBlockedReason?: boolean;
+  label?: ((option: CommandOption<S, C>) => string) | undefined;
+  size?: 'small' | 'medium';
   onIssue: (option: CommandOption<S, C>) => void;
 }): ReactNode {
   const reasonId = useId();
@@ -55,11 +61,11 @@ export function CommandButtons<S extends string, C extends string>({
     <span className="pb-command-buttons">
       {options.map((o, i) => {
         const why = blocked[i] ?? null;
-        const label = commandLabel(o.command);
+        const label = labelFor?.(o) ?? commandLabel(o.command);
         return (
           <Button
             key={`${o.command}-${o.to}`}
-            size="small"
+            size={size}
             appearance={o.command === primary ? 'primary' : appearance}
             disabled={why !== null || busy}
             {...(why === null ? {} : { title: why })}

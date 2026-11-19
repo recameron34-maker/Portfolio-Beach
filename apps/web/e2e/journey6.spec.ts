@@ -67,8 +67,11 @@ const shownDate = (isoDate: string): string =>
 
 const opportunityStatus = (page: Page) => page.getByTestId('opportunity-action-status');
 const closingStatus = (page: Page) => page.getByTestId('closing-action-status');
+/** The stage's advance, named by the stage it moves the deal to ("Advance to IC, ..."). */
 const advanceButton = (page: Page) =>
-  page.getByRole('button', { name: `Advance, ${deal.name}`, exact: true });
+  page.getByTestId('opportunity-stage-actions').getByRole('button', {
+    name: new RegExp(`^Advance to .+, ${deal.name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`),
+  });
 
 const detail = (page: Page, who: string): Promise<OpportunityDetail> =>
   apiCall(page, 'GET', `/api/v1/opportunities/${sourcedId}`, who, opportunityDetail);
@@ -448,7 +451,7 @@ test('a deal moves from Sourced to Closed through the diligence gate and the clo
   expect(closed.stage).toBe('Closed');
   const investmentId = idOf(closed.investmentId ?? undefined, 'position the deal converted into');
   await expect(
-    page.getByTestId('opportunity-workflow').getByRole('link', { name: 'open the deal workspace' }),
+    page.getByTestId('opportunity-gates').getByRole('link', { name: 'open the deal workspace' }),
   ).toHaveAttribute('href', `/portfolio/${investmentId}`);
 
   // The new position: in the grid by its company name, and its workspace carries the close date

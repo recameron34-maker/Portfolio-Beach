@@ -36,7 +36,7 @@ import {
   taskStatusTone,
   termsOf,
 } from './pipeline.js';
-import { dialogSurfaceMotion, useReducedMotion } from '../../components/motion.js';
+import { dialogSurfaceMotion, useJustChanged, useReducedMotion } from '../../components/motion.js';
 
 type Pending = { kind: 'complete'; task: DiligenceTask } | { kind: 'waive'; task: DiligenceTask };
 
@@ -164,7 +164,6 @@ function AddTaskForm({
     >
       <FluentField label="Workstream" required>
         <Dropdown
-          className="pb-pipe-control"
           placeholder={workstreams.length === 0 ? 'No workstreams loaded' : 'Choose a workstream'}
           value={workstream === '' ? '' : labelOf(workstream)}
           selectedOptions={workstream === '' ? [] : [workstream]}
@@ -177,27 +176,20 @@ function AddTaskForm({
           ))}
         </Dropdown>
       </FluentField>
-      <FluentField label="Title" required>
-        <Input
-          className="pb-pipe-control is-wide"
-          value={title}
-          onChange={(_e, d) => setTitle(d.value)}
-        />
+      <FluentField className="pb-pipe-span-2" label="Title" required>
+        <Input value={title} onChange={(_e, d) => setTitle(d.value)} />
       </FluentField>
       <FluentField label="Due date">
-        <Input
-          className="pb-pipe-control is-short"
-          type="date"
-          value={dueDate}
-          onChange={(_e, d) => setDueDate(d.value)}
-        />
+        <Input type="date" value={dueDate} onChange={(_e, d) => setDueDate(d.value)} />
       </FluentField>
       <Checkbox
+        className="pb-pipe-check"
         label="Required for IC"
         checked={requiredForIc}
         onChange={(_e, d) => setRequiredForIc(d.checked === true)}
       />
       <Button
+        className="pb-pipe-submit"
         appearance="secondary"
         type="submit"
         disabled={blocked !== null || !ready || create.isPending}
@@ -277,6 +269,7 @@ export function DiligenceTasksCard({
   readOnly?: boolean;
 }): ReactNode {
   const command = useDiligenceTaskCommand();
+  const changed = useJustChanged();
   const [pending, setPending] = useState<Pending | null>(null);
   const requiredOpen = tasks.filter((t) => t.requiredForIc && t.status === 'open').length;
   const carried = carriedOverNote(carriedOver);
@@ -286,6 +279,7 @@ export function DiligenceTasksCard({
       {
         onSuccess: (updated) => {
           const now = updated.diligenceTasks.find((t) => t.id === task.id);
+          changed.mark(task.id);
           log?.record(
             'good',
             `${task.title} is now ${humanizeState(now?.status ?? body.command)} ${resultSuffix()}`,
@@ -322,33 +316,33 @@ export function DiligenceTasksCard({
           <table className="pb-table" aria-label="Diligence tasks">
             <thead>
               <tr>
-                <th>Workstream</th>
-                <th>Task</th>
-                <th>Owner</th>
-                <th>Due</th>
-                <th>Status</th>
-                <th>For IC</th>
-                <th>Evidence</th>
-                {readOnly ? null : <th>Actions</th>}
+                <th className="pb-col-fit">Workstream</th>
+                <th className="pb-col-text">Task</th>
+                <th className="pb-col-fit">Owner</th>
+                <th className="pb-col-fit">Due</th>
+                <th className="pb-col-fit">Status</th>
+                <th className="pb-col-fit">For IC</th>
+                <th className="pb-col-fit">Evidence</th>
+                {readOnly ? null : <th className="pb-col-fit">Actions</th>}
               </tr>
             </thead>
             <tbody>
               {tasks.map((t) => (
-                <tr key={t.id} data-testid={`diligence-task-${t.id}`}>
-                  <td>{labelOf(t.workstream)}</td>
-                  <td>
+                <tr key={t.id} data-testid={`diligence-task-${t.id}`} {...changed.rowProps(t.id)}>
+                  <td className="pb-col-fit">{labelOf(t.workstream)}</td>
+                  <td className="pb-col-text">
                     {t.title}
                     {t.waivedReason === null ? null : (
                       <span className="pb-cell-sub">Waived: {t.waivedReason}</span>
                     )}
                   </td>
-                  <td>{personName(t.owner)}</td>
-                  <td className="pb-nowrap">{formatDate(t.dueDate)}</td>
-                  <td>
+                  <td className="pb-col-fit">{personName(t.owner)}</td>
+                  <td className="pb-col-fit">{formatDate(t.dueDate)}</td>
+                  <td className="pb-col-fit">
                     <Badge tone={taskStatusTone(t)}>{humanizeState(t.status)}</Badge>
                   </td>
-                  <td>{t.requiredForIc ? 'Required' : 'Optional'}</td>
-                  <td>
+                  <td className="pb-col-fit">{t.requiredForIc ? 'Required' : 'Optional'}</td>
+                  <td className="pb-col-fit">
                     {t.evidenceDocumentId === null ? (
                       MISSING
                     ) : (
@@ -358,7 +352,7 @@ export function DiligenceTasksCard({
                     )}
                   </td>
                   {readOnly ? null : (
-                    <td>
+                    <td className="pb-col-fit">
                       <TaskActions
                         task={t}
                         roles={roles}

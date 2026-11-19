@@ -97,7 +97,16 @@ describe('opportunity page', () => {
     expect(banner).toHaveTextContent('Kelpwood Capital Partners, Kelpwood Fund I');
     expect(banner).toHaveTextContent('Received Mar 10, 2025');
     expect(banner).toHaveTextContent('Deal lead Blake Mbeki');
-    expect(within(banner).getByText('Diligence')).toHaveClass('pb-badge');
+    // The stage as a neutral dot and a word with its days, beside the commands on the right.
+    expect(within(banner).getByText('Diligence, 40 days').closest('.pb-badge')).toHaveClass(
+      'pb-badge-neutral',
+    );
+    expect(
+      within(banner).getByRole('navigation', { name: 'Breadcrumb' }).querySelector('a'),
+    ).toHaveAttribute('href', '/pipeline');
+    // The record's facts sit on the meta line; the table that held them at the foot is gone.
+    expect(banner).toHaveTextContent('Source: Sponsor introduction at the annual meeting');
+    expect(within(page).queryByRole('table', { name: 'Record' })).toBeNull();
 
     const strip = within(page).getByRole('list', { name: 'Deal stages' });
     const steps = within(strip).getAllByRole('listitem');
@@ -128,16 +137,18 @@ describe('opportunity page', () => {
       'WaitingOperations confirm the closing once the closing record exists.',
     ]);
 
-    // The open required task disables the advance and names the rule; pass stays live.
-    const actions = within(page).getByTestId('opportunity-stage-actions');
-    const advance = within(actions).getByRole('button', { name: 'Advance, Project Dune' });
+    // The open required task disables the advance, which names where it goes, and the rule reads
+    // in words beside it, tied to the button; pass stays live. The commands sit in the header.
+    const actions = within(banner).getByTestId('opportunity-stage-actions');
+    const advance = within(actions).getByRole('button', { name: 'Advance to IC, Project Dune' });
     expect(advance).toBeDisabled();
-    expect(advance).toHaveAttribute(
-      'title',
-      '1 diligence task required for IC still open; an approver may override with a reason',
-    );
+    expect(advance).toHaveTextContent('Advance to IC');
+    const rule =
+      '1 diligence task required for IC still open; an approver may override with a reason';
+    expect(advance).toHaveAttribute('title', rule);
+    expect(advance).toHaveAccessibleDescription(rule);
+    expect(actions).toHaveTextContent(rule);
     expect(within(actions).getByRole('button', { name: 'Pass, Project Dune' })).toBeEnabled();
-    expect(actions).toHaveTextContent('Advance moves the deal to IC.');
 
     const tasks = within(page).getByTestId('diligence-tasks');
     expect(tasks).toHaveTextContent('4 tasks, 1 required task open');
@@ -160,11 +171,14 @@ describe('opportunity page', () => {
     expect(within(rows[2]!).getByRole('button', { name: /Waive/ })).toBeEnabled();
     expect(within(tasks).getByTestId('diligence-task-form')).toBeInTheDocument();
 
-    // The IC form is for approvers, and only while the deal is at IC.
+    // The IC form is for approvers, and only while the deal is at IC: another role sees one line,
+    // the command and why, in place of a form it cannot use.
     const ic = within(page).getByTestId('ic-decision-form');
     const record = within(ic).getByRole('button', { name: 'Record decision' });
     expect(record).toBeDisabled();
     expect(record).toHaveAttribute('title', 'Needs approver');
+    expect(record).toHaveAccessibleDescription('Needs approver.');
+    expect(within(ic).queryByLabelText(/Decision date/)).toBeNull();
     expect(within(page).getByTestId('ic-decisions-empty')).toBeInTheDocument();
 
     const history = within(page).getByTestId('opportunity-history');
@@ -175,10 +189,62 @@ describe('opportunity page', () => {
     expect(changes[0]).toHaveTextContent(
       'May 21, 2025 09:00:00 UTCPrescreenDiligenceAdvanceBlake Mbeki-',
     );
+    // The stage a change led to is plain text: the header carries the state.
+    expect(changes[0]!.querySelector('.pb-badge')).toBeNull();
     expect(within(page).getByTestId('opportunity-closing-empty')).toBeInTheDocument();
     expect(within(page).getByTestId('allocations-editor')).toHaveTextContent('No allocation lines');
+    // With no line typed there is no received total to state.
+    expect(within(page).getByTestId('allocations-editor')).not.toHaveTextContent('Received');
     expect(within(page).getByTestId('action-log')).toHaveTextContent('No actions yet');
+    // The sections in the page's order: gates, the work, the fit, then the record.
+    const order = [
+      'opportunity-gates',
+      'diligence-tasks',
+      'ic-decisions',
+      'allocations-editor',
+      'opportunity-fit',
+      'opportunity-history',
+      'opportunity-closing',
+      'action-log',
+    ].map((id) => within(page).getByTestId(id));
+    for (let i = 1; i < order.length; i += 1) {
+      expect(
+        order[i - 1]!.compareDocumentPosition(order[i]!) & Node.DOCUMENT_POSITION_FOLLOWING,
+      ).toBeTruthy();
+    }
     expect(document.body.textContent).not.toContain(String.fromCharCode(0x2014));
+  });
+
+  it('marks the stage in the watch ink only past its guide, and shows a settled stage alone', async () => {
+    open(['deal_team'], opportunityDetailFixture({ stage: 'Sourced', daysInStage: 45 }));
+    const banner = await screen.findByTestId('opportunity-banner');
+    const word = within(banner).getByText('Sourced, 45 days');
+    expect(word.closest('.pb-badge')).toHaveClass('pb-badge-watch');
+    expect(word.closest('[title]')).toHaveAttribute('title', 'Over the 30-day guide for Sourced');
+    // The figure's hint names the guide only when the deal is past it.
+    expect(
+      within(screen.getByTestId('opportunity-tiles')).getByRole('group', { name: 'Days in stage' }),
+    ).toHaveTextContent('45Over the 30-day guide for Sourced');
+    cleanup();
+    vi.restoreAllMocks();
+
+    open(
+      ['deal_team'],
+      opportunityDetailFixture({
+        stage: 'Passed',
+        daysInStage: 12,
+        passReasonCode: 'pass_reason.valuation',
+        passNote: 'Price above our range',
+      }),
+    );
+    const passed = await screen.findByTestId('opportunity-banner');
+    expect(within(passed).getByText('Passed').closest('.pb-badge')).toHaveClass('pb-badge-neutral');
+    expect(
+      within(screen.getByTestId('opportunity-tiles')).getByRole('group', { name: 'Days in stage' }),
+    ).toHaveTextContent(/^Days in stage12$/);
+    expect(
+      within(screen.getByTestId('opportunity-gates')).getByRole('table', { name: 'Pass' }),
+    ).toHaveTextContent('Price above our range');
   });
 
   it('lets an approver override the diligence gate with a reason and reports the new stage', async () => {
@@ -189,7 +255,7 @@ describe('opportunity page', () => {
         state.set(opportunityDetailFixture({ stage: 'IC', daysInStage: 0 })),
     });
     await screen.findByTestId('opportunity-detail');
-    const advance = button('Advance, Project Dune');
+    const advance = button('Advance to IC, Project Dune');
     expect(advance).toBeEnabled();
     await userEvent.click(advance);
     const dialog = await screen.findByRole('dialog');
@@ -244,7 +310,7 @@ describe('opportunity page', () => {
     ]);
     // The message is the page's own; the record it reports lands a moment later.
     await waitFor(() =>
-      expect(screen.getByTestId('opportunity-workflow')).toHaveTextContent('Price above our range'),
+      expect(screen.getByTestId('opportunity-gates')).toHaveTextContent('Price above our range'),
     );
   }, 30_000);
 
@@ -279,7 +345,7 @@ describe('opportunity page', () => {
       [PIPE_PATHS.commands(OPP_ID.approved)]: () => state.set(closingOpportunityFixture()),
     });
     await screen.findByTestId('opportunity-detail');
-    await userEvent.click(button('Advance, Project Dune'));
+    await userEvent.click(button('Advance to Closing, Project Dune'));
     const dialog = await screen.findByRole('dialog');
     expect(dialog).toHaveTextContent('Open closing');
     // A first closing: nothing to say about a record the deal already has.
@@ -444,7 +510,7 @@ describe('opportunity page', () => {
     });
     await screen.findByTestId('opportunity-detail');
     // Without a decision the advance from IC is blocked and says so.
-    const advance = button('Advance, Project Dune');
+    const advance = button('Advance to Approved, Project Dune');
     expect(advance).toBeDisabled();
     expect(advance).toHaveAttribute('title', 'An IC decision record is required');
     const form = screen.getByTestId('ic-decision-form');
@@ -479,7 +545,7 @@ describe('opportunity page', () => {
         'Jun 20, 2025Approved$12.0MKey person clause confirmedHarper Lindqvist',
       ),
     );
-    expect(button('Advance, Project Dune')).toBeEnabled();
+    expect(button('Advance to Approved, Project Dune')).toBeEnabled();
   }, 30_000);
 
   it('edits the allocations, shows the received total against the commitment and saves the whole list', async () => {
@@ -592,7 +658,7 @@ describe('opportunity page', () => {
       }),
     );
     await screen.findByTestId('opportunity-detail');
-    const advance = button('Advance, Project Cove');
+    const advance = button('Advance to Closed, Project Cove');
     expect(advance).toBeDisabled();
     expect(advance).toHaveAttribute('title', 'Needs operations');
     expect(button('Pass, Project Cove')).toHaveAttribute('title', 'Needs deal team or approver');
@@ -761,7 +827,7 @@ describe('opportunity page', () => {
   it('offers the advance from Closing to operations only once the closing is confirmed, and names the missing confirmation until then', async () => {
     open(['operations'], closingOpportunityFixture());
     await screen.findByTestId('opportunity-detail');
-    const advance = button('Advance, Project Cove');
+    const advance = button('Advance to Closed, Project Cove');
     expect(advance).toBeDisabled();
     expect(advance).toHaveAttribute(
       'title',
@@ -788,8 +854,8 @@ describe('opportunity page', () => {
       }),
     );
     await screen.findByTestId('opportunity-detail');
-    expect(button('Advance, Project Cove')).toBeDisabled();
-    expect(button('Advance, Project Cove')).toHaveAttribute(
+    expect(button('Advance to Closed, Project Cove')).toBeDisabled();
+    expect(button('Advance to Closed, Project Cove')).toHaveAttribute(
       'title',
       'The closing is not confirmed by operations',
     );
@@ -823,7 +889,7 @@ describe('opportunity page', () => {
       true,
     ]);
     expect(clear[4]).toHaveTextContent('Operations confirmed the closing.');
-    const live = button('Advance, Project Cove');
+    const live = button('Advance to Closed, Project Cove');
     expect(live).toBeEnabled();
     expect(live).not.toHaveAttribute('title');
     await userEvent.click(live);
@@ -893,7 +959,7 @@ describe('opportunity page', () => {
       '4 tasks, 1 required task open; 2 were done or waived before the deal was reopened',
     );
     // Approved again with the closing it had: the dialog says what the advance does to it.
-    await userEvent.click(button('Advance, Project Dune'));
+    await userEvent.click(button('Advance to Closing, Project Dune'));
     const dialog = await screen.findByRole('dialog');
     expect(within(dialog).getByTestId('closing-reentry-note')).toHaveTextContent(
       'This deal already has a closing record. It takes the new close date and commitment, its checklist items stay as they are, and the confirmation given before does not carry over: operations confirm again.',

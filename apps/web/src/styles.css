@@ -1130,11 +1130,10 @@ p:last-child {
   gap: var(--pb-space-1) var(--pb-space-3);
   margin: 0 0 var(--pb-space-3);
 }
-/* A workflow's states as a row of chips (WorkflowSpec on the phase pages) */
-.pb-workflow-states {
-  list-style: none;
-  padding: 0;
-  margin: 4px 0 14px;
+/* A workflow's steps (WorkflowSpec), folded under its summary; once open, the sentence and the
+   table follow the summary at the section's usual spacing. */
+.pb-workflow-spec > .pb-meta {
+  margin: var(--pb-space-2) 0 var(--pb-space-3);
 }
 
 /* ---- Toolbar, fields, forms, quiet controls, tabs ---- */

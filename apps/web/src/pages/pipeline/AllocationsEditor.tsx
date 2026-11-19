@@ -32,7 +32,8 @@ const INCOMPLETE = 'Every line needs a vehicle and a requested amount';
  * The received total of the lines as typed against the closing commitment, or what the tie-out
  * waits for when no closing exists (M22), beside the Save button: a running total of the edit, not
  * the saved figures (the lead above the lines states those). The total is what was received: a
- * requested amount never stands in. Only writers see it, and writers are shown every line.
+ * requested amount never stands in. Only writers see it, and writers are shown every line; with
+ * no line typed there is nothing to total, so the editor leaves it out.
  */
 function TypedTotalLine({
   closing,
@@ -212,13 +213,13 @@ function Editor({
         </TableWrap>
       )}
       {clients.isError ? (
-        <p className="pb-meta pb-deal-note">
+        <p className="pb-note">
           The client list could not load, so a client cannot be picked right now. Vehicle lines can
           still be saved.
         </p>
       ) : null}
       {missing === 0 ? null : (
-        <p className="pb-meta pb-deal-note" data-testid="allocations-missing-received">
+        <p className="pb-note" data-testid="allocations-missing-received">
           {plural(missing, 'line')} {missing === 1 ? 'has' : 'have'} no received amount yet. The
           tie-out counts received amounts only: a requested amount never stands in for one.
         </p>
@@ -240,7 +241,7 @@ function Editor({
         >
           Save allocations
         </Button>
-        <TypedTotalLine closing={closing} total={total} />
+        {lines.length === 0 ? null : <TypedTotalLine closing={closing} total={total} />}
       </div>
     </>
   );
@@ -291,7 +292,7 @@ export function AllocationsEditor({
         Allocations
       </SectionHeader>
       {lock === null ? null : (
-        <p className="pb-meta pb-deal-note" data-testid="allocations-lock">
+        <p className="pb-note" data-testid="allocations-lock">
           {lock}.
         </p>
       )}

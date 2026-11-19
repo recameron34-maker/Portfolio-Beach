@@ -1,11 +1,11 @@
 import { useState } from 'react';
-import type { ReactNode } from 'react';
+import type { CSSProperties, ReactNode } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import type { OpportunityDetail, OpportunityFit } from '@pb/contracts';
 import { previewMode } from '../../app/env.js';
 import { RadarChart } from '../../components/charts/index.js';
 import { UnavailableState } from '../../components/UnavailableState.js';
-import { Badge, Card, SectionHeader } from '../../components/ui.js';
+import { Badge, Card, RowsSkeleton, SectionHeader } from '../../components/ui.js';
 import { formatDate, MISSING } from '../../lib/format.js';
 import { opportunityFitQuery } from './api.js';
 import { fitRows, fitSummary } from './deal-fit.js';
@@ -20,10 +20,13 @@ const PREVIEW_ONLY = {
 
 function Measure({
   row,
+  index,
   active,
   onActive,
 }: {
   row: FitRow;
+  /** The measure's place among the radar's axes, so its bar fills as its point lands. */
+  index: number;
   active: boolean;
   onActive: (key: string | null) => void;
 }): ReactNode {
@@ -31,6 +34,7 @@ function Measure({
     <li
       className={`pb-fit-measure${active ? ' is-active' : ''}`}
       data-measure={row.key}
+      style={{ '--pb-radar-i': index } as CSSProperties}
       onPointerEnter={() => onActive(row.key)}
       onPointerLeave={() => onActive(null)}
     >
@@ -97,8 +101,14 @@ function FitBody({ fit, detail }: { fit: OpportunityFit; detail: OpportunityDeta
           </p>
         </div>
         <ul className="pb-fit-list" aria-label="Fit measures">
-          {rows.map((row) => (
-            <Measure key={row.key} row={row} active={active === row.key} onActive={setActive} />
+          {rows.map((row, i) => (
+            <Measure
+              key={row.key}
+              row={row}
+              index={i}
+              active={active === row.key}
+              onActive={setActive}
+            />
           ))}
         </ul>
       </div>
@@ -113,12 +123,7 @@ export function DealFitCard({ detail }: { detail: OpportunityDetail }): ReactNod
     <Card testId="opportunity-fit">
       <SectionHeader aside={<Badge plain>Draft measures</Badge>}>Portfolio fit</SectionHeader>
       {fit.isPending ? (
-        <div className="pb-skeleton" aria-busy="true">
-          <span className="pb-visually-hidden">Loading</span>
-          <div className="pb-skeleton-bar" />
-          <div className="pb-skeleton-bar" />
-          <div className="pb-skeleton-bar" />
-        </div>
+        <RowsSkeleton rows={3} label="Loading portfolio fit" />
       ) : fit.isError ? (
         <UnavailableState
           error={fit.error}

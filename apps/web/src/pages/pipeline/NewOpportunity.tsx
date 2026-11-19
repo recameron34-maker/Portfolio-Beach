@@ -7,7 +7,7 @@ import type { OpportunityCreateBody } from '@pb/contracts';
 import { describeActionError } from '../../app/mutations.js';
 import { meQuery, sponsorQuery, sponsorsQuery, taxonomyQuery } from '../../app/queries.js';
 import { ActionStatus } from '../../components/WorkflowActions.js';
-import { Card, PageHeader, PageSkeleton, SectionHeader } from '../../components/ui.js';
+import { Card, Notice, PageHeader, PageSkeleton, SectionHeader } from '../../components/ui.js';
 import { formatMoneyM, labelOf } from '../../lib/format.js';
 import { blockedTitle, resultSuffix, useActionLog } from '../../lib/workflow.js';
 import { useCreateOpportunity } from './api.js';
@@ -129,9 +129,9 @@ function Form({ roles }: { roles: readonly string[] }): ReactNode {
       <SectionHeader>Opportunity</SectionHeader>
       <ActionStatus latest={log.latest} testId="new-opportunity-status" />
       {blocked === null ? null : (
-        <p className="pb-notice" data-testid="new-opportunity-blocked">
+        <Notice testId="new-opportunity-blocked">
           {blocked}. The form is shown so you can see what a new opportunity records.
-        </p>
+        </Notice>
       )}
       <form
         noValidate
@@ -142,7 +142,7 @@ function Form({ roles }: { roles: readonly string[] }): ReactNode {
           submit();
         }}
       >
-        <div className="pb-pipe-new">
+        <div className="pb-form-grid pb-pipe-new">
           <FluentField
             label="Deal name"
             required
@@ -267,7 +267,7 @@ function Form({ roles }: { roles: readonly string[] }): ReactNode {
             <Input value={draft.source} onChange={(_e, d) => set({ source: d.value })} />
           </FluentField>
         </div>
-        <div className="pb-pipe-new-actions">
+        <div className="pb-actions pb-pipe-new-actions">
           <Button
             appearance="primary"
             type="submit"
@@ -277,7 +277,7 @@ function Form({ roles }: { roles: readonly string[] }): ReactNode {
             Log opportunity
           </Button>
           <Link to="/pipeline">Back to the board</Link>
-          <span className="pb-meta">
+          <span className="pb-note">
             Starts at Sourced with the diligence template of its deal type
             (config/diligence_templates.json).
           </span>
@@ -293,10 +293,8 @@ export function NewOpportunityPage(): ReactNode {
   if (me.isPending) return <PageSkeleton rows={8} />;
   return (
     <>
-      <p className="pb-meta pb-pipe-back">
-        <Link to="/pipeline">Pipeline board</Link>
-      </p>
       <PageHeader
+        crumbs={[{ label: 'Pipeline', to: '/pipeline' }]}
         title="New opportunity"
         meta="What the deal team records at first look. Everything else is captured as the deal moves through its stages."
       />

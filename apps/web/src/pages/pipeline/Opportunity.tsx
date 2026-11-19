@@ -7,6 +7,7 @@ import { meQuery } from '../../app/queries.js';
 import { UnavailableState } from '../../components/UnavailableState.js';
 import {
   Badge,
+  Breadcrumbs,
   Card,
   EmptyState,
   ErrorState,
@@ -20,11 +21,17 @@ import {
 } from '../../components/ui.js';
 import { StepStrip } from '../../components/StepStrip.js';
 import { ActionLogCard, ActionStatus } from '../../components/WorkflowActions.js';
-import { formatDate, formatDateTime, formatMoneyM, labelOf, MISSING } from '../../lib/format.js';
+import {
+  formatDate,
+  formatDateTime,
+  formatMoneyM,
+  labelOf,
+  MISSING,
+  plural,
+} from '../../lib/format.js';
 import { humanizeState } from '../../lib/states.js';
 import { balanceTiles } from '../../lib/tiles.js';
 import { useActionLog } from '../../lib/workflow.js';
-import type { ActionLog } from '../../lib/workflow.js';
 import { AllocationsEditor } from './AllocationsEditor.js';
 import { opportunityQuery } from './api.js';
 import { DealFitCard } from './DealFit.js';
@@ -33,7 +40,6 @@ import { IcDecisionsCard } from './IcDecisions.js';
 import {
   agingHint,
   allocationsLock,
-  daysInStageLabel,
   gateLines,
   isAging,
   personName,
@@ -41,16 +47,10 @@ import {
   tieOutLabel,
 } from './pipeline.js';
 import { StageActions } from './StageActions.js';
-import { closingTone, stageTone } from '../../lib/states.js';
+import { closingTone } from '../../lib/states.js';
 import './pipeline.css';
 
-function BackLink(): ReactNode {
-  return (
-    <p className="pb-meta pb-pipe-back">
-      <Link to="/pipeline">Pipeline board</Link>
-    </p>
-  );
-}
+const TRAIL = [{ label: 'Pipeline', to: '/pipeline' }];
 
 /** The live stages of docs/18 section 4 as an ordered strip; the current one is marked. */
 function StageStrip({ stage }: { stage: DealStage }): ReactNode {
@@ -66,10 +66,56 @@ function StageStrip({ stage }: { stage: DealStage }): ReactNode {
   );
 }
 
+/**
+ * The stage as a word with its days in it, a neutral dot unless the deal sits past the stage's
+ * guide (watch). A settled deal (Closed, Passed) shows its stage alone.
+ */
+export function StageWord({
+  stage,
+  daysInStage,
+}: {
+  stage: DealStage;
+  daysInStage: number;
+}): ReactNode {
+  const settled = stage === 'Closed' || stage === 'Passed';
+  const word = settled
+    ? humanizeState(stage)
+    : `${humanizeState(stage)}, ${plural(daysInStage, 'day')}`;
+  const hint = agingHint(stage, daysInStage);
+  return (
+    <span className="pb-pipe-stage" title={hint ?? undefined}>
+      <Badge tone={isAging(stage, daysInStage) ? 'watch' : 'neutral'}>{word}</Badge>
+    </span>
+  );
+}
+
+/**
+ * The gates the stage commands check (docs/18 sections 4 and 12), each a dot and a sentence, and
+ * where the deal went once it settled: the pass with its reason, or the position it became.
+ */
 function GatesCard({ detail }: { detail: OpportunityDetail }): ReactNode {
   return (
     <Card testId="opportunity-gates">
       <SectionHeader>Gates</SectionHeader>
+      {detail.stage === 'Passed' ? (
+        <KeyValueTable
+          label="Pass"
+          columns={1}
+          rows={[
+            { label: 'Reason', value: labelOf(detail.passReasonCode) },
+            { label: 'Note', value: detail.passNote ?? MISSING },
+          ]}
+        />
+      ) : null}
+      {detail.stage === 'Closed' && detail.investmentId !== null ? (
+        <p className="pb-pipe-outcome">
+          Converted into a position:{' '}
+          <Link to="/portfolio/$id" params={{ id: detail.investmentId }}>
+            open the deal workspace
+          </Link>
+          .
+        </p>
+      ) : null}
       <ul className="pb-pipe-gates">
         {gateLines(detail.gates, detail.closing !== null).map((g) => (
           <li key={g.key}>
@@ -82,43 +128,6 @@ function GatesCard({ detail }: { detail: OpportunityDetail }): ReactNode {
   );
 }
 
-function WorkflowCard({
-  detail,
-  roles,
-  log,
-}: {
-  detail: OpportunityDetail;
-  roles: readonly string[];
-  log: ActionLog;
-}): ReactNode {
-  return (
-    <Card testId="opportunity-workflow">
-      <SectionHeader aside={<SimulatedBadge />}>Stage</SectionHeader>
-      <ActionStatus latest={log.latest} testId="opportunity-action-status" />
-      <StageActions detail={detail} roles={roles} log={log} />
-      {detail.stage === 'Passed' ? (
-        <KeyValueTable
-          label="Pass"
-          columns={1}
-          rows={[
-            { label: 'Reason', value: labelOf(detail.passReasonCode) },
-            { label: 'Note', value: detail.passNote ?? MISSING },
-          ]}
-        />
-      ) : null}
-      {detail.stage === 'Closed' && detail.investmentId !== null ? (
-        <p className="pb-meta">
-          Converted into a position:{' '}
-          <Link to="/portfolio/$id" params={{ id: detail.investmentId }}>
-            open the deal workspace
-          </Link>
-          .
-        </p>
-      ) : null}
-    </Card>
-  );
-}
-
 function HistoryCard({ detail }: { detail: OpportunityDetail }): ReactNode {
   const rows = [...detail.stageHistory].sort((a, b) => b.changedAt.localeCompare(a.changedAt));
   return (
@@ -127,31 +136,31 @@ function HistoryCard({ detail }: { detail: OpportunityDetail }): ReactNode {
         Stage history
       </SectionHeader>
       {rows.length === 0 ? (
-        <EmptyState title="No stage changes recorded" />
+        <p className="pb-meta">No stage changes recorded.</p>
       ) : (
         <TableWrap label="Stage history">
           <table className="pb-table" aria-label="Stage history">
             <thead>
               <tr>
-                <th>When</th>
-                <th>From</th>
-                <th>To</th>
-                <th>Command</th>
-                <th>By</th>
+                <th className="pb-col-fit">When</th>
+                <th className="pb-col-fit">From</th>
+                <th className="pb-col-fit">To</th>
+                <th className="pb-col-fit">Command</th>
+                <th className="pb-col-fit">By</th>
                 <th>Reason</th>
               </tr>
             </thead>
             <tbody>
               {rows.map((h, i) => (
                 <tr key={`${h.changedAt}-${i}`}>
-                  <td className="pb-nowrap">{formatDateTime(h.changedAt)}</td>
-                  <td>{h.fromStage === null ? MISSING : humanizeState(h.fromStage)}</td>
-                  <td>
-                    <Badge tone={stageTone(h.toStage)}>{humanizeState(h.toStage)}</Badge>
+                  <td className="pb-col-fit">{formatDateTime(h.changedAt)}</td>
+                  <td className="pb-col-fit">
+                    {h.fromStage === null ? MISSING : humanizeState(h.fromStage)}
                   </td>
-                  <td>{humanizeState(h.command)}</td>
-                  <td>{h.changedBy.name}</td>
-                  <td>{h.reason ?? MISSING}</td>
+                  <td className="pb-col-fit">{humanizeState(h.toStage)}</td>
+                  <td className="pb-col-fit">{humanizeState(h.command)}</td>
+                  <td className="pb-col-fit">{h.changedBy.name}</td>
+                  <td className="pb-col-text">{h.reason ?? MISSING}</td>
                 </tr>
               ))}
             </tbody>
@@ -192,7 +201,7 @@ function ClosingSummaryCard({ detail }: { detail: OpportunityDetail }): ReactNod
               { label: 'Allocation tie-out', value: tieOutLabel(c.allocationTieOut) },
             ]}
           />
-          <p className="pb-meta pb-deal-note">
+          <p className="pb-note">
             <Link to="/pipeline/$id/closing" params={{ id: detail.id }}>
               Open the closing page
             </Link>{' '}
@@ -204,6 +213,22 @@ function ClosingSummaryCard({ detail }: { detail: OpportunityDetail }): ReactNod
   );
 }
 
+/** The record facts after who and when: where the deal came from, its sector, geography and currency. */
+function contextItems(detail: OpportunityDetail): string[] {
+  return [
+    detail.sponsorFund === null
+      ? detail.sponsor.name
+      : `${detail.sponsor.name}, ${detail.sponsorFund.name}`,
+    labelOf(detail.dealType),
+    `Received ${formatDate(detail.receivedDate)}`,
+    `Deal lead ${personName(detail.owner)}`,
+    detail.source === null ? 'Source not recorded' : `Source: ${detail.source}`,
+    detail.sector === null ? 'Sector not recorded' : labelOf(detail.sector),
+    detail.geography === null ? 'Geography not recorded' : labelOf(detail.geography),
+    detail.currency,
+  ];
+}
+
 function Body({
   detail,
   roles,
@@ -212,27 +237,30 @@ function Body({
   roles: readonly string[];
 }): ReactNode {
   const log = useActionLog();
-  const aging = isAging(detail.stage, detail.daysInStage);
   const requiredOpen = detail.gates.diligence.requiredOpen;
+  const agingNote = agingHint(detail.stage, detail.daysInStage);
   return (
     <div data-testid="opportunity-detail">
-      <BackLink />
       <PageHeader
         testId="opportunity-banner"
+        crumbs={TRAIL}
         title={`${detail.name}: ${detail.companyName}`}
         meta={
           <span className="pb-meta-list">
-            <span>
-              {detail.sponsor.name}
-              {detail.sponsorFund === null ? '' : `, ${detail.sponsorFund.name}`}
-            </span>
-            <span>{labelOf(detail.dealType)}</span>
-            <span>Received {formatDate(detail.receivedDate)}</span>
-            <span>Deal lead {personName(detail.owner)}</span>
+            {contextItems(detail).map((item, i) => (
+              <span key={i}>{item}</span>
+            ))}
           </span>
         }
-        actions={<Badge tone={stageTone(detail.stage)}>{humanizeState(detail.stage)}</Badge>}
+        actions={
+          <span className="pb-pipe-head-actions">
+            <StageWord stage={detail.stage} daysInStage={detail.daysInStage} />
+            <StageActions detail={detail} roles={roles} log={log} />
+            <SimulatedBadge />
+          </span>
+        }
       />
+      <ActionStatus latest={log.latest} testId="opportunity-action-status" />
       <StageStrip stage={detail.stage} />
       <div ref={balanceTiles} className="pb-tiles" data-testid="opportunity-tiles">
         <StatTile
@@ -243,8 +271,8 @@ function Body({
         <StatTile
           label="Days in stage"
           value={String(detail.daysInStage)}
-          hint={agingHint(detail.stage, detail.daysInStage) ?? daysInStageLabel(detail.daysInStage)}
-          tone={aging ? 'watch' : undefined}
+          hint={agingNote ?? undefined}
+          tone={agingNote === null ? undefined : 'watch'}
         />
         <StatTile
           label="Required tasks open"
@@ -269,11 +297,7 @@ function Body({
           }
         />
       </div>
-      <div className="pb-two-col">
-        <WorkflowCard detail={detail} roles={roles} log={log} />
-        <GatesCard detail={detail} />
-      </div>
-      <DealFitCard detail={detail} />
+      <GatesCard detail={detail} />
       <DiligenceTasksCard
         opportunityId={detail.id}
         tasks={detail.diligenceTasks}
@@ -302,32 +326,20 @@ function Body({
           lock={allocationsLock(detail.stage, detail.closing)}
         />
       </div>
-      <div className="pb-two-col">
-        <HistoryCard detail={detail} />
-        <ClosingSummaryCard detail={detail} />
-      </div>
-      <KeyValueTable
-        label="Record"
-        rows={[
-          { label: 'Source', value: detail.source ?? MISSING },
-          { label: 'Sector', value: detail.sector === null ? MISSING : labelOf(detail.sector) },
-          {
-            label: 'Geography',
-            value: detail.geography === null ? MISSING : labelOf(detail.geography),
-          },
-          { label: 'Currency', value: detail.currency },
-        ]}
-      />
+      <DealFitCard detail={detail} />
+      <HistoryCard detail={detail} />
+      <ClosingSummaryCard detail={detail} />
       <ActionLogCard entries={log.entries} />
     </div>
   );
 }
 
 /**
- * One opportunity (docs/04 M5): the stage strip and commands of docs/18 section 4, the gates the
- * commands check (the operations confirmation of the closing among them), the diligence tasks,
- * IC decisions, allocations (read only while the closing is confirmed), stage history and the
- * closing summary with the way to the closing page.
+ * One opportunity (docs/04 M5): the stage and its commands of docs/18 section 4 in the header, the
+ * stage strip and figures, the gates the commands check (the operations confirmation of the
+ * closing among them), the diligence tasks, IC decisions beside the allocations (read only while
+ * the closing is confirmed), the portfolio fit, stage history and the closing summary with the
+ * way to the closing page.
  */
 export function OpportunityPage(): ReactNode {
   const { id } = useParams({ from: '/app/pipeline/$id' });
@@ -339,7 +351,7 @@ export function OpportunityPage(): ReactNode {
       q.error instanceof ApiError && (q.error.status === 404 || q.error.status === 403);
     return (
       <>
-        <BackLink />
+        <Breadcrumbs items={TRAIL} />
         {hidden ? (
           <ErrorState
             title="Opportunity not found or not visible to you"

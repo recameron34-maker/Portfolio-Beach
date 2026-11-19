@@ -97,7 +97,10 @@ test('a sponsor opens from the Sponsors list', async ({ page }) => {
   await expect(page.getByRole('group', { name: 'NAV by position' })).toBeVisible();
   await expect(page.getByRole('table', { name: 'Funds' })).toBeVisible();
   await expect(page.getByRole('table', { name: 'Our positions' })).toBeVisible();
-  await page.getByRole('link', { name: 'All sponsors' }).click();
+  await page
+    .getByRole('navigation', { name: 'Breadcrumb' })
+    .getByRole('link', { name: 'Sponsors', exact: true })
+    .click();
   await expect(page.getByRole('table', { name: 'Sponsors' })).toBeVisible();
 });
 

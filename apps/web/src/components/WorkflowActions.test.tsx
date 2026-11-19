@@ -105,6 +105,27 @@ describe('workflow action pieces', () => {
     expect(screen.getByText('Only a Locked version reopens')).toBeVisible();
   });
 
+  it("words a command by the page's label, in the size the page asks for", () => {
+    render(
+      <CommandButtons
+        options={[option()]}
+        busy={false}
+        context="Project Dune"
+        size="medium"
+        label={(o) => `${o.command === 'dealTeamApprove' ? 'Approve' : 'Other'} to ${o.to}`}
+        onIssue={vi.fn()}
+      />,
+    );
+    render(
+      <Button size="medium" appearance="subtle">
+        Reference
+      </Button>,
+    );
+    const button = screen.getByRole('button', { name: `Approve to ${option().to}, Project Dune` });
+    expect(button).toHaveTextContent(`Approve to ${option().to}`);
+    expect(button.className).toBe(screen.getByRole('button', { name: 'Reference' }).className);
+  });
+
   it('shows no blocked reason unless the page asks for it', () => {
     render(
       <CommandButtons

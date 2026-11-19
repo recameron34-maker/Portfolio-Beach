@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useId, useState } from 'react';
 import type { ReactNode } from 'react';
 import {
   Button,
@@ -53,14 +53,15 @@ function DecisionForm({
   const [amount, setAmount] = useState('');
   const [conditions, setConditions] = useState('');
   const [touched, setTouched] = useState(false);
+  const reasonId = useId();
   const amountText = amount.trim();
   const amountOk = amountText === '' || isPositiveAmount(amountText);
   const ready = isIsoDate(decisionDate) && amountOk;
-  const blocked =
-    blockedTitle({
-      allowed: mayUse(roles, PIPELINE_ROLES.icDecision),
-      roles: PIPELINE_ROLES.icDecision,
-    }) ?? (stage === 'IC' ? null : NOT_AT_IC);
+  const roleBlocked = blockedTitle({
+    allowed: mayUse(roles, PIPELINE_ROLES.icDecision),
+    roles: PIPELINE_ROLES.icDecision,
+  });
+  const blocked = roleBlocked ?? (stage === 'IC' ? null : NOT_AT_IC);
   const submit = (): void => {
     setTouched(true);
     if (!ready || blocked !== null || decision === '') return;
@@ -90,6 +91,37 @@ function DecisionForm({
       },
     );
   };
+  const button = (
+    <Button
+      appearance="secondary"
+      type="submit"
+      disabled={blocked !== null || record.isPending}
+      {...(blocked === null ? {} : { title: blocked, 'aria-describedby': reasonId })}
+    >
+      Record decision
+    </Button>
+  );
+  const reason =
+    blocked === null ? null : (
+      <span className="pb-meta" id={reasonId}>
+        {blocked}.
+      </span>
+    );
+  // A role the route does not admit never records a decision: the command and why, on one line.
+  if (roleBlocked !== null) {
+    return (
+      <form
+        noValidate
+        className="pb-actions pb-pipe-gap"
+        data-testid="ic-decision-form"
+        aria-label="Record an IC decision"
+        onSubmit={(e) => e.preventDefault()}
+      >
+        {button}
+        {reason}
+      </form>
+    );
+  }
   return (
     <form
       noValidate
@@ -108,16 +140,10 @@ function DecisionForm({
           ? { validationState: 'error' as const, validationMessage: 'Give the decision date.' }
           : {})}
       >
-        <Input
-          className="pb-pipe-control is-short"
-          type="date"
-          value={decisionDate}
-          onChange={(_e, d) => setDecisionDate(d.value)}
-        />
+        <Input type="date" value={decisionDate} onChange={(_e, d) => setDecisionDate(d.value)} />
       </FluentField>
       <FluentField label="Decision" required>
         <Dropdown
-          className="pb-pipe-control is-short"
           placeholder="Choose"
           value={decision === '' ? '' : humanizeState(decision)}
           selectedOptions={decision === '' ? [] : [decision]}
@@ -147,30 +173,23 @@ function DecisionForm({
                   : 'Optional.',
             })}
       >
-        <Input
-          className="pb-pipe-control"
-          inputMode="decimal"
-          value={amount}
-          onChange={(_e, d) => setAmount(d.value)}
-        />
+        <Input inputMode="decimal" value={amount} onChange={(_e, d) => setAmount(d.value)} />
       </FluentField>
-      <FluentField label="Conditions" hint="One per line; blank lines are dropped.">
+      <FluentField
+        className="pb-pipe-span-2"
+        label="Conditions"
+        hint="One per line; blank lines are dropped."
+      >
         <Textarea
-          className="pb-pipe-control is-wide"
           value={conditions}
           resize="vertical"
           onChange={(_e, d) => setConditions(d.value)}
         />
       </FluentField>
-      <Button
-        appearance="secondary"
-        type="submit"
-        disabled={blocked !== null || record.isPending}
-        {...(blocked === null ? {} : { title: blocked })}
-      >
-        Record decision
-      </Button>
-      {blocked === null ? null : <p className="pb-meta pb-pipe-form-note">{blocked}.</p>}
+      <div className="pb-actions pb-pipe-form-end">
+        {button}
+        {reason}
+      </div>
     </form>
   );
 }
