@@ -98,43 +98,53 @@ describe('the client packages list', () => {
       within(table)
         .getAllByRole('columnheader')
         .map((th) => th.textContent),
-    ).toEqual(['Client', 'Quarter', 'Basis', 'Label', 'Version', 'State', 'Checks', 'Prepared by']);
+    ).toEqual(['Client', 'Quarter', 'State', 'Checks', 'Basis', 'Label', 'Version', 'Prepared by']);
     const rows = rowsOf(table);
     expect(rows).toHaveLength(5);
     const cells = (row: HTMLElement): (string | null)[] =>
       within(row)
         .getAllByRole('cell')
         .map((td) => td.textContent);
+    // Where a package stands and what its checks said come first; the version is its number alone.
     expect(cells(rows[0]!)).toEqual([
       'Client Alpha Pension',
       'Q2 2025',
-      'Gross',
-      'Final',
-      'Version 1',
       'QA failed',
       '3 of 126 failed',
+      'Gross',
+      'Final',
+      '1',
       'Imogen Tavares',
     ]);
     expect(cells(rows[1]!)).toEqual([
       'Client Alpha Pension',
       'Q2 2025',
-      'Net',
-      'Preliminary',
-      'Version 1',
       'Draft',
       'Not run',
+      'Net',
+      'Preliminary',
+      '1',
       'Imogen Tavares',
     ]);
-    expect(cells(rows[2]!).slice(5, 7)).toEqual(['In review', 'All 98 passed']);
+    expect(cells(rows[2]!).slice(2, 4)).toEqual(['In review', 'All 98 passed']);
     expect(cells(rows[3]!).slice(1, 7)).toEqual([
       'Q1 2025',
-      'Gross',
-      'Final',
-      'Version 2',
       'Approved',
       '2 failed, overridden',
+      'Gross',
+      'Final',
+      '2',
     ]);
-    expect(cells(rows[4]!).slice(4, 7)).toEqual(['Version 1', 'Released', 'All 120 passed']);
+    expect(cells(rows[4]!).slice(2, 7)).toEqual([
+      'Released',
+      'All 120 passed',
+      'Gross',
+      'Final',
+      '1',
+    ]);
+    // The version is a figure: right-aligned under its header.
+    expect(within(table).getByRole('columnheader', { name: 'Version' })).toHaveClass('num');
+    expect(within(rows[3]!).getByRole('cell', { name: '2' })).toHaveClass('num');
     // Each row opens its package.
     expect(within(rows[0]!).getByRole('link', { name: 'Client Alpha Pension' })).toHaveAttribute(
       'href',
@@ -247,6 +257,11 @@ describe('the client packages list', () => {
       const start = await screen.findByRole('button', { name: 'Start package' });
       expect(start).toBeDisabled();
       expect(start).toHaveAttribute('title', 'Needs investor relations');
+      // The reason is in words beside the button too, and the button points to it.
+      expect(
+        within(screen.getByTestId('packages-card')).getByText('Needs investor relations'),
+      ).toBeVisible();
+      expect(start).toHaveAccessibleDescription('Needs investor relations');
       expect(screen.queryByTestId('package-start-form')).not.toBeInTheDocument();
       // A reader who cannot start never asks for the clients behind the form.
       expect(sentRequests().some(([url]) => url === CLIENTS)).toBe(false);

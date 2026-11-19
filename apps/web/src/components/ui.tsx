@@ -110,6 +110,7 @@ export function StatTile({
   figure,
   wide = false,
   title,
+  describedBy,
 }: {
   label: string;
   value: string;
@@ -120,6 +121,8 @@ export function StatTile({
   wide?: boolean;
   /** How the figure is worked out, shown under the pointer ("Distributions / invested"). */
   title?: string | undefined;
+  /** The id of a line beside the strip that says why the figure is missing, said once for several. */
+  describedBy?: string | undefined;
 }): ReactNode {
   const missing = value === MISSING || value === 'NM';
   const number = (
@@ -130,6 +133,7 @@ export function StatTile({
       className={wide ? 'pb-stat-tile is-wide' : 'pb-stat-tile'}
       role="group"
       aria-label={label}
+      aria-describedby={describedBy}
       title={title}
       data-tone={tone}
       data-zero={value === '0' ? '' : undefined}

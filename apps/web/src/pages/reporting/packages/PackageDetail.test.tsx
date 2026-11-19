@@ -96,7 +96,17 @@ describe('a reporting package page', () => {
     expect(banner).toHaveTextContent('Version 1');
     expect(banner).toHaveTextContent('As of Aug 15, 2025');
     expect(within(banner).getByText('Draft')).toHaveClass('pb-badge-neutral');
-    expect(screen.getByRole('link', { name: 'Client packages' })).toHaveAttribute(
+    // The state leads the meta line, and the commands that move the package sit in the header.
+    expect(banner.querySelector('.pb-meta-list > span:first-child')).toHaveTextContent('Draft');
+    expect(within(banner).getByTestId('package-actions')).toBeInTheDocument();
+    expect(within(screen.getByTestId('package-gate')).queryByRole('button')).toBeNull();
+    // The trail leads back to Reporting and to the list.
+    const trail = screen.getByRole('navigation', { name: 'Breadcrumb' });
+    expect(within(trail).getByRole('link', { name: 'Reporting' })).toHaveAttribute(
+      'href',
+      '/reporting',
+    );
+    expect(within(trail).getByRole('link', { name: 'Packages' })).toHaveAttribute(
       'href',
       '/reporting/packages',
     );
@@ -230,7 +240,13 @@ describe('a reporting package page', () => {
     expect(screen.getByTestId('error-state')).toHaveTextContent(
       'There is no package at this address among the clients you read.',
     );
-    expect(screen.getByRole('link', { name: 'Client packages' })).toBeInTheDocument();
+    // The page keeps its header and trail, so the reader can go back to the list.
+    expect(screen.getByRole('heading', { level: 1, name: 'Client package' })).toBeInTheDocument();
+    expect(
+      within(screen.getByRole('navigation', { name: 'Breadcrumb' })).getByRole('link', {
+        name: 'Packages',
+      }),
+    ).toHaveAttribute('href', '/reporting/packages');
     expect(document.body.textContent).not.toMatch(IDENTIFIER);
   });
 
@@ -287,9 +303,19 @@ describe('the cards of a reporting package', () => {
     expect(within(checks).getByText('Failed')).toHaveClass('pb-badge-bad');
     const toggle = screen.getByRole('button', { name: 'Show the 25 checks that passed' });
     expect(toggle).toHaveAttribute('aria-expanded', 'false');
+    // A quiet toggle whose chevron turns when the rows are shown.
+    expect(toggle.querySelector('.pb-pkg-toggle-chevron')).not.toBeNull();
     await userEvent.click(toggle);
     const rows = cellsOf('Checks');
     expect(rows).toHaveLength(26);
+    // Only the rows the reader asked for carry the class that fades them in.
+    const bodyRows = within(screen.getByRole('table', { name: 'Checks' }))
+      .getAllByRole('row')
+      .slice(1);
+    expect(bodyRows.map((tr) => tr.classList.contains('pb-pkg-passed'))).toEqual([
+      false,
+      ...Array<boolean>(25).fill(true),
+    ]);
     // The failed check stays first; every other row passed.
     expect(rows[0]![0]).toBe('Failed');
     expect(rows.slice(1).every((cells) => cells[0] === 'Passed')).toBe(true);
@@ -327,6 +353,14 @@ describe('the cards of a reporting package', () => {
       // Entered in the quarter: no begin NAV, and not a begin NAV of zero.
       ['INV-0003', 'New this quarter', '$8.0M', '$0.0M', '$0.3M', '$8.3M', 'Quarter end'],
     ]);
+    // The quarter end's own mark reads quiet, so the roll-forward stands out; no figure is missing.
+    expect(
+      within(screen.getByRole('table', { name: 'Positions' }))
+        .getAllByRole('cell')
+        .filter((td) => td.classList.contains('pb-pkg-mark-default'))
+        .map((td) => td.textContent),
+    ).toEqual(['Quarter end', 'Quarter end']);
+    expect(screen.queryByTestId('package-positions-notes')).not.toBeInTheDocument();
     expect(cellsOf('Footnotes')).toEqual([
       ['INV-0002', 'Carried at the mark of Mar 31, 2025, rolled forward for cash flows since.'],
     ]);
@@ -420,12 +454,21 @@ describe('the cards of a reporting package', () => {
     });
     open(generatedDetailFixture({ label: 'preliminary' }, content));
     await screen.findByTestId('package-positions');
-    const noStart = `- ${NO_START_MARK}`;
-    const noEnd = `- ${NO_END_MARK}`;
+    // Each placeholder carries the letter of its reason, said once under the table.
+    const noStart = `-a ${NO_START_MARK}`;
+    const noEnd = `-b ${NO_END_MARK}`;
     expect(cellsOf('Positions')).toEqual([
       ['INV-0004', noStart, '$0.3M', '$0.0M', noStart, '$12.5M', 'Quarter end'],
       ['INV-0005', noStart, '$0.0M', '$0.0M', noEnd, noEnd, noEnd],
     ]);
+    expect(
+      within(screen.getByTestId('package-positions-notes'))
+        .getAllByRole('listitem')
+        .map((li) => li.textContent),
+    ).toEqual([`a. ${NO_START_MARK}`, `b. ${NO_END_MARK}`]);
+    // The letter is drawn for the eye; a screen reader hears the reason in the cell instead.
+    for (const letter of screen.getByRole('table', { name: 'Positions' }).querySelectorAll('sup'))
+      expect(letter).toHaveAttribute('aria-hidden', 'true');
     // What a reader sees is the placeholder alone; the reason is its title.
     const table = screen.getByRole('table', { name: 'Positions' });
     const missing = [...table.querySelectorAll('td.is-missing')];
@@ -525,7 +568,9 @@ describe('the cards of a reporting package', () => {
     expect(first).toHaveTextContent(
       'No earlier package was released to this client on this basis, so there is nothing to tie to.',
     );
-    expect(first).toHaveTextContent('No explanations recorded');
+    // With nothing to tie to, the sentence says why and no empty table or second line follows.
+    expect(within(first).queryByRole('table')).not.toBeInTheDocument();
+    expect(first).not.toHaveTextContent('No explanations recorded');
     cleanup();
     vi.restoreAllMocks();
     const explanations = {

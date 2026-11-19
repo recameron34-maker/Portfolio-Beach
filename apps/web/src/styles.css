@@ -639,7 +639,8 @@ p:last-child {
 /* A section (Card) is flat: a hairline rule above its content and space below, no frame. The first
    section after the page header, the tabs, the figures strip or the analytics context row carries
    no rule, looking past a result line that is still empty and into a wrapper that holds a page's
-   body (pb-page-body); a frame (is-panel) is only for what stands apart from the page. */
+   body (pb-page-body); a frame (is-panel) is only for what stands apart from the page, and keeps
+   its whole frame wherever it opens. */
 .pb-card {
   background: none;
   border: 0;
@@ -652,11 +653,11 @@ p:last-child {
 .pb-card > :last-child {
   margin-bottom: 0;
 }
-:is(.pb-banner, .pb-tabs, .pb-tiles, .pb-page-context, .pb-tab-rule) + .pb-card,
+:is(.pb-banner, .pb-tabs, .pb-tiles, .pb-page-context, .pb-tab-rule) + .pb-card:not(.is-panel),
 :is(.pb-banner, .pb-tabs, .pb-tiles, .pb-page-context, .pb-tab-rule) + .pb-two-col > .pb-card,
 :is(.pb-banner, .pb-tabs, .pb-tiles, .pb-page-context, .pb-tab-rule)
   + .pb-action-status:empty
-  + .pb-card,
+  + .pb-card:not(.is-panel),
 :is(.pb-banner, .pb-tabs, .pb-tiles, .pb-page-context, .pb-tab-rule)
   + .pb-action-status:empty
   + .pb-two-col
@@ -1501,6 +1502,10 @@ p:last-child {
   width: 30%;
   height: 20px;
 }
+/* Under a page's own header (the title and tabs stay while it loads) the skeleton draws no title. */
+.pb-banner ~ .pb-skeleton > .pb-skeleton-bar.is-title {
+  display: none;
+}
 .pb-skeleton-tiles {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(min(100%, 150px), 1fr));
@@ -2255,11 +2260,16 @@ p:last-child {
 }
 
 /* ---- Reporting, assistants and admin pages ---- */
-.pb-report-actions {
-  display: inline-flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 12px;
+/* A client of the look-through (Reporting and Analytics, Clients): why a total is missing, said
+   once under the strip it explains; how a share is worked out, once after the last client. */
+.pb-tiles:has(+ .pb-client-reason) {
+  margin-bottom: var(--pb-space-2);
+}
+.pb-client-reason {
+  margin: 0 0 var(--pb-space-5);
+}
+.pb-client-note {
+  margin: 0;
 }
 .pb-prose {
   max-width: 72ch;

@@ -315,7 +315,8 @@ const WORKFLOW_PAGES: Visit[] = [
   { path: '/capital-activity/wires', ready: (p) => p.getByTestId('wire-register') },
   { path: `/capital-activity/wires/${wire}`, ready: (p) => p.getByTestId('wire-instruction') },
   { path: '/capital-activity/tickets', ready: (p) => p.getByTestId('trade-tickets') },
-  { path: '/reporting', ready: heading },
+  // The title stays while the report loads, so the scan waits for the report's own figures.
+  { path: '/reporting', ready: (p) => p.getByTestId('weekly-tiles') },
   // Reporting packages (decision 0024): the list as operations reads it, with none started.
   { path: '/reporting/packages', ready: (p) => p.getByTestId('packages-card') },
   { path: '/reporting/clients', ready: heading },

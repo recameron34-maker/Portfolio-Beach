@@ -10,7 +10,7 @@ import {
   AiDraftBadge,
   Badge,
   Card,
-  EmptyState,
+  EmptyLine,
   NumCell,
   PageHeader,
   PageSkeleton,
@@ -30,9 +30,11 @@ import {
   plural,
 } from '../../lib/format.js';
 import { UnavailableState } from '../../components/UnavailableState.js';
-import { humanizeState, noticeTone } from '../../lib/states.js';
+import { dueLabel, humanizeState, noticeTone } from '../../lib/states.js';
+import { isSettled } from '../capital/notices.js';
 import { changeBadge } from './report-ui.js';
 import { balanceTiles } from '../../lib/tiles.js';
+import './reporting.css';
 
 function SummaryTiles({ report }: { report: WeeklyReport }): ReactNode {
   const s = report.summary;
@@ -62,7 +64,7 @@ function ByVehicle({ report }: { report: WeeklyReport }): ReactNode {
         By vehicle
       </SectionHeader>
       {report.byVehicle.length === 0 ? (
-        <EmptyState
+        <EmptyLine
           title="No active positions"
           detail="No vehicle you can see holds an active position as of this date."
         />
@@ -72,7 +74,6 @@ function ByVehicle({ report }: { report: WeeklyReport }): ReactNode {
             <thead>
               <tr>
                 <th>Vehicle</th>
-                <th>Type</th>
                 <th className="num">Positions</th>
                 <th className="num">Invested</th>
                 <th className="num">Distributions</th>
@@ -83,8 +84,10 @@ function ByVehicle({ report }: { report: WeeklyReport }): ReactNode {
             <tbody>
               {report.byVehicle.map((v) => (
                 <tr key={v.vehicleId}>
-                  <td>{v.vehicleName}</td>
-                  <td>{labelOf(v.vehicleType)}</td>
+                  <td className="pb-col-text">
+                    {v.vehicleName}
+                    <span className="pb-cell-sub">{labelOf(v.vehicleType)}</span>
+                  </td>
                   <NumCell>{String(v.count)}</NumCell>
                   <NumCell>{formatMoneyM(v.invested)}</NumCell>
                   <NumCell>{formatMoneyM(v.distributions)}</NumCell>
@@ -92,22 +95,44 @@ function ByVehicle({ report }: { report: WeeklyReport }): ReactNode {
                   <NumCell>{formatMoic(v.grossMoic)}</NumCell>
                 </tr>
               ))}
+            </tbody>
+            {/* The report's own totals, as the API gives them: the page adds nothing up. */}
+            <tfoot>
               <tr>
-                <td>
-                  <strong>Total</strong>
-                </td>
-                <td />
+                <th scope="row">Total</th>
                 <NumCell>{String(s.activeInvestments)}</NumCell>
                 <NumCell>{formatMoneyM(s.invested)}</NumCell>
                 <NumCell>{formatMoneyM(s.distributions)}</NumCell>
                 <NumCell>{formatMoneyM(s.nav)}</NumCell>
                 <NumCell>{formatMoic(s.grossMoic)}</NumCell>
               </tr>
-            </tbody>
+            </tfoot>
           </table>
         </TableWrap>
       )}
     </Card>
+  );
+}
+
+/**
+ * Which way a mover went, in neutral words after a small mark: a fall in value is reported, not
+ * alarmed, so the direction never takes a status colour. The mark is drawn, never read.
+ */
+const DIRECTION_MARKS: Readonly<Record<string, string>> = {
+  Up: '4,0 8,7 0,7',
+  Down: '0,0 8,0 4,7',
+  Flat: '0,2.5 8,2.5 8,4.5 0,4.5',
+};
+
+function Direction({ word }: { word: string }): ReactNode {
+  return (
+    <span className="pb-direction">
+      {/* A drawn shape, so it prints like the words beside it. */}
+      <svg className="pb-direction-mark" viewBox="0 0 8 7" aria-hidden="true">
+        <polygon points={DIRECTION_MARKS[word] ?? DIRECTION_MARKS.Flat} />
+      </svg>
+      {word}
+    </span>
   );
 }
 
@@ -116,7 +141,7 @@ function Movers({ report }: { report: WeeklyReport }): ReactNode {
     <Card>
       <SectionHeader aside="Locked fair value against the prior quarter end">Movers</SectionHeader>
       {report.movers.length === 0 ? (
-        <EmptyState
+        <EmptyLine
           title="No movers"
           detail="No position has a Locked valuation for both the period end and the prior quarter end, so no change is calculable."
           testId="movers-empty"
@@ -139,16 +164,20 @@ function Movers({ report }: { report: WeeklyReport }): ReactNode {
                 const badge = changeBadge(m.changePct);
                 return (
                   <tr key={m.investmentId}>
-                    <td>
+                    <td className="pb-col-text">
                       <span className="pb-key">{m.investmentNumber}</span> {m.companyName}
                     </td>
-                    <td>{formatDate(m.periodEnd)}</td>
+                    <td className="pb-nowrap">{formatDate(m.periodEnd)}</td>
                     <NumCell>{formatMoneyM(m.priorFairValue)}</NumCell>
                     <NumCell>{formatMoneyM(m.fairValue)}</NumCell>
                     <NumCell>{formatPct(m.changePct)}</NumCell>
-                    <td>
-                      {badge === null ? MISSING : <Badge tone={badge.tone}>{badge.word}</Badge>}
-                    </td>
+                    {badge === null ? (
+                      <td className="is-missing">{MISSING}</td>
+                    ) : (
+                      <td>
+                        <Direction word={badge.word} />
+                      </td>
+                    )}
                   </tr>
                 );
               })}
@@ -203,7 +232,7 @@ function CapitalActivity({ report }: { report: WeeklyReport }): ReactNode {
         Capital activity
       </SectionHeader>
       {rows.length === 0 ? (
-        <EmptyState
+        <EmptyLine
           title="No capital activity"
           detail="No notice is open or due within the reporting window."
           testId="capital-empty"
@@ -225,11 +254,16 @@ function CapitalActivity({ report }: { report: WeeklyReport }): ReactNode {
               {rows.map((n) => (
                 <tr key={n.id}>
                   <td>{labelOf(n.noticeType)}</td>
-                  <td>{n.companyName ?? n.sponsorFundName ?? MISSING}</td>
-                  <td>{n.vehicleName}</td>
-                  <td>
+                  <td className="pb-col-text">{n.companyName ?? n.sponsorFundName ?? MISSING}</td>
+                  <td className="pb-col-text">{n.vehicleName}</td>
+                  <td className="pb-nowrap">
                     {formatDate(n.dueDate)}
-                    {n.daysToDue < 0 ? <span className="pb-meta"> (overdue)</span> : null}
+                    {/* The alert applies only until the money moves, as on the notice register. */}
+                    {n.daysToDue < 0 && !isSettled(n.state) ? (
+                      <span className="pb-cell-sub">
+                        <Badge tone="bad">{dueLabel(n.daysToDue)}</Badge>
+                      </span>
+                    ) : null}
                   </td>
                   <NumCell>{formatMoneyM(n.amount)}</NumCell>
                   <td>
@@ -260,8 +294,8 @@ function Commentary({ report }: { report: WeeklyReport }): ReactNode {
         </div>
       )}
       {c.source === 'template' ? (
-        <p className="pb-meta" data-testid="commentary-source">
-          Assembled from the figures above by a template; no model was called.
+        <p className="pb-meta pb-report-source" data-testid="commentary-source">
+          Written by a fixed template from the figures above.
         </p>
       ) : null}
     </Card>
@@ -281,57 +315,69 @@ function Footnotes({ report }: { report: WeeklyReport }): ReactNode {
           ))}
         </ol>
       )}
-      <p className="pb-meta">
+      <p className="pb-meta pb-report-source">
         Calculation version {report.calcVersion}. Figures cover the positions you are entitled to
         see.
+        <span className="pb-no-print"> PowerPoint, Word and Excel output is not built yet.</span>
       </p>
     </Card>
   );
 }
 
-/** The weekly portfolio report assembled by the API from approved figures (M12), laid out to print. */
+/**
+ * The weekly portfolio report assembled by the API from approved figures (M12), laid out to print.
+ * The title and the tabs stay in place while it loads or cannot be shown, so the reader can leave
+ * for another tab; the period, the date and whom it is for arrive with the report.
+ */
 export function WeeklyReportPage(): ReactNode {
   const q = useQuery({ ...weeklyReportQuery, placeholderData: keepPreviousData });
-  if (q.isPending) return <PageSkeleton tiles={8} rows={6} />;
-  if (q.isError) {
+  const tabs = <TabNav label="Reporting" items={REPORTING_TABS} className="pb-no-print" />;
+  if (q.isPending || q.isError) {
     return (
-      <UnavailableState
-        card
-        subject="The weekly report"
-        error={q.error}
-        forbidden={{
-          title: 'The weekly report is not available to your role',
-          detail: 'It is assembled from the positions each reader is entitled to see.',
-        }}
-        notReady={{ title: 'The weekly report is not available yet' }}
-        errorTitle="Weekly report unavailable"
-      />
+      <>
+        <PageHeader title="Weekly portfolio report" testId="weekly-header" />
+        {tabs}
+        {q.isPending ? (
+          <PageSkeleton tiles={8} rows={6} />
+        ) : (
+          <UnavailableState
+            card
+            subject="The weekly report"
+            error={q.error}
+            forbidden={{
+              title: 'The weekly report is not available to your role',
+              detail: 'It is assembled from the positions each reader is entitled to see.',
+            }}
+            notReady={{ title: 'The weekly report is not available yet' }}
+            errorTitle="Weekly report unavailable"
+          />
+        )}
+      </>
     );
   }
   const r = q.data;
   return (
-    <div className="pb-report">
+    <>
       <PageHeader
         title="Weekly portfolio report"
         testId="weekly-header"
         meta={
-          <>
-            Period {formatDate(r.periodEnd)}, as of {formatDate(r.asOf)}, prepared for{' '}
-            {r.preparedFor}
-          </>
+          <span className="pb-meta-list">
+            <span>Period {formatDate(r.periodEnd)}</span>
+            <span>As of {formatDate(r.asOf)}</span>
+            <span>Prepared for {r.preparedFor}</span>
+          </span>
         }
         actions={
-          <span className="pb-report-actions pb-no-print">
-            <span className="pb-meta">PowerPoint, Word and Excel output is not built yet</span>
+          // The wrapper keeps the button off paper: the kit's own display rule outranks a class on it.
+          <span className="pb-no-print">
             <Button size="small" icon={<Print20Regular />} onClick={() => window.print()}>
               Print
             </Button>
           </span>
         }
       />
-      <div className="pb-no-print">
-        <TabNav label="Reporting" items={REPORTING_TABS} />
-      </div>
+      {tabs}
       <SummaryTiles report={r} />
       <ByVehicle report={r} />
       <Movers report={r} />
@@ -339,7 +385,7 @@ export function WeeklyReportPage(): ReactNode {
       <CapitalActivity report={r} />
       <Commentary report={r} />
       <Footnotes report={r} />
-    </div>
+    </>
   );
 }
 
@@ -347,17 +393,25 @@ export function WeeklyReportPage(): ReactNode {
 export function ClientsPage(): ReactNode {
   return (
     <>
-      <PageHeader
-        title="Clients"
-        meta="Shares are the vehicle's pooled figures times the client's ownership percentage."
-      />
+      <PageHeader title="Clients" />
       <TabNav label="Reporting" items={REPORTING_TABS} />
-      <ClientLookThrough />
+      <ClientLookThrough
+        note={"Shares are the vehicle's pooled figures times the client's ownership percentage."}
+      />
     </>
   );
 }
 
-/** Disclosures arrive with M19; the page keeps the phase placeholder and says what the module will hold. */
+/** What the Disclosures page will hold once it is built (M19). */
+const DISCLOSURES_PLANNED = [
+  'The disclosure library: the approved wording that reports insert, with its versions.',
+  'The register of approved statistics: each value with its as-of date, source, approver and expiry.',
+  'Footnotes added on their own when a valuation is stale.',
+  'Consents from affiliated parties, which block a closing until they are recorded.',
+  'A log of every report sent.',
+];
+
+/** Disclosures arrive with M19; the page says so and what the module will hold. */
 export function DisclosuresPage(): ReactNode {
   return (
     <>
@@ -367,19 +421,18 @@ export function DisclosuresPage(): ReactNode {
       />
       <TabNav label="Reporting" items={REPORTING_TABS} />
       <Card>
-        <EmptyState
-          title="Not built yet"
-          detail="Disclosures and statistics is planned for a later release."
-        />
-        <div className="pb-prose">
-          <p>
-            This page will hold the versioned disclosure library that report templates reference by
-            id, the approved statistics register (value, as-of date, source query, approver and
-            expiry) and the automatic stale-valuation footnotes. It will also record
-            affiliated-party consents, which block a closing until recorded, and the distribution
-            log of every issued report.
-          </p>
-        </div>
+        <p className="pb-disclosures-state">
+          <Badge>Not built yet</Badge>
+          <span className="pb-meta">
+            Disclosures and statistics is planned for a later release.
+          </span>
+        </p>
+        <p className="pb-disclosures-lead">This page will hold:</p>
+        <ul className="pb-list pb-disclosures-list">
+          {DISCLOSURES_PLANNED.map((item) => (
+            <li key={item}>{item}</li>
+          ))}
+        </ul>
       </Card>
     </>
   );

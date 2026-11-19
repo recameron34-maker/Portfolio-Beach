@@ -1,0 +1,40 @@
+/* Reporting: the weekly report and the Disclosures page. The client look-through is shared with
+   Analytics, so its rules live in styles.css; the packages have their own sheet. */
+
+/* A mover's direction in neutral words: a small drawn mark, then Up, Down or Flat in the quiet
+   ink. A fall in value is reported, not alarmed, so no status colour. */
+.pb-direction {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--pb-space-1);
+  font-size: var(--pb-text-sm);
+  line-height: var(--pb-text-sm-lh);
+  color: var(--pb-muted-strong);
+  white-space: nowrap;
+}
+.pb-direction-mark {
+  flex: none;
+  width: 8px;
+  height: 7px;
+  fill: currentColor;
+}
+
+/* The line under the commentary and the footnotes: how the words were written, which calculation. */
+.pb-report-source {
+  margin: var(--pb-space-2) 0 0;
+}
+
+/* Disclosures: the state as a dot and a word with its sentence, then what the page will hold. */
+.pb-disclosures-state {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--pb-space-1) var(--pb-space-3);
+  margin: 0 0 var(--pb-space-4);
+}
+.pb-disclosures-lead {
+  margin: 0 0 var(--pb-space-1);
+}
+.pb-disclosures-list {
+  max-width: 72ch;
+}

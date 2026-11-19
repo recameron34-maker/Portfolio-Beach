@@ -278,8 +278,10 @@ test('the packages journey: a failing package is started, overridden with a reas
   const WHY = 'Not calculable: no locked mark at the start of the quarter';
   for (const cell of [lineRow.getByRole('cell').nth(0), lineRow.getByRole('cell').nth(3)]) {
     await expect(cell).toHaveAttribute('title', WHY);
-    await expect(cell).toHaveText(`- ${WHY}`);
+    // The placeholder, the letter of its note under the table, and the reason for a screen reader.
+    await expect(cell).toHaveText(new RegExp(`^-[a-z] ${WHY}$`));
   }
+  await expect(page.getByTestId('package-positions-notes')).toContainText(WHY);
   await expect(lineRow.getByRole('cell').nth(5)).toHaveText('Quarter end');
   // The client's share of that position, and the run in the change log.
   await expect(

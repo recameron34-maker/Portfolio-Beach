@@ -202,6 +202,7 @@ export function PackageActions({
           options={options}
           busy={command.isPending}
           appearance="secondary"
+          showBlockedReason
           onIssue={issue}
         />
         <SimulatedBadge />

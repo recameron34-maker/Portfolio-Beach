@@ -238,6 +238,20 @@ describe('the commands of the release gate, by role and state', () => {
     },
   );
 
+  it('says in words under a blocked command which role it needs, and the button points to it', async () => {
+    open(['investor_relations'], failed());
+    await waitFor(() =>
+      expect(buttons()).toEqual([
+        ['Regenerate', null],
+        ['Override QA', APPROVER],
+      ]),
+    );
+    const actions = screen.getByTestId('package-actions');
+    expect(within(actions).getByText(APPROVER)).toHaveClass('pb-command-reason');
+    expect(button('Override QA')).toHaveAccessibleDescription(APPROVER);
+    expect(button('Regenerate')).not.toHaveAttribute('aria-describedby');
+  });
+
   it('offers nothing on a released package: it is read only for every role', async () => {
     for (const roles of [['investor_relations'], ['approver'], ['operations']] as Roles[]) {
       open(roles, released());

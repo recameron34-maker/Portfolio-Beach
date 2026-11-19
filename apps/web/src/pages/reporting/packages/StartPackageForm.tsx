@@ -83,7 +83,7 @@ export function StartPackageForm({
       ? { validationState: 'error' as const, validationMessage: problems[key] }
       : {};
   return (
-    <Card testId="package-start-form">
+    <Card panel testId="package-start-form">
       <SectionHeader aside={<SimulatedBadge />}>Start a package</SectionHeader>
       <p className="pb-meta">
         A package starts as a draft with no figures. Generating it reads the record and runs every
@@ -242,6 +242,9 @@ export function StartPackageForm({
           </p>
         ) : null}
         <div className="pb-pkg-form-actions">
+          <Button appearance="secondary" onClick={onDone}>
+            Cancel
+          </Button>
           <Button
             appearance="primary"
             type="submit"
@@ -249,9 +252,6 @@ export function StartPackageForm({
             disabled={start.isPending || standing.kind === 'inProgress'}
           >
             {standing.kind === 'correction' ? 'Start new version' : 'Start package'}
-          </Button>
-          <Button appearance="secondary" onClick={onDone}>
-            Cancel
           </Button>
         </div>
       </form>

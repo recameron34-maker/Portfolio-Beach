@@ -1,8 +1,9 @@
 import { useMemo, useState } from 'react';
 import type { ReactNode } from 'react';
-import { Link, useParams } from '@tanstack/react-router';
+import { useParams } from '@tanstack/react-router';
 import { useQuery } from '@tanstack/react-query';
 import { Button } from '@fluentui/react-components';
+import { ChevronRight16Regular } from '@fluentui/react-icons';
 import type { QaFindingRow, ReportPackageContent, ReportPackageDetail } from '@pb/contracts';
 import { ApiError } from '../../../api/client.js';
 import { investmentsQuery, LIST_LIMIT, meQuery } from '../../../app/queries.js';
@@ -12,7 +13,7 @@ import { ActionLogCard, ActionStatus } from '../../../components/WorkflowActions
 import {
   Badge,
   Card,
-  EmptyState,
+  EmptyLine,
   ErrorState,
   KeyValueTable,
   NumCell,
@@ -64,13 +65,11 @@ import type { FigureCell, FindingResult, PositionNames } from './packages.js';
 import { PackageStateBadge } from './Packages.js';
 import './packages.css';
 
-function BackLink(): ReactNode {
-  return (
-    <p className="pb-meta pb-pkg-back">
-      <Link to="/reporting/packages">Client packages</Link>
-    </p>
-  );
-}
+/** Where a package's page sits: Reporting, then its list. */
+const TRAIL = [
+  { label: 'Reporting', to: '/reporting' },
+  { label: 'Packages', to: '/reporting/packages' },
+];
 
 /** A person with the time they acted, or the missing placeholder while nobody has. */
 function byAt(person: { name: string } | null, at: string | null): string {
@@ -91,7 +90,7 @@ function PositionTh({
 }): ReactNode {
   const name = names.get(positionRef);
   return (
-    <th scope="row">
+    <th scope="row" className="pb-col-text">
       <span className="pb-nowrap">{positionRef}</span>
       {name === undefined ? null : ` ${name}`}
     </th>
@@ -100,22 +99,15 @@ function PositionTh({
 
 /** What every card of a Draft reads: there are no figures and no checks until it is generated. */
 function NotGenerated(): ReactNode {
-  return <EmptyState title="Not generated yet" />;
+  return <EmptyLine title="Not generated yet" />;
 }
 
 /**
  * The release gate (docs/18 section 5): where the package stands among the six steps, what
- * happens next and who does it, the commands that move it, who prepared, approved and released
- * it, and once it is approved the hash its content was locked with (SEC-9.3).
+ * happens next and who does it, who prepared, approved and released it, and once it is approved
+ * the hash its content was locked with (SEC-9.3). The commands that move it sit in the header.
  */
-function ReleaseGateCard({
-  detail,
-  actions,
-}: {
-  detail: ReportPackageDetail;
-  /** The commands a person may take from the package's state. */
-  actions: ReactNode;
-}): ReactNode {
+function ReleaseGateCard({ detail }: { detail: ReportPackageDetail }): ReactNode {
   return (
     <Card testId="package-gate">
       <SectionHeader>Release gate</SectionHeader>
@@ -123,7 +115,6 @@ function ReleaseGateCard({
       <p className="pb-pkg-next" data-testid="package-next">
         {NEXT_STEP_WORDS[detail.state]}
       </p>
-      {actions}
       <KeyValueTable
         label="Who moved the package"
         rows={[
@@ -195,6 +186,9 @@ function ChecksTable({
   rows: readonly QaFindingRow[];
   names: PositionNames;
 }): ReactNode {
+  // A passed check's row only exists once the reader asks for it, so it fades in as it appears.
+  const shown = (finding: QaFindingRow): string | undefined =>
+    findingResult(finding) === 'passed' ? 'pb-pkg-passed' : undefined;
   return (
     <TableWrap label="Checks">
       <table className="pb-table" aria-label="Checks">
@@ -210,10 +204,10 @@ function ChecksTable({
         </thead>
         <tbody>
           {rows.map((finding) => (
-            <tr key={finding.id}>
+            <tr key={finding.id} className={shown(finding)}>
               <ResultCell finding={finding} />
-              <td>{ruleWords(finding.rule).name}</td>
-              <td>{entityWords(finding.rule, finding.entityRef, names)}</td>
+              <td className="pb-col-text">{ruleWords(finding.rule).name}</td>
+              <td className="pb-col-text">{entityWords(finding.rule, finding.entityRef, names)}</td>
               <ValueCell finding={finding} value={finding.expected} names={names} />
               <ValueCell finding={finding} value={finding.actual} names={names} />
               <td className="pb-pkg-detail">{finding.detail}</td>
@@ -247,7 +241,7 @@ function ChecksCard({
       {detail.content === null ? (
         <NotGenerated />
       ) : detail.findings.length === 0 ? (
-        <EmptyState title="The checks have not answered yet" />
+        <EmptyLine title="The checks have not answered yet" />
       ) : (
         <>
           {overridesOf(detail.findings).map((o) => (
@@ -268,7 +262,8 @@ function ChecksCard({
             <div className="pb-pkg-toggle">
               <Button
                 size="small"
-                appearance="secondary"
+                appearance="transparent"
+                icon={<ChevronRight16Regular className="pb-pkg-toggle-chevron" />}
                 aria-expanded={showPassed}
                 onClick={() => setShowPassed((shown) => !shown)}
               >
@@ -284,12 +279,34 @@ function ChecksCard({
   );
 }
 
-/** A figure of a line, right aligned; the placeholder is muted and says why the figure is missing. */
-function FigureTd({ cell }: { cell: FigureCell }): ReactNode {
-  if (cell.why === undefined) return <NumCell>{cell.text}</NumCell>;
+/**
+ * A figure of a line, right aligned. A missing one is the muted placeholder with its note's letter
+ * beside it (the reason is listed under the table), its reason in the title and for a screen reader.
+ */
+function FigureTd({
+  cell,
+  letter,
+  className,
+}: {
+  cell: FigureCell;
+  letter: string | undefined;
+  className?: string;
+}): ReactNode {
+  if (cell.why === undefined) {
+    return className === undefined ? (
+      <NumCell>{cell.text}</NumCell>
+    ) : (
+      <td className={className}>{cell.text}</td>
+    );
+  }
   return (
-    <td className="num is-missing" title={cell.why}>
+    <td className={`${className ?? 'num'} is-missing`} title={cell.why}>
       {cell.text}
+      {letter === undefined ? null : (
+        <sup className="pb-note-ref" aria-hidden="true">
+          {letter}
+        </sup>
+      )}
       <span className="pb-visually-hidden"> {cell.why}</span>
     </td>
   );
@@ -299,7 +316,8 @@ function FigureTd({ cell }: { cell: FigureCell }): ReactNode {
  * The positions of the package for the quarter, as stored (docs/08 section 7). The page adds
  * nothing up: there is no totals row. The figures are the reading of whoever generated the
  * package, so a position behind an information wall that person is not on is not among them,
- * and the card says so instead of calling the package complete.
+ * and the card says so instead of calling the package complete. Each reason a figure is missing
+ * is said once under the table, lettered, and the figure carries its letter.
  */
 function PositionsCard({
   detail,
@@ -310,6 +328,23 @@ function PositionsCard({
   content: ReportPackageContent | null;
   names: PositionNames;
 }): ReactNode {
+  const lines = (content?.lines ?? []).map((line) => ({
+    line,
+    begin: beginNavCell(line),
+    gain: gainLossCell(line),
+    end: endNavCell(line),
+    mark: markCell(line, content?.periodEnd ?? ''),
+  }));
+  // The reasons in the order a reader meets them, row by row and left to right.
+  const reasons = [
+    ...new Set(
+      lines.flatMap((l) =>
+        [l.begin, l.gain, l.end, l.mark].flatMap((c) => (c.why === undefined ? [] : [c.why])),
+      ),
+    ),
+  ];
+  const letterOf = (cell: FigureCell): string | undefined =>
+    cell.why === undefined ? undefined : String.fromCharCode(97 + reasons.indexOf(cell.why));
   return (
     <Card testId="package-positions">
       <SectionHeader
@@ -326,46 +361,59 @@ function PositionsCard({
             position behind an information wall that person is not on is not included.
           </p>
           {content.lines.length === 0 ? (
-            <EmptyState title="No positions in this package" />
+            <EmptyLine title="No positions in this package" />
           ) : (
-            <TableWrap label="Positions">
-              <table className="pb-table" aria-label="Positions">
-                <thead>
-                  <tr>
-                    <th>Position</th>
-                    <th className="num">Begin NAV</th>
-                    <th className="num">Contributions</th>
-                    <th className="num">Distributions</th>
-                    <th className="num">Gain or loss</th>
-                    <th className="num">End NAV</th>
-                    <th>Mark</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {content.lines.map((line) => {
-                    const mark = markCell(line, content.periodEnd);
-                    return (
+            <>
+              <TableWrap label="Positions">
+                <table className="pb-table" aria-label="Positions">
+                  <thead>
+                    <tr>
+                      <th>Position</th>
+                      <th className="num">Begin NAV</th>
+                      <th className="num">Contributions</th>
+                      <th className="num">Distributions</th>
+                      <th className="num">Gain or loss</th>
+                      <th className="num">End NAV</th>
+                      <th>Mark</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {lines.map(({ line, begin, gain, end, mark }) => (
                       <tr key={line.ref}>
                         <PositionTh positionRef={line.ref} names={names} />
-                        <FigureTd cell={beginNavCell(line)} />
+                        <FigureTd cell={begin} letter={letterOf(begin)} />
                         <NumCell>{formatMoneyM(line.contributions)}</NumCell>
                         <NumCell>{formatMoneyM(line.distributions)}</NumCell>
-                        <FigureTd cell={gainLossCell(line)} />
-                        <FigureTd cell={endNavCell(line)} />
-                        {mark.why === undefined ? (
-                          <td className="pb-nowrap">{mark.text}</td>
-                        ) : (
-                          <td className="is-missing" title={mark.why}>
-                            {mark.text}
-                            <span className="pb-visually-hidden"> {mark.why}</span>
-                          </td>
-                        )}
+                        <FigureTd cell={gain} letter={letterOf(gain)} />
+                        <FigureTd cell={end} letter={letterOf(end)} />
+                        <FigureTd
+                          cell={mark}
+                          letter={letterOf(mark)}
+                          // The quarter end's own mark is the usual case: muted, so a roll-forward stands out.
+                          className={
+                            mark.why === undefined &&
+                            line.endNavPeriodEnd !== null &&
+                            line.endNavPeriodEnd >= content.periodEnd
+                              ? 'pb-nowrap pb-pkg-mark-default'
+                              : 'pb-nowrap'
+                          }
+                        />
                       </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </TableWrap>
+                    ))}
+                  </tbody>
+                </table>
+              </TableWrap>
+              {reasons.length === 0 ? null : (
+                <ol className="pb-pkg-notes" data-testid="package-positions-notes">
+                  {reasons.map((why, i) => (
+                    <li key={why}>
+                      <span className="pb-pkg-notes-letter">{String.fromCharCode(97 + i)}.</span>{' '}
+                      {why}
+                    </li>
+                  ))}
+                </ol>
+              )}
+            </>
           )}
         </>
       )}
@@ -386,10 +434,10 @@ function FootnotesCard({
       {content === null ? (
         <NotGenerated />
       ) : content.footnotes.length === 0 ? (
-        <EmptyState title="No footnotes" />
+        <EmptyLine title="No footnotes" />
       ) : (
         <TableWrap label="Footnotes">
-          <table className="pb-table" aria-label="Footnotes">
+          <table className="pb-table pb-table-short" aria-label="Footnotes">
             <thead>
               <tr>
                 <th>Position</th>
@@ -437,14 +485,14 @@ function ClientShareCard({
       {content === null ? (
         <NotGenerated />
       ) : rows.length === 0 ? (
-        <EmptyState
+        <EmptyLine
           title="No client share to show"
           detail="A line appears for each position with an end NAV, once the client's ownership share of its vehicle is on record."
         />
       ) : (
         <>
           <TableWrap label="Client share">
-            <table className="pb-table" aria-label="Client share">
+            <table className="pb-table pb-table-short" aria-label="Client share">
               <thead>
                 <tr>
                   <th>Position</th>
@@ -499,11 +547,9 @@ function ExplanationsCard({
               ? 'No earlier package was released to this client on this basis, so there is nothing to tie to.'
               : 'Each begin NAV is tied to the end NAV of the last package released to this client on this basis. A difference needs an explanation.'}
           </p>
-          {rows.length === 0 ? (
-            <EmptyState title="No explanations recorded" />
-          ) : (
+          {rows.length === 0 ? null : (
             <TableWrap label="Tie-out explanations">
-              <table className="pb-table" aria-label="Tie-out explanations">
+              <table className="pb-table pb-table-short" aria-label="Tie-out explanations">
                 <thead>
                   <tr>
                     <th>Position</th>
@@ -554,7 +600,9 @@ function ChangeLogCard({ detail }: { detail: ReportPackageDetail }): ReactNode {
               <tbody>
                 {rows.map((row) => (
                   <tr key={row.runNo}>
-                    <th scope="row">Run {row.runNo}</th>
+                    <th scope="row" className="pb-nowrap">
+                      Run {row.runNo}
+                    </th>
                     <td className="pb-nowrap">{row.at}</td>
                     <td>{row.by}</td>
                     <NumCell>{String(row.positions)}</NumCell>
@@ -581,19 +629,31 @@ function Body({ detail }: { detail: ReportPackageDetail }): ReactNode {
   const { content } = detail;
   return (
     <div data-testid="package-detail">
-      <BackLink />
       <PageHeader
         testId="package-banner"
-        title={`${detail.client.name}: ${formatQuarter(detail.periodEnd)}`}
+        crumbs={TRAIL}
+        title={
+          <>
+            {detail.client.name}
+            {/* The quarter is part of the heading; the colon is heard, a gap is seen. */}
+            <span className="pb-visually-hidden">:</span>{' '}
+            <span className="pb-title-suffix">{formatQuarter(detail.periodEnd)}</span>
+          </>
+        }
         meta={
           <span className="pb-meta-list">
+            <span>
+              <PackageStateBadge state={detail.state} />
+            </span>
             <span>{BASIS_WORDS[detail.basis]}</span>
             <span>{LABEL_WORDS[detail.label]}</span>
             <span>Version {detail.version}</span>
             <span>As of {formatDate(detail.asOf)}</span>
           </span>
         }
-        actions={<PackageStateBadge state={detail.state} />}
+        actions={
+          <PackageActions detail={detail} roles={me.data?.roles ?? []} names={names} onLog={log} />
+        }
       />
       {detail.basis === 'net' ? (
         <p className="pb-notice pb-pkg-standing" data-testid="package-net-notice">
@@ -601,18 +661,11 @@ function Body({ detail }: { detail: ReportPackageDetail }): ReactNode {
         </p>
       ) : null}
       <ActionStatus latest={log.latest} testId="package-action-status" />
-      <ReleaseGateCard
-        detail={detail}
-        actions={
-          <PackageActions detail={detail} roles={me.data?.roles ?? []} names={names} onLog={log} />
-        }
-      />
+      <ReleaseGateCard detail={detail} />
       <ChecksCard detail={detail} names={names} />
       <PositionsCard detail={detail} content={content} names={names} />
-      <div className="pb-two-col">
-        <FootnotesCard content={content} names={names} />
-        <ClientShareCard content={content} names={names} />
-      </div>
+      <FootnotesCard content={content} names={names} />
+      <ClientShareCard content={content} names={names} />
       <ExplanationsCard detail={detail} content={content} names={names} />
       <ChangeLogCard detail={detail} />
       <ActionLogCard entries={log.entries} />
@@ -621,10 +674,10 @@ function Body({ detail }: { detail: ReportPackageDetail }): ReactNode {
 }
 
 /**
- * One reporting package (docs/04 M14): its header, its release gate with the commands that move
- * it, the checks of its latest run with what each expected and found, its positions, footnotes
- * and client share as stored, the tie-out explanations and the generation runs. A package of a client the reader does not
- * read answers 404 and reads as not found, so nothing says it exists.
+ * One reporting package (docs/04 M14): its header with the commands that move it, its release
+ * gate, the checks of its latest run with what each expected and found, its positions, footnotes
+ * and client share as stored, the tie-out explanations and the generation runs. A package of a
+ * client the reader does not read answers 404 and reads as not found, so nothing says it exists.
  */
 export function PackageDetailPage(): ReactNode {
   const { id } = useParams({ from: '/app/reporting/packages/$id' });
@@ -634,7 +687,7 @@ export function PackageDetailPage(): ReactNode {
     const missing = q.error instanceof ApiError && q.error.status === 404;
     return (
       <>
-        <BackLink />
+        <PageHeader crumbs={TRAIL} title="Client package" />
         {missing ? (
           <ErrorState
             title="Package not found"

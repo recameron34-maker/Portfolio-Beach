@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useId, useState } from 'react';
 import type { ReactNode } from 'react';
 import { Link } from '@tanstack/react-router';
 import { keepPreviousData, useQuery } from '@tanstack/react-query';
@@ -12,11 +12,11 @@ import { ActionLogCard, ActionStatus } from '../../../components/WorkflowActions
 import {
   Badge,
   Card,
+  EmptyLine,
   EmptyState,
   Field,
   PageHeader,
   PageSkeleton,
-  SectionHeader,
   TableWrap,
   TabNav,
   Toolbar,
@@ -43,7 +43,11 @@ export function PackageStateBadge({ state }: { state: ReportPackageState }): Rea
   return <Badge tone={packageTone(state)}>{humanizeState(state)}</Badge>;
 }
 
-/** The packages as one table, in the order they came (newest period first). Every row links to its package. */
+/**
+ * The packages as one table, in the order they came (newest period first): where each stands and
+ * what its checks said first, then what it is, its version and who prepared it. Every row links to
+ * its package.
+ */
 function PackageTable({ rows }: { rows: readonly ReportPackageRow[] }): ReactNode {
   return (
     <TableWrap label="Client packages">
@@ -52,31 +56,31 @@ function PackageTable({ rows }: { rows: readonly ReportPackageRow[] }): ReactNod
           <tr>
             <th>Client</th>
             <th>Quarter</th>
-            <th>Basis</th>
-            <th>Label</th>
-            <th>Version</th>
             <th>State</th>
             <th>Checks</th>
+            <th>Basis</th>
+            <th>Label</th>
+            <th className="num">Version</th>
             <th>Prepared by</th>
           </tr>
         </thead>
         <tbody>
           {rows.map((row) => (
             <tr key={row.id}>
-              <td>
+              <td className="pb-col-text">
                 <Link to="/reporting/packages/$id" params={{ id: row.id }}>
                   {row.client.name}
                 </Link>
               </td>
               <td className="pb-nowrap">{formatQuarter(row.periodEnd)}</td>
-              <td>{BASIS_WORDS[row.basis]}</td>
-              <td>{LABEL_WORDS[row.label]}</td>
-              <td className="pb-nowrap">Version {row.version}</td>
-              <td>
+              <td className="pb-nowrap">
                 <PackageStateBadge state={row.state} />
               </td>
-              <td>{checksSummary(row.qa)}</td>
-              <td>{row.preparedBy.name}</td>
+              <td className="pb-nowrap">{checksSummary(row.qa)}</td>
+              <td>{BASIS_WORDS[row.basis]}</td>
+              <td>{LABEL_WORDS[row.label]}</td>
+              <td className="num">{row.version}</td>
+              <td className="pb-nowrap">{row.preparedBy.name}</td>
             </tr>
           ))}
         </tbody>
@@ -101,16 +105,21 @@ export function PackagesPage(): ReactNode {
   const canStart = roles.some((r) => START_ROLES.includes(r));
   // A reader who may not start a package sees the button and which role it needs.
   const blocked = blockedTitle({ allowed: canStart, roles: START_ROLES });
+  const blockedId = useId();
   const header = (
     <>
-      <PageHeader
-        title="Client packages"
-        meta="One package per client, quarter and basis. Each passes its checks, a review and an approval before it is released."
-      />
+      <PageHeader title="Client packages" meta="Newest quarter first" />
       <TabNav label="Reporting" items={REPORTING_TABS} />
     </>
   );
-  if (q.isPending) return <PageSkeleton rows={8} />;
+  if (q.isPending) {
+    return (
+      <>
+        {header}
+        <PageSkeleton rows={8} />
+      </>
+    );
+  }
   if (q.isError) {
     return (
       <>
@@ -142,19 +151,26 @@ export function PackagesPage(): ReactNode {
         <StartPackageForm packages={items} onLog={log} onDone={() => setStarting(false)} />
       ) : null}
       <Card testId="packages-card">
-        <SectionHeader aside="Newest quarter first">Packages</SectionHeader>
         <Toolbar
           end={
-            <Button
-              size="small"
-              appearance="primary"
-              icon={<Add16Regular />}
-              disabled={!canStart || starting}
-              {...(blocked === null ? {} : { title: blocked })}
-              onClick={() => setStarting(true)}
-            >
-              Start package
-            </Button>
+            // A reader who may not start a package reads why beside the button, not only in its title.
+            <span className="pb-pkg-start">
+              {blocked === null ? null : (
+                <span className="pb-pkg-start-reason" id={blockedId}>
+                  {blocked}
+                </span>
+              )}
+              <Button
+                size="small"
+                appearance="primary"
+                icon={<Add16Regular />}
+                disabled={!canStart || starting}
+                {...(blocked === null ? {} : { title: blocked, 'aria-describedby': blockedId })}
+                onClick={() => setStarting(true)}
+              >
+                Start package
+              </Button>
+            </span>
           }
         >
           <Field>
@@ -195,14 +211,16 @@ export function PackagesPage(): ReactNode {
             </Dropdown>
           </Field>
         </Toolbar>
-        {rows.length === 0 ? (
+        {items.length === 0 ? (
           <EmptyState
-            title={items.length === 0 ? 'No packages yet' : 'No packages match'}
-            detail={
-              items.length === 0
-                ? 'Investor relations start a package for a client, a quarter and a basis. It appears here as a draft.'
-                : 'Pick another client or state.'
-            }
+            title="No packages yet"
+            detail="Investor relations start a package for a client, a quarter and a basis. It appears here as a draft."
+            testId="packages-empty"
+          />
+        ) : rows.length === 0 ? (
+          <EmptyLine
+            title="No packages match"
+            detail="Pick another client or state."
             testId="packages-empty"
           />
         ) : (
