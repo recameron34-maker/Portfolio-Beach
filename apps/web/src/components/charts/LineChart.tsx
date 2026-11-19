@@ -30,6 +30,7 @@ const PAD = { top: 12, right: 96, bottom: 28, left: 56 };
  */
 export function LineChart({
   title,
+  heading,
   subtitle,
   x,
   at,
@@ -42,6 +43,8 @@ export function LineChart({
   testId,
 }: {
   title: string;
+  /** The title is the section's heading (an h2): the chart is all its section holds. */
+  heading?: boolean | undefined;
   subtitle?: string | undefined;
   x: string[];
   /** Where each point sits along the axis, in any unit; left out, the points are evenly spaced. */
@@ -160,6 +163,7 @@ export function LineChart({
   return (
     <ChartFigure
       title={title}
+      heading={heading}
       subtitle={subtitle}
       series={keys}
       table={{

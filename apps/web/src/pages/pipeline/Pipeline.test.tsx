@@ -82,23 +82,24 @@ describe('pipeline board', () => {
       'href',
       `/pipeline/${OPP_ID.diligence}`,
     );
-    expect(card).toHaveTextContent(
-      'Dune Logistics Holdings, Kelpwood Capital Partners, Kelpwood Fund I',
-    );
-    expect(card).toHaveTextContent('Co invest equity');
+    // One fact a line, in the same order on every card: company, sponsor and fund, deal type,
+    // deal lead, then the target and the days in stage.
+    expect(
+      [...card.querySelectorAll('.pb-pipe-card-line')].map((line) => line.textContent),
+    ).toEqual([
+      'Dune Logistics Holdings',
+      'Kelpwood Capital Partners, Kelpwood Fund I',
+      'Co invest equity',
+      'Blake Mbeki',
+    ]);
     expect(card).toHaveTextContent('Target $15.0M');
     expect(card).toHaveTextContent('Blake Mbeki');
     // 40 days at Diligence sits within the 90-day guide: plain text, no dot.
     expect(card).toHaveTextContent('40 days in stage');
     expect(card).toHaveAttribute('data-tone', 'neutral');
     expect(card.querySelector('.pb-badge')).toBeNull();
-    // A line cut short keeps its whole text in its title.
-    expect(
-      within(card).getByText('Dune Logistics Holdings, Kelpwood Capital Partners, Kelpwood Fund I'),
-    ).toHaveAttribute(
-      'title',
-      'Dune Logistics Holdings, Kelpwood Capital Partners, Kelpwood Fund I',
-    );
+    // Lines wrap rather than being cut short, so no line hides its words in a title.
+    expect(card.querySelector('[title]')).toBeNull();
     // 45 days at Sourced is past the 30-day guide: a watch dot and the days, naming the guide.
     const sourced = within(board).getByTestId(`opportunity-card-${OPP_ID.sourced}`);
     expect(sourced).toHaveAttribute('data-tone', 'watch');

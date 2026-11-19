@@ -218,10 +218,16 @@ function TaskActions({
     allowed: mayUse(roles, PIPELINE_ROLES.taskCommand),
     roles: PIPELINE_ROLES.taskCommand,
   });
-  const button = (label: string, onClick: () => void): ReactNode => (
+  // A step back (Reopen) is drawn quiet, as it is on the valuation board, so the commands that move
+  // the item on read first.
+  const button = (
+    label: string,
+    onClick: () => void,
+    appearance: 'outline' | 'subtle' = 'outline',
+  ): ReactNode => (
     <Button
       size="small"
-      appearance="outline"
+      appearance={appearance}
       disabled={blocked !== null || busy}
       {...(blocked === null ? {} : { title: blocked })}
       aria-label={`${label}, ${task.title}`}
@@ -238,7 +244,7 @@ function TaskActions({
           {button('Waive', () => onStart({ kind: 'waive', task }))}
         </>
       ) : (
-        button('Reopen', () => onReopen(task))
+        button('Reopen', () => onReopen(task), 'subtle')
       )}
     </span>
   );

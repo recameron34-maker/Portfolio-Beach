@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { cleanup, fireEvent, screen, waitFor, within } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { Button } from '@fluentui/react-components';
 import userEvent from '@testing-library/user-event';
 import type { OpportunityDetail } from '@pb/contracts';
 import { failing, mockApi, ok, problemFixture } from '../../test/api-mock.js';
@@ -169,6 +170,23 @@ describe('opportunity page', () => {
     expect(within(rows[0]!).getByRole('button', { name: /Reopen/ })).toBeEnabled();
     expect(within(rows[2]!).getByRole('button', { name: /Complete/ })).toBeEnabled();
     expect(within(rows[2]!).getByRole('button', { name: /Waive/ })).toBeEnabled();
+    // A step back is quiet, as on the valuation board; the commands that move a task on are not.
+    render(
+      <>
+        <Button size="small" appearance="subtle">
+          Quiet reference
+        </Button>
+        <Button size="small" appearance="outline">
+          Outline reference
+        </Button>
+      </>,
+    );
+    expect(within(rows[0]!).getByRole('button', { name: /Reopen/ }).className).toBe(
+      screen.getByRole('button', { name: 'Quiet reference' }).className,
+    );
+    expect(within(rows[2]!).getByRole('button', { name: /Complete/ }).className).toBe(
+      screen.getByRole('button', { name: 'Outline reference' }).className,
+    );
     expect(within(tasks).getByTestId('diligence-task-form')).toBeInTheDocument();
 
     // The IC form is for approvers, and only while the deal is at IC: another role sees one line,
@@ -213,6 +231,15 @@ describe('opportunity page', () => {
       ).toBeTruthy();
     }
     expect(document.body.textContent).not.toContain(String.fromCharCode(0x2014));
+  });
+
+  it('names a record fact the deal lacks and shows the missing placeholder for it', async () => {
+    open(['deal_team'], opportunityDetailFixture({ source: null, sector: null, geography: null }));
+    const banner = await screen.findByTestId('opportunity-banner');
+    for (const fact of ['Source', 'Sector', 'Geography']) {
+      expect(within(banner).getByText(`${fact}: -`)).toBeInTheDocument();
+    }
+    expect(banner).not.toHaveTextContent('not recorded');
   });
 
   it('marks the stage in the watch ink only past its guide, and shows a settled stage alone', async () => {

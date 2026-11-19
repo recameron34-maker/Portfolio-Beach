@@ -179,7 +179,9 @@ describe('Data dictionary', () => {
     renderWithQuery(<DataDictionaryPage />);
     const table = await screen.findByRole('table', { name: 'Definitions' });
     expect(screen.getByRole('heading', { level: 1, name: 'Data dictionary' })).toBeInTheDocument();
-    expect(screen.getByText(/7 terms\. Percentages are written as decimals/)).toBeInTheDocument();
+    // The units note is a "_" name like any other, so the page does not restate it.
+    expect(screen.getByText('7 terms.')).toBeInTheDocument();
+    expect(screen.queryByText(/Percentages are written as decimals/)).toBeNull();
     const text = document.body.textContent ?? '';
     for (const key of ['currencyStorage', 'rollForwardToleranceUsd', 'ebitdaYoYDeclinePct'])
       expect(text).not.toContain(key);

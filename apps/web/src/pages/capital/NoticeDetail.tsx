@@ -276,9 +276,13 @@ function TicketCard({ notice }: { notice: CapitalNoticeDetail }): ReactNode {
         <>
           <KeyValueTable
             label="Trade ticket"
+            columns={1}
             rows={[
               { label: 'Amount', value: noticeAmount(ticket.amount, ticket.currency) },
-              { label: 'Funding date', value: formatDate(ticket.fundingDate) },
+              {
+                label: 'Funding date',
+                value: <span className="pb-nowrap">{formatDate(ticket.fundingDate)}</span>,
+              },
               { label: 'Prepared by', value: personAt(ticket.preparedBy, ticket.preparedAt) },
               { label: 'Approved by', value: personAt(ticket.approvedBy, ticket.approvedAt) },
               {
@@ -345,6 +349,7 @@ function WireCard({
       ) : (
         <KeyValueTable
           label="Active wire instruction"
+          columns={1}
           rows={[
             {
               label: 'Counterparty',

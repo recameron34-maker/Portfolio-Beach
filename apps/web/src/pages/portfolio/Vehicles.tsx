@@ -90,7 +90,7 @@ function ActivePositionsCard({ items }: { items: VehicleSummary[] }): ReactNode 
   const total = bars.reduce((sum, b) => sum + b.value, 0);
   return (
     <Card>
-      {/* The chart's own title is the section's: no second heading over it. */}
+      {/* The chart's own title is the section's heading: no second heading over it. */}
       {top === undefined || top.value === 0 ? (
         <>
           <SectionHeader>Active positions</SectionHeader>
@@ -102,6 +102,7 @@ function ActivePositionsCard({ items }: { items: VehicleSummary[] }): ReactNode 
       ) : (
         <HorizontalBars
           title="Active positions by vehicle"
+          heading
           subtitle="Realized positions are not counted"
           data={bars}
           kind="count"

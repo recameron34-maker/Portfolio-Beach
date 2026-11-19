@@ -290,18 +290,22 @@ function ChartsRow({ summary }: { summary: AnalyticsSummary }): ReactNode {
     display: formatMoneyM(b.nav),
   }));
   const largest = vehicles[0];
-  // Each chart's title is its section's title: no second heading over it.
+  // Each chart's title is its section's heading: no second heading over it.
   return (
     <div className="pb-two-col">
       <Card>
         {largest === undefined ? (
-          <EmptyState
-            title="No active positions"
-            detail="Exposure appears once positions are active."
-          />
+          <>
+            <SectionHeader>Exposure by vehicle</SectionHeader>
+            <EmptyState
+              title="No active positions"
+              detail="Exposure appears once positions are active."
+            />
+          </>
         ) : (
           <HorizontalBars
             title="Exposure by vehicle"
+            heading
             subtitle="Locked marks only"
             data={vehicles}
             kind="money"

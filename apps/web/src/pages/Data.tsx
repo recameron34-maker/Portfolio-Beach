@@ -113,19 +113,11 @@ export function DataDictionaryPage(): ReactNode {
                 l.name.toLowerCase().includes(needle) || l.value.toLowerCase().includes(needle),
             ),
         );
-  // The file's own note on units, said in words when it is there.
-  const decimals = typeof q.data.definitions._units === 'string';
+  // Names starting with "_" are notes for the build and are skipped at every level, the units
+  // note too: the page states nothing the terms themselves do not.
   return (
     <>
-      <PageHeader
-        title="Data dictionary"
-        meta={
-          <>
-            {plural(terms.length, 'term')}.
-            {decimals ? ' Percentages are written as decimals: 0.10 is 10%.' : ''}
-          </>
-        }
-      />
+      <PageHeader title="Data dictionary" meta={`${plural(terms.length, 'term')}.`} />
       <TabNav label="Admin" items={ADMIN_TABS} />
       <Card>
         <Toolbar>

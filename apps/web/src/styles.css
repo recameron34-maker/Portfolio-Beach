@@ -87,6 +87,11 @@ html {
 * {
   box-sizing: border-box;
 }
+/* Bold is the type scale's heaviest weight, 600: the bundled face stops there (docs/06 section 2). */
+b,
+strong {
+  font-weight: 600;
+}
 a {
   color: var(--pb-brand-primary);
   text-decoration-thickness: 1px;
@@ -928,11 +933,31 @@ p:last-child {
 .pb-table-wrap:focus-visible {
   outline-offset: 0;
 }
-/* A long table: a region of limited height whose header stays in view while the rows scroll. */
+/* A long table: a region of limited height whose header stays in view while the rows scroll. While
+   rows lie below its foot, a soft edge at the foot says so (a cover that travels with the rows over
+   a shade that stays put, as at the sides) and the foot takes a rule (TableWrap marks
+   data-more-below); at the last row both are gone. */
 .pb-table-wrap.is-tall {
   max-height: min(72vh, 760px);
   overflow: auto;
   overscroll-behavior: contain;
+  border-bottom: 1px solid transparent;
+  background:
+    linear-gradient(to right, var(--pb-bg), var(--pb-bg)) left center / var(--pb-space-2) 100%
+      no-repeat local,
+    linear-gradient(to left, var(--pb-bg), var(--pb-bg)) right center / var(--pb-space-2) 100%
+      no-repeat local,
+    linear-gradient(to top, var(--pb-bg), var(--pb-bg)) center bottom / 100% var(--pb-space-4)
+      no-repeat local,
+    linear-gradient(to right, rgba(var(--pb-text-rgb), 0.08), transparent) left center /
+      var(--pb-space-2) 100% no-repeat scroll,
+    linear-gradient(to left, rgba(var(--pb-text-rgb), 0.08), transparent) right center /
+      var(--pb-space-2) 100% no-repeat scroll,
+    linear-gradient(to top, rgba(var(--pb-text-rgb), 0.1), transparent) center bottom / 100%
+      var(--pb-space-4) no-repeat scroll;
+}
+.pb-table-wrap.is-tall[data-more-below] {
+  border-bottom-color: var(--pb-border-strong);
 }
 .pb-table-wrap.is-tall thead th {
   position: sticky;
@@ -946,6 +971,12 @@ p:last-child {
 }
 .pb-table-wrap + .pb-meta {
   margin-top: var(--pb-space-2);
+}
+/* A short table of a few columns (checks, flags, switches, a deal's financial performance) stops
+   at a reading width, so a state or a command sits near the words it belongs to; a register keeps
+   the page's width. */
+.pb-table.pb-table-short {
+  max-width: 880px;
 }
 .pb-table {
   width: 100%;
@@ -1323,12 +1354,13 @@ p:last-child {
 /* Tabs: the words in a row over a hairline; the current tab in ink with an accent line drawn under
    it, over the hairline (section "Motion"). The hairline is painted behind the row, so a row that
    scrolls (a phone) never clips the accent line. They wrap on a wide screen; on a phone they are
-   one row that scrolls. */
+   one row that scrolls. The row starts a tab's side room left of the page's edge, so the first
+   tab's word sits on the edge the title and the tables' text share, its hit area in the gutter. */
 .pb-tabs {
   display: flex;
   flex-wrap: wrap;
   gap: 0 var(--pb-space-1);
-  margin: 0 0 var(--pb-space-5);
+  margin: 0 0 var(--pb-space-5) calc(var(--pb-space-3) * -1);
   box-shadow: inset 0 -1px 0 var(--pb-border);
   scrollbar-width: none;
 }
@@ -1568,7 +1600,8 @@ p:last-child {
   }
 }
 
-/* ---- Stat tile figure: a small figure beside the key number, or a sparkline under it ---- */
+/* ---- Stat tile figure: a small figure beside the key number, or a sparkline after the hint ----
+   The sparkline follows the hint, so every hint of a strip sits on one line. */
 .pb-stat-row {
   display: flex;
   flex-wrap: wrap;
@@ -1578,13 +1611,13 @@ p:last-child {
   min-width: 0;
 }
 .pb-stat-row:has(> .pb-sparkline) {
-  flex-direction: column;
-  align-items: flex-start;
-  gap: var(--pb-space-1);
+  display: contents;
 }
 .pb-stat-row > .pb-sparkline {
   flex: none;
+  order: 1;
   max-width: 100%;
+  margin-top: var(--pb-space-1);
 }
 
 /* ---- Preview guide (preview only): walkthroughs for a reviewer, on sign-in and on Home ---- */
@@ -1797,17 +1830,30 @@ p:last-child {
   align-items: center;
   gap: 2px var(--pb-space-1);
 }
-.pb-command-buttons > button {
+.pb-command-buttons > button,
+.pb-command-run > button {
   white-space: nowrap;
 }
-/* Why a command is blocked, in words under the buttons (CommandButtons showBlockedReason). */
-.pb-command-group,
-.pb-command-reason {
+/* Why a command is blocked, in words under the button it explains (CommandButtons
+   showBlockedReason): the blocked button, or the blocked buttons side by side that share the
+   reason, and the words under them from their first button's edge, as one item in the row. The
+   words wrap within a short measure, so a long reason never pushes the next button far away. */
+.pb-command-buttons.pb-command-group {
+  align-items: flex-start;
+}
+.pb-command-item {
   display: inline-flex;
   flex-direction: column;
   align-items: flex-start;
+  min-width: 0;
+}
+.pb-command-run {
+  display: inline-flex;
+  gap: 2px var(--pb-space-1);
 }
 .pb-command-reason {
+  display: block;
+  max-width: 28ch;
   margin-top: var(--pb-space-1);
   font-size: var(--pb-text-sm);
   line-height: var(--pb-text-sm-lh);
@@ -2112,10 +2158,24 @@ p:last-child {
 }
 
 /* ---- AG Grid companions ---- */
-/* The grid reaches 8px past its section, as a table does, so its text starts on the title's edge. */
+/* The grid reaches 8px past its section, as a table does, so its text starts on the title's edge.
+   While columns lie beyond its right edge, the edge shows a shade, as a table's frame does
+   (Portfolio.tsx marks data-more-after from the grid's scroll). */
 .pb-grid {
+  position: relative;
   height: max(360px, calc(100dvh - var(--pb-header-h) - 220px));
   margin-inline: calc(var(--pb-space-2) * -1);
+}
+.pb-grid[data-more-after]::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 2;
+  width: var(--pb-space-3);
+  background: linear-gradient(to left, rgba(var(--pb-text-rgb), 0.1), transparent);
+  pointer-events: none;
 }
 /* The grid's controls in one row over it: search, deal type, active only, then on the right the
    count, the row density and the export. Previous and Next sit under the grid, right-aligned, and
@@ -2237,6 +2297,11 @@ p:last-child {
 /* The role table: the role in words, "Your role" after it in muted words, its users under it. */
 .pb-role-cell {
   min-width: 200px;
+}
+@media (max-width: 760px) {
+  .pb-role-cell {
+    min-width: 120px;
+  }
 }
 .pb-role-mine {
   margin-left: var(--pb-space-2);
@@ -2687,14 +2752,19 @@ p:last-child {
     justify-self: start;
     margin-top: var(--pb-space-2);
   }
-  /* A table that scrolls sideways keeps its first column in view, with a hairline at its edge. A
-     key and value table holds one pair a row on a phone and needs neither. Kept at one class, so
-     a hovered or selected row and a page's own pinned column still win. */
+  /* A table that scrolls sideways keeps its first column in view, with a hairline at its edge only
+     while the table is wider than its frame (TableWrap marks data-overflow-x), so a table that fits
+     draws no rule between columns. A key and value table holds one pair a row on a phone and needs
+     neither. Kept at one class, so a hovered or selected row and a page's own pinned column still
+     win. A table whose first column is a row number (`pb-hold-2`) holds its second, the position,
+     so a row is still named once the reader has scrolled to its findings. */
   :where(.pb-table:not(.pb-kv)) :is(th, td):first-child {
     position: sticky;
     left: 0;
     z-index: 1;
     background: var(--pb-bg);
+  }
+  :where(.pb-table-wrap[data-overflow-x] .pb-table:not(.pb-kv)) :is(th, td):first-child {
     box-shadow: inset -1px 0 0 var(--pb-hairline);
   }
   :where(.pb-table:not(.pb-kv)) thead th:first-child {
@@ -2702,6 +2772,26 @@ p:last-child {
   }
   :where(.pb-table-wrap.is-tall .pb-table:not(.pb-kv)) thead th:first-child {
     z-index: 2;
+  }
+  :where(.pb-table.pb-hold-2) :is(th, td):first-child {
+    position: static;
+    box-shadow: none;
+  }
+  :where(.pb-table.pb-hold-2) :is(th, td):nth-child(2) {
+    position: sticky;
+    left: 0;
+    z-index: 1;
+    background: var(--pb-bg);
+  }
+  :where(.pb-table-wrap[data-overflow-x] .pb-table.pb-hold-2) :is(th, td):nth-child(2) {
+    box-shadow: inset -1px 0 0 var(--pb-hairline);
+  }
+  /* A header may wrap on a phone, so a long one ("LTM / Current (Jun 30, 2025)") never sets its
+     column's width: the column is as wide as its cells need, and a figure column's figures keep
+     their one line. */
+  .pb-table thead th,
+  .pb-table thead th.num {
+    white-space: normal;
   }
   .pb-toolbar > .pb-field {
     flex: 1 1 100%;
@@ -2760,6 +2850,14 @@ p:last-child {
   .pb-grid-toolbar-end > .fui-Button {
     white-space: nowrap;
   }
+  /* A switch or a quiet button that starts a row of controls starts on the page's text edge:
+     Fluent sets the switch 8px in, and a quiet button's icon sits inside its own padding. */
+  .pb-main :is(.pb-toolbar, .pb-grid-toolbar) > .fui-Switch > .fui-Switch__indicator {
+    margin-left: 0;
+  }
+  .pb-grid-toolbar-end > .pb-meta + * {
+    margin-left: calc(var(--pb-space-2) * -1);
+  }
   /* Sign-in: the data rule under the wordmark, the column at the phone's gutter. */
   .pb-signin-bar {
     padding: var(--pb-space-2) var(--pb-space-4);
@@ -2785,6 +2883,7 @@ p:last-child {
     min-height: 44px;
   }
   .pb-command-buttons,
+  .pb-command-run,
   .pb-actions {
     gap: var(--pb-space-2);
   }

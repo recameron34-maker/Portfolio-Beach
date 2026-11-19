@@ -139,7 +139,7 @@ function RowsTable({ rows }: { rows: readonly LookthroughRow[] }): ReactNode {
   return (
     <TableWrap label="Reconciled positions">
       <table
-        className="pb-table pb-lookthrough-rows"
+        className="pb-table pb-hold-2 pb-lookthrough-rows"
         aria-label="Reconciled positions"
         data-testid="lookthrough-rows"
       >

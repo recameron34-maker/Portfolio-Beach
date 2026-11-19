@@ -43,11 +43,15 @@
 .pb-cap-vehicle {
   min-width: 18ch;
 }
-/* The fund's sponsor, vintage and strategy read as one line, a dot between them. */
+/* The fund's sponsor, vintage and strategy read as one line, a dot between them. Each item stays
+   whole and carries the dot after it, so a line that wraps breaks after a dot, never before one. */
 .pb-cap-fund-detail {
   column-gap: 0;
 }
-.pb-cap-fund-detail > span + span::before {
+.pb-cap-fund-detail > span {
+  white-space: nowrap;
+}
+.pb-cap-fund-detail > span:not(:last-child)::after {
   content: '\00B7';
   margin: 0 var(--pb-space-2);
 }

@@ -381,7 +381,10 @@ export function Badge({
  * It is positioned, so visually hidden text inside the table (absolutely positioned) scrolls and
  * clips with the table instead of widening the page. The label is the table's own label. `tall`
  * holds a long table in a region of limited height whose header stays in view; `busy` says the
- * rows are being replaced (aria-busy), and the frame dims while they are.
+ * rows are being replaced (aria-busy), and the frame dims while they are. The frame marks, for the
+ * stylesheet, when its table is wider than it (`data-overflow-x`: the held first column's edge)
+ * and when a tall region has rows below its foot (`data-more-below`: the rule at the foot), the
+ * way TabNav marks the ends of its row.
  */
 export function TableWrap({
   label,
@@ -396,8 +399,31 @@ export function TableWrap({
   testId?: string | undefined;
   children: ReactNode;
 }): ReactNode {
+  const frame = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const wrap = frame.current;
+    if (wrap === null) return undefined;
+    const mark = (): void => {
+      wrap.toggleAttribute('data-overflow-x', wrap.scrollWidth > wrap.clientWidth + 1);
+      wrap.toggleAttribute(
+        'data-more-below',
+        tall && wrap.scrollTop + wrap.clientHeight < wrap.scrollHeight - 1,
+      );
+    };
+    mark();
+    wrap.addEventListener('scroll', mark, { passive: true });
+    const resized = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(mark);
+    resized?.observe(wrap);
+    // The table inside changes size when its rows change (a filter, a page of results).
+    if (wrap.firstElementChild !== null) resized?.observe(wrap.firstElementChild);
+    return () => {
+      wrap.removeEventListener('scroll', mark);
+      resized?.disconnect();
+    };
+  });
   return (
     <div
+      ref={frame}
       className={tall ? 'pb-table-wrap is-tall' : 'pb-table-wrap'}
       role="region"
       aria-label={label}
@@ -480,7 +506,7 @@ export function CheckList({
     narrow && r.action !== undefined ? <span className="pb-check-command">{r.action}</span> : null;
   return (
     <TableWrap label={label} testId={testId}>
-      <table className="pb-table pb-checks" aria-label={label}>
+      <table className="pb-table pb-table-short pb-checks" aria-label={label}>
         <thead>
           <tr>
             <th scope="col">Check</th>

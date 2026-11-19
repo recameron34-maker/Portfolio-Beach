@@ -79,7 +79,7 @@ export function DocumentsTable({
                   <Link
                     to="/documents/$id"
                     params={{ id: doc.id }}
-                    className="pb-documents-clip"
+                    className="pb-documents-clip is-title"
                     title={doc.title}
                   >
                     {doc.title}

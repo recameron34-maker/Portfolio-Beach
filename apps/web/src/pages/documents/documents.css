@@ -15,10 +15,11 @@
   display: contents;
 }
 
-/* The hub's table: the title and its file name keep one line each, cut short with their whole text
-   in the title, so a long title never folds the row; the title column takes the room the other
-   columns leave (their text keeps its width, the title's adds none: contain), and the company and
-   its number share a line. */
+/* The hub's table: the title may take two lines, so the part that tells two documents apart (the
+   fund or company after the type) shows; the file name keeps one line; either cut short keeps its
+   whole text in its title, so a row stays at most three lines. The title column takes the room the
+   other columns leave (their text keeps its width, the title's adds none: contain), and the company
+   and its number share a line. */
 .pb-documents-title {
   width: 100%;
   min-width: 220px;
@@ -29,6 +30,13 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+.pb-documents-clip.is-title {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  white-space: normal;
 }
 .pb-cell-sub > .pb-documents-clip {
   flex: 1 1 0;

@@ -413,22 +413,8 @@ function QuarterEndCard({
         Lists every request not applied by the quarter end and opens a data exception for each one
         still missing from the exceptions list. Running it again opens nothing more.
       </p>
-      <Toolbar
-        end={
-          <>
-            <Button
-              size="small"
-              appearance="primary"
-              disabled={blocked !== null || check.isPending || period === ''}
-              {...(blocked === null ? {} : { title: blocked })}
-              onClick={run}
-            >
-              Run quarter-end check
-            </Button>
-            {previewMode ? <SimulatedBadge /> : null}
-          </>
-        }
-      >
+      {/* The command follows the one field it acts on, so the two read as one row. */}
+      <Toolbar>
         <Field>
           <Label htmlFor="quarter-end-period">Quarter end</Label>
           <Dropdown
@@ -445,6 +431,18 @@ function QuarterEndCard({
             ))}
           </Dropdown>
         </Field>
+        <span className="pb-actions">
+          <Button
+            size="small"
+            appearance="primary"
+            disabled={blocked !== null || check.isPending || period === ''}
+            {...(blocked === null ? {} : { title: blocked })}
+            onClick={run}
+          >
+            Run quarter-end check
+          </Button>
+          {previewMode ? <SimulatedBadge /> : null}
+        </span>
       </Toolbar>
       {result === null ? null : (
         <div data-testid="quarter-end-result">

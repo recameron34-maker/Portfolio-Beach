@@ -41,12 +41,22 @@ function UnfundedCell({ row }: { row: FundCommitmentRow }): ReactNode {
   );
 }
 
-/** What identifies a sponsor fund under its name: the sponsor, the vintage and the strategy. */
-function fundDetail(row: FundCommitmentRow): string[] {
+/**
+ * What identifies a sponsor fund under its name: the sponsor, the vintage and the strategy. A
+ * vintage or strategy the record lacks shows the missing placeholder (docs/06), named for a screen
+ * reader and in its title, since the line has no column header to name it.
+ */
+function fundDetail(row: FundCommitmentRow): ReactNode[] {
+  const missing = (what: string): ReactNode => (
+    <span title={`${what} not recorded`}>
+      <span aria-hidden="true">{MISSING}</span>
+      <span className="pb-visually-hidden">{what} not recorded</span>
+    </span>
+  );
   return [
     row.sponsorName,
-    row.vintage === null ? 'Vintage not recorded' : String(row.vintage),
-    row.strategy === null ? 'Strategy not recorded' : labelOf(row.strategy),
+    row.vintage === null ? missing('Vintage') : String(row.vintage),
+    row.strategy === null ? missing('Strategy') : labelOf(row.strategy),
   ];
 }
 
@@ -131,6 +141,8 @@ function CommitmentsTable({
                 </span>
               </td>
               <td className="pb-cap-vehicle">
+                {/* The API names a client only for a separate account the reader may see; a
+                    pooled vehicle has no one client, so no line stands in for one. */}
                 {r.vehicleName}
                 {r.clientName === null ? null : <span className="pb-cell-sub">{r.clientName}</span>}
               </td>

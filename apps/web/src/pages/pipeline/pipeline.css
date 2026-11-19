@@ -67,8 +67,8 @@
   color: var(--pb-muted-strong);
 }
 
-/* A card: four rows of one line each, so every card has the same shape: the deal, the company and
-   sponsor, then the deal type and the deal lead with the target and the days on the right. The
+/* A card: the same rows on every card, each wrapping rather than cut short: the deal, the company,
+   the sponsor and fund, the deal type, the deal lead, then the target and the days in stage. The
    deal's name is the link, and its ::after covers the card, so the whole card opens the deal;
    the focus ring is drawn on that cover. Under the pointer the card takes a table row's tint. */
 .pb-pipe-card {
@@ -94,9 +94,7 @@
 }
 .pb-pipe-card-name {
   min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  overflow-wrap: break-word;
   font-weight: 600;
   color: var(--pb-text);
   text-decoration: none;
@@ -130,9 +128,7 @@
 }
 .pb-pipe-card-line {
   min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  overflow-wrap: break-word;
   font-size: var(--pb-text-sm);
   line-height: var(--pb-text-sm-lh);
   color: var(--pb-muted-strong);
@@ -148,7 +144,7 @@
 
 /* ---- The opportunity's header: the stage, its commands and the preview marker ----
    One row on the right of the title; the buttons are the page's own commands, so they are
-   full size, and why one is blocked reads under them. */
+   full size, and why one is blocked reads under the button it explains, from its edge. */
 .pb-pipe-head-actions {
   display: flex;
   flex-wrap: wrap;
@@ -166,11 +162,6 @@
   flex-direction: column;
   align-items: flex-end;
   max-width: 48ch;
-}
-.pb-pipe-actions .pb-command-group,
-.pb-pipe-actions .pb-command-reason {
-  align-items: flex-end;
-  text-align: right;
 }
 .pb-pipe-actions > .pb-note {
   margin-top: var(--pb-space-1);
@@ -516,11 +507,8 @@
   .pb-pipe-head-actions {
     justify-content: flex-start;
   }
-  .pb-pipe-actions,
-  .pb-pipe-actions .pb-command-group,
-  .pb-pipe-actions .pb-command-reason {
+  .pb-pipe-actions {
     align-items: flex-start;
-    text-align: left;
   }
   .pb-pipe-actions > .pb-note {
     text-align: left;

@@ -646,6 +646,27 @@ describe('closing page', () => {
     expect(
       await screen.findByText('Opportunity not found or not visible to you'),
     ).toBeInTheDocument();
+    // Nothing to go back to but the board.
+    expect(
+      within(screen.getByRole('navigation', { name: 'Breadcrumb' }))
+        .getAllByRole('link')
+        .map((a) => a.getAttribute('href')),
+    ).toEqual(['/pipeline']);
+    cleanup();
+    vi.restoreAllMocks();
+
+    // A load that failed for another reason still leads back to the opportunity by its id.
+    params.id = OPP_ID.closing;
+    mockApi({
+      [PIPE_PATHS.me]: ok(rolePrincipal(['viewer'])),
+      [PIPE_PATHS.opportunity(OPP_ID.closing)]: failing(501, '/api/v1/opportunities'),
+    });
+    renderWithQuery(<ClosingPage />);
+    await screen.findByTestId('closing-page-unavailable');
+    const back = within(screen.getByRole('navigation', { name: 'Breadcrumb' })).getByRole('link', {
+      name: 'Opportunity',
+    });
+    expect(back).toHaveAttribute('href', `/pipeline/${OPP_ID.closing}`);
     cleanup();
     vi.restoreAllMocks();
 

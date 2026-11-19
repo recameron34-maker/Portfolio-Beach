@@ -1036,3 +1036,43 @@ The fifth area slice of `docs/handoff/ui-pass-plan.md` (findings P66 to P76), wi
 - `journey3.spec.ts` reads the method inputs as two rows with no header row (the inputs are pairs now).
 - Slice 14 still owns the copy that names the build on these pages: `VARIANCE_TITLE` "(config/definitions.json)" in the Change figure's hint and the variance dot's title, and the commitments footnote's "Calc version". A notice's notes carry "(SEC-12.3)" from the API's own words.
 - A rejected change request's reason stays on one line under its state, so a long reason widens the queue (as before).
+
+### Session 13 (2026-11-19): the UI pass, fixes from the review of slices 5 to 9
+
+Two reviewers read slices 5 to 9 against the code and the screenshots and raised 27 findings. Twenty-four are fixed here; three belong to later slices (the charts' marks and the radar's labels to slice 11) or stay held by the probe (the base case strip's capitals). No request, figure, role check, enablement or access rule changes.
+
+**What changed**
+
+- **The pipeline board**: each card is one fact a line, in the same order on every card (the deal, the company, the sponsor and fund, the deal type, the deal lead, then the target and the days in stage), and every line wraps instead of being cut short, so at 1440 no card loses its sponsor, its whole deal type or its lead.
+- **Why a command is blocked** sits under the button it explains, from that button's edge (`CommandButtons`: the blocked button, or blocked buttons side by side that share the reason, and the words under them as one item in the row, within 28 characters' measure). On an opportunity "Needs approver" sits under "Advance to Approved", not under Pass; on the valuation board the reason sits under New valuation, not under Reset preview. The `aria-describedby` links are unchanged.
+- **Tables on a phone**: a header may wrap, so a long one no longer sets its column's width (the role table fits its frame; a deal's financial performance keeps its labels whole); the role column's minimum is 120px under 760px; the held first column draws its edge hairline only while the table is wider than its frame (`TableWrap` marks `data-overflow-x`); the intake, weekly and look-through rows hold the position, not the row number (`pb-hold-2`).
+- **Tall regions** (trade tickets, the notice and wire registers, taxonomy, the dictionary): while rows lie below the foot, the foot shows a soft shade and a rule (`TableWrap` marks `data-more-below`); both go at the last row.
+- **Short tables** (check lists, flags, kill switches, a deal's financial performance) stop at 880px, so a state or a command sits near its words.
+- **The positions grid** shades its right edge while columns lie beyond it (`data-more-after`, set from the grid's scroll range); on a phone the company column is 150px, so the first figure column fits whole; the switch and the first quiet button of a phone toolbar row start on the 16px text edge (also the notice register's "Include reconciled").
+- **The tab row** starts a tab's side room left of the page's edge, so the first tab's word sits on the title's edge (the deal workspace's held bar keeps it there).
+- **Figures and lines**: the NAV sparkline follows its hint, so the strip's hints share one line; the commitments' "sponsor · vintage · strategy" line breaks after a dot, never before one; the intake's record and file figures share right edges down the column (set track widths); the documents hub's titles may take two lines; dates in a deal's valuations and cash flows and the notice's funding date keep one line, and the notice's ticket and wire tables hold one pair a row; `b` and `strong` are 600.
+- **Missing values**: a commitment's missing vintage or strategy shows the placeholder (named for a screen reader and in its title) instead of words; an opportunity's missing source, sector or geography reads "Source: -", "Sector: -", "Geography: -". A null client is not a missing value: the API names a client only for a separate account the reader may see, so a pooled vehicle shows no client line (recorded here, as the review asked).
+- **Monitoring**: how early, late or far off a report is shows under its due date for every report again, quiet for received and expected reports and in the report's ink once late or missing (it had moved into the date's title for the first two).
+- **Chart sections keep a heading**: a chart that is all its section holds has its title as the section's h2 (`ChartFigure`, `LineChart` and `HorizontalBars` gain `heading`), on Home (exposure and the NAV trend), the vehicles list and, through `NavTrendCard`, Analytics Performance and a vehicle's page; with no trend yet the same words head the section.
+- **Smaller**: a wall's records the reader may not see are counted once ("1 record you cannot see"); the quarter-end check's command follows its field; the pipeline's row Reopen is quiet, as on the valuation board; the closing page's error state still leads back to the opportunity by its id; the data dictionary's meta no longer restates the configuration's units note (a "_" name, skipped like every other).
+- Tests read the new structure and strengthen two guards: the ticket release's tone through its dots (good when allowed, bad on each blocker) and the look-through rows' findings tone (bad on the unmapped, stale and alias rows).
+- `docs/06` sections 2 and 5: tall regions and short tables, tables on phones, the tab row's edge, the board's cards, a blocked command's reason, the grid's edge and the sparkline's place.
+
+**Verified**
+
+- `pnpm typecheck` and `pnpm lint` clean; `pnpm exec vitest run --project web`: 153 files, 1682 tests passed.
+- `bash scripts/check-style.sh` and `pnpm check:employer-data` OK; `pnpm --filter @pb/api build` and `pnpm --filter @pb/web build:preview` OK.
+- The probe: 238 passed, 0 failed, 0 skipped, on the first and the final build.
+- `e2e/a11y.spec.ts` with the specs slices 5 to 9 name (`journey1`, `deal-tabs`, `vehicles-sponsors`, `underwriting`, `value-creation`, `journey6`, `deal-fit`, `documents`, `monitoring`, `intake`, `weekly`, `lookthrough`, `ops-drop`, `journey3`, `journey4`, `suggestions`): 71 passed. `monitoring.spec.ts` reads the due cell as the date and its age line.
+- Screenshots: areas shell, portfolio, pipeline, dataops and valuations (144) taken again on the final build, none failed, the two page notes unchanged (the viewer's intake and suggestions not shown). Compared with the slice 9 set and the review's evidence: the board at 1440, the opportunity's and the valuation board's headers, access and walls and a deal's overview at 390, trade tickets' foot, the intake file at 1440 and 390, the look-through run at 390, Home at 1440 and 390, flags, data health, positions at 1440 and 390, the commitments at 390, the notice at 1440, change requests, the hub and monitoring.
+
+**Not taken**
+
+- The charts' marks (bar thickness, the wash under a single line, labels cut in the middle on a phone) and the radar's label touching its point: slice 11, the chart library, owns both; DealFit's radar is drawn by `RadarChart`.
+- The base case strip's capitals: still read by the probe as rendered (open item from slice 2).
+
+**Open items**
+
+- The changed lines run to about 1,000 with this record (about 650 added and 270 removed in code, docs and tests; the tests about 200).
+- A shared reason under two blocked buttons that are not side by side shows under the first only; the second points to the same line (none of today's pages has that order).
+- The deal workspace's dense quarterly tables keep one-line headers on a phone (their own rule); they scroll inside their frame.

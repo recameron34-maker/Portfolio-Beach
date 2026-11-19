@@ -87,9 +87,13 @@ describe('home dashboard', () => {
     expect(screen.getByRole('group', { name: 'Exposure by vehicle' })).toBeInTheDocument();
     expect(screen.getByRole('group', { name: 'NAV by quarter' })).toBeInTheDocument();
     expect(screen.getAllByText('Locked marks only').length).toBeGreaterThan(0);
-    // A chart's title is its section's title: no second heading over either chart.
+    // A chart's title is its section's heading: no second heading over either chart.
     expect(screen.queryByRole('heading', { name: 'Exposure' })).not.toBeInTheDocument();
     expect(screen.queryByRole('heading', { name: /^Trend/ })).not.toBeInTheDocument();
+    expect(
+      screen.getByRole('heading', { level: 2, name: 'Exposure by vehicle' }),
+    ).toBeInTheDocument();
+    expect(screen.getByRole('heading', { level: 2, name: 'NAV by quarter' })).toBeInTheDocument();
 
     // Data health: the first three checks, each with its count.
     const checks = await screen.findByRole('table', { name: 'Data checks' });

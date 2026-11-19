@@ -264,7 +264,11 @@ function DecisionCell({ row }: { row: IntakeRow }): ReactNode {
 function RowsTable({ rows }: { rows: readonly IntakeRow[] }): ReactNode {
   return (
     <TableWrap label="Staged rows">
-      <table className="pb-table pb-intake-rows" aria-label="Staged rows" data-testid="intake-rows">
+      <table
+        className="pb-table pb-hold-2 pb-intake-rows"
+        aria-label="Staged rows"
+        data-testid="intake-rows"
+      >
         <thead>
           <tr>
             <th className="num">Row</th>

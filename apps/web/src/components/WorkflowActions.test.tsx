@@ -103,6 +103,39 @@ describe('workflow action pieces', () => {
       'Only a Locked version reopens',
     );
     expect(screen.getByText('Only a Locked version reopens')).toBeVisible();
+    // Each reason sits under the button it explains, never under the group as a whole: the item
+    // that holds the words holds that button and no other.
+    const sendBackItem = screen.getByText('Needs approver').closest('.pb-command-item');
+    expect(sendBackItem).toContainElement(blocked);
+    expect(sendBackItem).not.toContainElement(approve);
+    const reopenItem = screen
+      .getByText('Only a Locked version reopens')
+      .closest('.pb-command-item');
+    expect(reopenItem).toContainElement(screen.getByRole('button', { name: 'Reopen' }));
+    expect(reopenItem).not.toContainElement(blocked);
+  });
+
+  it('keeps one line for blocked buttons side by side with the same reason, under the pair', () => {
+    render(
+      <CommandButtons
+        options={[
+          option({ command: 'sendBack', to: 'Draft', roles: ['approver'], allowed: false }),
+          option({ command: 'reopen', to: 'Draft', roles: ['approver'], allowed: false }),
+          option(),
+        ]}
+        busy={false}
+        showBlockedReason
+        onIssue={vi.fn()}
+      />,
+    );
+    expect(screen.getAllByText('Needs approver')).toHaveLength(1);
+    const item = screen.getByText('Needs approver').closest('.pb-command-item');
+    expect(item).toContainElement(screen.getByRole('button', { name: 'Send back' }));
+    expect(item).toContainElement(screen.getByRole('button', { name: 'Reopen' }));
+    expect(item).not.toContainElement(screen.getByRole('button', { name: 'Deal team approve' }));
+    expect(screen.getByRole('button', { name: 'Reopen' })).toHaveAccessibleDescription(
+      'Needs approver',
+    );
   });
 
   it("words a command by the page's label, in the size the page asks for", () => {

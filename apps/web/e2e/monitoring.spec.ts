@@ -198,12 +198,10 @@ test('operations reads the board, sees the late report turn late then missing, t
   const lateRow = rowFor(page, late.investmentNumber);
   await expect(lateRow).toContainText(late.companyName);
   await expect(lateRow).toContainText('Expected');
-  // The Due column holds the date; how far off it is, before it is late, is the date's title.
+  // The Due column holds the date and, under it, how far off it is.
   const dueCell = lateRow.locator('td').nth(5);
-  await expect(dueCell).toHaveText(shownDate(dueDate));
-  await expect(dueCell).toHaveAttribute(
-    'title',
-    `due in ${definitions.documents.expectedDueDaysAfterQuarterEnd} days`,
+  await expect(dueCell).toHaveText(
+    `${shownDate(dueDate)}due in ${definitions.documents.expectedDueDaysAfterQuarterEnd} days`,
   );
   await expect(lateRow.getByRole('link', { name: late.companyName })).toHaveAttribute(
     'href',

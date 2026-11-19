@@ -46,7 +46,7 @@ function OperatingTable({ detail }: { detail: InvestmentDetail }): ReactNode {
   ];
   return (
     <TableWrap label="Financial performance">
-      <table className="pb-table" aria-label="Financial performance">
+      <table className="pb-table pb-table-short" aria-label="Financial performance">
         <thead>
           <tr>
             <th>Metric</th>
@@ -60,7 +60,7 @@ function OperatingTable({ detail }: { detail: InvestmentDetail }): ReactNode {
         <tbody>
           {rows.map(([metric, current, prior, yoy]) => (
             <tr key={metric}>
-              <td>{metric}</td>
+              <td className="pb-nowrap">{metric}</td>
               <NumCell>{current}</NumCell>
               <NumCell>{prior}</NumCell>
               <NumCell>{yoy}</NumCell>
@@ -172,7 +172,7 @@ export function InvestmentDetailPage(): ReactNode {
                 .slice(0, 8)
                 .map((v) => (
                   <tr key={`${v.periodEnd}-${v.version}`}>
-                    <td>{formatDate(v.periodEnd)}</td>
+                    <td className="pb-nowrap">{formatDate(v.periodEnd)}</td>
                     <td>{v.version}</td>
                     <td>
                       <Badge tone={valuationTone(v.state)}>{humanizeState(v.state)}</Badge>
@@ -199,7 +199,7 @@ export function InvestmentDetailPage(): ReactNode {
             <tbody>
               {d.cashFlows.map((f, i) => (
                 <tr key={`${f.date}-${i}`}>
-                  <td>{formatDate(f.date)}</td>
+                  <td className="pb-nowrap">{formatDate(f.date)}</td>
                   <td>{labelOf(f.flowType)}</td>
                   <NumCell>{formatMoneyM(f.amount)}</NumCell>
                 </tr>

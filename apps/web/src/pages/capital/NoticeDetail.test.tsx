@@ -150,6 +150,9 @@ describe('capital notice detail', () => {
       "The wire instructions changed within the hold window and wait for a second person's callback.",
       'You prepared this ticket; a different person must approve it.',
     ]);
+    // The tone is carried by each blocker's dot, in the bad colour; none reads as allowed.
+    for (const b of blockers) expect(b.querySelector('.pb-cap-dot.is-bad')).not.toBeNull();
+    expect(release.querySelector('.pb-cap-dot.is-good')).toBeNull();
 
     const wire = screen.getByTestId('notice-wire');
     expect(within(wire).getByRole('link', { name: 'Wire register' })).toHaveAttribute(
@@ -196,6 +199,9 @@ describe('capital notice detail', () => {
     const release = within(panel).getByTestId('ticket-release');
     expect(release).not.toHaveClass('pb-notice-good');
     expect(release).toHaveTextContent(RELEASE_ALLOWED);
+    // Allowed: one good dot carries the tone, and no blocker's bad dot.
+    expect(release.querySelector('.pb-cap-dot.is-good')).not.toBeNull();
+    expect(release.querySelector('.pb-cap-dot.is-bad')).toBeNull();
   });
 
   it('shows a settled notice: its cash flows, a funded ticket with nothing to release, no alerts', async () => {
@@ -339,6 +345,9 @@ describe('capital notice detail', () => {
     ).toEqual([
       'The wire instructions changed recently and you proposed or verified that change; a third person must approve this ticket.',
     ]);
+    expect(
+      within(release).getByRole('listitem').querySelector('.pb-cap-dot.is-bad'),
+    ).not.toBeNull();
     // The sentence for an allowed release names the same rule.
     expect(RELEASE_ALLOWED).toContain(
       'you neither proposed nor verified a change inside the hold window',

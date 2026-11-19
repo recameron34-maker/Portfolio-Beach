@@ -170,12 +170,12 @@ describe('monitoring board', () => {
     expect(within(meridian).getByText('Kelpwood Fund IV')).toBeInTheDocument();
     expect(within(meridian).getByText('Co invest equity')).toBeInTheDocument();
     expect(within(meridian).getByText('Received')).toHaveClass('pb-badge-good');
-    // The due date on its own; how early the report came is the date's title, not a line.
-    expect(within(meridian).getByText('Aug 14, 2025')).toHaveAttribute(
-      'title',
-      'received 30 days early',
-    );
-    expect(within(meridian).queryByText('received 30 days early')).not.toBeInTheDocument();
+    // The due date, and under it, quietly, how early the report came: a line every reader sees.
+    const early = within(meridian).getByText('received 30 days early');
+    expect(early).toHaveClass('pb-cell-sub');
+    expect(early).not.toHaveClass('is-watch');
+    expect(early).not.toHaveClass('is-bad');
+    expect(early.closest('td')).toHaveTextContent(/^Aug 14, 2025received 30 days early$/);
     // The status word opens the document, the run's word its review. The page names each link by
     // its company and word (aria-label); the router stand-in keeps the text only.
     expect(within(meridian).getByRole('link', { name: 'Received' })).toHaveAttribute(
@@ -193,8 +193,7 @@ describe('monitoring board', () => {
     // A report still expected: no document, no run, so the flags show the placeholder.
     const summit = rowOf('INV-0002');
     expect(within(summit).getByText('Expected')).toHaveClass('pb-badge-neutral');
-    expect(within(summit).queryByText('due in 45 days')).not.toBeInTheDocument();
-    expect(within(summit).getByTitle('due in 45 days')).toBeInTheDocument();
+    expect(within(summit).getByText('due in 45 days')).toHaveClass('pb-cell-sub');
     expect(within(summit).getAllByRole('link')).toHaveLength(1);
     expect(within(summit).getAllByText('-')).toHaveLength(2);
     expect(within(summit).getByText('None')).toHaveClass('pb-badge-neutral');
@@ -202,8 +201,8 @@ describe('monitoring board', () => {
     // A late report whose seeded quarter is approved without a time: the placeholder, never an error.
     const ashby = rowOf('INV-0003');
     expect(within(ashby).getByText('Late')).toHaveClass('pb-badge-watch');
-    // Late: how far past due is a line under the date.
-    expect(within(ashby).getByText('16 days past due')).toHaveClass('pb-cell-sub');
+    // Late: how far past due is a line under the date, in the late report's ink.
+    expect(within(ashby).getByText('16 days past due')).toHaveClass('pb-cell-sub', 'is-watch');
     expect(within(ashby).getByText('Approved')).toHaveClass('pb-badge-good');
     expect(within(ashby).getByText('Cv single asset')).toBeInTheDocument();
     // Sponsor fund, run, flags and the approval time all show the placeholder.
@@ -211,7 +210,7 @@ describe('monitoring board', () => {
 
     // A credit position received on its fund's statement, approved with a time.
     const credit = rowOf('INV-0004');
-    expect(within(credit).getByTitle('received 3 days late')).toBeInTheDocument();
+    expect(within(credit).getByText('received 3 days late')).toHaveClass('pb-cell-sub');
     expect(within(credit).getByText('Jul 20, 2025')).toBeInTheDocument();
     expect(screen.getByText(/A report counts as late 15 days after its due date/)).toBeVisible();
     expect(screen.getByTestId('monitoring-action-status')).toBeEmptyDOMElement();

@@ -139,7 +139,7 @@ function RowsTable({ rows }: { rows: readonly WeeklyRow[] }): ReactNode {
   return (
     <TableWrap label="Staged weekly values">
       <table
-        className="pb-table pb-weekly-rows"
+        className="pb-table pb-hold-2 pb-weekly-rows"
         aria-label="Staged weekly values"
         data-testid="weekly-rows"
       >

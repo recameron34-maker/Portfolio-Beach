@@ -758,9 +758,10 @@ function Board({ page, roles }: { page: ValuationPage; roles: readonly string[] 
       meta={`As of ${formatDate(page.asOf)}`}
       actions={
         isOps || previewMode ? (
-          <span className="pb-val-head-actions">
-            <span className="pb-actions">
-              {isOps ? (
+          <span className="pb-actions pb-val-head-actions">
+            {isOps ? (
+              // Why New valuation is not offered, in words under it as well as in its title.
+              <span className="pb-command-item">
                 <Button
                   appearance="primary"
                   icon={<Add16Regular />}
@@ -771,24 +772,23 @@ function Board({ page, roles }: { page: ValuationPage; roles: readonly string[] 
                 >
                   New valuation
                 </Button>
-              ) : null}
-              {previewMode ? (
-                <span className="pb-val-reset">
-                  <Button
-                    appearance="secondary"
-                    disabled={actions.busy}
-                    onClick={() => setConfirmReset(true)}
-                  >
-                    Reset preview
-                  </Button>
-                  <SimulatedBadge />
-                </span>
-              ) : null}
-            </span>
-            {/* Why New valuation is not offered, in words under the buttons as well as in its title. */}
-            {newBlocked ? (
-              <span className="pb-meta pb-command-reason" id="valuation-new-blocked">
-                {newTitle}
+                {newBlocked ? (
+                  <span className="pb-meta pb-command-reason" id="valuation-new-blocked">
+                    {newTitle}
+                  </span>
+                ) : null}
+              </span>
+            ) : null}
+            {previewMode ? (
+              <span className="pb-val-reset">
+                <Button
+                  appearance="secondary"
+                  disabled={actions.busy}
+                  onClick={() => setConfirmReset(true)}
+                >
+                  Reset preview
+                </Button>
+                <SimulatedBadge />
               </span>
             ) : null}
           </span>

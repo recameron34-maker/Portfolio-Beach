@@ -23,15 +23,23 @@
   margin: 0 0 var(--pb-space-3);
 }
 
-/* The staged rows: the position and its number on one line, why it did not link under it. */
+/* The staged rows: the position and its number on one line, why it did not link under it. On a
+   phone the position is the column held in view, so it takes less of the frame. */
 .pb-intake-subject {
   min-width: 200px;
 }
+@media (max-width: 760px) {
+  .pb-intake-subject {
+    min-width: 140px;
+  }
+}
 /* What approving writes, as a grid: the figure, the record's, the file's; both right-aligned so
-   they compare, the file's (what will be written) in ink. */
+   they compare, the file's (what will be written) in ink. The tracks have set widths (a figure to
+   the cent up to hundreds of millions fits 15 figure widths), so the record's and the file's
+   figures end on the same edges in every row, not only within one cell. */
 .pb-intake-diff {
   display: grid;
-  grid-template-columns: auto auto auto;
+  grid-template-columns: minmax(8ch, max-content) repeat(2, minmax(15ch, max-content));
   column-gap: var(--pb-space-3);
   margin-top: var(--pb-space-1);
   font-size: var(--pb-text-sm);

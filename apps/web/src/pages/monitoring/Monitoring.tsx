@@ -119,20 +119,31 @@ function ReportCell({ row }: { row: MonitoringBoardRow }): ReactNode {
 }
 
 /**
- * When the report is due. How far past due is said under the date only when the report is late or
- * missing; otherwise the date's title says how early or how far off it is.
+ * When the report is due, and under the date how early, late or far off it is, for every report:
+ * quiet for a report received or still expected, in the report's own ink (watch or bad) once it is
+ * late or missing.
  */
 function DueCell({ row }: { row: MonitoringBoardRow }): ReactNode {
   const age = ageLabel(row.documentStatus, row.ageDays);
   const overdue = row.documentStatus === 'late' || row.documentStatus === 'missing';
   return (
-    <td className="pb-nowrap" title={age === null || overdue ? undefined : age}>
+    <td className="pb-nowrap">
       {row.dueDate === null ? (
         <span className="pb-meta">No due date yet</span>
       ) : (
         formatDate(row.dueDate)
       )}
-      {age !== null && overdue ? <span className="pb-cell-sub">{age}</span> : null}
+      {age === null ? null : (
+        <span
+          className={
+            overdue
+              ? `pb-cell-sub pb-monitoring-age is-${expectedStatusTone(row.documentStatus)}`
+              : 'pb-cell-sub pb-monitoring-age'
+          }
+        >
+          {age}
+        </span>
+      )}
     </td>
   );
 }

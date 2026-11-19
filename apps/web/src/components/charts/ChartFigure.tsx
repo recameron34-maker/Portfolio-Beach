@@ -24,10 +24,13 @@ export interface TooltipState {
 /**
  * Chart container: title, legend for two or more series, a table view of the same data
  * (the accessible twin, docs/12) and a tooltip layer. The SVG child is decorative for
- * assistive technology; the summary and the table carry the content.
+ * assistive technology; the summary and the table carry the content. When the chart is the only
+ * thing in its section, its title is the section's heading (`heading`): an h2, so a screen reader
+ * moving by headings still finds the section.
  */
 export function ChartFigure({
   title,
+  heading = false,
   subtitle,
   series,
   table,
@@ -37,6 +40,7 @@ export function ChartFigure({
   children,
 }: {
   title: string;
+  heading?: boolean | undefined;
   subtitle?: string | undefined;
   series: SeriesKey[];
   table: TableTwin;
@@ -51,9 +55,15 @@ export function ChartFigure({
     <figure className="pb-chart" data-testid={testId} aria-labelledby={`${id}-title`}>
       <figcaption className="pb-chart-caption">
         <div className="pb-chart-heading">
-          <span id={`${id}-title`} className="pb-chart-title">
-            {title}
-          </span>
+          {heading ? (
+            <h2 id={`${id}-title`} className="pb-chart-title">
+              {title}
+            </h2>
+          ) : (
+            <span id={`${id}-title`} className="pb-chart-title">
+              {title}
+            </span>
+          )}
           {subtitle !== undefined ? <span className="pb-chart-subtitle">{subtitle}</span> : null}
         </div>
         <div className="pb-chart-tools">

@@ -38,6 +38,7 @@ const MIN_PLOT = 40;
  */
 export function HorizontalBars({
   title,
+  heading,
   subtitle,
   data,
   kind,
@@ -46,6 +47,8 @@ export function HorizontalBars({
   testId,
 }: {
   title: string;
+  /** The title is the section's heading (an h2): the chart is all its section holds. */
+  heading?: boolean | undefined;
   subtitle?: string | undefined;
   data: BarDatum[];
   kind: ValueKind;
@@ -81,6 +84,7 @@ export function HorizontalBars({
   return (
     <ChartFigure
       title={title}
+      heading={heading}
       subtitle={subtitle}
       series={[]}
       table={{ columns: ['Category', valueColumn], rows: data.map((d) => [d.label, d.display]) }}

@@ -94,7 +94,9 @@ describe('access and walls page', () => {
     expect(within(wall).getByText('Deal Three')).toBeVisible();
     expect(within(wall).getByText('Head One')).toBeVisible();
     expect(within(wall).getByText('Dune Logistics')).toBeVisible();
-    expect(within(wall).getByText('a record you cannot see')).toBeVisible();
+    // A record the reader may not see is counted, never named or repeated.
+    expect(within(wall).getByText(', 1 record you cannot see')).toBeVisible();
+    expect(wall).toHaveTextContent('RecordsDune Logistics, 1 record you cannot see');
     // Members and records as plain comma-separated names, not tags.
     expect(wall).toHaveTextContent('MembersDeal Three, Head One');
     expect(wall.querySelector('.pb-badge, .pb-key')).toBeNull();

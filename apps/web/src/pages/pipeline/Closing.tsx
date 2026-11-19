@@ -34,9 +34,13 @@ export function ClosingPage(): ReactNode {
   if (q.isError) {
     const hidden =
       q.error instanceof ApiError && (q.error.status === 404 || q.error.status === 403);
+    // The opportunity's id is in the route even when its name could not be read, so a failed load
+    // still leads back to it; a deal that is not found or not visible has no page to go back to.
     return (
       <>
-        <Breadcrumbs items={[BOARD]} />
+        <Breadcrumbs
+          items={hidden ? [BOARD] : [BOARD, { label: 'Opportunity', to: `/pipeline/${id}` }]}
+        />
         {hidden ? (
           <ErrorState
             title="Opportunity not found or not visible to you"

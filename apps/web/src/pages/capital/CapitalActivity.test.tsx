@@ -244,6 +244,35 @@ describe('commitments and unfunded', () => {
     );
   });
 
+  it('shows the missing placeholder for a vintage or strategy the record lacks, and no client line for a pooled vehicle', async () => {
+    const list = commitmentListFixture();
+    const first = list.items[0];
+    if (first === undefined) throw new Error('fixture has no commitment');
+    list.items[0] = { ...first, vintage: null, strategy: null, clientName: null };
+    mockApi({ [COMMITMENTS]: ok(list) });
+    renderWithQuery(<CommitmentsPage />);
+    const table = await screen.findByRole('table', { name: 'Commitments' });
+    const fund = within(table).getByText(first.sponsorFundName).closest('td')!;
+    const detail = fund.querySelector<HTMLElement>('.pb-cap-fund-detail')!;
+    // The sponsor, then the placeholder for each missing fact, never a word in its place.
+    expect([...detail.children].map((part) => part.textContent)).toEqual([
+      first.sponsorName,
+      '-Vintage not recorded',
+      '-Strategy not recorded',
+    ]);
+    for (const what of ['Vintage', 'Strategy']) {
+      const hidden = within(detail).getByText(`${what} not recorded`);
+      expect(hidden).toHaveClass('pb-visually-hidden');
+      expect(hidden.parentElement).toHaveAttribute('title', `${what} not recorded`);
+      expect(hidden.previousElementSibling).toHaveTextContent('-');
+      expect(hidden.previousElementSibling).toHaveAttribute('aria-hidden', 'true');
+    }
+    // A null client is a pooled vehicle's commitment (or one the reader may not see named): the
+    // vehicle stands alone, with no second line.
+    const vehicle = within(fund.closest('tr')!).getByText(first.vehicleName).closest('td')!;
+    expect(vehicle.querySelector('.pb-cell-sub')).toBeNull();
+  });
+
   it('filters by vehicle, dropping the client column and the all-vehicle total', async () => {
     mockApi({ [COMMITMENTS]: ok(commitmentListFixture()) });
     renderWithQuery(<CommitmentsPage />);

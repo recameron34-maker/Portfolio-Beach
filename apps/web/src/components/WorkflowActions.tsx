@@ -23,8 +23,9 @@ import type { ActionEntry } from '../lib/workflow.js';
  * binding action rules (workflow.ts). `context` names the record so each button has a distinct
  * accessible name in a table of rows. With no command the cell stays blank to the eye and says
  * "No actions" to a screen reader. `primary` marks the one command the page leads with; a page
- * with a single group of commands may show why a command is blocked (`showBlockedReason`), one
- * line per reason under the buttons, and each blocked button points to its own. `label` words a
+ * with a single group of commands may show why a command is blocked (`showBlockedReason`): the
+ * reason sits under the button it explains, from that button's edge (blocked buttons side by side
+ * with the same reason share one line), and each blocked button points to its own. `label` words a
  * command more fully than its name ("Advance to IC"); `size` is medium for a page's own commands
  * in its header. `quiet` draws the commands that step back (send back, reopen) as subtle buttons,
  * so the one that moves the record on reads first.
@@ -60,47 +61,64 @@ export function CommandButtons<S extends string, C extends string>({
   const reasons = showBlockedReason
     ? [...new Set(blocked.filter((b): b is string => b !== null))]
     : [];
-  const buttons = (
-    <span className="pb-command-buttons">
-      {options.map((o, i) => {
-        const why = blocked[i] ?? null;
-        const label = labelFor?.(o) ?? commandLabel(o.command);
-        return (
-          <Button
-            key={`${o.command}-${o.to}`}
-            size={size}
-            appearance={
-              o.command === primary
-                ? 'primary'
-                : quiet?.includes(o.command) === true
-                  ? 'subtle'
-                  : appearance
-            }
-            disabled={why !== null || busy}
-            {...(why === null ? {} : { title: why })}
-            {...(why !== null && reasons.includes(why)
-              ? { 'aria-describedby': `${reasonId}-${reasons.indexOf(why)}` }
-              : {})}
-            {...(context === undefined ? {} : { 'aria-label': `${label}, ${context}` })}
-            onClick={() => onIssue(o)}
-          >
-            {label}
-          </Button>
-        );
-      })}
-    </span>
-  );
-  if (reasons.length === 0) return buttons;
+  const button = (o: CommandOption<S, C>, i: number): ReactNode => {
+    const why = blocked[i] ?? null;
+    const label = labelFor?.(o) ?? commandLabel(o.command);
+    return (
+      <Button
+        key={`${o.command}-${o.to}`}
+        size={size}
+        appearance={
+          o.command === primary
+            ? 'primary'
+            : quiet?.includes(o.command) === true
+              ? 'subtle'
+              : appearance
+        }
+        disabled={why !== null || busy}
+        {...(why === null ? {} : { title: why })}
+        {...(why !== null && reasons.includes(why)
+          ? { 'aria-describedby': `${reasonId}-${reasons.indexOf(why)}` }
+          : {})}
+        {...(context === undefined ? {} : { 'aria-label': `${label}, ${context}` })}
+        onClick={() => onIssue(o)}
+      >
+        {label}
+      </Button>
+    );
+  };
+  if (reasons.length === 0) {
+    return <span className="pb-command-buttons">{options.map(button)}</span>;
+  }
+  // Runs of buttons side by side: a reason's first run of blocked buttons carries the reason under
+  // it, from its first button's edge, so the words sit under the command they explain; every other
+  // button stands alone (a later button blocked for the same reason points to the same line).
+  const runs: { reason: number | null; buttons: ReactNode[] }[] = [];
+  const shown = new Set<number>();
+  options.forEach((o, i) => {
+    const why = blocked[i] ?? null;
+    const r = why === null ? -1 : reasons.indexOf(why);
+    const last = runs[runs.length - 1];
+    if (r >= 0 && last?.reason === r) last.buttons.push(button(o, i));
+    else if (r >= 0 && !shown.has(r)) {
+      shown.add(r);
+      runs.push({ reason: r, buttons: [button(o, i)] });
+    } else runs.push({ reason: null, buttons: [button(o, i)] });
+  });
   return (
-    <span className="pb-command-group">
-      {buttons}
-      <span className="pb-meta pb-command-reason">
-        {reasons.map((r, i) => (
-          <span key={r} id={`${reasonId}-${i}`}>
-            {r}
-          </span>
-        ))}
-      </span>
+    <span className="pb-command-buttons pb-command-group">
+      {runs.flatMap((run): ReactNode[] =>
+        run.reason === null
+          ? run.buttons
+          : [
+              <span key={`reason-${run.reason}`} className="pb-command-item">
+                <span className="pb-command-run">{run.buttons}</span>
+                <span className="pb-meta pb-command-reason" id={`${reasonId}-${run.reason}`}>
+                  {reasons[run.reason]}
+                </span>
+              </span>,
+            ],
+      )}
     </span>
   );
 }

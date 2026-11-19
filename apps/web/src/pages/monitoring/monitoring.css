@@ -21,6 +21,14 @@
 .pb-monitoring-table td {
   text-wrap-style: balance;
 }
+/* How early, late or far off a report is, under its due date: quiet, or in the report's ink once
+   it is late or missing (the status word beside it says the same in words). */
+.pb-monitoring-age.is-watch {
+  color: var(--pb-watch-ink);
+}
+.pb-monitoring-age.is-bad {
+  color: var(--pb-bad-ink);
+}
 .pb-monitoring-day {
   margin-left: var(--pb-space-2);
   font-size: var(--pb-text-sm);

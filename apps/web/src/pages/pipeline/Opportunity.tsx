@@ -213,7 +213,10 @@ function ClosingSummaryCard({ detail }: { detail: OpportunityDetail }): ReactNod
   );
 }
 
-/** The record facts after who and when: where the deal came from, its sector, geography and currency. */
+/**
+ * The record facts after who and when: where the deal came from, its sector, geography and
+ * currency. A fact the record lacks keeps its name and shows the missing placeholder (docs/06).
+ */
 function contextItems(detail: OpportunityDetail): string[] {
   return [
     detail.sponsorFund === null
@@ -222,9 +225,9 @@ function contextItems(detail: OpportunityDetail): string[] {
     labelOf(detail.dealType),
     `Received ${formatDate(detail.receivedDate)}`,
     `Deal lead ${personName(detail.owner)}`,
-    detail.source === null ? 'Source not recorded' : `Source: ${detail.source}`,
-    detail.sector === null ? 'Sector not recorded' : labelOf(detail.sector),
-    detail.geography === null ? 'Geography not recorded' : labelOf(detail.geography),
+    `Source: ${detail.source ?? MISSING}`,
+    detail.sector === null ? `Sector: ${MISSING}` : labelOf(detail.sector),
+    detail.geography === null ? `Geography: ${MISSING}` : labelOf(detail.geography),
     detail.currency,
   ];
 }

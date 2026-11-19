@@ -19,7 +19,7 @@ import {
   TextDensity16Regular,
 } from '@fluentui/react-icons';
 import { AgGridReact } from 'ag-grid-react';
-import type { ColDef, ICellRendererParams, ValueGetterParams } from 'ag-grid-community';
+import type { ColDef, GridApi, ICellRendererParams, ValueGetterParams } from 'ag-grid-community';
 import type { InvestmentSummary } from '@pb/contracts';
 import { PORTFOLIO_TABS } from '../app/nav.js';
 import { investmentsQuery } from '../app/queries.js';
@@ -109,7 +109,8 @@ const decimalColumn: Pick<
 /**
  * Identity first and pinned, then the figures, then the state, then the details: every column the
  * grid has always had, in the order a row is read. Long names clip with their whole text in a
- * tooltip. On a phone only the number stays pinned, so the figures still have room beside it.
+ * tooltip. On a phone only the number stays pinned and the company is narrower, so the first
+ * figure column fits whole beside it.
  */
 const columnsFor = (narrow: boolean): ColDef<InvestmentSummary>[] => [
   { field: 'investmentNumber', headerName: 'Inv #', width: 88, pinned: 'left' },
@@ -118,8 +119,8 @@ const columnsFor = (narrow: boolean): ColDef<InvestmentSummary>[] => [
     field: 'companyName',
     headerName: 'Company',
     pinned: narrow ? null : 'left',
-    width: narrow ? 180 : 220,
-    minWidth: narrow ? 160 : 200,
+    width: narrow ? 150 : 220,
+    minWidth: narrow ? 140 : 200,
     tooltipField: 'companyName',
   },
   {
@@ -219,6 +220,17 @@ function shownLabel(displayed: number | null, loaded: number): string {
     : `${shown} of ${plural(loaded, 'position')} shown`;
 }
 
+/**
+ * Marks the grid's frame while columns lie beyond its right edge, so the stylesheet shades that
+ * edge as a table's frame does: the scrolled range against the width of the unpinned columns.
+ */
+function markMoreAfter(frame: HTMLElement | null, api: GridApi<InvestmentSummary>): void {
+  if (frame === null) return;
+  const { right } = api.getHorizontalPixelRange();
+  const width = api.getDisplayedCenterColumns().reduce((sum, c) => sum + c.getActualWidth(), 0);
+  frame.toggleAttribute('data-more-after', right < width - 1);
+}
+
 function StatusCell(p: ICellRendererParams<InvestmentSummary, boolean>): ReactNode {
   return p.value === true ? (
     <Badge tone="brand">Active</Badge>
@@ -236,6 +248,9 @@ export function PortfolioPage(): ReactNode {
   // Rows the grid shows after its own quick filter and column filters, from the grid itself.
   const [displayed, setDisplayed] = useState<number | null>(null);
   const gridRef = useRef<AgGridReact<InvestmentSummary>>(null);
+  const gridFrame = useRef<HTMLDivElement>(null);
+  const edges = (e: { api: GridApi<InvestmentSummary> }): void =>
+    markMoreAfter(gridFrame.current, e.api);
   const navigate = useNavigate();
   const filters = useMemo(
     () => ({
@@ -332,7 +347,7 @@ export function PortfolioPage(): ReactNode {
           </Button>
         </div>
       </div>
-      <div className="pb-grid" data-testid="portfolio-grid">
+      <div className="pb-grid" data-testid="portfolio-grid" ref={gridFrame}>
         <AgGridReact<InvestmentSummary>
           ref={gridRef}
           theme={compact ? themes.compact : themes.comfortable}
@@ -350,6 +365,11 @@ export function PortfolioPage(): ReactNode {
               open(e.data.id);
           }}
           onModelUpdated={(e) => setDisplayed(e.api.getDisplayedRowCount())}
+          onFirstDataRendered={edges}
+          onBodyScroll={edges}
+          onGridSizeChanged={edges}
+          onColumnResized={edges}
+          onDisplayedColumnsChanged={edges}
           domLayout="normal"
           animateRows={false}
           suppressCellFocus={false}

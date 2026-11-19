@@ -290,10 +290,16 @@ function ItemActions({
       allowed: mayUse(roles, PIPELINE_ROLES.closingItem),
       roles: PIPELINE_ROLES.closingItem,
     }) ?? lock;
-  const button = (label: string, onClick: () => void): ReactNode => (
+  // A step back (Reopen) is drawn quiet, as it is on the valuation board, so the commands that move
+  // the item on read first.
+  const button = (
+    label: string,
+    onClick: () => void,
+    appearance: 'outline' | 'subtle' = 'outline',
+  ): ReactNode => (
     <Button
       size="small"
-      appearance="outline"
+      appearance={appearance}
       disabled={blocked !== null || busy}
       {...(blocked === null ? {} : { title: blocked })}
       aria-label={`${label}, ${item.label}`}
@@ -310,7 +316,7 @@ function ItemActions({
           {button('Waive', () => onStart({ kind: 'waive', item }))}
         </>
       ) : (
-        button('Reopen', () => onReopen(item))
+        button('Reopen', () => onReopen(item), 'subtle')
       )}
     </span>
   );

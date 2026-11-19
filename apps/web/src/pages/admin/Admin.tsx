@@ -154,6 +154,9 @@ function NameList({
 }
 
 function WallCard({ wall }: { wall: WallList['walls'][number] }): ReactNode {
+  // Records the reader may see are named; the others are counted once, never repeated by name.
+  const named = wall.records.filter((r) => r.label !== null);
+  const unseen = wall.records.length - named.length;
   return (
     <Card testId={`wall-${wall.id}`}>
       <SectionHeader
@@ -176,13 +179,21 @@ function WallCard({ wall }: { wall: WallList['walls'][number] }): ReactNode {
           {wall.records.length === 0 ? (
             <span className="pb-meta">No records yet</span>
           ) : (
-            <NameList
-              names={wall.records.map((r) => ({
-                key: r.entityId,
-                name: r.label ?? 'a record you cannot see',
-                title: r.entity,
-              }))}
-            />
+            <>
+              <NameList
+                names={named.map((r) => ({
+                  key: r.entityId,
+                  name: r.label ?? '',
+                  title: r.entity,
+                }))}
+              />
+              {unseen === 0 ? null : (
+                <span className="pb-meta">
+                  {named.length > 0 ? ', ' : ''}
+                  {plural(unseen, 'record')} you cannot see
+                </span>
+              )}
+            </>
           )}
         </dd>
       </dl>
@@ -330,7 +341,7 @@ export function HealthPage(): ReactNode {
             <EmptyState title="No adapter flags" detail="No adapter.* flag is configured." />
           ) : (
             <TableWrap label="Kill switches">
-              <table className="pb-table" aria-label="Kill switches">
+              <table className="pb-table pb-table-short" aria-label="Kill switches">
                 <thead>
                   <tr>
                     <th>Integration</th>

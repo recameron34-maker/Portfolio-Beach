@@ -95,41 +95,29 @@ function DaysInStage({ row }: { row: OpportunityRow }): ReactNode {
 }
 
 /**
- * A deal on the board: four rows of one line each, so every card has the same shape and cards
- * compare down a column, the figures (target, days in stage) on the right. The whole card opens
- * the deal; a line cut short keeps its whole text in its title.
+ * A deal on the board: the same rows on every card, in the same order, so cards compare down a
+ * column: the deal, the company, the sponsor and fund, the deal type, the deal lead, then the
+ * figures (the target on the left, the days in stage on the right). Each line wraps rather than
+ * being cut short, so nothing on a card is lost at any width. The whole card opens the deal.
  */
 function OpportunityCard({ row }: { row: OpportunityRow }): ReactNode {
-  const context = `${row.companyName}, ${sponsorText(row)}`;
-  const type = labelOf(row.dealType);
-  const lead = row.owner === null ? 'No deal lead' : row.owner.name;
   return (
     <li
       className="pb-pipe-card"
       data-testid={`opportunity-card-${row.id}`}
       data-tone={agingTone(row.stage, row.daysInStage)}
     >
-      <Link
-        className="pb-pipe-card-name"
-        to="/pipeline/$id"
-        params={{ id: row.id }}
-        title={row.name}
-      >
+      <Link className="pb-pipe-card-name" to="/pipeline/$id" params={{ id: row.id }}>
         {row.name}
       </Link>
-      <span className="pb-pipe-card-line" title={context}>
-        {context}
+      <span className="pb-pipe-card-line">{row.companyName}</span>
+      <span className="pb-pipe-card-line">{sponsorText(row)}</span>
+      <span className="pb-pipe-card-line">{labelOf(row.dealType)}</span>
+      <span className="pb-pipe-card-line">
+        {row.owner === null ? 'No deal lead' : row.owner.name}
       </span>
       <span className="pb-pipe-card-row">
-        <span className="pb-pipe-card-line" title={type}>
-          {type}
-        </span>
         <Target value={row.targetCommitment} />
-      </span>
-      <span className="pb-pipe-card-row">
-        <span className="pb-pipe-card-line" title={lead}>
-          {lead}
-        </span>
         <DaysInStage row={row} />
       </span>
     </li>

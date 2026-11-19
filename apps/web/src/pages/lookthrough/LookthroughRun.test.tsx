@@ -149,7 +149,8 @@ describe('a reconcile run', () => {
     expect(within(unmapped).getByText('Other')).toBeInTheDocument();
     expect(within(unmapped).getByText('Not mapped')).toHaveClass('pb-badge-watch');
     expect(within(unmapped).getByText('LT-MAP-01').closest('.pb-rule-id')).not.toBeNull();
-    expect(within(unmapped).getByText('1 finding')).toBeInTheDocument();
+    // The finding's severity (an error) is said once, on its count's dot.
+    expect(within(unmapped).getByText('1 finding')).toHaveClass('pb-badge-bad');
     expect(
       within(unmapped).getByText(
         'LT-MAP-01: The sector label is not in config/lookthrough_mapping.json; the taxonomy is never guessed from a label (Expected a sector label the mapping lists, actual Other)',
@@ -166,11 +167,13 @@ describe('a reconcile run', () => {
 
     const stale = rowOf('Summit Care Holdings');
     expect(within(stale).getByText('LT-STALE-01').closest('.pb-rule-id')).not.toBeNull();
+    expect(within(stale).getByText('1 finding')).toHaveClass('pb-badge-bad');
     expect(within(stale).queryByText(/exception/)).not.toBeInTheDocument();
 
     const alias = rowAt(7);
     expect(within(alias).getByRole('link', { name: 'Meridian Data Partners' })).toBeInTheDocument();
     expect(within(alias).getByText('LT-DUP-01').closest('.pb-rule-id')).not.toBeNull();
+    expect(within(alias).getByText('1 finding')).toHaveClass('pb-badge-bad');
   });
 
   it('counts the rows behind a wall and notes a duplicate reconcile', async () => {

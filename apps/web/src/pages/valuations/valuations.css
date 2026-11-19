@@ -17,17 +17,10 @@
   display: inline-flex;
   align-items: center;
 }
-/* The board's header actions, with why New valuation is not offered under them; on a phone the
-   header's actions start on the left, and the reason with them. */
+/* The board's header actions, with why New valuation is not offered under that button, from its
+   edge; the buttons stay level with each other. */
 .pb-val-head-actions {
-  display: inline-flex;
-  flex-direction: column;
-  align-items: flex-end;
-}
-@media (max-width: 760px) {
-  .pb-val-head-actions {
-    align-items: flex-start;
-  }
+  align-items: flex-start;
 }
 
 /* Filters sized to their content, so the toolbar holds one row on a laptop screen. */

@@ -127,7 +127,7 @@ export function AdminFlagsPage(): ReactNode {
           </div>
         ) : null}
         <TableWrap label="Feature flags">
-          <table className="pb-table pb-flags" aria-label="Feature flags">
+          <table className="pb-table pb-table-short pb-flags" aria-label="Feature flags">
             <thead>
               <tr>
                 <th scope="col">Flag</th>
