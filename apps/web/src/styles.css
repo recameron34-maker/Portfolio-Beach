@@ -1,7 +1,7 @@
 /* Portfolio Beach stylesheet. Colours and fonts come only from the CSS variables that theme.ts emits
    from config/brand.json; this file never writes a hex, rgb or font name (the faces themselves are
    declared in app/fonts.css). Scale tokens below are not colours.
-   Grid areas: header, banner, nav, main. Any new direct child of .pb-shell must set grid-area. */
+   Grid areas: rail, top, main. Any new direct child of .pb-shell in the flow must set grid-area. */
 @import './app/fonts.css';
 
 /* The ledger look's tokens (decision 0026, docs/06 sections 1, 2 and 5). Every size, space, radius
@@ -117,208 +117,335 @@ p:last-child {
 }
 
 /* ---- Shell ---- */
+/* A rail the full height of the page beside a top bar and the page. The rail's surface and its
+   rule belong to the grid column, so they run to the foot of every page; its contents stay in view
+   while the page scrolls. Under 760px one bar holds everything and the navigation is a drawer. */
 .pb-shell {
   display: grid;
   grid-template-columns: var(--pb-nav-w) minmax(0, 1fr);
-  grid-template-rows: var(--pb-header-h) auto minmax(0, 1fr);
-  grid-template-areas: 'header header' 'banner banner' 'nav main';
+  grid-template-rows: var(--pb-header-h) minmax(0, 1fr);
+  grid-template-areas: 'rail top' 'rail main';
   min-height: 100vh;
   min-height: 100dvh;
 }
 
-.pb-header {
-  grid-area: header;
-  position: sticky;
-  top: 0;
-  z-index: 30;
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  height: var(--pb-header-h);
-  padding: 0 16px 0 20px;
-  background: var(--pb-brand-primary);
-  color: var(--pb-bg);
-  border-bottom: 1px solid var(--pb-primary-deep);
-  /* Fluent v9 reads its tokens as CSS variables, so the Dropdown and Button inside the header re-theme without reaching into their markup. Every name below is one the compiled Dropdown or Button styles read. */
-  --colorNeutralBackground1: var(--pb-primary-deep);
-  --colorNeutralBackground1Hover: var(--pb-brand-primary);
-  --colorNeutralBackground1Pressed: var(--pb-brand-primary);
-  --colorNeutralBackground3: var(--pb-primary-deep);
-  --colorNeutralForeground1: var(--pb-bg);
-  --colorNeutralForeground4: rgba(var(--pb-bg-rgb), 0.8);
-  --colorNeutralForeground2BrandHover: var(--pb-bg);
-  --colorNeutralForeground2BrandPressed: var(--pb-bg);
-  --colorNeutralStroke1: rgba(var(--pb-bg-rgb), 0.55);
-  --colorNeutralStroke1Hover: var(--pb-bg);
-  --colorNeutralStroke1Pressed: var(--pb-bg);
-  --colorNeutralStrokeAccessible: rgba(var(--pb-bg-rgb), 0.55);
-  --colorNeutralStrokeAccessibleHover: var(--pb-bg);
-  --colorNeutralStrokeAccessiblePressed: var(--pb-bg);
-  --colorCompoundBrandStroke: var(--pb-bg);
-  --colorCompoundBrandStrokePressed: var(--pb-bg);
-  --colorStrokeFocus2: var(--pb-bg);
-  --colorTransparentBackgroundHover: rgba(var(--pb-bg-rgb), 0.12);
-  --colorTransparentBackgroundPressed: rgba(var(--pb-bg-rgb), 0.18);
-  --colorSubtleBackgroundHover: rgba(var(--pb-bg-rgb), 0.12);
-  --colorSubtleBackgroundPressed: rgba(var(--pb-bg-rgb), 0.18);
+/* Skip to content: out of sight until the keyboard reaches it, then over the page's corner. */
+.pb-skip:not(:focus) {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
 }
-.pb-header :focus-visible {
-  outline-color: var(--pb-bg);
-}
-.pb-wordmark {
-  font-family: var(--pb-font-display);
-  font-size: 18px;
-  line-height: 1;
-  letter-spacing: 0.01em;
+.pb-skip:focus {
+  position: fixed;
+  top: var(--pb-space-2);
+  left: var(--pb-space-2);
+  z-index: 40;
+  padding: var(--pb-space-2) var(--pb-space-3);
+  border-radius: var(--pb-radius);
+  background: var(--pb-text);
   color: var(--pb-bg);
+  font-weight: 500;
   text-decoration: none;
-  white-space: nowrap;
 }
-.pb-wordmark:focus-visible {
-  outline-offset: 6px;
-  border-radius: 2px;
-}
-.pb-header-spacer {
-  flex: 1;
-}
-.pb-header-identity {
-  display: contents;
-}
-.pb-header-user {
-  font-size: 13px;
-  line-height: 16px;
-  color: var(--pb-bg);
-  white-space: nowrap;
-}
-.pb-header .pb-header-switcher {
-  min-width: 220px;
-}
-.pb-header .pb-header-signout {
-  height: 28px;
+
+.pb-rail {
+  grid-area: rail;
   min-width: 0;
-  padding: 0 10px;
-  border: 1px solid rgba(var(--pb-bg-rgb), 0.55);
-  border-radius: var(--pb-radius-sm);
-  background: transparent;
-  color: var(--pb-bg);
-  font-size: 12px;
-  font-weight: 600;
-}
-.pb-header .pb-header-signout:hover {
-  background: rgba(var(--pb-bg-rgb), 0.12);
-  border-color: var(--pb-bg);
-  color: var(--pb-bg);
-}
-
-.pb-mock-banner {
-  grid-area: banner;
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  min-height: 30px;
-  padding: 5px 20px;
-  background: var(--pb-sand-pale);
-  color: var(--pb-text);
-  font-size: 12.5px;
-  line-height: 18px;
-  border-bottom: 1px solid var(--pb-sand-edge);
-}
-.pb-mock-tag {
-  flex: none;
-  display: inline-block;
-  padding: 1px 7px;
-  border-radius: 999px;
-  background: var(--pb-brand-sand);
-  color: var(--pb-brand-primary);
-  font-size: 10.5px;
-  line-height: 14px;
-  font-weight: 700;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
-}
-
-.pb-nav {
-  grid-area: nav;
-  position: sticky;
-  top: var(--pb-header-h);
-  align-self: start;
-  max-height: calc(100vh - var(--pb-header-h));
-  overflow-y: auto;
-  overscroll-behavior: contain;
-  padding: 12px 8px 16px;
-  background: var(--pb-bg);
+  background: var(--pb-surface-2);
   border-right: 1px solid var(--pb-border);
 }
+.pb-rail-inner {
+  position: sticky;
+  top: 0;
+  display: flex;
+  flex-direction: column;
+  max-height: 100vh;
+  max-height: 100dvh;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.pb-rail-brand {
+  flex: none;
+  display: flex;
+  align-items: center;
+  height: var(--pb-header-h);
+  padding: 0 var(--pb-space-4);
+}
+.pb-rail .pb-nav {
+  padding: var(--pb-space-2) var(--pb-space-2) var(--pb-space-5);
+}
+
+/* The wordmark: the mark in the brand ink with three bars of the page colour, then the name. */
+.pb-wordmark {
+  display: inline-flex;
+  align-items: center;
+  border-radius: var(--pb-radius-sm);
+  color: var(--pb-text);
+  text-decoration: none;
+}
+.pb-wordmark:focus-visible {
+  outline-offset: var(--pb-space-1);
+}
+.pb-wordmark-lockup {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--pb-space-2);
+  white-space: nowrap;
+}
+.pb-wordmark-mark {
+  display: block;
+  flex: none;
+}
+.pb-wordmark-tile {
+  fill: var(--pb-brand-primary);
+}
+.pb-wordmark-bar {
+  fill: var(--pb-bg);
+}
+.pb-wordmark-name {
+  font-size: var(--pb-text-lg);
+  line-height: var(--pb-text-lg-lh);
+  font-weight: 600;
+  letter-spacing: 0;
+  color: var(--pb-text);
+}
+
+/* Navigation: groups under a small label; the current area white on the rail, in a hairline ring. */
 .pb-nav-group {
   display: flex;
   flex-direction: column;
-  gap: 1px;
+  gap: 2px;
 }
 .pb-nav-group + .pb-nav-group {
-  margin-top: 14px;
-  padding-top: 12px;
-  border-top: 1px solid var(--pb-hairline);
+  margin-top: var(--pb-space-4);
 }
 .pb-nav-group-label {
   display: block;
-  margin: 0 12px 6px;
-  font-size: 10.5px;
-  line-height: 14px;
-  font-weight: 600;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
-  color: var(--pb-muted);
+  margin: 0 0 var(--pb-space-1);
+  padding: 0 var(--pb-space-2);
+  font-size: var(--pb-text-sm);
+  line-height: var(--pb-text-sm-lh);
+  font-weight: 500;
+  color: var(--pb-muted-strong);
 }
 .pb-nav-item {
-  position: relative;
   display: flex;
   align-items: center;
-  gap: 10px;
-  height: 32px;
-  padding: 0 10px;
-  border-radius: 6px;
+  gap: var(--pb-space-2);
+  height: 30px;
+  padding: 0 var(--pb-space-2);
+  border: 1px solid transparent;
+  border-radius: var(--pb-radius);
   color: var(--pb-text);
-  font-size: 13.5px;
+  font-size: var(--pb-text-md);
+  line-height: var(--pb-text-md-lh);
   font-weight: 500;
   text-decoration: none;
   white-space: nowrap;
   transition:
+    color var(--pb-dur-fast) var(--pb-ease),
     background-color var(--pb-dur-fast) var(--pb-ease),
-    color var(--pb-dur-fast) var(--pb-ease);
+    border-color var(--pb-dur-fast) var(--pb-ease);
 }
 .pb-nav-item:hover {
-  background: var(--pb-primary-tint-4);
-  color: var(--pb-brand-primary);
+  background: var(--pb-primary-tint-8);
 }
 .pb-nav-item:focus-visible {
-  outline-offset: 1px;
+  outline-offset: -1px;
 }
 .pb-nav-item[aria-current='page'] {
-  background: var(--pb-primary-tint-8);
-  color: var(--pb-brand-primary);
+  background: var(--pb-bg);
+  border-color: var(--pb-border);
   font-weight: 600;
-  box-shadow: inset 3px 0 0 var(--pb-brand-accent);
 }
 .pb-nav-icon {
   display: inline-flex;
-  flex: 0 0 20px;
-  width: 20px;
-  height: 20px;
+  flex: none;
+  width: 16px;
+  height: 16px;
   color: var(--pb-muted-strong);
   transition: color var(--pb-dur-fast) var(--pb-ease);
 }
 .pb-nav-icon > svg {
-  width: 20px;
-  height: 20px;
+  width: 16px;
+  height: 16px;
 }
 .pb-nav-label {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
 }
-.pb-nav-item:hover .pb-nav-icon,
+.pb-nav-item:hover .pb-nav-icon {
+  color: var(--pb-text);
+}
 .pb-nav-item[aria-current='page'] .pb-nav-icon {
   color: var(--pb-brand-primary);
+}
+
+/* The top bar over the page: the prototype marker on the left, the user on the right. */
+.pb-topbar {
+  grid-area: top;
+  position: sticky;
+  top: 0;
+  z-index: 30;
+  display: flex;
+  align-items: center;
+  gap: var(--pb-space-3);
+  min-width: 0;
+  height: var(--pb-header-h);
+  padding: 0 var(--pb-space-6);
+  background: var(--pb-bg);
+  border-bottom: 1px solid var(--pb-hairline);
+}
+.pb-topbar-spacer {
+  flex: 1 0 0;
+}
+
+/* The prototype marker: a watch dot and "Prototype", then the data rule, cut short if it must be
+   (the whole sentence stays in the element and its title). */
+.pb-mock-banner {
+  display: flex;
+  align-items: center;
+  gap: var(--pb-space-2);
+  flex: 0 1 auto;
+  min-width: 0;
+  font-size: var(--pb-text-sm);
+  line-height: var(--pb-text-sm-lh);
+}
+.pb-mock-word {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: var(--pb-space-1);
+  font-weight: 600;
+  color: var(--pb-watch-ink);
+}
+.pb-mock-word::before {
+  content: '';
+  flex: none;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--pb-watch);
+}
+.pb-mock-sentence {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--pb-muted-strong);
+}
+
+/* The user: initials, the name, the switcher showing the role in words, and Sign out. */
+.pb-topbar-identity {
+  display: flex;
+  flex: 0 1 auto;
+  align-items: center;
+  gap: var(--pb-space-2);
+  min-width: 0;
+}
+.pb-initials {
+  display: inline-grid;
+  flex: none;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: var(--pb-primary-tint-12);
+  color: var(--pb-brand-primary);
+  font-size: var(--pb-text-sm);
+  line-height: var(--pb-text-sm-lh);
+  font-weight: 600;
+}
+.pb-topbar-user {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 500;
+}
+/* Fluent's Dropdown keeps its behaviour; two classes here outrank its one-class styles. */
+.fui-Dropdown.pb-user-switcher {
+  min-width: 0;
+  border-color: var(--pb-border);
+  border-radius: var(--pb-radius);
+}
+.fui-Dropdown.pb-user-switcher:hover {
+  border-color: var(--pb-border-strong);
+}
+.fui-Listbox.pb-user-list {
+  min-width: 280px;
+  border: 1px solid var(--pb-border);
+  border-radius: var(--pb-radius);
+  box-shadow: var(--pb-shadow-2);
+}
+/* The users grouped by role, dense enough that every group fits under the bar. */
+.fui-Listbox.pb-user-list .fui-Option {
+  padding-block: var(--pb-space-1);
+}
+.fui-Listbox.pb-user-list .fui-OptionGroup__label {
+  padding-block: var(--pb-space-1) 2px;
+  font-size: var(--pb-text-sm);
+  line-height: var(--pb-text-sm-lh);
+  font-weight: 500;
+  color: var(--pb-muted-strong);
+}
+.fui-Button.pb-topbar-signout {
+  min-width: 0;
+  color: var(--pb-muted-strong);
+  font-weight: 500;
+}
+.fui-Button.pb-topbar-icon {
+  flex: none;
+  min-width: 44px;
+  width: 44px;
+  height: 44px;
+  color: var(--pb-text);
+}
+
+/* The phone's navigation: a drawer from the start edge, the rail's surface, the same groups. */
+.fui-OverlayDrawer.pb-drawer {
+  --fui-Drawer--size: 300px;
+  background: var(--pb-surface-2);
+  box-shadow: var(--pb-shadow-3);
+}
+.fui-DrawerHeader.pb-drawer-head {
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--pb-space-2);
+  height: var(--pb-header-h);
+  padding: 0 var(--pb-space-1) 0 var(--pb-space-4);
+}
+.fui-DrawerBody.pb-drawer-body {
+  padding: var(--pb-space-2) var(--pb-space-2) var(--pb-space-5);
+}
+.pb-drawer-note {
+  margin: 0 var(--pb-space-2) var(--pb-space-4);
+  font-size: var(--pb-text-sm);
+  line-height: var(--pb-text-sm-lh);
+  color: var(--pb-muted-strong);
+}
+.pb-drawer-identity {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--pb-space-2);
+  margin: var(--pb-space-5) var(--pb-space-2) 0;
+  padding-top: var(--pb-space-4);
+  border-top: 1px solid var(--pb-border);
+}
+.pb-drawer-user {
+  flex: 1 1 0;
+  min-width: 0;
+  font-weight: 500;
+}
+.pb-drawer-identity > .fui-Dropdown.pb-user-switcher {
+  flex: 1 1 100%;
+  background: var(--pb-bg);
 }
 
 .pb-main {
@@ -326,7 +453,11 @@ p:last-child {
   min-width: 0;
   width: 100%;
   max-width: 1480px;
-  padding: 24px 28px 56px;
+  padding: var(--pb-space-5) var(--pb-space-6) var(--pb-space-7);
+}
+/* The skip link's target takes focus without drawing a ring around the whole page. */
+.pb-main:focus {
+  outline: none;
 }
 
 /* ---- Page header, meta ---- */
@@ -1309,9 +1440,6 @@ p:last-child {
 }
 
 /* ---- Preview guide (preview only): walkthroughs for a reviewer, on sign-in and on Home ---- */
-.pb-signin > .pb-card + .pb-card {
-  margin-top: 12px;
-}
 .pb-guide-head {
   display: flex;
   flex-wrap: wrap;
@@ -1738,259 +1866,122 @@ p:last-child {
 }
 
 /* ---- Sign-in page ---- */
+/* One column at the page's gutter under a bar like the app's: the wordmark and the data rule, then
+   the title, the users in one framed list grouped by role, the Entra note and the walkthroughs. */
 .pb-signin-page {
-  position: relative;
-  isolation: isolate;
   min-height: 100vh;
   min-height: 100dvh;
-  display: grid;
-  grid-template-rows: 1fr auto 1fr;
-  justify-items: center;
-  padding: 24px 16px;
-  overflow-x: hidden;
+  background: var(--pb-bg);
 }
-.pb-signin-lockup,
-.pb-signin,
-.pb-signin-legal {
-  position: relative;
-  z-index: 1;
-}
-.pb-signin-lockup {
-  align-self: end;
+.pb-signin-bar {
   display: flex;
-  flex-direction: column;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 6px;
-  margin-bottom: 22px;
-  text-align: center;
+  justify-content: space-between;
+  gap: var(--pb-space-1) var(--pb-space-5);
+  min-height: var(--pb-header-h);
+  padding: var(--pb-space-2) var(--pb-space-6);
+  border-bottom: 1px solid var(--pb-hairline);
 }
-.pb-signin-wordmark {
+.pb-signin-legal {
   margin: 0;
-  font-family: var(--pb-font-display);
-  font-weight: 400;
-  font-size: 30px;
-  line-height: 36px;
-  letter-spacing: 0.01em;
-  color: var(--pb-brand-primary);
+  font-size: var(--pb-text-sm);
+  line-height: var(--pb-text-sm-lh);
+  color: var(--pb-muted-strong);
 }
-.pb-signin-tagline {
-  margin: 0;
-  font-size: 11px;
-  line-height: 16px;
-  font-weight: 600;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
-  color: var(--pb-brand-primary);
+.pb-signin-picker {
+  max-width: calc(640px + var(--pb-space-6) * 2);
+  padding: var(--pb-space-6) var(--pb-space-6) var(--pb-space-7);
 }
-.pb-signin {
-  width: 100%;
-  max-width: 440px;
-  align-self: center;
-}
-.pb-signin > .pb-card {
-  margin: 0;
-  padding: 22px 24px 20px;
+.pb-signin-list {
+  overflow: hidden;
   border: 1px solid var(--pb-border);
   border-radius: var(--pb-radius-lg);
   background: var(--pb-bg);
-  box-shadow: var(--pb-shadow-3);
 }
-.pb-signin-list {
-  display: grid;
-  gap: 6px;
-  max-height: min(56vh, 520px);
-  overflow-y: auto;
-  padding: 2px;
-  margin: 0 -2px;
+.pb-signin-list > .pb-skeleton {
+  padding: 0 var(--pb-space-3);
 }
-.pb-signin-list > button {
+.pb-signin-group + .pb-signin-group {
+  border-top: 1px solid var(--pb-border);
+}
+.pb-signin-group-label {
+  padding: var(--pb-space-1) var(--pb-space-3);
+  border-bottom: 1px solid var(--pb-hairline);
+  background: var(--pb-surface-2);
+  font-size: var(--pb-text-sm);
+  line-height: var(--pb-text-sm-lh);
+  font-weight: 500;
+  color: var(--pb-muted-strong);
+}
+.pb-signin-row {
   display: flex;
-  justify-content: flex-start;
   align-items: center;
+  gap: var(--pb-space-3);
+  width: 100%;
   min-height: 36px;
-  padding: 0 12px;
-  border: 1px solid var(--pb-border);
-  border-radius: 6px;
+  margin: 0;
+  padding: 0 var(--pb-space-3);
+  border: 0;
+  border-top: 1px solid var(--pb-hairline);
   background: var(--pb-bg);
   color: var(--pb-text);
-  font-size: 13px;
-  font-weight: 500;
+  font: inherit;
   text-align: left;
   cursor: pointer;
   transition:
+    color var(--pb-dur-fast) var(--pb-ease),
     background-color var(--pb-dur-fast) var(--pb-ease),
-    border-color var(--pb-dur-fast) var(--pb-ease),
-    color var(--pb-dur-fast) var(--pb-ease);
+    border-color var(--pb-dur-fast) var(--pb-ease);
 }
-.pb-signin-list > button:hover {
+.pb-signin-group-label + .pb-signin-row {
+  border-top: 0;
+}
+.pb-signin-row:hover {
   background: var(--pb-primary-tint-4);
-  border-color: var(--pb-border-strong);
   color: var(--pb-brand-primary);
 }
-.pb-signin-list > button:active {
+.pb-signin-row:active {
   background: var(--pb-primary-tint-8);
+  transition-duration: var(--pb-dur-instant);
+}
+.pb-signin-row:focus-visible {
+  outline-offset: -2px;
+}
+.pb-signin-name {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 500;
+}
+.pb-signin-role {
+  flex: none;
+  font-size: var(--pb-text-sm);
+  line-height: var(--pb-text-sm-lh);
+  color: var(--pb-muted-strong);
+}
+.pb-signin-chevron {
+  flex: none;
+  width: 16px;
+  height: 16px;
+  color: var(--pb-muted-strong);
 }
 .pb-signin-foot {
-  margin: 14px 0 0;
-  padding-top: 12px;
-  border-top: 1px solid var(--pb-hairline);
-  font-size: 12px;
-  line-height: 18px;
+  margin: var(--pb-space-3) 0 var(--pb-space-6);
+  font-size: var(--pb-text-sm);
+  line-height: var(--pb-text-sm-lh);
   color: var(--pb-muted);
-}
-.pb-signin-legal {
-  align-self: start;
-  margin: 22px 0 0;
-  max-width: 60ch;
-  font-size: 12px;
-  line-height: 18px;
-  font-weight: 500;
-  letter-spacing: 0.01em;
-  text-align: center;
-  color: var(--pb-brand-primary);
-}
-
-/* Scene: a horizon of light. Back to front: sky, sea, glow, far swell, inner swell, sand, tide (foam), hairline.
-   Geometry is in vh so the swell boxes always end under the opaque sand; animation is transform and opacity only. */
-.pb-scene {
-  --pb-horizon: 58vh;
-  --pb-shore: 80vh;
-  position: fixed;
-  inset: 0;
-  z-index: 0;
-  overflow: hidden;
-  background: var(--pb-bg);
-  pointer-events: none;
-  user-select: none;
-  contain: strict;
-}
-.pb-scene-sky {
-  position: absolute;
-  left: 0;
-  right: 0;
-  top: 0;
-  height: var(--pb-horizon);
-  background: linear-gradient(180deg, var(--pb-bg) 0%, var(--pb-bg) 34%, var(--pb-sky) 100%);
-}
-.pb-scene-sea {
-  position: absolute;
-  left: 0;
-  right: 0;
-  top: var(--pb-horizon);
-  height: calc(var(--pb-shore) - var(--pb-horizon));
-  background: linear-gradient(180deg, var(--pb-sea) 0%, var(--pb-sky) 100%);
-}
-.pb-scene-glow {
-  position: absolute;
-  left: 0;
-  right: 0;
-  top: calc(var(--pb-horizon) - 20vmin);
-  height: 40vmin;
-  background: radial-gradient(ellipse 36% 50% at 50% 50%, var(--pb-sand-pale) 0%, transparent 70%);
-  opacity: 0.7;
-  will-change: opacity;
-  animation: pb-breathe 12000ms var(--pb-ease-inout) infinite alternate;
-}
-.pb-scene-wave {
-  position: absolute;
-  left: 0;
-  width: 200%;
-  height: calc(var(--pb-shore) - var(--pb-horizon) + 64px);
-  display: block;
-  will-change: transform;
-}
-.pb-scene-wave path {
-  fill: currentColor;
-}
-.pb-scene-wave-a {
-  top: calc(var(--pb-horizon) - 28px);
-  color: var(--pb-sea-deep);
-  opacity: 0.45;
-  animation: pb-drift-left 36000ms linear infinite;
-}
-.pb-scene-wave-b {
-  top: calc(var(--pb-horizon) + 40px);
-  color: var(--pb-bg);
-  opacity: 0.22;
-  animation: pb-drift-right 52000ms linear infinite;
-}
-.pb-scene-sand {
-  position: absolute;
-  left: 0;
-  right: 0;
-  top: var(--pb-shore);
-  bottom: 0;
-  background: linear-gradient(180deg, var(--pb-sand-pale) 0%, var(--pb-brand-sand) 100%);
-}
-.pb-scene-tide {
-  position: absolute;
-  left: 0;
-  width: 100%;
-  top: calc(var(--pb-shore) - 16px);
-  height: 40px;
-  will-change: transform;
-  animation: pb-tide 9000ms var(--pb-ease-inout) infinite alternate;
-}
-.pb-scene-foam {
-  display: block;
-  width: 200%;
-  height: 100%;
-  color: var(--pb-bg);
-  opacity: 0.9;
-  will-change: transform;
-  animation: pb-drift-left 44000ms linear infinite;
-}
-.pb-scene-foam path {
-  fill: none;
-  stroke: currentColor;
-  stroke-width: 2;
-  vector-effect: non-scaling-stroke;
-}
-.pb-scene-horizon {
-  position: absolute;
-  left: 0;
-  right: 0;
-  top: var(--pb-horizon);
-  height: 1px;
-  background: rgba(var(--pb-primary-rgb), 0.28);
-}
-@keyframes pb-drift-left {
-  from {
-    transform: translate3d(0, 0, 0);
-  }
-  to {
-    transform: translate3d(-50%, 0, 0);
-  }
-}
-@keyframes pb-drift-right {
-  from {
-    transform: translate3d(-50%, 0, 0);
-  }
-  to {
-    transform: translate3d(0, 0, 0);
-  }
-}
-@keyframes pb-tide {
-  from {
-    transform: translate3d(0, 0, 0);
-  }
-  to {
-    transform: translate3d(0, -6px, 0);
-  }
-}
-@keyframes pb-breathe {
-  from {
-    opacity: 0.55;
-  }
-  to {
-    opacity: 0.85;
-  }
 }
 
 /* ---- Responsive ---- */
 @media (max-width: 1100px) {
   .pb-main {
-    padding: 20px 20px 48px;
+    padding: var(--pb-space-5) var(--pb-space-5) var(--pb-space-7);
+  }
+  .pb-topbar {
+    padding: 0 var(--pb-space-5);
   }
 }
 /* Below this the sidebar leaves too little room for four of Home's tiles across */
@@ -2005,97 +1996,37 @@ p:last-child {
     --pb-text-fig: 20px;
     --pb-text-fig-lh: 26px;
   }
+  /* One bar: the menu, the mark, the prototype marker, the user and Sign out, the 44px buttons at
+     its edges so their icons sit on the page's 16px gutter. The navigation opens in the drawer. */
   .pb-shell {
     grid-template-columns: minmax(0, 1fr);
-    grid-template-rows: auto auto auto minmax(0, 1fr);
-    grid-template-areas: 'header' 'banner' 'nav' 'main';
+    grid-template-areas: 'top' 'main';
   }
-  .pb-header {
-    position: static;
-    height: auto;
-    min-height: var(--pb-header-h);
-    flex-wrap: wrap;
-    gap: 8px 10px;
-    padding: 8px 12px 8px 16px;
+  .pb-topbar {
+    gap: var(--pb-space-1);
+    padding: 0 var(--pb-space-1);
   }
-  .pb-header-spacer {
-    order: 1;
-  }
-  .pb-header .pb-header-signout {
-    order: 2;
-  }
-  .pb-header-identity {
-    order: 3;
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    flex: 1 1 100%;
-    min-width: 0;
-  }
-  .pb-header-user {
-    flex: 0 1 auto;
-    max-width: 42%;
+  .pb-topbar .pb-wordmark-name {
+    position: absolute;
+    width: 1px;
+    height: 1px;
     overflow: hidden;
-    text-overflow: ellipsis;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
   }
-  .pb-header .pb-header-switcher {
-    flex: 1 1 160px;
-    min-width: 0;
-  }
-  .pb-mock-banner {
-    padding: 5px 16px;
-  }
-  .pb-nav {
-    position: sticky;
-    top: 0;
-    z-index: 20;
-    max-height: none;
-    display: flex;
-    gap: 2px;
-    overflow-x: auto;
-    overflow-y: hidden;
-    padding: 6px 8px;
-    border-right: 0;
-    border-bottom: 1px solid var(--pb-border);
-    scrollbar-width: none;
-    -webkit-overflow-scrolling: touch;
-  }
-  .pb-nav::-webkit-scrollbar {
-    display: none;
-  }
-  .pb-nav-group {
-    flex-direction: row;
-    gap: 2px;
-  }
-  .pb-nav-group + .pb-nav-group {
-    margin: 0 0 0 6px;
-    padding: 0 0 0 6px;
-    border-top: 0;
-    border-left: 1px solid var(--pb-hairline);
-  }
-  .pb-nav-group-label {
-    display: none;
-  }
-  .pb-nav-item {
+  .pb-topbar > .pb-wordmark {
     flex: none;
-    height: 34px;
-    padding: 0 10px;
-    gap: 8px;
-    font-size: 13px;
+    padding: var(--pb-space-1);
   }
-  .pb-nav-icon,
-  .pb-nav-icon > svg {
-    width: 18px;
-    height: 18px;
-    flex-basis: 18px;
+  .pb-topbar > .pb-mock-banner {
+    flex: none;
+    margin-left: var(--pb-space-2);
   }
-  .pb-nav-item[aria-current='page'] {
-    background: transparent;
-    box-shadow: inset 0 -2px 0 var(--pb-brand-accent);
-    border-radius: 6px 6px 0 0;
+  .pb-topbar-identity {
+    flex: 0 1 auto;
   }
   .pb-main {
-    padding: 16px 16px 40px;
+    padding: var(--pb-space-4) var(--pb-space-4) var(--pb-space-6);
   }
   /* The page header in one column: the actions under the meta line, from the left. */
   .pb-banner {
@@ -2142,28 +2073,21 @@ p:last-child {
   .pb-grid {
     height: 62vh;
   }
-  .pb-scene-wave-b {
-    display: none;
+  /* Sign-in: the data rule under the wordmark, the column at the phone's gutter. */
+  .pb-signin-bar {
+    padding: var(--pb-space-2) var(--pb-space-4);
   }
-  .pb-signin-page {
-    padding: 20px 12px;
-  }
-  .pb-signin-wordmark {
-    font-size: 26px;
-    line-height: 32px;
-  }
-  .pb-signin > .pb-card {
-    padding: 18px 16px 16px;
-  }
-  .pb-signin-list {
-    max-height: none;
+  .pb-signin-picker {
+    padding: var(--pb-space-5) var(--pb-space-4) var(--pb-space-6);
   }
 }
 /* Controls a finger can hit: 44px tall on a touch screen or a phone. */
 @media (pointer: coarse), (max-width: 760px) {
   .pb-main .fui-Button,
+  .pb-drawer .fui-Button,
   .pb-tabs a,
   .pb-nav-item,
+  .pb-signin-row,
   .pb-chart-toggle,
   .pb-details > summary,
   .pb-guide-compact summary,
@@ -2216,10 +2140,9 @@ p:last-child {
   }
 }
 @media print {
-  .pb-header,
-  .pb-nav,
-  .pb-mock-banner,
-  .pb-scene,
+  .pb-rail,
+  .pb-topbar,
+  .pb-skip,
   .pb-no-print,
   .pb-tabs {
     display: none;
@@ -2431,12 +2354,25 @@ p:last-child {
   animation: pb-pulse 1200ms var(--pb-ease-inout) infinite alternate;
 }
 
+/* Sign-in: the column settles, then the users in turn, all by about half a second; then nothing
+   moves. SignIn.tsx sets each row's --i. */
+.pb-signin-picker > * {
+  animation: pb-enter var(--pb-dur-enter) var(--pb-ease) backwards;
+}
+.pb-signin-picker > :nth-child(n + 2) {
+  animation-delay: 40ms;
+}
+.pb-signin-row {
+  animation: pb-enter var(--pb-dur) var(--pb-ease) backwards;
+  animation-delay: calc(80ms + min(var(--i, 0), 12) * 20ms);
+}
+
 /* ---- Motion policy: every animated or transitioned selector of this file, repeated exactly as it is
    declared (a media block adds no specificity, so only the same selector later in the file wins),
-   switched off under reduced motion or on a slow display. The sign-in scene is parked at composed
-   static offsets. Fluent's spinner keeps turning under its own reduced-motion rule, so it is
-   stopped here at two classes, above Griffel's one. Each other stylesheet that animates keeps its
-   own list at its foot (docs/06 section 5); components/motion.test.ts holds every one of them. ---- */
+   switched off under reduced motion or on a slow display. Fluent's spinner keeps turning under its
+   own reduced-motion rule, so it is stopped here at two classes, above Griffel's one. Each other
+   stylesheet that animates keeps its own list at its foot (docs/06 section 5);
+   components/motion.test.ts holds every one of them. ---- */
 @media (prefers-reduced-motion: reduce), (update: slow) {
   .pb-main > :not(.pb-banner, .pb-tabs, .pb-skeleton, .pb-tiles),
   .pb-enter-children > *,
@@ -2451,36 +2387,11 @@ p:last-child {
   .pb-skeleton,
   .pb-main > .pb-skeleton,
   .pb-skeleton-bar,
-  .pb-scene-glow,
-  .pb-scene-wave,
-  .pb-scene-wave-a,
-  .pb-scene-wave-b,
-  .pb-scene-tide,
-  .pb-scene-foam,
+  .pb-signin-picker > *,
+  .pb-signin-row,
   .fui-Spinner > .fui-Spinner__spinner,
   .fui-Spinner__spinner > .fui-Spinner__spinnerTail {
     animation: none;
-  }
-  .pb-scene-glow,
-  .pb-scene-wave,
-  .pb-scene-tide,
-  .pb-scene-foam {
-    will-change: auto;
-  }
-  .pb-scene-glow {
-    opacity: 0.7;
-  }
-  .pb-scene-wave-a {
-    transform: translate3d(-12%, 0, 0);
-  }
-  .pb-scene-wave-b {
-    transform: translate3d(-31%, 0, 0);
-  }
-  .pb-scene-tide {
-    transform: translate3d(0, -3px, 0);
-  }
-  .pb-scene-foam {
-    transform: translate3d(-7%, 0, 0);
   }
   .pb-skeleton-bar {
     opacity: 0.7;
@@ -2492,7 +2403,7 @@ p:last-child {
   .pb-btn-quiet,
   .pb-segmented > button,
   .pb-details > summary::before,
-  .pb-signin-list > button,
+  .pb-signin-row,
   .pb-table-wrap {
     transition: none;
   }

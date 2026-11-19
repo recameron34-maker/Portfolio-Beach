@@ -361,7 +361,9 @@ function Guide({
   return (
     <Card testId="preview-guide">
       <div className="pb-guide-head">
-        <SectionHeader>What to try in this preview</SectionHeader>
+        <SectionHeader>
+          {compact ? `Preview walkthroughs (${items.length})` : 'What to try in this preview'}
+        </SectionHeader>
         {onHide === undefined ? null : (
           <Button size="small" appearance="subtle" autoFocus={focusHide} onClick={onHide}>
             Hide guide

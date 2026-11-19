@@ -75,15 +75,46 @@ test('home, portfolio and one-pager @a11y', async ({ page }) => {
   await expectNoSeriousViolations(page);
 });
 
-test('sign-in scene is static under reduced motion @a11y', async ({ page }) => {
-  await page.emulateMedia({ reducedMotion: 'reduce' });
+test('sign-in settles once and is still under reduced motion @a11y', async ({ page }) => {
   await page.goto('/sign-in');
   await page.getByTestId('mock-user-list').waitFor();
-  const names = await page
-    .locator('.pb-scene-glow, .pb-scene-wave, .pb-scene-tide, .pb-scene-foam')
-    .evaluateAll((els) => els.map((el) => getComputedStyle(el).animationName));
-  expect(names.length).toBeGreaterThan(0);
-  expect(names.every((n) => n === 'none')).toBe(true);
+  await movingThenStill(
+    page,
+    () => animationNames(page.locator('.pb-signin-picker > *, .pb-signin-row')),
+    'pb-enter',
+  );
+});
+
+test('the skip link takes the keyboard past the navigation to the page @a11y', async ({ page }) => {
+  await signInAs(page, 'ops.one', d);
+  await page.goto('/portfolio');
+  await page.getByTestId('portfolio-count').waitFor();
+  await page.keyboard.press('Tab');
+  const skip = page.getByRole('link', { name: 'Skip to content' });
+  await expect(skip).toBeFocused();
+  await expect(skip).toBeVisible();
+  await page.keyboard.press('Enter');
+  await expect(page.getByRole('main')).toBeFocused();
+  await expect(page).toHaveURL(/\/portfolio$/);
+});
+
+test('the phone bar and its navigation drawer @a11y', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await signInAs(page, 'ops.one', d);
+  await page.getByTestId('home-tiles').waitFor();
+  // The data rule stays in the bar, the navigation waits in the drawer.
+  await expect(page.getByRole('status')).toContainText('synthetic data only');
+  await expect(page.getByRole('navigation', { name: 'Main' })).toHaveCount(0);
+  await expectNoSeriousViolations(page);
+  await page.getByRole('button', { name: 'Open navigation' }).click();
+  const drawer = page.getByRole('dialog', { name: 'Navigation' });
+  await expect(drawer.getByRole('navigation', { name: 'Main' })).toBeVisible();
+  await expectNoSeriousViolations(page);
+  // A link in the drawer opens its page and closes the drawer.
+  await drawer.getByRole('link', { name: 'Sponsors' }).click();
+  await expect(page).toHaveURL(/\/sponsors$/);
+  await expect(drawer).toHaveCount(0);
+  await expect(page.getByRole('table', { name: 'Sponsors' })).toBeVisible();
 });
 
 /** The animation each element a locator finds would run, as the browser computes it. */

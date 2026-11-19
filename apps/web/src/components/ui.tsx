@@ -238,10 +238,17 @@ export function TabNav({
   const narrow = useNarrowScreen();
   const row = useRef<HTMLElement>(null);
   useEffect(() => {
-    if (!narrow) return;
-    row.current
-      ?.querySelector('[aria-current="page"]')
-      ?.scrollIntoView?.({ block: 'nearest', inline: 'nearest' });
+    const nav = row.current;
+    if (!narrow || nav === null) return;
+    const current = nav.querySelector('[aria-current="page"]');
+    if (current === null) return;
+    // Only the row scrolls, sideways, clear of its faded edge: scrollIntoView would also scroll
+    // the page whenever the row is out of sight, as when a window is narrowed and widened again.
+    const tab = current.getBoundingClientRect();
+    const edge = nav.getBoundingClientRect();
+    const fade = 24;
+    if (tab.left < edge.left) nav.scrollLeft += tab.left - edge.left;
+    else if (tab.right > edge.right - fade) nav.scrollLeft += tab.right - edge.right + fade;
   }, [narrow]);
   return (
     <nav className="pb-tabs" aria-label={label} ref={row}>

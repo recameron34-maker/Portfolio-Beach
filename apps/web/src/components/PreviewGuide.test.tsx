@@ -217,6 +217,7 @@ describe('preview guide', () => {
     mockApi({ '/api/v1/auth/mock-users': ok(USERS) });
     renderWithQuery(<PreviewGuide variant="sign-in" />);
     const guide = screen.getByTestId('preview-guide');
+    expect(within(guide).getByRole('heading', { name: 'Preview walkthroughs (14)' })).toBeVisible();
     const summaries = [...guide.querySelectorAll('details > summary')].map((s) => s.textContent);
     expect(summaries).toHaveLength(14);
     expect(summaries[0]).toBe('Walls and entitlements');

@@ -1,5 +1,6 @@
 import { useCallback, useState, useSyncExternalStore } from 'react';
 import type { AnimationEvent } from 'react';
+import { createPresenceComponent } from '@fluentui/react-components';
 
 /*
  * The motion language for script (docs/06 section 5, decision 0026). styles.css holds the same
@@ -82,6 +83,37 @@ export function dialogSurfaceMotion(reduced: boolean): DialogSurfaceMotion {
     exitEasing: EASE.exit,
   };
 }
+
+/** The keyframes of the phone drawer: 16px in from the start edge, fading. */
+const DRAWER_OFF = { opacity: 0, transform: 'translate3d(-16px, 0, 0)' };
+const DRAWER_ON = { opacity: 1, transform: 'translate3d(0, 0, 0)' };
+
+/** The drawer's enter and exit, as Fluent's presence motion takes them. */
+export function drawerMotion(reduced: boolean): {
+  enter: { keyframes: (typeof DRAWER_ON)[]; duration: number; easing: string };
+  exit: { keyframes: (typeof DRAWER_ON)[]; duration: number; easing: string };
+} {
+  return {
+    enter: {
+      keyframes: [DRAWER_OFF, DRAWER_ON],
+      duration: reduced ? 0 : MOTION.enter,
+      easing: EASE.standard,
+    },
+    exit: {
+      keyframes: [DRAWER_ON, DRAWER_OFF],
+      duration: reduced ? 0 : MOTION.fast,
+      easing: EASE.exit,
+    },
+  };
+}
+
+/**
+ * The phone navigation drawer (an OverlayDrawer's surfaceMotion): it slides 16px in from the start
+ * edge and fades in, and leaves faster than it came; under reduced motion it appears and goes at once.
+ */
+export const DrawerSlide = createPresenceComponent<{ reduced: boolean }>(({ reduced }) =>
+  drawerMotion(reduced),
+);
 
 /** The props a row takes while it washes: the attribute styles.css animates, and its clearing. */
 export interface JustChangedProps {

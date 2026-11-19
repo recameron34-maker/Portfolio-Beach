@@ -9,6 +9,7 @@ import {
   MOTION,
   REDUCED_MOTION_QUERY,
   dialogSurfaceMotion,
+  drawerMotion,
   useJustChanged,
   useReducedMotion,
 } from './motion.js';
@@ -232,6 +233,21 @@ describe('dialogSurfaceMotion', () => {
       exitEasing: EASE.exit,
     });
     expect(dialogSurfaceMotion(true)).toMatchObject({ duration: 0, exitDuration: 0 });
+  });
+});
+
+describe('drawerMotion', () => {
+  it('slides 16px in and fades, leaves faster, and is instant under reduced motion', () => {
+    const moving = drawerMotion(false);
+    expect(moving.enter).toMatchObject({ duration: MOTION.enter, easing: EASE.standard });
+    expect(moving.exit).toMatchObject({ duration: MOTION.fast, easing: EASE.exit });
+    expect(moving.enter.keyframes[0]).toEqual({
+      opacity: 0,
+      transform: 'translate3d(-16px, 0, 0)',
+    });
+    expect(moving.exit.keyframes.at(-1)).toEqual(moving.enter.keyframes[0]);
+    const still = drawerMotion(true);
+    expect([still.enter.duration, still.exit.duration]).toEqual([0, 0]);
   });
 });
 
