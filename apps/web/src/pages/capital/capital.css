@@ -38,10 +38,6 @@
   background: var(--pb-bg);
   box-shadow: inset -1px 0 0 var(--pb-border);
 }
-.pb-cap-commitments thead tr > :first-child {
-  background: var(--pb-brand-primary);
-  box-shadow: inset -1px 0 0 rgba(var(--pb-bg-rgb), 0.18);
-}
 .pb-cap-commitments tbody tr:hover > :first-child {
   background: var(--pb-primary-tint-4);
 }

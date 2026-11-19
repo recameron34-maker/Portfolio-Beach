@@ -3,39 +3,66 @@ import type { ReactNode } from 'react';
 import { Link } from '@tanstack/react-router';
 import { previewMode } from '../app/env.js';
 import { MISSING } from '../lib/format.js';
+import { useNarrowScreen } from '../lib/media.js';
 import { tabsFor } from '../lib/role-focus.js';
 import { useRoleFocus } from '../lib/role-focus-context.js';
 
-/** Section header: small uppercase label with an accent underline (docs/06 section 2), optional aside on the right. */
+/**
+ * Section title (docs/06 section 2): an h2 in sentence case at the section title size, with an
+ * optional aside on the right (a date, a count, a short note). Commands for the section go in
+ * `actions`, beside the heading rather than inside it, so a button never becomes part of the
+ * heading's name.
+ */
 export function SectionHeader({
   children,
   aside,
+  actions,
 }: {
   children: ReactNode;
   aside?: ReactNode;
+  actions?: ReactNode;
 }): ReactNode {
-  return (
+  const heading = (
     <h2 className="pb-section-header">
       <span>{children}</span>
       {aside !== undefined ? <span className="pb-section-aside">{aside}</span> : null}
     </h2>
   );
+  if (actions === undefined) return heading;
+  return (
+    <div className="pb-section-head">
+      {heading}
+      <div className="pb-section-actions">{actions}</div>
+    </div>
+  );
 }
 
+/** A title inside a section, one step below the section title. */
+export function Subhead({ children }: { children: ReactNode }): ReactNode {
+  return <h3 className="pb-subhead">{children}</h3>;
+}
+
+/**
+ * A section of a page: a hairline rule above its content, no frame (docs/06 section 2). `panel`
+ * frames the few things that stand apart from the page, such as a form opened in place.
+ */
 export function Card({
   children,
   tinted = false,
+  panel = false,
   tone,
   testId,
 }: {
   children: ReactNode;
   tinted?: boolean;
+  panel?: boolean;
   tone?: 'error' | undefined;
   testId?: string;
 }): ReactNode {
   const className = [
     'pb-card',
     tinted ? 'pb-card-tinted' : '',
+    panel ? 'is-panel' : '',
     tone === 'error' ? 'pb-card-error' : '',
   ]
     .filter(Boolean)
@@ -47,10 +74,6 @@ export function Card({
   );
 }
 
-/**
- * Stat tile: a label and a key number in the brand colour, optionally with a small figure (a
- * sparkline) beside the number. Plain spans: Fluent Text would inject its own sizes at runtime.
- */
 /** Why a count tile shows the missing placeholder when the list behind it is only its first page. */
 export const PARTIAL_PAGE_HINT = 'Not calculable: more rows than one page holds';
 
@@ -78,6 +101,11 @@ export function CountTile({
   );
 }
 
+/**
+ * One cell of a figures strip: a label, the key figure in ink, optionally a small figure (a
+ * sparkline) beside it, and a hint. A tone shows as a dot before the label, never on the figure,
+ * and a zero carries no dot (data-zero). Plain spans: Fluent Text would inject its own sizes.
+ */
 export function StatTile({
   label,
   value,
@@ -104,6 +132,7 @@ export function StatTile({
       role="group"
       aria-label={label}
       data-tone={tone}
+      data-zero={value === '0' ? '' : undefined}
     >
       <span className="pb-stat-label">{label}</span>
       {figure !== undefined && figure !== null ? (
@@ -148,20 +177,37 @@ export function ErrorState({
   );
 }
 
-/** Page title row: a serif title (docs/06), the as-of or context line, and optional actions on the right. */
+/**
+ * Page header (docs/06 section 2): on a record's page, the trail of where it sits (`crumbs`, each
+ * earlier step a link); the title, with the page's actions on the right; and one meta line (the
+ * as-of date, whose view it is), which wraps rather than hides anything.
+ */
 export function PageHeader({
   title,
   meta,
   actions,
+  crumbs,
   testId,
 }: {
   title: ReactNode;
   meta?: ReactNode;
   actions?: ReactNode;
+  crumbs?: { label: string; to?: string }[] | undefined;
   testId?: string | undefined;
 }): ReactNode {
   return (
     <div className="pb-banner" data-testid={testId}>
+      {crumbs !== undefined && crumbs.length > 0 ? (
+        <nav aria-label="Breadcrumb" className="pb-crumbs">
+          <ol>
+            {crumbs.map((c) => (
+              <li key={`${c.label}|${c.to ?? ''}`}>
+                {c.to !== undefined ? <Link to={c.to}>{c.label}</Link> : <span>{c.label}</span>}
+              </li>
+            ))}
+          </ol>
+        </nav>
+      ) : null}
       <h1>{title}</h1>
       {meta !== undefined ? <span className="pb-meta">{meta}</span> : null}
       {actions !== undefined ? <span className="pb-banner-actions">{actions}</span> : null}
@@ -228,20 +274,41 @@ export function Badge({
 }
 
 /**
- * The frame every table sits in. A table wider than its card (a phone) scrolls sideways inside
+ * The frame every table sits in. A table wider than its section (a phone) scrolls sideways inside
  * it, and the frame takes keyboard focus so it can be scrolled without a pointer (WCAG 2.1.1).
  * It is positioned, so visually hidden text inside the table (absolutely positioned) scrolls and
- * clips with the table instead of widening the page. The label is the table's own label.
+ * clips with the table instead of widening the page. The label is the table's own label. `tall`
+ * holds a long table in a region of limited height whose header stays in view; `busy` says the
+ * rows are being replaced (aria-busy), and the frame dims while they are.
  */
-export function TableWrap({ label, children }: { label: string; children: ReactNode }): ReactNode {
+export function TableWrap({
+  label,
+  tall = false,
+  busy = false,
+  children,
+}: {
+  label: string;
+  tall?: boolean;
+  busy?: boolean;
+  children: ReactNode;
+}): ReactNode {
   return (
-    <div className="pb-table-wrap" role="region" aria-label={label} tabIndex={0}>
+    <div
+      className={tall ? 'pb-table-wrap is-tall' : 'pb-table-wrap'}
+      role="region"
+      aria-label={label}
+      aria-busy={busy ? true : undefined}
+      tabIndex={0}
+    >
       {children}
     </div>
   );
 }
 
-/** Label and value pairs in two or four columns; values keep tabular figures. */
+/**
+ * Label and value pairs in two or four columns; values keep tabular figures. On a phone each pair
+ * takes its own row, so nothing scrolls sideways. It stays a table at every width.
+ */
 export function KeyValueTable({
   rows,
   label,
@@ -251,8 +318,9 @@ export function KeyValueTable({
   label: string;
   columns?: 1 | 2;
 }): ReactNode {
+  const perRow = useNarrowScreen() ? 1 : columns;
   const pairs: { label: string; value: ReactNode }[][] = [];
-  for (let i = 0; i < rows.length; i += columns) pairs.push(rows.slice(i, i + columns));
+  for (let i = 0; i < rows.length; i += perRow) pairs.push(rows.slice(i, i + perRow));
   return (
     <TableWrap label={label}>
       <table className="pb-table pb-kv" aria-label={label}>

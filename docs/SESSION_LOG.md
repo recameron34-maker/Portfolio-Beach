@@ -731,3 +731,34 @@ The owner asked that the app "look less like a standard anthropic build, through
 - The fit meter fills on the radar's stagger only once each measure's row carries `--pb-radar-i` (`pages/pipeline/DealFit.tsx`); this slice changed no markup, so every bar fills together at 80ms. For slice 7.
 - The site's screenshots, tour videos and brochures, and the published demo, still show the old look (plan section 8, items 3 and 5).
 - `theme.ts`'s review comments now carry the new derived values; the comment on `PageHeader` in `components/ui.tsx` still says "a serif title" until slice 2 rewrites the header.
+
+### Session 13 (2026-11-19): the UI pass, slice 2: sections, page headers, tables and figures
+
+The second foundation slice of `docs/handoff/ui-pass-plan.md` (findings P06 to P12). Shared components and `styles.css` only, with two small page rules where the new look would otherwise have broken; no request, figure, role check or word on a page changes.
+
+**What changed**
+
+- **Sections** (`Card`): flat, a hairline rule above, 16px above the content and 32px below, no frame and no shadow; no rule on the first section after the page header, the tabs, the figures strip or the analytics context row. `Card panel` frames what stands apart from the page (no page uses it yet). The tinted card now looks like any other section (its prop goes in slice 6). An error section has no inset bar: its title is in the bad ink after a dot. Two columns are two sections 32px apart, each with its own rule.
+- **Section titles**: sentence case, 14/20 weight 600 in the text colour, no accent underline and no capitals; the aside in 12/16 muted drops under the title when the two do not fit. `SectionHeader` gains `actions` (commands beside the heading, never inside it); new `Subhead` (h3, 13/20 600).
+- **Page header**: a grid of the trail (new `PageHeader crumbs`, a navigation named Breadcrumb; no page passes one yet), the title (20/28 weight 600 in ink: the serif, primary-coloured title is gone), the actions on the right centred on title and meta, and the meta line, which wraps. No rule under it. One column under 760px; under 560px the meta items stack without their dots. `.pb-meta-clip` for one long plain-text item.
+- **Tables**: no header fill; 12/16 weight 600 in `--pb-muted-strong` over the stronger rule; no rules between columns; 32px rows (`--pb-cell-py` by 8px), top-aligned; row headers 500; figures right-aligned on one line; totals in `tfoot` under the stronger rule; a dense variant; a selected row with a tint and the accent along its first cell; links at 500, underlined on hover or focus only; identifiers as small plain text. The frame reaches 8px past its section, so a cell's text lines up with the section title. `TableWrap tall` (a region of limited height whose header stays in view) and `TableWrap busy` (`aria-busy`, dims). `.pb-col-fit` and `.pb-col-text` for pages to adopt. Ordinary links underline in a light ink line.
+- **Print**: table headers in ink over an ink rule, repeated on each page; rows never split; tall regions open out; the figures strip prints four a row (an important rule, the only one in the app: `balanceTiles` writes the screen's columns inline and a printed page is not measured again). The printed weekly report now shows its column headers and its figures without overlap.
+- **Figures strip**: one strip between two rules, the cells divided by hairlines the cells draw themselves, so a short last row ends in plain page; labels in sentence case, a tone as a 6px dot before the label (none on a zero: `StatTile` sets `data-zero`, `data-tone` is unchanged), every figure in ink, the missing placeholder quiet on the figure's line. Cells are at least 150px (140px under 480px, two across).
+- **Phones**: a table that scrolls sideways keeps its first column in view and shows a soft edge on the side that scrolls; `KeyValueTable` holds one pair a row and stays a table.
+- **Page rules**: the commitments table's first header cell no longer paints the old filled header (`capital.css`); the base case card's figures strip keeps its capitals (`deal.css`, class `pb-deal-plan-tiles` in `UnderwritingCard.tsx`), see the open items.
+- `docs/06` section 2 rewritten for surfaces, page header, section titles, tables, tables on phones and the figures strip.
+
+**Verified**
+
+- `pnpm typecheck` and `pnpm lint` clean; `pnpm exec vitest run --project web`: 152 files, 1634 tests passed (`components/ui.test.tsx` adds the breadcrumb, the absent trail on an area page, the actions beside the heading, `Subhead`, `KeyValueTable` one pair a row under a narrow `matchMedia`, `StatTile` keeping `data-tone` and adding `data-zero`, `TableWrap tall` and `busy`).
+- `bash scripts/check-style.sh` and `pnpm check:employer-data` OK; `pnpm --filter @pb/api build` and `pnpm --filter @pb/web build:preview` OK.
+- The probe: 238 passed, 0 failed, 0 skipped. The locators on the changed components still resolve: the figure groups by name (`EBITDA against plan`, `Gross IRR against plan`, `Yield to maturity` and the counted tiles), `data-health-tiles`, `deal-underwriting-tiles`, the `detail-banner`, `run-banner` and `document-banner` headers, the tables and regions by name.
+- `e2e/a11y.spec.ts`: 28 passed at 1280 and 390 pixels.
+- The weekly report printed to PDF from the preview: headers in ink over an ink rule, four figures a row.
+- Screenshots: all 174 of the plan's set again, none failed, no page note changed (no new sideways scroll, error or not-shown state). Compared at 1440 and 390 with the before set: Home, the valuation board, a deal's performance and overview tabs, commitments, the weekly report, the extraction run (five figures: no grey block), the data dictionary, analytics clients and credit book.
+
+**Open items**
+
+- The base case card's figure labels keep their capitals: `apps/web/scripts/probe-preview.mjs:2872` reads `EBITDA AGAINST PLAN` as rendered and may not change in this pass. For a session allowed to change the probe: compare without regard to case, then drop the rule in `pages/deal/deal.css` and the class in `UnderwritingCard.tsx`.
+- Left to their slices, as planned: uppercase field labels, pills, notices, tabs and the toolbar's rule (slice 3); the shell (slice 4); Home's strip, one column under 480px (slice 5); the deal workspace strip's own phone gap and padding (slice 6); the commitments table's pinned-column rule (slice 9); report total rows still in `tbody` (slice 10); the pipeline cards and the map still name the transparent `--pb-shadow-1` (slices 7 and 12).
+- On a phone the extraction run's quote column still breaks inside words (`overflow-wrap: anywhere`), as it did before; slice 8 gives its text columns a minimum width.

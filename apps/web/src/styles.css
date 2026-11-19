@@ -87,11 +87,11 @@ a {
   color: var(--pb-brand-primary);
   text-decoration-thickness: 1px;
   text-underline-offset: 2px;
-  text-decoration-color: rgba(var(--pb-accent-rgb), 0.5);
+  text-decoration-color: rgba(var(--pb-primary-rgb), 0.35);
   transition: text-decoration-color var(--pb-dur-fast) var(--pb-ease);
 }
 a:hover {
-  text-decoration-color: var(--pb-brand-accent);
+  text-decoration-color: var(--pb-brand-primary);
 }
 :focus-visible {
   outline: 2px solid var(--pb-brand-accent);
@@ -326,146 +326,237 @@ p:last-child {
 }
 
 /* ---- Page header, meta ---- */
+/* A grid: the trail of a record's page above the title, the title, the meta line under it, and the
+   page's actions on the right, centred on title and meta. No rule under it; the page's first
+   section carries none either. */
 .pb-banner {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-areas: 'crumbs crumbs' 'title actions' 'meta actions';
+  column-gap: var(--pb-space-5);
+  row-gap: 2px;
+  align-items: center;
+  margin: 0 0 var(--pb-space-5);
+  padding: 0;
+  border: 0;
+}
+.pb-banner > .pb-crumbs {
+  grid-area: crumbs;
+  margin-bottom: 2px;
+}
+.pb-banner > h1 {
+  grid-area: title;
+  min-width: 0;
+  margin: 0;
+  font-family: var(--pb-font-ui);
+  font-size: var(--pb-text-title);
+  line-height: var(--pb-text-title-lh);
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  color: var(--pb-text);
+}
+.pb-banner > .pb-meta {
+  grid-area: meta;
+  min-width: 0;
+}
+.pb-banner-actions {
+  grid-area: actions;
+  justify-self: end;
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--pb-space-2);
+}
+/* The trail of a record's page: earlier steps as quiet links, a slash between them. */
+.pb-crumbs > ol {
   display: flex;
   flex-wrap: wrap;
   align-items: baseline;
-  gap: 6px 18px;
-  margin: 0 0 20px;
-  padding: 0 0 14px;
-  border-bottom: 1px solid var(--pb-hairline);
-}
-.pb-banner h1 {
   margin: 0;
-  font-family: var(--pb-font-display);
-  font-weight: 400;
-  font-size: 24px;
-  line-height: 30px;
-  letter-spacing: 0.005em;
-  color: var(--pb-brand-primary);
+  padding: 0;
+  list-style: none;
+  font-size: var(--pb-text-sm);
+  line-height: var(--pb-text-sm-lh);
+  color: var(--pb-muted-strong);
 }
-.pb-banner-actions {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  margin-left: auto;
+.pb-crumbs li + li::before {
+  content: '/';
+  margin: 0 var(--pb-space-2);
+  color: var(--pb-border-strong);
+}
+.pb-crumbs a {
+  color: var(--pb-muted-strong);
+  text-decoration: none;
+}
+.pb-crumbs a:hover,
+.pb-crumbs a:focus-visible {
+  color: var(--pb-brand-primary);
+  text-decoration: underline;
+  text-decoration-color: currentColor;
 }
 .pb-meta {
-  font-size: 13px;
-  line-height: 20px;
+  font-size: var(--pb-text-md);
+  line-height: var(--pb-text-md-lh);
   color: var(--pb-muted);
 }
 .pb-meta-list {
   display: inline-flex;
   flex-wrap: wrap;
-  font-size: 13px;
-  line-height: 20px;
+  font-size: var(--pb-text-md);
+  line-height: var(--pb-text-md-lh);
   color: var(--pb-muted);
 }
 .pb-meta-list > span + span::before {
   content: '\00B7';
-  margin: 0 8px;
+  margin: 0 var(--pb-space-2);
+}
+/* One plain-text item of the meta that can run long (a file name): clipped, its text in title. */
+.pb-meta-clip {
+  display: inline-block;
+  max-width: 40ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  vertical-align: bottom;
 }
 
-/* ---- Cards and section headers ---- */
+/* ---- Sections and section titles ---- */
+/* A section (Card) is flat: a hairline rule above its content and space below, no frame. The first
+   section after the page header, the tabs, the figures strip or the analytics context row carries
+   no rule; a frame (is-panel) is only for what stands apart from the page. */
 .pb-card {
-  background: var(--pb-bg);
-  border: 1px solid var(--pb-border);
-  border-radius: var(--pb-radius);
-  padding: 18px 20px 20px;
-  margin-bottom: 16px;
-  box-shadow: var(--pb-shadow-1);
+  background: none;
+  border: 0;
+  border-top: 1px solid var(--pb-border);
+  border-radius: 0;
+  box-shadow: none;
+  padding: var(--pb-space-4) 0 0;
+  margin: 0 0 var(--pb-space-6);
 }
 .pb-card > :last-child {
   margin-bottom: 0;
 }
-.pb-card-tinted {
-  background: var(--pb-sand-pale);
-  border-color: var(--pb-sand-edge);
-  box-shadow: none;
+:is(.pb-banner, .pb-tabs, .pb-tiles, .pb-page-context) + .pb-card,
+:is(.pb-banner, .pb-tabs, .pb-tiles, .pb-page-context) + .pb-two-col > .pb-card {
+  border-top: 0;
+  padding-top: 0;
 }
-.pb-card-tinted .pb-meta,
-.pb-card-tinted .pb-stat-label,
-.pb-card-tinted .pb-stat-hint,
-.pb-card-tinted .pb-kv th {
-  color: var(--pb-muted-strong);
+.pb-card.is-panel {
+  border: 1px solid var(--pb-border);
+  border-radius: var(--pb-radius-lg);
+  padding: var(--pb-space-4);
 }
-.pb-card-tinted .pb-table-wrap {
-  border-color: var(--pb-sand-edge);
-  background: transparent;
-}
-.pb-card-tinted .pb-table td,
-.pb-card-tinted .pb-table th[scope='row'] {
-  border-bottom-color: var(--pb-sand-edge);
-}
-.pb-card-tinted .pb-table tbody tr:hover td,
-.pb-card-tinted .pb-table tbody tr:hover th {
-  background: transparent;
-}
-.pb-card-error {
-  box-shadow:
-    inset 3px 0 0 var(--pb-bad),
-    var(--pb-shadow-1);
-}
+/* An error: its title in the bad ink after a dot of the bad colour. */
 .pb-card-error .pb-section-header {
   color: var(--pb-bad-ink);
 }
-.pb-card-error .pb-section-header > span:first-child {
-  border-bottom-color: var(--pb-bad);
+.pb-card-error .pb-section-header > span:first-child::before {
+  content: '';
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  margin-right: var(--pb-space-2);
+  border-radius: 50%;
+  background: var(--pb-bad);
+  vertical-align: 2px;
 }
+/* A title and its aside share a line while they fit; past that the aside drops under the title,
+   so a phone never folds the title a word a line. */
 .pb-section-header {
   display: flex;
+  flex-wrap: wrap;
   align-items: baseline;
   justify-content: space-between;
-  gap: 12px;
-  margin: 0 0 14px;
-  font-size: 11px;
-  line-height: 16px;
+  gap: var(--pb-space-1) var(--pb-space-3);
+  margin: 0 0 var(--pb-space-3);
+  font-size: var(--pb-text-lg);
+  line-height: var(--pb-text-lg-lh);
   font-weight: 600;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
-  color: var(--pb-brand-primary);
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--pb-text);
 }
-.pb-section-header > span:first-child {
-  display: inline-block;
-  padding-bottom: 5px;
-  border-bottom: 2px solid var(--pb-brand-accent);
-}
-/* The aside wraps inside its half of the header (chips on a phone) instead of widening the card. */
+/* The aside wraps inside its half of the title (chips on a phone) instead of widening the section. */
 .pb-section-aside {
   display: inline-flex;
   flex-wrap: wrap;
   justify-content: flex-end;
   align-items: center;
-  gap: 4px 8px;
+  gap: var(--pb-space-1) var(--pb-space-2);
   min-width: 0;
-  font-size: 12px;
-  line-height: 16px;
-  font-weight: 500;
+  font-size: var(--pb-text-sm);
+  line-height: var(--pb-text-sm-lh);
+  font-weight: 400;
   letter-spacing: 0;
   text-transform: none;
   color: var(--pb-muted);
 }
-/* Two cards side by side once each can be 440px wide (room for a four-column table); else stacked */
+/* A section title with commands beside it: the commands sit right, outside the heading. */
+.pb-section-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--pb-space-2) var(--pb-space-3);
+  margin: 0 0 var(--pb-space-3);
+}
+.pb-section-head > .pb-section-header {
+  flex: 1 1 auto;
+  margin: 0;
+}
+.pb-section-actions {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--pb-space-2);
+  margin-left: auto;
+}
+.pb-subhead {
+  margin: var(--pb-space-4) 0 var(--pb-space-1);
+  font-size: var(--pb-text-md);
+  line-height: var(--pb-text-md-lh);
+  font-weight: 600;
+  color: var(--pb-text);
+}
+.pb-subhead:first-child {
+  margin-top: 0;
+}
+/* Two sections side by side once each can be 440px wide (room for a four-column table); else
+   stacked. Each keeps its own rule; the gap is the space between sections. */
 .pb-two-col {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(min(100%, 440px), 1fr));
-  gap: 16px;
+  gap: var(--pb-space-6);
   align-items: start;
-  margin-bottom: 16px;
+  margin-bottom: var(--pb-space-6);
 }
 .pb-two-col > .pb-card {
   margin-bottom: 0;
 }
 
-/* ---- Stat tiles ---- */
-/* --pb-tile-min is the narrowest a tile may get; balanceTiles (lib/tiles.ts) then evens out the rows */
+/* ---- Figures strip ---- */
+/* One strip of cells between two rules, the figures in ink. The rules between cells are drawn by
+   the cells themselves (a 1px shadow on each cell's left and top), and the strip clips the ones on
+   its first column and first row, so the empty end of a short last row stays plain page.
+   --pb-tile-min is the narrowest a cell may get; balanceTiles (lib/tiles.ts) then evens out the
+   rows. */
 .pb-tiles {
-  --pb-tile-min: 172px;
+  --pb-tile-min: 150px;
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(min(100%, var(--pb-tile-min)), 1fr));
-  gap: 12px;
-  margin-bottom: 16px;
+  gap: 0;
+  margin: 0 0 var(--pb-space-6);
+  background: var(--pb-bg);
+  border-block: 1px solid var(--pb-border);
+  overflow: hidden;
+}
+.pb-tiles > * {
+  box-shadow:
+    -1px 0 0 var(--pb-hairline),
+    0 -1px 0 var(--pb-hairline);
+}
+/* The strip clips at its edge, so a control in a cell keeps its focus ring inside the cell. */
+.pb-tiles :focus-visible {
+  outline-offset: -2px;
 }
 /* Home: four columns with Current NAV across two, so seven tiles fill two even rows */
 .pb-home-tiles {
@@ -481,99 +572,143 @@ p:last-child {
 .pb-stat-tile {
   display: flex;
   flex-direction: column;
-  gap: 4px;
-  min-height: 84px;
-  padding: 12px 14px 12px;
+  gap: 2px;
+  min-width: 0;
+  min-height: 0;
+  padding: var(--pb-space-2) var(--pb-space-4) var(--pb-space-3);
   background: var(--pb-bg);
-  border: 1px solid var(--pb-border);
-  border-radius: var(--pb-radius);
-  box-shadow: var(--pb-shadow-1);
+  border: 0;
+  border-radius: 0;
 }
+/* The label leads; a tone shows as a dot before it (not on a zero), never on the figure. */
 .pb-stat-label {
-  font-size: 11px;
-  line-height: 16px;
-  font-weight: 600;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--pb-muted);
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  font-size: var(--pb-text-sm);
+  line-height: var(--pb-text-sm-lh);
+  font-weight: 500;
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--pb-muted-strong);
+}
+.pb-stat-tile[data-tone]:not([data-zero]) > .pb-stat-label::before {
+  content: '';
+  flex: none;
+  width: 6px;
+  height: 6px;
+  margin-top: 5px;
+  border-radius: 50%;
+  background: var(--pb-border-strong);
+}
+.pb-stat-tile[data-tone='good']:not([data-zero]) > .pb-stat-label::before {
+  background: var(--pb-good);
+}
+.pb-stat-tile[data-tone='watch']:not([data-zero]) > .pb-stat-label::before {
+  background: var(--pb-watch);
+}
+.pb-stat-tile[data-tone='bad']:not([data-zero]) > .pb-stat-label::before {
+  background: var(--pb-bad);
 }
 .pb-stat-value {
-  font-size: 26px;
-  line-height: 30px;
+  font-size: var(--pb-text-fig);
+  line-height: var(--pb-text-fig-lh);
   font-weight: 600;
   letter-spacing: -0.01em;
-  color: var(--pb-brand-primary);
+  color: var(--pb-text);
   font-variant-numeric: tabular-nums lining-nums;
 }
+/* The missing placeholder stays quiet, on the figure's line so the hints below still line up. */
 .pb-stat-value.is-missing {
-  color: var(--pb-muted-strong);
+  font-size: var(--pb-text-lg);
   font-weight: 500;
+  letter-spacing: 0;
+  color: var(--pb-muted-strong);
 }
 .pb-stat-hint {
-  font-size: 12px;
-  line-height: 16px;
+  font-size: var(--pb-text-sm);
+  line-height: var(--pb-text-sm-lh);
   color: var(--pb-muted);
-}
-.pb-stat-tile[data-tone='good'] .pb-stat-value {
-  color: var(--pb-good-ink);
-}
-.pb-stat-tile[data-tone='watch'] .pb-stat-value {
-  color: var(--pb-watch-ink);
-}
-.pb-stat-tile[data-tone='bad'] .pb-stat-value {
-  color: var(--pb-bad-ink);
 }
 
 /* ---- Tables ---- */
 /* The frame every table sits in (TableWrap): a focusable region that scrolls sideways inside its
-   card. Positioned, so visually hidden text inside the table (absolutely positioned) scrolls and
-   clips with the table instead of widening the page. */
+   section. Positioned, so visually hidden text inside the table (absolutely positioned) scrolls and
+   clips with the table instead of widening the page. It reaches 8px past the section on each side,
+   so a cell's text lines up with the section title and the hover band runs past it. Where the table
+   is wider than the frame, a soft edge on the side that scrolls says so (two covers that travel
+   with the rows over two shadows that stay put). */
 .pb-table-wrap {
   position: relative;
   overflow-x: auto;
   -webkit-overflow-scrolling: touch;
-  border: 1px solid var(--pb-border);
-  border-radius: 6px;
-  background: var(--pb-bg);
+  margin-inline: calc(var(--pb-space-2) * -1);
+  border: 0;
+  border-radius: 0;
+  background:
+    linear-gradient(to right, var(--pb-bg), var(--pb-bg)) left center / var(--pb-space-2) 100%
+      no-repeat local,
+    linear-gradient(to left, var(--pb-bg), var(--pb-bg)) right center / var(--pb-space-2) 100%
+      no-repeat local,
+    linear-gradient(to right, rgba(var(--pb-text-rgb), 0.08), transparent) left center /
+      var(--pb-space-2) 100% no-repeat scroll,
+    linear-gradient(to left, rgba(var(--pb-text-rgb), 0.08), transparent) right center /
+      var(--pb-space-2) 100% no-repeat scroll;
 }
 .pb-table-wrap:focus-visible {
   outline-offset: 0;
 }
+/* A long table: a region of limited height whose header stays in view while the rows scroll. */
+.pb-table-wrap.is-tall {
+  max-height: min(72vh, 760px);
+  overflow: auto;
+  overscroll-behavior: contain;
+}
+.pb-table-wrap.is-tall thead th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--pb-bg);
+}
 .pb-table-wrap + .pb-table-wrap,
 .pb-table-wrap + .pb-notice {
-  margin-top: 12px;
+  margin-top: var(--pb-space-3);
 }
 .pb-table-wrap + .pb-meta {
-  margin-top: 10px;
+  margin-top: var(--pb-space-2);
 }
 .pb-table {
   width: 100%;
   border-collapse: separate;
   border-spacing: 0;
-  font-size: 13px;
-  line-height: 20px;
+  font-size: var(--pb-text-md);
+  line-height: var(--pb-text-md-lh);
 }
+/* The header is quiet: no fill, small muted words over a stronger rule, no rules between columns. */
 .pb-table thead th {
   height: 32px;
-  padding: 0 10px;
+  padding: 0 var(--pb-space-2) var(--pb-space-2);
   text-align: left;
-  vertical-align: middle;
-  background: var(--pb-brand-primary);
-  color: var(--pb-bg);
-  font-size: 12px;
+  vertical-align: bottom;
+  background: none;
+  color: var(--pb-muted-strong);
+  font-size: var(--pb-text-sm);
+  line-height: var(--pb-text-sm-lh);
   font-weight: 600;
-  letter-spacing: 0.03em;
+  letter-spacing: 0;
   white-space: nowrap;
+  border-bottom: 1px solid var(--pb-border-strong);
 }
-.pb-table thead th + th {
-  box-shadow: inset 1px 0 0 rgba(var(--pb-bg-rgb), 0.18);
-}
+/* Rows of 32px around a 20px line; cells top-aligned so a cell with a second line reads down. */
 .pb-table td,
 .pb-table th[scope='row'] {
-  padding: 7px 10px;
+  padding: var(--pb-cell-py) var(--pb-space-2);
   border-bottom: 1px solid var(--pb-hairline);
-  vertical-align: middle;
+  vertical-align: top;
   text-align: left;
+}
+.pb-table th[scope='row'] {
+  font-weight: 500;
 }
 .pb-table tbody tr:last-child td,
 .pb-table tbody tr:last-child th {
@@ -583,13 +718,55 @@ p:last-child {
 .pb-table tbody tr:hover th {
   background: var(--pb-primary-tint-4);
 }
+/* The row the reader picked: a tint across it and the accent along its first cell. */
+.pb-table tr.is-selected > *,
+.pb-table tbody tr.is-selected:hover > * {
+  background: var(--pb-primary-tint-8);
+}
+.pb-table tr.is-selected > :first-child {
+  box-shadow: inset 2px 0 0 var(--pb-brand-accent);
+}
 .pb-table td.num,
 .pb-table th.num {
   text-align: right;
+  white-space: nowrap;
   font-variant-numeric: tabular-nums lining-nums;
 }
 .pb-table td.is-missing {
   color: var(--pb-muted-strong);
+}
+/* Totals sit in tfoot, under a stronger rule. */
+.pb-table tfoot td,
+.pb-table tfoot th {
+  border-top: 1px solid var(--pb-border-strong);
+  border-bottom: 0;
+  font-weight: 600;
+}
+/* A dense table: 28px rows, for the long lists read line by line. */
+.pb-table.is-dense {
+  --pb-cell-py: 4px;
+}
+.pb-table.is-dense td,
+.pb-table.is-dense th[scope='row'] {
+  padding: var(--pb-cell-py) var(--pb-space-1);
+}
+.pb-table a {
+  color: var(--pb-brand-primary);
+  font-weight: 500;
+  text-decoration: none;
+}
+.pb-table a:hover,
+.pb-table a:focus-visible {
+  text-decoration: underline;
+  text-decoration-color: currentColor;
+}
+/* A column as narrow as its content, and a text column that never folds to a word a line. */
+.pb-col-fit {
+  width: 1%;
+  white-space: nowrap;
+}
+.pb-col-text {
+  min-width: 18ch;
 }
 .pb-kv th[scope='row'] {
   width: 18%;
@@ -601,15 +778,17 @@ p:last-child {
 .pb-kv tbody tr:hover th {
   background: transparent;
 }
+/* An identifier (INV-0001, Row 2) beside a name: plain small text with even figures, not a tag. */
 .pb-key {
-  display: inline-block;
-  padding: 1px 6px;
-  border-radius: var(--pb-radius-sm);
-  background: var(--pb-primary-tint-8);
-  color: var(--pb-brand-primary);
-  font-size: 12.5px;
-  line-height: 18px;
-  letter-spacing: 0.01em;
+  display: inline;
+  padding: 0;
+  margin-right: var(--pb-space-1);
+  border-radius: 0;
+  background: none;
+  color: var(--pb-muted-strong);
+  font-size: var(--pb-text-sm);
+  letter-spacing: 0;
+  font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
 .pb-list {
@@ -1351,8 +1530,9 @@ p:last-child {
 .pb-signin > .pb-card {
   margin: 0;
   padding: 22px 24px 20px;
+  border: 1px solid var(--pb-border);
   border-radius: var(--pb-radius-lg);
-  border-color: var(--pb-border);
+  background: var(--pb-bg);
   box-shadow: var(--pb-shadow-3);
 }
 .pb-signin-list {
@@ -1662,16 +1842,30 @@ p:last-child {
   .pb-main {
     padding: 16px 16px 40px;
   }
-  .pb-banner h1 {
-    font-size: 22px;
-    line-height: 28px;
+  /* The page header in one column: the actions under the meta line, from the left. */
+  .pb-banner {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-areas: 'crumbs' 'title' 'meta' 'actions';
   }
-  .pb-tiles {
-    gap: 10px;
+  .pb-banner-actions {
+    justify-self: start;
+    margin-top: var(--pb-space-2);
   }
-  .pb-stat-value {
-    font-size: 22px;
-    line-height: 26px;
+  /* A table that scrolls sideways keeps its first column in view, with a hairline at its edge. A
+     key and value table holds one pair a row on a phone and needs neither. Kept at one class, so
+     a hovered or selected row and a page's own pinned column still win. */
+  :where(.pb-table:not(.pb-kv)) :is(th, td):first-child {
+    position: sticky;
+    left: 0;
+    z-index: 1;
+    background: var(--pb-bg);
+    box-shadow: inset -1px 0 0 var(--pb-hairline);
+  }
+  :where(.pb-table:not(.pb-kv)) thead th:first-child {
+    background: var(--pb-bg);
+  }
+  :where(.pb-table-wrap.is-tall .pb-table:not(.pb-kv)) thead th:first-child {
+    z-index: 2;
   }
   .pb-toolbar > .pb-field {
     flex: 1 1 100%;
@@ -1703,10 +1897,17 @@ p:last-child {
   .pb-steps {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
+  /* The header's meta items one under another, without the dots between them. */
+  .pb-banner .pb-meta-list {
+    flex-direction: column;
+  }
+  .pb-banner .pb-meta-list > span + span::before {
+    content: none;
+  }
 }
 @media (max-width: 480px) {
   .pb-tiles {
-    --pb-tile-min: 280px;
+    --pb-tile-min: 140px;
   }
   .pb-home-tiles {
     grid-template-columns: minmax(0, 1fr);
@@ -1732,14 +1933,31 @@ p:last-child {
   }
   .pb-card,
   .pb-stat-tile {
-    box-shadow: none;
     break-inside: avoid;
   }
   .pb-table-wrap {
     overflow: visible;
+    background: none;
   }
+  .pb-table-wrap.is-tall {
+    max-height: none;
+    overflow: visible;
+  }
+  /* Headers print in ink over an ink rule, repeat on every page, and rows never split. */
+  .pb-table thead {
+    display: table-header-group;
+  }
+  .pb-table thead th {
+    color: var(--pb-text);
+    border-bottom-color: var(--pb-text);
+  }
+  .pb-table tr {
+    break-inside: avoid;
+  }
+  /* Four figures a row on paper. balanceTiles writes the screen's columns inline and a page being
+     printed is not measured again, so only an important rule reaches past them. */
   .pb-tiles {
-    grid-template-columns: repeat(4, minmax(0, 1fr));
+    grid-template-columns: repeat(4, minmax(0, 1fr)) !important;
   }
 }
 

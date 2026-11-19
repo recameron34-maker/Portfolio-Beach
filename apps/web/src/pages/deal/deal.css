@@ -42,6 +42,13 @@
   gap: 4px;
 }
 
+/* The base case card's figure labels keep their capitals for now: the preview's probe reads the
+   first of them as rendered ("EBITDA AGAINST PLAN") and may not change during the UI pass. When it
+   can, it compares without regard to case and this rule goes (docs/SESSION_LOG.md open items). */
+.pb-deal-plan-tiles .pb-stat-label {
+  text-transform: uppercase;
+}
+
 /* Tile rows whose labels may wrap: every label takes two lines so the numbers line up. */
 @media (min-width: 481px) {
   .pb-deal-aligned .pb-stat-label {

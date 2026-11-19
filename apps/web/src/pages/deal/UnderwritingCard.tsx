@@ -107,7 +107,7 @@ function Tiles({
   return (
     <div
       ref={balanceTiles}
-      className="pb-tiles pb-deal-tiles pb-deal-aligned"
+      className="pb-tiles pb-deal-tiles pb-deal-aligned pb-deal-plan-tiles"
       data-testid="deal-underwriting-tiles"
     >
       {tiles.map((tile) => (
