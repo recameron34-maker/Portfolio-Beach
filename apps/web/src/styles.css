@@ -635,6 +635,49 @@ p:last-child {
   margin: 0 0 var(--pb-space-4);
 }
 
+/* What a tab's figures are over (PageContext), directly under the tab row: the as-of date and the
+   scope as items with a dot between them on the left, the tab's own controls on the right, and a
+   scope sentence on a line of its own. It draws no rule, so the tab row's rule is the only line
+   between the header and the tab's first section, which draws none either. */
+.pb-page-context {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--pb-space-2) var(--pb-space-4);
+  margin: 0 0 var(--pb-space-4);
+}
+.pb-page-context-items {
+  min-width: 0;
+  margin: 0;
+}
+/* The controls keep their own spacing, so an empty result line beside them takes no room. */
+.pb-page-context-controls {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  row-gap: var(--pb-space-2);
+  margin-left: auto;
+}
+.pb-page-context-controls > * + * {
+  margin-left: var(--pb-space-3);
+}
+.pb-page-context-controls > .pb-action-status:empty + * {
+  margin-left: 0;
+}
+.pb-page-context-controls > .pb-action-status > .pb-notice {
+  margin: 0;
+  padding-block: var(--pb-space-1);
+}
+.pb-page-context-note {
+  flex: 0 0 100%;
+  margin: 0;
+  font-size: var(--pb-text-sm);
+  line-height: var(--pb-text-sm-lh);
+  color: var(--pb-muted);
+}
+
 /* ---- Sections and section titles ---- */
 /* A section (Card) is flat: a hairline rule above its content and space below, no frame. The first
    section after the page header, the tabs, the figures strip or the analytics context row carries
@@ -978,6 +1021,11 @@ p:last-child {
    the page's width. */
 .pb-table.pb-table-short {
   max-width: 880px;
+}
+/* A table of two or three short columns (a schedule of dates and amounts): as wide as it needs. */
+.pb-table.is-compact {
+  width: auto;
+  min-width: 280px;
 }
 .pb-table {
   width: 100%;
@@ -2780,8 +2828,16 @@ p:last-child {
   :where(.pb-table:not(.pb-kv)) thead th:first-child {
     background: var(--pb-bg);
   }
-  :where(.pb-table-wrap.is-tall .pb-table:not(.pb-kv)) thead th:first-child {
+  /* In a tall region every header cell is held at the top; the held column's stays over the ones
+     that scroll beneath it sideways (it lost to them before, being at their level). */
+  .pb-table-wrap.is-tall .pb-table:not(.pb-kv) thead tr:first-child > th:first-child {
     z-index: 2;
+  }
+  /* A second header row's first cell heads a group's first column, not the held one (which spans
+     both rows): it scrolls with its column, under the held one. */
+  .pb-table:not(.pb-kv) thead tr + tr > th:first-child {
+    left: auto;
+    z-index: 0;
   }
   :where(.pb-table.pb-hold-2) :is(th, td):first-child {
     position: static;
@@ -2807,6 +2863,11 @@ p:last-child {
     flex: 1 1 100%;
   }
   .pb-toolbar-end {
+    margin-left: 0;
+  }
+  /* A tab's controls under its context items, from the left like the toolbars'. */
+  .pb-page-context-controls {
+    justify-content: flex-start;
     margin-left: 0;
   }
   .pb-w-s,

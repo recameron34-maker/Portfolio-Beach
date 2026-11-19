@@ -1,10 +1,12 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
-import type { ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import type { CSSProperties, ReactNode } from 'react';
 import { Dropdown, Label, Option } from '@fluentui/react-components';
+import { MyLocation16Regular } from '@fluentui/react-icons';
 import { useQuery } from '@tanstack/react-query';
 import { Link } from '@tanstack/react-router';
 import type { InvestmentSummary } from '@pb/contracts';
 import { investmentsQuery } from '../../../app/queries.js';
+import { MOTION, useReducedMotion } from '../../../components/motion.js';
 import { UnavailableState } from '../../../components/UnavailableState.js';
 import {
   Badge,
@@ -13,12 +15,14 @@ import {
   EmptyState,
   Field,
   NumCell,
+  PageContext,
   PageSkeleton,
   SectionHeader,
   TableWrap,
   Toolbar,
 } from '../../../components/ui.js';
 import { formatDate, formatMoic, formatMoneyM, labelOf, plural } from '../../../lib/format.js';
+import { useNarrowScreen } from '../../../lib/media.js';
 import { WorldMap } from './WorldMap.js';
 import {
   DEFAULT_FILTERS,
@@ -34,7 +38,7 @@ import {
   tourOrder,
 } from './map-model.js';
 import type { MapFilters, MapStatus, Site } from './map-model.js';
-import { useMapView, usePrefersReducedMotion } from './use-map-view.js';
+import { useMapView } from './use-map-view.js';
 import { WORLD_SOURCE } from './world.js';
 import './map.css';
 
@@ -53,9 +57,11 @@ const STATUSES: readonly { key: MapStatus; label: string }[] = [
   { key: 'all', label: 'All' },
 ];
 
-/** How long the tour rests on each city, and how long the flight there takes. */
+/** How long the tour rests on each city; the flight there takes the drawing time of a line. */
 const TOUR_REST = 3000;
-const TOUR_FLIGHT = 1300;
+const FLIGHT = MOTION.draw;
+/** The parts of the world to jump to; the whole world is the zoom group's own button. */
+const JUMPS = REGIONS.filter((region) => region.bounds !== null);
 /** How close the tour and "Show on map" come to one city. */
 const CITY_ZOOM = 5;
 
@@ -114,9 +120,11 @@ function SelectionPanel({ sites }: { sites: readonly Site[] }): ReactNode {
 
 export function MapTab(): ReactNode {
   const page = useQuery(investmentsQuery(POSITIONS));
-  const reduced = usePrefersReducedMotion();
+  // Less motion asked for, or a display too slow for it: the map then moves at once.
+  const reduced = useReducedMotion();
+  const narrow = useNarrowScreen();
   const map = useMapView(reduced);
-  const { flyTo } = map;
+  const { flyTo, jumpTo } = map;
   const [filters, setFilters] = useState<MapFilters>(DEFAULT_FILTERS);
   const [selected, setSelected] = useState<readonly string[]>([]);
   const [highlighted, setHighlighted] = useState<string | null>(null);
@@ -146,16 +154,26 @@ export function MapTab(): ReactNode {
       if (stop === undefined) {
         setTourAt(null);
         setSelected([]);
-        flyTo(WORLD_VIEW, TOUR_FLIGHT);
+        flyTo(WORLD_VIEW, FLIGHT);
         return;
       }
       setTourAt(index);
       setSelected([stop.key]);
-      flyTo({ k: CITY_ZOOM, x: stop.x, y: stop.y }, TOUR_FLIGHT);
+      flyTo({ k: CITY_ZOOM, x: stop.x, y: stop.y }, FLIGHT);
     },
     [stops, flyTo],
   );
   const stopTour = useCallback((): void => setTourAt(null), []);
+  /*
+   * On a phone the map opens on the cities, not the whole world, which would leave them a few
+   * pixels apart. Once, when the positions first arrive; after that the reader moves it.
+   */
+  const fitted = useRef(false);
+  useEffect(() => {
+    if (!narrow || fitted.current || sites.length === 0) return;
+    fitted.current = true;
+    jumpTo(fitPoints(sites));
+  }, [narrow, sites, jumpTo]);
   useEffect(() => {
     if (tourAt === null) return;
     const timer = window.setTimeout(() => visit(tourAt + 1), TOUR_REST);
@@ -185,13 +203,13 @@ export function MapTab(): ReactNode {
     // One city: come closer to it. Several under one marker: open them out.
     const [only] = chosen;
     if (chosen.length === 1 && only !== undefined)
-      flyTo({ k: Math.max(map.target().k, CITY_ZOOM - 1), x: only.x, y: only.y });
-    else flyTo(fitPoints(chosen));
+      flyTo({ k: Math.max(map.target().k, CITY_ZOOM - 1), x: only.x, y: only.y }, FLIGHT);
+    else flyTo(fitPoints(chosen), FLIGHT);
   };
   const showOnMap = (site: Site): void => {
     stopTour();
     setSelected([site.key]);
-    flyTo({ k: CITY_ZOOM, x: site.x, y: site.y }, 900);
+    flyTo({ k: CITY_ZOOM, x: site.x, y: site.y }, FLIGHT);
   };
 
   const siteOf = new Map(sites.flatMap((s) => s.positions.map((p) => [p.id, s] as const)));
@@ -201,6 +219,12 @@ export function MapTab(): ReactNode {
 
   return (
     <>
+      <PageContext
+        items={[
+          `As of ${formatDate(page.data.asOf)}`,
+          'Co-investments and single-asset CVs visible to you',
+        ]}
+      />
       <div className="pb-tiles" data-testid="map-tiles">
         <CountTile
           label="Positions on the map"
@@ -213,44 +237,14 @@ export function MapTab(): ReactNode {
         <CountTile
           label="No head office recorded"
           count={unplaced.length}
-          hint="Listed below the map, never placed by a guess"
+          hint="Listed under the table"
           tone={unplaced.length > 0 ? 'watch' : undefined}
           partial={partial}
         />
       </div>
 
       <Card testId="map-card">
-        <SectionHeader aside={`As of ${formatDate(page.data.asOf)}`}>
-          Co-investment map
-        </SectionHeader>
-        <Toolbar
-          end={
-            <div className="pb-map-jump" role="group" aria-label="Jump to a region">
-              {REGIONS.map((region) => (
-                <button
-                  key={region.key}
-                  type="button"
-                  className="pb-map-chip"
-                  onClick={() => {
-                    stopTour();
-                    flyTo(regionView(region.key), 900);
-                  }}
-                >
-                  {region.label}
-                </button>
-              ))}
-              <button
-                type="button"
-                className={`pb-map-chip pb-map-tour${tourAt !== null ? ' is-on' : ''}`}
-                aria-pressed={tourAt !== null}
-                disabled={stops.length === 0}
-                onClick={() => (tourAt === null ? visit(0) : stopTour())}
-              >
-                {tourAt === null ? 'Play tour' : 'Stop tour'}
-              </button>
-            </div>
-          }
-        >
+        <Toolbar className="pb-map-filters">
           <Field>
             <span className="pb-map-field-label" id="map-deal-types">
               Deal type
@@ -260,13 +254,14 @@ export function MapTab(): ReactNode {
                 <button
                   key={type}
                   type="button"
-                  className="pb-map-chip"
+                  className="pb-map-check"
                   aria-pressed={filters.dealTypes.includes(type)}
                   onClick={() => toggleType(type)}
                 >
+                  {/* A square in the type's marker colour, filled while the type is shown. */}
                   <span
-                    className="pb-map-swatch"
-                    style={{ background: COLOURS[type] }}
+                    className="pb-map-check-box"
+                    style={{ '--pb-map-type': COLOURS[type] } as CSSProperties}
                     aria-hidden="true"
                   />
                   {labelOf(type)}
@@ -278,12 +273,11 @@ export function MapTab(): ReactNode {
             <span className="pb-map-field-label" id="map-status">
               Status
             </span>
-            <div className="pb-map-toggles" role="group" aria-labelledby="map-status">
+            <div className="pb-segmented" role="group" aria-labelledby="map-status">
               {STATUSES.map((status) => (
                 <button
                   key={status.key}
                   type="button"
-                  className="pb-map-chip"
                   aria-pressed={filters.status === status.key}
                   onClick={() => change({ status: status.key })}
                 >
@@ -327,16 +321,44 @@ export function MapTab(): ReactNode {
         </Toolbar>
 
         <div className="pb-map-layout">
-          <WorldMap
-            sites={sites}
-            selected={selected}
-            onSelect={choose}
-            highlighted={highlighted}
-            map={map}
-            reduced={reduced}
-            colours={COLOURS}
-            onInteract={stopTour}
-          />
+          <div className="pb-map-stage">
+            {/* Over the map's top left corner: the parts of the world to jump to, and the tour. */}
+            <div className="pb-map-regions">
+              <div className="pb-segmented" role="group" aria-label="Jump to a region">
+                {JUMPS.map((region) => (
+                  <button
+                    key={region.key}
+                    type="button"
+                    onClick={() => {
+                      stopTour();
+                      flyTo(regionView(region.key), FLIGHT);
+                    }}
+                  >
+                    {region.label}
+                  </button>
+                ))}
+              </div>
+              <button
+                type="button"
+                className="pb-btn-quiet pb-map-tour"
+                aria-pressed={tourAt !== null}
+                disabled={stops.length === 0}
+                onClick={() => (tourAt === null ? visit(0) : stopTour())}
+              >
+                {tourAt === null ? 'Play tour' : 'Stop tour'}
+              </button>
+            </div>
+            <WorldMap
+              sites={sites}
+              selected={selected}
+              onSelect={choose}
+              highlighted={highlighted}
+              map={map}
+              reduced={reduced}
+              colours={COLOURS}
+              onInteract={stopTour}
+            />
+          </div>
           <aside className="pb-map-panel" aria-label="Positions at the chosen marker">
             <SelectionPanel sites={selectedSites} />
           </aside>
@@ -373,9 +395,11 @@ export function MapTab(): ReactNode {
                   <th>Sponsor</th>
                   <th>Vehicle</th>
                   <th>Deal type</th>
-                  <th className="pb-num">NAV</th>
-                  <th className="pb-num">Gross MOIC</th>
-                  <th>Map</th>
+                  <th className="num">NAV</th>
+                  <th className="num">Gross MOIC</th>
+                  <th>
+                    <span className="pb-visually-hidden">On the map</span>
+                  </th>
                 </tr>
               </thead>
               <tbody>
@@ -392,27 +416,30 @@ export function MapTab(): ReactNode {
                         onPointerEnter={() => setHighlighted(site?.key ?? null)}
                         onPointerLeave={() => setHighlighted(null)}
                       >
-                        <td>
+                        <td className="pb-col-text">
                           <Link to="/portfolio/$id" params={{ id: p.id }}>
                             {p.companyName}
                           </Link>
                           <span className="pb-cell-sub">{p.investmentNumber}</span>
                         </td>
-                        <td>{site === undefined ? null : siteLabel(site)}</td>
-                        <td>{p.sponsorName}</td>
-                        <td>{p.vehicleName}</td>
-                        <td>{labelOf(p.dealType)}</td>
+                        <td className="pb-col-text">
+                          {site === undefined ? null : siteLabel(site)}
+                        </td>
+                        <td className="pb-col-text">{p.sponsorName}</td>
+                        <td className="pb-col-text">{p.vehicleName}</td>
+                        <td className="pb-col-text">{labelOf(p.dealType)}</td>
                         <NumCell>{formatMoneyM(p.nav)}</NumCell>
                         <NumCell>{formatMoic(p.grossMoic)}</NumCell>
-                        <td>
+                        <td className="pb-map-locate-cell">
                           {site === undefined ? null : (
                             <button
                               type="button"
-                              className="pb-map-show"
+                              className="pb-map-locate"
                               aria-label={`Show ${p.companyName} on the map`}
+                              title="Show on the map"
                               onClick={() => showOnMap(site)}
                             >
-                              Show
+                              <MyLocation16Regular aria-hidden="true" />
                             </button>
                           )}
                         </td>
@@ -442,21 +469,21 @@ export function MapTab(): ReactNode {
                   <th>Sponsor</th>
                   <th>Vehicle</th>
                   <th>Deal type</th>
-                  <th className="pb-num">NAV</th>
+                  <th className="num">NAV</th>
                 </tr>
               </thead>
               <tbody>
                 {unplaced.map((p) => (
                   <tr key={p.id}>
-                    <td>
+                    <td className="pb-col-text">
                       <Link to="/portfolio/$id" params={{ id: p.id }}>
                         {p.companyName}
                       </Link>
                       <span className="pb-cell-sub">{p.investmentNumber}</span>
                     </td>
-                    <td>{p.sponsorName}</td>
-                    <td>{p.vehicleName}</td>
-                    <td>{labelOf(p.dealType)}</td>
+                    <td className="pb-col-text">{p.sponsorName}</td>
+                    <td className="pb-col-text">{p.vehicleName}</td>
+                    <td className="pb-col-text">{labelOf(p.dealType)}</td>
                     <NumCell>{formatMoneyM(p.nav)}</NumCell>
                   </tr>
                 ))}

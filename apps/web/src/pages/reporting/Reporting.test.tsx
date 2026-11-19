@@ -176,9 +176,11 @@ describe('clients page and client look-through', () => {
     mockApi({ '/api/v1/clients': { body: clientListFixture() } });
     render(withQueries(<ClientsPage />));
     expect(screen.getByRole('navigation', { name: 'Reporting' })).toHaveTextContent('Clients');
-    expect(await screen.findByTestId('clients-asof')).toHaveTextContent(
-      'As of Jun 30, 2025. 1 entitled client',
-    );
+    // The date and the count as two items of the row under the tabs, the scope under them.
+    const asOf = await screen.findByTestId('clients-asof');
+    expect(
+      [...asOf.querySelectorAll('.pb-page-context-items > span')].map((s) => s.textContent),
+    ).toEqual(['As of Jun 30, 2025', '1 entitled client']);
     const card = screen.getByTestId('client-10000000-0000-4000-8000-000000000051');
     expect(card).toHaveTextContent('Client Alpha Pension');
     expect(within(card).getByText('Quarterly reporting \u00B7 Gross, Net')).toBeVisible();

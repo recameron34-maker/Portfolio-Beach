@@ -36,6 +36,7 @@ const MIN_PLOT = 40;
 export function BridgeChart({
   title,
   subtitle,
+  hideCaption,
   steps,
   kind,
   summary,
@@ -43,6 +44,8 @@ export function BridgeChart({
 }: {
   title: string;
   subtitle?: string | undefined;
+  /** The section's title names the chart: the title is kept for screen readers and the table. */
+  hideCaption?: boolean | undefined;
   steps: BridgeStep[];
   kind: ValueKind;
   summary: string;
@@ -89,6 +92,7 @@ export function BridgeChart({
     <ChartFigure
       title={title}
       subtitle={subtitle}
+      hideCaption={hideCaption}
       series={[
         { name: 'Increase', color: seriesColor(1) },
         { name: 'Decrease', color: seriesColor(2) },

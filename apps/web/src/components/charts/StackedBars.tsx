@@ -46,6 +46,7 @@ const MIN_PLOT = 40;
 export function StackedBars({
   title,
   subtitle,
+  hideCaption,
   data,
   segmentNames,
   kind,
@@ -54,6 +55,8 @@ export function StackedBars({
 }: {
   title: string;
   subtitle?: string | undefined;
+  /** The section's title names the chart: the title is kept for screen readers and the table. */
+  hideCaption?: boolean | undefined;
   data: StackDatum[];
   segmentNames: string[];
   kind: ValueKind;
@@ -97,6 +100,7 @@ export function StackedBars({
     <ChartFigure
       title={title}
       subtitle={subtitle}
+      hideCaption={hideCaption}
       series={series}
       table={{
         columns: ['Category', ...segmentNames],

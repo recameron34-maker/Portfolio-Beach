@@ -5,6 +5,7 @@ import { ANALYTICS_TABS } from '../../app/nav.js';
 import { ClientLookThrough } from '../../components/ClientLookThrough.js';
 import { PageHeader, PageSkeleton, TabNav } from '../../components/ui.js';
 import { parseValueCreationSearch, valueCreationSearch } from './value-creation-filters.js';
+import './analytics.css';
 
 export { ExposureTab } from './ExposureTab.js';
 export { PerformanceAnalyticsTab } from './PerformanceTab.js';
@@ -62,7 +63,7 @@ export function AnalyticsLayout(): ReactNode {
   return (
     <>
       <PageHeader title="Analytics" />
-      <TabNav label="Analytics" items={items} />
+      <TabNav label="Analytics" items={items} className="pb-analytics-tabs" />
       <Outlet />
     </>
   );

@@ -138,3 +138,43 @@ test('co-investment map with a marker chosen, zoomed in, and with nothing left @
   await page.getByTestId('map-empty').waitFor();
   await expectNoSeriousViolations(page);
 });
+
+test('the map opens once in about a second, then holds still, and is simply there under reduced motion @a11y', async ({
+  page,
+}) => {
+  await signInAs(page, 'deal.three', d);
+  await page.emulateMedia({ reducedMotion: 'no-preference' });
+  await page.goto('/analytics/map');
+  await page.getByTestId('map-marker').first().waitFor();
+  const map = page.getByTestId('world-map');
+  // The opening plays: the coast draws, and nothing on the map is set to repeat.
+  const loops = await page.evaluate(() =>
+    document
+      .getAnimations()
+      .filter((a) => a.effect?.getComputedTiming().iterations === Infinity)
+      .map((a) => (a as CSSAnimation).animationName ?? ''),
+  );
+  expect(loops.filter((name) => name.startsWith('pb-map'))).toEqual([]);
+  // It is over in about a second, and its class comes off.
+  await expect(map).not.toHaveClass(/is-intro/, { timeout: 2_000 });
+  await expect
+    .poll(() =>
+      page.evaluate(
+        () =>
+          document
+            .getAnimations()
+            .filter((a) => a.playState === 'running')
+            .filter((a) => ((a as CSSAnimation).animationName ?? '').startsWith('pb-map')).length,
+      ),
+    )
+    .toBe(0);
+  // Under reduced motion the opening never plays: the coast is drawn whole at once.
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  await page.reload();
+  await page.getByTestId('map-marker').first().waitFor();
+  await expect(map).not.toHaveClass(/is-intro/);
+  const coast = await map
+    .locator('.pb-map-coast')
+    .evaluate((el) => getComputedStyle(el).animationName);
+  expect(coast).toBe('none');
+});

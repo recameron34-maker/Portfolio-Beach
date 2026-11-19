@@ -10,6 +10,7 @@ import {
   Card,
   EmptyState,
   NumCell,
+  PageContext,
   PageSkeleton,
   SectionHeader,
   StatTile,
@@ -129,7 +130,6 @@ function TopPositionsCard({ summary }: { summary: AnalyticsSummary }): ReactNode
         <>
           <HorizontalBars
             title="NAV of the largest positions"
-            subtitle="The largest is emphasised"
             data={top.map((p, i) => ({
               label: p.companyName,
               value: Number(p.nav ?? '0'),
@@ -189,10 +189,13 @@ export function PerformanceAnalyticsTab(): ReactNode {
   const t = summary.totals;
   return (
     <>
-      <p className="pb-meta">
-        As of {formatDate(summary.asOf)}. Pooled over {plural(t.count, 'position')}, active and
-        realized, that you are entitled to see.
-      </p>
+      <PageContext
+        items={[
+          `As of ${formatDate(summary.asOf)}`,
+          `Pooled over ${plural(t.count, 'position')} visible to you`,
+          'Active and realized',
+        ]}
+      />
       <div ref={balanceTiles} className="pb-tiles" data-testid="performance-tiles">
         <StatTile label="Invested" value={formatMoneyM(t.invested)} hint="Contributions to date" />
         <StatTile label="Distributions" value={formatMoneyM(t.distributions)} />

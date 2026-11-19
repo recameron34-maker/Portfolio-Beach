@@ -82,7 +82,7 @@ describe('deal workspace: value creation card', () => {
       expect(within(bridge).getByRole('img', { name })).toBeInTheDocument();
     await userEvent.click(
       screen.getByRole('switch', {
-        name: 'Open EBITDA growth into revenue growth and margin change',
+        name: 'Split EBITDA growth into revenue and margin',
       }),
     );
     expect(

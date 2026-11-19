@@ -8,8 +8,8 @@ import {
   Card,
   EmptyState,
   NumCell,
+  PageContext,
   PageSkeleton,
-  SectionHeader,
   StatTile,
   TableWrap,
 } from '../../components/ui.js';
@@ -75,15 +75,15 @@ function RealizedTable({ page }: { page: InvestmentPage }): ReactNode {
               <td>
                 <span className="pb-key">{i.investmentNumber}</span>
               </td>
-              <td>
+              <td className="pb-col-text">
                 <Link to="/portfolio/$id" params={{ id: i.id }}>
                   {i.companyName}
                 </Link>
               </td>
-              <td>{i.vehicleName}</td>
-              <td>{labelOf(i.dealType)}</td>
-              <td>{formatDate(i.entryDate)}</td>
-              <td>{formatDate(i.exitDate)}</td>
+              <td className="pb-col-text">{i.vehicleName}</td>
+              <td className="pb-col-text">{labelOf(i.dealType)}</td>
+              <td className="pb-nowrap">{formatDate(i.entryDate)}</td>
+              <td className="pb-nowrap">{formatDate(i.exitDate)}</td>
               <NumCell>{formatYears(i.holdingPeriodYears)}</NumCell>
               <NumCell>{formatMoneyM(i.invested)}</NumCell>
               <NumCell>{formatMoneyM(i.distributions)}</NumCell>
@@ -104,8 +104,16 @@ export function RealizationsTab(): ReactNode {
     placeholderData: keepPreviousData,
   });
   if (analytics.isPending || realized.isPending) return <PageSkeleton tiles={6} rows={4} />;
+  // The date the figures are as of: the list's, or the summary's when the list cannot be read.
+  const asOf = realized.data?.asOf ?? analytics.data?.asOf;
   return (
     <>
+      {asOf === undefined ? null : (
+        <PageContext
+          items={[`As of ${formatDate(asOf)}`, 'Realized positions visible to you']}
+          note="Holding period runs from the first contribution to the exit, in 365-day years."
+        />
+      )}
       {analytics.isError ? (
         <UnavailableState error={analytics.error} subject="Portfolio analytics" />
       ) : (
@@ -115,15 +123,6 @@ export function RealizationsTab(): ReactNode {
         />
       )}
       <Card>
-        <SectionHeader
-          aside={
-            realized.data !== undefined
-              ? `As of ${formatDate(realized.data.asOf)}. Holding period runs from the first contribution to the exit, in 365-day years.`
-              : undefined
-          }
-        >
-          Realized positions
-        </SectionHeader>
         {realized.isError ? (
           <UnavailableState inline error={realized.error} subject="Realized positions" />
         ) : (

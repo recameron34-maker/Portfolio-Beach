@@ -39,6 +39,7 @@ const HELD_INSET = 10;
 export function ScatterChart({
   title,
   subtitle,
+  hideCaption,
   points,
   xLabel,
   yLabel,
@@ -54,6 +55,8 @@ export function ScatterChart({
 }: {
   title: string;
   subtitle?: string | undefined;
+  /** The section's title names the chart: the title is kept for screen readers and the table. */
+  hideCaption?: boolean | undefined;
   points: ScatterPoint[];
   xLabel: string;
   yLabel: string;
@@ -122,6 +125,7 @@ export function ScatterChart({
     <ChartFigure
       title={title}
       subtitle={subtitle}
+      hideCaption={hideCaption}
       series={hasSeries ? seriesNames.map((name, i) => ({ name, color: seriesColor(i + 1) })) : []}
       table={{
         columns: ['Position', xLabel, yLabel, ...(hasSeries ? [seriesLabel] : [])],

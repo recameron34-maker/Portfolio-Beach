@@ -18,6 +18,7 @@ import {
   Card,
   EmptyState,
   NumCell,
+  PageContext,
   PageSkeleton,
   SectionHeader,
   StatTile,
@@ -175,10 +176,11 @@ export function ClientLookThrough({
   }
   return (
     <>
-      <p className="pb-meta" data-testid="clients-asof">
-        As of {formatDate(asOf)}. {plural(items.length, 'entitled client')}; shares use approved
-        figures and cover the positions visible to you.
-      </p>
+      <PageContext
+        testId="clients-asof"
+        items={[`As of ${formatDate(asOf)}`, plural(items.length, 'entitled client')]}
+        note="Shares use approved figures and cover the positions visible to you."
+      />
       {items.map((c) => (
         <ClientCard key={c.id} client={c} />
       ))}

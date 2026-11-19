@@ -20,10 +20,12 @@
   line-height: var(--pb-text-md-lh);
   color: var(--pb-text);
 }
-/* A chart title that is its section's heading keeps the same look, on its own line. */
+/* A chart title that is its section's heading reads as a section title, on its own line. */
 h2.pb-chart-title {
   display: block;
   margin: 0;
+  font-size: var(--pb-text-lg);
+  line-height: var(--pb-text-lg-lh);
 }
 /* The subtitle says what the chart is drawn from, on the line under the title. */
 .pb-chart-subtitle {

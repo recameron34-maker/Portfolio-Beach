@@ -138,9 +138,7 @@ test('value creation: the headline, a bridge that sums to it, the positions and 
 
   // EBITDA growth opens into revenue growth and margin change, and the bridge has a table twin.
   if (g.revenueGrowth !== null && g.marginChange !== null) {
-    await page
-      .getByRole('switch', { name: 'Open EBITDA growth into revenue growth and margin change' })
-      .check();
+    await page.getByRole('switch', { name: 'Split EBITDA growth into revenue and margin' }).check();
     await expect(
       bridge.getByRole('img', { name: `Revenue growth: ${signed(g.revenueGrowth)}`, exact: true }),
     ).toBeVisible();
@@ -593,9 +591,7 @@ test('value creation pages with their tables shown @a11y', async ({ page }) => {
   if (position === undefined) throw new Error('no position has a bridge');
   await page.goto(`/portfolio/${position.id}/performance`);
   await page.getByTestId('deal-value-creation').waitFor();
-  await page
-    .getByRole('switch', { name: 'Open EBITDA growth into revenue growth and margin change' })
-    .check();
+  await page.getByRole('switch', { name: 'Split EBITDA growth into revenue and margin' }).check();
   await page
     .getByTestId('deal-value-creation-index')
     .getByRole('button', { name: 'Show table' })

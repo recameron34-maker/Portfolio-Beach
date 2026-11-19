@@ -252,6 +252,36 @@ export function PageHeader({
 }
 
 /**
+ * What a tab's figures are over, said once, directly under the tabs (docs/06 section 2): the
+ * as-of date and the scope as short items with a dot between them, the tab's own controls on the
+ * right (a grouping, an export), and an optional second line for a scope sentence that adds
+ * something the items do not. It replaces the asides and meta lines that each repeated the date.
+ */
+export function PageContext({
+  items,
+  controls,
+  note,
+  testId,
+}: {
+  items: ReactNode[];
+  controls?: ReactNode;
+  note?: ReactNode;
+  testId?: string | undefined;
+}): ReactNode {
+  return (
+    <div className="pb-page-context" data-testid={testId}>
+      <p className="pb-page-context-items pb-meta-list">
+        {items.map((item, i) => (
+          <span key={i}>{item}</span>
+        ))}
+      </p>
+      {controls !== undefined ? <div className="pb-page-context-controls">{controls}</div> : null}
+      {note !== undefined && note !== null ? <p className="pb-page-context-note">{note}</p> : null}
+    </div>
+  );
+}
+
+/**
  * Secondary navigation inside an area (tabs). Paths are absolute so hash and browser history both
  * work. A tab may carry a search (the filters two tabs share); it does not decide which tab is
  * the current one. The tabs a role works in most come first for that role; none is left out. On a
@@ -554,9 +584,18 @@ export function CheckList({
   );
 }
 
-export function Toolbar({ children, end }: { children: ReactNode; end?: ReactNode }): ReactNode {
+export function Toolbar({
+  children,
+  end,
+  className,
+}: {
+  children: ReactNode;
+  end?: ReactNode;
+  /** Added after pb-toolbar, for a page's own layout of its controls. */
+  className?: string | undefined;
+}): ReactNode {
   return (
-    <div className="pb-toolbar">
+    <div className={className === undefined ? 'pb-toolbar' : `pb-toolbar ${className}`}>
       {children}
       {end !== undefined ? <div className="pb-toolbar-end">{end}</div> : null}
     </div>

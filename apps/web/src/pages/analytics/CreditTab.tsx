@@ -1,7 +1,6 @@
 import type { ReactNode } from 'react';
 import { Link } from '@tanstack/react-router';
 import { keepPreviousData, useQuery } from '@tanstack/react-query';
-import { Spinner } from '@fluentui/react-components';
 import type { InvestmentPerformance, InvestmentSummary } from '@pb/contracts';
 import { investmentPerformanceQuery, investmentsQuery } from '../../app/queries.js';
 import { LineChart } from '../../components/charts/index.js';
@@ -12,9 +11,12 @@ import {
   EmptyState,
   KeyValueTable,
   NumCell,
+  PageContext,
   PageSkeleton,
+  RowsSkeleton,
   SectionHeader,
   StatTile,
+  Subhead,
   TableWrap,
 } from '../../components/ui.js';
 import {
@@ -59,13 +61,13 @@ function BookTable({ items }: { items: InvestmentSummary[] }): ReactNode {
               <td>
                 <span className="pb-key">{i.investmentNumber}</span>
               </td>
-              <td>
+              <td className="pb-col-text">
                 <Link to="/portfolio/$id" params={{ id: i.id }}>
                   {i.companyName}
                 </Link>
               </td>
-              <td>{i.sponsorFundName ?? i.sponsorName}</td>
-              <td>{i.vehicleName}</td>
+              <td className="pb-col-text">{i.sponsorFundName ?? i.sponsorName}</td>
+              <td className="pb-col-text">{i.vehicleName}</td>
               <NumCell>{formatMoneyM(i.invested)}</NumCell>
               <NumCell>{formatMoneyM(i.nav)}</NumCell>
               <NumCell>{formatMoneyM(i.distributions)}</NumCell>
@@ -161,7 +163,7 @@ function LatestQuarter({ credit }: { credit: CreditBlock }): ReactNode {
   const period = `Latest quarter, ${formatDate(latest.periodEnd)}`;
   return (
     <>
-      <div ref={balanceTiles} className="pb-tiles">
+      <div ref={balanceTiles} className="pb-tiles pb-credit-strip">
         <StatTile label="Par" value={formatMoneyM(latest.parValue)} hint={period} />
         <StatTile label="Fair value" value={formatMoneyM(latest.fairValue)} hint={period} />
         <StatTile label="Current yield" value={formatPct(latest.currentYield, 2)} />
@@ -172,13 +174,18 @@ function LatestQuarter({ credit }: { credit: CreditBlock }): ReactNode {
         />
         <StatTile label="LTV" value={formatPct(latest.loanToValue)} />
       </div>
-      <p className="pb-chips">
-        <Badge tone={creditStatusTone(latest.covenantStatus)}>
-          Covenants: {labelOf(latest.covenantStatus)}
-        </Badge>
-        <Badge tone={creditStatusTone(latest.paymentStatus)}>
-          Payments: {labelOf(latest.paymentStatus)}
-        </Badge>
+      {/* The two states of the latest quarter, on one line under its figures. */}
+      <p className="pb-meta-list pb-credit-states">
+        <span>
+          <Badge tone={creditStatusTone(latest.covenantStatus)}>
+            Covenants: {labelOf(latest.covenantStatus)}
+          </Badge>
+        </span>
+        <span>
+          <Badge tone={creditStatusTone(latest.paymentStatus)}>
+            Payments: {labelOf(latest.paymentStatus)}
+          </Badge>
+        </span>
       </p>
     </>
   );
@@ -213,7 +220,7 @@ function AmortizationTable({ credit }: { credit: CreditBlock }): ReactNode {
   }
   return (
     <TableWrap label="Amortization schedule">
-      <table className="pb-table" aria-label="Amortization schedule">
+      <table className="pb-table is-compact" aria-label="Amortization schedule">
         <thead>
           <tr>
             <th>Date</th>
@@ -240,7 +247,7 @@ function CreditPositionCard({ item }: { item: InvestmentSummary }): ReactNode {
   });
   let body: ReactNode;
   if (q.isPending) {
-    body = <Spinner size="tiny" label={`Loading performance for ${item.companyName}`} />;
+    body = <RowsSkeleton rows={4} label={`Loading performance for ${item.companyName}`} />;
   } else if (q.isError) {
     body = <UnavailableState inline error={q.error} subject="The performance series" />;
   } else if (q.data.credit === null) {
@@ -257,7 +264,7 @@ function CreditPositionCard({ item }: { item: InvestmentSummary }): ReactNode {
         <TermsTable credit={credit} />
         <LatestQuarter credit={credit} />
         <ValueSeries credit={credit} company={item.companyName} />
-        <SectionHeader>Amortization schedule</SectionHeader>
+        <Subhead>Amortization schedule</Subhead>
         <AmortizationTable credit={credit} />
       </>
     );
@@ -277,7 +284,8 @@ function CreditPositionCard({ item }: { item: InvestmentSummary }): ReactNode {
           </span>
         }
       >
-        {item.investmentNumber} {item.companyName}
+        {/* The number leads, quiet; the company is the title. */}
+        <span className="pb-credit-key">{item.investmentNumber}</span> {item.companyName}
       </SectionHeader>
       {body}
     </Card>
@@ -291,12 +299,8 @@ export function CreditTab(): ReactNode {
   const items = q.data.items;
   return (
     <>
+      <PageContext items={[`As of ${formatDate(q.data.asOf)}`, plural(items.length, 'position')]} />
       <Card>
-        <SectionHeader
-          aside={`As of ${formatDate(q.data.asOf)}, ${items.length} ${items.length === 1 ? 'position' : 'positions'}`}
-        >
-          Credit book
-        </SectionHeader>
         {items.length === 0 ? (
           <EmptyState
             title="No private credit positions"

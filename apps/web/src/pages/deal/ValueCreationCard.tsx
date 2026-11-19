@@ -110,7 +110,7 @@ function BridgeBlock({ p, company }: { p: ValueCreationPosition; company: string
           checked={open}
           disabled={!canOpenEbitda(bridge)}
           onChange={(_e, data) => setOpen(data.checked)}
-          label="Open EBITDA growth into revenue growth and margin change"
+          label="Split EBITDA growth into revenue and margin"
         />
       </Toolbar>
       <BridgeChart

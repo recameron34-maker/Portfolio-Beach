@@ -8,6 +8,7 @@ import {
   Card,
   EmptyState,
   NumCell,
+  PageContext,
   PageSkeleton,
   SectionHeader,
   TableWrap,
@@ -50,7 +51,7 @@ function CohortCard({
   const best = [...bars].sort((a, b) => b.value - a.value)[0];
   return (
     <Card testId={testId}>
-      <SectionHeader aside={`${measure}, bands from configuration`}>{heading}</SectionHeader>
+      <SectionHeader aside={`${measure} bands`}>{heading}</SectionHeader>
       {best === undefined ? (
         <EmptyState
           title="No band has a MOIC"
@@ -109,8 +110,9 @@ function EntryScatterCard({ view }: { view: ShownView }): ReactNode {
   const { points, leftOut, seriesNames } = entryMultiplePoints(view);
   return (
     <Card testId="entry-scatter-card">
+      {/* The scatter is the section's chart, so its title is the section's. */}
       <SectionHeader aside="One mark per company, coloured by entry net leverage band">
-        Entry multiple and outcome
+        Entry purchase multiple against gross MOIC
       </SectionHeader>
       {points.length === 0 ? (
         <EmptyState
@@ -121,6 +123,7 @@ function EntryScatterCard({ view }: { view: ShownView }): ReactNode {
         <>
           <ScatterChart
             title="Entry purchase multiple against gross MOIC"
+            hideCaption
             subtitle="Entry EV / EBITDA across, gross MOIC up"
             points={points}
             xLabel="Entry EV / EBITDA"
@@ -168,11 +171,23 @@ export function EntryMetricsTab(): ReactNode {
       <Card>
         <EmptyState
           title="No equity or continuation vehicle positions"
-          detail={`Entry metrics are measured for equity co-investments and continuation vehicles you are entitled to see, as of ${formatDate(view.asOf)}.${left === null ? '' : ` ${left}`}`}
+          detail={`Entry metrics are measured for equity co-investments and continuation vehicles visible to you, as of ${formatDate(view.asOf)}.${left === null ? '' : ` ${left}`}`}
         />
       </Card>
     );
   }
+  const context = (
+    <PageContext
+      items={[
+        `As of ${formatDate(view.asOf)}`,
+        'Equity and continuation vehicle positions visible to you',
+        hasFilters(filters)
+          ? 'Active and realized, narrowed by the filters below'
+          : 'Active and realized',
+      ]}
+      note={`The entry figures are those of each position's approved entry snapshot.${left === null ? '' : ` ${left}`}`}
+    />
+  );
   const bar = (
     <ValueCreationFilterBar
       positions={view.positions}
@@ -184,6 +199,7 @@ export function EntryMetricsTab(): ReactNode {
   if (shown.positions.length === 0) {
     return (
       <>
+        {context}
         {bar}
         <Card testId="entry-metrics-no-match">
           <EmptyState
@@ -196,6 +212,7 @@ export function EntryMetricsTab(): ReactNode {
   }
   return (
     <>
+      {context}
       {bar}
       <CohortCard
         heading="By entry purchase multiple"
@@ -212,12 +229,6 @@ export function EntryMetricsTab(): ReactNode {
         testId="entry-leverage"
       />
       <EntryScatterCard view={shown} />
-      <p className="pb-meta">
-        As of {formatDate(view.asOf)}, over the equity and continuation vehicle positions you are
-        entitled to see, active and realized
-        {hasFilters(filters) ? ', narrowed by the filters above' : ''}; the entry figures are those
-        of each position&apos;s approved entry snapshot.{left === null ? '' : ` ${left}`}
-      </p>
     </>
   );
 }

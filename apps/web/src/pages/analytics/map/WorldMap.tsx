@@ -1,7 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { CSSProperties, KeyboardEvent, PointerEvent, ReactNode } from 'react';
 import { useWidth } from '../../../components/charts/useWidth.js';
+import { MOTION } from '../../../components/motion.js';
 import { plural } from '../../../lib/format.js';
+import { useNarrowScreen } from '../../../lib/media.js';
 import {
   WORLD_VIEW,
   citiesText,
@@ -15,7 +17,7 @@ import {
   zoomAbout,
 } from './map-model.js';
 import type { Marker, Site } from './map-model.js';
-import { MAP_WIDTH, project } from './projection.js';
+import { MAP_HEIGHT, MAP_WIDTH, project } from './projection.js';
 import type { MapView } from './use-map-view.js';
 import { worldPaths } from './world.js';
 
@@ -33,26 +35,50 @@ const range = (from: number, to: number, step: number): number[] => {
   return out;
 };
 
-/** The globe's own edge in this projection (its sides curve), and the grid of 30 degree lines. */
-function frame(): { globe: string; grid: string } {
+/** The globe's own edge in this projection (its sides curve): the water a click lets go on. */
+function frame(): string {
   const lats = range(SOUTH, NORTH, 4);
   const lons = range(-180, 180, 10);
-  const globe = `M${[
+  return `M${[
     ...lons.map((lon) => at(lon, NORTH)),
     ...[...lats].reverse().map((lat) => at(180, lat)),
     ...[...lons].reverse().map((lon) => at(lon, SOUTH)),
     ...lats.map((lat) => at(-180, lat)),
   ].join('L')}Z`;
-  const meridians = range(-150, 150, 30).map(
-    (lon) => `M${lats.map((lat) => at(lon, lat)).join('L')}`,
-  );
-  const parallels = [-30, 0, 30, 60].map((lat) => `M${lons.map((lon) => at(lon, lat)).join('L')}`);
-  return { globe, grid: [...meridians, ...parallels].join('') };
 }
 
-let framed: { globe: string; grid: string } | undefined;
+let framed: string | undefined;
 /** The frame is the same for every map, so it is worked out once. */
-const frameOnce = (): { globe: string; grid: string } => (framed ??= frame());
+const frameOnce = (): string => (framed ??= frame());
+
+/** Height over width of the map's canvas (map.css): the frame's own on a laptop, 4:3 on a phone. */
+const WIDE_ASPECT = MAP_HEIGHT / MAP_WIDTH;
+const PHONE_ASPECT = 3 / 4;
+
+/**
+ * The part of the frame the canvas shows: the view's width, and as much height as the canvas's
+ * shape gives it. On a laptop it is the view's own box; on a phone's squarer canvas it shows more
+ * above and below, kept on the frame (centred on it when taller than it), so every pixel of the
+ * canvas maps to the frame and the water left over is shared evenly.
+ */
+function shownBox(
+  view: MapView['view'],
+  aspect: number,
+): { x: number; y: number; width: number; height: number } {
+  const box = viewBox(view);
+  const height = box.width * aspect;
+  const centre =
+    height >= MAP_HEIGHT
+      ? MAP_HEIGHT / 2
+      : Math.min(Math.max(view.y, height / 2), MAP_HEIGHT - height / 2);
+  return { x: box.x, y: centre - height / 2, width: box.width, height };
+}
+
+/**
+ * The opening, once: the coast draws, the land and borders fade in after it, and the markers pop
+ * in turn (map.css); this is when the last of them has landed, after which the class comes off.
+ */
+const INTRO_MS = 600 + 16 * 16 + MOTION.base;
 
 /** One deal type under a marker gives it that type's colour; a mix takes the brand's. */
 const colourOf = (marker: Marker, colours: Readonly<Record<string, string>>): string =>
@@ -94,23 +120,24 @@ export function WorldMap({
   const [canvasRef, width] = useWidth(960);
   const svgRef = useRef<SVGSVGElement | null>(null);
   const { view, flyTo, jumpTo, target } = map;
-  const box = viewBox(view);
+  const aspect = useNarrowScreen() ? PHONE_ASPECT : WIDE_ASPECT;
+  const box = shownBox(view, aspect);
   /** Frame units one pixel takes at this view: sizes given in pixels are multiplied by it. */
   const unit = MAP_WIDTH / (width * view.k);
 
   const paths = worldPaths();
-  const { globe, grid } = frameOnce();
+  const globe = frameOnce();
   const zoomStep = steppedZoom(view.k);
   const markers = useMemo(
     () => clusterSites(sites, (zoomStep * width) / MAP_WIDTH),
     [sites, zoomStep, width],
   );
 
-  /* The opening: the coast draws and the markers drop in, once. Later markers simply appear. */
+  /* The opening: the coast draws and the markers pop in, once. Later markers simply appear. */
   const [intro, setIntro] = useState(!reduced);
   useEffect(() => {
     if (!intro) return;
-    const timer = window.setTimeout(() => setIntro(false), 3200);
+    const timer = window.setTimeout(() => setIntro(false), INTRO_MS);
     return () => window.clearTimeout(timer);
   }, [intro]);
 
@@ -144,7 +171,7 @@ export function WorldMap({
       onInteract();
       const current = target();
       const rect = svg.getBoundingClientRect();
-      const shown = viewBox(current);
+      const shown = shownBox(current, aspect);
       const point =
         rect.width === 0
           ? { x: current.x, y: current.y }
@@ -156,7 +183,7 @@ export function WorldMap({
     };
     svg.addEventListener('wheel', listener, { passive: false });
     return () => svg.removeEventListener('wheel', listener);
-  }, [jumpTo, target, onInteract]);
+  }, [jumpTo, target, onInteract, aspect]);
   useEffect(() => {
     if (!hint) return;
     const timer = window.setTimeout(() => setHint(false), 1800);
@@ -190,20 +217,20 @@ export function WorldMap({
 
   const zoomBy = (factor: number): void => {
     onInteract();
-    flyTo(zoomAbout(target(), factor), 320);
+    flyTo(zoomAbout(target(), factor), MOTION.slow);
   };
 
   const onKeyDown = (event: KeyboardEvent<HTMLDivElement>): void => {
     const stride = 90 / target().k;
     const moves: Record<string, () => void> = {
-      ArrowLeft: () => flyTo(panBy(target(), -stride, 0), 160),
-      ArrowRight: () => flyTo(panBy(target(), stride, 0), 160),
-      ArrowUp: () => flyTo(panBy(target(), 0, -stride), 160),
-      ArrowDown: () => flyTo(panBy(target(), 0, stride), 160),
-      '+': () => flyTo(zoomAbout(target(), 1.6), 240),
-      '=': () => flyTo(zoomAbout(target(), 1.6), 240),
-      '-': () => flyTo(zoomAbout(target(), 1 / 1.6), 240),
-      '0': () => flyTo(WORLD_VIEW, 500),
+      ArrowLeft: () => flyTo(panBy(target(), -stride, 0), MOTION.base),
+      ArrowRight: () => flyTo(panBy(target(), stride, 0), MOTION.base),
+      ArrowUp: () => flyTo(panBy(target(), 0, -stride), MOTION.base),
+      ArrowDown: () => flyTo(panBy(target(), 0, stride), MOTION.base),
+      '+': () => flyTo(zoomAbout(target(), 1.6), MOTION.slow),
+      '=': () => flyTo(zoomAbout(target(), 1.6), MOTION.slow),
+      '-': () => flyTo(zoomAbout(target(), 1 / 1.6), MOTION.slow),
+      '0': () => flyTo(WORLD_VIEW, MOTION.draw),
       Escape: () => onSelect([]),
     };
     const move = moves[event.key];
@@ -247,28 +274,20 @@ export function WorldMap({
           onPointerCancel={onPointerUp}
           onDoubleClick={(event) => {
             onInteract();
-            flyTo(zoomAbout(target(), 2, pointOf(event.clientX, event.clientY)), 380);
+            flyTo(zoomAbout(target(), 2, pointOf(event.clientX, event.clientY)), MOTION.slow);
           }}
         >
-          <defs>
-            <linearGradient id="pb-map-sea-fill" x1="0" y1="0" x2="0" y2="1">
-              <stop offset="0" className="pb-map-sea-top" />
-              <stop offset="1" className="pb-map-sea-bottom" />
-            </linearGradient>
-          </defs>
           <g aria-hidden="true">
             <path
               className="pb-map-sea"
               d={globe}
-              fill="url(#pb-map-sea-fill)"
               onClick={() => {
                 if (drag.current?.moved !== true) onSelect([]);
               }}
             />
-            <path className="pb-map-grid" d={grid} strokeWidth={0.6 * unit} />
             <path className="pb-map-land" d={paths.land} />
-            <path className="pb-map-borders" d={paths.borders} strokeWidth={0.7 * unit} />
-            <path className="pb-map-coast" d={paths.land} pathLength={1} strokeWidth={1.1 * unit} />
+            <path className="pb-map-borders" d={paths.borders} strokeWidth={0.6 * unit} />
+            <path className="pb-map-coast" d={paths.land} pathLength={1} strokeWidth={0.5 * unit} />
           </g>
           {markers.map((marker, index) => {
             const radius = markerRadius(marker.count);
@@ -348,7 +367,7 @@ export function WorldMap({
             className="pb-map-zoom-reset"
             onClick={() => {
               onInteract();
-              flyTo(WORLD_VIEW, 600);
+              flyTo(WORLD_VIEW, MOTION.draw);
             }}
           >
             World

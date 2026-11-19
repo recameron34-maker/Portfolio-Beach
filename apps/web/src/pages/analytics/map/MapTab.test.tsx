@@ -232,6 +232,121 @@ describe('co-investment map', () => {
     expect(screen.getByTestId('map-panel')).toHaveTextContent('Austin, United States');
   });
 
+  it('says what the map is over once, under the tabs, and draws its controls flat', async () => {
+    open();
+    await screen.findByTestId('world-map');
+    const context = document.querySelector('.pb-page-context');
+    expect(
+      [...(context?.querySelectorAll('.pb-page-context-items > span') ?? [])].map(
+        (item) => item.textContent,
+      ),
+    ).toEqual(['As of Jun 30, 2025', 'Co-investments and single-asset CVs visible to you']);
+    // No section title repeats the tab; the tile says where the unplaced positions are listed.
+    expect(screen.queryByRole('heading', { name: 'Co-investment map' })).toBeNull();
+    expect(tile('No head office recorded')).toHaveTextContent('Listed under the table');
+    // Deal types are two ticked squares in their marker colour; status one choice of three.
+    const types = screen.getByRole('group', { name: 'Deal type' });
+    expect(
+      within(types)
+        .getAllByRole('button')
+        .map((b) => b.className),
+    ).toEqual(['pb-map-check', 'pb-map-check']);
+    const status = screen.getByRole('group', { name: 'Status' });
+    expect(status).toHaveClass('pb-segmented');
+    expect(within(status).getByRole('button', { name: 'Held' })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    );
+    // The regions sit with the tour over the map; the whole world is the zoom group's button.
+    const regions = screen.getByRole('group', { name: 'Jump to a region' });
+    expect(
+      within(regions)
+        .getAllByRole('button')
+        .map((b) => b.textContent),
+    ).toEqual(['North America', 'Europe', 'Asia Pacific']);
+    expect(regions.parentElement).toContainElement(
+      screen.getByRole('button', { name: 'Play tour' }),
+    );
+    expect(screen.getByRole('button', { name: 'Show the whole world' })).toHaveTextContent('World');
+    // The table's figures are headed as figures, and a row's place is one small locate button.
+    const table = screen.getByRole('table', { name: 'Positions on the map' });
+    for (const name of ['NAV', 'Gross MOIC'])
+      expect(within(table).getByRole('columnheader', { name })).toHaveClass('num');
+    const locate = within(table).getByRole('button', { name: 'Show Cedar Care on the map' });
+    expect(locate).toHaveClass('pb-map-locate');
+    expect(locate).toHaveTextContent('');
+    expect(locate.querySelector('svg')).not.toBeNull();
+    // Water, land, borders and coast: no grid of lines and no gradient.
+    const map = screen.getByTestId('world-map');
+    expect(map.querySelector('.pb-map-grid')).toBeNull();
+    expect(map.querySelector('linearGradient')).toBeNull();
+  });
+
+  it('plays the opening once and briefly, and not at all when motion is reduced', async () => {
+    vi.useFakeTimers();
+    vi.stubGlobal('matchMedia', (query: string) => ({
+      matches: false,
+      media: query,
+      addEventListener: () => undefined,
+      removeEventListener: () => undefined,
+    }));
+    try {
+      mockApi({ [LIST]: ok(investmentPageFixture(BOOK)) });
+      renderWithQuery(<MapTab />);
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(0);
+      });
+      const map = screen.getByTestId('world-map');
+      expect(map).toHaveClass('is-intro');
+      // About a second: the coast, the land and the borders, then the markers in turn.
+      act(() => {
+        vi.advanceTimersByTime(1100);
+      });
+      expect(map).not.toHaveClass('is-intro');
+    } finally {
+      vi.unstubAllGlobals();
+    }
+    cleanup();
+    // Less motion asked for (or a slow display): the map is simply there.
+    vi.stubGlobal('matchMedia', (query: string) => ({
+      matches: query === '(prefers-reduced-motion: reduce), (update: slow)',
+      media: query,
+      addEventListener: () => undefined,
+      removeEventListener: () => undefined,
+    }));
+    try {
+      mockApi({ [LIST]: ok(investmentPageFixture(BOOK)) });
+      renderWithQuery(<MapTab />);
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(0);
+      });
+      expect(screen.getByTestId('world-map')).not.toHaveClass('is-intro');
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('on a phone opens a squarer map on the cities, with the panel kept for a chosen marker', async () => {
+    vi.stubGlobal('matchMedia', (query: string) => ({
+      matches: query === '(max-width: 760px)',
+      media: query,
+      addEventListener: () => undefined,
+      removeEventListener: () => undefined,
+    }));
+    try {
+      open();
+      const map = await screen.findByTestId('world-map');
+      const svg = map.querySelector('svg.pb-map-svg');
+      const [, , width, height] = (svg?.getAttribute('viewBox') ?? '').split(' ').map(Number);
+      // 4:3, and closer than the whole world (1000 units across), which leaves the cities apart.
+      expect(height! / width!).toBeCloseTo(0.75, 5);
+      expect(width).toBeLessThan(1000);
+      expect(markers()).toHaveLength(2);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
   it('does not count what one page cannot hold, and says the list is cut', async () => {
     open(BOOK, 'next');
     await screen.findByTestId('world-map');

@@ -11,12 +11,13 @@ import {
   EmptyState,
   Field,
   NumCell,
+  PageContext,
   PageSkeleton,
   SectionHeader,
   TableWrap,
-  Toolbar,
 } from '../../components/ui.js';
 import { formatDate, formatMoneyM, formatPct, plural } from '../../lib/format.js';
+import { useNarrowScreen } from '../../lib/media.js';
 import { DIMENSION_KEYS, DIMENSION_LABELS, isDimensionKey } from './constants.js';
 import type { DimensionKey } from './constants.js';
 import { bucketBars, vehicleDealTypeStack } from './helpers.js';
@@ -60,7 +61,8 @@ function VehicleDealTypeCard({ summary }: { summary: AnalyticsSummary }): ReactN
   const first = breakdown.data[0];
   return (
     <Card>
-      <SectionHeader>Vehicles</SectionHeader>
+      {/* The chart is all the section holds, so its title is the section's. */}
+      <SectionHeader>NAV by vehicle and deal type</SectionHeader>
       {first === undefined ? (
         <EmptyState
           title="No Locked valuations"
@@ -70,7 +72,7 @@ function VehicleDealTypeCard({ summary }: { summary: AnalyticsSummary }): ReactN
         <>
           <StackedBars
             title="NAV by vehicle and deal type"
-            subtitle="Locked marks only"
+            hideCaption
             data={breakdown.data}
             segmentNames={breakdown.segmentNames}
             kind="money"
@@ -90,6 +92,56 @@ function VehicleDealTypeCard({ summary }: { summary: AnalyticsSummary }): ReactN
   );
 }
 
+/**
+ * How the exposure is grouped: one choice of six, side by side from a laptop up; on a phone, where
+ * six would not fit on a line, the same choice from a list.
+ */
+function GroupBy({
+  dimension,
+  onChange,
+}: {
+  dimension: DimensionKey;
+  onChange: (next: DimensionKey) => void;
+}): ReactNode {
+  const narrow = useNarrowScreen();
+  if (narrow) {
+    return (
+      <Field>
+        <Label htmlFor="exposure-dimension">Group by</Label>
+        <Dropdown
+          id="exposure-dimension"
+          value={DIMENSION_LABELS[dimension]}
+          selectedOptions={[dimension]}
+          onOptionSelect={(_e, d) => {
+            if (d.optionValue !== undefined && isDimensionKey(d.optionValue))
+              onChange(d.optionValue);
+          }}
+        >
+          {DIMENSION_KEYS.map((k) => (
+            <Option key={k} value={k}>
+              {DIMENSION_LABELS[k]}
+            </Option>
+          ))}
+        </Dropdown>
+      </Field>
+    );
+  }
+  return (
+    <span className="pb-analytics-group-by">
+      <span className="pb-analytics-control-label" id="exposure-group-by">
+        Group by
+      </span>
+      <span className="pb-segmented" role="group" aria-labelledby="exposure-group-by">
+        {DIMENSION_KEYS.map((k) => (
+          <button key={k} type="button" aria-pressed={k === dimension} onClick={() => onChange(k)}>
+            {DIMENSION_LABELS[k]}
+          </button>
+        ))}
+      </span>
+    </span>
+  );
+}
+
 export function ExposureTab(): ReactNode {
   const [dimension, setDimension] = useState<DimensionKey>('sector');
   const analytics = useQuery({ ...analyticsQuery, placeholderData: keepPreviousData });
@@ -105,33 +157,15 @@ export function ExposureTab(): ReactNode {
   const largest = navBars[0];
   return (
     <>
+      <PageContext
+        items={[
+          `As of ${formatDate(summary.asOf)}`,
+          plural(summary.activeInvestments, 'active position'),
+          'Locked marks only',
+        ]}
+        controls={<GroupBy dimension={dimension} onChange={setDimension} />}
+      />
       <Card>
-        <SectionHeader
-          aside={`As of ${formatDate(summary.asOf)}, ${plural(summary.activeInvestments, 'active position')}`}
-        >
-          Exposure
-        </SectionHeader>
-        <Toolbar>
-          <Field>
-            <Label htmlFor="exposure-dimension">Dimension</Label>
-            <Dropdown
-              id="exposure-dimension"
-              value={label}
-              selectedOptions={[dimension]}
-              onOptionSelect={(_e, d) => {
-                if (d.optionValue !== undefined && isDimensionKey(d.optionValue)) {
-                  setDimension(d.optionValue);
-                }
-              }}
-            >
-              {DIMENSION_KEYS.map((k) => (
-                <Option key={k} value={k}>
-                  {DIMENSION_LABELS[k]}
-                </Option>
-              ))}
-            </Dropdown>
-          </Field>
-        </Toolbar>
         {largest === undefined ? (
           <EmptyState
             title="No active positions"
@@ -139,11 +173,10 @@ export function ExposureTab(): ReactNode {
           />
         ) : (
           <>
-            <div className="pb-two-col">
+            <div className="pb-two-col pb-analytics-pair">
               <SharedScale>
                 <HorizontalBars
                   title={`NAV by ${label.toLowerCase()}`}
-                  subtitle="Locked marks only"
                   data={navBars}
                   kind="money"
                   valueColumn="NAV"

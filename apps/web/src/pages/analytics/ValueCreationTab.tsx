@@ -13,6 +13,7 @@ import {
   EmptyState,
   Field,
   NumCell,
+  PageContext,
   PageSkeleton,
   SectionHeader,
   StatTile,
@@ -108,7 +109,10 @@ function NotCalculableNote({
   const left = positions.filter((p) => p.gainNotCalculable !== null);
   if (left.length === 0) return null;
   return (
-    <details className="pb-analytics-details" data-testid="value-creation-not-calculable">
+    <details
+      className="pb-details pb-analytics-details"
+      data-testid="value-creation-not-calculable"
+    >
       <summary>
         {left.length === 1
           ? '1 position is not in this split'
@@ -133,10 +137,21 @@ function BridgeCard({ view }: { view: ShownView }): ReactNode {
   const g = portfolio.gainByDriver;
   return (
     <Card testId="value-creation-bridge-card">
+      {/* The bridge is the section's chart, so its title is the section's. */}
       <SectionHeader
         aside={portfolio.positions === 0 ? undefined : `Over ${positionsText(portfolio.positions)}`}
+        actions={
+          steps === null || g === null ? undefined : (
+            <Switch
+              checked={open}
+              disabled={!canOpenEbitda(g)}
+              onChange={(_e, data) => setOpen(data.checked)}
+              label="Split EBITDA growth into revenue and margin"
+            />
+          )
+        }
       >
-        Value creation
+        Our gain by driver
       </SectionHeader>
       {steps === null || g === null ? (
         <EmptyState
@@ -145,29 +160,32 @@ function BridgeCard({ view }: { view: ShownView }): ReactNode {
         />
       ) : (
         <>
-          <Toolbar>
-            <Switch
-              checked={open}
-              disabled={!canOpenEbitda(g)}
-              onChange={(_e, data) => setOpen(data.checked)}
-              label="Open EBITDA growth into revenue growth and margin change"
-            />
-          </Toolbar>
           <BridgeChart
             title="Our gain by driver"
+            hideCaption
             subtitle="Invested capital to value now (NAV plus distributions)"
             steps={steps}
             kind="money"
             summary={`Our gain of ${formatMoneyM(portfolio.gain)} over ${positionsText(portfolio.positions)}: EBITDA growth ${formatSignedMoneyM(g.ebitdaGrowth)}, multiple expansion ${formatSignedMoneyM(g.multipleExpansion)}, debt paydown ${formatSignedMoneyM(g.debtPaydown)} and mark and timing ${formatSignedMoneyM(g.other)}, from ${formatMoneyM(portfolio.invested)} invested to ${formatMoneyM(portfolio.totalValue)} of value now.`}
             testId="value-creation-bridge"
           />
-          <p className="pb-meta pb-analytics-note" data-testid="value-creation-bridge-note">
-            Each position&apos;s gain is set against its company&apos;s bridge at our entry stake
-            (our invested capital over the company&apos;s equity value at entry): EBITDA growth at
-            the entry multiple, then the change in the multiple, then the fall in net debt. Mark and
-            timing is the rest of our gain: our mark against the company&apos;s value, fees, the
-            timing of cash flows, follow-on investments and realizations.
-          </p>
+          {/* One line under the chart; how the split is made, on demand. */}
+          <div className="pb-analytics-note" data-testid="value-creation-bridge-note">
+            <p className="pb-meta">
+              Each driver is the company&apos;s own, taken at our entry stake; mark and timing is
+              what is left.
+            </p>
+            <details className="pb-details pb-analytics-details">
+              <summary>How the split works</summary>
+              <p>
+                Each position&apos;s gain is set against its company&apos;s bridge at our entry
+                stake (our invested capital over the company&apos;s equity value at entry): EBITDA
+                growth at the entry multiple, then the change in the multiple, then the fall in net
+                debt. Mark and timing is the rest of our gain: our mark against the company&apos;s
+                value, fees, the timing of cash flows, follow-on investments and realizations.
+              </p>
+            </details>
+          </div>
         </>
       )}
       <NotCalculableNote positions={view.positions} />
@@ -182,8 +200,9 @@ function GrowthCard({ positions }: { positions: readonly ValueCreationPosition[]
   const { points, leftOut, seriesNames, ahead } = growthPoints(positions, measure);
   return (
     <Card testId="value-creation-growth-card">
+      {/* The scatter is the section's chart, so its title is the section's. */}
       <SectionHeader aside="Since entry, one mark per company">
-        Valuation and earnings
+        Valuation growth against EBITDA growth
       </SectionHeader>
       <Toolbar>
         <Field>
@@ -219,6 +238,7 @@ function GrowthCard({ positions }: { positions: readonly ValueCreationPosition[]
         <>
           <ScatterChart
             title="Valuation growth against EBITDA growth"
+            hideCaption
             subtitle="The dashed line is where the two are equal"
             points={points}
             xLabel="EBITDA growth since entry"
@@ -244,56 +264,200 @@ function GrowthCard({ positions }: { positions: readonly ValueCreationPosition[]
   );
 }
 
-const COLUMNS: { key: SortKey; label: string; numeric: boolean }[] = [
+interface Column {
+  key: SortKey;
+  /** The words on screen. */
+  label: string;
+  /** Words the group over the column shows, kept in the column's own name for a screen reader. */
+  before?: string;
+  after?: string;
+  numeric: boolean;
+  /** The group the column sits under; a column with none spans both header rows. */
+  group?: string;
+}
+
+const COLUMNS: readonly Column[] = [
   { key: 'investmentNumber', label: 'Inv #', numeric: false },
   { key: 'companyName', label: 'Company', numeric: false },
-  { key: 'entryMultiple', label: 'Entry EV / EBITDA', numeric: true },
-  { key: 'currentMultiple', label: 'Current EV / EBITDA', numeric: true },
-  { key: 'entryLeverage', label: 'Entry net debt / EBITDA', numeric: true },
-  { key: 'currentLeverage', label: 'Current net debt / EBITDA', numeric: true },
-  { key: 'ebitdaGrowth', label: 'EBITDA growth', numeric: true },
-  { key: 'valuationGrowth', label: 'Mark growth', numeric: true },
+  {
+    key: 'entryMultiple',
+    label: 'Entry',
+    after: 'EV / EBITDA',
+    numeric: true,
+    group: 'EV / EBITDA',
+  },
+  {
+    key: 'currentMultiple',
+    label: 'Current',
+    after: 'EV / EBITDA',
+    numeric: true,
+    group: 'EV / EBITDA',
+  },
+  {
+    key: 'entryLeverage',
+    label: 'Entry',
+    after: 'net debt / EBITDA',
+    numeric: true,
+    group: 'Net debt / EBITDA',
+  },
+  {
+    key: 'currentLeverage',
+    label: 'Current',
+    after: 'net debt / EBITDA',
+    numeric: true,
+    group: 'Net debt / EBITDA',
+  },
+  {
+    key: 'ebitdaGrowth',
+    label: 'EBITDA',
+    after: 'growth',
+    numeric: true,
+    group: 'Growth since entry',
+  },
+  {
+    key: 'valuationGrowth',
+    label: 'Mark',
+    after: 'growth',
+    numeric: true,
+    group: 'Growth since entry',
+  },
   { key: 'stake', label: 'Entry stake', numeric: true },
   { key: 'gain', label: 'Our gain', numeric: true },
-  { key: 'gainEbitdaGrowth', label: 'Gain: EBITDA growth', numeric: true },
-  { key: 'gainMultipleExpansion', label: 'Gain: multiple expansion', numeric: true },
-  { key: 'gainDebtPaydown', label: 'Gain: debt paydown', numeric: true },
-  { key: 'gainOther', label: 'Gain: mark and timing', numeric: true },
+  {
+    key: 'gainEbitdaGrowth',
+    label: 'EBITDA growth',
+    before: 'Gain:',
+    numeric: true,
+    group: 'Gain by driver',
+  },
+  {
+    key: 'gainMultipleExpansion',
+    label: 'Multiple',
+    before: 'Gain:',
+    after: 'expansion',
+    numeric: true,
+    group: 'Gain by driver',
+  },
+  {
+    key: 'gainDebtPaydown',
+    label: 'Debt paydown',
+    before: 'Gain:',
+    numeric: true,
+    group: 'Gain by driver',
+  },
+  {
+    key: 'gainOther',
+    label: 'Mark and timing',
+    before: 'Gain:',
+    numeric: true,
+    group: 'Gain by driver',
+  },
   { key: 'grossMoic', label: 'Gross MOIC', numeric: true },
   { key: 'grossIrr', label: 'Gross IRR', numeric: true },
 ];
+
+/** The first column of each group, which a hairline sets off from the column before it. */
+const GROUP_STARTS: ReadonlySet<SortKey> = new Set(
+  COLUMNS.filter((c, i) => c.group !== undefined && COLUMNS[i - 1]?.group !== c.group).map(
+    (c) => c.key,
+  ),
+);
+
+/** The class of a column's cells: its alignment, and the hairline at the start of a group. */
+function cellClass(c: Column): string | undefined {
+  const names = [
+    c.numeric ? 'num' : '',
+    GROUP_STARTS.has(c.key) ? 'is-group-start' : '',
+    c.key === 'investmentNumber' ? 'pb-vc-key' : '',
+    c.key === 'companyName' ? 'pb-vc-company' : '',
+  ].filter(Boolean);
+  return names.length === 0 ? undefined : names.join(' ');
+}
+
+/** A column's sortable header: the short words on screen, the whole name for a screen reader. */
+function SortHeader({
+  c,
+  sort,
+  onSort,
+  rowSpan,
+}: {
+  c: Column;
+  sort: SortState;
+  onSort: (key: SortKey) => void;
+  rowSpan?: number;
+}): ReactNode {
+  const active = sort.key === c.key;
+  return (
+    <th
+      scope="col"
+      rowSpan={rowSpan}
+      className={cellClass(c)}
+      aria-sort={active ? sort.direction : 'none'}
+    >
+      <button type="button" className="pb-sort" onClick={() => onSort(c.key)}>
+        <span>
+          {c.before === undefined ? null : (
+            <>
+              <span className="pb-visually-hidden">{c.before}</span>{' '}
+            </>
+          )}
+          {c.label}
+          {c.after === undefined ? null : (
+            <>
+              {' '}
+              <span className="pb-visually-hidden">{c.after}</span>
+            </>
+          )}
+        </span>
+        {active ? (
+          // One mark that turns when the order flips.
+          <span
+            className={
+              sort.direction === 'descending' ? 'pb-sort-mark is-descending' : 'pb-sort-mark'
+            }
+            aria-hidden="true"
+          >
+            ▲
+          </span>
+        ) : null}
+      </button>
+    </th>
+  );
+}
 
 function PositionRow({ p }: { p: ValueCreationPosition }): ReactNode {
   const g = p.gainByDriver;
   return (
     <tr>
-      <td>
+      <td className="pb-vc-key">
         <span className="pb-key">{p.investmentNumber}</span>
       </td>
-      <td>
+      <td className="pb-vc-company">
         <Link to="/portfolio/$id/performance" params={{ id: p.id }}>
           {p.companyName}
         </Link>
         {/* A realized position holds no NAV: its gain is what was distributed less what was invested. */}
         {p.isActive ? null : <span className="pb-analytics-realized">Realized</span>}
       </td>
-      <NumCell>{formatMultiple(p.entry?.evToEbitda ?? null)}</NumCell>
+      <NumCell className="is-group-start">{formatMultiple(p.entry?.evToEbitda ?? null)}</NumCell>
       <NumCell>{formatMultiple(p.current?.evToEbitda ?? null)}</NumCell>
-      <NumCell>{formatMultiple(p.entry?.netDebtToEbitda ?? null)}</NumCell>
+      <NumCell className="is-group-start">
+        {formatMultiple(p.entry?.netDebtToEbitda ?? null)}
+      </NumCell>
       <NumCell>{formatMultiple(p.current?.netDebtToEbitda ?? null)}</NumCell>
-      <NumCell>{formatPct(p.growth.ebitdaGrowth)}</NumCell>
+      <NumCell className="is-group-start">{formatPct(p.growth.ebitdaGrowth)}</NumCell>
       <NumCell>{formatPct(p.valuationGrowth)}</NumCell>
       <NumCell>{formatPct(p.stake)}</NumCell>
       <NumCell>{formatMoneyM(p.gain)}</NumCell>
       {g === null ? (
         // The four parts share one cell: the placeholder, and beside it the reason in words.
-        <td colSpan={4} className="is-missing pb-analytics-reason">
+        <td colSpan={4} className="is-missing pb-analytics-reason is-group-start">
           {MISSING}
           {p.gainNotCalculable === null ? null : ` ${REASON_TEXT[p.gainNotCalculable]}`}
         </td>
       ) : (
         <>
-          <NumCell>{formatSignedMoneyM(g.ebitdaGrowth)}</NumCell>
+          <NumCell className="is-group-start">{formatSignedMoneyM(g.ebitdaGrowth)}</NumCell>
           <NumCell>{formatSignedMoneyM(g.multipleExpansion)}</NumCell>
           <NumCell>{formatSignedMoneyM(g.debtPaydown)}</NumCell>
           <NumCell>{formatSignedMoneyM(g.other)}</NumCell>
@@ -305,79 +469,45 @@ function PositionRow({ p }: { p: ValueCreationPosition }): ReactNode {
   );
 }
 
-function PositionsCard({
-  view,
-  filters,
-}: {
-  view: ShownView;
-  filters: ValueCreationFilters;
-}): ReactNode {
+function PositionsCard({ view }: { view: ShownView }): ReactNode {
   const [sort, setSort] = useState<SortState>(DEFAULT_SORT);
-  const log = useActionLog();
-  const exporter = useMutation({ mutationFn: fetchValueCreationExport });
   const rows = sortPositions(view.positions, sort);
-  const exportCsv = (): void => {
-    const fileName = exportFileName(view.asOf);
-    // The export is the API's (audited, SEC-11.1), asked with the filters of this view, which it
-    // applies by the rule the page filtered its rows with.
-    exporter.mutate(filters, {
-      onSuccess: (csv) => {
-        downloadText(fileName, csv, 'text/csv');
-        log.record('good', exportResult(csvRowCount(csv), fileName));
-      },
-      onError: (error) => log.record('bad', `Export CSV: ${describeActionError(error)}`),
-    });
-  };
+  const onSort = (key: SortKey): void => setSort((current) => nextSort(current, key));
   return (
     <Card testId="value-creation-positions">
       <SectionHeader aside={`${positionsText(view.positions.length)}; a company opens its deal`}>
         Positions
       </SectionHeader>
-      <Toolbar
-        end={
-          <Button
-            size="small"
-            appearance="outline"
-            icon={<ArrowDownload16Regular />}
-            data-testid="value-creation-export"
-            disabled={exporter.isPending}
-            onClick={exportCsv}
-          >
-            Export CSV
-          </Button>
-        }
-      >
-        <ActionStatus latest={log.latest} testId="value-creation-action-status" />
-      </Toolbar>
-      <TableWrap label="Value creation by position">
-        <table className="pb-table pb-analytics-dense" aria-label="Value creation by position">
+      <TableWrap label="Value creation by position" tall>
+        <table
+          className="pb-table pb-analytics-dense pb-vc-table"
+          aria-label="Value creation by position"
+        >
+          {/* Two header rows: the groups over their columns, and each column once (a column on
+              its own spans both rows), so every column keeps exactly one header with a sort. */}
           <thead>
             <tr>
-              {COLUMNS.map((c) => {
-                const key = c.key;
-                const active = sort.key === key;
+              {COLUMNS.map((c, i) => {
+                if (c.group === undefined)
+                  return <SortHeader key={c.key} c={c} sort={sort} onSort={onSort} rowSpan={2} />;
+                if (COLUMNS[i - 1]?.group === c.group) return null;
+                const span = COLUMNS.filter((x) => x.group === c.group).length;
                 return (
                   <th
-                    key={c.label}
-                    scope="col"
-                    className={c.numeric ? 'num' : undefined}
-                    aria-sort={active ? sort.direction : 'none'}
+                    key={c.group}
+                    scope="colgroup"
+                    colSpan={span}
+                    className="pb-vc-group is-group-start"
                   >
-                    <button
-                      type="button"
-                      className="pb-sort"
-                      onClick={() => setSort((current) => nextSort(current, key))}
-                    >
-                      {c.label}
-                      {active ? (
-                        <span className="pb-sort-mark" aria-hidden="true">
-                          {sort.direction === 'ascending' ? '▲' : '▼'}
-                        </span>
-                      ) : null}
-                    </button>
+                    {c.group}
                   </th>
                 );
               })}
+            </tr>
+            <tr>
+              {COLUMNS.filter((c) => c.group !== undefined).map((c) => (
+                <SortHeader key={c.key} c={c} sort={sort} onSort={onSort} />
+              ))}
             </tr>
           </thead>
           <tbody>
@@ -388,6 +518,41 @@ function PositionsCard({
         </table>
       </TableWrap>
     </Card>
+  );
+}
+
+/**
+ * Export CSV and the line that reports how it went, in the tab's context row. The export is the
+ * API's (audited, SEC-11.1), asked with the filters of this view, which it applies by the rule the
+ * page filtered its rows with.
+ */
+function ExportCsv({ asOf, filters }: { asOf: string; filters: ValueCreationFilters }): ReactNode {
+  const log = useActionLog();
+  const exporter = useMutation({ mutationFn: fetchValueCreationExport });
+  const exportCsv = (): void => {
+    const fileName = exportFileName(asOf);
+    exporter.mutate(filters, {
+      onSuccess: (csv) => {
+        downloadText(fileName, csv, 'text/csv');
+        log.record('good', exportResult(csvRowCount(csv), fileName));
+      },
+      onError: (error) => log.record('bad', `Export CSV: ${describeActionError(error)}`),
+    });
+  };
+  return (
+    <>
+      <ActionStatus latest={log.latest} testId="value-creation-action-status" />
+      <Button
+        size="small"
+        appearance="outline"
+        icon={<ArrowDownload16Regular />}
+        data-testid="value-creation-export"
+        disabled={exporter.isPending}
+        onClick={exportCsv}
+      >
+        Export CSV
+      </Button>
+    </>
   );
 }
 
@@ -411,16 +576,24 @@ export function ValueCreationTab(): ReactNode {
   if (q.isError) return <UnavailableState card error={q.error} subject="Value creation" />;
   if (view === undefined || shown === null) return null;
   const left = leftOutText(view.leftOut);
+  const asOf = `As of ${formatDate(view.asOf)}`;
   if (view.positions.length === 0) {
     return (
       <Card>
         <EmptyState
           title="No equity or continuation vehicle positions"
-          detail={`Value creation is measured for equity co-investments and continuation vehicles you are entitled to see, as of ${formatDate(view.asOf)}.${left === null ? '' : ` ${left}`}`}
+          detail={`Value creation is measured for equity co-investments and continuation vehicles visible to you, as of ${formatDate(view.asOf)}.${left === null ? '' : ` ${left}`}`}
         />
       </Card>
     );
   }
+  const scope = [
+    asOf,
+    'Equity and continuation vehicle positions visible to you',
+    hasFilters(filters)
+      ? 'Active and realized, narrowed by the filters below'
+      : 'Active and realized',
+  ];
   const bar = (
     <ValueCreationFilterBar
       positions={view.positions}
@@ -432,6 +605,7 @@ export function ValueCreationTab(): ReactNode {
   if (shown.positions.length === 0) {
     return (
       <>
+        <PageContext items={scope} note={left ?? undefined} />
         {bar}
         <Card testId="value-creation-no-match">
           <EmptyState
@@ -444,17 +618,16 @@ export function ValueCreationTab(): ReactNode {
   }
   return (
     <>
+      <PageContext
+        items={scope}
+        note={left ?? undefined}
+        controls={<ExportCsv asOf={view.asOf} filters={filters} />}
+      />
       <HeadlineTiles portfolio={shown.portfolio} />
       {bar}
-      <p className="pb-meta">
-        As of {formatDate(view.asOf)}, over the equity and continuation vehicle positions you are
-        entitled to see, active and realized
-        {hasFilters(filters) ? ', narrowed by the filters above' : ''}.
-        {left === null ? '' : ` ${left}`}
-      </p>
       <BridgeCard view={shown} />
       <GrowthCard positions={shown.positions} />
-      <PositionsCard view={shown} filters={filters} />
+      <PositionsCard view={shown} />
     </>
   );
 }
