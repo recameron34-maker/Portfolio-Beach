@@ -892,7 +892,7 @@ function Panel({
 }): ReactNode {
   const log = useActionLog();
   return (
-    <div data-testid="closing-panel">
+    <div className="pb-page-body" data-testid="closing-panel">
       <div className="pb-two-col">
         <RecordCard closing={closing} roles={roles} log={log} />
         <TieOutCard closing={closing} />

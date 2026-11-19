@@ -119,7 +119,7 @@ export function createTheme(): Theme {
     colorBrandForegroundLink: tokens.brand.primary,
     colorCompoundBrandStroke: tokens.brand.accent, // input and dropdown focus underline (non-text, 4.45:1)
     colorCompoundBrandStrokeHover: tokens.brand.accent,
-    colorStrokeFocus2: tokens.brand.accent, // focus ring on light surfaces; the header overrides it to bg
+    colorStrokeFocus2: tokens.brand.accent, // focus ring on every surface, the rail's grey included
     // Decision 0026: square corners on controls, a little more on dialogs; body text 13px/20px.
     borderRadiusSmall: '2px',
     borderRadiusMedium: '4px',

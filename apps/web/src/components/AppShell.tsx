@@ -230,6 +230,9 @@ export function AppShell(): ReactNode {
   const focus = focusOf(me.data?.roles);
   const nav = navFor(focus);
   const mock = me.data?.mockIdentity === true;
+  // The switcher's users load with the page at every width: on a phone the switcher waits in the
+  // closed drawer, and the request keeps the timing it had when the switcher sat in the header.
+  useQuery({ ...mockUsersQuery, enabled: mock });
   const signOut = (): void => {
     clearCredential();
     queryClient.clear();

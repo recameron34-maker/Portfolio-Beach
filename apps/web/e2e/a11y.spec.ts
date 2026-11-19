@@ -80,9 +80,12 @@ test('sign-in settles once and is still under reduced motion @a11y', async ({ pa
   await page.getByTestId('mock-user-list').waitFor();
   await movingThenStill(
     page,
-    () => animationNames(page.locator('.pb-signin-picker > *, .pb-signin-row')),
+    () => animationNames(page.locator('.pb-signin-picker > :not(.pb-banner), .pb-signin-row')),
     'pb-enter',
   );
+  // The page title never moves, with motion allowed or not.
+  await page.emulateMedia({ reducedMotion: 'no-preference' });
+  expect(await animationNames(page.locator('.pb-signin-picker > .pb-banner'))).toEqual(['none']);
 });
 
 test('the skip link takes the keyboard past the navigation to the page @a11y', async ({ page }) => {

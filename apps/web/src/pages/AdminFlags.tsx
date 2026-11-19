@@ -92,9 +92,9 @@ export function AdminFlagsPage(): ReactNode {
                     {f.description.includes('Kill switch') ? (
                       <>
                         {' '}
-                        <Badge tone="bad" plain>
-                          Kill switch
-                        </Badge>
+                        <span className="pb-flag-marker">
+                          <Badge tone="bad">Kill switch</Badge>
+                        </span>
                       </>
                     ) : null}
                   </td>

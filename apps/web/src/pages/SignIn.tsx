@@ -21,7 +21,7 @@ export function SignInPage(): ReactNode {
   if (users.isPending) {
     body = (
       <div className="pb-signin-list">
-        <RowsSkeleton rows={6} />
+        <RowsSkeleton rows={6} label="Loading sign-in options" />
       </div>
     );
   } else if (users.isError) {

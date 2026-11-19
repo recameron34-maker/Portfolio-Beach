@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { cleanup, render, screen, within } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import {
   EmptyState,
   KeyValueTable,
@@ -11,6 +11,7 @@ import {
   StatTile,
   Subhead,
   TableWrap,
+  TabNav,
 } from './ui.js';
 
 vi.mock('@tanstack/react-router', async () =>
@@ -208,13 +209,68 @@ describe('states', () => {
       <>
         <PageSkeleton tiles={4} rows={3} />
         <RowsSkeleton rows={5} />
+        <RowsSkeleton rows={2} label="Loading sign-in options" />
       </>,
     );
-    const [page, list] = Array.from(container.querySelectorAll(':scope > [aria-busy="true"]'));
+    const [page, list, named] = Array.from(
+      container.querySelectorAll(':scope > [aria-busy="true"]'),
+    );
     expect(page?.querySelectorAll('.pb-skeleton-tile')).toHaveLength(4);
     expect(page?.querySelectorAll('.pb-skeleton-row')).toHaveLength(3);
     expect(list?.querySelectorAll('.pb-skeleton-row')).toHaveLength(5);
     expect(list).toHaveTextContent('Loading');
+    // A list can say what is loading, so a screen reader hears more than "Loading".
+    expect(named).toHaveTextContent('Loading sign-in options');
     expect(screen.queryByRole('status')).toBeNull();
+  });
+});
+
+describe('tab row on a phone', () => {
+  afterEach(() => {
+    cleanup();
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+  });
+
+  it('marks each end of the row that hides tabs, so that end fades and no tab is cut off unseen', () => {
+    vi.stubGlobal('matchMedia', (query: string) => ({
+      matches: query === '(max-width: 760px)',
+      addEventListener: () => undefined,
+      removeEventListener: () => undefined,
+    }));
+    // The row is 600px of tabs in a 358px window.
+    vi.spyOn(Element.prototype, 'scrollWidth', 'get').mockReturnValue(600);
+    vi.spyOn(Element.prototype, 'clientWidth', 'get').mockReturnValue(358);
+    render(
+      <TabNav
+        label="Analytics"
+        items={[
+          { to: '/analytics/exposure', label: 'Exposure' },
+          { to: '/analytics/performance', label: 'Performance' },
+          { to: '/analytics/map', label: 'Map' },
+        ]}
+      />,
+    );
+    const row = screen.getByRole('navigation', { name: 'Analytics' });
+    const at = (left: number): void => {
+      Object.defineProperty(row, 'scrollLeft', { value: left, configurable: true });
+      fireEvent.scroll(row);
+    };
+    at(0);
+    expect(row).not.toHaveAttribute('data-more-before');
+    expect(row).toHaveAttribute('data-more-after');
+    at(120);
+    expect(row).toHaveAttribute('data-more-before');
+    expect(row).toHaveAttribute('data-more-after');
+    at(242);
+    expect(row).toHaveAttribute('data-more-before');
+    expect(row).not.toHaveAttribute('data-more-after');
+  });
+
+  it('marks nothing on a wide screen, where the tabs wrap', () => {
+    render(<TabNav label="Admin" items={[{ to: '/admin/flags', label: 'Flags' }]} />);
+    const row = screen.getByRole('navigation', { name: 'Admin' });
+    expect(row).not.toHaveAttribute('data-more-before');
+    expect(row).not.toHaveAttribute('data-more-after');
   });
 });

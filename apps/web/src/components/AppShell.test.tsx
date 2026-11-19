@@ -345,6 +345,25 @@ describe('the frame around every page', () => {
     expect(screen.getAllByText('Portfolio Beach')).toHaveLength(1);
   });
 
+  it('on a phone asks for the switcher users with the page, before the drawer opens', async () => {
+    narrowScreen();
+    shell();
+    expect(await screen.findByTestId('current-user')).toHaveTextContent('Avery Mbeki');
+    const asked = (): boolean =>
+      vi
+        .mocked(globalThis.fetch)
+        .mock.calls.some(([input]) =>
+          (typeof input === 'string'
+            ? input
+            : input instanceof URL
+              ? input.href
+              : input.url
+          ).includes('/auth/mock-users'),
+        );
+    await waitFor(() => expect(asked()).toBe(true));
+    expect(screen.queryByRole('navigation', { name: 'Main' })).toBeNull();
+  });
+
   it('on a phone keeps the data rule in the bar and opens the navigation in a drawer', async () => {
     narrowScreen();
     shell();

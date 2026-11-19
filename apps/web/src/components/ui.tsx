@@ -239,16 +239,33 @@ export function TabNav({
   const row = useRef<HTMLElement>(null);
   useEffect(() => {
     const nav = row.current;
-    if (!narrow || nav === null) return;
+    if (!narrow || nav === null) return undefined;
+    // Which ends of the row hide tabs, for the stylesheet: an end that hides one fades out, so a
+    // tab cut off at either edge always shows that more lie beyond it.
+    const mark = (): void => {
+      const hidden = nav.scrollWidth - nav.clientWidth;
+      nav.toggleAttribute('data-more-before', nav.scrollLeft > 1);
+      nav.toggleAttribute('data-more-after', nav.scrollLeft < hidden - 1);
+    };
     const current = nav.querySelector('[aria-current="page"]');
-    if (current === null) return;
-    // Only the row scrolls, sideways, clear of its faded edge: scrollIntoView would also scroll
-    // the page whenever the row is out of sight, as when a window is narrowed and widened again.
-    const tab = current.getBoundingClientRect();
-    const edge = nav.getBoundingClientRect();
-    const fade = 24;
-    if (tab.left < edge.left) nav.scrollLeft += tab.left - edge.left;
-    else if (tab.right > edge.right - fade) nav.scrollLeft += tab.right - edge.right + fade;
+    if (current !== null) {
+      // The current tab to the middle of the row, so the tabs on both sides of it show. Only the
+      // row scrolls: scrollIntoView would also scroll the page whenever the row is out of sight,
+      // as when a window is narrowed and widened again.
+      const tab = current.getBoundingClientRect();
+      const edge = nav.getBoundingClientRect();
+      nav.scrollLeft += tab.left + tab.width / 2 - (edge.left + edge.width / 2);
+    }
+    mark();
+    nav.addEventListener('scroll', mark, { passive: true });
+    const resized = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(mark);
+    resized?.observe(nav);
+    return () => {
+      nav.removeEventListener('scroll', mark);
+      resized?.disconnect();
+      nav.removeAttribute('data-more-before');
+      nav.removeAttribute('data-more-after');
+    };
   }, [narrow]);
   return (
     <nav className="pb-tabs" aria-label={label} ref={row}>
@@ -466,10 +483,17 @@ export function PageSkeleton({
 }
 
 /** A list loading inside a section: rows of bars, busy, never role="status". */
-export function RowsSkeleton({ rows }: { rows: number }): ReactNode {
+export function RowsSkeleton({
+  rows,
+  label = 'Loading',
+}: {
+  rows: number;
+  /** What a screen reader hears while the list loads ("Loading sign-in options"). */
+  label?: string;
+}): ReactNode {
   return (
     <div className="pb-skeleton pb-skeleton-rows" aria-busy="true">
-      <span className="pb-visually-hidden">Loading</span>
+      <span className="pb-visually-hidden">{label}</span>
       {Array.from({ length: rows }, (_, i) => (
         <SkeletonRow key={i} />
       ))}

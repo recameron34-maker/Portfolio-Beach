@@ -49,11 +49,15 @@
   text-transform: uppercase;
 }
 
-/* Tile rows whose labels may wrap: every label takes two lines so the numbers line up. */
-@media (min-width: 481px) {
-  .pb-deal-aligned .pb-stat-label {
-    min-height: 32px;
-  }
+/* Strips whose labels may wrap: each cell lays its label, figure and hint on rows it shares with
+   the cells beside it, so the figures of one row line up and a row whose labels all fit on one
+   line keeps no empty line for them. */
+.pb-deal-aligned > .pb-stat-tile {
+  display: grid;
+  grid-row: span 3;
+  grid-template-rows: subgrid;
+  row-gap: 2px;
+  align-content: start;
 }
 
 /* The workspace repeats its tiles above every tab, so on a phone they stay two to a row instead of
@@ -65,7 +69,7 @@
   }
   .pb-deal-tiles .pb-stat-tile {
     min-height: 0;
-    padding: 10px 12px;
+    padding: var(--pb-space-2);
   }
 }
 

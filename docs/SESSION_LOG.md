@@ -830,3 +830,41 @@ The last foundation slice of `docs/handoff/ui-pass-plan.md` (findings P24 to P27
 
 - The website still draws the beach (`apps/site/src/render/scene.ts`, whose comment names the deleted component) until slice 13 restyles it; the demo artifact and the website's screenshots show the old shell until they are re-recorded (plan section 8, items 3 and 5).
 - The three navigation labels still in title case ("Capital Activity", "Data Health", "Data Dictionary") go to sentence case in slice 5, with the tests that assert them.
+
+### Session 13 (2026-11-19): the UI pass, fixes from the review of slices 1 to 4
+
+Two reviewers read slices 1 to 4 against the code and the screenshots and raised 21 findings. Twelve are fixed here; the others are the remaining generic tells that later slices own (with the slice named), or are held by the probe. No request, figure, role check or access rule changes; the one request whose timing had moved is put back.
+
+**What changed**
+
+- **Tabs on a phone** (`TabNav`): the row scrolls the current tab to its middle, and marks each end that hides tabs (`data-more-before`, `data-more-after`, kept up to date on scroll and resize), which the stylesheet fades. Before, the row scrolled only far enough to clear its right fade, so the tabs before the current one were cut off at the left edge with no sign (Map, Credit book, Expected documents, Integration health, Access and walls).
+- **Flags**: the kill switch marker shows its bad dot and word again, 4px plus a space after the description (`pb-flag-marker`). Slice 3 made a `plain` badge untoned grey words, which ran on from the sentence.
+- **Positions grid** (brought forward from slice 6, theme and alignment only): `Portfolio.tsx` sets the quiet table look on the shared themes with `withParams` (unfilled header in `--pb-muted-strong` over the stronger rule, no column rules, no frame or radius, a hairline after the pinned column, 8px cell sides, the grid reaching 8px past its section like a table); the figure columns are right-aligned again (a `cellClass` had replaced the right-aligned type's class, so figures sat left under right-aligned headers); a column's filter and resize controls show under the pointer or the keyboard and while a filter is set, and always on a touch screen. `lib/grid.ts` is untouched; the column order, toolbar and pager stay slice 6's.
+- **First section after the frame**: the no-rule rule now looks past a result line that is still empty and into a wrapper that holds a page's body (`pb-page-body`, given to the closing panel's wrapper). Two hairlines 24px apart are gone from Packages (empty and full), the wire register, a wire instruction, the closing page and the deal Closing tab.
+- **Commands in tables on a touch screen or a phone**: a button in a table keeps its drawn size, with an invisible band 44px tall around it that takes the touch, and a row's commands stay on one line. The extraction review at 390 is 3,441px tall (4,409 in slice 4); the diligence table's rows are as tall as their text again.
+- **Figures strip**: like a table, it reaches 8px past its section and its cells keep 8px at their sides, so every label starts on the section title's edge and every rule of a strip or a table runs the same 8px past it (was: labels 16px in, rules of two lengths). The deal workspace strips keep 8px on a phone too.
+- **Deal strips whose labels may wrap** (`pb-deal-aligned`): each cell lays its label, figure and hint on rows shared with its neighbours (`grid-template-rows: subgrid`), so figures line up without the reserved second label line; label to figure is the header strip's distance again.
+- **Header meta line**: when it wraps, no line starts with a dot (each dot sits in the gap before its item and the list clips one that would open a line).
+- **Sign-in**: the loading list says "Loading sign-in options" to a screen reader (`RowsSkeleton label`); the title no longer rises in (`.pb-signin-picker > :not(.pb-banner)`, repeated exactly in the motion policy).
+- **Shell on a phone**: the switcher's users are requested with the page at every width (the shell holds the query), as before slice 4 put the switcher in the closed drawer.
+- **Steps on a narrow phone**: a record on no step (a passed deal) keeps the step names, two to a row; the others keep the one line under the row.
+- `docs/06`: the radar now grows into place from a little under its full size; the first-section rule, the meta line, the figures strip, steps, tabs and touch targets in tables as above. `app/theme.ts`: the focus ring comment no longer names the header override deleted in slice 4.
+
+**Verified**
+
+- `pnpm typecheck` and `pnpm lint` clean; `pnpm exec vitest run --project web`: 152 files, 1650 tests passed. New: the tab row marks each end that hides tabs as it scrolls, and nothing on a wide screen (`ui.test.tsx`); `RowsSkeleton` says what is loading; on a phone the shell asks for the switcher's users before the drawer opens (`AppShell.test.tsx`, which fails without the fix).
+- `bash scripts/check-style.sh` and `pnpm check:employer-data` OK; `pnpm --filter @pb/api build` and `pnpm --filter @pb/web build:preview` OK; the probe: 238 passed, 0 failed, 0 skipped (it still reads "EBITDA AGAINST PLAN").
+- `e2e/a11y.spec.ts e2e/journey1.spec.ts e2e/suggestions.spec.ts e2e/report-packages.spec.ts e2e/deal-tabs.spec.ts e2e/underwriting.spec.ts e2e/journey6.spec.ts` (the accessibility scans at 1280 and 390, the slices' journeys, the base case strip and the closing): 45 passed. The sign-in test now also reads the title as still with motion allowed.
+- A scratch survey of every page of the shot set at 1440 (100 pages) for a section rule within 40px under the tab row, the header or a strip: 11 cases before, the 4 left are a strip that ends one section followed by the next section's rule (open item below).
+- Screenshots: all 174 again, none failed, no page note changed against slice 4. Compared with the slice 4 set: the tab rows at 390 named in the review, the flags page, the positions grid at 1440 and 390, Packages and the deal Closing tab, the extraction run (meta line at 1440, review table at 390), the diligence table at 390, Home and the deal Performance tab at 1440 and 390, and a passed deal's step strip at 390 (a scratch script).
+
+**Not taken**
+
+- The pipeline board's capitals, cards and aging bar (slice 7), the map's labels, pills and oval (slice 12), the two step designs on notices and valuation versions (slice 9), Home's title, strip and doubled chart titles, the rail's three title-case labels and the assistant's question blocks (slices 5 and 11), and page copy that names files and keys (slice 14): each is planned in its slice.
+- The base case strip's capitals stay while the probe reads "EBITDA AGAINST PLAN" as rendered; its letter-spacing is already 0 (open item from slice 2).
+- Dates and names breaking in tables (Realizations at 1440, the weekly Movers at 390) wrap the same way in the before set; the area slices that own those tables (10 and 12) put `pb-nowrap`, `pb-col-fit` and `pb-col-text` on them.
+
+**Open items**
+
+- A strip that ends a section is followed 32px lower by the next section's rule, so two rules show: the deal Performance tab ("Since entry", then "Value creation"; slice 6 merges the two) and the Sponsor tab (its figures, then Funds). For slice 6.
+- The UI pass plan was committed as `docs/handoff/ui-pass-plan.md` (commit af04dc4, with a pointer in `docs/handoff/README.md` section 11), outside plan 1.1's list of docs, and it names the session's scratchpad folder, which a later reader cannot open: it stays as the record of how the pass was planned. Files outside their slice's named list but inside 1.1's globs: the index line in `docs/decisions/README.md` (slice 1), `pages/deal/UnderwritingCard.tsx`, `deal.css` and `pages/capital/capital.css` (slice 2), `components/people.ts` (slice 4), and here `Portfolio.tsx`, `AdminFlags.tsx` and `ClosingPanel.tsx` (later slices' pages, a few lines each).

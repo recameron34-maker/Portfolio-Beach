@@ -14,6 +14,7 @@ import type { ColDef, ICellRendererParams, ValueGetterParams } from 'ag-grid-com
 import type { InvestmentSummary } from '@pb/contracts';
 import { PORTFOLIO_TABS } from '../app/nav.js';
 import { investmentsQuery } from '../app/queries.js';
+import { derived, tokens } from '../app/theme.js';
 import {
   Badge,
   Card,
@@ -68,12 +69,37 @@ function decimalFilterValue(p: ValueGetterParams<InvestmentSummary>): number | n
   return value === null || value === undefined ? null : Number(value);
 }
 
+/**
+ * The grid in the app's quiet table look (docs/06 section 2): an unfilled header in muted ink over
+ * a stronger rule, no rules between columns and no frame, and a table's 8px at the sides of each
+ * cell (the grid reaches 8px past its section, as a table does). The shared themes of lib/grid.ts
+ * stay as they are; this page sets its look on top of them.
+ */
+const quietGrid = {
+  headerBackgroundColor: tokens.ui.bg,
+  headerTextColor: derived.mutedStrong,
+  headerFontWeight: 600,
+  headerColumnBorder: false,
+  headerColumnResizeHandleColor: tokens.ui.border,
+  headerRowBorder: { color: derived.borderStrong },
+  pinnedColumnBorder: { color: derived.hairline },
+  wrapperBorder: false,
+  wrapperBorderRadius: 0,
+  cellHorizontalPadding: 8,
+  accentColor: tokens.brand.accent,
+} as const;
+const themes = {
+  comfortable: gridThemes.comfortable.withParams(quietGrid),
+  compact: gridThemes.compact.withParams(quietGrid),
+};
+
 const decimalColumn: Pick<
   ColDef<InvestmentSummary>,
   'type' | 'cellClass' | 'comparator' | 'filter' | 'filterValueGetter'
 > = {
   type: 'rightAligned',
-  cellClass: 'pb-num',
+  // The type's own class names a right-aligned cell; a cellClass given here replaces it, so both.
+  cellClass: ['ag-right-aligned-cell', 'pb-num'],
   comparator: compareDecimals,
   filter: 'agNumberColumnFilter',
   filterValueGetter: decimalFilterValue,
@@ -273,7 +299,7 @@ export function PortfolioPage(): ReactNode {
         <div className="pb-grid" data-testid="portfolio-grid">
           <AgGridReact<InvestmentSummary>
             ref={gridRef}
-            theme={compact ? gridThemes.compact : gridThemes.comfortable}
+            theme={compact ? themes.compact : themes.comfortable}
             rowData={page.data?.items ?? []}
             loading={page.isPending}
             quickFilterText={quick}

@@ -537,13 +537,25 @@ p:last-child {
 .pb-meta-list {
   display: inline-flex;
   flex-wrap: wrap;
+  column-gap: var(--pb-space-4);
   font-size: var(--pb-text-md);
   line-height: var(--pb-text-md-lh);
   color: var(--pb-muted);
+  /* A line that wraps never starts with a dot: each dot sits in the gap before its item, and the
+     one before an item that opens a line falls outside the list, where this clips it. The margin
+     keeps a focus ring at the list's edge in view. */
+  overflow-x: clip;
+  overflow-clip-margin: var(--pb-space-1);
+}
+.pb-meta-list > span {
+  position: relative;
 }
 .pb-meta-list > span + span::before {
   content: '\00B7';
-  margin: 0 var(--pb-space-2);
+  position: absolute;
+  right: 100%;
+  width: var(--pb-space-4);
+  text-align: center;
 }
 /* One plain-text item of the meta that can run long (a file name): clipped, its text in title. */
 .pb-meta-clip {
@@ -558,7 +570,8 @@ p:last-child {
 /* ---- Sections and section titles ---- */
 /* A section (Card) is flat: a hairline rule above its content and space below, no frame. The first
    section after the page header, the tabs, the figures strip or the analytics context row carries
-   no rule; a frame (is-panel) is only for what stands apart from the page. */
+   no rule, looking past a result line that is still empty and into a wrapper that holds a page's
+   body (pb-page-body); a frame (is-panel) is only for what stands apart from the page. */
 .pb-card {
   background: none;
   border: 0;
@@ -572,7 +585,17 @@ p:last-child {
   margin-bottom: 0;
 }
 :is(.pb-banner, .pb-tabs, .pb-tiles, .pb-page-context) + .pb-card,
-:is(.pb-banner, .pb-tabs, .pb-tiles, .pb-page-context) + .pb-two-col > .pb-card {
+:is(.pb-banner, .pb-tabs, .pb-tiles, .pb-page-context) + .pb-two-col > .pb-card,
+:is(.pb-banner, .pb-tabs, .pb-tiles, .pb-page-context) + .pb-action-status:empty + .pb-card,
+:is(.pb-banner, .pb-tabs, .pb-tiles, .pb-page-context)
+  + .pb-action-status:empty
+  + .pb-two-col
+  > .pb-card,
+:is(.pb-banner, .pb-tabs, .pb-tiles, .pb-page-context) + .pb-page-body > .pb-card:first-child,
+:is(.pb-banner, .pb-tabs, .pb-tiles, .pb-page-context)
+  + .pb-page-body
+  > .pb-two-col:first-child
+  > .pb-card {
   border-top: 0;
   padding-top: 0;
 }
@@ -673,13 +696,15 @@ p:last-child {
    the cells themselves (a 1px shadow on each cell's left and top), and the strip clips the ones on
    its first column and first row, so the empty end of a short last row stays plain page.
    --pb-tile-min is the narrowest a cell may get; balanceTiles (lib/tiles.ts) then evens out the
-   rows. */
+   rows. Like a table, the strip reaches 8px past the section on each side and its cells keep 8px
+   at their sides, so every label starts on the section title's edge and every rule of a strip or
+   a table runs the same 8px past it. */
 .pb-tiles {
   --pb-tile-min: 150px;
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(min(100%, var(--pb-tile-min)), 1fr));
   gap: 0;
-  margin: 0 0 var(--pb-space-6);
+  margin: 0 calc(var(--pb-space-2) * -1) var(--pb-space-6);
   background: var(--pb-bg);
   border-block: 1px solid var(--pb-border);
   overflow: hidden;
@@ -710,7 +735,7 @@ p:last-child {
   gap: 2px;
   min-width: 0;
   min-height: 0;
-  padding: var(--pb-space-2) var(--pb-space-4) var(--pb-space-3);
+  padding: var(--pb-space-2) var(--pb-space-2) var(--pb-space-3);
   background: var(--pb-bg);
   border: 0;
   border-radius: 0;
@@ -1783,15 +1808,33 @@ p:last-child {
 }
 
 /* ---- AG Grid companions ---- */
+/* The grid reaches 8px past its section, as a table does, so its text starts on the title's edge. */
 .pb-grid {
   height: clamp(360px, calc(100vh - 340px), 760px);
-  width: 100%;
+  margin-inline: calc(var(--pb-space-2) * -1);
 }
 .pb-grid .ag-row {
   cursor: pointer;
 }
 .pb-grid .ag-cell.pb-num {
+  justify-content: flex-end;
+  text-align: right;
   font-variant-numeric: tabular-nums lining-nums;
+}
+/* A column's filter and resize controls show under the pointer or the keyboard, and stay shown
+   while a filter is set; at rest the header is just its words. A touch screen has no pointer
+   resting on a header, so there they always show. */
+.pb-grid .ag-header-cell-filter-button,
+.pb-grid .ag-header-cell-resize {
+  transition: opacity var(--pb-dur-fast) var(--pb-ease);
+}
+@media (hover: hover) {
+  .pb-grid
+    .ag-header-cell:not(:hover, :focus-within, .ag-header-cell-filtered)
+    .ag-header-cell-filter-button,
+  .pb-grid .ag-header-cell:not(:hover, :focus-within) .ag-header-cell-resize {
+    opacity: 0;
+  }
 }
 .pb-grid .ag-cell.pb-cell-nm {
   color: var(--pb-muted-strong);
@@ -1801,6 +1844,12 @@ p:last-child {
 }
 
 /* ---- Reporting, assistants and admin pages ---- */
+/* The flags page marks a kill switch after its description: the bad dot and the word, set apart
+   from the sentence. */
+.pb-flag-marker {
+  margin-left: var(--pb-space-1);
+  white-space: nowrap;
+}
 .pb-report-actions {
   display: inline-flex;
   flex-wrap: wrap;
@@ -2064,11 +2113,34 @@ p:last-child {
   .pb-w-l {
     width: 100%;
   }
-  /* Tabs in one row that scrolls, fading at the right edge. */
+  /* Tabs in one row that scrolls. TabNav marks each end that hides tabs, and that end fades out,
+     so a tab cut off at either edge always shows that more lie beyond it. */
   .pb-tabs {
     flex-wrap: nowrap;
     overflow-x: auto;
-    mask-image: linear-gradient(to right, var(--pb-text) calc(100% - 24px), transparent);
+  }
+  .pb-tabs[data-more-after] {
+    mask-image: linear-gradient(
+      to right,
+      var(--pb-text) calc(100% - var(--pb-space-5)),
+      transparent
+    );
+  }
+  .pb-tabs[data-more-before] {
+    mask-image: linear-gradient(
+      to left,
+      var(--pb-text) calc(100% - var(--pb-space-5)),
+      transparent
+    );
+  }
+  .pb-tabs[data-more-before][data-more-after] {
+    mask-image: linear-gradient(
+      to right,
+      transparent,
+      var(--pb-text) var(--pb-space-5),
+      var(--pb-text) calc(100% - var(--pb-space-5)),
+      transparent
+    );
   }
   .pb-grid {
     height: 62vh;
@@ -2099,6 +2171,27 @@ p:last-child {
   .pb-actions {
     gap: var(--pb-space-2);
   }
+  /* In a table a row stays as tall as its text: a button keeps its drawn size, with its label on
+     the row's line, and an invisible band 44px tall around it takes the touch, reaching into the
+     cell's padding. A row's commands stay on one line, so the table, which scrolls sideways
+     anyway, grows wider instead of each row growing taller. */
+  .pb-main .pb-table .fui-Button {
+    position: relative;
+    min-height: 0;
+  }
+  .pb-main .pb-table .fui-Button::before {
+    content: '';
+    position: absolute;
+    top: 50%;
+    left: 0;
+    right: 0;
+    height: 44px;
+    transform: translateY(-50%);
+  }
+  .pb-table .pb-command-buttons,
+  .pb-table .pb-extraction-actions {
+    flex-wrap: nowrap;
+  }
 }
 @media (max-width: 560px) {
   /* The strip keeps its segments; the names give way to one line under it. */
@@ -2119,6 +2212,24 @@ p:last-child {
   }
   .pb-steps-summary {
     display: block;
+  }
+  /* A record on no step (a deal that passed) has no line to sum it up, so its strip keeps the
+     names, two to a row. */
+  .pb-steps:not(:has(> li[aria-current='step'])) {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    row-gap: var(--pb-space-2);
+    margin-bottom: var(--pb-space-5);
+  }
+  .pb-steps:not(:has(> li[aria-current='step'])) > li {
+    padding: var(--pb-space-2) 0 0;
+  }
+  .pb-steps:not(:has(> li[aria-current='step'])) > li > span:not(.pb-visually-hidden) {
+    position: static;
+    width: auto;
+    height: auto;
+    overflow: visible;
+    clip: auto;
+    white-space: normal;
   }
   /* The header's meta items one under another, without the dots between them. */
   .pb-banner .pb-meta-list {
@@ -2356,10 +2467,10 @@ p:last-child {
 
 /* Sign-in: the column settles, then the users in turn, all by about half a second; then nothing
    moves. SignIn.tsx sets each row's --i. */
-.pb-signin-picker > * {
+.pb-signin-picker > :not(.pb-banner) {
   animation: pb-enter var(--pb-dur-enter) var(--pb-ease) backwards;
 }
-.pb-signin-picker > :nth-child(n + 2) {
+.pb-signin-picker > :nth-child(n + 3) {
   animation-delay: 40ms;
 }
 .pb-signin-row {
@@ -2387,7 +2498,7 @@ p:last-child {
   .pb-skeleton,
   .pb-main > .pb-skeleton,
   .pb-skeleton-bar,
-  .pb-signin-picker > *,
+  .pb-signin-picker > :not(.pb-banner),
   .pb-signin-row,
   .fui-Spinner > .fui-Spinner__spinner,
   .fui-Spinner__spinner > .fui-Spinner__spinnerTail {
@@ -2404,7 +2515,9 @@ p:last-child {
   .pb-segmented > button,
   .pb-details > summary::before,
   .pb-signin-row,
-  .pb-table-wrap {
+  .pb-table-wrap,
+  .pb-grid .ag-header-cell-filter-button,
+  .pb-grid .ag-header-cell-resize {
     transition: none;
   }
 }
