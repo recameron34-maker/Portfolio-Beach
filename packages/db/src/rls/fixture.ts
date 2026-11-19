@@ -20,8 +20,12 @@ import type { AppRole } from '../roles.js';
  * investment, one walled) with a Funded ticket on the first and a Drafted one on the walled; one
  * change request per investment; the review fixes (migration 0014): one quarter-end data exception
  * about each change request; the client lines (migration 0017): a line for each of two clients on
- * the open opportunity beside its vehicle-level line, and a third client named on no line. Loaded
- * as the owner, outside RLS.
+ * the open opportunity beside its vehicle-level line, and a third client named on no line; the
+ * underwritten base cases (migration 0021): a Confirmed case on each investment and a Draft
+ * re-underwriting on the walled one, each with two plan points; the valuation suggestions
+ * (migration 0023): an approved capital account statement for the next quarter on each
+ * investment, with the Open suggestion it gave, and on the open investment the report-based
+ * suggestion that one replaced. Loaded as the owner, outside RLS.
  */
 export const ids = {
   users: {
@@ -110,6 +114,14 @@ export const ids = {
   tradeTicketWalled: 'b0000000-0000-4000-8000-000000000017',
   changeRequestOpen: 'b0000000-0000-4000-8000-000000000018',
   changeRequestWalled: 'b0000000-0000-4000-8000-000000000019',
+  // Reporting packages (migration 0019): one for client Alpha that failed QA, with a failed and a
+  // passed finding, and one for client Beta with one finding. Investor relations (A) is entitled
+  // to Alpha only.
+  packageA: 'c0000000-0000-4000-8000-000000000001',
+  packageB: 'c0000000-0000-4000-8000-000000000002',
+  qaResultFailedA: 'c0000000-0000-4000-8000-000000000003',
+  qaResultPassedA: 'c0000000-0000-4000-8000-000000000004',
+  qaResultB: 'c0000000-0000-4000-8000-000000000005',
   /** A second notice on the open investment with no ticket yet, so a ticket can be drafted on it. */
   capitalNoticeOpenDistribution: 'b0000000-0000-4000-8000-00000000001a',
   // The review fixes (migration 0014): a quarter-end exception about each change request (CR-QE-01),
@@ -120,6 +132,27 @@ export const ids = {
   // its vehicle-level line, so who reads a line depends on the client it names.
   allocationOpenClientA: 'b0000000-0000-4000-8000-00000000001d',
   allocationOpenClientB: 'b0000000-0000-4000-8000-00000000001e',
+  // The underwritten base cases (migration 0021): a Confirmed case on each investment, and on the
+  // walled one a Draft re-underwriting too, so the open position has room for a new Draft (there
+  // is one Draft per position) and the Draft that is edited and confirmed sits inside the wall.
+  underwritingCaseOpen: 'd0000000-0000-4000-8000-000000000001',
+  underwritingCaseWalled: 'd0000000-0000-4000-8000-000000000002',
+  underwritingCaseWalledDraft: 'd0000000-0000-4000-8000-000000000003',
+  underwritingPointWalledDraftEntry: 'd0000000-0000-4000-8000-000000000004',
+  // The valuation suggestions (migration 0023). Each investment has a position-level capital
+  // account statement for the quarter after its last mark, with one approved run. On the open
+  // investment a suggestion from the quarterly report came first and was replaced when the
+  // statement was approved; on the walled one the statement's suggestion is the only one.
+  documentOpenStatement: 'e0000000-0000-4000-8000-000000000001',
+  documentWalledStatement: 'e0000000-0000-4000-8000-000000000002',
+  extractionRunOpenStatement: 'e0000000-0000-4000-8000-000000000003',
+  extractionRunWalledStatement: 'e0000000-0000-4000-8000-000000000004',
+  /** A second report run on the open investment, for the next quarter, approved by the deal team. */
+  documentOpenReportQ3: 'e0000000-0000-4000-8000-000000000005',
+  extractionRunOpenReportQ3: 'e0000000-0000-4000-8000-000000000006',
+  suggestionOpenReplaced: 'e0000000-0000-4000-8000-000000000007',
+  suggestionOpen: 'e0000000-0000-4000-8000-000000000008',
+  suggestionWalled: 'e0000000-0000-4000-8000-000000000009',
 } as const;
 
 /** The synthetic bank details every fixture wire instruction carries, encrypted with the prototype key. */
@@ -314,8 +347,71 @@ export async function loadFixture(handle: DbHandle): Promise<void> {
     insert into mon.deal_change_request (id, investment_id, change_type, effective_date, summary, owner_id, submitted_by, state) values
       ('${ids.changeRequestOpen}', '${ids.investment1}', 'change_type.add_on_acquisition', '2024-08-15', 'Add-on acquisition of a regional competitor closed', null, '${u.dealTeam}', 'Submitted'),
       ('${ids.changeRequestWalled}', '${ids.investmentWalled}', 'change_type.recapitalization', '2024-08-20', 'Dividend recapitalization completed', '${u.operations}', '${u.wallMember}', 'Routed');
+    insert into rpt.package (id, client_id, period_end, as_of, basis, label, state, prepared_by, content) values
+      ('${ids.packageA}', '${ids.clientA}', '2024-06-30', '2024-08-09', 'gross', 'final', 'QAFailed', '${u.investorRelationsA}', '{"lines": []}'),
+      ('${ids.packageB}', '${ids.clientB}', '2024-06-30', '2024-08-09', 'gross', 'final', 'Generated', '${u.operations}', '{"lines": []}');
+    insert into rpt.qa_result (id, package_id, run_no, rule, entity_ref, expected, actual, passed, detail) values
+      ('${ids.qaResultFailedA}', '${ids.packageA}', 1, 'QA-RF-01', 'INV-0001', '120', '121.01', false, 'Begin NAV, flows and the gain or loss do not roll forward to the end NAV.'),
+      ('${ids.qaResultPassedA}', '${ids.packageA}', 1, 'QA-RDY-01', 'INV-0001', null, '121.01', true, 'The position has an end NAV.'),
+      ('${ids.qaResultB}', '${ids.packageB}', 1, 'QA-RDY-01', 'INV-0001', null, '80.5', true, 'The position has an end NAV.');
     insert into ops.data_exception (id, source, entity, entity_id, rule_id, expected, actual, severity, state) values
       ('${ids.exceptionOpenChangeRequest}', 'change_request', 'mon.deal_change_request', '${ids.changeRequestOpen}', 'CR-QE-01', 'Applied by 2024-09-30', 'Submitted', 'exception_severity.medium', 'open'),
       ('${ids.exceptionWalledChangeRequest}', 'change_request', 'mon.deal_change_request', '${ids.changeRequestWalled}', 'CR-QE-01', 'Applied by 2024-09-30', 'Routed', 'exception_severity.medium', 'open');
+  `);
+  // The underwritten base cases (migration 0021). A case starts as a Draft, takes its plan points
+  // and is then confirmed by a second person, here as in the product. The Draft on the walled
+  // position was entered by the deal team member outside the wall (before the wall went up), so the
+  // wall member is a second person and may confirm it.
+  await handle.exec(`
+    insert into mon.underwriting_case (id, investment_id, version, form, case_date, planned_exit_date, exit_multiple, gross_moic, gross_irr, revision_reason, source_note, entered_by, entered_at) values
+      ('${ids.underwritingCaseOpen}', '${ids.investment1}', 1, 'equity', '2022-03-15', '2027-03-15', 12.5, 2.5, 0.2, null, 'Sponsor model, deal team shared drive', '${u.dealTeam}', '2022-04-01T09:00:00Z'),
+      ('${ids.underwritingCaseWalled}', '${ids.investmentWalled}', 1, 'equity', '2023-06-30', '2028-06-30', 11, 2.2, 0.17, null, 'Sponsor model, deal team shared drive', '${u.wallMember}', '2023-07-10T09:00:00Z');
+    insert into mon.underwriting_case_point (case_id, period_end, revenue_ltm, ebitda_ltm, net_debt) values
+      ('${ids.underwritingCaseOpen}', '2022-03-15', 100000000, 24000000, 95000000),
+      ('${ids.underwritingCaseOpen}', '2027-03-15', 160000000, 44000000, 60000000),
+      ('${ids.underwritingCaseWalled}', '2023-06-30', 76000000, 15000000, 62000000),
+      ('${ids.underwritingCaseWalled}', '2028-06-30', 120000000, 28000000, 40000000);
+    update mon.underwriting_case set state = 'Confirmed', confirmed_by = '${u.approver}', confirmed_at = '2022-04-04T09:00:00Z' where id = '${ids.underwritingCaseOpen}';
+    update mon.underwriting_case set state = 'Confirmed', confirmed_by = '${u.approver}', confirmed_at = '2023-07-12T09:00:00Z' where id = '${ids.underwritingCaseWalled}';
+    insert into mon.underwriting_case (id, investment_id, version, form, case_date, planned_exit_date, exit_multiple, gross_moic, gross_irr, revision_reason, source_note, entered_by, entered_at) values
+      ('${ids.underwritingCaseWalledDraft}', '${ids.investmentWalled}', 2, 'equity', '2024-06-30', '2029-06-30', 10.5, 2, 0.15, 'Re-underwritten after the first year', 'Sponsor model, deal team shared drive', '${u.dealTeam}', '2024-08-20T09:00:00Z');
+    insert into mon.underwriting_case_point (id, case_id, period_end, revenue_ltm, ebitda_ltm, net_debt) values
+      ('${ids.underwritingPointWalledDraftEntry}', '${ids.underwritingCaseWalledDraft}', '2024-06-30', 80000000, 16000000, 60000000),
+      (gen_random_uuid(), '${ids.underwritingCaseWalledDraft}', '2029-06-30', 118000000, 27000000, 42000000);
+  `);
+  // The valuation suggestions (migration 0023), written as the product writes them: a suggestion
+  // starts Open from an approved run of its own position, and the one that replaces it is written
+  // after it is superseded, in the same transaction (the reference to the replacement is checked
+  // at commit). The report run on the open investment was approved by the deal team and the
+  // statement runs by operations; the system actor superseded the first suggestion.
+  await handle.exec(`
+    insert into doc.document (id, source_system, source_item_id, file_name, folder, title, doc_type, sponsor_id, sponsor_fund_id, investment_id, period_end, content_hash, size_bytes, page_count, received_at, review_status, classification_confidence) values
+      ('${ids.documentOpenReportQ3}', 'local_folder', 'inbox/2024-09-30 Harborlight Fund IV - Quarterly financials - Saltmarsh Holdings.pdf',
+        '2024-09-30 Harborlight Fund IV - Quarterly financials - Saltmarsh Holdings.pdf', 'inbox', 'Saltmarsh Holdings quarterly report Q3 2024',
+        'doc_type.quarterly_financials', '${ids.sponsor}', '${ids.sponsorFund}', '${ids.investment1}', '2024-09-30', 'fixture-doc-hash-0005', 20480, 4, '2024-11-08T09:00:00Z', 'Classified', 0.97),
+      ('${ids.documentOpenStatement}', 'local_folder', 'inbox/2024-09-30 Harborlight Fund IV - Capital account statement - Saltmarsh Holdings.pdf',
+        '2024-09-30 Harborlight Fund IV - Capital account statement - Saltmarsh Holdings.pdf', 'inbox', 'Saltmarsh Holdings capital account statement Q3 2024',
+        'doc_type.capital_account_statement', '${ids.sponsor}', '${ids.sponsorFund}', '${ids.investment1}', '2024-09-30', 'fixture-doc-hash-0006', 8192, 1, '2024-11-12T09:00:00Z', 'Classified', 0.97),
+      ('${ids.documentWalledStatement}', 'local_folder', 'inbox/2024-09-30 Harborlight Fund IV - Capital account statement - Tidewater Diagnostics.pdf',
+        '2024-09-30 Harborlight Fund IV - Capital account statement - Tidewater Diagnostics.pdf', 'inbox', 'Tidewater Diagnostics capital account statement Q3 2024',
+        'doc_type.capital_account_statement', '${ids.sponsor}', '${ids.sponsorFund}', '${ids.investmentWalled}', '2024-09-30', 'fixture-doc-hash-0007', 8192, 1, '2024-11-12T09:05:00Z', 'Classified', 0.97);
+    insert into doc.extraction_run (id, document_id, investment_id, period_end, schema_id, prompt_id, prompt_version, model_id, state, tokens_in, tokens_out, cost_usd, started_at, finished_at, requested_by, approved_by, approved_at) values
+      ('${ids.extractionRunOpenReportQ3}', '${ids.documentOpenReportQ3}', '${ids.investment1}', '2024-09-30', 'quarterly_financials', 'quarterly_extraction', '1', 'mock', 'Succeeded', 1210, 305, 0.0082, '2024-11-09T10:00:00Z', '2024-11-09T10:00:05Z', '${u.operations}', '${u.dealTeam}', '2024-11-10T09:00:00Z'),
+      ('${ids.extractionRunOpenStatement}', '${ids.documentOpenStatement}', '${ids.investment1}', '2024-09-30', 'capital_account_statement', 'capital_account_extraction', '1', 'mock', 'Succeeded', 600, 180, 0.0045, '2024-11-13T10:00:00Z', '2024-11-13T10:00:04Z', '${u.operations}', '${u.operations2}', '2024-11-14T09:00:00Z'),
+      ('${ids.extractionRunWalledStatement}', '${ids.documentWalledStatement}', '${ids.investmentWalled}', '2024-09-30', 'capital_account_statement', 'capital_account_extraction', '1', 'mock', 'Succeeded', 610, 185, 0.0046, '2024-11-13T10:01:00Z', '2024-11-13T10:01:04Z', '${u.operations}', '${u.operations2}', '2024-11-14T09:05:00Z');
+    begin;
+    insert into mon.valuation_suggestion (id, investment_id, period_end, basis, method, suggested_value, workings, source_document_id, extraction_run_id, source_page, source_reviewer_ids, prompt_version, model_id, calc_version) values
+      ('${ids.suggestionOpenReplaced}', '${ids.investment1}', '2024-09-30', 'sponsor_equity_value', 'valuation_method.report_indication', 46666666.67,
+        '{"inputs": [{"key": "reference_mark", "value": "45000000.00", "periodEnd": "2024-06-30", "source": {"kind": "valuation", "id": "${ids.valuationLocked}", "page": null}, "edited": false}, {"key": "enterprise_value", "value": "370000000", "periodEnd": "2024-09-30", "source": {"kind": "document", "id": "${ids.documentOpenReportQ3}", "page": 2}, "edited": false}, {"key": "net_debt", "value": "90000000", "periodEnd": "2024-09-30", "source": {"kind": "document", "id": "${ids.documentOpenReportQ3}", "page": 2}, "edited": false}]}',
+        '${ids.documentOpenReportQ3}', '${ids.extractionRunOpenReportQ3}', 2, '{${u.dealTeam}}', '1', 'mock', 'fixture');
+    update mon.valuation_suggestion set state = 'Superseded', superseded_reason = 'better_source', superseded_by_id = '${ids.suggestionOpen}', decided_by = '${SYSTEM_USER_ID}', decided_at = '2024-11-14T09:00:01Z' where id = '${ids.suggestionOpenReplaced}';
+    insert into mon.valuation_suggestion (id, investment_id, period_end, basis, method, suggested_value, workings, source_document_id, extraction_run_id, source_page, source_reviewer_ids, prompt_version, model_id, calc_version) values
+      ('${ids.suggestionOpen}', '${ids.investment1}', '2024-09-30', 'capital_account_balance', 'valuation_method.sponsor_mark', 46500000,
+        '{"inputs": [{"key": "ending_capital_balance", "value": "46500000", "periodEnd": "2024-09-30", "source": {"kind": "document", "id": "${ids.documentOpenStatement}", "page": 1}, "edited": false}]}',
+        '${ids.documentOpenStatement}', '${ids.extractionRunOpenStatement}', 1, '{${u.operations2}}', '1', 'mock', 'fixture'),
+      ('${ids.suggestionWalled}', '${ids.investmentWalled}', '2024-09-30', 'capital_account_balance', 'valuation_method.sponsor_mark', 31200000,
+        '{"inputs": [{"key": "ending_capital_balance", "value": "31200000", "periodEnd": "2024-09-30", "source": {"kind": "document", "id": "${ids.documentWalledStatement}", "page": 1}, "edited": false}]}',
+        '${ids.documentWalledStatement}', '${ids.extractionRunWalledStatement}', 1, '{${u.operations2}}', '1', 'mock', 'fixture');
+    commit;
   `);
 }

@@ -6,7 +6,10 @@ import {
   compareIso,
   containingQuarterEnd,
   daysBetween,
+  latestQuarterEndOnOrBefore,
+  summarizeFlows,
 } from '@pb/calc';
+import type { Decimal, TypedCashFlow } from '@pb/calc';
 import type { SyntheticDataset } from '@pb/db';
 import { measureText, writePdf } from '@pb/pdf';
 import type { PageInput, PageItem, StandardFont, WritePdfInput } from '@pb/pdf';
@@ -24,9 +27,11 @@ import { Rng } from './prng.js';
  * Every document is written with the deterministic writer of packages/pdf from the dataset's own
  * figures: a quarterly report per equity or CV investment per kept approved quarter (the entry
  * snapshot quarter and the latest `quartersPerInvestment` quarters, so the small profile stays
- * near 80 documents), a capital call or distribution notice for every such notice issued in the
- * trailing `noticeMonths`, and a capital account statement for every sponsor fund a firm vehicle
- * has a commitment to, for the dataset's as-of quarter. Figures the dataset does not hold
+ * near 90 documents), a capital call or distribution notice for every such notice issued in the
+ * trailing `noticeMonths`, a capital account statement for every sponsor fund a firm vehicle
+ * has a commitment to, for the dataset's as-of quarter, and a position-level capital account
+ * statement for a handful of equity positions, for that quarter and the one before (decision
+ * 0023). Figures the dataset does not hold
  * (sponsor ownership, LTM capex, headcount) are drawn once per investment from a sub-seeded
  * stream, so the set is a pure function of the dataset: same seed, same bytes.
  *
@@ -84,14 +89,34 @@ export const QUARTERLY_FIELDS = [
 export type QuarterlyField = (typeof QUARTERLY_FIELDS)[number];
 /** The fields a notice's truth records (no extraction schema reads them yet). */
 export const NOTICE_FIELDS = ['notice_date', 'due_date', 'amount'] as const;
-/** The fields a capital account statement's truth records. */
+/**
+ * The fields a capital account statement's truth records: the keys of the
+ * capital_account_statement schema (config/extraction_schema.json), in its order. The first five
+ * are the commitment lines a fund-level statement states; the next five are the balance lines of
+ * our account, and the last is our share of the vehicle when those lines are the whole vehicle's.
+ */
 export const STATEMENT_FIELDS = [
   'period_end',
   'total_commitment',
   'contributions_to_date',
   'distributions_to_date',
   'unfunded_commitment',
+  'beginning_capital_balance',
+  'contributions_in_period',
+  'distributions_in_period',
+  'net_gain_loss',
+  'ending_capital_balance',
+  'investor_share_pct',
 ] as const;
+export type StatementField = (typeof STATEMENT_FIELDS)[number];
+/** The five balance lines of an account, in the order a statement prints them. */
+export const STATEMENT_BALANCE_FIELDS = [
+  'beginning_capital_balance',
+  'contributions_in_period',
+  'distributions_in_period',
+  'net_gain_loss',
+  'ending_capital_balance',
+] as const satisfies readonly StatementField[];
 
 export type TruthUnit = 'USD' | 'USD_K' | 'USD_M' | 'USD_B' | 'PCT' | 'COUNT' | 'DATE';
 
@@ -156,8 +181,29 @@ export interface DocumentSetExpectations {
   scenarioFiles: Record<DocumentScenario, string[]>;
   /** Every document attached to the walled investment (walled_deal): hidden from non-members. */
   walledFiles: string[];
+  /**
+   * The position-level capital account statements, by investment number then period end: our
+   * capital account for one co-investment or continuation vehicle position. Every other
+   * statement of the set is fund-level.
+   */
+  positionStatements: PositionStatementExpectation[];
   total: number;
   lateFinancials: LateFinancials | null;
+}
+
+/** A position-level statement of the set and what it carries, in dollars as the page prints them. */
+export interface PositionStatementExpectation {
+  fileName: string;
+  investmentId: string;
+  investmentNumber: string;
+  companyName: string;
+  periodEnd: string;
+  /** The ending capital balance printed, in dollars; null when the page shows n/a. */
+  endingBalance: string | null;
+  /** The beginning capital balance printed, in dollars; null when the page shows n/a. */
+  beginningBalance: string | null;
+  /** True when a Locked mark for the period end gave the ending balance; false when the generator's marking rule did. */
+  fromLockedMark: boolean;
 }
 
 export interface DocumentSet {
@@ -276,7 +322,12 @@ export function sanitizeFileName(name: string): string {
       return code >= 0x20 && code !== 0x7f;
     })
     .join('');
-  return printable.replace(/\s+/g, ' ').trim().replace(/\.+$/, '');
+  const spaced = printable.replace(/\s+/g, ' ').trim();
+  // Trailing dots are cut by hand, not with /\.+$/, which is quadratic on a long run of dots
+  // that does not end the name.
+  let end = spaced.length;
+  while (end > 0 && spaced.charCodeAt(end - 1) === 46) end -= 1;
+  return spaced.slice(0, end);
 }
 
 /**
@@ -485,6 +536,8 @@ const field = (value: string | null, unit: TruthUnit, page: number, quote: strin
     : { value, unit, page, quote };
 
 const MISSING = 'n/a';
+/** A field the document does not state. */
+const ABSENT: TruthField = { value: null, unit: null, page: null, quote: null };
 
 /** The approved row one year before a period end, within the configured tolerance in days. */
 function priorYearRow(rows: readonly Quarter[], periodEnd: string): Quarter | null {
@@ -962,6 +1015,9 @@ function buildStatement(ctx: Context, fund: Fund): BuiltDocument | null {
   ];
   for (const [key, label, value] of totals)
     fields[key] = field(value, 'USD_M', 1, page.row(label, value));
+  // A fund-level statement lists several accounts and states no balance of ours: the five
+  // balance lines and our share are absent, as the extraction task answers them (null).
+  for (const key of STATEMENT_FIELDS) fields[key] ??= ABSENT;
   page.rule();
   page.gap(6);
   page.paragraph(
@@ -1000,6 +1056,334 @@ function buildStatement(ctx: Context, fund: Fund): BuiltDocument | null {
     },
   };
 }
+
+// ---- Position-level capital account statements (decision 0023) -------------------------------
+
+/** What a statement's money lines are stated in; the truth's unit, or none for another currency. */
+export const STATEMENT_DENOMINATIONS = {
+  'US$ millions': 'USD_M',
+  'US$ thousands': 'USD_K',
+  'US dollars': 'USD',
+  // Not US dollars: the extraction task answers null for every money line and nothing converts.
+  'EUR millions': null,
+} as const satisfies Record<string, TruthUnit | null>;
+export type StatementDenomination = keyof typeof STATEMENT_DENOMINATIONS;
+
+/**
+ * The lines of an account as the page prints them: decimal text in the statement's denomination,
+ * or null for a line the page shows as n/a.
+ */
+export interface StatementLines {
+  contributionsToDate: string | null;
+  distributionsToDate: string | null;
+  beginningBalance: string | null;
+  contributionsInPeriod: string | null;
+  distributionsInPeriod: string | null;
+  netGainLoss: string | null;
+  endingBalance: string | null;
+}
+
+/** A position-level capital account statement to write: who it is from, what it names and its lines. */
+export interface PositionStatementInput {
+  periodEnd: string;
+  fund: { id: string; sponsorId: string; name: string };
+  /** Our vehicle, named in "Prepared for" and in the account block's heading. */
+  vehicleName: string;
+  /** The position the statement is for, as the truth records it; null when it is for none. */
+  investment: { id: string; investmentNumber: string; companyName: string } | null;
+  /** The company in the file name; null leaves it out. The investment's own when not given. */
+  fileCompany?: string | null;
+  /** Our reference printed on page one; null prints none. The investment's own when not given. */
+  reference?: string | null;
+  lines: StatementLines;
+  /** Commitment lines, printed above the account's when given (a fund-style statement). */
+  commitment?: { total: string; unfunded: string };
+  /** What the money lines are stated in. US$ millions when not given. */
+  denomination?: StatementDenomination;
+  /**
+   * Set when the lines are the whole vehicle's and not our own account: `share` is our share of
+   * it as a fraction (0.2500), printed as a percentage, or null when the statement gives none.
+   * With no share the balance lines are nobody's to read as ours, and their truths are null.
+   */
+  wholeVehicle?: { share: string | null };
+}
+
+const BALANCE_ROWS: readonly [StatementField, keyof StatementLines, string][] = [
+  ['beginning_capital_balance', 'beginningBalance', 'Beginning capital balance'],
+  ['contributions_in_period', 'contributionsInPeriod', 'Contributions in the period'],
+  ['distributions_in_period', 'distributionsInPeriod', 'Distributions in the period'],
+  ['net_gain_loss', 'netGainLoss', 'Net gain or loss'],
+  ['ending_capital_balance', 'endingBalance', 'Ending capital balance'],
+];
+
+/**
+ * One page: the fund's letterhead, the title, who it was prepared for with our reference, the
+ * period end, then one account block (our own account, or the whole vehicle with our share of
+ * it): contributions and distributions to date and the five balance lines. The truth records
+ * what the extraction task answers: every line as printed with the statement's unit; the five
+ * balance lines null when they are the whole vehicle's and no share is given; every money line
+ * null when the statement is not in US dollars.
+ */
+function buildPositionStatement(input: PositionStatementInput): BuiltDocument {
+  const { periodEnd, fund, investment, lines } = input;
+  const denomination = input.denomination ?? 'US$ millions';
+  const unit = STATEMENT_DENOMINATIONS[denomination];
+  const reference =
+    input.reference === undefined ? (investment?.investmentNumber ?? null) : input.reference;
+  const when = dateInWords(periodEnd);
+  const page = new PageBuilder();
+  letterhead(page, fund.name);
+  page.line('Capital Account Statement', { size: 20, font: 'Helvetica-Bold' });
+  page.line(`for the quarter ended ${when}`, { size: 11 });
+  page.gap(8);
+  page.line(
+    reference === null
+      ? `Prepared for ${input.vehicleName}`
+      : `Prepared for ${input.vehicleName}, reference ${reference}`,
+    { size: 10 },
+  );
+  page.gap(6);
+  const fields: Record<string, TruthField> = {};
+  fields.period_end = field(periodEnd, 'DATE', 1, page.row('Period end', periodEnd));
+  page.gap(6);
+  /** A money line: printed as given, read with the statement's unit, or absent. */
+  const money = (label: string, value: string | null, readable = true): TruthField => {
+    const quote = page.row(label, value ?? MISSING);
+    return unit === null || !readable ? ABSENT : field(value, unit, 1, quote);
+  };
+  const whole = input.wholeVehicle;
+  page.row(whole === undefined ? `Account ${input.vehicleName}` : 'Vehicle total', denomination, {
+    font: 'Helvetica-Bold',
+  });
+  page.rule();
+  if (input.commitment !== undefined) {
+    fields.total_commitment = money('Commitment', input.commitment.total);
+    fields.unfunded_commitment = money('Unfunded commitment', input.commitment.unfunded);
+  }
+  fields.contributions_to_date = money('Contributions to date', lines.contributionsToDate);
+  fields.distributions_to_date = money('Distributions to date', lines.distributionsToDate);
+  page.gap(6);
+  // A whole-vehicle balance is ours only through our share of it.
+  const share = whole?.share ?? null;
+  const balanceReadable = whole === undefined || share !== null;
+  for (const [key, line, label] of BALANCE_ROWS)
+    fields[key] = money(label, lines[line], balanceReadable);
+  if (share !== null)
+    fields.investor_share_pct = field(
+      share,
+      'PCT',
+      1,
+      page.row('Our share of the vehicle', percentText(share)),
+    );
+  page.rule();
+  page.gap(6);
+  page.paragraph(
+    `Contributions and distributions are the amounts settled on or before the period end. Figures are unaudited and stated in ${denomination}.`,
+    { size: 9 },
+  );
+  const ordered: Record<string, TruthField> = {};
+  for (const key of STATEMENT_FIELDS) ordered[key] = fields[key] ?? ABSENT;
+  const docType = SYNTHETIC_DOC_TYPES.capitalAccountStatement;
+  const subject = investment?.companyName ?? input.fileCompany ?? fund.name;
+  return {
+    input: {
+      title: `Capital Account Statement: ${subject}, ${fund.name}, quarter ended ${when}`,
+      author: fund.name,
+      subject: DOC_TYPE_LABELS[docType],
+      keywords: 'synthetic, prototype, capital account statement',
+      creator: PDF_CREATOR,
+      producer: PDF_PRODUCER,
+      creationDate: pdfDate(addDays(periodEnd, 30)),
+      pages: [page.finish(1, 1)],
+    },
+    truth: {
+      docType,
+      sponsorId: fund.sponsorId,
+      sponsorFundId: fund.id,
+      sponsorFundName: fund.name,
+      investmentId: investment?.id ?? null,
+      investmentNumber: investment?.investmentNumber ?? null,
+      companyName: investment?.companyName ?? null,
+      periodEnd,
+      currency: 'USD',
+      unit: 'USD_M',
+      pageCount: 1,
+      fields: ordered,
+      highlights: [],
+      commentary: null,
+      scenarios: [],
+      expectedClassification: { docType, confidenceAtLeast: TITLED_CONFIDENCE },
+    },
+  };
+}
+
+/** The store name of a position-level statement: the fund's statement name with the company the position is in. */
+export function positionStatementFileName(
+  input: Pick<PositionStatementInput, 'periodEnd' | 'fund' | 'investment' | 'fileCompany'>,
+): string {
+  const company =
+    input.fileCompany === undefined ? (input.investment?.companyName ?? null) : input.fileCompany;
+  return documentFileName(
+    input.periodEnd,
+    input.fund.name,
+    SYNTHETIC_DOC_TYPES.capitalAccountStatement,
+    company,
+  );
+}
+
+/**
+ * A position-level capital account statement with its truth, from lines passed in: the builder
+ * the document set uses for its own statements (`generateDocuments`), offered to tests so a
+ * statement the seed does not hold (lines that do not tie, a whole vehicle, another currency, a
+ * name and a reference that disagree) is written the same way and read back the same way.
+ */
+export function positionStatementDocument(input: PositionStatementInput): SyntheticDocument {
+  const built = buildPositionStatement(input);
+  const bytes = writePdf(built.input);
+  const fileName = positionStatementFileName(input);
+  return {
+    fileName,
+    folder: 'inbox',
+    bytes,
+    truth: { fileName, fileNames: [fileName], contentHash: sha256Hex(bytes), ...built.truth },
+  };
+}
+
+const flowKind = (flowType: string): TypedCashFlow['kind'] =>
+  flowType.replace('flow_type.', '') as TypedCashFlow['kind'];
+
+/** The approved cash flows of a position dated after `after` (when given) and on or before `until`. */
+function positionFlows(
+  ctx: Context,
+  inv: Investment,
+  after: string | null,
+  until: string,
+): TypedCashFlow[] {
+  return ctx.dataset.cashFlows
+    .filter(
+      (flow) =>
+        flow.investmentId === inv.id &&
+        flow.status === 'record_status.approved' &&
+        compareIso(flow.flowDate, until) <= 0 &&
+        (after === null || compareIso(flow.flowDate, after) > 0),
+    )
+    .map((flow) => ({ date: flow.flowDate, kind: flowKind(flow.flowType), amount: flow.amount }));
+}
+
+/**
+ * The sponsor's stated value of our interest at a quarter end, from the dataset's rows only: the
+ * Locked mark for that period end; with none, the rule the dataset marks positions by (our cost
+ * over the company's equity at entry, times the larger of the quarter's enterprise value less
+ * net debt and a tenth of cost); null when the rows for that are missing, never another quarter's.
+ */
+function accountBalance(
+  ctx: Context,
+  inv: Investment,
+  periodEnd: string,
+): { value: Decimal; fromLockedMark: boolean } | null {
+  let locked: SyntheticDataset['valuations'][number] | null = null;
+  for (const v of ctx.dataset.valuations) {
+    if (v.investmentId !== inv.id || v.state !== 'Locked' || v.periodEnd !== periodEnd) continue;
+    if (locked === null || v.version > locked.version) locked = v;
+  }
+  if (locked !== null) return { value: D(locked.fairValue), fromLockedMark: true };
+  const rows = ctx.rowsOf.get(inv.id) ?? [];
+  const quarter = rows.find((r) => !r.isEntrySnapshot && r.periodEnd === periodEnd);
+  const entry = ctx.dataset.cashFlows
+    .filter((f) => f.investmentId === inv.id && f.flowType === 'flow_type.contribution')
+    .sort((a, b) => compareIso(a.flowDate, b.flowDate) || a.id.localeCompare(b.id))[0];
+  const entryTotalEquity = rows.find((r) => r.isEntrySnapshot)?.totalEquity ?? null;
+  const ev = quarter?.ev ?? null;
+  const netDebt = quarter?.netDebt ?? null;
+  if (entry === undefined || entryTotalEquity === null || ev === null || netDebt === null)
+    return null;
+  const cost = D(entry.amount).abs();
+  const entryEquity = D(entryTotalEquity);
+  if (!entryEquity.gt(0)) return null;
+  const floor = cost.times('0.1');
+  const equity = D(ev).minus(netDebt);
+  return {
+    value: cost.div(entryEquity).times(equity.gt(floor) ? equity : floor),
+    fromLockedMark: false,
+  };
+}
+
+/**
+ * Our capital account for one position at a quarter end, from the dataset's rows only: the
+ * ending balance and the beginning balance (the quarter before, by the same rule) from
+ * `accountBalance`, the flows from the approved cash flows (`summarizeFlows`), and the net gain
+ * or loss worked out from the printed lines (ending less beginning less contributions plus
+ * distributions), so the statement always ties. A balance the rows cannot give prints n/a, and
+ * so does the gain that would need it.
+ */
+function positionStatement(
+  ctx: Context,
+  inv: Investment,
+  periodEnd: string,
+): {
+  built: PositionStatementInput;
+  expectation: Omit<PositionStatementExpectation, 'fileName'>;
+} | null {
+  const fund = ctx.fundById.get(inv.sponsorFundId ?? '');
+  const companyName = ctx.companyName.get(inv.portfolioCompanyId);
+  if (fund === undefined || companyName === undefined) return null;
+  const prior = containingQuarterEnd(addMonths(periodEnd, -3));
+  const ending = accountBalance(ctx, inv, periodEnd);
+  const beginning = accountBalance(ctx, inv, prior);
+  const toDate = summarizeFlows(positionFlows(ctx, inv, null, periodEnd));
+  const inPeriod = summarizeFlows(positionFlows(ctx, inv, prior, periodEnd));
+  const printed = (value: Decimal | null): string | null =>
+    value === null ? null : millions(value.toFixed(2));
+  const lines: StatementLines = {
+    contributionsToDate: printed(toDate.contributions),
+    distributionsToDate: printed(toDate.distributions),
+    beginningBalance: printed(beginning?.value ?? null),
+    contributionsInPeriod: printed(inPeriod.contributions),
+    distributionsInPeriod: printed(inPeriod.distributions),
+    netGainLoss: null,
+    endingBalance: printed(ending?.value ?? null),
+  };
+  if (
+    lines.endingBalance !== null &&
+    lines.beginningBalance !== null &&
+    lines.contributionsInPeriod !== null &&
+    lines.distributionsInPeriod !== null
+  )
+    lines.netGainLoss = D(lines.endingBalance)
+      .minus(lines.beginningBalance)
+      .minus(lines.contributionsInPeriod)
+      .plus(lines.distributionsInPeriod)
+      .toFixed(2);
+  const dollars = (text: string | null): string | null =>
+    text === null ? null : D(text).times(1_000_000).toFixed(2);
+  return {
+    built: {
+      periodEnd,
+      fund,
+      vehicleName: ctx.vehicleName.get(inv.vehicleId) ?? inv.vehicleId,
+      investment: { id: inv.id, investmentNumber: inv.investmentNumber, companyName },
+      lines,
+    },
+    expectation: {
+      investmentId: inv.id,
+      investmentNumber: inv.investmentNumber,
+      companyName,
+      periodEnd,
+      endingBalance: dollars(lines.endingBalance),
+      beginningBalance: dollars(lines.beginningBalance),
+      fromLockedMark: ending?.fromLockedMark ?? false,
+    },
+  };
+}
+
+/** The deal types whose positions get a statement of their own: equity co-investments and continuation vehicles. */
+const POSITION_STATEMENT_DEAL_TYPES: readonly string[] = [
+  'deal_type.co_invest_equity',
+  'deal_type.cv_single_asset',
+  'deal_type.cv_multi_asset',
+];
+/** How many positions with no scenario get statements, beyond the three scenario positions. */
+export const PLAIN_POSITION_STATEMENTS = 3;
 
 // ---- The set --------------------------------------------------------------------------------
 const reportsQuarterly = (inv: Investment): boolean => inv.dealType !== 'deal_type.private_credit';
@@ -1250,6 +1634,48 @@ export function generateDocuments(
     );
   }
 
+  // Position-level capital account statements (decision 0023): our capital account for the
+  // stale_valuation, roll_forward_break and walled positions, then for up to
+  // PLAIN_POSITION_STATEMENTS active equity or continuation vehicle positions that carry no data
+  // scenario and that no document scenario took, by number (fewer when fewer remain); each for
+  // the as-of quarter end and the quarter before it. Documents only: nothing is drawn from a
+  // random stream, so no other document and no row of the dataset moves.
+  const statementQuarter = latestQuarterEndOnOrBefore(dataset.asOf);
+  const statementQuarters = [
+    containingQuarterEnd(addMonths(statementQuarter, -3)),
+    statementQuarter,
+  ];
+  const holdsStatement = (inv: Investment): boolean =>
+    POSITION_STATEMENT_DEAL_TYPES.includes(inv.dealType);
+  const scenarioPositions = ['stale_valuation', 'roll_forward_break', 'walled_deal']
+    .map((scenario) => equity.find((inv) => inv.id === dataset.scenarios[scenario]?.[0]))
+    .filter((inv): inv is Investment => inv !== undefined && holdsStatement(inv));
+  const plainPositions = equity
+    .filter(
+      (inv) =>
+        inv.isActive &&
+        holdsStatement(inv) &&
+        inv.scenarioTags.length === 0 &&
+        !used.has(inv.id) &&
+        !scenarioPositions.includes(inv),
+    )
+    .slice(0, PLAIN_POSITION_STATEMENTS);
+  const positionStatements: PositionStatementExpectation[] = [];
+  const statementPositions = [...new Set([...scenarioPositions, ...plainPositions])].sort((a, b) =>
+    a.investmentNumber.localeCompare(b.investmentNumber),
+  );
+  for (const inv of statementPositions) {
+    for (const periodEnd of statementQuarters) {
+      // No account before the position was entered.
+      if (compareIso(inv.entryDate, periodEnd) > 0) continue;
+      const statement = positionStatement(ctx, inv, periodEnd);
+      if (statement === null) continue;
+      const fileName = uniqueName(positionStatementFileName(statement.built));
+      emit(buildPositionStatement(statement.built), fileName);
+      positionStatements.push({ fileName, ...statement.expectation });
+    }
+  }
+
   // The untagged scan: the chosen investment's latest report again, without letterhead, title or
   // metadata, under a name that says nothing.
   const untaggedRow = untaggedInv === null ? null : latestOf(untaggedInv);
@@ -1270,6 +1696,7 @@ export function generateDocuments(
       walledFiles: documents
         .filter((d) => d.truth.investmentId === walled?.id)
         .map((d) => d.fileName),
+      positionStatements,
       total: documents.length,
       lateFinancials,
     },

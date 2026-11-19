@@ -99,6 +99,21 @@ export const notSameAs =
   (ctx: TransitionContext): string | null =>
     ctx.record[key] !== ctx.actorId ? null : message;
 
+/**
+ * The actor is not one of the people the record lists under a key. A record that names no list,
+ * or an empty one, bars nobody, as notSameAs passes a record that names no person. A value that
+ * is there and is not a list is refused: a control that cannot read its list never passes by
+ * default.
+ */
+export const notAmong =
+  (key: string, message: string) =>
+  (ctx: TransitionContext): string | null => {
+    const listed = ctx.record[key];
+    if (listed === undefined || listed === null) return null;
+    if (!Array.isArray(listed)) return `the record's ${key} must be a list of people`;
+    return listed.includes(ctx.actorId) ? message : null;
+  };
+
 /** One precondition check: a failure message, or null when it passes. */
 export type Check = (ctx: TransitionContext) => string | null;
 

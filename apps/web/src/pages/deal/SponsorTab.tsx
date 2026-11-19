@@ -154,41 +154,53 @@ function OtherPositionsCard({
           detail="This is the only position with this sponsor that you can see."
         />
       ) : (
-        <ul className="pb-linklist pb-deal-stacked" aria-label="Other positions with this sponsor">
-          {others.map((p) => (
-            <li key={p.id}>
-              <span className="pb-deal-period">
-                <Link to="/portfolio/$id" params={{ id: p.id }}>
-                  {p.companyName}
-                </Link>
-                {p.isActive ? null : <Badge tone="neutral">Realized</Badge>}
-              </span>
-              <span className="pb-meta">
-                {p.vehicleName}, {labelOf(p.dealType)}
-              </span>
-            </li>
-          ))}
-        </ul>
+        <TableWrap label="Other positions with this sponsor">
+          <table className="pb-table" aria-label="Other positions with this sponsor">
+            <thead>
+              <tr>
+                <th>Company</th>
+                <th>Vehicle</th>
+                <th>Deal type</th>
+              </tr>
+            </thead>
+            <tbody>
+              {others.map((p) => (
+                <tr key={p.id}>
+                  <td>
+                    <span className="pb-deal-period">
+                      <Link to="/portfolio/$id" params={{ id: p.id }}>
+                        {p.companyName}
+                      </Link>
+                      {p.isActive ? null : <Badge tone="neutral">Realized</Badge>}
+                    </span>
+                  </td>
+                  <td>{p.vehicleName}</td>
+                  <td>{labelOf(p.dealType)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </TableWrap>
       )}
+      <ContactsNote />
     </Card>
   );
 }
 
-function ContactsCard(): ReactNode {
+/** Contacts and interactions are not built: one muted line says so where they will show. */
+function ContactsNote(): ReactNode {
   return (
-    <Card testId="deal-contacts">
-      <SectionHeader>Contacts and interactions</SectionHeader>
-      <EmptyState
-        title="Contacts and interactions arrive with M6 in Phase 5"
-        detail="Relationship score, warm paths and coverage for this sponsor will show here."
-      />
-    </Card>
+    <p className="pb-meta pb-deal-note" data-testid="deal-contacts">
+      Contacts and interactions are not built yet. Relationship score, warm paths and coverage for
+      this sponsor will show here.
+    </p>
   );
 }
 
 /**
  * Sponsor and contacts tab (docs/04 M6, Sponsor 360 in brief): who the sponsor is, how our
- * positions with them have done, their funds, and the other positions we hold with them.
+ * positions with them have done, their funds, and the other positions we hold with them, with a
+ * line on the contacts that are not built yet.
  */
 export function SponsorTab(): ReactNode {
   const detail = useDealDetail();
@@ -206,7 +218,7 @@ export function SponsorTab(): ReactNode {
           errorTitle="The sponsor could not load"
           testId="deal-sponsor-unavailable"
         />
-        <ContactsCard />
+        <ContactsNote />
       </>
     );
   }
@@ -216,10 +228,7 @@ export function SponsorTab(): ReactNode {
       <SponsorCard sponsor={s} />
       <MetricsCard sponsor={s} />
       <FundsCard sponsor={s} detail={d} />
-      <div className="pb-two-col">
-        <OtherPositionsCard sponsor={s} detail={d} />
-        <ContactsCard />
-      </div>
+      <OtherPositionsCard sponsor={s} detail={d} />
     </>
   );
 }

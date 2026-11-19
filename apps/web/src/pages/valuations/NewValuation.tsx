@@ -17,6 +17,7 @@ import type { InvestmentSummary } from '@pb/contracts';
 import type { ValuationCreateBody } from '../../app/mutations.js';
 import { formatDate, formatMoneyM, labelOf } from '../../lib/format.js';
 import { fairValueProblem } from './board.js';
+import { dialogSurfaceMotion, useReducedMotion } from '../../components/motion.js';
 
 const positionLabel = (p: InvestmentSummary): string => `${p.investmentNumber} ${p.companyName}`;
 
@@ -57,14 +58,16 @@ export function NewValuationDialog({
   const valueOk = valueProblem === null;
   const ready = position !== undefined && method !== '' && valueOk;
   const showValueError = touched && valueText !== '' && !valueOk;
+  const motion = dialogSurfaceMotion(useReducedMotion());
   return (
     <Dialog
+      surfaceMotion={motion}
       open
       onOpenChange={(_e, d) => {
         if (!d.open) onCancel();
       }}
     >
-      <DialogSurface>
+      <DialogSurface className="pb-dialog" backdrop={{ className: 'pb-dialog-backdrop' }}>
         <form
           onSubmit={(e) => {
             e.preventDefault();

@@ -1,5 +1,5 @@
 import type { Machine, TransitionContext } from './machine.js';
-import { all, flag, notSameAs, requireReason } from './machine.js';
+import { all, flag, notAmong, notSameAs, requireReason } from './machine.js';
 
 // ---- 1. Valuation (docs/18 section 1) --------------------------------------------------------
 export type ValuationState = 'Draft' | 'OpsPrepared' | 'DealTeamApproved' | 'Locked' | 'Reopened';
@@ -9,6 +9,30 @@ const notPreparer = notSameAs(
   'preparedBy',
   'the preparer cannot approve their own valuation (SEC-5.6)',
 );
+
+/**
+ * A version that carries a suggested mark (section 14) names its source reviewers: whoever
+ * approved a run behind a suggestion accepted onto it, and whoever typed one of its figures. None
+ * of them takes either approval of the valuation, so the figures and the mark are never judged by
+ * the same person. The record key sourceReviewers is the union over every Accepted suggestion
+ * whose valuation is a version of the same investment and quarter (a reopen copies the mark to
+ * the next version, and the rule follows the mark); a version with none bars nobody.
+ */
+const notSourceReviewer = notAmong(
+  'sourceReviewers',
+  'whoever approved or typed a figure behind the suggestion on this valuation cannot approve the valuation (SEC-5.6)',
+);
+
+/**
+ * The states in which a version is still on its way to Locked: someone still has to prepare,
+ * approve or lock it. One chain per investment and quarter is in flight at a time. Named once,
+ * for the API, the pages and the static preview.
+ */
+export const VALUATION_IN_FLIGHT_STATES: readonly ValuationState[] = [
+  'Draft',
+  'OpsPrepared',
+  'DealTeamApproved',
+];
 
 export const valuationMachine: Machine<ValuationState, ValuationCommand> = {
   name: 'valuation',
@@ -39,14 +63,14 @@ export const valuationMachine: Machine<ValuationState, ValuationCommand> = {
       to: 'DealTeamApproved',
       command: 'dealTeamApprove',
       roles: ['deal_team'],
-      precondition: notPreparer,
+      precondition: all(notPreparer, notSourceReviewer),
     },
     {
       from: 'DealTeamApproved',
       to: 'Locked',
       command: 'lock',
       roles: ['approver'],
-      precondition: all(notPreparer, (ctx) =>
+      precondition: all(notPreparer, notSourceReviewer, (ctx) =>
         typeof ctx.record.lockHash === 'string' && ctx.record.lockHash.length > 0
           ? null
           : 'lock hash must be computed over inputs and value',
@@ -666,6 +690,175 @@ export const closingMachine: Machine<ClosingState, ClosingCommand> = {
   ],
 };
 
+// ---- 13. Underwritten base case (docs/18 section 13, decision 0022) --------------------------
+export type UnderwritingCaseState = 'Draft' | 'Confirmed' | 'Superseded' | 'Withdrawn';
+export type UnderwritingCaseCommand = 'confirm' | 'withdraw' | 'supersede' | 'retire';
+
+/**
+ * mon.underwriting_case.state. The deal team records the sponsor's base case of a position as a
+ * Draft (one per position) and may edit or withdraw it. A second person confirms it: someone on
+ * the deal team or an approver, never the person who last changed the figures (record key
+ * enteredBy, which every edit resets), and only once the case names its source (hasSource). Only
+ * a Confirmed case is compared with the actuals, and it never changes: a later version dated as
+ * it is corrects it, and the confirmation of that version supersedes it as a system step in the
+ * same transaction (correctedBySameDate), never as a caller's command; a version with a later
+ * date is a re-underwriting and both stay Confirmed. An approver retires a case confirmed in
+ * error. Superseded and Withdrawn are terminal: a revision is always a new version.
+ */
+export const underwritingCaseMachine: Machine<UnderwritingCaseState, UnderwritingCaseCommand> = {
+  name: 'underwriting_case',
+  states: ['Draft', 'Confirmed', 'Superseded', 'Withdrawn'],
+  commands: ['confirm', 'withdraw', 'supersede', 'retire'],
+  initial: 'Draft',
+  terminal: ['Superseded', 'Withdrawn'],
+  transitions: [
+    {
+      from: 'Draft',
+      to: 'Confirmed',
+      command: 'confirm',
+      roles: ['deal_team', 'approver'],
+      precondition: all(
+        notSameAs(
+          'enteredBy',
+          'the person who last changed the figures cannot confirm them (SEC-5.6)',
+        ),
+        flag(
+          'hasSource',
+          true,
+          'a base case names its source before it is confirmed: a document of the position or a note on where the model is held (SEC-9.4)',
+        ),
+      ),
+      note: 'Only a confirmed base case is compared with the actuals.',
+    },
+    {
+      from: 'Draft',
+      to: 'Withdrawn',
+      command: 'withdraw',
+      roles: ['deal_team'],
+      precondition: requireReason,
+    },
+    {
+      from: 'Confirmed',
+      to: 'Superseded',
+      command: 'supersede',
+      roles: ['service'],
+      precondition: flag(
+        'correctedBySameDate',
+        true,
+        'only the confirmation of a later version with the same case date supersedes a base case',
+      ),
+      note: 'A step of that confirmation, in the same transaction; nobody sends it.',
+    },
+    {
+      from: 'Confirmed',
+      to: 'Withdrawn',
+      command: 'retire',
+      roles: ['approver'],
+      precondition: requireReason,
+      note: 'For a base case confirmed in error; a revision is a new version instead.',
+    },
+  ],
+};
+
+// ---- 14. Valuation suggestion (docs/18 section 14, decision 0023) ----------------------------
+export type ValuationSuggestionState = 'Open' | 'Accepted' | 'Dismissed' | 'Superseded';
+export type ValuationSuggestionCommand = 'accept' | 'applyToDraft' | 'dismiss' | 'supersede';
+
+/**
+ * Why an Open suggestion is superseded. The first two leave a replacement behind (a source earlier
+ * in the order of sources arrived, or the figures behind the suggestion changed); the last two
+ * leave none (a mark for the quarter or a later one is Locked, or the position is no longer one a
+ * suggestion applies to).
+ */
+export const SUPERSEDED_REASONS = [
+  'better_source',
+  'figures_changed',
+  'mark_locked',
+  'position_closed',
+] as const;
+export type SupersededReason = (typeof SUPERSEDED_REASONS)[number];
+
+const hasSuggestedValue = flag(
+  'hasValue',
+  true,
+  'the suggestion has no value, so there is nothing to put on a valuation',
+);
+
+const supersededForAReason = (ctx: TransitionContext): string | null =>
+  (SUPERSEDED_REASONS as readonly unknown[]).includes(ctx.record.supersededReason)
+    ? null
+    : 'a superseded suggestion names why: a better source, changed figures, a Locked mark or a closed position';
+
+/**
+ * mon.valuation_suggestion.state. The system actor opens a suggestion when a statement or a
+ * sponsor report is approved for a position and quarter (one Open at most), and supersedes it
+ * when a better source arrives, its figures change, a mark is Locked or the position stops being
+ * one a suggestion applies to. Operations decide an Open one: accept opens a draft valuation at
+ * the suggested value (record key versionInProgress: a Draft, OpsPrepared or DealTeamApproved
+ * version already reports for the quarter), applyToDraft puts the value and its method on the
+ * Draft already open for the quarter (draftOpen), and dismiss sets it aside with a reason. A
+ * suggestion with no value (hasValue false: "not calculable" is data, never a state) can only be
+ * dismissed or superseded. Accepting writes no mark: the Draft goes through the valuation
+ * workflow of section 1 like any other. Accepted, Dismissed and Superseded are terminal.
+ */
+export const valuationSuggestionMachine: Machine<
+  ValuationSuggestionState,
+  ValuationSuggestionCommand
+> = {
+  name: 'valuation_suggestion',
+  states: ['Open', 'Accepted', 'Dismissed', 'Superseded'],
+  commands: ['accept', 'applyToDraft', 'dismiss', 'supersede'],
+  initial: 'Open',
+  terminal: ['Accepted', 'Dismissed', 'Superseded'],
+  transitions: [
+    {
+      from: 'Open',
+      to: 'Accepted',
+      command: 'accept',
+      roles: ['operations'],
+      precondition: all(
+        hasSuggestedValue,
+        flag(
+          'versionInProgress',
+          false,
+          'a version for this investment and quarter is already in progress; continue that version',
+        ),
+      ),
+      note: 'Opens a draft valuation at the suggested value; it is prepared and approved like any other before it is Locked.',
+    },
+    {
+      from: 'Open',
+      to: 'Accepted',
+      command: 'applyToDraft',
+      roles: ['operations'],
+      precondition: all(
+        hasSuggestedValue,
+        flag(
+          'draftOpen',
+          true,
+          'no Draft is open for this investment and quarter; only a Draft can take a suggested value',
+        ),
+      ),
+      note: 'Puts the suggested value and its method on the Draft already open for the quarter; the Draft keeps its date.',
+    },
+    {
+      from: 'Open',
+      to: 'Dismissed',
+      command: 'dismiss',
+      roles: ['operations'],
+      precondition: requireReason,
+    },
+    {
+      from: 'Open',
+      to: 'Superseded',
+      command: 'supersede',
+      roles: ['service'],
+      precondition: supersededForAReason,
+      note: 'A step of the derivation that replaces or closes the suggestion, in the same transaction; nobody sends it.',
+    },
+  ],
+};
+
 export const MACHINES = {
   valuation: valuationMachine,
   staging: stagingMachine,
@@ -678,4 +871,6 @@ export const MACHINES = {
   exception: exceptionMachine,
   wireInstruction: wireInstructionMachine,
   closing: closingMachine,
+  underwritingCase: underwritingCaseMachine,
+  valuationSuggestion: valuationSuggestionMachine,
 } as const;

@@ -1,0 +1,183 @@
+/* Reporting, Packages (decision 0024): the list, the start form and the package page. Scoped to
+   pages/reporting/packages; the release gate's strip is the shared one (components/StepStrip). */
+.pb-toolbar .pb-pkg-filter {
+  min-width: 0;
+  width: 190px;
+}
+.pb-toolbar .pb-pkg-filter.is-wide {
+  width: 260px;
+}
+/* Start package at the toolbar's end; a reader who may not start reads why beside it. */
+.pb-pkg-start {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--pb-space-1) var(--pb-space-3);
+}
+.pb-pkg-start-reason {
+  font-size: var(--pb-text-sm);
+  line-height: var(--pb-text-sm-lh);
+  color: var(--pb-muted);
+}
+
+/* The start form, a framed panel opened in place: the four choices side by side where there is
+   room, the reason across the row, Cancel then Start at the right. */
+.pb-pkg-form {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 220px), 1fr));
+  align-items: start;
+  gap: var(--pb-space-3) var(--pb-space-4);
+  margin: var(--pb-space-3) 0;
+}
+/* A control fills its column: the kit's own minimum width would push it into the next one. */
+.pb-pkg-form .pb-pkg-control {
+  min-width: 0;
+  width: 100%;
+}
+.pb-pkg-form > .is-wide {
+  grid-column: 1 / -1;
+  max-width: 78ch;
+}
+.pb-pkg-form-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--pb-space-2);
+}
+/* What the form says of the three choices together: one in progress, or no client to choose. */
+.pb-notice.pb-pkg-standing {
+  margin: 0 0 var(--pb-space-3);
+}
+
+/* The package page */
+.pb-pkg-next {
+  max-width: 78ch;
+  margin: 0 0 var(--pb-space-3);
+  font-size: var(--pb-text-prose);
+  line-height: var(--pb-text-prose-lh);
+  color: var(--pb-text);
+}
+/* The commands of the gate in the header: the buttons, why a blocked one is blocked under it, and
+   the Simulated marker level with the buttons. */
+.pb-pkg-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: var(--pb-space-2) var(--pb-space-3);
+}
+.pb-pkg-actions > .pb-simulated {
+  margin-top: var(--pb-space-1);
+}
+/* Two blocked commands side by side each keep their own reason; the wider gap keeps the two
+   reasons from reading as one line. */
+.pb-pkg-actions .pb-command-group {
+  column-gap: var(--pb-space-3);
+}
+/* The sentence a section opens on: whose reading the figures are, what a tie-out ties to. */
+.pb-pkg-note {
+  max-width: 78ch;
+  margin: 0 0 var(--pb-space-3);
+}
+/* The hash an approval locked the content with, in full: it wraps anywhere on a narrow page. */
+.pb-pkg-hash {
+  display: grid;
+  justify-items: start;
+  gap: var(--pb-space-1);
+  margin: var(--pb-space-4) 0 0;
+}
+.pb-pkg-hash-label {
+  font-size: var(--pb-text-sm);
+  line-height: var(--pb-text-sm-lh);
+  font-weight: 600;
+  color: var(--pb-muted-strong);
+}
+.pb-pkg-hash-value {
+  max-width: 100%;
+  font-size: var(--pb-text-md);
+  line-height: var(--pb-text-md-lh);
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
+/* What a check expected and what it found sit side by side: one line each, figures in step. */
+.pb-table td.pb-pkg-value {
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums lining-nums;
+}
+/* The sentence of a check keeps a readable measure beside the narrow columns. */
+.pb-table td.pb-pkg-detail {
+  min-width: 30ch;
+}
+/* The checks that passed, behind a quiet toggle on the table's last rule; its chevron turns. */
+.pb-pkg-toggle {
+  margin-top: var(--pb-space-1);
+}
+.pb-pkg-toggle > button {
+  min-height: 36px;
+  padding-inline: 0;
+  justify-content: flex-start;
+}
+.pb-pkg-toggle-chevron {
+  transition: transform var(--pb-dur-fast) var(--pb-ease);
+}
+.pb-pkg-toggle > button[aria-expanded='true'] .pb-pkg-toggle-chevron {
+  transform: rotate(90deg);
+}
+/* A passed check's row appears when the reader asks for it, so it fades in once. */
+.pb-table tr.pb-pkg-passed > * {
+  animation: pb-fade var(--pb-dur-fast) var(--pb-ease) backwards;
+}
+
+/* A missing figure's note letter hangs after its placeholder without moving it, so the dash keeps
+   the right edge the figures share; the reasons are listed under the table by letter. */
+.pb-note-ref {
+  position: absolute;
+  margin: -2px 0 0 1px;
+  font-size: var(--pb-text-xs);
+  line-height: var(--pb-text-xs-lh);
+  font-weight: 500;
+  color: var(--pb-muted-strong);
+}
+.pb-pkg-notes {
+  max-width: 78ch;
+  margin: var(--pb-space-2) 0 0;
+  padding: 0;
+  list-style: none;
+  font-size: var(--pb-text-sm);
+  line-height: var(--pb-text-sm-lh);
+  color: var(--pb-muted);
+}
+.pb-pkg-notes > li + li {
+  margin-top: 2px;
+}
+.pb-pkg-notes-letter {
+  font-weight: 500;
+  color: var(--pb-muted-strong);
+}
+/* The quarter end's own mark is the usual case and reads quiet; a roll-forward stays in ink. */
+.pb-table td.pb-pkg-mark-default {
+  color: var(--pb-muted);
+}
+
+/* The start panel drops in under the header when the reader opens it. */
+.pb-main > .pb-card.is-panel {
+  animation: pb-drop var(--pb-dur) var(--pb-ease) backwards;
+}
+
+@media (max-width: 760px) {
+  .pb-toolbar .pb-pkg-filter,
+  .pb-toolbar .pb-pkg-filter.is-wide {
+    width: 100%;
+  }
+}
+
+/* Reduced motion (docs/06 section 5): each selector exactly as it moves above. */
+@media (prefers-reduced-motion: reduce), (update: slow) {
+  .pb-table tr.pb-pkg-passed > *,
+  .pb-main > .pb-card.is-panel {
+    animation: none;
+  }
+  .pb-pkg-toggle-chevron {
+    transition: none;
+  }
+}

@@ -102,3 +102,25 @@ export function pipelineStageAgingDays(
     Closing: days('Closing'),
   };
 }
+
+/**
+ * The two tolerances of the comparison against a sponsor's base case (docs/08 section 11,
+ * decision 0022), `underwriting.onPlanTolerance` and `underwriting.irrTolerance`, as decimal
+ * digits. The dataset check judges the base case scenarios with them, as the API does. There is
+ * no default in code: a missing or unusable key stops the check, naming it.
+ */
+export function underwritingTolerances(source: unknown = definitions): {
+  onPlanTolerance: string;
+  irrTolerance: string;
+} {
+  const section = isRecord(source) ? source.underwriting : undefined;
+  const read = (key: 'onPlanTolerance' | 'irrTolerance'): string => {
+    const value = isRecord(section) ? section[key] : undefined;
+    if (typeof value !== 'number' || !Number.isFinite(value) || value < 0)
+      throw new Error(
+        `config/definitions.json: underwriting.${key} must be a number at or above zero`,
+      );
+    return D(String(value)).toFixed();
+  };
+  return { onPlanTolerance: read('onPlanTolerance'), irrTolerance: read('irrTolerance') };
+}

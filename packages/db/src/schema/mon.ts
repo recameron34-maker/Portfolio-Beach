@@ -52,8 +52,25 @@ export const changeRequestState = mon.enum('change_request_state', [
   'Rejected',
 ]);
 
+/** docs/18 section 13 (migration 0021). */
+export const underwritingCaseState = mon.enum('underwriting_case_state', [
+  'Draft',
+  'Confirmed',
+  'Superseded',
+  'Withdrawn',
+]);
+
+/** docs/18 section 14 (migration 0023). */
+export const valuationSuggestionState = mon.enum('valuation_suggestion_state', [
+  'Open',
+  'Accepted',
+  'Dismissed',
+  'Superseded',
+]);
+
 const money = (name: string) => numeric(name, { precision: 20, scale: 2 });
 const rate = (name: string) => numeric(name, { precision: 12, scale: 8 });
+const multiple = (name: string) => numeric(name, { precision: 12, scale: 6 });
 
 export const quarterlyPerformance = mon.table('quarterly_performance', {
   id: uuid('id').primaryKey().defaultRandom(),
@@ -290,5 +307,116 @@ export const realizationOutlook = mon.table('realization_outlook', {
   note: text('note'),
   setBy: uuid('set_by'),
   setAt: timestamp('set_at', { withTimezone: true }).notNull().defaultNow(),
+  ...standardColumns,
+});
+
+/**
+ * The sponsor's underwritten base case of a position, one row per version (docs/04 M9, docs/08
+ * section 11, docs/18 section 13, migration 0021, decision 0022). A case starts as a Draft, a second
+ * person confirms it, and a Confirmed case never changes: a correction dated as it is supersedes
+ * it, a later date is a re-underwriting and both stay.
+ */
+export const underwritingCase = mon.table('underwriting_case', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  investmentId: uuid('investment_id').notNull(),
+  version: integer('version').notNull(),
+  /** equity (plan points and exit terms) or credit (the underwritten yield and loss rate). */
+  form: text('form').notNull(),
+  state: underwritingCaseState('state').notNull().default('Draft'),
+  /** The date the case was underwritten as of. */
+  caseDate: date('case_date').notNull(),
+  /** The planned exit; for a loan, the expected repayment. */
+  plannedExitDate: date('planned_exit_date').notNull(),
+  /** EV / EBITDA at the planned exit: an equity case has one, a loan has none. */
+  exitMultiple: multiple('exit_multiple'),
+  /** Gross, from our entry to the planned exit. */
+  grossMoic: multiple('gross_moic').notNull(),
+  grossIrr: rate('gross_irr').notNull(),
+  /** A loan only. */
+  underwrittenYield: rate('underwritten_yield'),
+  annualLossRate: rate('annual_loss_rate'),
+  /** Covers the plan points too; US dollars only in the prototype. */
+  currency: char('currency', { length: 3 }).notNull().default('USD'),
+  note: text('note'),
+  /** Why this version replaces or follows the one before it; required from version 2. */
+  revisionReason: text('revision_reason'),
+  /** Set when, and only when, the case is Withdrawn. */
+  withdrawnReason: text('withdrawn_reason'),
+  /** Outside a Draft a case names a document of the position or a note on where the model is held. */
+  sourceDocumentId: uuid('source_document_id'),
+  sourcePage: integer('source_page'),
+  /** Sheet and cell. */
+  sourceLocator: text('source_locator'),
+  sourceNote: text('source_note'),
+  /** The last person to change the figures, and when; every edit resets both. */
+  enteredBy: uuid('entered_by').notNull(),
+  enteredAt: timestamp('entered_at', { withTimezone: true }).notNull().defaultNow(),
+  /** Never the person who last changed the figures (SEC-5.6). */
+  confirmedBy: uuid('confirmed_by'),
+  confirmedAt: timestamp('confirmed_at', { withTimezone: true }),
+  ...standardColumns,
+});
+
+/**
+ * The plan of an equity case at one date (migration 0021): revenue and EBITDA are the twelve months
+ * ending on periodEnd and net debt is at that date, the basis quarterlyPerformance uses. A figure
+ * the sponsor did not give is null. Written only while the case is a Draft.
+ */
+export const underwritingCasePoint = mon.table('underwriting_case_point', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  caseId: uuid('case_id').notNull(),
+  periodEnd: date('period_end').notNull(),
+  revenueLtm: money('revenue_ltm'),
+  ebitdaLtm: money('ebitda_ltm'),
+  netDebt: money('net_debt'),
+  ...standardColumns,
+});
+
+/**
+ * A mark the platform worked out from an approved capital account statement or sponsor report,
+ * for one position and one calendar quarter (docs/04 M10, docs/08 section 12, docs/18 section 14,
+ * migration 0023, decision 0023). Written by the system actor only and never a mark itself: a
+ * person in operations opens a draft valuation from it, puts it on a Draft already open or
+ * dismisses it, and a later approval replaces it. It keeps its figures and its source for good.
+ */
+export const valuationSuggestion = mon.table('valuation_suggestion', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  /** The position, and so the wall. */
+  investmentId: uuid('investment_id').notNull(),
+  /** A calendar quarter end. */
+  periodEnd: date('period_end').notNull(),
+  /** capital_account_balance, sponsor_equity_value or held_multiple: one source, never a blend. */
+  basis: text('basis').notNull(),
+  /** The valuation method a draft opened from the suggestion carries. */
+  method: text('method').notNull(),
+  /** Dollars to the cent, above zero; null when there is a reason instead. */
+  suggestedValue: money('suggested_value'),
+  /** Why there is no value (a reason of docs/08 section 12); null when there is one. */
+  reasonCode: text('reason_code'),
+  /** `{ inputs: [{ key, value, periodEnd, source: { kind, id, page }, edited }] }`. */
+  workings: jsonb('workings').notNull().default({ inputs: [] }),
+  /** The document of the approved run that produced the row. */
+  sourceDocumentId: uuid('source_document_id').notNull(),
+  extractionRunId: uuid('extraction_run_id').notNull(),
+  /** Where the first input read from that document sits; null when none was read from it. */
+  sourcePage: integer('source_page'),
+  sourceLocator: text('source_locator'),
+  /** The approver of each run an input came from, and whoever typed one. */
+  sourceReviewerIds: uuid('source_reviewer_ids').array().notNull().default([]),
+  promptVersion: text('prompt_version'),
+  modelId: text('model_id'),
+  calcVersion: text('calc_version').notNull(),
+  state: valuationSuggestionState('state').notNull().default('Open'),
+  /** Who moved the suggestion out of Open: a person in operations, or the system actor. */
+  decidedBy: uuid('decided_by'),
+  decidedAt: timestamp('decided_at', { withTimezone: true }),
+  /** Set when, and only when, the suggestion is Dismissed. */
+  decisionReason: text('decision_reason'),
+  /** The draft valuation the suggestion was accepted onto; set when, and only when, Accepted. */
+  valuationId: uuid('valuation_id'),
+  /** better_source, figures_changed, mark_locked or position_closed; set when, and only when, Superseded. */
+  supersededReason: text('superseded_reason'),
+  /** The suggestion written in its place (the first two reasons only). */
+  supersededById: uuid('superseded_by_id'),
   ...standardColumns,
 });

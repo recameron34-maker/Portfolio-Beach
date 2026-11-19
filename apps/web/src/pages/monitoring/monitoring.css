@@ -2,7 +2,7 @@
    styles.css, which loads first, so a page class wins over a shared class of the same specificity.
    Filters keep .pb-toolbar in front to outrank Fluent's own classes. */
 
-/* Filters sized to their content, so the toolbar holds one row on a laptop screen. */
+/* The quarter and the as-of day sit under the tabs, over the figures they choose. */
 .pb-toolbar .pb-monitoring-filter {
   min-width: 0;
   width: 240px;
@@ -12,28 +12,35 @@
   width: 190px;
 }
 
-/* Nine columns fit a laptop screen; each cell holds its word first and its detail on muted lines
-   below. On a phone the table scrolls inside its frame. */
-.pb-monitoring-table td {
-  vertical-align: top;
-}
+/* Nine columns fit a laptop screen: the company with its number, then a dot and a word for each
+   status; on a phone the table scrolls inside its frame with the company held in view. */
 .pb-monitoring-company {
-  min-width: 180px;
+  min-width: 200px;
 }
-.pb-monitoring-status {
-  min-width: 160px;
+/* A name that folds folds evenly ("Beach Co-Invest / Fund III", never a lone "III"). */
+.pb-monitoring-table td {
+  text-wrap-style: balance;
 }
-.pb-monitoring-lines {
-  display: grid;
-  gap: 2px;
-  margin-top: 4px;
-  font-size: 12px;
-  line-height: 16px;
-  color: var(--pb-muted);
+/* How early, late or far off a report is, under its due date: quiet, or in the report's ink once
+   it is late or missing (the status word beside it says the same in words). */
+.pb-monitoring-age.is-watch {
+  color: var(--pb-watch-ink);
+}
+.pb-monitoring-age.is-bad {
+  color: var(--pb-bad-ink);
+}
+.pb-monitoring-day {
+  margin-left: var(--pb-space-2);
+  font-size: var(--pb-text-sm);
+  line-height: var(--pb-text-sm-lh);
+  color: var(--pb-muted-strong);
 }
 @media (max-width: 760px) {
   .pb-toolbar .pb-monitoring-filter,
   .pb-toolbar .pb-monitoring-date {
     width: 100%;
+  }
+  .pb-monitoring-company {
+    min-width: 160px;
   }
 }

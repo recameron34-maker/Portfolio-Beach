@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { cleanup, fireEvent, screen, within } from '@testing-library/react';
+import { cleanup, fireEvent, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { mockApi, ok } from '../../test/api-mock.js';
 import type { MockRoutes } from '../../test/api-mock.js';
@@ -39,7 +39,10 @@ function routes(roles: Parameters<typeof rolePrincipal>[0], extra: MockRoutes = 
 }
 
 async function pick(name: string | RegExp, option: string): Promise<void> {
-  await userEvent.click(screen.getByRole('combobox', { name }));
+  // A picker that fills from another choice is offered once its options have arrived.
+  const box = screen.getByRole('combobox', { name });
+  await waitFor(() => expect(box).toBeEnabled());
+  await userEvent.click(box);
   await userEvent.click(await screen.findByRole('option', { name: option }, TIMEOUT));
 }
 

@@ -1,7 +1,7 @@
 import type { InvestmentSummary, SponsorSummary } from '@pb/contracts';
 import type { BarDatum } from '../../components/charts/index.js';
 import type { Tone } from '../../components/ui.js';
-import { formatMoneyM, MISSING } from '../../lib/format.js';
+import { formatMoneyM, formatMoneyMIn } from '../../lib/format.js';
 
 /** Tier chips: a core relationship in the brand tone, a sponsor on watch in the watch tone, the rest neutral. */
 const TIER_TONES: Readonly<Record<string, Tone>> = {
@@ -18,9 +18,7 @@ export function tierTone(tier: string): Tone {
  * currency shows its code in place of the dollar sign ("EUR 500.0M"); the figure is never converted.
  */
 export function fundSizeLabel(value: string | null, currency: string): string {
-  const label = formatMoneyM(value);
-  if (label === MISSING || currency === 'USD') return label;
-  return label.replace('$', `${currency} `);
+  return formatMoneyMIn(value, currency);
 }
 
 /** Sponsors whose name contains the search text, ignoring case and surrounding spaces. */

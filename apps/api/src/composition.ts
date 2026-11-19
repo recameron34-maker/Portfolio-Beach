@@ -42,6 +42,7 @@ import { createLogger } from './common/logging.js';
 import type { Logger } from './common/logging.js';
 import { zodIssues } from './common/problem.js';
 import { documentSettingsOf, extractionSettingsOf } from './documents/settings.js';
+import { suggestionSchemasOf, suggestionSettingsOf } from './suggestions/settings.js';
 
 export interface Runtime {
   config: ApiConfig;
@@ -211,10 +212,10 @@ export function loadTruths(documentRoot: string): Map<string, Truth> {
 }
 
 /**
- * The prototype models behind the mock client (decision 0012): the keyword classifier answers
- * the document_classifier prompt from the input, and the fixture extractor answers the
- * quarterly_extraction prompt from the recorded truth of the document's content hash. A client
- * that is not the mock is left as it is.
+ * The prototype models behind the mock client (decisions 0012 and 0023): the keyword classifier
+ * answers the document_classifier prompt from the input, and the fixture extractor answers the
+ * two extraction prompts (quarterly_extraction, capital_account_extraction) from the recorded
+ * truth of the document's content hash. A client that is not the mock is left as it is.
  */
 export function registerPrototypeModels(
   ai: AdapterSet['ai'],
@@ -223,6 +224,7 @@ export function registerPrototypeModels(
   if (!(ai instanceof MockAiClient)) return;
   ai.register('document_classifier', keywordClassifier);
   ai.register('quarterly_extraction', fixtureExtractor(truths));
+  ai.register('capital_account_extraction', fixtureExtractor(truths));
 }
 
 /** The drop folders under PB_DROP_ROOT, one per intake that reads files from a folder. */
@@ -309,6 +311,12 @@ export async function buildRuntime(
   // is refused here, before anything is served (rule 9), with the same readers.
   documentSettingsOf(definitions);
   extractionSettingsOf(definitions);
+  // The valuation suggestions read their order of sources and their tolerances at every
+  // derivation: the API refuses to start without them, and with a statement schema that lacks a
+  // line the rules read (decision 0023).
+  suggestionSettingsOf(definitions);
+  const extractionSchemas = loadExtractionSchemaConfig(config.PB_CONFIG_DIR);
+  suggestionSchemasOf(extractionSchemas);
   return {
     config,
     db,
@@ -318,7 +326,7 @@ export async function buildRuntime(
     accountingLayout: loadAccountingLayout(config.PB_CONFIG_DIR),
     lookthroughMapping: loadLookthroughMapping(config.PB_CONFIG_DIR),
     opsDropTemplates: loadOpsDropTemplates(config.PB_CONFIG_DIR),
-    extractionSchemas: loadExtractionSchemaConfig(config.PB_CONFIG_DIR),
+    extractionSchemas,
     closingChecklist: loadClosingChecklist(config.PB_CONFIG_DIR),
     diligenceTemplates: loadDiligenceTemplates(config.PB_CONFIG_DIR),
     truths,

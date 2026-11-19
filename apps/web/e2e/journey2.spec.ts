@@ -219,9 +219,15 @@ test('operations indexes, generates and extracts; a reviewer accepts, edits, rej
   await expect(status(page)).toContainText(`Approved: figures promoted for ${shownDate(quarter)}`);
   await expect(banner).toContainText('Approved by');
   await expect(approve).toHaveAttribute('aria-disabled', 'true');
-  await expect(
-    page.getByRole('button', { name: 'Accept, Revenue LTM', exact: true }),
-  ).toHaveAttribute('aria-disabled', 'true');
+  // Nothing in the table can be decided once the run is approved: the Actions column is gone,
+  // so no value's Accept is offered at all (UI pass slice 8; the unit test reads the same).
+  await expect(fields.getByRole('columnheader', { name: 'Actions' })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Accept, Revenue LTM', exact: true })).toHaveCount(
+    0,
+  );
+  await expect(page.getByTestId('run-blocked')).toContainText(
+    'This run is approved and its figures are promoted.',
+  );
   const after = await runDetail(page, run.id);
   expect(after.run.approvedBy).not.toBeNull();
   expect(after.run.promotedRecordId).not.toBeNull();

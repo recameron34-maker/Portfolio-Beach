@@ -1,5 +1,5 @@
 import { Inject, Injectable } from '@nestjs/common';
-import { and, asc, eq, gte, lte, max } from 'drizzle-orm';
+import { and, asc, eq, gte, inArray, lte, max } from 'drizzle-orm';
 import type { AdapterSet, Principal } from '@pb/adapters';
 import { D, addDays, alignedQuarterEnd, isQuarterEnd } from '@pb/calc';
 import {
@@ -24,7 +24,13 @@ import type {
 } from '@pb/contracts';
 import { asSystemActor, schema } from '@pb/db';
 import type { Tx } from '@pb/db';
-import { attempt, valuationMachine } from '@pb/workflows';
+import {
+  VALUATION_IN_FLIGHT_STATES,
+  attempt,
+  keepSuggestionKeys,
+  sourceReviewersOf,
+  valuationMachine,
+} from '@pb/workflows';
 import { valuationLockHash } from '../common/lock.js';
 import { isUniqueViolationOn } from '../common/pg-errors.js';
 import { ProblemError, workflowProblem } from '../common/problem.js';
@@ -34,6 +40,7 @@ import { requireUuid } from '../common/validate.js';
 import { DbService } from '../db/db.service.js';
 import type { AuditEntry } from '../db/db.service.js';
 import { openChangeRequestsFor } from '../change-requests/queries.js';
+import { SuggestionDerivationService } from '../suggestions/derivation.service.js';
 import { ValuationsService } from './valuations.service.js';
 
 /*
@@ -51,6 +58,16 @@ import { ValuationsService } from './valuations.service.js';
  * writes one mon.valuation_approval row and one audit event with the state before and after
  * (SEC-11.1); an edit writes its audit event with the values before and after and no approval
  * row, since it approves nothing. Anything the caller cannot see is 404.
+ *
+ * A valuation suggestion (docs/18 section 14, decision 0023) never writes a mark by itself: its
+ * accept opens a Draft through createDraft and its applyToDraft corrects the open Draft through
+ * editDraft, the same two writes the create and the edit of this service make, inside the
+ * suggestion command's own transaction. The keys a suggestion leaves on a Draft's inputs
+ * (`suggestion.`) say where the value came from: a create or an edit sent by a person can
+ * neither forge, change nor drop them, so the lock hash seals them with the mark. Whoever
+ * approved a run behind a suggestion accepted onto a version, or typed one of its figures, can
+ * take neither approval of that version nor of a later version of the same quarter, which a
+ * reopen starts with the same mark (the machine's sourceReviewers).
  */
 
 const valuation = schema.valuation;
@@ -58,7 +75,7 @@ const approval = schema.valuationApproval;
 const NOT_FOUND = 'Valuation not found';
 const ENTITY = 'mon.valuation';
 /** The states a version is still being worked in: one chain per investment and quarter. */
-const IN_FLIGHT: readonly ValuationState[] = ['Draft', 'OpsPrepared', 'DealTeamApproved'];
+const IN_FLIGHT = VALUATION_IN_FLIGHT_STATES;
 /** A core.taxonomy_term code of the valuation_method domain. */
 const METHOD_CODE = /^valuation_method\.[a-z0-9_]+$/;
 /** The unique key of mon.valuation (migration 0004): one row per investment, period end and version. */
@@ -133,6 +150,17 @@ const versionTaken = (): ProblemError =>
     'valuation: another version was created first; open the list again',
   );
 
+/** True for the unique violation of two writers racing for one version number of mon.valuation. */
+export const isVersionRace = (error: unknown): boolean => isUniqueViolationOn(error, VERSION_KEY);
+
+/** The 409 a version race answers: nothing of the failed insert was written. */
+export const versionRaceProblem = versionTaken;
+
+/** Where a Draft or its correction came from, for the audit event: a suggestion a person accepted. */
+export interface DraftOrigin {
+  suggestionId: string;
+}
+
 /** A valuation_method code by its shape; whether the taxonomy carries it is checked in the transaction. */
 function requireMethodCode(method: string): void {
   if (!METHOD_CODE.test(method))
@@ -147,6 +175,7 @@ export class ValuationWorkflowService {
     private readonly db: DbService,
     private readonly board: ValuationsService,
     @Inject(ADAPTERS) private readonly adapters: AdapterSet,
+    private readonly suggestions: SuggestionDerivationService,
   ) {}
 
   /**
@@ -167,6 +196,15 @@ export class ValuationWorkflowService {
     requestId: string,
     body: ValuationCreateBody,
   ): Promise<ValuationRow> {
+    this.requireCreatable(body);
+    return this.unlessVersionTaken(principal, requestId, (tx, audit) =>
+      // A person's own inputs: a key a suggestion would write is not theirs to send.
+      this.createDraft(tx, audit, { ...body, inputs: keepSuggestionKeys({}, body.inputs ?? {}) }),
+    );
+  }
+
+  /** What a create is refused for before anything is read: the period end, the value and the method's shape. */
+  private requireCreatable(body: ValuationCreateBody): { quarterEnd: string; tolerance: number } {
     const tolerance = this.board.tolerance();
     const quarterEnd = alignedQuarterEnd(body.periodEnd, tolerance);
     if (quarterEnd === body.periodEnd && !isQuarterEnd(body.periodEnd))
@@ -178,69 +216,85 @@ export class ValuationWorkflowService {
         { path: 'fairValue', message: 'Must be above zero' },
       ]);
     requireMethodCode(body.method);
-    return this.unlessVersionTaken(principal, requestId, async (tx, audit) => {
-      const position = (
-        await tx
-          .select({
-            id: schema.investment.id,
-            investmentNumber: schema.investment.investmentNumber,
-            isActive: schema.investment.isActive,
-            entryDate: schema.investment.entryDate,
-          })
-          .from(schema.investment)
-          .where(eq(schema.investment.id, body.investmentId))
-      )[0];
-      if (!position?.isActive) throw new ProblemError(404, 'not-found', 'Investment not found');
-      await this.requireMethod(tx, body.method);
-      if (body.periodEnd < position.entryDate)
-        throw precondition('valuation: the investment was not yet held at this period end');
+    return { quarterEnd, tolerance };
+  }
 
-      const chain = await this.sameQuarter(tx, body.investmentId, quarterEnd, tolerance);
-      if (chain.some((v) => v.state === 'Locked'))
-        throw precondition(
-          'valuation: a Locked version exists for this investment and quarter; reopen it to start a new version',
-        );
-      if (chain.some((v) => IN_FLIGHT.includes(v.state)))
-        throw precondition(
-          'valuation: a version for this investment and quarter is already in progress; continue that version',
-        );
+  /**
+   * The one write of a Draft version (the "(new) to Draft" row), in the transaction given and
+   * under the identity it holds: the create above, and the accept of a valuation suggestion
+   * (docs/18 section 14), which names the suggestion as the Draft's origin. The inputs are
+   * stored as given: the caller decides which keys a Draft may start with. A caller that opens
+   * its own transaction answers a version race with isVersionRace and versionRaceProblem.
+   */
+  async createDraft(
+    tx: Tx,
+    audit: (entry: AuditEntry) => Promise<void>,
+    body: ValuationCreateBody,
+    origin?: DraftOrigin,
+  ): Promise<ValuationRow> {
+    const { quarterEnd, tolerance } = this.requireCreatable(body);
+    const position = (
+      await tx
+        .select({
+          id: schema.investment.id,
+          investmentNumber: schema.investment.investmentNumber,
+          isActive: schema.investment.isActive,
+          entryDate: schema.investment.entryDate,
+        })
+        .from(schema.investment)
+        .where(eq(schema.investment.id, body.investmentId))
+    )[0];
+    if (!position?.isActive) throw new ProblemError(404, 'not-found', 'Investment not found');
+    await this.requireMethod(tx, body.method);
+    if (body.periodEnd < position.entryDate)
+      throw precondition('valuation: the investment was not yet held at this period end');
 
-      const version = await this.nextVersion(tx, body.investmentId, body.periodEnd);
-      const inserted = (
-        await tx
-          .insert(valuation)
-          .values({
-            investmentId: body.investmentId,
-            periodEnd: body.periodEnd,
-            version,
-            method: body.method,
-            inputs: body.inputs ?? {},
-            fairValue: body.fairValue,
-            currency: 'USD',
-            state: 'Draft',
-            preparedBy: null,
-          })
-          .returning()
-      )[0];
-      if (inserted === undefined) throw precondition('valuation: the Draft was not written');
-      // The method and the value are read back from the row written, never from the body (rule 6).
-      await audit({
-        action: 'valuation.create',
-        entity: ENTITY,
-        entityId: inserted.id,
-        details: {
-          investmentId: inserted.investmentId,
-          investmentNumber: position.investmentNumber,
-          periodEnd: inserted.periodEnd,
-          quarterEnd,
-          version: inserted.version,
-          method: inserted.method,
-          fairValue: inserted.fairValue,
-          state: { before: null, after: 'Draft' },
-        },
-      });
-      return this.rowOrThrow(tx, inserted.id);
+    const chain = await this.sameQuarter(tx, body.investmentId, quarterEnd, tolerance);
+    if (chain.some((v) => v.state === 'Locked'))
+      throw precondition(
+        'valuation: a Locked version exists for this investment and quarter; reopen it to start a new version',
+      );
+    if (chain.some((v) => IN_FLIGHT.includes(v.state)))
+      throw precondition(
+        'valuation: a version for this investment and quarter is already in progress; continue that version',
+      );
+
+    const version = await this.nextVersion(tx, body.investmentId, body.periodEnd);
+    const inserted = (
+      await tx
+        .insert(valuation)
+        .values({
+          investmentId: body.investmentId,
+          periodEnd: body.periodEnd,
+          version,
+          method: body.method,
+          inputs: body.inputs ?? {},
+          fairValue: body.fairValue,
+          currency: 'USD',
+          state: 'Draft',
+          preparedBy: null,
+        })
+        .returning()
+    )[0];
+    if (inserted === undefined) throw precondition('valuation: the Draft was not written');
+    // The method and the value are read back from the row written, never from the body (rule 6).
+    await audit({
+      action: 'valuation.create',
+      entity: ENTITY,
+      entityId: inserted.id,
+      details: {
+        investmentId: inserted.investmentId,
+        investmentNumber: position.investmentNumber,
+        periodEnd: inserted.periodEnd,
+        quarterEnd,
+        version: inserted.version,
+        method: inserted.method,
+        fairValue: inserted.fairValue,
+        state: { before: null, after: 'Draft' },
+        ...(origin === undefined ? {} : { fromSuggestion: origin.suggestionId }),
+      },
     });
+    return this.rowOrThrow(tx, inserted.id);
   }
 
   /**
@@ -263,50 +317,80 @@ export class ValuationWorkflowService {
   ): Promise<ValuationRow> {
     requireUuid(id, NOT_FOUND);
     if (body.method !== undefined) requireMethodCode(body.method);
-    return this.db.run(principal, requestId, async (tx, audit) => {
-      const locked = (
-        await tx.select(LOCKED_COLUMNS).from(valuation).where(eq(valuation.id, id)).for('update')
-      )[0];
-      if (locked === undefined) throw new ProblemError(404, 'not-found', NOT_FOUND);
-      requireFreshRow(ifMatch, locked.rowVersion, 'valuation');
-      const from = this.stateOf(locked);
-      if (from !== 'Draft')
-        throw new ProblemError(
-          409,
-          'workflow-transition',
-          `valuation: edit is not allowed from ${from}; only a Draft can be edited`,
-        );
-      const position = (
-        await tx
-          .select({ investmentNumber: schema.investment.investmentNumber })
-          .from(schema.investment)
-          .where(eq(schema.investment.id, locked.investmentId))
-      )[0];
-      if (position === undefined) throw new ProblemError(404, 'not-found', NOT_FOUND);
-      if (body.method !== undefined) await this.requireMethod(tx, body.method);
+    return this.db.run(principal, requestId, (tx, audit) =>
+      this.editDraft(
+        tx,
+        audit,
+        id,
+        (stored) => ({
+          ...(body.method !== undefined ? { method: body.method } : {}),
+          ...(body.fairValue !== undefined ? { fairValue: body.fairValue } : {}),
+          // The keys a suggestion left stay as stored, whatever the body sends for them.
+          ...(body.inputs !== undefined ? { inputs: keepSuggestionKeys(stored, body.inputs) } : {}),
+        }),
+        ifMatch,
+      ),
+    );
+  }
 
-      const written = await this.claim(tx, locked, from, {
-        ...(body.method !== undefined ? { method: body.method } : {}),
-        ...(body.fairValue !== undefined ? { fairValue: body.fairValue } : {}),
-        ...(body.inputs !== undefined ? { inputs: body.inputs } : {}),
-      });
-      await audit({
-        action: 'valuation.edit',
-        entity: ENTITY,
-        entityId: locked.id,
-        details: {
-          investmentId: locked.investmentId,
-          investmentNumber: position.investmentNumber,
-          periodEnd: locked.periodEnd,
-          version: locked.version,
-          state: { before: from, after: from },
-          method: { before: locked.method, after: written.method },
-          fairValue: { before: locked.fairValue, after: written.fairValue },
-          inputs: { before: locked.inputs, after: written.inputs },
-        },
-      });
-      return this.rowOrThrow(tx, locked.id);
+  /**
+   * The one write of a Draft's correction, in the transaction given: the edit above, and the
+   * applyToDraft of a valuation suggestion (docs/18 section 14), which puts its value, its
+   * method and its keys on the Draft and names itself as the origin. `change` is handed the
+   * inputs the Draft stores and answers what to write; the Draft keeps its period end.
+   */
+  async editDraft(
+    tx: Tx,
+    audit: (entry: AuditEntry) => Promise<void>,
+    id: string,
+    change: (stored: ValuationStoredInputs) => {
+      method?: string;
+      fairValue?: string;
+      inputs?: ValuationStoredInputs;
+    },
+    ifMatch?: readonly number[],
+    origin?: DraftOrigin,
+  ): Promise<ValuationRow> {
+    const locked = (
+      await tx.select(LOCKED_COLUMNS).from(valuation).where(eq(valuation.id, id)).for('update')
+    )[0];
+    if (locked === undefined) throw new ProblemError(404, 'not-found', NOT_FOUND);
+    requireFreshRow(ifMatch, locked.rowVersion, 'valuation');
+    const from = this.stateOf(locked);
+    if (from !== 'Draft')
+      throw new ProblemError(
+        409,
+        'workflow-transition',
+        `valuation: edit is not allowed from ${from}; only a Draft can be edited`,
+      );
+    const position = (
+      await tx
+        .select({ investmentNumber: schema.investment.investmentNumber })
+        .from(schema.investment)
+        .where(eq(schema.investment.id, locked.investmentId))
+    )[0];
+    if (position === undefined) throw new ProblemError(404, 'not-found', NOT_FOUND);
+    const patch = change(this.storedInputs(locked.inputs));
+    if (patch.method !== undefined) await this.requireMethod(tx, patch.method);
+
+    const written = await this.claim(tx, locked, from, patch);
+    await audit({
+      action: 'valuation.edit',
+      entity: ENTITY,
+      entityId: locked.id,
+      details: {
+        investmentId: locked.investmentId,
+        investmentNumber: position.investmentNumber,
+        periodEnd: locked.periodEnd,
+        version: locked.version,
+        state: { before: from, after: from },
+        method: { before: locked.method, after: written.method },
+        fairValue: { before: locked.fairValue, after: written.fairValue },
+        inputs: { before: locked.inputs, after: written.inputs },
+        ...(origin === undefined ? {} : { fromSuggestion: origin.suggestionId }),
+      },
     });
+    return this.rowOrThrow(tx, locked.id);
   }
 
   /**
@@ -414,6 +498,10 @@ export class ValuationWorkflowService {
           validationPassed: D(locked.fairValue).gt(0),
           preparedBy: locked.preparedBy,
           lockHash,
+          // Read for the two approvals that ask for it: no list bars nobody.
+          ...(body.command === 'dealTeamApprove' || body.command === 'lock'
+            ? { sourceReviewers: await this.sourceReviewers(tx, locked) }
+            : {}),
         },
       });
       if (!result.ok) throw workflowProblem(result);
@@ -506,6 +594,10 @@ export class ValuationWorkflowService {
           ...(body.reason !== undefined ? { reason: body.reason } : {}),
           details,
         });
+        // A Locked mark closes the Open suggestion of its quarter and of any earlier one, and is
+        // the mark a later quarter's suggestion is now worked out from (docs/18 section 14).
+        if (body.command === 'lock')
+          await this.suggestions.refreshPosition(tx, audit, locked.investmentId);
         return this.rowOrThrow(tx, locked.id);
       }
       const next = await this.reopenInto(tx, audit, locked, position.investmentNumber, actor, body);
@@ -521,6 +613,8 @@ export class ValuationWorkflowService {
           tasks: next.tasks,
         },
       });
+      // The mark is no longer Locked: a later quarter's Open suggestion rested on it.
+      await this.suggestions.refreshPosition(tx, audit, locked.investmentId);
       return this.rowOrThrow(tx, next.id);
     });
   }
@@ -685,7 +779,12 @@ export class ValuationWorkflowService {
       .select({ inputs: valuation.inputs })
       .from(valuation)
       .where(eq(valuation.id, id));
-    const parsed = valuationStoredInputs.safeParse(row?.inputs ?? {});
+    return this.storedInputs(row?.inputs);
+  }
+
+  /** The inputs column as the record it holds; anything else is said, never passed on. */
+  private storedInputs(inputs: unknown): ValuationStoredInputs {
+    const parsed = valuationStoredInputs.safeParse(inputs ?? {});
     if (!parsed.success)
       throw new ProblemError(
         500,
@@ -693,6 +792,39 @@ export class ValuationWorkflowService {
         'valuation: the stored inputs are not a record of names to values',
       );
     return parsed.data;
+  }
+
+  /**
+   * Who cannot approve this version because they stood behind a suggested mark it carries
+   * (docs/18 sections 1 and 14): the union of the source reviewers of every Accepted suggestion
+   * whose valuation is a version of the same investment and quarter. A reopen copies the mark and
+   * the suggestion's keys to the next version while the suggestion still names the version it was
+   * accepted onto, so the rule follows the chain and not the one row. Read as the system actor,
+   * so the control never passes because the person asking could not read the suggestion.
+   */
+  private async sourceReviewers(tx: Tx, locked: LockedVersion): Promise<string[]> {
+    const tolerance = this.board.tolerance();
+    return asSystemActor(tx, async (stx) => {
+      const chain = await this.sameQuarter(
+        stx,
+        locked.investmentId,
+        alignedQuarterEnd(locked.periodEnd, tolerance),
+        tolerance,
+      );
+      const accepted = await stx
+        .select({
+          state: schema.valuationSuggestion.state,
+          sourceReviewerIds: schema.valuationSuggestion.sourceReviewerIds,
+        })
+        .from(schema.valuationSuggestion)
+        .where(
+          inArray(
+            schema.valuationSuggestion.valuationId,
+            chain.map((version) => version.id),
+          ),
+        );
+      return sourceReviewersOf(accepted);
+    });
   }
 
   /**

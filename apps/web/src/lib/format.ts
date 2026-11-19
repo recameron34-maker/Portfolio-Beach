@@ -4,6 +4,17 @@ import brand from '../../../../config/brand.json';
 /** Display rules from docs/06 section 3. Inputs are decimal strings or null; null renders the missing placeholder. */
 export const MISSING: string = brand.missingValue;
 
+/**
+ * A formatted figure with its sign in front: "+$5.0M", "-7.2%". One that rounds to nothing
+ * carries none ("+0.0%" would claim a direction the figure does not show), and the placeholder
+ * stays the placeholder. Every signed figure on a page goes through here, so one page has one rule.
+ */
+export function withSign(text: string): string {
+  if (text === MISSING) return text;
+  if (!/[1-9]/.test(text)) return text.replace(/^-/, '');
+  return text.startsWith('-') ? text : `+${text}`;
+}
+
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
 function roundHalfAwayFromZero(value: number, places: number): number {
@@ -13,21 +24,110 @@ function roundHalfAwayFromZero(value: number, places: number): number {
   return value < 0 ? -rounded : rounded;
 }
 
+/**
+ * A whole number's digits in groups of three: "1234567" is "1,234,567", a minus sign stays in
+ * front. Text that is not a whole number (an exponent, say) is returned as it came. Built in one
+ * pass over the digits, so the time taken grows with their number and no faster.
+ */
+export function groupThousands(whole: string): string {
+  const sign = whole.startsWith('-') ? '-' : '';
+  const digits = whole.slice(sign.length);
+  if (!/^\d+$/.test(digits)) return whole;
+  let grouped = '';
+  for (let i = 0; i < digits.length; i += 1) {
+    if (i > 0 && (digits.length - i) % 3 === 0) grouped += ',';
+    grouped += digits.charAt(i);
+  }
+  return sign + grouped;
+}
+
 function withGrouping(value: number, places: number): string {
   const fixed = roundHalfAwayFromZero(value, places).toFixed(places);
   const [whole, frac] = fixed.split('.');
-  const grouped = (whole ?? '0').replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+  const grouped = groupThousands(whole ?? '0');
   return frac === undefined ? grouped : `${grouped}.${frac}`;
 }
 
-/** Dollars as $M with one decimal: 12,345,678.90 -> "$12.3M". */
-export function formatMoneyM(value: string | null | undefined): string {
+/** Dollars as $M: the sign in front, the figure grouped, to the places asked. */
+function moneyM(value: string | null | undefined, places: number): string {
   if (value === null || value === undefined || value === '') return MISSING;
   const n = Number(value);
   if (!Number.isFinite(n)) return MISSING;
   const millions = n / 1_000_000;
   const sign = millions < 0 ? '-' : '';
-  return `${sign}$${withGrouping(Math.abs(millions), 1)}M`;
+  return `${sign}$${withGrouping(Math.abs(millions), places)}M`;
+}
+
+/** Dollars as $M with one decimal: 12,345,678.90 -> "$12.3M". */
+export function formatMoneyM(value: string | null | undefined): string {
+  return moneyM(value, 1);
+}
+
+/**
+ * Dollars as $M with two decimals: 7,831,632.54 -> "$7.83M". For a sentence that sets two close
+ * figures side by side, where one decimal would show them as the same number; tables keep one.
+ */
+export function formatMoneyM2(value: string | null | undefined): string {
+  return moneyM(value, 2);
+}
+
+/**
+ * Dollars in full to the whole dollar: 21,632.54 -> "$21,633". For a difference too small to
+ * read in millions. An amount that rounds to nothing carries no sign.
+ */
+export function formatWholeDollars(value: string | null | undefined): string {
+  if (value === null || value === undefined || value === '') return MISSING;
+  const n = Number(value);
+  if (!Number.isFinite(n)) return MISSING;
+  const whole = withGrouping(Math.abs(n), 0);
+  return `${n < 0 && /[1-9]/.test(whole) ? '-' : ''}$${whole}`;
+}
+
+/** A string of digits plus one: "199" is "200", "999" is "1000". One pass from the last digit. */
+function addOne(digits: string): string {
+  let out = '';
+  let carry = true;
+  for (let i = digits.length - 1; i >= 0; i -= 1) {
+    const digit: number = digits.charCodeAt(i) - 48 + (carry ? 1 : 0);
+    carry = digit === 10;
+    out = String(carry ? 0 : digit) + out;
+  }
+  return carry ? `1${out}` : out;
+}
+
+/** Digits without the zeros in front of them; the last digit stays when every one is a zero. */
+function withoutLeadingZeros(digits: string): string {
+  let start = 0;
+  while (start < digits.length - 1 && digits.charAt(start) === '0') start += 1;
+  return digits.slice(start);
+}
+
+/**
+ * Dollars in full to the cent: 12,450,950.25 -> "$12,450,950.25". For figures that are compared
+ * with each other, such as what a report check expected and what it found, where a rounded
+ * million would hide the very difference the check is about. Worked from the digits of the
+ * decimal string and never through a float, so an amount of any size keeps every digit. More
+ * places than cents round half away from zero; an amount that rounds to nothing carries no sign.
+ */
+export function formatUsdExact(value: string | null | undefined): string {
+  if (value === null || value === undefined || !DECIMAL_PATTERN.test(value)) return MISSING;
+  const negative = value.startsWith('-');
+  const [whole = '0', fraction = ''] = (negative ? value.slice(1) : value).split('.');
+  // The amount in cents as digits, and one cent more when the third place is five or above.
+  const truncated = whole + fraction.padEnd(2, '0').slice(0, 2);
+  const rounded = fraction.charAt(2) >= '5' ? addOne(truncated) : truncated;
+  const cents = withoutLeadingZeros(rounded).padStart(3, '0');
+  const text = `$${groupThousands(cents.slice(0, -2))}.${cents.slice(-2)}`;
+  return negative && /[1-9]/.test(cents) ? `-${text}` : text;
+}
+
+/**
+ * formatMoneyM for an amount in its own currency: dollars as they are, any other currency with
+ * its code in place of the dollar sign ("EUR 2.5M"). The figure is never converted.
+ */
+export function formatMoneyMIn(value: string | null | undefined, currency: string): string {
+  const text = formatMoneyM(value);
+  return currency === 'USD' || text === MISSING ? text : text.replaceAll('$', `${currency} `);
 }
 
 /**

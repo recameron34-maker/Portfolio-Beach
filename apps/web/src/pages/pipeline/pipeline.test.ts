@@ -75,9 +75,7 @@ describe('stages and aging', () => {
     expect(isAging('Passed', 400)).toBe(false);
     expect(agingTone('Diligence', 91)).toBe('watch');
     expect(agingTone('Diligence', 90)).toBe('neutral');
-    expect(agingHint('IC', 15)).toBe(
-      'Over the 14-day guide for IC (config pipeline.stageAgingDays)',
-    );
+    expect(agingHint('IC', 15)).toBe('Over the 14-day guide for IC');
     expect(agingHint('IC', 14)).toBeNull();
     expect(daysInStageLabel(1)).toBe('1 day in stage');
     expect(daysInStageLabel(40)).toBe('40 days in stage');
@@ -176,10 +174,10 @@ describe('gates', () => {
       true,
     );
     expect(one[0]!.text).toMatch(/^1 diligence task required for IC is still open/);
-    expect(one[2]!.text).toBe('A required closing item is still open (M8).');
-    expect(one[3]!.text).toBe('The received amounts do not tie to the closing commitment (M22).');
+    expect(one[2]!.text).toBe('A required closing item is still open.');
+    expect(one[3]!.text).toBe('The received amounts do not tie to the closing commitment.');
     expect(one[4]!.text).toBe(
-      'Operations have not confirmed the closing; the advance to Closed waits for the confirmation (M8).',
+      'Operations have not confirmed the closing; the advance to Closed waits for the confirmation.',
     );
     const ok = gateLines(clear, true);
     expect(ok.map((l) => l.ok)).toEqual([true, true, true, true, true]);
@@ -221,7 +219,7 @@ describe('gates', () => {
     expect(advanceBlocker('Diligence', blocked, ['approver'])).toBeNull();
     expect(advanceBlocker('IC', blocked, ['approver'])).toBe('An IC decision record is required');
     expect(advanceBlocker('Closing', blocked, ['operations'])).toBe(
-      'The closing checklist is incomplete; allocations do not tie to the closing commitment (M22); the closing is not confirmed by operations (M8)',
+      'The closing checklist is incomplete; allocations do not tie to the closing commitment; the closing is not confirmed by operations',
     );
     expect(
       advanceBlocker(
@@ -238,7 +236,7 @@ describe('gates', () => {
         ['operations'],
       ),
     ).toBe(
-      'Allocations do not tie to the closing commitment (M22); the closing is not confirmed by operations (M8)',
+      'Allocations do not tie to the closing commitment; the closing is not confirmed by operations',
     );
     // The checklist is in and the lines tie: the advance to Closed still names the confirmation.
     expect(
@@ -255,7 +253,7 @@ describe('gates', () => {
         },
         ['operations'],
       ),
-    ).toBe('The closing is not confirmed by operations (M8)');
+    ).toBe('The closing is not confirmed by operations');
     expect(advanceBlocker('Closing', clear, ['operations'])).toBeNull();
     expect(advanceBlocker('Approved', blocked, ['deal_team'])).toBeNull();
     expect(advanceBlocker('Sourced', blocked, ['deal_team'])).toBeNull();
@@ -333,7 +331,7 @@ describe('allocations and the tie-out', () => {
       'The closing is confirmed; change the close date or ask operations to reopen it',
     );
     expect(allocationsLock('Closed', confirmed)).toBe(
-      'Allocations are fixed once the deal is closed (M22); raise a change request instead',
+      'Allocations are fixed once the deal is closed; raise a change request instead',
     );
   });
 
@@ -452,8 +450,8 @@ describe('closing words and forms', () => {
         allocations: [{ received: '0.50' }],
       }),
     ).toEqual([
-      '2 required closing items still open: a required closing document is missing (M8)',
-      'Allocations do not tie to the closing commitment, short by $0.0M (M22)',
+      '2 required closing items still open: a required closing document is missing',
+      'Allocations do not tie to the closing commitment, short by $0.0M',
     ]);
     // A line with no received amount is what the API names in its refusal: count the lines.
     expect(
@@ -462,7 +460,7 @@ describe('closing words and forms', () => {
         allocationTieOut: { ...tied, allocated: '0.50', difference: '-0.50', tiedOut: false },
         allocations: [{ received: '0.50' }, { received: null }],
       }),
-    ).toEqual(['Received amounts are missing on 1 line (M22)']);
+    ).toEqual(['Received amounts are missing on 1 line']);
     // The received amounts reach the commitment and two lines still have none.
     expect(
       closingBlockers({
@@ -470,7 +468,7 @@ describe('closing words and forms', () => {
         allocationTieOut: { ...tied, tiedOut: false },
         allocations: [{ received: '1.00' }, { received: null }, { received: null }],
       }),
-    ).toEqual(['Received amounts are missing on 2 lines (M22)']);
+    ).toEqual(['Received amounts are missing on 2 lines']);
     // A reader who is not shown every line cannot count the lines with no received amount: the
     // blocker speaks of the tie-out, which is the deal's, and never of a count of the lines shown.
     expect(
@@ -485,7 +483,7 @@ describe('closing words and forms', () => {
         },
         allocations: [{ received: '0.50' }, { received: null }],
       }),
-    ).toEqual(['Allocations do not tie to the closing commitment, short by $0.0M (M22)']);
+    ).toEqual(['Allocations do not tie to the closing commitment, short by $0.0M']);
   });
 
   it('says why a confirmed closing takes no change, and why one with a position takes none at all', () => {

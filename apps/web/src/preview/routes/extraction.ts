@@ -13,6 +13,7 @@ import {
   loadExtractionSchemas,
   outputSchemaFor,
   parseTruth,
+  promotesToRecord,
   promptRef,
   redact,
   validateExtraction,
@@ -54,7 +55,7 @@ import type {
   ExtractionValueCounts,
   PageLayout,
 } from '@pb/contracts';
-import { attempt, extractionRunMachine } from '@pb/workflows';
+import { attempt, extractionRunMachine, openShareRefusal } from '@pb/workflows';
 import type { ExtractionCommand, ExtractionState } from '@pb/workflows';
 import { ZodError } from 'zod';
 import type { PreviewBook } from '../book.js';
@@ -89,6 +90,7 @@ import {
   toSummary,
   visibleDocument,
 } from './documents.js';
+import { runApproved } from './suggestionDerivation.js';
 
 /**
  * AI extraction (docs/04 M4, docs/18 section 7, decision 0012) simulated in the browser, the way
@@ -110,8 +112,9 @@ import {
  * period end off the run's quarter and a superseded quarter, then promotes the final values of
  * the target fields, converted to dollars, into the simulated quarters the Performance tab
  * overlay reads, with the run's lineage citing the first accepted figure and a fixed default
- * reason that never names the file (W3). A reader sees the runs of documents their own
- * recordings let them open.
+ * reason that never names the file (W3). Once a statement or a report run is approved, the
+ * valuation suggestion of its position and quarter is derived (suggestionDerivation.ts, docs/18
+ * section 14). A reader sees the runs of documents their own recordings let them open.
  */
 
 /** The kill switch for batch creation and run processing (migration 0003, SEC-8.10): off by default. */
@@ -1231,7 +1234,9 @@ function statusOnRecord(
  * promotion never writes a number the document did not give; an undecided target is named,
  * never silently left out. The period end must be the quarter the run was opened for, and the
  * quarter on record must not be the entry snapshot or a superseded quarter (422 otherwise:
- * docs/08 section 5, docs/03 record_status, rule 10).
+ * docs/08 section 5, docs/03 record_status, rule 10). A schema with no record figure (no field
+ * with a target: a capital account statement) skips the position requirement and the promotion,
+ * as the API does: the run is approved and the simulated quarters are not touched.
  */
 function approve(
   ctx: SimContext,
@@ -1263,7 +1268,17 @@ function approve(
         instance,
       );
   }
-  if (run.investmentId === null)
+  // A share that was read and that nobody stood behind leaves the lines as the whole vehicle's:
+  // none of them is accepted as our account, as the API refuses it.
+  const openShare = openShareRefusal(
+    values,
+    (key) => schema.fields.find((field) => field.key === key)?.label ?? key,
+  );
+  if (openShare !== null) return blocked(openShare, instance);
+  // Only a schema that writes to the quarterly record needs a position to write it on.
+  const promotes = promotesToRecord(schema);
+  const investmentId = run.investmentId;
+  if (promotes && investmentId === null)
     return refused(
       'extraction: the document is not linked to an investment; classify it with one first',
       instance,
@@ -1278,6 +1293,25 @@ function approve(
       `extraction: the period end ${periodEnd} is not the quarter the run covers (${run.periodEnd ?? 'a quarter end'}); edit it`,
       instance,
     );
+  const approvalReason = reason ?? DEFAULT_APPROVAL_REASON;
+  // Nothing is ever promoted without a position: the refusal above already said so.
+  if (!promotes || investmentId === null) {
+    run.approvedById = actor.userId;
+    run.approvedBy = actor.displayName;
+    run.approvedAt = at;
+    run.approvalOrder = nextApprovalOrder(ctx);
+    run.rowVersion += 1;
+    recordActivity(ctx, actor, {
+      action: 'extraction_run.approve',
+      entity: 'extraction_run',
+      entityId: run.id,
+      reason: approvalReason,
+      from: null,
+      to: 'approved',
+    });
+    deriveSuggestion(ctx, req, run, periodEnd);
+    return null;
+  }
   const figures: QuarterlyFigures = {};
   const promotedFields: string[] = [];
   for (const field of schema.fields) {
@@ -1306,7 +1340,6 @@ function approve(
   // The quarter on record, read again at approval (decision 0009): the book's approved quarter
   // for the period, or the one an earlier approval promoted; the entry snapshot is never written
   // and a superseded quarter is history that a promotion never revives (docs/03 record_status).
-  const investmentId = run.investmentId;
   const onRecord = (book.quarters[investmentId] ?? []).find((q) => q.periodEnd === periodEnd);
   if (onRecord?.isEntrySnapshot === true)
     return refused(
@@ -1333,7 +1366,6 @@ function approve(
   const citedRow = cited === undefined ? undefined : byField.get(cited.key);
   const highlightsRow = byField.get(HIGHLIGHTS_FIELD);
   const commentaryRow = byField.get(COMMENTARY_FIELD);
-  const approvalReason = reason ?? DEFAULT_APPROVAL_REASON;
   const promoted: SimPromotedQuarter = {
     id: onRecord?.id ?? previous?.id ?? ctx.env.newId(),
     investmentId,
@@ -1376,6 +1408,7 @@ function approve(
   run.approvedById = actor.userId;
   run.approvedBy = actor.displayName;
   run.approvedAt = at;
+  run.approvalOrder = nextApprovalOrder(ctx);
   run.promotedRecordId = promoted.id;
   run.rowVersion += 1;
   recordActivity(ctx, actor, {
@@ -1386,7 +1419,40 @@ function approve(
     from: null,
     to: 'approved',
   });
+  deriveSuggestion(ctx, req, run, periodEnd);
   return null;
+}
+
+/** The place of an approval among this session's: one more than the runs approved so far. */
+function nextApprovalOrder(ctx: SimContext): number {
+  let approved = 0;
+  for (const run of ctx.state.runs.values()) if (run.approvalOrder !== undefined) approved += 1;
+  return approved + 1;
+}
+
+/**
+ * What the approval of a statement or a report means for the valuation suggestions (docs/18
+ * section 14, decision 0023), as the system actor: the suggestion of the run's position and
+ * quarter is derived and may be opened, and the other Open suggestions of the position are
+ * derived again. It is called once the run is approved, since a suggestion names an approved
+ * run. A statement linked to no position raises none.
+ */
+function deriveSuggestion(
+  ctx: SimContext,
+  req: { actor: SimActor; credential: string },
+  run: SimRun,
+  periodEnd: string,
+): void {
+  runApproved(ctx, req, {
+    id: run.id,
+    documentId: run.documentId,
+    approvedBy: req.actor.userId,
+    promptVersion: run.promptVersion,
+    modelId: run.modelId,
+    investmentId: run.investmentId,
+    periodEnd,
+    schemaId: run.schemaId,
+  });
 }
 
 /**

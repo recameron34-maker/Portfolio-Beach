@@ -10,6 +10,7 @@ import { UnavailableState } from '../../components/UnavailableState.js';
 import {
   Badge,
   Card,
+  EmptyLine,
   EmptyState,
   Field,
   NumCell,
@@ -27,18 +28,36 @@ import { distinctNames, isOverCalled, unfundedCaveats, unfundedChart } from './n
 import './capital.css';
 import { balanceTiles } from '../../lib/tiles.js';
 
+/** Unfunded, with the over-called word on the figure's line when called beyond the commitment. */
 function UnfundedCell({ row }: { row: FundCommitmentRow }): ReactNode {
   if (!isOverCalled(row)) return <NumCell>{formatMoneyM(row.unfunded)}</NumCell>;
   return (
     <td className="num">
-      <span className="pb-cap-overcalled">
-        {formatMoneyM(row.unfunded)}
-        <span title="Called beyond the commitment amount">
-          <Badge tone="watch">Over-called</Badge>
-        </span>
+      <span className="pb-cap-overcalled" title="Called beyond the commitment amount">
+        <Badge tone="watch">Over-called</Badge>
       </span>
+      {formatMoneyM(row.unfunded)}
     </td>
   );
+}
+
+/**
+ * What identifies a sponsor fund under its name: the sponsor, the vintage and the strategy. A
+ * vintage or strategy the record lacks shows the missing placeholder (docs/06), named for a screen
+ * reader and in its title, since the line has no column header to name it.
+ */
+function fundDetail(row: FundCommitmentRow): ReactNode[] {
+  const missing = (what: string): ReactNode => (
+    <span title={`${what} not recorded`}>
+      <span aria-hidden="true">{MISSING}</span>
+      <span className="pb-visually-hidden">{what} not recorded</span>
+    </span>
+  );
+  return [
+    row.sponsorName,
+    row.vintage === null ? missing('Vintage') : String(row.vintage),
+    row.strategy === null ? missing('Strategy') : labelOf(row.strategy),
+  ];
 }
 
 function UnfundedCard({ list }: { list: CommitmentList }): ReactNode {
@@ -51,7 +70,7 @@ function UnfundedCard({ list }: { list: CommitmentList }): ReactNode {
         Unfunded
       </SectionHeader>
       {largest === undefined ? (
-        <EmptyState
+        <EmptyLine
           title="No unfunded figures yet"
           detail="Unfunded is known once a commitment has a recorded cash flow; none has one yet."
         />
@@ -80,6 +99,11 @@ function UnfundedCard({ list }: { list: CommitmentList }): ReactNode {
   );
 }
 
+/**
+ * One row a commitment, folded to its figures: the sponsor fund with what identifies it under its
+ * name, the vehicle with the client a separate account is for, then the figures and the date it
+ * was committed. The total row is the API's.
+ */
 function CommitmentsTable({
   rows,
   list,
@@ -89,7 +113,6 @@ function CommitmentsTable({
   list: CommitmentList;
   showTotal: boolean;
 }): ReactNode {
-  const hasClient = rows.some((r) => r.clientName !== null);
   const t = list.totals;
   return (
     <TableWrap label="Commitments">
@@ -97,38 +120,38 @@ function CommitmentsTable({
         <thead>
           <tr>
             <th>Sponsor fund</th>
-            <th>Sponsor</th>
             <th>Vehicle</th>
-            <th className="num">Vintage</th>
-            <th>Strategy</th>
-            {hasClient ? <th>Client</th> : null}
             <th className="num">Committed</th>
             <th className="num">Called</th>
             <th className="num">Distributed</th>
             <th className="num">Recallable</th>
             <th className="num">Unfunded</th>
-            <th>Date</th>
+            <th>Committed on</th>
           </tr>
         </thead>
         <tbody>
           {rows.map((r) => (
             <tr key={r.id}>
-              <td className="pb-cap-name">{r.sponsorFundName}</td>
-              <td className="pb-cap-name">{r.sponsorName}</td>
-              <td className="pb-cap-name">{r.vehicleName}</td>
-              <NumCell>{r.vintage === null ? MISSING : String(r.vintage)}</NumCell>
-              <td>{labelOf(r.strategy)}</td>
-              {hasClient ? (
-                <td className={r.clientName === null ? 'is-missing' : 'pb-cap-name'}>
-                  {r.clientName ?? MISSING}
-                </td>
-              ) : null}
+              <td className="pb-cap-fund">
+                {r.sponsorFundName}
+                <span className="pb-cell-sub pb-cap-fund-detail">
+                  {fundDetail(r).map((part, i) => (
+                    <span key={i}>{part}</span>
+                  ))}
+                </span>
+              </td>
+              <td className="pb-cap-vehicle">
+                {/* The API names a client only for a separate account the reader may see; a
+                    pooled vehicle has no one client, so no line stands in for one. */}
+                {r.vehicleName}
+                {r.clientName === null ? null : <span className="pb-cell-sub">{r.clientName}</span>}
+              </td>
               <NumCell>{formatMoneyM(r.amount)}</NumCell>
               <NumCell>{formatMoneyM(r.called)}</NumCell>
               <NumCell>{formatMoneyM(r.distributed)}</NumCell>
               <NumCell>{formatMoneyM(r.recallable)}</NumCell>
               <UnfundedCell row={r} />
-              <td>{formatDate(r.commitmentDate)}</td>
+              <td className="pb-nowrap">{formatDate(r.commitmentDate)}</td>
             </tr>
           ))}
         </tbody>
@@ -136,7 +159,7 @@ function CommitmentsTable({
           <tfoot>
             <tr>
               <th scope="row">Total</th>
-              <td colSpan={hasClient ? 5 : 4} />
+              <td />
               <NumCell>{formatMoneyM(t.amount)}</NumCell>
               <NumCell>{formatMoneyM(t.called)}</NumCell>
               <NumCell>{formatMoneyM(t.distributed)}</NumCell>
@@ -251,7 +274,7 @@ export function CommitmentsPage(): ReactNode {
         )}
         <p className="pb-meta" data-testid="commitments-note">
           Totals sum the commitments whose figures are known; a commitment with no recorded cash
-          flow shows the missing placeholder. Calc version {list.calcVersion} (docs/08).
+          flow shows {MISSING}. Calc version {list.calcVersion}.
         </p>
       </Card>
     </>

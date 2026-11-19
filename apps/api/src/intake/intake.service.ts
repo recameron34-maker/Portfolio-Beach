@@ -31,6 +31,7 @@ import { ACCOUNTING_LAYOUT, ADAPTERS, DEFINITIONS } from '../common/tokens.js';
 import { requireUuid } from '../common/validate.js';
 import { DbService } from '../db/db.service.js';
 import type { AuditEntry } from '../db/db.service.js';
+import { SuggestionDerivationService } from '../suggestions/derivation.service.js';
 import {
   ACCOUNTING_SOURCES,
   NOT_FOUND,
@@ -113,6 +114,7 @@ export class IntakeService {
     @Inject(ADAPTERS) private readonly adapters: AdapterSet,
     @Inject(DEFINITIONS) private readonly definitions: unknown,
     @Inject(ACCOUNTING_LAYOUT) private readonly rawLayout: unknown,
+    private readonly suggestions: SuggestionDerivationService,
   ) {}
 
   /** The exports waiting in the accounting drop folder (the local folder adapter in the prototype). */
@@ -346,6 +348,7 @@ export class IntakeService {
         promptVersion: null,
         modelId: null,
       },
+      suggestions: this.suggestions,
       check: (existing) => {
         if (existing !== null && existing.status !== 'record_status.approved')
           throw quarterPrecondition(

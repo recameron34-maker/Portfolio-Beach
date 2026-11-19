@@ -1,9 +1,18 @@
 import { describe, expect, it } from 'vitest';
-import { all, attempt, flag, forbiddenPairs, requireReason } from './machine.js';
+import {
+  all,
+  attempt,
+  flag,
+  forbiddenPairs,
+  notAmong,
+  notSameAs,
+  requireReason,
+} from './machine.js';
 import type { Check, Machine, TransitionContext, TransitionResult } from './machine.js';
 import type { ClosingState, DealStage } from './machines.js';
 import {
   MACHINES,
+  SUPERSEDED_REASONS,
   capitalNoticeMachine,
   closingMachine,
   dealStageMachine,
@@ -11,7 +20,9 @@ import {
   exceptionMachine,
   extractionRunMachine,
   reportingPackageMachine,
+  underwritingCaseMachine,
   valuationMachine,
+  valuationSuggestionMachine,
   wireInstructionMachine,
 } from './machines.js';
 
@@ -65,6 +76,15 @@ const happyRecord = {
   transientRetries: 0,
   lastErrorKind: 'transient',
   appliedPeriod: '2025-06-30',
+  enteredBy: DEAL,
+  hasSource: true,
+  correctedBySameDate: true,
+  // A version carrying a suggested mark names its source reviewers; none of them acts below.
+  sourceReviewers: [OPS2],
+  hasValue: true,
+  versionInProgress: false,
+  draftOpen: true,
+  supersededReason: 'better_source',
 };
 
 interface CtxOverrides {
@@ -196,6 +216,116 @@ describe('valuation preconditions (docs/18 section 1, SEC-5.6)', () => {
       code: 'precondition',
       message: expect.stringContaining('reason') as string,
     });
+  });
+});
+
+describe('valuation: the source reviewers of a suggested mark (docs/18 sections 1 and 14, SEC-5.6)', () => {
+  const REFUSAL =
+    'valuation: whoever approved or typed a figure behind the suggestion on this valuation cannot approve the valuation (SEC-5.6)';
+  const approve = (actorId: string, record: Record<string, unknown>): TransitionResult<string> =>
+    attempt(
+      valuationMachine,
+      'OpsPrepared',
+      'dealTeamApprove',
+      ctx(['deal_team'], { actorId, record: { ...happyRecord, ...record } }),
+    );
+  const lock = (actorId: string, record: Record<string, unknown>): TransitionResult<string> =>
+    attempt(
+      valuationMachine,
+      'DealTeamApproved',
+      'lock',
+      ctx(['approver'], { actorId, record: { ...happyRecord, ...record } }),
+    );
+
+  it('refuses both approvals to every source reviewer, and to nobody else', () => {
+    const sourceReviewers = [DEAL, HEAD];
+    for (const actorId of sourceReviewers) {
+      expect(approve(actorId, { sourceReviewers })).toEqual({
+        ok: false,
+        code: 'precondition',
+        message: REFUSAL,
+      });
+      expect(lock(actorId, { sourceReviewers })).toEqual({
+        ok: false,
+        code: 'precondition',
+        message: REFUSAL,
+      });
+    }
+    // A second person on the deal team and an approver who reviewed nothing take them.
+    expect(approve(OPS2, { sourceReviewers })).toEqual({ ok: true, to: 'DealTeamApproved' });
+    expect(lock(OPS2, { sourceReviewers })).toEqual({ ok: true, to: 'Locked' });
+  });
+
+  it('bars nobody on a version that names no source reviewers', () => {
+    const { sourceReviewers: _dropped, ...unnamed } = happyRecord;
+    for (const record of [
+      unnamed,
+      { ...unnamed, sourceReviewers: [] },
+      { ...unnamed, sourceReviewers: null },
+    ]) {
+      expect(
+        attempt(
+          valuationMachine,
+          'OpsPrepared',
+          'dealTeamApprove',
+          ctx(['deal_team'], { actorId: DEAL, record }),
+        ),
+      ).toEqual({ ok: true, to: 'DealTeamApproved' });
+      expect(
+        attempt(valuationMachine, 'DealTeamApproved', 'lock', ctx(['approver'], { record })),
+      ).toEqual({ ok: true, to: 'Locked' });
+    }
+  });
+
+  it('never passes on a list it cannot read', () => {
+    // A single id where the list belongs is a mistake of the caller, not a reason to approve.
+    for (const sourceReviewers of [DEAL, { [DEAL]: true }, 0])
+      expect(approve(OPS2, { sourceReviewers })).toEqual({
+        ok: false,
+        code: 'precondition',
+        message: "valuation: the record's sourceReviewers must be a list of people",
+      });
+  });
+
+  it('judges the preparer first, then the source reviewers, then the lock hash', () => {
+    const record = { ...happyRecord, sourceReviewers: [OPS, HEAD], lockHash: '' };
+    // The preparer who also reviewed a source is told they prepared it.
+    expect(approve(OPS, record)).toEqual({
+      ok: false,
+      code: 'precondition',
+      message: 'valuation: the preparer cannot approve their own valuation (SEC-5.6)',
+    });
+    // A source reviewer is refused before the missing hash is.
+    expect(lock(HEAD, record)).toEqual({ ok: false, code: 'precondition', message: REFUSAL });
+    const row = (command: string) =>
+      valuationMachine.transitions.find((t) => t.command === command)?.precondition;
+    expect(
+      checksOf(row('dealTeamApprove')).map((c) => c(ctx(['deal_team'], { actorId: OPS, record }))),
+    ).toEqual([
+      'the preparer cannot approve their own valuation (SEC-5.6)',
+      'whoever approved or typed a figure behind the suggestion on this valuation cannot approve the valuation (SEC-5.6)',
+    ]);
+    expect(
+      checksOf(row('lock')).map((c) => c(ctx(['approver'], { actorId: OPS, record }))),
+    ).toEqual([
+      'the preparer cannot approve their own valuation (SEC-5.6)',
+      'whoever approved or typed a figure behind the suggestion on this valuation cannot approve the valuation (SEC-5.6)',
+      'lock hash must be computed over inputs and value',
+    ]);
+  });
+
+  it('leaves preparing, sending back and reopening to a source reviewer', () => {
+    // The rule is about the two approvals: a reviewer of the source may still do the other steps.
+    const record = { ...happyRecord, sourceReviewers: [HEAD] };
+    for (const [from, command, role] of [
+      ['Draft', 'prepare', 'operations'],
+      ['OpsPrepared', 'sendBack', 'operations'],
+      ['Locked', 'reopen', 'approver'],
+    ] as const)
+      expect(
+        attempt(valuationMachine, from, command, ctx([role], { actorId: HEAD, record })).ok,
+        command,
+      ).toBe(true);
   });
 });
 
@@ -893,6 +1023,429 @@ describe('closing (docs/18 section 12, M8)', () => {
         code: 'forbidden',
         message: `closing: ${command} is not allowed from ${from}`,
       });
+  });
+});
+
+describe('underwritten base case (docs/18 section 13, SEC-5.6, SEC-9.1, SEC-9.4)', () => {
+  const DEAL2 = '10000000-0000-4000-8000-00000000000a';
+  const confirm = (roles: string[], extra: CtxOverrides = {}): TransitionResult<string> =>
+    attempt(underwritingCaseMachine, 'Draft', 'confirm', ctx(roles, extra));
+
+  it('is in the registry under its table name; Superseded and Withdrawn are terminal', () => {
+    expect(MACHINES.underwritingCase).toBe(underwritingCaseMachine);
+    expect(underwritingCaseMachine.name).toBe('underwriting_case');
+    expect(underwritingCaseMachine.states).toEqual([
+      'Draft',
+      'Confirmed',
+      'Superseded',
+      'Withdrawn',
+    ]);
+    expect(underwritingCaseMachine.commands).toEqual([
+      'confirm',
+      'withdraw',
+      'supersede',
+      'retire',
+    ]);
+    expect(underwritingCaseMachine.initial).toBe('Draft');
+    expect(underwritingCaseMachine.terminal).toEqual(['Superseded', 'Withdrawn']);
+  });
+
+  it('lists exactly the four moves of the table, each with its roles', () => {
+    expect(
+      underwritingCaseMachine.transitions.map(
+        (t) => `${t.from} ${t.command} ${t.to}: ${t.roles.join(', ')}`,
+      ),
+    ).toEqual([
+      'Draft confirm Confirmed: deal_team, approver',
+      'Draft withdraw Withdrawn: deal_team',
+      'Confirmed supersede Superseded: service',
+      'Confirmed retire Withdrawn: approver',
+    ]);
+  });
+
+  it('is confirmed by a second person: the deal team or an approver, never the last editor', () => {
+    // The person who entered the figures is refused, whatever role they hold.
+    for (const role of ['deal_team', 'approver'])
+      expect(confirm([role], { actorId: DEAL })).toEqual({
+        ok: false,
+        code: 'precondition',
+        message:
+          'underwriting_case: the person who last changed the figures cannot confirm them (SEC-5.6)',
+      });
+    expect(confirm(['deal_team'], { actorId: DEAL2 })).toEqual({ ok: true, to: 'Confirmed' });
+    expect(confirm(['approver'], { actorId: HEAD })).toEqual({ ok: true, to: 'Confirmed' });
+  });
+
+  it('A creates, B edits, B confirms: refused, because every edit makes its editor the last one', () => {
+    // enteredBy is the last person to change the figures, not the first: the record after each step.
+    const created = { ...happyRecord, enteredBy: DEAL };
+    const edited = { ...created, enteredBy: DEAL2 };
+    // Before the edit B is a second person and may confirm what A entered.
+    expect(confirm(['deal_team'], { actorId: DEAL2, record: created })).toEqual({
+      ok: true,
+      to: 'Confirmed',
+    });
+    // After it B confirms nothing: the figures are B's.
+    expect(confirm(['deal_team'], { actorId: DEAL2, record: edited })).toEqual({
+      ok: false,
+      code: 'precondition',
+      message:
+        'underwriting_case: the person who last changed the figures cannot confirm them (SEC-5.6)',
+    });
+    // A is now the second person for B's figures, and an approver always was.
+    expect(confirm(['deal_team'], { actorId: DEAL, record: edited })).toEqual({
+      ok: true,
+      to: 'Confirmed',
+    });
+    expect(confirm(['approver'], { actorId: HEAD, record: edited })).toEqual({
+      ok: true,
+      to: 'Confirmed',
+    });
+  });
+
+  it('is confirmed only once it names its source', () => {
+    const noSource = {
+      ok: false,
+      code: 'precondition',
+      message:
+        'underwriting_case: a base case names its source before it is confirmed: a document of the position or a note on where the model is held (SEC-9.4)',
+    };
+    expect(confirm(['approver'], { record: { ...happyRecord, hasSource: false } })).toEqual(
+      noSource,
+    );
+    const { hasSource: _dropped, ...unknownSource } = happyRecord;
+    expect(confirm(['approver'], { record: unknownSource })).toEqual(noSource);
+    // The second-person check comes first, and both stay listed.
+    const row = underwritingCaseMachine.transitions.find((t) => t.command === 'confirm');
+    expect(
+      checksOf(row?.precondition).map((c) =>
+        c(ctx(['deal_team'], { actorId: DEAL, record: { ...happyRecord, hasSource: false } })),
+      ),
+    ).toEqual([
+      'the person who last changed the figures cannot confirm them (SEC-5.6)',
+      'a base case names its source before it is confirmed: a document of the position or a note on where the model is held (SEC-9.4)',
+    ]);
+  });
+
+  it('withdrawing a Draft and retiring a Confirmed case each need a reason', () => {
+    for (const [from, command, role] of [
+      ['Draft', 'withdraw', 'deal_team'],
+      ['Confirmed', 'retire', 'approver'],
+    ] as const) {
+      expect(attempt(underwritingCaseMachine, from, command, ctx([role]))).toEqual({
+        ok: true,
+        to: 'Withdrawn',
+      });
+      for (const reason of [null, '', '   '])
+        expect(attempt(underwritingCaseMachine, from, command, ctx([role], { reason }))).toEqual({
+          ok: false,
+          code: 'precondition',
+          message: 'underwriting_case: a reason is required',
+        });
+      const row = underwritingCaseMachine.transitions.find((t) => t.command === command);
+      expect(row?.precondition).toBe(requireReason);
+    }
+  });
+
+  it('the person who entered a Draft may withdraw it: withdrawing takes no second person', () => {
+    expect(
+      attempt(underwritingCaseMachine, 'Draft', 'withdraw', ctx(['deal_team'], { actorId: DEAL })),
+    ).toEqual({ ok: true, to: 'Withdrawn' });
+  });
+
+  it('a Confirmed case is superseded only by the confirmation of a correction, as a system step', () => {
+    const supersede = (roles: string[], correctedBySameDate: boolean): TransitionResult<string> =>
+      attempt(
+        underwritingCaseMachine,
+        'Confirmed',
+        'supersede',
+        ctx(roles, { record: { ...happyRecord, correctedBySameDate } }),
+      );
+    expect(supersede(['service'], true)).toEqual({ ok: true, to: 'Superseded' });
+    // A re-underwriting on a later date leaves the case as it is.
+    expect(supersede(['service'], false)).toEqual({
+      ok: false,
+      code: 'precondition',
+      message:
+        'underwriting_case: only the confirmation of a later version with the same case date supersedes a base case',
+    });
+    // Never a caller's command: no sign-in carries the service role.
+    for (const role of EVERY_ROLE.filter((r) => r !== 'service'))
+      expect(supersede([role], true), role).toEqual({
+        ok: false,
+        code: 'role',
+        message: 'underwriting_case: supersede from Confirmed requires one of: service',
+      });
+  });
+
+  it('refuses every role the row does not name, on every row', () => {
+    for (const t of underwritingCaseMachine.transitions)
+      for (const role of EVERY_ROLE.filter((r) => !t.roles.includes(r)))
+        expect(
+          attempt(underwritingCaseMachine, t.from, t.command, ctx([role])),
+          `${role} ${t.command} from ${t.from}`,
+        ).toMatchObject({ ok: false, code: 'role' });
+    // The moves a role might expect and does not have.
+    expect(attempt(underwritingCaseMachine, 'Draft', 'withdraw', ctx(['approver']))).toMatchObject({
+      ok: false,
+      code: 'role',
+    });
+    expect(
+      attempt(underwritingCaseMachine, 'Confirmed', 'retire', ctx(['deal_team'])),
+    ).toMatchObject({ ok: false, code: 'role' });
+    expect(attempt(underwritingCaseMachine, 'Draft', 'confirm', ctx(['operations']))).toMatchObject(
+      { ok: false, code: 'role' },
+    );
+  });
+
+  it('rejects the twelve (state, command) pairs the table does not list, for an actor holding every role', () => {
+    const forbidden = forbiddenPairs(underwritingCaseMachine);
+    expect(forbidden).toEqual([
+      { from: 'Draft', command: 'supersede' },
+      { from: 'Draft', command: 'retire' },
+      { from: 'Confirmed', command: 'confirm' },
+      { from: 'Confirmed', command: 'withdraw' },
+      { from: 'Superseded', command: 'confirm' },
+      { from: 'Superseded', command: 'withdraw' },
+      { from: 'Superseded', command: 'supersede' },
+      { from: 'Superseded', command: 'retire' },
+      { from: 'Withdrawn', command: 'confirm' },
+      { from: 'Withdrawn', command: 'withdraw' },
+      { from: 'Withdrawn', command: 'supersede' },
+      { from: 'Withdrawn', command: 'retire' },
+    ]);
+    for (const { from, command } of forbidden)
+      expect(attempt(underwritingCaseMachine, from, command, ctx(EVERY_ROLE))).toEqual({
+        ok: false,
+        code: 'forbidden',
+        message: `underwriting_case: ${command} is not allowed from ${from}`,
+      });
+  });
+
+  it('never moves a case back: no row leads to Draft and none leaves a terminal state', () => {
+    for (const t of underwritingCaseMachine.transitions) {
+      expect(t.to).not.toBe('Draft');
+      expect(['Superseded', 'Withdrawn']).not.toContain(t.from);
+    }
+  });
+});
+
+describe('valuation suggestion (docs/18 section 14, SEC-9.1)', () => {
+  const act = (
+    command: 'accept' | 'applyToDraft' | 'dismiss' | 'supersede',
+    roles: string[],
+    extra: CtxOverrides = {},
+  ): TransitionResult<string> =>
+    attempt(valuationSuggestionMachine, 'Open', command, ctx(roles, extra));
+  const refusal = (message: string) => ({
+    ok: false,
+    code: 'precondition',
+    message: `valuation_suggestion: ${message}`,
+  });
+  const NO_VALUE = 'the suggestion has no value, so there is nothing to put on a valuation';
+
+  it('is in the registry under its table name; every decided state is terminal', () => {
+    expect(MACHINES.valuationSuggestion).toBe(valuationSuggestionMachine);
+    expect(valuationSuggestionMachine.name).toBe('valuation_suggestion');
+    expect(valuationSuggestionMachine.states).toEqual([
+      'Open',
+      'Accepted',
+      'Dismissed',
+      'Superseded',
+    ]);
+    expect(valuationSuggestionMachine.commands).toEqual([
+      'accept',
+      'applyToDraft',
+      'dismiss',
+      'supersede',
+    ]);
+    expect(valuationSuggestionMachine.initial).toBe('Open');
+    expect(valuationSuggestionMachine.terminal).toEqual(['Accepted', 'Dismissed', 'Superseded']);
+  });
+
+  it('lists exactly the four moves of the table, each with its roles', () => {
+    expect(
+      valuationSuggestionMachine.transitions.map(
+        (t) => `${t.from} ${t.command} ${t.to}: ${t.roles.join(', ')}`,
+      ),
+    ).toEqual([
+      'Open accept Accepted: operations',
+      'Open applyToDraft Accepted: operations',
+      'Open dismiss Dismissed: operations',
+      'Open supersede Superseded: service',
+    ]);
+  });
+
+  it('is accepted only with a value and with no version in progress for the quarter', () => {
+    expect(act('accept', ['operations'])).toEqual({ ok: true, to: 'Accepted' });
+    expect(act('accept', ['operations'], { record: { ...happyRecord, hasValue: false } })).toEqual(
+      refusal(NO_VALUE),
+    );
+    // The valuation workflow's own sentence for a second version of a quarter.
+    const inProgress = refusal(
+      'a version for this investment and quarter is already in progress; continue that version',
+    );
+    expect(
+      act('accept', ['operations'], { record: { ...happyRecord, versionInProgress: true } }),
+    ).toEqual(inProgress);
+    // A record that does not say is not taken for a quarter with no version.
+    const { versionInProgress: _dropped, ...silent } = happyRecord;
+    expect(act('accept', ['operations'], { record: silent })).toEqual(inProgress);
+    // The value is judged first, and both checks stay listed.
+    const row = valuationSuggestionMachine.transitions.find((t) => t.command === 'accept');
+    expect(
+      checksOf(row?.precondition).map((c) =>
+        c(ctx(['operations'], { record: { hasValue: false, versionInProgress: true } })),
+      ),
+    ).toEqual([
+      NO_VALUE,
+      'a version for this investment and quarter is already in progress; continue that version',
+    ]);
+  });
+
+  it('is put on a draft only with a value and with a Draft open for the quarter', () => {
+    expect(act('applyToDraft', ['operations'])).toEqual({ ok: true, to: 'Accepted' });
+    expect(
+      act('applyToDraft', ['operations'], { record: { ...happyRecord, hasValue: false } }),
+    ).toEqual(refusal(NO_VALUE));
+    const noDraft = refusal(
+      'no Draft is open for this investment and quarter; only a Draft can take a suggested value',
+    );
+    expect(
+      act('applyToDraft', ['operations'], { record: { ...happyRecord, draftOpen: false } }),
+    ).toEqual(noDraft);
+    const { draftOpen: _dropped, ...silent } = happyRecord;
+    expect(act('applyToDraft', ['operations'], { record: silent })).toEqual(noDraft);
+    // A Draft in progress takes the value through applyToDraft, never through accept.
+    const withDraft = { ...happyRecord, versionInProgress: true, draftOpen: true };
+    expect(act('applyToDraft', ['operations'], { record: withDraft })).toEqual({
+      ok: true,
+      to: 'Accepted',
+    });
+    expect(act('accept', ['operations'], { record: withDraft }).ok).toBe(false);
+  });
+
+  it('is dismissed only with a reason', () => {
+    expect(act('dismiss', ['operations'])).toEqual({ ok: true, to: 'Dismissed' });
+    for (const reason of [null, '', '   '])
+      expect(act('dismiss', ['operations'], { reason })).toEqual(refusal('a reason is required'));
+    const row = valuationSuggestionMachine.transitions.find((t) => t.command === 'dismiss');
+    expect(row?.precondition).toBe(requireReason);
+  });
+
+  it('with no value can be dismissed or superseded, never put on a valuation', () => {
+    // "Not calculable" is data, not a state: such a suggestion is Open like any other.
+    const record = { ...happyRecord, hasValue: false };
+    expect(act('dismiss', ['operations'], { record })).toEqual({ ok: true, to: 'Dismissed' });
+    expect(act('supersede', ['service'], { record })).toEqual({ ok: true, to: 'Superseded' });
+    expect(act('accept', ['operations'], { record })).toEqual(refusal(NO_VALUE));
+    expect(act('applyToDraft', ['operations'], { record })).toEqual(refusal(NO_VALUE));
+  });
+
+  it('is superseded only as a system step, and only for one of the four reasons', () => {
+    expect(SUPERSEDED_REASONS).toEqual([
+      'better_source',
+      'figures_changed',
+      'mark_locked',
+      'position_closed',
+    ]);
+    for (const supersededReason of SUPERSEDED_REASONS)
+      expect(
+        act('supersede', ['service'], { record: { ...happyRecord, supersededReason } }),
+        supersededReason,
+      ).toEqual({ ok: true, to: 'Superseded' });
+    const unnamed = refusal(
+      'a superseded suggestion names why: a better source, changed figures, a Locked mark or a closed position',
+    );
+    const { supersededReason: _dropped, ...silent } = happyRecord;
+    for (const record of [
+      silent,
+      { ...silent, supersededReason: null },
+      { ...silent, supersededReason: '' },
+      { ...silent, supersededReason: 'dismissed' },
+      { ...silent, supersededReason: ['better_source'] },
+    ])
+      expect(act('supersede', ['service'], { record })).toEqual(unnamed);
+    // Never a caller's command: no sign-in carries the service role.
+    for (const role of EVERY_ROLE.filter((r) => r !== 'service'))
+      expect(act('supersede', [role]), role).toEqual({
+        ok: false,
+        code: 'role',
+        message: 'valuation_suggestion: supersede from Open requires one of: service',
+      });
+  });
+
+  it('refuses every role the row does not name, on every row', () => {
+    for (const t of valuationSuggestionMachine.transitions)
+      for (const role of EVERY_ROLE.filter((r) => !t.roles.includes(r)))
+        expect(
+          attempt(valuationSuggestionMachine, t.from, t.command, ctx([role])),
+          `${role} ${t.command} from ${t.from}`,
+        ).toMatchObject({ ok: false, code: 'role' });
+    // The readers of a suggestion decide nothing, and the system actor decides nothing for a person.
+    for (const role of ['deal_team', 'approver', 'auditor', 'service'])
+      for (const command of ['accept', 'applyToDraft', 'dismiss'] as const)
+        expect(act(command, [role]), `${role} ${command}`).toEqual({
+          ok: false,
+          code: 'role',
+          message: `valuation_suggestion: ${command} from Open requires one of: operations`,
+        });
+  });
+
+  it('rejects the twelve (state, command) pairs the table does not list, for an actor holding every role', () => {
+    const forbidden = forbiddenPairs(valuationSuggestionMachine);
+    expect(forbidden).toEqual(
+      (['Accepted', 'Dismissed', 'Superseded'] as const).flatMap((from) =>
+        (['accept', 'applyToDraft', 'dismiss', 'supersede'] as const).map((command) => ({
+          from,
+          command,
+        })),
+      ),
+    );
+    expect(forbidden).toHaveLength(12);
+    for (const { from, command } of forbidden)
+      expect(attempt(valuationSuggestionMachine, from, command, ctx(EVERY_ROLE))).toEqual({
+        ok: false,
+        code: 'forbidden',
+        message: `valuation_suggestion: ${command} is not allowed from ${from}`,
+      });
+  });
+
+  it('never reopens a decided suggestion: every row leaves Open and none returns to it', () => {
+    for (const t of valuationSuggestionMachine.transitions) {
+      expect(t.from).toBe('Open');
+      expect(t.to).not.toBe('Open');
+    }
+  });
+});
+
+describe('notAmong: the actor is not one of the people a record lists', () => {
+  const check = notAmong('reviewers', 'a reviewer cannot approve');
+  const as = (actorId: string, record: TransitionContext['record']): string | null =>
+    check({ actorId, actorRoles: [], record });
+
+  it('refuses a person on the list and passes anyone else', () => {
+    expect(as('a', { reviewers: ['a', 'b'] })).toBe('a reviewer cannot approve');
+    expect(as('b', { reviewers: ['a', 'b'] })).toBe('a reviewer cannot approve');
+    expect(as('c', { reviewers: ['a', 'b'] })).toBeNull();
+  });
+
+  it('bars nobody with an absent list or an empty one, as notSameAs passes an absent key', () => {
+    expect(as('a', {})).toBeNull();
+    expect(as('a', { reviewers: undefined })).toBeNull();
+    expect(as('a', { reviewers: null })).toBeNull();
+    expect(as('a', { reviewers: [] })).toBeNull();
+    expect(as('a', { others: ['a'] })).toBeNull();
+    const same = notSameAs('reviewer', 'the reviewer cannot approve');
+    expect(same({ actorId: 'a', actorRoles: [], record: {} })).toBeNull();
+    // With nothing done yet the rule has nothing to say, as a page listing the rules expects.
+    expect(as('', {})).toBeNull();
+  });
+
+  it('refuses a value that is there and is not a list, whoever asks', () => {
+    for (const reviewers of ['a', 'a,b', { a: true }, 1, true])
+      for (const actorId of ['a', 'c'])
+        expect(as(actorId, { reviewers })).toBe("the record's reviewers must be a list of people");
   });
 });
 

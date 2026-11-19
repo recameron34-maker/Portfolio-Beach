@@ -1,0 +1,1677 @@
+{
+  "id": "29_statement_mark",
+  "function": "statement_mark",
+  "note": "The mark a capital account statement gives, by hand (docs/08 section 12, rule 12.1). Lines are as read, in the unit read, and converted to dollars first; the tie tolerance is 1 for dollars, 2,500 for thousands, 25,000 for millions and 25,000,000 for billions, and contributions differ beyond 2% of the record. Case 1, worked example 1: our own account in US$ millions, 18.42 + 2.00 - 0.35 + 0.87 = 20.94, so the lines add up and S = 20,940,000; contributions to date of 12.40 agree with the 12,400,000.00 on record (worked example 8). Cases 2 and 3, worked example 2: a net gain of 0.89 leaves the lines 20,000 apart (inside 25,000, they tie) and 0.92 leaves them 50,000 apart (they do not); S is unchanged. Case 4, worked example 3: the whole vehicle at a 25% share, 83.76 x 0.25 = 20.94; our part of the lines is 18,420,000, 2,000,000 and 350,000 and of the contributions to date 49.60 x 0.25 = 12,400,000. Case 5, worked example 8: a statement showing 30.00 against 12,400,000 is 17,600,000 over, 141.93548387%. Cases 6 and 7: lines 25,000.00 apart are on the tolerance and tie; 25,000.01 apart do not. Cases 8 and 9: read in dollars, 1.00 apart ties and 1.01 does not (fixture 11's tolerance). Cases 10 and 11: read in thousands, 2,000 apart ties and 3,000 does not. Case 12: read in billions, 10,000,000 apart ties. Case 13: four lines in thousands and the ending balance in millions; the coarsest unit read sets the tolerance (25,000), and the contributions to date, read in dollars, are no part of it. Case 14: no net gain stated, so there is no answer on the tie and S stands. Case 15: no ending balance, with a share of 150%: the first reason is given, and the contributions are not checked because the share is out of range. Cases 16 and 17: an ending balance of zero, and one of -500,000 with a share of zero: both are non_positive_balance. Cases 18 to 20: a share of 0, of -25% and of 100.01% is out of range; our part of no line is worked out. Case 21: a share of exactly 1 is in range: S is the balance, and the lines were not read as our own account. Case 22: 1,000,000.01 x 0.3333 = 333,300.003333, so 333,300.00; our part of the beginning balance is 900,000 x 0.3333 = 299,970.00 and of the contributions 33,330.00. Case 23: 100.01 x 0.5 = 50.005, half a cent, rounds up to 50.01. Case 24: 0.01 x 0.1 = 0.001 is under half a cent: no value (value_not_positive). Case 25: nothing on record, so the contributions are not checked. Cases 26 to 28: 12,648,000 is 2% over the record and 12,152,000 2% under, both on the edge and agreeing; a cent over the upper edge is 0.0200000008 and differs. Cases 29 and 30: against a record of 1,000,000,000.00, 1,020,000,000.04 is 0.02000000004 and travels as 0.02 (they agree: the check is judged on the percent as it travels); 1,020,000,000.05 travels as 0.0200000001 and differs. Case 31: contributions to date of 6.20 are half the record, -50%: they differ.",
+  "tolerance": "0",
+  "input": {
+    "settings": {
+      "rollForwardToleranceUsd": "1",
+      "tieToleranceByUnit": {
+        "USD_K": "2500",
+        "USD_M": "25000",
+        "USD_B": "25000000"
+      },
+      "contributionsTolerancePct": "0.02"
+    },
+    "cases": [
+      {
+        "lines": {
+          "beginningBalance": {
+            "value": "18.42",
+            "unit": "USD_M"
+          },
+          "contributionsInPeriod": {
+            "value": "2.00",
+            "unit": "USD_M"
+          },
+          "distributionsInPeriod": {
+            "value": "0.35",
+            "unit": "USD_M"
+          },
+          "netGainLoss": {
+            "value": "0.87",
+            "unit": "USD_M"
+          },
+          "endingBalance": {
+            "value": "20.94",
+            "unit": "USD_M"
+          },
+          "contributionsToDate": {
+            "value": "12.40",
+            "unit": "USD_M"
+          }
+        },
+        "share": null,
+        "recordContributions": "12400000.00"
+      },
+      {
+        "lines": {
+          "beginningBalance": {
+            "value": "18.42",
+            "unit": "USD_M"
+          },
+          "contributionsInPeriod": {
+            "value": "2.00",
+            "unit": "USD_M"
+          },
+          "distributionsInPeriod": {
+            "value": "0.35",
+            "unit": "USD_M"
+          },
+          "netGainLoss": {
+            "value": "0.89",
+            "unit": "USD_M"
+          },
+          "endingBalance": {
+            "value": "20.94",
+            "unit": "USD_M"
+          },
+          "contributionsToDate": null
+        },
+        "share": null,
+        "recordContributions": "12400000.00"
+      },
+      {
+        "lines": {
+          "beginningBalance": {
+            "value": "18.42",
+            "unit": "USD_M"
+          },
+          "contributionsInPeriod": {
+            "value": "2.00",
+            "unit": "USD_M"
+          },
+          "distributionsInPeriod": {
+            "value": "0.35",
+            "unit": "USD_M"
+          },
+          "netGainLoss": {
+            "value": "0.92",
+            "unit": "USD_M"
+          },
+          "endingBalance": {
+            "value": "20.94",
+            "unit": "USD_M"
+          },
+          "contributionsToDate": null
+        },
+        "share": null,
+        "recordContributions": "12400000.00"
+      },
+      {
+        "lines": {
+          "beginningBalance": {
+            "value": "73.68",
+            "unit": "USD_M"
+          },
+          "contributionsInPeriod": {
+            "value": "8.00",
+            "unit": "USD_M"
+          },
+          "distributionsInPeriod": {
+            "value": "1.40",
+            "unit": "USD_M"
+          },
+          "netGainLoss": {
+            "value": "3.48",
+            "unit": "USD_M"
+          },
+          "endingBalance": {
+            "value": "83.76",
+            "unit": "USD_M"
+          },
+          "contributionsToDate": {
+            "value": "49.60",
+            "unit": "USD_M"
+          }
+        },
+        "share": "0.25",
+        "recordContributions": "12400000.00"
+      },
+      {
+        "lines": {
+          "beginningBalance": {
+            "value": "18.42",
+            "unit": "USD_M"
+          },
+          "contributionsInPeriod": {
+            "value": "2.00",
+            "unit": "USD_M"
+          },
+          "distributionsInPeriod": {
+            "value": "0.35",
+            "unit": "USD_M"
+          },
+          "netGainLoss": {
+            "value": "0.87",
+            "unit": "USD_M"
+          },
+          "endingBalance": {
+            "value": "20.94",
+            "unit": "USD_M"
+          },
+          "contributionsToDate": {
+            "value": "30.00",
+            "unit": "USD_M"
+          }
+        },
+        "share": null,
+        "recordContributions": "12400000.00"
+      },
+      {
+        "lines": {
+          "beginningBalance": {
+            "value": "10.00",
+            "unit": "USD_M"
+          },
+          "contributionsInPeriod": {
+            "value": "0.00",
+            "unit": "USD_M"
+          },
+          "distributionsInPeriod": {
+            "value": "0.00",
+            "unit": "USD_M"
+          },
+          "netGainLoss": {
+            "value": "1.00",
+            "unit": "USD_M"
+          },
+          "endingBalance": {
+            "value": "11.025",
+            "unit": "USD_M"
+          },
+          "contributionsToDate": null
+        },
+        "share": null,
+        "recordContributions": "12400000.00"
+      },
+      {
+        "lines": {
+          "beginningBalance": {
+            "value": "10.00",
+            "unit": "USD_M"
+          },
+          "contributionsInPeriod": {
+            "value": "0.00",
+            "unit": "USD_M"
+          },
+          "distributionsInPeriod": {
+            "value": "0.00",
+            "unit": "USD_M"
+          },
+          "netGainLoss": {
+            "value": "1.00",
+            "unit": "USD_M"
+          },
+          "endingBalance": {
+            "value": "11.02500001",
+            "unit": "USD_M"
+          },
+          "contributionsToDate": null
+        },
+        "share": null,
+        "recordContributions": "12400000.00"
+      },
+      {
+        "lines": {
+          "beginningBalance": {
+            "value": "18420000.00",
+            "unit": "USD"
+          },
+          "contributionsInPeriod": {
+            "value": "2000000.00",
+            "unit": "USD"
+          },
+          "distributionsInPeriod": {
+            "value": "350000.00",
+            "unit": "USD"
+          },
+          "netGainLoss": {
+            "value": "870000.00",
+            "unit": "USD"
+          },
+          "endingBalance": {
+            "value": "20940001.00",
+            "unit": "USD"
+          },
+          "contributionsToDate": null
+        },
+        "share": null,
+        "recordContributions": "12400000.00"
+      },
+      {
+        "lines": {
+          "beginningBalance": {
+            "value": "18420000.00",
+            "unit": "USD"
+          },
+          "contributionsInPeriod": {
+            "value": "2000000.00",
+            "unit": "USD"
+          },
+          "distributionsInPeriod": {
+            "value": "350000.00",
+            "unit": "USD"
+          },
+          "netGainLoss": {
+            "value": "870000.00",
+            "unit": "USD"
+          },
+          "endingBalance": {
+            "value": "20940001.01",
+            "unit": "USD"
+          },
+          "contributionsToDate": null
+        },
+        "share": null,
+        "recordContributions": "12400000.00"
+      },
+      {
+        "lines": {
+          "beginningBalance": {
+            "value": "18420",
+            "unit": "USD_K"
+          },
+          "contributionsInPeriod": {
+            "value": "2000",
+            "unit": "USD_K"
+          },
+          "distributionsInPeriod": {
+            "value": "350",
+            "unit": "USD_K"
+          },
+          "netGainLoss": {
+            "value": "872",
+            "unit": "USD_K"
+          },
+          "endingBalance": {
+            "value": "20940",
+            "unit": "USD_K"
+          },
+          "contributionsToDate": null
+        },
+        "share": null,
+        "recordContributions": "12400000.00"
+      },
+      {
+        "lines": {
+          "beginningBalance": {
+            "value": "18420",
+            "unit": "USD_K"
+          },
+          "contributionsInPeriod": {
+            "value": "2000",
+            "unit": "USD_K"
+          },
+          "distributionsInPeriod": {
+            "value": "350",
+            "unit": "USD_K"
+          },
+          "netGainLoss": {
+            "value": "873",
+            "unit": "USD_K"
+          },
+          "endingBalance": {
+            "value": "20940",
+            "unit": "USD_K"
+          },
+          "contributionsToDate": null
+        },
+        "share": null,
+        "recordContributions": "12400000.00"
+      },
+      {
+        "lines": {
+          "beginningBalance": {
+            "value": "1.84",
+            "unit": "USD_B"
+          },
+          "contributionsInPeriod": {
+            "value": "0.20",
+            "unit": "USD_B"
+          },
+          "distributionsInPeriod": {
+            "value": "0.04",
+            "unit": "USD_B"
+          },
+          "netGainLoss": {
+            "value": "0.09",
+            "unit": "USD_B"
+          },
+          "endingBalance": {
+            "value": "2.10",
+            "unit": "USD_B"
+          },
+          "contributionsToDate": null
+        },
+        "share": null,
+        "recordContributions": "12400000.00"
+      },
+      {
+        "lines": {
+          "beginningBalance": {
+            "value": "18420",
+            "unit": "USD_K"
+          },
+          "contributionsInPeriod": {
+            "value": "2000",
+            "unit": "USD_K"
+          },
+          "distributionsInPeriod": {
+            "value": "350",
+            "unit": "USD_K"
+          },
+          "netGainLoss": {
+            "value": "890",
+            "unit": "USD_K"
+          },
+          "endingBalance": {
+            "value": "20.94",
+            "unit": "USD_M"
+          },
+          "contributionsToDate": {
+            "value": "12400000.00",
+            "unit": "USD"
+          }
+        },
+        "share": null,
+        "recordContributions": "12400000.00"
+      },
+      {
+        "lines": {
+          "beginningBalance": {
+            "value": "18.42",
+            "unit": "USD_M"
+          },
+          "contributionsInPeriod": {
+            "value": "2.00",
+            "unit": "USD_M"
+          },
+          "distributionsInPeriod": {
+            "value": "0.35",
+            "unit": "USD_M"
+          },
+          "netGainLoss": null,
+          "endingBalance": {
+            "value": "20.94",
+            "unit": "USD_M"
+          },
+          "contributionsToDate": null
+        },
+        "share": null,
+        "recordContributions": "12400000.00"
+      },
+      {
+        "lines": {
+          "beginningBalance": {
+            "value": "18.42",
+            "unit": "USD_M"
+          },
+          "contributionsInPeriod": {
+            "value": "2.00",
+            "unit": "USD_M"
+          },
+          "distributionsInPeriod": {
+            "value": "0.35",
+            "unit": "USD_M"
+          },
+          "netGainLoss": {
+            "value": "0.87",
+            "unit": "USD_M"
+          },
+          "endingBalance": null,
+          "contributionsToDate": {
+            "value": "12.40",
+            "unit": "USD_M"
+          }
+        },
+        "share": "1.5",
+        "recordContributions": "12400000.00"
+      },
+      {
+        "lines": {
+          "beginningBalance": {
+            "value": "18.42",
+            "unit": "USD_M"
+          },
+          "contributionsInPeriod": {
+            "value": "0.00",
+            "unit": "USD_M"
+          },
+          "distributionsInPeriod": {
+            "value": "18.42",
+            "unit": "USD_M"
+          },
+          "netGainLoss": {
+            "value": "0.00",
+            "unit": "USD_M"
+          },
+          "endingBalance": {
+            "value": "0.00",
+            "unit": "USD_M"
+          },
+          "contributionsToDate": null
+        },
+        "share": null,
+        "recordContributions": "12400000.00"
+      },
+      {
+        "lines": {
+          "beginningBalance": {
+            "value": "1.00",
+            "unit": "USD_M"
+          },
+          "contributionsInPeriod": {
+            "value": "0.00",
+            "unit": "USD_M"
+          },
+          "distributionsInPeriod": {
+            "value": "0.00",
+            "unit": "USD_M"
+          },
+          "netGainLoss": {
+            "value": "-1.50",
+            "unit": "USD_M"
+          },
+          "endingBalance": {
+            "value": "-0.50",
+            "unit": "USD_M"
+          },
+          "contributionsToDate": {
+            "value": "12.40",
+            "unit": "USD_M"
+          }
+        },
+        "share": "0",
+        "recordContributions": "12400000.00"
+      },
+      {
+        "lines": {
+          "beginningBalance": {
+            "value": "73.68",
+            "unit": "USD_M"
+          },
+          "contributionsInPeriod": {
+            "value": "8.00",
+            "unit": "USD_M"
+          },
+          "distributionsInPeriod": {
+            "value": "1.40",
+            "unit": "USD_M"
+          },
+          "netGainLoss": {
+            "value": "3.48",
+            "unit": "USD_M"
+          },
+          "endingBalance": {
+            "value": "83.76",
+            "unit": "USD_M"
+          },
+          "contributionsToDate": {
+            "value": "49.60",
+            "unit": "USD_M"
+          }
+        },
+        "share": "0",
+        "recordContributions": "12400000.00"
+      },
+      {
+        "lines": {
+          "beginningBalance": {
+            "value": "73.68",
+            "unit": "USD_M"
+          },
+          "contributionsInPeriod": {
+            "value": "8.00",
+            "unit": "USD_M"
+          },
+          "distributionsInPeriod": {
+            "value": "1.40",
+            "unit": "USD_M"
+          },
+          "netGainLoss": {
+            "value": "3.48",
+            "unit": "USD_M"
+          },
+          "endingBalance": {
+            "value": "83.76",
+            "unit": "USD_M"
+          },
+          "contributionsToDate": null
+        },
+        "share": "-0.25",
+        "recordContributions": "12400000.00"
+      },
+      {
+        "lines": {
+          "beginningBalance": {
+            "value": "73.68",
+            "unit": "USD_M"
+          },
+          "contributionsInPeriod": {
+            "value": "8.00",
+            "unit": "USD_M"
+          },
+          "distributionsInPeriod": {
+            "value": "1.40",
+            "unit": "USD_M"
+          },
+          "netGainLoss": {
+            "value": "3.48",
+            "unit": "USD_M"
+          },
+          "endingBalance": {
+            "value": "83.76",
+            "unit": "USD_M"
+          },
+          "contributionsToDate": {
+            "value": "49.60",
+            "unit": "USD_M"
+          }
+        },
+        "share": "1.0001",
+        "recordContributions": "12400000.00"
+      },
+      {
+        "lines": {
+          "beginningBalance": {
+            "value": "18.42",
+            "unit": "USD_M"
+          },
+          "contributionsInPeriod": {
+            "value": "2.00",
+            "unit": "USD_M"
+          },
+          "distributionsInPeriod": {
+            "value": "0.35",
+            "unit": "USD_M"
+          },
+          "netGainLoss": {
+            "value": "0.87",
+            "unit": "USD_M"
+          },
+          "endingBalance": {
+            "value": "20.94",
+            "unit": "USD_M"
+          },
+          "contributionsToDate": {
+            "value": "12.40",
+            "unit": "USD_M"
+          }
+        },
+        "share": "1",
+        "recordContributions": "12400000.00"
+      },
+      {
+        "lines": {
+          "beginningBalance": {
+            "value": "900000.00",
+            "unit": "USD"
+          },
+          "contributionsInPeriod": {
+            "value": "100000.00",
+            "unit": "USD"
+          },
+          "distributionsInPeriod": {
+            "value": "0.00",
+            "unit": "USD"
+          },
+          "netGainLoss": {
+            "value": "0.01",
+            "unit": "USD"
+          },
+          "endingBalance": {
+            "value": "1000000.01",
+            "unit": "USD"
+          },
+          "contributionsToDate": null
+        },
+        "share": "0.3333",
+        "recordContributions": "12400000.00"
+      },
+      {
+        "lines": {
+          "beginningBalance": {
+            "value": "100.01",
+            "unit": "USD"
+          },
+          "contributionsInPeriod": {
+            "value": "0.00",
+            "unit": "USD"
+          },
+          "distributionsInPeriod": {
+            "value": "0.00",
+            "unit": "USD"
+          },
+          "netGainLoss": {
+            "value": "0.00",
+            "unit": "USD"
+          },
+          "endingBalance": {
+            "value": "100.01",
+            "unit": "USD"
+          },
+          "contributionsToDate": null
+        },
+        "share": "0.5",
+        "recordContributions": "12400000.00"
+      },
+      {
+        "lines": {
+          "beginningBalance": {
+            "value": "0.01",
+            "unit": "USD"
+          },
+          "contributionsInPeriod": {
+            "value": "0.00",
+            "unit": "USD"
+          },
+          "distributionsInPeriod": {
+            "value": "0.00",
+            "unit": "USD"
+          },
+          "netGainLoss": {
+            "value": "0.00",
+            "unit": "USD"
+          },
+          "endingBalance": {
+            "value": "0.01",
+            "unit": "USD"
+          },
+          "contributionsToDate": null
+        },
+        "share": "0.1",
+        "recordContributions": "12400000.00"
+      },
+      {
+        "lines": {
+          "beginningBalance": {
+            "value": "18.42",
+            "unit": "USD_M"
+          },
+          "contributionsInPeriod": {
+            "value": "2.00",
+            "unit": "USD_M"
+          },
+          "distributionsInPeriod": {
+            "value": "0.35",
+            "unit": "USD_M"
+          },
+          "netGainLoss": {
+            "value": "0.87",
+            "unit": "USD_M"
+          },
+          "endingBalance": {
+            "value": "20.94",
+            "unit": "USD_M"
+          },
+          "contributionsToDate": {
+            "value": "12.40",
+            "unit": "USD_M"
+          }
+        },
+        "share": null,
+        "recordContributions": "0"
+      },
+      {
+        "lines": {
+          "beginningBalance": {
+            "value": "18.42",
+            "unit": "USD_M"
+          },
+          "contributionsInPeriod": {
+            "value": "2.00",
+            "unit": "USD_M"
+          },
+          "distributionsInPeriod": {
+            "value": "0.35",
+            "unit": "USD_M"
+          },
+          "netGainLoss": {
+            "value": "0.87",
+            "unit": "USD_M"
+          },
+          "endingBalance": {
+            "value": "20.94",
+            "unit": "USD_M"
+          },
+          "contributionsToDate": {
+            "value": "12.648",
+            "unit": "USD_M"
+          }
+        },
+        "share": null,
+        "recordContributions": "12400000.00"
+      },
+      {
+        "lines": {
+          "beginningBalance": {
+            "value": "18.42",
+            "unit": "USD_M"
+          },
+          "contributionsInPeriod": {
+            "value": "2.00",
+            "unit": "USD_M"
+          },
+          "distributionsInPeriod": {
+            "value": "0.35",
+            "unit": "USD_M"
+          },
+          "netGainLoss": {
+            "value": "0.87",
+            "unit": "USD_M"
+          },
+          "endingBalance": {
+            "value": "20.94",
+            "unit": "USD_M"
+          },
+          "contributionsToDate": {
+            "value": "12.152",
+            "unit": "USD_M"
+          }
+        },
+        "share": null,
+        "recordContributions": "12400000.00"
+      },
+      {
+        "lines": {
+          "beginningBalance": {
+            "value": "18.42",
+            "unit": "USD_M"
+          },
+          "contributionsInPeriod": {
+            "value": "2.00",
+            "unit": "USD_M"
+          },
+          "distributionsInPeriod": {
+            "value": "0.35",
+            "unit": "USD_M"
+          },
+          "netGainLoss": {
+            "value": "0.87",
+            "unit": "USD_M"
+          },
+          "endingBalance": {
+            "value": "20.94",
+            "unit": "USD_M"
+          },
+          "contributionsToDate": {
+            "value": "12648000.01",
+            "unit": "USD"
+          }
+        },
+        "share": null,
+        "recordContributions": "12400000.00"
+      },
+      {
+        "lines": {
+          "beginningBalance": {
+            "value": "18.42",
+            "unit": "USD_M"
+          },
+          "contributionsInPeriod": {
+            "value": "2.00",
+            "unit": "USD_M"
+          },
+          "distributionsInPeriod": {
+            "value": "0.35",
+            "unit": "USD_M"
+          },
+          "netGainLoss": {
+            "value": "0.87",
+            "unit": "USD_M"
+          },
+          "endingBalance": {
+            "value": "20.94",
+            "unit": "USD_M"
+          },
+          "contributionsToDate": {
+            "value": "1020000000.04",
+            "unit": "USD"
+          }
+        },
+        "share": null,
+        "recordContributions": "1000000000.00"
+      },
+      {
+        "lines": {
+          "beginningBalance": {
+            "value": "18.42",
+            "unit": "USD_M"
+          },
+          "contributionsInPeriod": {
+            "value": "2.00",
+            "unit": "USD_M"
+          },
+          "distributionsInPeriod": {
+            "value": "0.35",
+            "unit": "USD_M"
+          },
+          "netGainLoss": {
+            "value": "0.87",
+            "unit": "USD_M"
+          },
+          "endingBalance": {
+            "value": "20.94",
+            "unit": "USD_M"
+          },
+          "contributionsToDate": {
+            "value": "1020000000.05",
+            "unit": "USD"
+          }
+        },
+        "share": null,
+        "recordContributions": "1000000000.00"
+      },
+      {
+        "lines": {
+          "beginningBalance": {
+            "value": "18.42",
+            "unit": "USD_M"
+          },
+          "contributionsInPeriod": {
+            "value": "2.00",
+            "unit": "USD_M"
+          },
+          "distributionsInPeriod": {
+            "value": "0.35",
+            "unit": "USD_M"
+          },
+          "netGainLoss": {
+            "value": "0.87",
+            "unit": "USD_M"
+          },
+          "endingBalance": {
+            "value": "20.94",
+            "unit": "USD_M"
+          },
+          "contributionsToDate": {
+            "value": "6.20",
+            "unit": "USD_M"
+          }
+        },
+        "share": null,
+        "recordContributions": "12400000.00"
+      }
+    ]
+  },
+  "expected": {
+    "results": [
+      {
+        "tieToleranceUsd": "25000",
+        "mark": {
+          "basis": "capital_account_balance",
+          "method": "valuation_method.sponsor_mark",
+          "value": "20940000",
+          "reason": null,
+          "ownAccount": true,
+          "ours": {
+            "beginningBalance": "18420000",
+            "contributionsInPeriod": "2000000",
+            "distributionsInPeriod": "350000"
+          },
+          "ties": true,
+          "tieDifference": "0",
+          "contributionsCheck": {
+            "statement": "12400000",
+            "record": "12400000",
+            "difference": "0",
+            "differencePct": "0",
+            "differs": false,
+            "notChecked": null
+          }
+        }
+      },
+      {
+        "tieToleranceUsd": "25000",
+        "mark": {
+          "basis": "capital_account_balance",
+          "method": "valuation_method.sponsor_mark",
+          "value": "20940000",
+          "reason": null,
+          "ownAccount": true,
+          "ours": {
+            "beginningBalance": "18420000",
+            "contributionsInPeriod": "2000000",
+            "distributionsInPeriod": "350000"
+          },
+          "ties": true,
+          "tieDifference": "-20000",
+          "contributionsCheck": {
+            "statement": null,
+            "record": "12400000",
+            "difference": null,
+            "differencePct": null,
+            "differs": null,
+            "notChecked": "contributions_not_stated"
+          }
+        }
+      },
+      {
+        "tieToleranceUsd": "25000",
+        "mark": {
+          "basis": "capital_account_balance",
+          "method": "valuation_method.sponsor_mark",
+          "value": "20940000",
+          "reason": null,
+          "ownAccount": true,
+          "ours": {
+            "beginningBalance": "18420000",
+            "contributionsInPeriod": "2000000",
+            "distributionsInPeriod": "350000"
+          },
+          "ties": false,
+          "tieDifference": "-50000",
+          "contributionsCheck": {
+            "statement": null,
+            "record": "12400000",
+            "difference": null,
+            "differencePct": null,
+            "differs": null,
+            "notChecked": "contributions_not_stated"
+          }
+        }
+      },
+      {
+        "tieToleranceUsd": "25000",
+        "mark": {
+          "basis": "capital_account_balance",
+          "method": "valuation_method.sponsor_mark",
+          "value": "20940000",
+          "reason": null,
+          "ownAccount": false,
+          "ours": {
+            "beginningBalance": "18420000",
+            "contributionsInPeriod": "2000000",
+            "distributionsInPeriod": "350000"
+          },
+          "ties": true,
+          "tieDifference": "0",
+          "contributionsCheck": {
+            "statement": "12400000",
+            "record": "12400000",
+            "difference": "0",
+            "differencePct": "0",
+            "differs": false,
+            "notChecked": null
+          }
+        }
+      },
+      {
+        "tieToleranceUsd": "25000",
+        "mark": {
+          "basis": "capital_account_balance",
+          "method": "valuation_method.sponsor_mark",
+          "value": "20940000",
+          "reason": null,
+          "ownAccount": true,
+          "ours": {
+            "beginningBalance": "18420000",
+            "contributionsInPeriod": "2000000",
+            "distributionsInPeriod": "350000"
+          },
+          "ties": true,
+          "tieDifference": "0",
+          "contributionsCheck": {
+            "statement": "30000000",
+            "record": "12400000",
+            "difference": "17600000",
+            "differencePct": "1.4193548387",
+            "differs": true,
+            "notChecked": null
+          }
+        }
+      },
+      {
+        "tieToleranceUsd": "25000",
+        "mark": {
+          "basis": "capital_account_balance",
+          "method": "valuation_method.sponsor_mark",
+          "value": "11025000",
+          "reason": null,
+          "ownAccount": true,
+          "ours": {
+            "beginningBalance": "10000000",
+            "contributionsInPeriod": "0",
+            "distributionsInPeriod": "0"
+          },
+          "ties": true,
+          "tieDifference": "25000",
+          "contributionsCheck": {
+            "statement": null,
+            "record": "12400000",
+            "difference": null,
+            "differencePct": null,
+            "differs": null,
+            "notChecked": "contributions_not_stated"
+          }
+        }
+      },
+      {
+        "tieToleranceUsd": "25000",
+        "mark": {
+          "basis": "capital_account_balance",
+          "method": "valuation_method.sponsor_mark",
+          "value": "11025000.01",
+          "reason": null,
+          "ownAccount": true,
+          "ours": {
+            "beginningBalance": "10000000",
+            "contributionsInPeriod": "0",
+            "distributionsInPeriod": "0"
+          },
+          "ties": false,
+          "tieDifference": "25000.01",
+          "contributionsCheck": {
+            "statement": null,
+            "record": "12400000",
+            "difference": null,
+            "differencePct": null,
+            "differs": null,
+            "notChecked": "contributions_not_stated"
+          }
+        }
+      },
+      {
+        "tieToleranceUsd": "1",
+        "mark": {
+          "basis": "capital_account_balance",
+          "method": "valuation_method.sponsor_mark",
+          "value": "20940001",
+          "reason": null,
+          "ownAccount": true,
+          "ours": {
+            "beginningBalance": "18420000",
+            "contributionsInPeriod": "2000000",
+            "distributionsInPeriod": "350000"
+          },
+          "ties": true,
+          "tieDifference": "1",
+          "contributionsCheck": {
+            "statement": null,
+            "record": "12400000",
+            "difference": null,
+            "differencePct": null,
+            "differs": null,
+            "notChecked": "contributions_not_stated"
+          }
+        }
+      },
+      {
+        "tieToleranceUsd": "1",
+        "mark": {
+          "basis": "capital_account_balance",
+          "method": "valuation_method.sponsor_mark",
+          "value": "20940001.01",
+          "reason": null,
+          "ownAccount": true,
+          "ours": {
+            "beginningBalance": "18420000",
+            "contributionsInPeriod": "2000000",
+            "distributionsInPeriod": "350000"
+          },
+          "ties": false,
+          "tieDifference": "1.01",
+          "contributionsCheck": {
+            "statement": null,
+            "record": "12400000",
+            "difference": null,
+            "differencePct": null,
+            "differs": null,
+            "notChecked": "contributions_not_stated"
+          }
+        }
+      },
+      {
+        "tieToleranceUsd": "2500",
+        "mark": {
+          "basis": "capital_account_balance",
+          "method": "valuation_method.sponsor_mark",
+          "value": "20940000",
+          "reason": null,
+          "ownAccount": true,
+          "ours": {
+            "beginningBalance": "18420000",
+            "contributionsInPeriod": "2000000",
+            "distributionsInPeriod": "350000"
+          },
+          "ties": true,
+          "tieDifference": "-2000",
+          "contributionsCheck": {
+            "statement": null,
+            "record": "12400000",
+            "difference": null,
+            "differencePct": null,
+            "differs": null,
+            "notChecked": "contributions_not_stated"
+          }
+        }
+      },
+      {
+        "tieToleranceUsd": "2500",
+        "mark": {
+          "basis": "capital_account_balance",
+          "method": "valuation_method.sponsor_mark",
+          "value": "20940000",
+          "reason": null,
+          "ownAccount": true,
+          "ours": {
+            "beginningBalance": "18420000",
+            "contributionsInPeriod": "2000000",
+            "distributionsInPeriod": "350000"
+          },
+          "ties": false,
+          "tieDifference": "-3000",
+          "contributionsCheck": {
+            "statement": null,
+            "record": "12400000",
+            "difference": null,
+            "differencePct": null,
+            "differs": null,
+            "notChecked": "contributions_not_stated"
+          }
+        }
+      },
+      {
+        "tieToleranceUsd": "25000000",
+        "mark": {
+          "basis": "capital_account_balance",
+          "method": "valuation_method.sponsor_mark",
+          "value": "2100000000",
+          "reason": null,
+          "ownAccount": true,
+          "ours": {
+            "beginningBalance": "1840000000",
+            "contributionsInPeriod": "200000000",
+            "distributionsInPeriod": "40000000"
+          },
+          "ties": true,
+          "tieDifference": "10000000",
+          "contributionsCheck": {
+            "statement": null,
+            "record": "12400000",
+            "difference": null,
+            "differencePct": null,
+            "differs": null,
+            "notChecked": "contributions_not_stated"
+          }
+        }
+      },
+      {
+        "tieToleranceUsd": "25000",
+        "mark": {
+          "basis": "capital_account_balance",
+          "method": "valuation_method.sponsor_mark",
+          "value": "20940000",
+          "reason": null,
+          "ownAccount": true,
+          "ours": {
+            "beginningBalance": "18420000",
+            "contributionsInPeriod": "2000000",
+            "distributionsInPeriod": "350000"
+          },
+          "ties": true,
+          "tieDifference": "-20000",
+          "contributionsCheck": {
+            "statement": "12400000",
+            "record": "12400000",
+            "difference": "0",
+            "differencePct": "0",
+            "differs": false,
+            "notChecked": null
+          }
+        }
+      },
+      {
+        "tieToleranceUsd": "25000",
+        "mark": {
+          "basis": "capital_account_balance",
+          "method": "valuation_method.sponsor_mark",
+          "value": "20940000",
+          "reason": null,
+          "ownAccount": true,
+          "ours": {
+            "beginningBalance": "18420000",
+            "contributionsInPeriod": "2000000",
+            "distributionsInPeriod": "350000"
+          },
+          "ties": null,
+          "tieDifference": null,
+          "contributionsCheck": {
+            "statement": null,
+            "record": "12400000",
+            "difference": null,
+            "differencePct": null,
+            "differs": null,
+            "notChecked": "contributions_not_stated"
+          }
+        }
+      },
+      {
+        "tieToleranceUsd": "25000",
+        "mark": {
+          "basis": "capital_account_balance",
+          "method": "valuation_method.sponsor_mark",
+          "value": null,
+          "reason": "no_ending_balance",
+          "ownAccount": false,
+          "ours": {
+            "beginningBalance": null,
+            "contributionsInPeriod": null,
+            "distributionsInPeriod": null
+          },
+          "ties": null,
+          "tieDifference": null,
+          "contributionsCheck": {
+            "statement": null,
+            "record": "12400000",
+            "difference": null,
+            "differencePct": null,
+            "differs": null,
+            "notChecked": "share_out_of_range"
+          }
+        }
+      },
+      {
+        "tieToleranceUsd": "25000",
+        "mark": {
+          "basis": "capital_account_balance",
+          "method": "valuation_method.sponsor_mark",
+          "value": null,
+          "reason": "non_positive_balance",
+          "ownAccount": true,
+          "ours": {
+            "beginningBalance": "18420000",
+            "contributionsInPeriod": "0",
+            "distributionsInPeriod": "18420000"
+          },
+          "ties": true,
+          "tieDifference": "0",
+          "contributionsCheck": {
+            "statement": null,
+            "record": "12400000",
+            "difference": null,
+            "differencePct": null,
+            "differs": null,
+            "notChecked": "contributions_not_stated"
+          }
+        }
+      },
+      {
+        "tieToleranceUsd": "25000",
+        "mark": {
+          "basis": "capital_account_balance",
+          "method": "valuation_method.sponsor_mark",
+          "value": null,
+          "reason": "non_positive_balance",
+          "ownAccount": false,
+          "ours": {
+            "beginningBalance": null,
+            "contributionsInPeriod": null,
+            "distributionsInPeriod": null
+          },
+          "ties": true,
+          "tieDifference": "0",
+          "contributionsCheck": {
+            "statement": null,
+            "record": "12400000",
+            "difference": null,
+            "differencePct": null,
+            "differs": null,
+            "notChecked": "share_out_of_range"
+          }
+        }
+      },
+      {
+        "tieToleranceUsd": "25000",
+        "mark": {
+          "basis": "capital_account_balance",
+          "method": "valuation_method.sponsor_mark",
+          "value": null,
+          "reason": "share_out_of_range",
+          "ownAccount": false,
+          "ours": {
+            "beginningBalance": null,
+            "contributionsInPeriod": null,
+            "distributionsInPeriod": null
+          },
+          "ties": true,
+          "tieDifference": "0",
+          "contributionsCheck": {
+            "statement": null,
+            "record": "12400000",
+            "difference": null,
+            "differencePct": null,
+            "differs": null,
+            "notChecked": "share_out_of_range"
+          }
+        }
+      },
+      {
+        "tieToleranceUsd": "25000",
+        "mark": {
+          "basis": "capital_account_balance",
+          "method": "valuation_method.sponsor_mark",
+          "value": null,
+          "reason": "share_out_of_range",
+          "ownAccount": false,
+          "ours": {
+            "beginningBalance": null,
+            "contributionsInPeriod": null,
+            "distributionsInPeriod": null
+          },
+          "ties": true,
+          "tieDifference": "0",
+          "contributionsCheck": {
+            "statement": null,
+            "record": "12400000",
+            "difference": null,
+            "differencePct": null,
+            "differs": null,
+            "notChecked": "contributions_not_stated"
+          }
+        }
+      },
+      {
+        "tieToleranceUsd": "25000",
+        "mark": {
+          "basis": "capital_account_balance",
+          "method": "valuation_method.sponsor_mark",
+          "value": null,
+          "reason": "share_out_of_range",
+          "ownAccount": false,
+          "ours": {
+            "beginningBalance": null,
+            "contributionsInPeriod": null,
+            "distributionsInPeriod": null
+          },
+          "ties": true,
+          "tieDifference": "0",
+          "contributionsCheck": {
+            "statement": null,
+            "record": "12400000",
+            "difference": null,
+            "differencePct": null,
+            "differs": null,
+            "notChecked": "share_out_of_range"
+          }
+        }
+      },
+      {
+        "tieToleranceUsd": "25000",
+        "mark": {
+          "basis": "capital_account_balance",
+          "method": "valuation_method.sponsor_mark",
+          "value": "20940000",
+          "reason": null,
+          "ownAccount": false,
+          "ours": {
+            "beginningBalance": "18420000",
+            "contributionsInPeriod": "2000000",
+            "distributionsInPeriod": "350000"
+          },
+          "ties": true,
+          "tieDifference": "0",
+          "contributionsCheck": {
+            "statement": "12400000",
+            "record": "12400000",
+            "difference": "0",
+            "differencePct": "0",
+            "differs": false,
+            "notChecked": null
+          }
+        }
+      },
+      {
+        "tieToleranceUsd": "1",
+        "mark": {
+          "basis": "capital_account_balance",
+          "method": "valuation_method.sponsor_mark",
+          "value": "333300",
+          "reason": null,
+          "ownAccount": false,
+          "ours": {
+            "beginningBalance": "299970",
+            "contributionsInPeriod": "33330",
+            "distributionsInPeriod": "0"
+          },
+          "ties": true,
+          "tieDifference": "0",
+          "contributionsCheck": {
+            "statement": null,
+            "record": "12400000",
+            "difference": null,
+            "differencePct": null,
+            "differs": null,
+            "notChecked": "contributions_not_stated"
+          }
+        }
+      },
+      {
+        "tieToleranceUsd": "1",
+        "mark": {
+          "basis": "capital_account_balance",
+          "method": "valuation_method.sponsor_mark",
+          "value": "50.01",
+          "reason": null,
+          "ownAccount": false,
+          "ours": {
+            "beginningBalance": "50.01",
+            "contributionsInPeriod": "0",
+            "distributionsInPeriod": "0"
+          },
+          "ties": true,
+          "tieDifference": "0",
+          "contributionsCheck": {
+            "statement": null,
+            "record": "12400000",
+            "difference": null,
+            "differencePct": null,
+            "differs": null,
+            "notChecked": "contributions_not_stated"
+          }
+        }
+      },
+      {
+        "tieToleranceUsd": "1",
+        "mark": {
+          "basis": "capital_account_balance",
+          "method": "valuation_method.sponsor_mark",
+          "value": null,
+          "reason": "value_not_positive",
+          "ownAccount": false,
+          "ours": {
+            "beginningBalance": "0",
+            "contributionsInPeriod": "0",
+            "distributionsInPeriod": "0"
+          },
+          "ties": true,
+          "tieDifference": "0",
+          "contributionsCheck": {
+            "statement": null,
+            "record": "12400000",
+            "difference": null,
+            "differencePct": null,
+            "differs": null,
+            "notChecked": "contributions_not_stated"
+          }
+        }
+      },
+      {
+        "tieToleranceUsd": "25000",
+        "mark": {
+          "basis": "capital_account_balance",
+          "method": "valuation_method.sponsor_mark",
+          "value": "20940000",
+          "reason": null,
+          "ownAccount": true,
+          "ours": {
+            "beginningBalance": "18420000",
+            "contributionsInPeriod": "2000000",
+            "distributionsInPeriod": "350000"
+          },
+          "ties": true,
+          "tieDifference": "0",
+          "contributionsCheck": {
+            "statement": "12400000",
+            "record": "0",
+            "difference": null,
+            "differencePct": null,
+            "differs": null,
+            "notChecked": "no_recorded_contributions"
+          }
+        }
+      },
+      {
+        "tieToleranceUsd": "25000",
+        "mark": {
+          "basis": "capital_account_balance",
+          "method": "valuation_method.sponsor_mark",
+          "value": "20940000",
+          "reason": null,
+          "ownAccount": true,
+          "ours": {
+            "beginningBalance": "18420000",
+            "contributionsInPeriod": "2000000",
+            "distributionsInPeriod": "350000"
+          },
+          "ties": true,
+          "tieDifference": "0",
+          "contributionsCheck": {
+            "statement": "12648000",
+            "record": "12400000",
+            "difference": "248000",
+            "differencePct": "0.02",
+            "differs": false,
+            "notChecked": null
+          }
+        }
+      },
+      {
+        "tieToleranceUsd": "25000",
+        "mark": {
+          "basis": "capital_account_balance",
+          "method": "valuation_method.sponsor_mark",
+          "value": "20940000",
+          "reason": null,
+          "ownAccount": true,
+          "ours": {
+            "beginningBalance": "18420000",
+            "contributionsInPeriod": "2000000",
+            "distributionsInPeriod": "350000"
+          },
+          "ties": true,
+          "tieDifference": "0",
+          "contributionsCheck": {
+            "statement": "12152000",
+            "record": "12400000",
+            "difference": "-248000",
+            "differencePct": "-0.02",
+            "differs": false,
+            "notChecked": null
+          }
+        }
+      },
+      {
+        "tieToleranceUsd": "25000",
+        "mark": {
+          "basis": "capital_account_balance",
+          "method": "valuation_method.sponsor_mark",
+          "value": "20940000",
+          "reason": null,
+          "ownAccount": true,
+          "ours": {
+            "beginningBalance": "18420000",
+            "contributionsInPeriod": "2000000",
+            "distributionsInPeriod": "350000"
+          },
+          "ties": true,
+          "tieDifference": "0",
+          "contributionsCheck": {
+            "statement": "12648000.01",
+            "record": "12400000",
+            "difference": "248000.01",
+            "differencePct": "0.0200000008",
+            "differs": true,
+            "notChecked": null
+          }
+        }
+      },
+      {
+        "tieToleranceUsd": "25000",
+        "mark": {
+          "basis": "capital_account_balance",
+          "method": "valuation_method.sponsor_mark",
+          "value": "20940000",
+          "reason": null,
+          "ownAccount": true,
+          "ours": {
+            "beginningBalance": "18420000",
+            "contributionsInPeriod": "2000000",
+            "distributionsInPeriod": "350000"
+          },
+          "ties": true,
+          "tieDifference": "0",
+          "contributionsCheck": {
+            "statement": "1020000000.04",
+            "record": "1000000000",
+            "difference": "20000000.04",
+            "differencePct": "0.02",
+            "differs": false,
+            "notChecked": null
+          }
+        }
+      },
+      {
+        "tieToleranceUsd": "25000",
+        "mark": {
+          "basis": "capital_account_balance",
+          "method": "valuation_method.sponsor_mark",
+          "value": "20940000",
+          "reason": null,
+          "ownAccount": true,
+          "ours": {
+            "beginningBalance": "18420000",
+            "contributionsInPeriod": "2000000",
+            "distributionsInPeriod": "350000"
+          },
+          "ties": true,
+          "tieDifference": "0",
+          "contributionsCheck": {
+            "statement": "1020000000.05",
+            "record": "1000000000",
+            "difference": "20000000.05",
+            "differencePct": "0.0200000001",
+            "differs": true,
+            "notChecked": null
+          }
+        }
+      },
+      {
+        "tieToleranceUsd": "25000",
+        "mark": {
+          "basis": "capital_account_balance",
+          "method": "valuation_method.sponsor_mark",
+          "value": "20940000",
+          "reason": null,
+          "ownAccount": true,
+          "ours": {
+            "beginningBalance": "18420000",
+            "contributionsInPeriod": "2000000",
+            "distributionsInPeriod": "350000"
+          },
+          "ties": true,
+          "tieDifference": "0",
+          "contributionsCheck": {
+            "statement": "6200000",
+            "record": "12400000",
+            "difference": "-6200000",
+            "differencePct": "-0.5",
+            "differs": true,
+            "notChecked": null
+          }
+        }
+      }
+    ]
+  }
+}

@@ -8,6 +8,7 @@ import {
   entryStake,
   equityValue,
   evToEbitda,
+  flowKindOf,
   gainByDriver,
   indexedLevel,
   latestPeriod,
@@ -39,7 +40,7 @@ import { configDecimal, configError } from '../common/definitions.js';
 import { compareText } from '../common/order.js';
 import { QUARTERLY_REPORTING_DEAL_TYPES } from '../documents/expected.js';
 import type { InvestmentBaseRow } from '../portfolio/loaders.js';
-import { kindOf, str } from '../portfolio/metrics.js';
+import { str } from '../portfolio/metrics.js';
 import type { FlowRow, OperatingRow, ValuationRow } from '../portfolio/metrics.js';
 
 /*
@@ -148,8 +149,12 @@ export function entryAndCurrent(
   };
 }
 
-/** The company's bridge between two quarters, or the first reason it cannot be computed. */
-function bridgeOf(
+/**
+ * The company's bridge between two quarters, or the first reason it cannot be computed. The
+ * comparison with the underwritten base case reads the actual bridge through this too, so the two
+ * cards of a deal page cannot disagree on it.
+ */
+export function bridgeOf(
   entry: OperatingRow | null,
   current: OperatingRow | null,
   forwardDated: boolean,
@@ -192,11 +197,14 @@ const figuresOf = (row: OperatingRow): Parameters<typeof sinceEntryMeasures>[0] 
  * our side (paid out negative, received positive, fees and expenses included), by date and then
  * by amount so the same book always answers the same list.
  */
-function signedFlows(inputs: PositionInputs, asOf: string): ValueCreationPosition['flows'] {
+export function signedFlows(
+  inputs: Pick<PositionInputs, 'flows'>,
+  asOf: string,
+): ValueCreationPosition['flows'] {
   return toSignedFlows(
     inputs.flows
       .filter((f) => f.flowDate <= asOf)
-      .map((f) => ({ date: f.flowDate, kind: kindOf(f.flowType), amount: f.amount })),
+      .map((f) => ({ date: f.flowDate, kind: flowKindOf(f.flowType), amount: f.amount })),
   )
     .map((f) => ({ date: f.date, amount: D(f.amount) }))
     .sort((a, b) => compareText(a.date, b.date) || a.amount.comparedTo(b.amount))
@@ -393,7 +401,7 @@ export function seriesOf(
     const invested = summarizeFlows(
       inputs.flows
         .filter((f) => f.flowDate <= quarter.periodEnd)
-        .map((f) => ({ date: f.flowDate, kind: kindOf(f.flowType), amount: f.amount })),
+        .map((f) => ({ date: f.flowDate, kind: flowKindOf(f.flowType), amount: f.amount })),
     ).contributions;
     points.push({
       periodEnd: quarter.periodEnd,

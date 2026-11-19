@@ -12,7 +12,10 @@ const THEME_KEY = 'pb-site-theme';
 type Theme = 'light' | 'dark';
 
 const prefersDark = window.matchMedia('(prefers-color-scheme: dark)');
-const prefersReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
+// As the tool reads it (apps/web/src/components/motion.ts): reduced motion, or a slow display.
+const prefersReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce), (update: slow)');
+/** Blocks that enter the view together arrive in turn, the sixth and later with the sixth (site.css). */
+const REVEAL_STAGGER_MAX = 5;
 
 function currentTheme(): Theme {
   const chosen = root.getAttribute('data-theme');
@@ -46,13 +49,7 @@ function themeSwitch(): void {
 function header(): void {
   const bar = document.querySelector<HTMLElement>('[data-header]');
   const toggle = document.querySelector<HTMLButtonElement>('[data-menu-toggle]');
-  if (bar === null) return;
-  const onScroll = (): void => {
-    bar.classList.toggle('is-scrolled', window.scrollY > 12);
-  };
-  onScroll();
-  window.addEventListener('scroll', onScroll, { passive: true });
-  if (toggle === null) return;
+  if (bar === null || toggle === null) return;
   const setOpen = (open: boolean): void => {
     bar.classList.toggle('is-open', open);
     toggle.setAttribute('aria-expanded', String(open));
@@ -105,7 +102,10 @@ function currentSection(): void {
   });
 }
 
-/** A block rises into place the first time it enters the view. What is already in view stays put. */
+/**
+ * A block rises into place the first time it enters the view, once. What is already in view
+ * stays put; blocks that enter together (a row of the grid) arrive one after the other.
+ */
 function reveal(): void {
   const blocks = [...document.querySelectorAll<HTMLElement>('[data-reveal]')];
   if (blocks.length === 0 || prefersReducedMotion.matches || !('IntersectionObserver' in window))
@@ -115,11 +115,14 @@ function reveal(): void {
   root.classList.add('reveal-ready');
   const observer = new IntersectionObserver(
     (entries) => {
-      for (const entry of entries) {
-        if (!entry.isIntersecting) continue;
-        entry.target.classList.add('is-in');
-        observer.unobserve(entry.target);
-      }
+      entries
+        .filter((entry) => entry.isIntersecting)
+        .forEach((entry, i) => {
+          const block = entry.target as HTMLElement;
+          block.style.setProperty('--reveal-i', String(Math.min(i, REVEAL_STAGGER_MAX)));
+          block.classList.add('is-in');
+          observer.unobserve(block);
+        });
     },
     { rootMargin: '0px 0px -8% 0px' },
   );

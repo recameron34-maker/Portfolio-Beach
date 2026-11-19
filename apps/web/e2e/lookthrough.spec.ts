@@ -175,10 +175,11 @@ test('operations reconciles the defects extract, reads its differences and works
   await expect(rows).not.toContainText(walled.companyName);
   await expect(rows).not.toContainText(walledNumber);
   await expect(rows.getByText('no match')).toHaveCount(defects.expectations.unmatched.length);
-  await expect(rows.getByText('Other (unmapped)')).toHaveCount(
+  await expect(rows.getByText('Not mapped', { exact: true })).toHaveCount(
     defects.expectations.unmapped.length,
   );
-  await expect(rows.locator('.pb-badge', { hasText: 'NAV' })).toHaveCount(navBadges);
+  // Each NAV that differs is named in its row's differences, titled with both sides.
+  await expect(rows.locator('span[title^="NAV "]')).toHaveCount(navBadges);
 
   // The run links to its exceptions on the queue.
   await page.getByTestId('lookthrough-exceptions-link').click();
@@ -207,7 +208,10 @@ test('operations reconciles the defects extract, reads its differences and works
   await expect(page.getByTestId('exception-terminal')).toBeVisible();
 
   // Note a ticket on the unmapped label; the state stays open.
-  await page.getByRole('link', { name: 'All exceptions' }).click();
+  await page
+    .getByRole('navigation', { name: 'Breadcrumb' })
+    .getByRole('link', { name: 'Exceptions', exact: true })
+    .click();
   await page.getByRole('link', { name: 'LT-MAP-01' }).first().click();
   await expect(page.getByTestId('exception-banner')).toContainText('LT-MAP-01');
   await page.getByLabel('External ticket').fill('HD-1042');

@@ -45,7 +45,13 @@ export function addRedactionCounts(
   for (const kind of REDACTION_KINDS) into[kind] += counts[kind];
 }
 
-const EMAIL = /[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g;
+/**
+ * An address. Every part is bounded (64 characters before the "@" and 253 after it are the most
+ * an address may carry), so the search stays linear on any text: with open-ended parts, a long
+ * run of characters an address may start with, and no "@", made every position a possible start
+ * that scanned to the end of the run (quadratic on a document, which is untrusted text).
+ */
+const EMAIL = /[A-Za-z0-9._%+-]{1,64}@[A-Za-z0-9.-]{1,253}\.[A-Za-z]{2,24}/g;
 
 /** ISO 13616: country, two check digits, 11 to 30 more characters, written solid or in groups of four, in either case. */
 const IBAN = /\b[A-Z]{2}\d{2}(?:[A-Z0-9]{11,30}|(?: [A-Z0-9]{4}){2,7}(?: [A-Z0-9]{1,4})?)\b/gi;

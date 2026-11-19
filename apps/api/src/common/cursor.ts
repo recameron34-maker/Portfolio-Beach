@@ -44,8 +44,10 @@ const EXACT_AT = String.raw`(\d{4}-\d{2}-\d{2})T((?:[01]\d|2[0-3]):[0-5]\d:[0-5]
 const UUID = '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}';
 
 /** "at|id" of a row keyed by a UUID (an intake file, a data exception): groups date, time, id. */
+// eslint-disable-next-line security/detect-non-literal-regexp -- built from the two constants above
 export const AT_ID_CURSOR = new RegExp(`^${EXACT_AT}\\|(${UUID})$`);
 /** "at|id" of a row keyed by a bigint (an audit event): groups date, time, id as digits that fit a bigint. */
+// eslint-disable-next-line security/detect-non-literal-regexp -- built from the constant above
 export const AT_BIGINT_CURSOR = new RegExp(`^${EXACT_AT}\\|(\\d{1,18})$`);
 /** The to_char format that writes a timestamp to the microsecond, the exact value the cursor carries. */
 export const EXACT_AT_FORMAT = 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"';

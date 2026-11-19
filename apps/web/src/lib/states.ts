@@ -5,6 +5,7 @@ import type {
   DocumentReviewStatus,
   ExpectedDocumentStatus,
   ExtractionRunState,
+  ReportPackageState,
   TradeTicketState,
   WireInstructionState,
 } from '@pb/contracts';
@@ -26,7 +27,7 @@ function phrase(name: string): string {
   const spaced = name
     .replace(/_/g, ' ')
     .replace(/([a-z])([A-Z])/g, '$1 $2')
-    .replace(/([A-Z]+)([A-Z][a-z])/g, '$1 $2');
+    .replace(/(?<=[A-Z])(?=[A-Z][a-z])/g, ' ');
   const sentence = spaced.charAt(0).toUpperCase() + spaced.slice(1).toLowerCase();
   return sentence.replace(ACRONYMS, (a) => a.toUpperCase());
 }
@@ -228,6 +229,26 @@ const CLOSING_TONES: Readonly<Record<ClosingState, Tone>> = {
 
 export function closingTone(state: string): Tone {
   return toneOf(CLOSING_TONES, state);
+}
+
+/**
+ * docs/18 section 5: a Draft waits to be generated and Generated waits on the checks (neither is
+ * anyone's alarm, so both read neutral, as Received and Queued do); a failed QA is a refusal;
+ * QA passed and In review are a person's turn (investor relations to submit, an approver to
+ * approve); Approved is ready to release (brand, as an approved ticket); Released is settled.
+ */
+const PACKAGE_TONES: Readonly<Record<ReportPackageState, Tone>> = {
+  Draft: 'neutral',
+  Generated: 'neutral',
+  QAFailed: 'bad',
+  QAPassed: 'watch',
+  InReview: 'watch',
+  Approved: 'brand',
+  Released: 'good',
+};
+
+export function packageTone(state: string): Tone {
+  return toneOf(PACKAGE_TONES, state);
 }
 
 /** Urgency of a due date against the alert window (config capitalActivity.alertDaysBeforeDue). */

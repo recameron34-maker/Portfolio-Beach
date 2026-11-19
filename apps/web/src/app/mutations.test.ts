@@ -23,6 +23,7 @@ import {
   postIntakeImport,
   postPreviewReset,
   postValuationCommand,
+  withoutReferences,
 } from './mutations.js';
 import { intakeFileDetailFixture, intakeImportResultFixture } from '../test/fixtures-intake.js';
 import { clearCredential, setCredential } from './session.js';
@@ -373,8 +374,8 @@ describe('describeActionError', () => {
     expect(describeActionError(problem(409, 'lock is not allowed from Draft'))).toBe(
       'Not allowed from the current state. Lock is not allowed from Draft',
     );
-    expect(describeActionError(problem(422, 'the preparer cannot approve (SEC-5.6)'))).toBe(
-      'Blocked by a rule. The preparer cannot approve (SEC-5.6)',
+    expect(describeActionError(problem(422, 'the preparer cannot approve'))).toBe(
+      'Blocked by a rule. The preparer cannot approve',
     );
     expect(describeActionError(problem(412, 'stale-row-version'))).toMatch(
       /changed this record first/,
@@ -385,8 +386,8 @@ describe('describeActionError', () => {
       'This build does not serve that action yet.',
     );
     expect(describeActionError(problem(404, 'Valuation not found'))).toBe('Valuation not found');
-    expect(describeRefusal(422, 'valuation: the preparer cannot approve (SEC-5.6)')).toBe(
-      'Blocked by a rule. The preparer cannot approve (SEC-5.6)',
+    expect(describeRefusal(422, 'valuation: the preparer cannot approve')).toBe(
+      'Blocked by a rule. The preparer cannot approve',
     );
     expect(describeActionError(new Error('network down'))).toBe('network down');
     expect(describeActionError('odd')).toBe('The action failed.');
@@ -401,10 +402,54 @@ describe('describeActionError', () => {
     );
     expect(plainRule('Valuation not found')).toBe('Valuation not found');
     expect(
-      describeActionError(
-        problem(422, 'capital_notice: the ticket preparer cannot approve it (SEC-12.3)'),
-      ),
-    ).toBe('Blocked by a rule. The ticket preparer cannot approve it (SEC-12.3)');
+      describeActionError(problem(422, 'capital_notice: the ticket preparer cannot approve it')),
+    ).toBe('Blocked by a rule. The ticket preparer cannot approve it');
+  });
+
+  it('keeps an acronym in capitals in a state or a command name', () => {
+    expect(plainRule('reporting_package: submit is not allowed from QAFailed')).toBe(
+      'Submit is not allowed from QA failed',
+    );
+    expect(plainRule('reporting_package: overrideQa from QAFailed requires one of: approver')).toBe(
+      'Override QA from QA failed requires one of: approver',
+    );
+    expect(plainRule('reporting_package: regenerate is not allowed from QAPassed')).toBe(
+      'Regenerate is not allowed from QA passed',
+    );
+    // A plural of capitals is not a state name.
+    expect(plainRule('The IDs of the positions do not match')).toBe(
+      'The IDs of the positions do not match',
+    );
+  });
+
+  it('reads a rule without the reference to the control or the document behind it', () => {
+    // The API cites the control; the sentence on the page goes without it.
+    expect(plainRule('capital_notice: the ticket preparer cannot approve it (SEC-12.3)')).toBe(
+      'The ticket preparer cannot approve it',
+    );
+    expect(describeRefusal(422, 'closing: the closing is not confirmed by operations (M8)')).toBe(
+      'Blocked by a rule. The closing is not confirmed by operations',
+    );
+    expect(withoutReferences('Recorded while the deal is at IC (docs/18 section 4).')).toBe(
+      'Recorded while the deal is at IC.',
+    );
+    expect(withoutReferences('Visible to operations (SEC-5.2, SEC-5.4) and auditors')).toBe(
+      'Visible to operations and auditors',
+    );
+    expect(withoutReferences('The single source for every report (docs/04 M8)')).toBe(
+      'The single source for every report',
+    );
+    expect(withoutReferences('Held until Jul 30 (30 days, SEC-12.3)')).toBe(
+      'Held until Jul 30 (30 days)',
+    );
+    // A parenthesis that says something is kept, and so is a name that only looks like one.
+    expect(withoutReferences('Deal team approve (step 2 of 3)')).toBe(
+      'Deal team approve (step 2 of 3)',
+    );
+    expect(withoutReferences('Beach Co-Invest Fund I (M and A)')).toBe(
+      'Beach Co-Invest Fund I (M and A)',
+    );
+    expect(withoutReferences('Nothing to remove')).toBe('Nothing to remove');
   });
 
   it('never contains an em dash', () => {

@@ -1,13 +1,19 @@
 import { describe, expect, it } from 'vitest';
 import {
+  axisLabels,
+  barRows,
   chartLabels,
   compactValue,
+  dodge,
   knownRuns,
   labelBudget,
   labelColumn,
   labelStride,
   niceStep,
+  labelLayout,
   niceTicks,
+  outlierFences,
+  tickAnchor,
   truncateMiddle,
   valueLabelPosition,
 } from './scale.js';
@@ -140,5 +146,103 @@ describe('knownRuns', () => {
     ]);
     expect(knownRuns([null, null])).toEqual([]);
     expect(knownRuns([])).toEqual([]);
+  });
+
+  it('runs over a point the series does not have by design, and still breaks at a missing value', () => {
+    // Index 1 is a date of another series; index 3 is a figure that is missing.
+    expect(knownRuns([1, null, 3, null, 5], [false, true, false, false, false])).toEqual([
+      [
+        { i: 0, v: 1 },
+        { i: 2, v: 3 },
+      ],
+      [{ i: 4, v: 5 }],
+    ]);
+    // A value is drawn wherever it is, whatever the marks say.
+    expect(knownRuns([1, 2], [true, true])).toEqual([
+      [
+        { i: 0, v: 1 },
+        { i: 1, v: 2 },
+      ],
+    ]);
+  });
+
+  it('sets bar labels above their bars under 480px of chart width, beside them from there', () => {
+    expect(labelLayout(358)).toBe('above');
+    expect(labelLayout(479)).toBe('above');
+    expect(labelLayout(480)).toBe('side');
+    expect(labelLayout(1100)).toBe('side');
+    // On a phone, labels that all fit their column whole (years) stay beside their bars.
+    expect(labelLayout(358, ['2016', '2017', '2025'])).toBe('side');
+    expect(labelLayout(358, ['2016', 'Client Gamma Separate Account'])).toBe('above');
+    // Above: a 40px row, the label's line first, the 12px bar under it, from the left edge.
+    const above = barRows(358);
+    expect(above).toMatchObject({ row: 40, plotLeft: 0, labelX: 0, labelAnchor: 'start' });
+    expect(above.labelBaseline).toBeLessThan(above.barTop);
+    expect(above.barTop + 12).toBeLessThanOrEqual(above.row);
+    // Beside: a 26px row, the bar centred in it, the label ending at the plot.
+    const side = barRows(600);
+    expect(side).toMatchObject({ row: 26, barTop: 7, labelAnchor: 'end' });
+    expect(side.plotLeft).toBe(labelColumn(600));
+  });
+
+  it('starts a tick figure on its gridline at the left edge, and centres it elsewhere', () => {
+    expect(tickAnchor(0)).toBe('start');
+    expect(tickAnchor(15)).toBe('start');
+    expect(tickAnchor(16)).toBe('middle');
+  });
+
+  it('fences off figures beyond three times the interquartile range, and none for a few', () => {
+    const fences = outlierFences([-1.18, 0.05, 0.08, 0.1, 0.12, 0.15]);
+    expect(fences?.lo).toBeCloseTo(-0.115, 6);
+    expect(fences?.hi).toBeCloseTo(0.2875, 6);
+    expect(outlierFences([1, 2, 3])).toBeNull();
+    expect(outlierFences([2, 2, 2, 2, 9])).toBeNull();
+  });
+
+  it('moves end labels apart by 14px, down from the top and back up from the foot', () => {
+    const at = (y: number) => ({ y, at: y });
+    // Two lines ending 6px apart: the second label moves down, its line stays where it ends.
+    expect(dodge([at(50), at(56)], 12, 212).map((l) => [l.y, l.at])).toEqual([
+      [50, 50],
+      [64, 56],
+    ]);
+    // At the foot: pushed back up, none below the plot.
+    expect(dodge([at(200), at(205), at(210)], 12, 212).map((l) => l.y)).toEqual([184, 198, 212]);
+    // Far apart already: nothing moves.
+    expect(dodge([at(20), at(100)], 12, 212).map((l) => l.y)).toEqual([20, 100]);
+  });
+
+  it('writes an axis in one unit and as many decimals as its step needs, so no two ticks read alike', () => {
+    // Close to par: ticks 0.2M apart would all read "$18M" or "$19M" one by one.
+    expect(axisLabels([18_000_000, 18_200_000, 18_400_000, 19_000_000], 'money')).toEqual([
+      '$18.0M',
+      '$18.2M',
+      '$18.4M',
+      '$19.0M',
+    ]);
+    // One unit down the axis, and zero written plainly.
+    expect(axisLabels([0, 500_000, 1_000_000, 1_500_000], 'money')).toEqual([
+      '$0',
+      '$0.5M',
+      '$1.0M',
+      '$1.5M',
+    ]);
+    expect(axisLabels([-200_000_000, -100_000_000, 0], 'money')).toEqual([
+      '-$200M',
+      '-$100M',
+      '$0',
+    ]);
+    expect(axisLabels([0, 50, 100], 'money')).toEqual(['$0', '$50', '$100']);
+    expect(axisLabels([-0.1, -0.05, 0, 0.05, 0.1], 'pct')).toEqual([
+      '-10%',
+      '-5%',
+      '0%',
+      '5%',
+      '10%',
+    ]);
+    expect(axisLabels([0.12, 0.122, 0.124], 'pct')).toEqual(['12.0%', '12.2%', '12.4%']);
+    expect(axisLabels([1, 2, 3], 'multiple')).toEqual(['1.0x', '2.0x', '3.0x']);
+    expect(axisLabels([0, 1_000, 2_000], 'count')).toEqual(['0', '1,000', '2,000']);
+    expect(axisLabels([0], 'money')).toEqual(['$0']);
   });
 });

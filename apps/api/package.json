@@ -21,6 +21,7 @@
     "@pb/contracts": "workspace:*",
     "@pb/db": "workspace:*",
     "@pb/pdf": "workspace:*",
+    "@pb/report-engine": "workspace:*",
     "@pb/validation": "workspace:*",
     "@pb/workflows": "workspace:*",
     "@pb/xlsx": "workspace:*",

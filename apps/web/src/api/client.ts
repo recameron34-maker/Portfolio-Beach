@@ -3,10 +3,15 @@ import { IDEMPOTENCY_KEY_HEADER, problemDetails } from '@pb/contracts';
 import type { ProblemDetails } from '@pb/contracts';
 import { getCredential } from '../app/session.js';
 import { idempotencyKeyFor } from './idempotency.js';
+import { withoutReferences } from '../lib/references.js';
 
 export class ApiError extends Error {
+  /**
+   * The message is what a page shows, so it goes without the control or document a refusal
+   * cites; `problem` keeps the API's answer word for word.
+   */
   constructor(public readonly problem: ProblemDetails) {
-    super(problem.detail ?? problem.title);
+    super(withoutReferences(problem.detail ?? problem.title));
     this.name = 'ApiError';
   }
   get status(): number {

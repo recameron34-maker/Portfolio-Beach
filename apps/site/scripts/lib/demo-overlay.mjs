@@ -184,7 +184,9 @@ ${options.tokens}
  * The Node side: paced actions for a recording. Every pause is deliberate; a viewer reads a
  * caption at about three words a second.
  * @param {import('@playwright/test').Page} page
- * @param {{ captionHeight?: number, debugFrame?: (label: string) => Promise<void> }} [options]
+ * @param {{ captionHeight?: number, debugFrame?: (label: string) => Promise<void>, speechMs?: (text: string) => number }} [options]
+ *   `speechMs` answers how long the narration of a caption runs: a caption then stays up until
+ *   it has been said, so the voice never runs into the next one.
  */
 export function director(page, options = {}) {
   const captionHeight = options.captionHeight ?? CAPTION_HEIGHT;
@@ -197,8 +199,16 @@ export function director(page, options = {}) {
   const call = (method, arg) =>
     page.evaluate(([m, a]) => globalThis.__pbDemo[m](a), [method, arg ?? null]);
 
-  /** How long a caption needs on screen to be read: about three words a second, never under 2.4 seconds. */
-  const readingTime = (text) => Math.max(2400, Math.round((text.split(/\s+/).length / 3.3) * 1000));
+  /**
+   * How long a caption needs on screen: the time to read it (about three words a second, never
+   * under 2.4 seconds) or, when the recording is narrated, the time to say it if that is longer.
+   */
+  const readingTime = (text) =>
+    Math.max(
+      2400,
+      Math.round((text.split(/\s+/).length / 3.3) * 1000),
+      options.speechMs === undefined ? 0 : Math.ceil(options.speechMs(text)),
+    );
   let readableUntil = 0;
 
   /** Puts a caption up, after the one before it has had the time it needs to be read. */

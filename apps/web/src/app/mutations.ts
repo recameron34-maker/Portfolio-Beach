@@ -44,6 +44,7 @@ import type {
 import type { z as zod } from 'zod';
 import { api, ApiError } from '../api/client.js';
 import { commandLabel, humanizeState } from '../lib/states.js';
+import { withoutReferences } from '../lib/references.js';
 
 /**
  * Workflow writes (docs/18). The API serves them (packages/contracts/src/routes-controls.ts); the
@@ -139,15 +140,26 @@ const NOT_SERVED = 'This build does not serve that action yet.';
 
 /**
  * The transition tables word their refusals for engineers ("valuation: lock from DealTeamApproved
- * requires one of: approver"). The user needs the rule only: drop the machine name, spell out state
- * and command names and start with a capital ("Lock from Deal team approved requires one of:
- * approver", "Confirm funding is not allowed from Ticket drafted").
+ * requires one of: approver"). The user needs the rule only: drop the machine name and the
+ * reference to the control behind the rule, spell out state and command names and start with a
+ * capital ("Lock from Deal team approved requires one of: approver", "Confirm funding is not
+ * allowed from Ticket drafted").
  */
+export { withoutReferences };
+
+/** "Fair value" stays as it is; "Bank name" after another part reads "bank name"; "IC decision" keeps its capitals. */
+const lowerFirst = (words: string): string =>
+  /^[A-Z][a-z]/.test(words) ? words.charAt(0).toLowerCase() + words.slice(1) : words;
+
 export function plainRule(detail: string): string {
-  const rule = detail
+  const rule = withoutReferences(detail)
     .replace(/^[a-z_]+: /, '')
-    .replace(/\b[A-Z][a-z]+(?:[A-Z][a-z]+)+\b/g, (state) => humanizeState(state))
-    .replace(/\b[a-z]+(?:[A-Z][a-z]+)+\b/g, (command) => commandLabel(command).toLowerCase());
+    // A state name: words run together ("TicketDrafted"), or led by an acronym ("QAFailed").
+    .replace(/\b(?:[A-Z][a-z]+(?:[A-Z][a-z]+)+|[A-Z]{2,}[a-z]{2,})\b/g, (state) =>
+      humanizeState(state),
+    )
+    // A command name in the middle of the sentence: its acronym keeps its capitals ("override QA").
+    .replace(/\b[a-z]+(?:[A-Z][a-z]+)+\b/g, (command) => lowerFirst(commandLabel(command)));
   return rule.charAt(0).toUpperCase() + rule.slice(1);
 }
 
@@ -183,10 +195,6 @@ export function describeRefusal(status: number, rawDetail: string): string {
 }
 
 type Issue = NonNullable<ProblemDetails['errors']>[number];
-
-/** "Fair value" stays as it is; "Bank name" after another part reads "bank name"; "IC decision" keeps its capitals. */
-const lowerFirst = (words: string): string =>
-  /^[A-Z][a-z]/.test(words) ? words.charAt(0).toLowerCase() + words.slice(1) : words;
 
 /**
  * The path of a validation issue as a person reads the field: "fairValue" is "Fair value",
@@ -254,12 +262,15 @@ const sentence = (text: string): string => (/[.!?]$/.test(text) ? text : `${text
  * with its field in words and what is wrong with it. The API lists paths and messages only,
  * never the values, so nothing entered is echoed here either.
  */
-function describeIssues(issues: readonly Issue[]): string {
+function describeIssues(
+  issues: readonly Issue[],
+  label: (path: string) => string | null = () => null,
+): string {
   const header = issues.find((issue) => HEADER_PATHS.has(issue.path));
   if (header !== undefined)
     return `The app sent a request the server could not read (${header.path} header: ${header.message}). Nothing was changed. Reload the page and try again.`;
   const listed = issues.slice(0, MAX_ISSUES).map((issue) => {
-    const field = fieldLabel(issue.path);
+    const field = label(issue.path) ?? fieldLabel(issue.path);
     const message = plainMessage(issue.message);
     return sentence(field === null ? message : `${field}: ${message}`);
   });
@@ -282,16 +293,20 @@ const KEY_REUSED =
 
 /**
  * The sentence for a failed write: the issues of a validation refusal field by field, the
- * problem's refusal otherwise, or the error's own words.
+ * problem's refusal otherwise, or the error's own words. A form that calls a field by another
+ * name than its path reads as gives `label` (null for a path it has no word for).
  */
-export function describeActionError(error: unknown): string {
+export function describeActionError(
+  error: unknown,
+  label?: (path: string) => string | null,
+): string {
   if (!(error instanceof ApiError))
     return error instanceof Error ? error.message : 'The action failed.';
   const { problem } = error;
   if (error.code === IDEMPOTENCY_KEY_IN_PROGRESS.code) return STILL_RUNNING;
   if (error.code === IDEMPOTENCY_KEY_REUSE.code) return KEY_REUSED;
   const issues = problem.status === 400 ? (problem.errors ?? []) : [];
-  if (issues.length > 0) return describeIssues(issues);
+  if (issues.length > 0) return describeIssues(issues, label);
   return describeRefusal(error.status, problem.detail ?? problem.title);
 }
 
@@ -310,9 +325,18 @@ export interface CommandVariables<C extends string> {
  * write, including the reads held fresh for a minute. The per-domain api files (the api.ts
  * beside each Phase 3 page folder) spread these lists into their own.
  */
+/**
+ * The valuation suggestions (decision 0023). They are worked out again when a statement or a
+ * report is approved, when an import is promoted and when a valuation is locked or reopened, and
+ * what they offer follows the valuation versions of their quarter, so each of those writes
+ * refreshes them.
+ */
+const SUGGESTION_READS: QueryKey[] = [['valuation-suggestions'], ['valuation-suggestion']];
+
 export const VALUATION_KEYS: QueryKey[] = [
   ['valuations'],
   ['valuation'],
+  ...SUGGESTION_READS,
   ['investment'],
   ['investments'],
   ['investment-performance'],
@@ -349,6 +373,7 @@ const INTAKE_KEYS: QueryKey[] = [
   ['intake-files'],
   ['intake-file'],
   ['intake-exports'],
+  ...SUGGESTION_READS,
   ['investment'],
   ['investments'],
   ['investment-performance'],
@@ -526,6 +551,7 @@ const EXTRACTION_KEYS: QueryKey[] = [
   ['extraction-batches'],
   ['extraction-runs'],
   ['extraction-run'],
+  ...SUGGESTION_READS,
   ['documents'],
   ['document'],
   ['monitoring-board'],

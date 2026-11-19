@@ -1,0 +1,1835 @@
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { D, addMonths, daysBetween, toDecimalString } from '@pb/calc';
+import type { Decimal } from '@pb/calc';
+import {
+  entryCaseOf,
+  investmentDetail,
+  investmentPerformance,
+  investmentValueCreation,
+  problemDetails,
+  underwritingCaseVersion,
+  underwritingRead,
+  valuationRow,
+} from '@pb/contracts';
+import type { UnderwritingCaseVersion, UnderwritingRead } from '@pb/contracts';
+import { seededComparison, underwritingTolerances } from '@pb/synthetic';
+import { startHarness } from './harness.js';
+import type { Harness } from './harness.js';
+
+/*
+ * Performance against the sponsor's underwritten base case (docs/04 M9, docs/08 section 11,
+ * docs/18 section 13, decision 0022). The read is checked three ways: against the seeded cases
+ * and the comparison the synthetic data's own oracle works out from the dataset (never from the
+ * database), against the figures the value creation card and the position summary answer for the
+ * same date, and rule by rule from the figures the read itself returns.
+ */
+
+const str = toDecimalString;
+const NO_SUCH_ID = '00000000-0000-4000-8000-00000000abcd';
+const EQUITY = [
+  'deal_type.co_invest_equity',
+  'deal_type.cv_single_asset',
+  'deal_type.cv_multi_asset',
+];
+const CREDIT = 'deal_type.private_credit';
+const path = (id: string, query = ''): string => `/api/v1/investments/${id}/underwriting${query}`;
+/** A decimal as its value, so "11.000000" and "11" compare equal; null stays null. */
+const num = (value: string | null): string | null => (value === null ? null : D(value).toString());
+
+describe('a position against its underwritten base case: the read (M9, decision 0022)', () => {
+  let h: Harness;
+  beforeAll(async () => {
+    h = await startHarness();
+  });
+  afterAll(async () => {
+    await h.close();
+  });
+
+  const asOf = (): string => h.dataset.asOf;
+  const tolerances = () => underwritingTolerances(h.runtime.definitions);
+  const scenario = (name: string): string => {
+    const id = h.dataset.scenarios[name]?.[0];
+    if (id === undefined) throw new Error(`the dataset carries no ${name}`);
+    return id;
+  };
+  const walledId = (): string => scenario('walled_deal');
+  const idOf = (number: string): string =>
+    h.dataset.investments.find((i) => i.investmentNumber === number)!.id;
+  const seededCases = (investmentId: string) =>
+    (h.dataset.underwritingCases ?? [])
+      .filter((c) => c.investmentId === investmentId)
+      .sort((a, b) => a.version - b.version);
+  /** Someone who can open the position: a wall member for the walled one, a viewer otherwise. */
+  const readerOf = (investmentId: string): string =>
+    investmentId === walledId() ? 'deal.three' : 'viewer.one';
+  const get = (who: string, url: string, requestId = 'req-underwriting') =>
+    h.http().get(url).set('authorization', h.as(who)).set('x-request-id', requestId);
+  const readFor = async (
+    who: string,
+    id: string,
+    query = `?asOf=${asOf()}`,
+    requestId?: string,
+  ): Promise<UnderwritingRead> =>
+    underwritingRead.parse((await get(who, path(id, query), requestId).expect(200)).body);
+  const count = async (sql: string): Promise<number> =>
+    (await h.runtime.db.query<{ n: number }>(sql))[0]!.n;
+  const equityPositions = () =>
+    h.dataset.investments.filter((i) => EQUITY.includes(i.dealType) && i.entryDate <= asOf());
+  const loans = () => h.dataset.investments.filter((i) => i.dealType === CREDIT);
+
+  it('answers every equity position and every loan: its versions as recorded and the entry case compared, figure for figure', async () => {
+    let compared = 0;
+    expect(loans().length).toBeGreaterThan(0);
+    for (const investment of [...equityPositions(), ...loans()]) {
+      const label = investment.investmentNumber;
+      const form = investment.dealType === CREDIT ? 'credit' : 'equity';
+      const read = await readFor(readerOf(investment.id), investment.id);
+      expect(read.asOf, label).toBe(asOf());
+      expect(read.form, label).toBe(form);
+      expect(read.thresholds, label).toEqual(tolerances());
+      expect(read.calcVersion, label).toBe('0.1.0');
+
+      // The versions are the seeded ones, in full and in version order.
+      const seeded = seededCases(investment.id);
+      expect(
+        read.versions.map((v) => v.version),
+        label,
+      ).toEqual(seeded.map((c) => c.version));
+      read.versions.forEach((v, i) => {
+        const c = seeded[i]!;
+        expect(
+          {
+            id: v.id,
+            investmentId: v.investmentId,
+            form: v.form,
+            state: v.state,
+            caseDate: v.caseDate,
+            plannedExitDate: v.plannedExitDate,
+            exitMultiple: num(v.exitMultiple),
+            grossMoic: num(v.grossMoic),
+            grossIrr: num(v.grossIrr),
+            underwrittenYield: num(v.underwrittenYield),
+            annualLossRate: num(v.annualLossRate),
+            currency: v.currency,
+            note: v.note,
+            revisionReason: v.revisionReason,
+            withdrawnReason: v.withdrawnReason,
+            source: v.source,
+            enteredBy: v.enteredBy.id,
+            enteredAt: v.enteredAt,
+            confirmedBy: v.confirmedBy?.id ?? null,
+            confirmedAt: v.confirmedAt,
+          },
+          `${label} v${c.version}`,
+        ).toEqual({
+          id: c.id,
+          investmentId: c.investmentId,
+          form,
+          state: c.state,
+          caseDate: c.caseDate,
+          plannedExitDate: c.plannedExitDate,
+          exitMultiple: num(c.exitMultiple),
+          grossMoic: num(c.grossMoic),
+          grossIrr: num(c.grossIrr),
+          // A loan has both, an equity case neither.
+          underwrittenYield: num(c.underwrittenYield),
+          annualLossRate: num(c.annualLossRate),
+          currency: 'USD',
+          note: c.note,
+          revisionReason: c.revisionReason,
+          withdrawnReason: c.withdrawnReason,
+          source: { document: null, page: null, locator: null, note: c.sourceNote },
+          enteredBy: c.enteredBy,
+          enteredAt: new Date(c.enteredAt).toISOString(),
+          confirmedBy: c.confirmedBy,
+          confirmedAt: c.confirmedAt === null ? null : new Date(c.confirmedAt).toISOString(),
+        });
+        expect(
+          h.dataset.users.find((u) => u.id === c.enteredBy)?.displayName,
+          `${label} v${c.version}`,
+        ).toBe(v.enteredBy.name);
+        expect(
+          v.points.map((p) => [p.periodEnd, num(p.revenueLtm), num(p.ebitdaLtm), num(p.netDebt)]),
+          `${label} v${c.version}`,
+        ).toEqual(
+          [...c.points]
+            .sort((a, b) => (a.periodEnd < b.periodEnd ? -1 : 1))
+            .map((p) => [p.periodEnd, num(p.revenueLtm), num(p.ebitdaLtm), num(p.netDebt)]),
+        );
+        expect(v.rowVersion, `${label} v${c.version}`).toBeGreaterThanOrEqual(1);
+      });
+
+      // The entry case is compared: the Confirmed version with the earliest case date.
+      const entryCase = entryCaseOf(seeded);
+      if (entryCase === null) {
+        expect(read.comparedVersion, label).toBeNull();
+        expect(read.comparison, label).toBeNull();
+        expect(read.notCalculable, label).toBe(
+          seeded.some((c) => c.state === 'Draft') ? 'draft_only' : 'no_case',
+        );
+        continue;
+      }
+      compared += 1;
+      expect(read.comparedVersion, label).toBe(entryCase.version);
+      expect(read.notCalculable, label).toBeNull();
+      expect(read.comparison, label).toEqual(seededComparison(h.dataset, entryCase, tolerances()));
+    }
+    // Most positions carry a case, and some carry none or only a Draft.
+    expect(compared).toBeGreaterThanOrEqual(10);
+    expect(compared).toBeLessThan(equityPositions().length + loans().length);
+  });
+
+  it('reads a loan on its returns alone: the summary and the path by hand, and the yield to maturity of its Credit terms', async () => {
+    let onPath = 0;
+    let pastMaturity = 0;
+    for (const loan of loans()) {
+      const label = loan.investmentNumber;
+      const read = await readFor('viewer.one', loan.id);
+      const comparison = read.comparison!;
+      const version = read.versions.find((v) => v.version === read.comparedVersion)!;
+      expect([version.form, version.exitMultiple, version.points], label).toEqual([
+        'credit',
+        null,
+        [],
+      ]);
+      expect(version.underwrittenYield, label).not.toBeNull();
+      // Rule 6: no company quarter, no metric against plan, no series and no bridge.
+      expect(
+        [
+          comparison.quarter,
+          comparison.metrics,
+          comparison.headline,
+          comparison.series,
+          comparison.valueCreation,
+        ],
+        label,
+      ).toEqual([null, [], null, [], null]);
+
+      // Our returns are the position summary's, and the yield is the Credit terms' own figure.
+      const summary = investmentDetail.parse(
+        (await get('viewer.one', `/api/v1/investments/${loan.id}?asOf=${asOf()}`)).body,
+      );
+      const perf = investmentPerformance.parse(
+        (await get('viewer.one', `/api/v1/investments/${loan.id}/performance?asOf=${asOf()}`)).body,
+      );
+      const { returns } = comparison;
+      expect(
+        { grossMoic: returns.grossMoic, grossIrr: returns.grossIrr, irrFlag: returns.irrFlag },
+        label,
+      ).toEqual({
+        grossMoic: summary.grossMoic,
+        grossIrr: summary.grossIrr,
+        irrFlag: summary.irrFlag,
+      });
+      expect(perf.credit, label).not.toBeNull();
+      expect(comparison.yieldToMaturity, label).toBe(perf.credit!.terms.yieldToMaturity);
+
+      // Rule 5 by hand: the gap in points and its status by the IRR tolerance.
+      expect(returns.irrGap, label).toBe(held(D(returns.grossIrr!).minus(version.grossIrr)));
+      expect(returns.irrStatus, label).toBe(
+        returns.irrFlag !== null ? null : statusOf(returns.irrGap!, read.thresholds.irrTolerance),
+      );
+      if (asOf() > version.plannedExitDate) {
+        // Past the expected repayment there is no path, and so no yield to maturity either.
+        pastMaturity += 1;
+        expect(returns, label).toMatchObject({
+          moicOnPath: null,
+          moicGap: null,
+          pathNotCalculable: 'past_plan_end',
+        });
+        expect(comparison.yieldToMaturity, label).toBeNull();
+        continue;
+      }
+      // The path: every flow compounded at the underwritten IRR to the as-of date, signed from
+      // our side (what we paid in is negative), then distributions added back over invested.
+      onPath += 1;
+      const base = D('1').plus(version.grossIrr);
+      const pathValue = summary.cashFlows
+        .filter((f) => f.date <= asOf())
+        .reduce((total, f) => {
+          const paidIn = ['contribution', 'fee', 'expense'].includes(
+            f.flowType.replace('flow_type.', ''),
+          );
+          const amount = paidIn ? D(f.amount).abs().neg() : D(f.amount).abs();
+          return total.plus(
+            amount.times(base.pow(D(String(daysBetween(f.date, asOf()))).div('365'))),
+          );
+        }, D('0'))
+        .neg();
+      const moicOnPath = D(summary.distributions!).plus(pathValue).div(D(summary.invested!).abs());
+      expect(D(returns.moicOnPath!).minus(moicOnPath).abs().lt('0.000000001'), label).toBe(true);
+      expect(returns.moicGap, label).toBe(held(D(returns.grossMoic!).minus(returns.moicOnPath!)));
+      expect(returns.pathNotCalculable, label).toBeNull();
+    }
+    // The small book holds a loan that is still running and one past its maturity.
+    expect([onPath > 0, pastMaturity > 0]).toEqual([true, true]);
+  });
+
+  it('takes the actual side from the value creation card and the position summary of the same date', async () => {
+    for (const investment of equityPositions()) {
+      const label = investment.investmentNumber;
+      const who = readerOf(investment.id);
+      const { comparison } = await readFor(who, investment.id);
+      if (comparison === null) continue;
+      const card = investmentValueCreation.parse(
+        (await get(who, `/api/v1/investments/${investment.id}/value-creation?asOf=${asOf()}`)).body,
+      ).position!;
+      const summary = investmentDetail.parse(
+        (await get(who, `/api/v1/investments/${investment.id}?asOf=${asOf()}`)).body,
+      );
+
+      // The quarter and its figures are the card's current quarter.
+      expect(comparison.quarter, label).toBe(card.current?.periodEnd ?? null);
+      for (const row of comparison.metrics) {
+        const field = { ebitda: 'ebitdaLtm', revenue: 'revenueLtm', net_debt: 'netDebt' } as const;
+        expect(row.actual, `${label} ${row.metric}`).toBe(
+          num(card.current?.[field[row.metric]] ?? null),
+        );
+      }
+      // The bridge earned to date is the card's bridge, driver for driver, and its reason.
+      const progress = comparison.valueCreation!;
+      expect(progress.actual, label).toEqual(
+        card.bridge === null
+          ? null
+          : {
+              ebitdaGrowth: card.bridge.ebitdaGrowth,
+              multipleExpansion: card.bridge.multipleExpansion,
+              debtPaydown: card.bridge.debtPaydown,
+              total: card.bridge.total,
+            },
+      );
+      if (card.bridge === null) expect(progress.notCalculable, label).toBe(card.notCalculable);
+      // Our returns are the summary's.
+      expect(
+        {
+          grossMoic: comparison.returns.grossMoic,
+          grossIrr: comparison.returns.grossIrr,
+          irrFlag: comparison.returns.irrFlag,
+        },
+        label,
+      ).toEqual({
+        grossMoic: summary.grossMoic,
+        grossIrr: summary.grossIrr,
+        irrFlag: summary.irrFlag,
+      });
+    }
+  });
+
+  /** A figure held to the ten places it travels with, as docs/08 section 11 has it. */
+  const held = (value: Decimal): string => str(value)!;
+  const statusOf = (favourable: string, tolerance: string): string =>
+    D(favourable).gt(tolerance)
+      ? 'ahead'
+      : D(favourable).lt(D(tolerance).neg())
+        ? 'behind'
+        : 'on_plan';
+
+  /** Rule 1 by hand over the plan points the read returned. */
+  function planByHand(
+    version: UnderwritingCaseVersion,
+    metric: 'ebitda' | 'revenue' | 'net_debt',
+    date: string,
+  ): { plan: string | null; interpolated: boolean; reason: string | null } {
+    const field = { ebitda: 'ebitdaLtm', revenue: 'revenueLtm', net_debt: 'netDebt' } as const;
+    const points = version.points;
+    const none = (reason: string) => ({ plan: null, interpolated: false, reason });
+    const on = points.find((p) => p.periodEnd === date);
+    if (on !== undefined) {
+      const own = on[field[metric]];
+      return own === null
+        ? none('missing_plan_figure')
+        : { plan: held(D(own)), interpolated: false, reason: null };
+    }
+    const before = points.filter((p) => p.periodEnd < date).at(-1);
+    const after = points.find((p) => p.periodEnd > date);
+    if (before === undefined)
+      return none(after === undefined ? 'missing_plan_figure' : 'before_plan_start');
+    if (after === undefined) return none('past_plan_end');
+    const v0 = before[field[metric]];
+    const v1 = after[field[metric]];
+    if (v0 === null || v1 === null) return none('missing_plan_figure');
+    const line = D(v0).plus(
+      D(v1)
+        .minus(v0)
+        .times(daysBetween(before.periodEnd, date))
+        .div(daysBetween(before.periodEnd, after.periodEnd)),
+    );
+    return { plan: held(line), interpolated: true, reason: null };
+  }
+
+  it('answers every figure by its rule over the figures returned with it (docs/08 section 11)', async () => {
+    const seen = {
+      interpolated: 0,
+      onPlanDate: 0,
+      statuses: new Set<string>(),
+      reasons: new Set<string>(),
+    };
+    for (const investment of equityPositions()) {
+      const label = investment.investmentNumber;
+      const who = readerOf(investment.id);
+      const read = await readFor(who, investment.id);
+      const comparison = read.comparison;
+      if (comparison === null) continue;
+      const version = read.versions.find((v) => v.version === read.comparedVersion)!;
+      const { onPlanTolerance, irrTolerance } = read.thresholds;
+
+      // Rules 1 to 3: the plan at the quarter's date, the variance, the percent and the status.
+      expect(comparison.metrics.map((m) => m.metric)).toEqual(['ebitda', 'revenue', 'net_debt']);
+      for (const row of comparison.metrics) {
+        const what = `${label} ${row.metric}`;
+        if (comparison.quarter === null) {
+          expect(row, what).toMatchObject({
+            actual: null,
+            plan: null,
+            variance: null,
+            variancePct: null,
+            status: null,
+            notCalculable: 'no_current_quarter',
+          });
+          continue;
+        }
+        const byHand = planByHand(version, row.metric, comparison.quarter);
+        expect({ plan: row.plan, interpolated: row.interpolated }, what).toEqual({
+          plan: byHand.plan,
+          interpolated: byHand.interpolated,
+        });
+        if (row.interpolated) seen.interpolated += 1;
+        else if (row.plan !== null) seen.onPlanDate += 1;
+        if (row.plan === null || row.actual === null) {
+          // Never the nearest plan figure and never a zero: nothing, and the reason.
+          expect(row, what).toMatchObject({
+            variance: null,
+            variancePct: null,
+            status: null,
+            notCalculable: byHand.reason ?? 'missing_actual',
+          });
+          seen.reasons.add(row.notCalculable!);
+          continue;
+        }
+        expect(row.variance, what).toBe(held(D(row.actual).minus(row.plan)));
+        if (!D(row.plan).gt(0)) {
+          expect(row, what).toMatchObject({
+            variancePct: null,
+            status: null,
+            notCalculable: 'non_positive_plan',
+          });
+          seen.reasons.add('non_positive_plan');
+          continue;
+        }
+        expect(row.variancePct, what).toBe(held(D(row.variance!).div(row.plan)));
+        const favourable =
+          row.metric === 'net_debt' ? held(D(row.variancePct!).neg()) : row.variancePct!;
+        expect(row.status, what).toBe(statusOf(favourable, onPlanTolerance));
+        expect(row.notCalculable, what).toBeNull();
+        seen.statuses.add(row.status!);
+      }
+      expect(comparison.headline, label).toBe(
+        comparison.metrics.find((m) => m.metric === 'ebitda')!.status,
+      );
+
+      // The series: the plan at every date by rule 1, and an actual only on an approved quarter.
+      for (const series of comparison.series)
+        for (const p of series.points) {
+          const byHand = planByHand(version, series.metric, p.periodEnd);
+          expect({ plan: p.plan, interpolated: p.interpolated }, `${label} ${p.periodEnd}`).toEqual(
+            { plan: byHand.plan, interpolated: byHand.interpolated },
+          );
+          if (comparison.quarter !== null && p.periodEnd > comparison.quarter)
+            expect(p.actual, `${label} ${p.periodEnd}`).toBeNull();
+        }
+
+      // Rule 4: progress is earned over planned, and time passed runs from the entry snapshot.
+      const progress = comparison.valueCreation!;
+      if (progress.planned !== null && progress.actual !== null) {
+        for (const driver of ['ebitdaGrowth', 'multipleExpansion', 'debtPaydown', 'total'] as const)
+          expect(progress.progress![driver], `${label} ${driver}`).toBe(
+            D(progress.planned[driver]).gt(0)
+              ? held(D(progress.actual[driver]).div(progress.planned[driver]))
+              : null,
+          );
+        expect(progress.planned.total, label).toBe(
+          held(
+            D(progress.planned.ebitdaGrowth)
+              .plus(progress.planned.multipleExpansion)
+              .plus(progress.planned.debtPaydown),
+          ),
+        );
+      } else {
+        expect(progress.progress, label).toBeNull();
+        expect(progress.notCalculable, label).not.toBeNull();
+      }
+      const card = investmentValueCreation.parse(
+        (await get(who, `/api/v1/investments/${investment.id}/value-creation?asOf=${asOf()}`)).body,
+      ).position!;
+      expect(progress.timePassed, label).toBe(
+        card.entry === null || comparison.quarter === null
+          ? null
+          : held(
+              D(String(daysBetween(card.entry.periodEnd, comparison.quarter))).div(
+                daysBetween(card.entry.periodEnd, version.plannedExitDate),
+              ),
+            ),
+      );
+
+      // Rule 5: the IRR gap in points and its status; the MOIC gap against the path or the target.
+      const returns = comparison.returns;
+      expect(returns.irrGap, label).toBe(
+        returns.grossIrr === null ? null : held(D(returns.grossIrr).minus(version.grossIrr)),
+      );
+      expect(returns.irrStatus, label).toBe(
+        returns.irrGap === null || returns.irrFlag !== null
+          ? null
+          : statusOf(returns.irrGap, irrTolerance),
+      );
+      const held0 = investment.exitDate === null || investment.exitDate > asOf();
+      if (!held0) {
+        // Realized: against the underwritten MOIC at exit, and no path.
+        expect(returns.moicOnPath, label).toBeNull();
+        expect(returns.pathNotCalculable, label).toBeNull();
+        expect(returns.moicGap, label).toBe(
+          returns.grossMoic === null ? null : held(D(returns.grossMoic).minus(version.grossMoic)),
+        );
+      } else if (asOf() > version.plannedExitDate) {
+        expect(returns, label).toMatchObject({
+          moicOnPath: null,
+          moicGap: null,
+          pathNotCalculable: 'past_plan_end',
+        });
+      } else {
+        expect(returns.moicGap, label).toBe(
+          returns.grossMoic === null || returns.moicOnPath === null
+            ? null
+            : held(D(returns.grossMoic).minus(returns.moicOnPath)),
+        );
+      }
+      expect(comparison.yieldToMaturity, label).toBeNull();
+    }
+    // The seeded book exercises the straight line, a plan date, every status and the reasons.
+    expect(seen.interpolated).toBeGreaterThan(0);
+    expect([...seen.statuses].sort()).toEqual(['ahead', 'behind', 'on_plan']);
+    expect([...seen.reasons].sort()).toEqual(
+      expect.arrayContaining(['missing_plan_figure', 'non_positive_plan', 'past_plan_end']),
+    );
+  });
+
+  it('reads each seeded scenario as the scenario says', async () => {
+    const headline = async (name: string) =>
+      (await readFor('viewer.one', scenario(name))).comparison?.headline;
+    expect(await headline('underwriting_ahead')).toBe('ahead');
+    expect(await headline('underwriting_on_plan')).toBe('on_plan');
+    expect(await headline('underwriting_behind')).toBe('behind');
+
+    // A plan in net cash: the variance in money stands, the percent and the status do not.
+    const netCash = (await readFor('viewer.one', scenario('underwriting_net_cash'))).comparison!;
+    const netDebt = netCash.metrics.find((m) => m.metric === 'net_debt')!;
+    expect(D(netDebt.plan!).lte(0)).toBe(true);
+    expect(netDebt).toMatchObject({
+      variancePct: null,
+      status: null,
+      notCalculable: 'non_positive_plan',
+    });
+    expect(netDebt.variance).not.toBeNull();
+
+    // A plan date with no net debt: no figure there, and none borrowed from another date.
+    const gap = (await readFor('viewer.one', scenario('underwriting_gap'))).comparison!;
+    expect(gap.metrics.find((m) => m.metric === 'net_debt')).toMatchObject({
+      plan: null,
+      variance: null,
+      status: null,
+      notCalculable: 'missing_plan_figure',
+    });
+    expect(gap.metrics.find((m) => m.metric === 'ebitda')!.plan).not.toBeNull();
+
+    // A plan that has ended: nothing to compare the quarter with, and no path either.
+    const past = (await readFor('viewer.one', scenario('underwriting_past_exit'))).comparison!;
+    for (const row of past.metrics)
+      expect(row, row.metric).toMatchObject({
+        plan: null,
+        status: null,
+        notCalculable: 'past_plan_end',
+      });
+    expect(past.headline).toBeNull();
+    expect(past.returns).toMatchObject({ moicOnPath: null, pathNotCalculable: 'past_plan_end' });
+    // The planned bridge still stands: it runs from entry to the planned exit.
+    expect(past.valueCreation!.planned).not.toBeNull();
+    expect(D(past.valueCreation!.timePassed!).gt(1)).toBe(true);
+  });
+
+  it('compares the entry case unless the reader names another that stands or stood as the plan', async () => {
+    // A correction: version 2 replaced version 1, which a reader may still pick.
+    const corrected = scenario('underwriting_corrected');
+    const now = await readFor('viewer.one', corrected);
+    expect(now.versions.map((v) => [v.version, v.state, v.kind])).toEqual([
+      [1, 'Superseded', 'entry'],
+      [2, 'Confirmed', 'correction'],
+    ]);
+    expect(now.versions[1]!.revisionReason).not.toBeNull();
+    expect(now.comparedVersion).toBe(2);
+    const before = await readFor('viewer.one', corrected, `?asOf=${asOf()}&version=1`);
+    expect(before.comparedVersion).toBe(1);
+    expect(before.versions).toEqual(now.versions);
+    expect(before.comparison).toEqual(
+      seededComparison(h.dataset, seededCases(corrected)[0]!, tolerances()),
+    );
+    expect(before.comparison).not.toEqual(now.comparison);
+
+    // A re-underwriting: both stay Confirmed, the entry case is compared, the later one is a pick.
+    const again = scenario('underwriting_reunderwritten');
+    const entry = await readFor('viewer.one', again);
+    expect(entry.versions.map((v) => [v.version, v.state, v.kind])).toEqual([
+      [1, 'Confirmed', 'entry'],
+      [2, 'Confirmed', 'reunderwrite'],
+    ]);
+    expect(entry.comparedVersion).toBe(1);
+    const picked = await readFor('viewer.one', again, `?asOf=${asOf()}&version=2`);
+    expect(picked.comparedVersion).toBe(2);
+    expect(picked.comparison).toEqual(
+      seededComparison(h.dataset, seededCases(again)[1]!, tolerances()),
+    );
+
+    // A Draft alone is not compared (SEC-9.1), and cannot be picked.
+    const draft = scenario('underwriting_draft');
+    const waiting = await readFor('viewer.one', draft);
+    expect(waiting.versions.map((v) => [v.version, v.state, v.confirmedBy])).toEqual([
+      [1, 'Draft', null],
+    ]);
+    expect(waiting).toMatchObject({
+      comparedVersion: null,
+      comparison: null,
+      notCalculable: 'draft_only',
+    });
+    // A withdrawn case is on record with its reason, and is not compared.
+    const withdrawn = scenario('underwriting_withdrawn');
+    const gone = await readFor('viewer.one', withdrawn);
+    expect(gone.versions.map((v) => v.state)).toEqual(['Withdrawn']);
+    expect(gone.versions[0]!.withdrawnReason).not.toBeNull();
+    expect(gone).toMatchObject({
+      comparedVersion: null,
+      comparison: null,
+      notCalculable: 'no_case',
+    });
+    // A position with nothing on record.
+    const none = await readFor('viewer.one', idOf('INV-0005'));
+    expect(none).toMatchObject({
+      form: 'equity',
+      versions: [],
+      comparedVersion: null,
+      comparison: null,
+      notCalculable: 'no_case',
+    });
+
+    for (const [id, version] of [
+      [draft, 1],
+      [withdrawn, 1],
+      [corrected, 3],
+      [idOf('INV-0005'), 1],
+    ] as const) {
+      const res = await get('viewer.one', path(id, `?asOf=${asOf()}&version=${version}`)).expect(
+        404,
+      );
+      expect(problemDetails.parse(res.body).detail).toBe('Base case version not found');
+    }
+  });
+
+  it('judges the position as of the date asked for', async () => {
+    const id = scenario('underwriting_behind');
+    const investment = h.dataset.investments.find((i) => i.id === id)!;
+    const earlier = '2023-12-31';
+    expect(investment.entryDate < earlier).toBe(true);
+    const then = await readFor('viewer.one', id, `?asOf=${earlier}`);
+    expect(then.asOf).toBe(earlier);
+    expect(then.comparison).toEqual(
+      seededComparison({ ...h.dataset, asOf: earlier }, seededCases(id)[0]!, tolerances()),
+    );
+    expect(then.comparison!.quarter! <= earlier).toBe(true);
+    expect(then.comparison).not.toEqual((await readFor('viewer.one', id)).comparison);
+    // Without a date the API reads as of its own day.
+    expect((await readFor('viewer.one', id, '')).asOf).toBe(asOf());
+    // Before we entered, the position does not exist.
+    await get('viewer.one', path(id, '?asOf=2000-01-01')).expect(404);
+
+    // A snapshot dated after the as-of date is no basis: the plan has not started.
+    const forward = scenario('forward_entry_snapshot');
+    const early = await readFor('viewer.one', forward);
+    expect(early.comparison!.valueCreation).toMatchObject({
+      actual: null,
+      timePassed: null,
+      notCalculable: 'entry_snapshot_forward_dated',
+    });
+    for (const row of early.comparison!.metrics)
+      if (row.notCalculable !== null)
+        expect(['before_plan_start', 'no_current_quarter', 'missing_actual']).toContain(
+          row.notCalculable,
+        );
+  });
+
+  it('is read by anyone who can open the position, and by nobody behind its wall', async () => {
+    const open = scenario('underwriting_ahead');
+    for (const who of ['viewer.one', 'deal.one', 'ops.one', 'head.one', 'ir.one', 'audit.one'])
+      expect((await readFor(who, open)).comparedVersion, who).toBe(1);
+    await h.http().get(path(open)).expect(401);
+
+    // The walled position: its members read the case, everyone else is told it does not exist.
+    const inside = await readFor('deal.three', walledId());
+    expect(inside.versions).toHaveLength(1);
+    expect(inside.comparison).not.toBeNull();
+    expect((await readFor('head.one', walledId())).comparedVersion).toBe(1);
+    for (const who of ['viewer.one', 'deal.one', 'ops.one', 'ir.one', 'audit.one', 'admin.one']) {
+      const res = await get(who, path(walledId(), `?asOf=${asOf()}`)).expect(404);
+      expect(problemDetails.parse(res.body).detail, who).toBe('Investment not found');
+      expect(JSON.stringify(res.body), who).not.toContain('version');
+    }
+    const unknown = await get('viewer.one', path(NO_SUCH_ID)).expect(404);
+    expect(problemDetails.parse(unknown.body).detail).toBe('Investment not found');
+    await get('viewer.one', path('not-an-id')).expect(404);
+  });
+
+  it('refuses a query it cannot read with the field named, never the value', async () => {
+    const id = scenario('underwriting_ahead');
+    for (const [query, field] of [
+      ['?asOf=2025-02-30', 'asOf'],
+      ['?asOf=tomorrow', 'asOf'],
+      ['?version=0', 'version'],
+      ['?version=first', 'version'],
+      ['?version=1.5', 'version'],
+      ['?case=1', '(root)'],
+    ] as const) {
+      const res = await get('viewer.one', path(id, query)).expect(400);
+      const problem = problemDetails.parse(res.body);
+      expect(problem.type, query).toBe('https://portfolio-beach.example/problems/validation');
+      expect(
+        problem.errors?.map((e) => e.path),
+        query,
+      ).toEqual([field]);
+      expect(JSON.stringify(res.body), query).not.toMatch(/tomorrow|first|2025-02-30/);
+    }
+  });
+
+  it('answers no form and nothing else for a position that holds no base case', async () => {
+    const empty = {
+      asOf: asOf(),
+      form: null,
+      versions: [],
+      comparedVersion: null,
+      comparison: null,
+      notCalculable: null,
+      thresholds: tolerances(),
+      calcVersion: '0.1.0',
+    };
+    // A primary fund holds none. The small book has no primary fund, so one position is made one
+    // for the length of this check, on the owner connection.
+    const id = idOf('INV-0017');
+    const setType = (dealType: string) =>
+      h.runtime.db.query('update core.investment set deal_type = $1 where id = $2', [dealType, id]);
+    await setType('deal_type.primary_fund');
+    try {
+      expect(await readFor('viewer.one', id)).toEqual(empty);
+      await get('viewer.one', path(id, '?version=1')).expect(404);
+    } finally {
+      await setType('deal_type.cv_single_asset');
+    }
+    expect((await readFor('viewer.one', id)).form).toBe('equity');
+  });
+
+  it('writes one audit event per read of the card, and none for a read that is refused', async () => {
+    const id = scenario('underwriting_corrected');
+    await readFor('viewer.one', id, `?asOf=${asOf()}`, 'req-underwriting-audit-1');
+    await readFor('viewer.one', id, `?asOf=${asOf()}&version=1`, 'req-underwriting-audit-2');
+    const events = await h.runtime.db.query<{
+      action: string;
+      entity: string;
+      entity_id: string;
+      details: { comparedVersion?: number };
+      request_id: string;
+    }>(
+      "select action, entity, entity_id, details, request_id from audit.event where request_id like 'req-underwriting-audit-%' order by request_id",
+    );
+    expect(events).toEqual([
+      {
+        action: 'investment.underwriting.read',
+        entity: 'core.investment',
+        entity_id: id,
+        details: { comparedVersion: 2 },
+        request_id: 'req-underwriting-audit-1',
+      },
+      {
+        action: 'investment.underwriting.read',
+        entity: 'core.investment',
+        entity_id: id,
+        details: { comparedVersion: 1 },
+        request_id: 'req-underwriting-audit-2',
+      },
+    ]);
+    await get('viewer.one', path(walledId()), 'req-underwriting-refused-1').expect(404);
+    await get('viewer.one', path(id, '?version=9'), 'req-underwriting-refused-2').expect(404);
+    expect(
+      await count(
+        "select count(*)::int as n from audit.event where request_id like 'req-underwriting-refused-%'",
+      ),
+    ).toBe(0);
+  });
+
+  it('refuses to answer without its tolerances: a 500 that names the key, and nothing on record', async () => {
+    const id = scenario('underwriting_ahead');
+    const definitions = h.runtime.definitions;
+    const kept = definitions.underwriting;
+    try {
+      for (const [settings, key] of [
+        [undefined, 'underwriting.onPlanTolerance'],
+        [{ onPlanTolerance: 0.05 }, 'underwriting.irrTolerance'],
+        [{ onPlanTolerance: -0.05, irrTolerance: 0.02 }, 'underwriting.onPlanTolerance'],
+        [{ onPlanTolerance: 0.05, irrTolerance: 'two points' }, 'underwriting.irrTolerance'],
+      ] as const) {
+        definitions.underwriting = settings;
+        const res = await get('viewer.one', path(id), 'req-underwriting-config').expect(500);
+        const problem = problemDetails.parse(res.body);
+        expect(problem.type, key).toBe('https://portfolio-beach.example/problems/configuration');
+        expect(problem.detail, key).toBe(`config/definitions.json is missing a usable ${key}`);
+      }
+    } finally {
+      definitions.underwriting = kept;
+    }
+    expect(
+      await count(
+        "select count(*)::int as n from audit.event where request_id = 'req-underwriting-config'",
+      ),
+    ).toBe(0);
+    expect((await readFor('viewer.one', id)).comparison).not.toBeNull();
+  });
+});
+
+const CASES = '/api/v1/underwriting-cases';
+const REPLAYED = 'idempotency-replayed';
+const PROBLEM = 'https://portfolio-beach.example/problems/';
+const SEC_5_6 =
+  'underwriting_case: the person who last changed the figures cannot confirm them (SEC-5.6)';
+const SEC_9_4 =
+  'underwriting_case: a base case names its source before it is confirmed: a document of the position or a note on where the model is held (SEC-9.4)';
+const SOURCE_NOTE = 'Sponsor model, base case tab, held in the deal folder';
+
+interface PlanPoint {
+  periodEnd: string;
+  revenueLtm: string | null;
+  ebitdaLtm: string | null;
+  netDebt: string | null;
+}
+
+/** An equity base case a body may carry: three plan points from the case date to the planned exit. */
+function plan(caseDate: string, over: Record<string, unknown> = {}): Record<string, unknown> {
+  const exit = addMonths(caseDate, 60);
+  const points: PlanPoint[] = [
+    {
+      periodEnd: caseDate,
+      revenueLtm: '120000000.00',
+      ebitdaLtm: '24000000.00',
+      netDebt: '70000000.00',
+    },
+    {
+      periodEnd: addMonths(caseDate, 24),
+      revenueLtm: '150000000.00',
+      ebitdaLtm: '31500000.00',
+      netDebt: '60000000.00',
+    },
+    { periodEnd: exit, revenueLtm: '190000000.00', ebitdaLtm: '42000000.00', netDebt: null },
+  ];
+  return {
+    caseDate,
+    plannedExitDate: exit,
+    exitMultiple: '11.5',
+    grossMoic: '2.4',
+    grossIrr: '0.19',
+    points,
+    ...over,
+  };
+}
+
+describe('the underwritten base case of a position: recording, confirming and revising it (docs/18 section 13)', () => {
+  let h: Harness;
+  beforeAll(async () => {
+    h = await startHarness();
+  });
+  afterAll(async () => {
+    await h.close();
+  });
+
+  const asOf = (): string => h.dataset.asOf;
+  const scenario = (name: string): string => h.dataset.scenarios[name]![0]!;
+  const walledId = (): string => scenario('walled_deal');
+  const idOf = (number: string): string =>
+    h.dataset.investments.find((i) => i.investmentNumber === number)!.id;
+  const userId = (externalId: string): string =>
+    h.dataset.users.find((u) => u.externalId === externalId)!.id;
+  const seededCase = (investmentId: string, version = 1) =>
+    (h.dataset.underwritingCases ?? []).find(
+      (c) => c.investmentId === investmentId && c.version === version,
+    )!;
+  const one = (investmentId: string): string => `/api/v1/investments/${investmentId}/underwriting`;
+
+  let keys = 0;
+  const send = (
+    method: 'post' | 'patch',
+    who: string,
+    url: string,
+    body: unknown,
+    headers: Record<string, string> = {},
+  ) =>
+    h
+      .http()
+      [method](url)
+      .set('authorization', h.as(who))
+      .set('x-request-id', 'req-underwriting-write')
+      .set('idempotency-key', `underwriting-test-${String(++keys).padStart(6, '0')}`)
+      .set(headers)
+      .send(body as object);
+  const create = (who: string, investmentId: string, body: unknown) =>
+    send('post', who, one(investmentId), body);
+  const edit = (who: string, id: string, body: unknown, headers?: Record<string, string>) =>
+    send('patch', who, `${CASES}/${id}`, body, headers);
+  const command = (who: string, id: string, body: unknown, headers?: Record<string, string>) =>
+    send('post', who, `${CASES}/${id}/commands`, body, headers);
+  const versionOf = (body: unknown): UnderwritingCaseVersion => underwritingCaseVersion.parse(body);
+  const readFor = async (
+    who: string,
+    investmentId: string,
+    query = '',
+  ): Promise<UnderwritingRead> =>
+    underwritingRead.parse(
+      (
+        await h
+          .http()
+          .get(`${one(investmentId)}?asOf=${asOf()}${query}`)
+          .set('authorization', h.as(who))
+          .expect(200)
+      ).body,
+    );
+  const detailOf = (res: { body: unknown }): string | undefined =>
+    problemDetails.parse(res.body).detail;
+  const typeOf = (res: { body: unknown }): string => problemDetails.parse(res.body).type;
+  const count = async (sql: string, params: unknown[] = []): Promise<number> =>
+    (await h.runtime.db.query<{ n: number }>(sql, params))[0]!.n;
+  const cases = (): Promise<number> =>
+    count('select count(*)::int as n from mon.underwriting_case');
+  const stored = async (id: string) =>
+    (
+      await h.runtime.db.query<{
+        state: string;
+        entered_by: string;
+        confirmed_by: string | null;
+        withdrawn_reason: string | null;
+        row_version: number;
+      }>(
+        'select state, entered_by, confirmed_by, withdrawn_reason, row_version from mon.underwriting_case where id = $1',
+        [id],
+      )
+    )[0]!;
+  const audited = async (
+    entityId: string,
+  ): Promise<{ action: string; before: unknown; after: unknown }[]> =>
+    h.runtime.db.query(
+      "select action, details -> 'state' -> 'before' as before, details -> 'state' -> 'after' as after from audit.event where entity = 'mon.underwriting_case' and entity_id = $1 order by id",
+      [entityId],
+    );
+
+  it('is recorded by the deal team only, and moved on by the deal team and approvers only', async () => {
+    const open = idOf('INV-0005');
+    const before = await cases();
+    for (const who of ['viewer.one', 'ops.one', 'head.one', 'ir.one', 'audit.one', 'admin.one']) {
+      const res = await create(who, open, plan('2021-03-31')).expect(403);
+      expect(typeOf(res), who).toBe(`${PROBLEM}forbidden`);
+    }
+    await h.http().post(one(open)).send(plan('2021-03-31')).expect(401);
+    const draft = seededCase(scenario('underwriting_draft')).id;
+    for (const who of ['viewer.one', 'ops.one', 'head.one', 'ir.one', 'audit.one', 'admin.one'])
+      await edit(who, draft, plan('2024-06-13')).expect(403);
+    for (const who of ['viewer.one', 'ops.one', 'ir.one', 'audit.one', 'admin.one'])
+      await command(who, draft, { command: 'confirm' }).expect(403);
+    expect(await cases()).toBe(before);
+    expect((await stored(draft)).row_version).toBe(1);
+  });
+
+  it('does not exist for a caller behind the wall of its position, whatever is asked of it', async () => {
+    const walledCase = seededCase(walledId());
+    const before = await stored(walledCase.id);
+    // deal.one holds the role every write needs, and is not on the wall.
+    const made = await create('deal.one', walledId(), plan(walledCase.caseDate)).expect(404);
+    expect(detailOf(made)).toBe('Investment not found');
+    for (const res of [
+      await edit('deal.one', walledCase.id, plan(walledCase.caseDate)).expect(404),
+      await command('deal.one', walledCase.id, { command: 'confirm' }).expect(404),
+      await command('deal.two', walledCase.id, {
+        command: 'withdraw',
+        reason: 'Recorded against the wrong position',
+      }).expect(404),
+    ])
+      expect(detailOf(res)).toBe('Base case not found');
+    expect(await stored(walledCase.id)).toEqual(before);
+    // An id that names nothing, and one that is no id, read the same.
+    await create('deal.one', NO_SUCH_ID, plan('2021-03-31')).expect(404);
+    await create('deal.one', 'not-an-id', plan('2021-03-31')).expect(404);
+    await edit('deal.one', NO_SUCH_ID, plan('2021-03-31')).expect(404);
+    await command('deal.one', 'not-an-id', { command: 'confirm' }).expect(404);
+    // A member of the wall works on it as on any other position.
+    const correction = await create(
+      'deal.three',
+      walledId(),
+      plan(walledCase.caseDate, {
+        revisionReason: 'The sponsor reissued the model with the final capital structure',
+        sourceNote: SOURCE_NOTE,
+      }),
+    ).expect(201);
+    expect(versionOf(correction.body)).toMatchObject({
+      version: 2,
+      state: 'Draft',
+      kind: 'correction',
+    });
+    await command('deal.one', versionOf(correction.body).id, { command: 'confirm' }).expect(404);
+  });
+
+  it('goes from a Draft to the plan the card compares only once a second person confirms it', async () => {
+    const id = idOf('INV-0005');
+    expect((await readFor('viewer.one', id)).notCalculable).toBe('no_case');
+
+    // deal.one records the Draft, without a source yet.
+    const body = plan('2021-03-31', {
+      note: 'From the investment committee paper',
+      currency: 'USD',
+    });
+    const made = await create('deal.one', id, body).expect(201);
+    const draft = versionOf(made.body);
+    expect(draft).toMatchObject({
+      investmentId: id,
+      version: 1,
+      form: 'equity',
+      state: 'Draft',
+      kind: 'entry',
+      caseDate: '2021-03-31',
+      plannedExitDate: '2026-03-31',
+      currency: 'USD',
+      note: 'From the investment committee paper',
+      revisionReason: null,
+      withdrawnReason: null,
+      source: { document: null, page: null, locator: null, note: null },
+      enteredBy: { id: userId('deal.one') },
+      confirmedBy: null,
+      confirmedAt: null,
+      rowVersion: 1,
+    });
+    expect([num(draft.exitMultiple), num(draft.grossMoic), num(draft.grossIrr)]).toEqual([
+      '11.5',
+      '2.4',
+      '0.19',
+    ]);
+    expect(
+      draft.points.map((p) => [p.periodEnd, num(p.revenueLtm), num(p.ebitdaLtm), num(p.netDebt)]),
+    ).toEqual([
+      ['2021-03-31', '120000000', '24000000', '70000000'],
+      ['2023-03-31', '150000000', '31500000', '60000000'],
+      ['2026-03-31', '190000000', '42000000', null],
+    ]);
+    expect(made.headers.etag).toBe('"1"');
+    // A Draft alone is not compared (SEC-9.1), whoever reads.
+    const waiting = await readFor('viewer.one', id);
+    expect(waiting).toMatchObject({
+      comparedVersion: null,
+      comparison: null,
+      notCalculable: 'draft_only',
+    });
+    expect(waiting.versions).toEqual([draft]);
+
+    // It names no source yet, so nobody confirms it (SEC-9.4); and never its own author (SEC-5.6).
+    expect(detailOf(await command('deal.two', draft.id, { command: 'confirm' }).expect(422))).toBe(
+      SEC_9_4,
+    );
+    expect(detailOf(await command('deal.one', draft.id, { command: 'confirm' }).expect(422))).toBe(
+      SEC_5_6,
+    );
+
+    // deal.two edits it: the source is named, a figure changes, and deal.two is now the person
+    // who last changed the figures.
+    const edited = versionOf(
+      (
+        await edit('deal.two', draft.id, {
+          ...body,
+          grossIrr: '0.2',
+          sourceNote: SOURCE_NOTE,
+        }).expect(200)
+      ).body,
+    );
+    expect(edited).toMatchObject({
+      state: 'Draft',
+      enteredBy: { id: userId('deal.two') },
+      source: { note: SOURCE_NOTE },
+      rowVersion: 2,
+    });
+    expect(num(edited.grossIrr)).toBe('0.2');
+    // A creates, B edits, B confirms: refused by the API, and the record stands as it was.
+    const refused = await command('deal.two', draft.id, { command: 'confirm' }).expect(422);
+    expect(detailOf(refused)).toBe(SEC_5_6);
+    expect(typeOf(refused)).toBe(`${PROBLEM}workflow-precondition`);
+    expect(await stored(draft.id)).toMatchObject({
+      state: 'Draft',
+      entered_by: userId('deal.two'),
+      confirmed_by: null,
+      row_version: 2,
+    });
+    // An approver may confirm as well; here the person who entered it before the edit does.
+    const done = await command('deal.one', draft.id, { command: 'confirm' }).expect(200);
+    const confirmed = versionOf(done.body);
+    expect(confirmed).toMatchObject({
+      state: 'Confirmed',
+      kind: 'entry',
+      enteredBy: { id: userId('deal.two') },
+      confirmedBy: { id: userId('deal.one') },
+      confirmedAt: `${asOf()}T12:00:00.000Z`,
+      rowVersion: 3,
+    });
+    expect(done.headers.etag).toBe('"3"');
+
+    // The card now compares it, by the calculation's own rule over the dataset.
+    const read = await readFor('viewer.one', id);
+    expect(read.versions).toEqual([confirmed]);
+    expect(read.comparedVersion).toBe(1);
+    expect(read.comparison).toEqual(
+      seededComparison(
+        h.dataset,
+        {
+          ...seededCase(scenario('underwriting_ahead')),
+          investmentId: id,
+          plannedExitDate: confirmed.plannedExitDate,
+          exitMultiple: confirmed.exitMultiple,
+          grossMoic: confirmed.grossMoic,
+          grossIrr: confirmed.grossIrr,
+          points: confirmed.points.map((p, i) => ({ ...p, id: `point-${String(i)}` })),
+        },
+        underwritingTolerances(h.runtime.definitions),
+      ),
+    );
+    expect(read.comparison!.returns.irrGap).toBe(
+      str(D(read.comparison!.returns.grossIrr!).minus('0.2')),
+    );
+
+    // Every step is in the audit trail with the state before and after (SEC-11.1), the refused
+    // ones are not, and the history holds a row image per change (SEC-9.2).
+    expect(await audited(draft.id)).toEqual([
+      { action: 'underwriting_case.create', before: null, after: 'Draft' },
+      { action: 'underwriting_case.edit', before: 'Draft', after: 'Draft' },
+      { action: 'underwriting_case.confirm', before: 'Draft', after: 'Confirmed' },
+    ]);
+    expect(
+      await count(
+        'select count(*)::int as n from mon.underwriting_case_history where row_id = $1',
+        [draft.id],
+      ),
+    ).toBe(3);
+    // A Confirmed case keeps its figures: it is not edited and not confirmed twice.
+    const late = await edit('deal.two', draft.id, body).expect(409);
+    expect(detailOf(late)).toBe(
+      'underwriting_case: edit is not allowed from Confirmed; only a Draft can be edited',
+    );
+    expect(typeOf(late)).toBe(`${PROBLEM}workflow-transition`);
+    expect(detailOf(await command('head.one', draft.id, { command: 'confirm' }).expect(409))).toBe(
+      'underwriting_case: confirm is not allowed from Confirmed',
+    );
+  });
+
+  it('refuses a body that is not a base case, field by field, and writes nothing', async () => {
+    const id = idOf('INV-0011');
+    const before = await cases();
+    const good = plan('2022-06-30');
+    const points = good.points as PlanPoint[];
+    const refusals: [Record<string, unknown>, string, string?][] = [
+      // Revenue typed in millions: refused, never guessed.
+      [
+        { ...good, points: [{ ...points[0], revenueLtm: '200' }, points[1], points[2]] },
+        'points.0.revenueLtm',
+        'Revenue is in US dollars, between 1,000,000 and 50,000,000,000 (1 to 50,000 in US$ millions)',
+      ],
+      [
+        { ...good, points: [points[2]] },
+        'points',
+        'An equity base case has two plan points or more',
+      ],
+      // A reason of spaces is no reason: refused at the boundary, never an error from the record.
+      [
+        { ...good, revisionReason: '     ' },
+        'revisionReason',
+        'Needs at least 3 characters that are not spaces',
+      ],
+      [{ ...good, points: undefined }, 'points'],
+      [
+        { ...good, plannedExitDate: '2027-12-31' },
+        'points.2.periodEnd',
+        'The last plan point is dated the planned exit',
+      ],
+      [
+        { ...good, exitMultiple: undefined },
+        'exitMultiple',
+        'An equity base case has an exit multiple',
+      ],
+      [
+        { ...good, underwrittenYield: '0.11' },
+        'underwrittenYield',
+        'Only a loan has an underwritten yield',
+      ],
+      [{ ...good, annualLossRate: '0.01' }, 'annualLossRate'],
+      [{ ...good, plannedExitDate: '2022-06-30' }, 'plannedExitDate'],
+      [{ ...good, points: [points[1], points[0], points[2]] }, 'points.1.periodEnd'],
+      [
+        {
+          ...good,
+          points: [
+            points[0],
+            { ...points[1], revenueLtm: null, ebitdaLtm: null, netDebt: null },
+            points[2],
+          ],
+        },
+        'points.1',
+      ],
+      [
+        { ...good, points: [{ ...points[0], ebitdaLtm: '24000000.005' }, points[1], points[2]] },
+        'points.0.ebitdaLtm',
+      ],
+      [
+        { ...good, points: [{ ...points[0], ebitdaLtm: 24000000 }, points[1], points[2]] },
+        'points.0.ebitdaLtm',
+      ],
+      [{ ...good, exitMultiple: '0' }, 'exitMultiple', 'Must be above zero'],
+      [{ ...good, grossMoic: '-2.4' }, 'grossMoic'],
+      [{ ...good, grossIrr: '-1' }, 'grossIrr'],
+      [{ ...good, caseDate: '2022-02-30' }, 'caseDate'],
+      [
+        { ...good, sourcePage: 3 },
+        'sourcePage',
+        'A page or a sheet and cell goes with a source document',
+      ],
+      [{ ...good, sourceNote: 'x' }, 'sourceNote'],
+      [{ ...good, form: 'equity' }, '(root)'],
+      [{ ...good, state: 'Confirmed' }, '(root)'],
+      [{ ...good, enteredBy: userId('deal.two') }, '(root)'],
+    ];
+    for (const [body, field, message] of refusals) {
+      const res = await create('deal.one', id, body).expect(400);
+      const problem = problemDetails.parse(res.body);
+      expect(problem.type, field).toBe(`${PROBLEM}validation`);
+      expect(
+        problem.errors?.map((e) => e.path),
+        field,
+      ).toEqual([field]);
+      if (message !== undefined) expect(problem.errors?.[0]?.message, field).toBe(message);
+      // The answer names the field, never what was sent.
+      expect(JSON.stringify(res.body), field).not.toMatch(/24000000|"200"|0\.11/);
+    }
+    for (const body of [
+      { command: 'supersede' },
+      { command: 'withdraw' },
+      { command: 'retire', reason: 'x' },
+      { command: 'confirm', reason: 'Checked against the model' },
+    ])
+      await command('deal.one', seededCase(scenario('underwriting_draft')).id, body).expect(400);
+    expect(await cases()).toBe(before);
+    // The body itself is good.
+    await create('deal.one', id, good).expect(201);
+    expect(await cases()).toBe(before + 1);
+  });
+
+  it('refuses a Draft the position cannot take: a second one, a revision with no reason, a date out of line, a foreign source', async () => {
+    const before = await cases();
+    // One Draft per position: INV-0011 holds the one recorded above.
+    const second = await create('deal.two', idOf('INV-0011'), plan('2022-06-30')).expect(409);
+    expect(detailOf(second)).toBe(
+      'underwriting_case: a Draft already exists for this position; edit it or withdraw it first',
+    );
+    expect(typeOf(second)).toBe(`${PROBLEM}workflow-transition`);
+
+    // A position with a Confirmed case: a new version says why, and is dated as that case or later.
+    const held = scenario('underwriting_on_plan');
+    const entry = seededCase(held);
+    const reason = { revisionReason: 'The sponsor revised its plan after the refinancing' };
+    expect(detailOf(await create('deal.one', held, plan(entry.caseDate)).expect(422))).toBe(
+      'underwriting_case: a revision of the base case needs a reason',
+    );
+    const earlier = await create(
+      'deal.one',
+      held,
+      plan(addMonths(entry.caseDate, -12), reason),
+    ).expect(422);
+    expect(detailOf(earlier)).toBe(
+      "underwriting_case: the case date must be a Confirmed case's (a correction) or later than every Confirmed case's (a re-underwriting)",
+    );
+    expect(typeOf(earlier)).toBe(`${PROBLEM}workflow-precondition`);
+    // With two Confirmed cases, a date between them corrects neither and follows only one.
+    const twice = scenario('underwriting_reunderwritten');
+    const [first, later] = [seededCase(twice, 1), seededCase(twice, 2)];
+    expect(first.caseDate < later.caseDate).toBe(true);
+    await create('deal.one', twice, plan(addMonths(first.caseDate, 6), reason)).expect(422);
+
+    // US dollars only: another currency is refused in words, never converted.
+    const euros = await create(
+      'deal.one',
+      idOf('INV-0017'),
+      plan('2022-06-30', { currency: 'EUR' }),
+    ).expect(422);
+    expect(detailOf(euros)).toBe('underwriting_case: a base case is recorded in US dollars');
+
+    // A position that holds no base case: a primary fund.
+    const fund = idOf('INV-0017');
+    const setType = (dealType: string) =>
+      h.runtime.db.query('update core.investment set deal_type = $1 where id = $2', [
+        dealType,
+        fund,
+      ]);
+    await setType('deal_type.primary_fund');
+    try {
+      expect(detailOf(await create('deal.one', fund, plan('2022-06-30')).expect(422))).toBe(
+        'underwriting_case: this kind of position holds no base case',
+      );
+    } finally {
+      await setType('deal_type.cv_single_asset');
+    }
+
+    // The source: a document of this position that the caller can see, and no other.
+    await h
+      .http()
+      .post('/api/v1/documents/index')
+      .set('authorization', h.as('operations'))
+      .expect(200);
+    const documents = await h.runtime.db.query<{
+      id: string;
+      investment_id: string;
+      title: string;
+    }>(
+      'select id, investment_id, title from doc.document where investment_id is not null order by id',
+    );
+    // A position the other tests leave alone, with one Confirmed case and a document of its own.
+    const taken = [
+      walledId(),
+      idOf('INV-0005'),
+      idOf('INV-0011'),
+      idOf('INV-0017'),
+      ...Object.entries(h.dataset.scenarios)
+        .filter(([name]) => name.startsWith('underwriting_'))
+        .flatMap(([, ids]) => ids),
+    ];
+    const own = documents.find((d) => {
+      const versions = (h.dataset.underwritingCases ?? []).filter(
+        (c) => c.investmentId === d.investment_id,
+      );
+      return (
+        !taken.includes(d.investment_id) &&
+        versions.length === 1 &&
+        versions[0]?.state === 'Confirmed'
+      );
+    });
+    const foreign = documents.find(
+      (d) => d.investment_id !== own?.investment_id && d.investment_id !== walledId(),
+    );
+    const walled = documents.find((d) => d.investment_id === walledId());
+    if (own === undefined || foreign === undefined || walled === undefined)
+      throw new Error('the document set lacks a document this test needs');
+    const correction = (documentId: string) =>
+      plan(seededCase(own.investment_id).caseDate, {
+        ...reason,
+        sourceDocumentId: documentId,
+        sourcePage: 4,
+        sourceLocator: 'Returns!C14',
+      });
+    // Another position's document, one behind a wall and one that does not exist: one sentence.
+    for (const documentId of [foreign.id, walled.id, NO_SUCH_ID]) {
+      const res = await create('deal.one', own.investment_id, correction(documentId)).expect(422);
+      expect(detailOf(res)).toBe(
+        "underwriting_case: the source document is not one of this position's documents",
+      );
+    }
+    expect(await cases()).toBe(before);
+    const sourced = versionOf(
+      (await create('deal.one', own.investment_id, correction(own.id)).expect(201)).body,
+    );
+    expect(sourced.source).toEqual({
+      document: { id: own.id, name: own.title },
+      page: 4,
+      locator: 'Returns!C14',
+      note: null,
+    });
+    expect(sourced).toMatchObject({
+      version: 2,
+      kind: 'correction',
+      revisionReason: reason.revisionReason,
+    });
+    // An edit is held to the same line.
+    await edit('deal.one', sourced.id, correction(foreign.id)).expect(422);
+    await edit('deal.one', sourced.id, { ...correction(own.id), revisionReason: undefined }).expect(
+      422,
+    );
+    await edit(
+      'deal.one',
+      sourced.id,
+      plan(addMonths(seededCase(own.investment_id).caseDate, -1), reason),
+    ).expect(422);
+    expect((await stored(sourced.id)).row_version).toBe(1);
+    // A document is a source: a second person confirms the case on it.
+    await command('deal.two', sourced.id, { command: 'confirm' }).expect(200);
+    expect((await readFor('viewer.one', own.investment_id)).versions[1]!.source.document).toEqual({
+      id: own.id,
+      name: own.title,
+    });
+  });
+
+  it('corrects a Confirmed case with a version of the same date, and keeps both when the date is later', async () => {
+    const id = scenario('underwriting_ahead');
+    const entry = seededCase(id);
+    // A correction: dated as the case it corrects, with the reason.
+    const draft = versionOf(
+      (
+        await create(
+          'deal.two',
+          id,
+          plan(entry.caseDate, {
+            revisionReason: 'The first entry used the management case, not the base case',
+            sourceNote: SOURCE_NOTE,
+          }),
+        ).expect(201)
+      ).body,
+    );
+    expect(draft).toMatchObject({ version: 2, state: 'Draft', kind: 'correction' });
+    // Until it is confirmed the card still compares version 1.
+    expect((await readFor('viewer.one', id)).comparedVersion).toBe(1);
+    const confirmed = versionOf(
+      (await command('head.one', draft.id, { command: 'confirm' }).expect(200)).body,
+    );
+    expect(confirmed).toMatchObject({
+      state: 'Confirmed',
+      kind: 'correction',
+      confirmedBy: { id: userId('head.one') },
+    });
+    const after = await readFor('viewer.one', id);
+    expect(after.versions.map((v) => [v.version, v.state, v.kind])).toEqual([
+      [1, 'Superseded', 'entry'],
+      [2, 'Confirmed', 'correction'],
+    ]);
+    expect(after.comparedVersion).toBe(2);
+    // The superseded case keeps its figures and its confirmation, and stays a pick.
+    expect(after.versions[0]).toMatchObject({
+      confirmedBy: { id: entry.confirmedBy },
+      rowVersion: 3,
+    });
+    expect((await readFor('viewer.one', id, '&version=1')).comparedVersion).toBe(1);
+    // The supersede is the confirmation's own step, on record against the case it replaced.
+    expect(await audited(entry.id)).toEqual([
+      { action: 'underwriting_case.supersede', before: 'Confirmed', after: 'Superseded' },
+    ]);
+    const step = await h.runtime.db.query<{ details: { supersededBy: unknown }; actor_id: string }>(
+      "select details, actor_id from audit.event where action = 'underwriting_case.supersede' and entity_id = $1",
+      [entry.id],
+    );
+    expect(step[0]).toMatchObject({
+      actor_id: userId('head.one'),
+      details: { supersededBy: { id: draft.id, version: 2 } },
+    });
+    // Superseded is terminal: no edit and no command moves it.
+    await edit('deal.one', entry.id, plan(entry.caseDate)).expect(409);
+    for (const body of [
+      { command: 'confirm' },
+      { command: 'withdraw', reason: 'No longer the plan' },
+      { command: 'retire', reason: 'No longer the plan' },
+    ]) {
+      const who = body.command === 'retire' ? 'head.one' : 'deal.one';
+      const res = await command(who, entry.id, body).expect(409);
+      expect(detailOf(res)).toBe(
+        `underwriting_case: ${body.command} is not allowed from Superseded`,
+      );
+    }
+
+    // A re-underwriting: dated later, and both stay Confirmed. The entry case is still compared.
+    const later = addMonths(entry.caseDate, 18);
+    const again = versionOf(
+      (
+        await create(
+          'deal.one',
+          id,
+          plan(later, {
+            revisionReason: 'Re-underwritten after the add-on acquisition',
+            sourceNote: SOURCE_NOTE,
+          }),
+        ).expect(201)
+      ).body,
+    );
+    expect(again).toMatchObject({ version: 3, kind: 'reunderwrite' });
+    await command('deal.two', again.id, { command: 'confirm' }).expect(200);
+    const both = await readFor('viewer.one', id);
+    expect(both.versions.map((v) => [v.version, v.state, v.kind])).toEqual([
+      [1, 'Superseded', 'entry'],
+      [2, 'Confirmed', 'correction'],
+      [3, 'Confirmed', 'reunderwrite'],
+    ]);
+    expect(both.comparedVersion).toBe(2);
+    const picked = await readFor('viewer.one', id, '&version=3');
+    expect(picked.comparedVersion).toBe(3);
+    expect(picked.comparison).not.toEqual(both.comparison);
+    expect(await audited(draft.id)).toEqual([
+      { action: 'underwriting_case.create', before: null, after: 'Draft' },
+      { action: 'underwriting_case.confirm', before: 'Draft', after: 'Confirmed' },
+    ]);
+
+    // An approver retires a case confirmed in error, with a reason; the deal team cannot.
+    const mine = await command('deal.one', again.id, {
+      command: 'retire',
+      reason: 'Confirmed against the wrong model',
+    }).expect(403);
+    expect(detailOf(mine)).toBe(
+      'underwriting_case: retire from Confirmed requires one of: approver',
+    );
+    const retired = versionOf(
+      (
+        await command('head.one', again.id, {
+          command: 'retire',
+          reason: 'Confirmed against the wrong model',
+        }).expect(200)
+      ).body,
+    );
+    expect(retired).toMatchObject({
+      state: 'Withdrawn',
+      withdrawnReason: 'Confirmed against the wrong model',
+      confirmedBy: { id: userId('deal.two') },
+    });
+    expect((await readFor('viewer.one', id)).comparedVersion).toBe(2);
+    await h
+      .http()
+      .get(`${one(id)}?version=3`)
+      .set('authorization', h.as('viewer.one'))
+      .expect(404);
+    const trail = await h.runtime.db.query<{ reason: string | null }>(
+      "select reason from audit.event where action = 'underwriting_case.retire' and entity_id = $1",
+      [again.id],
+    );
+    expect(trail).toEqual([{ reason: 'Confirmed against the wrong model' }]);
+    // Withdrawn is terminal too.
+    await command('head.one', again.id, { command: 'confirm' }).expect(409);
+  });
+
+  it("records a loan's base case with its yield and loss rate, and reads the loan behind once it is marked at 90% of par", async () => {
+    const loan = h.dataset.investments.find(
+      (i) =>
+        i.dealType === 'deal_type.private_credit' &&
+        i.isActive &&
+        h.dataset.creditTerms.find((t) => t.investmentId === i.id)!.maturityDate > asOf(),
+    )!;
+    const terms = h.dataset.creditTerms.find((t) => t.investmentId === loan.id)!;
+    const seeded = seededCase(loan.id);
+    const before = await readFor('viewer.one', loan.id);
+    expect([before.form, before.comparedVersion]).toEqual(['credit', 1]);
+    const actualIrr = before.comparison!.returns.grossIrr!;
+    const count0 = await cases();
+
+    // The body of a loan: the yield, the loss rate, the expected repayment, the MOIC and the IRR.
+    // Here the IRR is the one the loan has earned so far, so the correction reads on plan.
+    const body = {
+      caseDate: seeded.caseDate,
+      plannedExitDate: terms.maturityDate,
+      grossMoic: '1.6',
+      grossIrr: D(actualIrr).toFixed(4),
+      underwrittenYield: '0.105',
+      annualLossRate: '0.0125',
+      revisionReason: 'Entered again from the credit committee paper',
+      sourceNote: SOURCE_NOTE,
+    };
+    // What a loan cannot carry or lacks is named field by field, and nothing is written.
+    for (const [bad, field, message] of [
+      [
+        { ...body, exitMultiple: '9.5' },
+        'exitMultiple',
+        'Only an equity base case has an exit multiple',
+      ],
+      [
+        { ...body, points: (plan(seeded.caseDate).points as PlanPoint[]).slice(0, 2) },
+        'points',
+        'Only an equity base case has plan points',
+      ],
+      [
+        { ...body, underwrittenYield: undefined },
+        'underwrittenYield',
+        'A loan has an underwritten yield',
+      ],
+      [{ ...body, annualLossRate: '1.5' }, 'annualLossRate', 'Must be between 0 and 1'],
+      [
+        { ...body, underwrittenYield: '-1' },
+        'underwrittenYield',
+        'Must be above -1 (a loss of everything)',
+      ],
+    ] as const) {
+      const res = await create('deal.one', loan.id, bad).expect(400);
+      const errors = problemDetails.parse(res.body).errors ?? [];
+      expect(
+        errors.map((e) => [e.path, e.message]),
+        field,
+      ).toEqual([[field, message]]);
+    }
+    // An equity body is not a loan's: every field out of place is named at once.
+    const equity = await create(
+      'deal.one',
+      loan.id,
+      plan(seeded.caseDate, { revisionReason: 'x'.repeat(8) }),
+    ).expect(400);
+    expect((problemDetails.parse(equity.body).errors ?? []).map((e) => e.path).sort()).toEqual([
+      'exitMultiple',
+      'points',
+      'underwrittenYield',
+    ]);
+    expect(await cases()).toBe(count0);
+
+    // deal.one records the correction; it holds what a loan holds, to the place.
+    const draft = versionOf((await create('deal.one', loan.id, body).expect(201)).body);
+    expect(draft).toMatchObject({
+      investmentId: loan.id,
+      version: 2,
+      form: 'credit',
+      state: 'Draft',
+      kind: 'correction',
+      caseDate: seeded.caseDate,
+      plannedExitDate: terms.maturityDate,
+      exitMultiple: null,
+      grossMoic: '1.600000',
+      grossIrr: `${body.grossIrr}0000`,
+      underwrittenYield: '0.10500000',
+      annualLossRate: '0.01250000',
+      points: [],
+      revisionReason: body.revisionReason,
+    });
+    // An edit keeps the form: the loss rate changes, and no plan point appears.
+    const edited = versionOf(
+      (await edit('deal.one', draft.id, { ...body, annualLossRate: '0.015' }).expect(200)).body,
+    );
+    expect([edited.annualLossRate, edited.points, edited.rowVersion]).toEqual([
+      '0.01500000',
+      [],
+      draft.rowVersion + 1,
+    ]);
+    await edit('deal.one', draft.id, { ...body, exitMultiple: '9.5' }).expect(400);
+
+    // A loan needs no plan to be confirmed, and the two-person rule holds as for any case.
+    expect(detailOf(await command('deal.one', draft.id, { command: 'confirm' }).expect(422))).toBe(
+      SEC_5_6,
+    );
+    const confirmed = versionOf(
+      (await command('deal.two', draft.id, { command: 'confirm' }).expect(200)).body,
+    );
+    expect([confirmed.state, confirmed.confirmedBy?.id]).toEqual(['Confirmed', userId('deal.two')]);
+    expect((await stored(seeded.id)).state).toBe('Superseded');
+    expect((await audited(draft.id)).map((e) => e.action)).toEqual([
+      'underwriting_case.create',
+      'underwriting_case.edit',
+      'underwriting_case.confirm',
+    ]);
+
+    // The correction is the case compared now, and the loan reads on plan against it.
+    const onPlan = await readFor('viewer.one', loan.id);
+    expect(onPlan.versions.map((v) => [v.version, v.state, v.kind])).toEqual([
+      [1, 'Superseded', 'entry'],
+      [2, 'Confirmed', 'correction'],
+    ]);
+    expect(onPlan.comparedVersion).toBe(2);
+    expect(onPlan.comparison!.returns).toMatchObject({
+      grossIrr: actualIrr,
+      irrStatus: 'on_plan',
+      irrFlag: null,
+    });
+    expect(D(onPlan.comparison!.returns.irrGap!).abs().lt('0.0001')).toBe(true);
+    const ytm = onPlan.comparison!.yieldToMaturity;
+    expect(ytm).not.toBeNull();
+
+    // The loan is marked down to 90% of par through the valuation workflow: the Locked mark of
+    // the latest quarter is reopened, corrected, prepared, approved and locked again.
+    const par = h.dataset.creditPerformance
+      .filter((c) => c.investmentId === loan.id && c.periodEnd <= asOf())
+      .sort((a, b) => (a.periodEnd < b.periodEnd ? 1 : -1))[0]!.parValue!;
+    const marked = D(par).times('0.9').toFixed(2);
+    const latest = h.dataset.valuations
+      .filter((v) => v.investmentId === loan.id && v.state === 'Locked' && v.periodEnd <= asOf())
+      .sort((a, b) => (a.periodEnd < b.periodEnd ? 1 : -1))[0]!;
+    const valuation = async (who: string, id: string, body: Record<string, unknown>) =>
+      valuationRow.parse(
+        (
+          await h
+            .http()
+            .post(`/api/v1/valuations/${id}/commands`)
+            .set('authorization', h.as(who))
+            .send(body)
+            .expect(200)
+        ).body,
+      );
+    const reopened = await valuation('head.one', latest.id, {
+      command: 'reopen',
+      reason: 'Marked down after the lender call',
+    });
+    await h
+      .http()
+      .patch(`/api/v1/valuations/${reopened.id}`)
+      .set('authorization', h.as('ops.one'))
+      .send({ fairValue: marked, inputs: { basis: '90% of par' } })
+      .expect(200);
+    await valuation('ops.one', reopened.id, { command: 'prepare' });
+    await valuation('deal.one', reopened.id, { command: 'dealTeamApprove' });
+    const locked = await valuation('head.one', reopened.id, { command: 'lock' });
+    expect([locked.state, locked.fairValue]).toEqual(['Locked', marked]);
+
+    // Behind: the IRR falls under the underwritten one by more than the tolerance, the MOIC
+    // falls under the path, and nothing else of the comparison appears. The yield to maturity
+    // is priced on the loan's reported credit row, which our mark does not change.
+    const behind = (await readFor('viewer.one', loan.id)).comparison!;
+    expect(behind.returns.irrStatus).toBe('behind');
+    expect(D(behind.returns.grossIrr!).lt(actualIrr)).toBe(true);
+    expect(D(behind.returns.irrGap!).lt(D(onPlan.thresholds.irrTolerance).neg())).toBe(true);
+    expect(D(behind.returns.grossMoic!).lt(onPlan.comparison!.returns.grossMoic!)).toBe(true);
+    expect(D(behind.returns.moicGap!).isNegative()).toBe(true);
+    expect(behind.returns.moicOnPath).toBe(onPlan.comparison!.returns.moicOnPath);
+    expect([behind.metrics, behind.headline, behind.valueCreation]).toEqual([[], null, null]);
+    expect(behind.yieldToMaturity).toBe(ytm);
+  });
+
+  it('lets the deal team withdraw a Draft, which frees the position for another', async () => {
+    const id = scenario('underwriting_draft');
+    const draft = seededCase(id);
+    expect(draft.enteredBy).toBe(userId('deal.one'));
+    // An approver confirms, and does not withdraw another person's Draft.
+    const notTheirs = await command('head.one', draft.id, {
+      command: 'withdraw',
+      reason: 'Not needed',
+    }).expect(403);
+    expect(detailOf(notTheirs)).toBe(
+      'underwriting_case: withdraw from Draft requires one of: deal_team',
+    );
+    // Withdrawing takes no second person: the author may.
+    const gone = versionOf(
+      (
+        await command('deal.one', draft.id, {
+          command: 'withdraw',
+          reason: 'Entered from the wrong sponsor model',
+        }).expect(200)
+      ).body,
+    );
+    expect(gone).toMatchObject({
+      state: 'Withdrawn',
+      withdrawnReason: 'Entered from the wrong sponsor model',
+      confirmedBy: null,
+    });
+    expect(await audited(draft.id)).toEqual([
+      { action: 'underwriting_case.withdraw', before: 'Draft', after: 'Withdrawn' },
+    ]);
+    expect((await readFor('viewer.one', id)).notCalculable).toBe('no_case');
+    await edit('deal.one', draft.id, plan(draft.caseDate)).expect(409);
+    // The next version starts again: a reason, since it is version 2, and any date.
+    await create('deal.two', id, plan(draft.caseDate)).expect(422);
+    const next = versionOf(
+      (
+        await create(
+          'deal.two',
+          id,
+          plan(draft.caseDate, { revisionReason: 'Entered again from the right model' }),
+        ).expect(201)
+      ).body,
+    );
+    expect(next).toMatchObject({ version: 2, state: 'Draft', kind: 'entry' });
+  });
+
+  it('answers a repeat with the same key once, and refuses a stale or malformed If-Match', async () => {
+    const id = scenario('underwriting_behind');
+    const entry = seededCase(id);
+    const body = plan(entry.caseDate, {
+      revisionReason: 'The sponsor restated the entry leverage',
+      sourceNote: SOURCE_NOTE,
+    });
+    const before = await cases();
+    const call = (key: string, payload: unknown) =>
+      h
+        .http()
+        .post(one(id))
+        .set('authorization', h.as('deal.one'))
+        .set('idempotency-key', key)
+        .send(payload as object);
+    const first = await call('underwriting-replay-1', body).expect(201);
+    expect(first.headers[REPLAYED]).toBeUndefined();
+    const draft = versionOf(first.body);
+    // The same key and body: the stored answer, and nothing runs (a second Draft would be 409).
+    const again = await call('underwriting-replay-1', body).expect(201);
+    expect(again.headers[REPLAYED]).toBe('true');
+    expect(again.body).toEqual(first.body);
+    expect(again.headers.etag).toBe(first.headers.etag);
+    const other = await call('underwriting-replay-1', { ...body, grossMoic: '3.1' }).expect(422);
+    expect(typeOf(other)).toBe(`${PROBLEM}idempotency-key-reuse`);
+    expect(await cases()).toBe(before + 1);
+    expect(
+      await count(
+        "select count(*)::int as n from audit.event where action = 'underwriting_case.create' and entity_id = $1",
+        [draft.id],
+      ),
+    ).toBe(1);
+
+    // An edit names the row version it read. A stale one is 412 and changes nothing.
+    const stale = await edit('deal.one', draft.id, body, { 'if-match': '"7"' }).expect(412);
+    expect(typeOf(stale)).toBe(`${PROBLEM}stale-row-version`);
+    expect(detailOf(stale)).toBe(
+      'underwriting_case: the record changed since it was read (it is now at row version 1); open it again',
+    );
+    await edit('deal.one', draft.id, body, { 'if-match': 'latest' }).expect(400);
+    expect((await stored(draft.id)).row_version).toBe(1);
+    // Every edit writes the case row, so the row version moves even when only a point changes.
+    const points = body.points as PlanPoint[];
+    const moved = await edit(
+      'deal.one',
+      draft.id,
+      { ...body, points: [points[0], { ...points[1], netDebt: '58000000.00' }, points[2]] },
+      { 'if-match': String(first.headers.etag) },
+    ).expect(200);
+    expect(versionOf(moved.body).rowVersion).toBe(2);
+    expect(moved.headers.etag).toBe('"2"');
+    expect(versionOf(moved.body).points[1]!.netDebt).toBe('58000000.00');
+    const same = await edit('deal.one', draft.id, body, { 'if-match': '"2"' }).expect(200);
+    expect(versionOf(same.body).rowVersion).toBe(3);
+    expect(
+      await count('select count(*)::int as n from mon.underwriting_case_point where case_id = $1', [
+        draft.id,
+      ]),
+    ).toBe(3);
+
+    // A command is held to the same line: the tag the first answer carried is stale by now.
+    const late = await command(
+      'deal.two',
+      draft.id,
+      { command: 'confirm' },
+      {
+        'if-match': String(first.headers.etag),
+      },
+    ).expect(412);
+    expect(detailOf(late)).toMatch(/^underwriting_case: .*row version 3/);
+    expect((await stored(draft.id)).state).toBe('Draft');
+    await command('deal.two', draft.id, { command: 'confirm' }, { 'if-match': 'W/"x"' }).expect(
+      400,
+    );
+    const done = await command(
+      'deal.two',
+      draft.id,
+      { command: 'confirm' },
+      {
+        'if-match': String(same.headers.etag),
+      },
+    ).expect(200);
+    expect(versionOf(done.body)).toMatchObject({ state: 'Confirmed', rowVersion: 4 });
+    expect((await stored(entry.id)).state).toBe('Superseded');
+  });
+
+  it('refuses a write without the revenue bounds of config: a 500 that names the key', async () => {
+    const definitions = h.runtime.definitions;
+    const kept = definitions.unitSanityBoundsUsd;
+    const before = await cases();
+    try {
+      definitions.unitSanityBoundsUsd = { revenueMin: 1000000 };
+      const res = await create('deal.one', idOf('INV-0017'), plan('2022-06-30')).expect(500);
+      expect(typeOf(res)).toBe(`${PROBLEM}configuration`);
+      expect(detailOf(res)).toBe(
+        'config/definitions.json is missing a usable unitSanityBoundsUsd.revenueMax',
+      );
+    } finally {
+      definitions.unitSanityBoundsUsd = kept;
+    }
+    expect(await cases()).toBe(before);
+  });
+});

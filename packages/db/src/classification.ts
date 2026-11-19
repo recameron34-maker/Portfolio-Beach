@@ -62,7 +62,15 @@ export const CLASSIFICATION: Record<string, TableClassification> = {
   'core.portfolio_company': {
     default: 'restricted_mnpi',
     retention: 'books_and_records',
-    columns: { name: 'internal', canonical_name: 'internal' },
+    // Where a company has its head office is as widely known as its name.
+    columns: {
+      name: 'internal',
+      canonical_name: 'internal',
+      hq_city: 'internal',
+      hq_country: 'internal',
+      hq_latitude: 'internal',
+      hq_longitude: 'internal',
+    },
   },
   'core.fund_holding': { default: 'restricted_mnpi', retention: 'books_and_records' },
   'core.vehicle': { default: 'internal', retention: 'books_and_records' },
@@ -140,6 +148,27 @@ export const CLASSIFICATION: Record<string, TableClassification> = {
       rejection_reason: 'internal',
     },
   },
+  // The sponsor's underwritten base case (migration 0021): the plan, the exit terms, the returns
+  // and where they come from are MNPI. Who entered and who confirmed a case is personal; the
+  // version, the form and the two times say nothing about the company.
+  'mon.underwriting_case': {
+    default: 'restricted_mnpi',
+    retention: 'books_and_records',
+    columns: {
+      version: 'internal',
+      form: 'internal',
+      entered_by: 'confidential_personal',
+      entered_at: 'internal',
+      confirmed_by: 'confidential_personal',
+      confirmed_at: 'internal',
+    },
+  },
+  'mon.underwriting_case_point': { default: 'restricted_mnpi', retention: 'books_and_records' },
+  // A valuation suggestion (migration 0023): a mark worked out from a sponsor's statement or
+  // report, its inputs, where each was read and who stood behind them. No column is classed
+  // lower than the table: who decided on a suggestion, and when, says a mark is about to move.
+  // (The bookkeeping columns every table shares stay internal, as everywhere.)
+  'mon.valuation_suggestion': { default: 'restricted_mnpi', retention: 'books_and_records' },
   // The pipeline (migration 0013): a named deal, its sponsor, size and stage are MNPI from the day
   // it is sourced; the lead is personal; the scenario tag is test bookkeeping.
   'deal.opportunity': {
@@ -183,6 +212,34 @@ export const CLASSIFICATION: Record<string, TableClassification> = {
     default: 'restricted_mnpi',
     retention: 'books_and_records',
     columns: { confirmed_by: 'confidential_personal', confirmed_at: 'internal' },
+  },
+  // A reporting package is client data (migration 0019): which client, which period and what the
+  // QA engine found on its positions. Who prepared, reviewed and released it is personal; the
+  // workflow columns say nothing about a client.
+  'rpt.package': {
+    default: 'restricted_mnpi',
+    retention: 'books_and_records',
+    columns: {
+      prepared_by: 'confidential_personal',
+      reviewer_id: 'confidential_personal',
+      released_by: 'confidential_personal',
+      approved_at: 'internal',
+      released_at: 'internal',
+      state: 'internal',
+      version: 'internal',
+      content_hash: 'internal',
+    },
+  },
+  'rpt.qa_result': {
+    default: 'restricted_mnpi',
+    retention: 'books_and_records',
+    columns: {
+      approver_id: 'confidential_personal',
+      overridden_at: 'internal',
+      run_no: 'internal',
+      rule: 'internal',
+      passed: 'internal',
+    },
   },
   // The document index (migration 0011): what a document is about is MNPI (its title, links,
   // period, text excerpt and search vector); where it sits in the store and how it was handled are

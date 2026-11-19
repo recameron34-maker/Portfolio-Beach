@@ -2,3 +2,17 @@ packages:
   - 'apps/*'
   - 'packages/*'
   - 'tools/*'
+
+# Advisories the dependency audit (pnpm check:audit, decision 0016) does not fail on. Each entry
+# needs a reason and is removed as soon as a fixed version can be installed.
+auditConfig:
+  ignoreGhsas:
+    # minimatch below 11.0.1 can be slowed by a crafted glob. It is here only through eslint,
+    # whose newest release (10.14.0) still asks for minimatch 10; the globs it matches are the
+    # ones in this repository's own lint configuration, never outside input.
+    - GHSA-g3hv-75wg-m249
+    # picomatch up to 4.0.7, its newest release, can be slowed by a crafted glob; no fixed version
+    # is published. It is here only through build and test tools (vite, vitest, typescript-eslint
+    # by way of tinyglobby), never a production dependency, and the globs it matches are the ones
+    # in this repository's own configuration, never outside input. Listed 2026-11-18.
+    - GHSA-fc5q-39xc-vjpf

@@ -22,6 +22,7 @@ import {
   NumCell,
   PageHeader,
   PageSkeleton,
+  RowsSkeleton,
   SectionHeader,
   SimulatedBadge,
   TableWrap,
@@ -37,6 +38,7 @@ import {
   approvalTone,
   BATCH_READ_ONLY,
   batchDocTypeOptions,
+  extractableTypesText,
   batchFormProblem,
   batchStartedPhrase,
   batchStateWord,
@@ -51,7 +53,6 @@ import {
   isRunState,
   RUN_STATES,
   runsByState,
-  tokensText,
 } from './extraction.js';
 import type { BatchForm } from './extraction.js';
 import './extraction.css';
@@ -94,9 +95,8 @@ function BatchForm(): ReactNode {
           <Label htmlFor={periodId}>Period end</Label>
           <Input
             id={periodId}
+            type="date"
             className="pb-extraction-period"
-            placeholder="YYYY-MM-DD"
-            inputMode="numeric"
             value={form.periodEnd}
             onChange={(_e, d) => setForm({ ...form, periodEnd: d.value })}
             onBlur={() => setTouched(true)}
@@ -118,20 +118,27 @@ function BatchForm(): ReactNode {
             ))}
           </Dropdown>
         </Field>
-        <Button type="submit" appearance="primary" disabledFocusable={start.isPending}>
-          Start extraction
-        </Button>
+        <span className="pb-actions">
+          <Button
+            type="submit"
+            size="small"
+            appearance="primary"
+            disabledFocusable={start.isPending}
+          >
+            Start extraction
+          </Button>
+          <SimulatedBadge />
+        </span>
         {touched && problem !== null ? (
           <p className="pb-extraction-form-problem" role="alert">
             {problem}
           </p>
         ) : null}
-        <p className="pb-notice">
-          Every Classified document of the type for that quarter is read, redacted and sent to the
-          extraction model; the values wait in staging for review. Only quarterly financials have an
-          extraction schema today.
-        </p>
       </form>
+      <p className="pb-note pb-extraction-form-note">
+        Reads every classified document of this type for the quarter, removes personal details and
+        stages the values for review. Types that can be read today: {extractableTypesText()}.
+      </p>
       <ActionStatus latest={log.latest} testId="extraction-action-status" />
     </>
   );
@@ -140,7 +147,7 @@ function BatchForm(): ReactNode {
 function BatchCard({ roles }: { roles: readonly string[] }): ReactNode {
   return (
     <Card testId="extraction-batch-form">
-      <SectionHeader aside={<SimulatedBadge />}>Start a batch</SectionHeader>
+      <SectionHeader>Start a batch</SectionHeader>
       {canStartBatch(roles) ? (
         <BatchForm />
       ) : (
@@ -150,6 +157,11 @@ function BatchCard({ roles }: { roles: readonly string[] }): ReactNode {
       )}
     </Card>
   );
+}
+
+/** A token count as the API records it, or the placeholder. */
+function countText(n: number | null): string {
+  return n === null ? MISSING : String(n);
 }
 
 function BatchesTable({ batches }: { batches: readonly ExtractionBatch[] }): ReactNode {
@@ -162,7 +174,8 @@ function BatchesTable({ batches }: { batches: readonly ExtractionBatch[] }): Rea
             <th>State</th>
             <th className="num">Progress</th>
             <th>Runs</th>
-            <th>Tokens</th>
+            <th className="num">Tokens in</th>
+            <th className="num">Tokens out</th>
             <th className="num">Cost</th>
             <th>Requested by</th>
           </tr>
@@ -173,14 +186,17 @@ function BatchesTable({ batches }: { batches: readonly ExtractionBatch[] }): Rea
               <td className="pb-nowrap">{formatDateTime(b.createdAt)}</td>
               <td>
                 <Badge tone={batchTone(b.state)}>{batchStateWord(b.state)}</Badge>
-                {b.errorCode === null ? null : <span className="pb-cell-sub">{b.errorCode}</span>}
+                {b.errorCode === null ? null : (
+                  <span className="pb-rule-id pb-findings-ids">{b.errorCode}</span>
+                )}
               </td>
               <NumCell>{`${b.progress}%`}</NumCell>
               <td>
                 <span>{plural(b.runs.total, 'run')}</span>
                 <span className="pb-cell-sub">{runsByState(b)}</span>
               </td>
-              <td className="pb-nowrap">{tokensText(b.tokensIn, b.tokensOut)}</td>
+              <NumCell>{countText(b.tokensIn)}</NumCell>
+              <NumCell>{countText(b.tokensOut)}</NumCell>
               <NumCell>{costText(b.costUsd)}</NumCell>
               <td>{b.requestedBy ?? MISSING}</td>
             </tr>
@@ -204,7 +220,7 @@ function BatchesCard(): ReactNode {
         Batches
       </SectionHeader>
       {q.isPending ? (
-        <PageSkeleton rows={3} />
+        <RowsSkeleton rows={3} label="Loading extraction batches" />
       ) : q.isError ? (
         <UnavailableState
           error={q.error}
@@ -231,9 +247,9 @@ function BatchesCard(): ReactNode {
   );
 }
 
-function RunsTable({ runs }: { runs: readonly ExtractionRun[] }): ReactNode {
+function RunsTable({ runs, busy }: { runs: readonly ExtractionRun[]; busy: boolean }): ReactNode {
   return (
-    <TableWrap label="Extraction runs">
+    <TableWrap label="Extraction runs" busy={busy}>
       <table className="pb-table" aria-label="Extraction runs" data-testid="extraction-runs">
         <thead>
           <tr>
@@ -249,11 +265,17 @@ function RunsTable({ runs }: { runs: readonly ExtractionRun[] }): ReactNode {
         <tbody>
           {runs.map((r) => (
             <tr key={r.id} data-testid={`extraction-run-${r.id}`}>
-              <td>
-                <span>{r.documentTitle}</span>
-                <span className="pb-cell-sub">{r.fileName}</span>
+              <td className="pb-extraction-document">
+                <span className="pb-extraction-clip" title={r.documentTitle}>
+                  {r.documentTitle}
+                </span>
+                <span className="pb-cell-sub">
+                  <span className="pb-extraction-clip" title={r.fileName}>
+                    {r.fileName}
+                  </span>
+                </span>
               </td>
-              <td>
+              <td className="pb-extraction-company">
                 {r.investmentId === null ? (
                   <span>{r.companyName ?? MISSING}</span>
                 ) : (
@@ -262,15 +284,18 @@ function RunsTable({ runs }: { runs: readonly ExtractionRun[] }): ReactNode {
                   </Link>
                 )}
                 {r.investmentNumber === null ? null : (
-                  <span className="pb-cell-sub">
+                  <>
+                    {' '}
                     <span className="pb-key">{r.investmentNumber}</span>
-                  </span>
+                  </>
                 )}
               </td>
               <td className="pb-nowrap">{formatDate(r.periodEnd)}</td>
-              <td>
+              <td className="pb-nowrap">
                 <Badge tone={runStateTone(r.state)}>{runStateWord(r.state)}</Badge>
-                {r.errorCode === null ? null : <span className="pb-cell-sub">{r.errorCode}</span>}
+                {r.errorCode === null ? null : (
+                  <span className="pb-rule-id pb-findings-ids">{r.errorCode}</span>
+                )}
               </td>
               <td>{flagsText(r.counts)}</td>
               <td>
@@ -329,7 +354,7 @@ function RunsCard(): ReactNode {
         </Field>
       </Toolbar>
       {runs.isPending ? (
-        <PageSkeleton rows={4} />
+        <RowsSkeleton rows={4} label="Loading extraction runs" />
       ) : runs.isError ? (
         <UnavailableState
           error={runs.error}
@@ -349,7 +374,7 @@ function RunsCard(): ReactNode {
           testId="extraction-runs-empty"
         />
       ) : (
-        <RunsTable runs={items} />
+        <RunsTable runs={items} busy={runs.isPlaceholderData} />
       )}
       {runs.hasNextPage ? (
         <p className="pb-extraction-more">

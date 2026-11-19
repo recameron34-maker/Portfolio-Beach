@@ -30,7 +30,7 @@ Option 1.
 - The static preview shows the access rules from per-user recordings; it does not enforce them (decision 0008). The site says so beside the demo.
 - A production publish takes the domain over from whichever Worker holds it, without a prompt, when run outside a terminal (see Verification). The other repository will take the domain back on its next deploy while its configuration still names it: removing that line is a change in that repository for its owner to approve.
 - A manually started workflow appears in the Actions tab only once the workflow file is on the default branch, so publishing needs this branch merged first.
-- `wrangler` is a devDependency of `@pb/site` (pinned 4.146.0), so every install downloads its runtime packages. No new paid service: the host is the one the owner already uses.
+- `wrangler` is a devDependency of `@pb/site` (pinned 4.146.0 when this was written; 4.161.0 since decision 0016, for the advisories in its runtime's dependencies, with the dry run repeated), so every install downloads its runtime packages. No new paid service: the host is the one the owner already uses.
 - Nothing here touches Azure, the employer or any employer system.
 
 ## SEC IDs affected
@@ -53,3 +53,12 @@ While the site was being built, the owner connected this repository to the host'
 - `.github/workflows/site.yml` now only builds and checks the site by hand; it holds no secret and publishes nothing.
 - This departs from the letter of CLAUDE.md ("deployment happens only in GitHub Actions after human approval") by the owner's own choice for this static site: the human approval is the merge to `main`. The application is still deployed nowhere.
 - The first build after the merge to `main` is the real test: nothing here could run the host's build. The owner pastes its log if it fails.
+
+## Amendment, 2026-11-12: the first publish
+
+- After the repository went private the host's build could no longer see it ("The project is linked to a repository that no longer exists"). The owner reconnected it the same day.
+- The owner ran the production build from `main`. It published, and cameroncastle.com serves the Portfolio Beach site (read from the session once the owner allowed the host: the page's title and opening lines are the site's).
+- **The host's builds of other branches fail, and the cause is not known yet.** On every push to the open pull request's branch the host reports two failed checks: one within seconds ("Preview creation failed: This Worker does not exist on your account") and one after the build has run for about two minutes, with no message on GitHub. This happened before the first publish and still happens after it, so "the Worker did not exist yet" does not explain it. The site's own build passes when run by hand at the same commit, production publishes, and the log of the failed build is only in the host's dashboard, which the session cannot read.
+- Until the log is read, the choice is the owner's: paste the log of a failed branch build so the cause can be found, or switch off builds for branches other than `main` in the host's settings. Branch previews are not needed for anything: the site publishes from `main` only.
+- These checks are the host's and are not part of the repository's gate (guard, security, ci, e2e).
+

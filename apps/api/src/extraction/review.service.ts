@@ -1,7 +1,7 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { and, eq } from 'drizzle-orm';
 import type { AdapterSet, Principal } from '@pb/adapters';
-import { UNITS_BY_KIND, boundsFrom } from '@pb/ai';
+import { UNITS_BY_KIND, boundsFrom, promotesToRecord } from '@pb/ai';
 import type { ExtractionField, ExtractionSchema, ExtractionSchemas, TargetColumn } from '@pb/ai';
 import { CalcError, isQuarterEnd, toDollars, unitSanityFlag } from '@pb/calc';
 import {
@@ -13,6 +13,7 @@ import {
 import type { ExtractionRunCommandBody, ExtractionRunDetail, ExtractionUnit } from '@pb/contracts';
 import { asSystemActor, schema } from '@pb/db';
 import type { Tx } from '@pb/db';
+import { openShareRefusal } from '@pb/workflows';
 import { ProblemError, zodIssues } from '../common/problem.js';
 import { ADAPTERS, DEFINITIONS } from '../common/tokens.js';
 import { requireUuid } from '../common/validate.js';
@@ -21,6 +22,7 @@ import type { AuditEntry } from '../db/db.service.js';
 import { EXTRACTION_SCHEMAS } from '../documents/settings.js';
 import { promoteQuarterlyPerformance } from '../intake/promote.js';
 import type { QuarterlyFigureKey, QuarterlyFigures } from '../intake/promote.js';
+import { SuggestionDerivationService } from '../suggestions/derivation.service.js';
 import { ExtractionService } from './extraction.service.js';
 import { ExtractionRunner } from './runner.js';
 import {
@@ -50,12 +52,18 @@ import {
  * validator applies to the model (docs/08 sections 5 and 6): a money value must convert to
  * dollars inside the configured range, a date must be the quarter end the run was opened for.
  * Approval checks that every required field is accepted or edited, that no invalid value stands,
- * that no flagged value and no record figure is undecided, and that the period end is the run's
- * quarter, then promotes the final values of the target fields, converted to dollars (an edited
+ * that no flagged value and no record figure is undecided, that no line of a statement is
+ * accepted while a share of the vehicle that was read stands unaccepted (openShareRefusal), and
+ * that the period end is the run's quarter, then promotes the final values of the target fields, converted to dollars (an edited
  * value with the edit's unit), into mon.quarterly_performance through the one promotion write the
  * accounting import uses (intake/promote.ts), as the system actor, in the same transaction, with
  * the lineage of the run and the document, citing the first promoted figure read from the
  * document; the highlights and the commentary are written only when their rows are accepted.
+ * A schema with no record figure (no field with a target: a capital account statement) is
+ * approved the same way and promotes nothing: it needs no linked position, and the quarter on
+ * record, its approver and its lineage stay exactly as they were (promotesToRecord of @pb/ai).
+ * Approving a statement or a report then derives the valuation suggestion of its position and
+ * quarter, in the same transaction (suggestions/derivation.service.ts, docs/18 section 14).
  * The default approval reason is a fixed sentence, since the file name names the company and
  * the audit trail is read by role, not by wall (W3). Every decision and the approval are audited
  * with before and after. retry drives a NeedsRetry run again through the machine, or queues a
@@ -78,6 +86,12 @@ const TARGET_KEYS: Readonly<Record<TargetColumn, QuarterlyFigureKey>> = {
   cash: 'cash',
   total_equity: 'totalEquity',
 };
+/**
+ * How an approved run that promotes nothing is read, as its approval's audit event records it:
+ * a document linked to a position is our account for that position, one linked to none is our
+ * account in a fund.
+ */
+export const STATEMENT_READ_AS = { position: 'position_account', fund: 'fund_account' } as const;
 /** The approval reason when the reviewer gives none: a fixed sentence, never the file name (W3, SEC-5.3). */
 export const DEFAULT_APPROVAL_REASON = 'Approved from the AI extraction review';
 
@@ -116,6 +130,7 @@ export class ExtractionReviewService {
     @Inject(ADAPTERS) private readonly adapters: AdapterSet,
     @Inject(DEFINITIONS) private readonly definitions: unknown,
     @Inject(EXTRACTION_SCHEMAS) private readonly schemas: ExtractionSchemas,
+    private readonly suggestions: SuggestionDerivationService,
   ) {}
 
   /** One review command on a run the caller can see (404 otherwise); answers the run as it now stands. */
@@ -469,7 +484,9 @@ export class ExtractionReviewService {
    * target leaves the record's column as it was, and so does an accepted value the document did
    * not state (null), since a promotion never writes a number the document did not give; an
    * undecided target is named, never silently left out. The period end must be the quarter the
-   * run was opened for (422 otherwise: docs/08 section 5, rule 10).
+   * run was opened for (422 otherwise: docs/08 section 5, rule 10). A schema with no record
+   * figure skips the position requirement and the promotion: the run is approved, nothing is
+   * written to the quarterly record, and promoted_record_id stays empty.
    */
   private async approve(
     tx: Tx,
@@ -498,7 +515,17 @@ export class ExtractionReviewService {
           `extraction: ${field.label} is a record figure and undecided; accept, edit or reject it`,
         );
     }
-    if (locked.investmentId === null)
+    // A share that was read and that nobody stood behind leaves the lines as the whole vehicle's:
+    // none of them is accepted as our account (docs/08 rule 12.1, rule 10).
+    const openShare = openShareRefusal(
+      values,
+      (key) => extractionSchema.fields.find((field) => field.key === key)?.label ?? key,
+    );
+    if (openShare !== null) throw blocked(openShare);
+    // Only a schema that writes to the quarterly record needs a position to write it on.
+    const promotes = promotesToRecord(extractionSchema);
+    const investmentId = locked.investmentId;
+    if (promotes && investmentId === null)
       throw new ProblemError(
         422,
         'workflow-precondition',
@@ -517,6 +544,20 @@ export class ExtractionReviewService {
         'workflow-precondition',
         `extraction: the period end ${periodEnd} is not the quarter the run covers (${locked.periodEnd ?? 'a quarter end'}); edit it`,
       );
+    const approvalReason = reason ?? DEFAULT_APPROVAL_REASON;
+    // Nothing is ever promoted without a position: the refusal above already said so.
+    if (!promotes || investmentId === null) {
+      await this.approveWithoutPromotion(
+        tx,
+        audit,
+        principal,
+        locked,
+        periodEnd,
+        approvalReason,
+        at,
+      );
+      return;
+    }
     // An edited row converts with the edit's own unit, the model's value with the model's (WF-1).
     const unitOf = (row: LoadedValue): string | null =>
       row.decision === EDITED ? row.editedUnit : row.unit;
@@ -557,8 +598,6 @@ export class ExtractionReviewService {
         : {}),
       ...(commentaryRow?.decision === ACCEPTED ? { commentary: commentaryRow.value } : {}),
     };
-    const approvalReason = reason ?? DEFAULT_APPROVAL_REASON;
-    const investmentId = locked.investmentId;
     const promoted = await asSystemActor(tx, (stx) =>
       promoteQuarterlyPerformance(stx, audit, {
         label: 'extraction',
@@ -582,6 +621,8 @@ export class ExtractionReviewService {
           fields: promotedFields,
           narrative: Object.keys(narrative),
         },
+        // Derived below, once the run is on record as approved.
+        suggestions: null,
       }),
     );
     const claimed = await tx
@@ -606,6 +647,79 @@ export class ExtractionReviewService {
         figures: { before: promoted.before, after: promoted.after },
       },
     });
+    await this.deriveSuggestion(tx, audit, principal, locked, investmentId, periodEnd);
+  }
+
+  /**
+   * What the approval of a statement or a report means for the valuation suggestions (docs/18
+   * section 14, decision 0023): in the approval's own transaction, as the system actor, the
+   * suggestion of the run's position and quarter is derived and may be opened, and the other
+   * Open suggestions of the position are derived again. It is called once the run is on record
+   * as approved, since a suggestion names an approved run. A statement linked to no position
+   * raises none.
+   */
+  private async deriveSuggestion(
+    tx: Tx,
+    audit: (entry: AuditEntry) => Promise<void>,
+    principal: Principal,
+    locked: LockedRun,
+    investmentId: string | null,
+    periodEnd: string,
+  ): Promise<void> {
+    await this.suggestions.runApproved(tx, audit, {
+      id: locked.id,
+      documentId: locked.documentId,
+      approvedBy: principal.userId,
+      promptVersion: locked.promptVersion,
+      modelId: locked.modelId,
+      investmentId,
+      periodEnd,
+      schemaId: locked.schemaId,
+    });
+  }
+
+  /**
+   * The approval of a run whose schema has no record figure: the run's approval columns are
+   * claimed on the row version the command read and the approval is audited; nothing is promoted,
+   * so mon.quarterly_performance, its status, its approver and its lineage are not touched and
+   * no promotion event is written.
+   */
+  private async approveWithoutPromotion(
+    tx: Tx,
+    audit: (entry: AuditEntry) => Promise<void>,
+    principal: Principal,
+    locked: LockedRun,
+    periodEnd: string,
+    approvalReason: string,
+    at: Date,
+  ): Promise<void> {
+    const claimed = await tx
+      .update(run)
+      .set({ approvedBy: principal.userId, approvedAt: at })
+      .where(and(eq(run.id, locked.id), eq(run.rowVersion, locked.rowVersion)))
+      .returning();
+    if (claimed[0] === undefined) throw conflict();
+    await audit({
+      action: 'extraction_run.approve',
+      entity: ENTITY,
+      entityId: locked.id,
+      reason: approvalReason,
+      details: {
+        documentId: locked.documentId,
+        fileName: locked.fileName,
+        investmentId: locked.investmentId,
+        periodEnd,
+        schemaId: locked.schemaId,
+        // How the approved lines will be read (decision 0023): our account for the one position
+        // the document is linked to, or our account in a fund when it is linked to none. By
+        // code and id only: the trail is read by role, not by wall (W3).
+        readAs: locked.investmentId === null ? STATEMENT_READ_AS.fund : STATEMENT_READ_AS.position,
+        before: { approvedBy: null, promotedRecordId: null },
+        after: { approvedBy: principal.userId, promotedRecordId: null },
+        promoted: false,
+      },
+    });
+    await this.deriveSuggestion(tx, audit, principal, locked, locked.investmentId, periodEnd);
   }
 
   /**

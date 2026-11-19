@@ -1,5 +1,14 @@
 export { CALC_VERSION } from './version.js';
-export { Decimal, D, CalcError, ZERO, ONE, RESULT_PLACES, toDecimalString } from './decimal.js';
+export {
+  Decimal,
+  D,
+  CalcError,
+  ZERO,
+  ONE,
+  RESULT_PLACES,
+  toDecimalString,
+  trimFractionZeros,
+} from './decimal.js';
 export type { DecimalInput } from './decimal.js';
 export type { Decimal as DecimalValue } from './decimal.js';
 export * from './dates.js';
@@ -19,3 +28,14 @@ export * from './pooled.js';
 export * from './rollup.js';
 export * from './liquidity.js';
 export * from './credit.js';
+export * from './underwriting.js';
+export * from './suggestion.js';
+export { FIT_MEASURES, dealFit, linearScore, median, sizeScore } from './fit.js';
+export type {
+  FitInputs,
+  FitMeasure,
+  FitMeasureKey,
+  FitMissing,
+  FitThresholds,
+  FundCommitment,
+} from './fit.js';

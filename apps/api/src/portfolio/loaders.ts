@@ -1,6 +1,6 @@
 import { and, asc, eq, gt, inArray, isNull, lte, or } from 'drizzle-orm';
 import type { SQL } from 'drizzle-orm';
-import type { InvestmentSummary } from '@pb/contracts';
+import type { CompanyHq, InvestmentSummary } from '@pb/contracts';
 import { schema } from '@pb/db';
 import type { Tx } from '@pb/db';
 import { positionMetrics } from './metrics.js';
@@ -20,6 +20,10 @@ export interface InvestmentBaseRow {
   isActive: boolean;
   sector: string | null;
   geography: string | null;
+  hqCity: string | null;
+  hqCountry: string | null;
+  hqLatitude: string | null;
+  hqLongitude: string | null;
   vehicleId: string;
   sponsorId: string;
   sponsorFundId: string | null;
@@ -39,6 +43,10 @@ export const INVESTMENT_SELECT = {
   isActive: schema.investment.isActive,
   sector: schema.portfolioCompany.sector,
   geography: schema.portfolioCompany.geography,
+  hqCity: schema.portfolioCompany.hqCity,
+  hqCountry: schema.portfolioCompany.hqCountry,
+  hqLatitude: schema.portfolioCompany.hqLatitude,
+  hqLongitude: schema.portfolioCompany.hqLongitude,
   vehicleId: schema.vehicle.id,
   sponsorId: schema.sponsor.id,
   sponsorFundId: schema.investment.sponsorFundId,
@@ -144,6 +152,17 @@ export async function loadFlowsAndValuations(
   return { flows, valuations };
 }
 
+/** The head office as the contract carries it: the table holds all four parts or none. */
+export function headOffice(
+  city: string | null,
+  country: string | null,
+  latitude: string | null,
+  longitude: string | null,
+): CompanyHq | null {
+  if (city === null || country === null || latitude === null || longitude === null) return null;
+  return { city, country, latitude: Number(latitude), longitude: Number(longitude) };
+}
+
 /**
  * The grid row: base columns (with the vehicle and sponsor ids pages link to) plus the calculated
  * position metrics as of a date. The fund and company ids stay with the detail.
@@ -154,9 +173,18 @@ export function summarizeInvestment(
   valuations: readonly ValuationRow[],
   asOf: string,
 ): InvestmentSummary {
-  const { sponsorFundId: _f, companyId: _c, ...base } = row;
+  const {
+    sponsorFundId: _f,
+    companyId: _c,
+    hqCity,
+    hqCountry,
+    hqLatitude,
+    hqLongitude,
+    ...base
+  } = row;
   return {
     ...base,
+    hq: headOffice(hqCity, hqCountry, hqLatitude, hqLongitude),
     vintage: Number(row.entryDate.slice(0, 4)),
     ...positionMetrics(flows, valuations, asOf, row.isActive, row.exitDate),
   };

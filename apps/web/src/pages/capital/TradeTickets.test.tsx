@@ -45,9 +45,15 @@ describe('trade tickets', () => {
     const rows = rowsOf(table);
     expect(rows).toHaveLength(3);
     const drafted = rows[0]!;
-    expect(
-      within(drafted).getByRole('link', { name: 'Capital call: Silverline Staffing Holdings' }),
-    ).toHaveAttribute('href', `/capital-activity/${NOTICE_ID.extracted}`);
+    const notice = within(drafted).getByRole('link', {
+      name: 'Capital call: Silverline Staffing Holdings',
+    });
+    expect(notice).toHaveAttribute('href', `/capital-activity/${NOTICE_ID.extracted}`);
+    // The company is the link; the notice type is its second line, heard once through the link.
+    expect(notice.closest('td')).toHaveTextContent(
+      'Capital call: Silverline Staffing HoldingsCapital call',
+    );
+    expect(within(notice.closest('td')!).getByText('Capital call')).toHaveClass('pb-cell-sub');
     expect(within(drafted).getByText('$2.5M')).toBeInTheDocument();
     expect(within(drafted).getByText('Jul 12, 2025')).toBeInTheDocument();
     expect(within(drafted).getByText('Priya Lindqvist')).toBeInTheDocument();
@@ -57,7 +63,7 @@ describe('trade tickets', () => {
     expect(blockers.map((b) => b.textContent)).toEqual(['Changed within hold', 'Same person']);
     expect(blockers[0]!.closest('span[title]')).toHaveAttribute(
       'title',
-      "The wire instructions changed within the hold window and wait for a second person's callback (SEC-12.3).",
+      "The wire instructions changed within the hold window and wait for a second person's callback.",
     );
 
     const approved = rows[1]!;

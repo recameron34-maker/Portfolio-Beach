@@ -5,6 +5,7 @@ import {
   closingMachine,
   dealChangeRequestMachine,
   dealStageMachine,
+  reportingPackageMachine,
   stagingMachine,
   valuationMachine,
   wireInstructionMachine,
@@ -19,6 +20,7 @@ import {
   expectedStatusTone,
   humanizeState,
   noticeTone,
+  packageTone,
   reviewStatusTone,
   rolesLabel,
   runStateTone,
@@ -115,6 +117,24 @@ describe('state words', () => {
     expect(stageTone('Unknown')).toBe('neutral');
     expect(humanizeState('InProgress')).toBe('In progress');
     expect(humanizeState('OpsConfirmed')).toBe('Ops confirmed');
+  });
+
+  it('tones the states of a reporting package once for every page (docs/18 section 5)', () => {
+    for (const s of reportingPackageMachine.states) expect(typeof packageTone(s)).toBe('string');
+    // A draft waits to be generated and Generated waits on the checks: neither is anyone's alarm.
+    expect(packageTone('Draft')).toBe('neutral');
+    expect(packageTone('Generated')).toBe('neutral');
+    expect(packageTone('QAFailed')).toBe('bad');
+    // A person's turn: investor relations to submit, an approver to approve.
+    expect(packageTone('QAPassed')).toBe('watch');
+    expect(packageTone('InReview')).toBe('watch');
+    expect(packageTone('Approved')).toBe('brand');
+    expect(packageTone('Released')).toBe('good');
+    expect(packageTone('Unknown')).toBe('neutral');
+    expect(humanizeState('QAFailed')).toBe('QA failed');
+    expect(humanizeState('QAPassed')).toBe('QA passed');
+    expect(humanizeState('InReview')).toBe('In review');
+    expect(commandLabel('overrideQa')).toBe('Override QA');
   });
 
   it('grades due dates against the configured alert window', () => {

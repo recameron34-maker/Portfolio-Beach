@@ -57,6 +57,7 @@ export function routePathMatcher(
       return '([^/]+)';
     })
     .join('');
+  // eslint-disable-next-line security/detect-non-literal-regexp -- a route template from the route table, its literal parts escaped above
   const pattern = new RegExp(`^${source}$`);
   return (pathname) => {
     const m = pattern.exec(pathname);

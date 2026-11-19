@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import type { ReactNode } from 'react';
-import { Link, useParams } from '@tanstack/react-router';
+import { useParams } from '@tanstack/react-router';
 import { useQuery } from '@tanstack/react-query';
 import { Button, Dropdown, Field as FluentField, Input, Option } from '@fluentui/react-components';
 import type { Principal, WireInstructionCommandBody, WireInstructionDetail } from '@pb/contracts';
@@ -13,12 +13,14 @@ import { UnavailableState } from '../../components/UnavailableState.js';
 import { ActionLogCard, ActionStatus, ReasonDialog } from '../../components/WorkflowActions.js';
 import {
   Badge,
+  Breadcrumbs,
   Card,
-  EmptyState,
+  EmptyLine,
   ErrorState,
   KeyValueTable,
   PageHeader,
   PageSkeleton,
+  RowsSkeleton,
   SectionHeader,
   SimulatedBadge,
 } from '../../components/ui.js';
@@ -51,23 +53,20 @@ import type { CallbackForm } from './wires.js';
 import './capital.css';
 
 /** The sentence every clear read carries (SEC-11.1). */
-export const AUDITED_READ_NOTE =
-  'Each read of the clear details is recorded in the audit trail (SEC-11.1).';
+export const AUDITED_READ_NOTE = 'Each read of the clear details is recorded in the audit trail.';
 
-function BackLink(): ReactNode {
-  return (
-    <p className="pb-meta pb-cap-back">
-      <Link to="/capital-activity/wires">Wire instruction register</Link>
-    </p>
-  );
-}
+/** Where an instruction sits: Capital activity, then the wire register. */
+const TRAIL = [
+  { label: 'Capital activity', to: '/capital-activity' },
+  { label: 'Wire register', to: '/capital-activity/wires' },
+];
 
 /**
  * What the simulated reveal says (WEB-1): the preview is published, so it carries the masked
  * form of a recorded version only, never a full account number, routing code or reference.
  */
 export const PREVIEW_DETAILS_NOTE =
-  'Full bank details are not part of this preview: it carries the bank name and the last four digits of the account number only. In the product, operations and approvers read the full details here and each read is recorded in the audit trail (SEC-11.1).';
+  'Full bank details are not part of this preview: it carries the bank name and the last four digits of the account number only. In the product, operations and approvers read the full details here and each read is recorded in the audit trail.';
 
 /** What stands beside details a person typed in the preview session itself. */
 const PREVIEW_TYPED_NOTE =
@@ -118,8 +117,8 @@ function DetailsCard({
       </p>
       {clear === null && !maskedOnly ? (
         <p className="pb-meta" data-testid="wire-details-note">
-          Bank details in clear are shown to operations and approvers only (SEC-12.2); every other
-          role sees the masked form.
+          Bank details in clear are shown to operations and approvers only; every other role sees
+          the masked form.
         </p>
       ) : (
         <>
@@ -222,9 +221,8 @@ function CallbackFormCard({
       >
         <p className="pb-meta">
           Call a number sourced independently of the notice: the instruction already on file, the
-          sponsor&apos;s website, a known contact or the fund administrator (SEC-12.2). A confirmed
-          callback verifies this version and makes it the active one; one that does not confirm
-          rejects it.
+          sponsor&apos;s website, a known contact or the fund administrator. A confirmed callback
+          verifies this version and makes it the active one; one that does not confirm rejects it.
         </p>
         {older ? (
           <p className="pb-notice pb-notice-bad" data-testid="wire-older-version">
@@ -298,6 +296,7 @@ function CallbackFormCard({
           >
             Withdraw version
           </Button>
+          <SimulatedBadge />
         </div>
       </form>
       {withdrawing ? (
@@ -335,7 +334,7 @@ function CallbackCard({
     detail.state === 'Proposed' && olderThanVerified(detail, versions.data?.items ?? []);
   return (
     <Card testId="wire-callback">
-      <SectionHeader aside={<SimulatedBadge />}>Callback</SectionHeader>
+      <SectionHeader>Callback</SectionHeader>
       {callback === null ? null : (
         <KeyValueTable
           label="Callback"
@@ -376,11 +375,11 @@ function VersionsCard({ detail }: { detail: WireInstructionDetail }): ReactNode 
     <Card testId="wire-versions">
       <SectionHeader aside="Newest first">Versions of {detail.counterparty.name}</SectionHeader>
       {q.isPending ? (
-        <PageSkeleton rows={2} />
+        <RowsSkeleton rows={2} label="Loading the versions" />
       ) : q.isError ? (
         <UnavailableState inline error={q.error} subject="The version history" />
       ) : q.data.items.length === 0 ? (
-        <EmptyState title="No other versions" />
+        <EmptyLine title="No other versions" />
       ) : (
         <WireTable
           rows={q.data.items}
@@ -403,10 +402,17 @@ function InstructionBody({
   const log = useActionLog();
   return (
     <>
-      <BackLink />
       <PageHeader
         testId="wire-banner"
-        title={`${detail.counterparty.name}: version ${detail.version}`}
+        crumbs={TRAIL}
+        title={
+          <>
+            {detail.counterparty.name}
+            {/* The version is part of the heading; the colon is heard, a gap is seen. */}
+            <span className="pb-visually-hidden">:</span>{' '}
+            <span className="pb-title-suffix">version {detail.version}</span>
+          </>
+        }
         meta={
           <span className="pb-meta-list">
             <span>{kindLabel(detail.counterparty.kind)}</span>
@@ -416,8 +422,8 @@ function InstructionBody({
             {detail.sourceNote === null ? null : <span>Source: {detail.sourceNote}</span>}
           </span>
         }
-        actions={
-          <span className="pb-cap-subject">
+        titleAside={
+          <span className="pb-marker-row">
             <WireStateBadge state={detail.state} />
             {detail.active ? <Badge tone="good">Active</Badge> : null}
           </span>
@@ -451,7 +457,7 @@ export function WireInstructionPage(): ReactNode {
     const missing = q.error instanceof ApiError && q.error.status === 404;
     return (
       <>
-        <BackLink />
+        <Breadcrumbs items={TRAIL} />
         {missing ? (
           <ErrorState
             title="Wire instruction not found"
@@ -465,7 +471,7 @@ export function WireInstructionPage(): ReactNode {
             forbidden={{
               title: 'This wire instruction: not visible to your role',
               detail:
-                'Operations, approvers, auditors and platform admins read the register (SEC-12.2). Ask a platform administrator if you need access.',
+                'Operations, approvers, auditors and platform admins read the register. Ask a platform administrator if you need access.',
             }}
             errorTitle="Wire instruction unavailable"
             testId="wire-unavailable"

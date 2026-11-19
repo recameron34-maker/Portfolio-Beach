@@ -133,7 +133,67 @@ describe('charts', () => {
     expect(table).toHaveTextContent('Q3-');
   });
 
-  it('at phone width keeps the ends of similar labels, the full names elsewhere and the values inside', async () => {
+  it('draws a series through the dates it has no point at by design, and keeps the placeholder in the table', async () => {
+    const { container } = render(
+      <LineChart
+        title="EBITDA, actual and plan"
+        x={['Dec 2022', 'Jan 2023', 'Mar 2023']}
+        series={[
+          // January is a plan date no quarter ends on: the actual has nothing to miss there.
+          { name: 'Actual', values: [10, null, 11], absent: [false, true, false] },
+          { name: 'Plan', values: [9, 12, 12.5] },
+        ]}
+        kind="money"
+        format={(v) => `$${v}M`}
+        summary="actual and plan over three dates"
+      />,
+    );
+    const lines = [...container.querySelectorAll('path[fill="none"]')];
+    // One stroke per series: the actual is not cut in two at the plan date.
+    expect(lines).toHaveLength(2);
+    expect(lines[0]?.getAttribute('d')?.match(/L/g)).toHaveLength(1);
+    await userEvent.click(screen.getByRole('button', { name: 'Show table' }));
+    expect(
+      screen.getByRole('table', { name: 'EBITDA, actual and plan, as a table' }),
+    ).toHaveTextContent('Jan 2023-$12M');
+  });
+
+  it('places points by their own positions when given, so uneven dates are drawn that far apart', () => {
+    const drawn = (dates: string[], at: number[]): { xs: string[]; named: (string | null)[] } => {
+      cleanup();
+      measureAs(552);
+      const { container } = render(
+        <LineChart
+          title="Plan by date"
+          x={dates}
+          at={at}
+          series={[{ name: 'Plan', values: [10, 11, 14] }]}
+          kind="money"
+          format={(v) => `$${v}M`}
+          summary="a plan over three dates"
+        />,
+      );
+      const path = container.querySelector('path[fill="none"]')?.getAttribute('d') ?? '';
+      return {
+        xs: path.split('L').map((point) => point.replace('M', '').split(' ')[0] ?? ''),
+        named: [...container.querySelectorAll('text.pb-chart-tick[text-anchor="middle"]')].map(
+          (t) => t.textContent,
+        ),
+      };
+    };
+    // Days since the first date: the middle point is a quarter of the way along, not half. 552
+    // wide less the 56 and 28 of padding leaves 468 to plot over, from 56 (one series has no end
+    // label, so no room is kept right of the plot for one).
+    const spread = drawn(['Dec 2022', 'Mar 2023', 'Dec 2023'], [0, 90, 360]);
+    expect(spread.xs).toEqual(['56', '173', '524']);
+    expect(spread.named).toEqual(['Dec 2022', 'Mar 2023', 'Dec 2023']);
+    // A date too close to the one named after it goes without a label; the table twin has all.
+    const close = drawn(['Dec 2022', 'Jan 2023', 'Dec 2023'], [0, 36, 360]);
+    expect(close.xs.map((v) => Math.round(Number(v) * 10) / 10)).toEqual([56, 102.8, 524]);
+    expect(close.named).toEqual(['Jan 2023', 'Dec 2023']);
+  });
+
+  it('at phone width sets each whole label above its bar, and keeps the values inside', async () => {
     const width = 316;
     measureAs(width);
     const { container } = render(
@@ -148,8 +208,20 @@ describe('charts', () => {
         summary="NAV by vehicle, two bars"
       />,
     );
-    const labels = [...container.querySelectorAll('.pb-chart-label')].map((t) => t.textContent);
-    expect(labels).toEqual(['Beach...Fund II', 'Beac...Fund III']);
+    expect(container.querySelector('svg.pb-chart-svg')?.getAttribute('data-labels')).toBe('above');
+    const labels = [...container.querySelectorAll('.pb-chart-label')];
+    expect(labels.map((t) => t.textContent)).toEqual([
+      'Beach Co-Invest Fund II',
+      'Beach Co-Invest Fund III',
+    ]);
+    // Each label starts at the left edge on the line above its bar, never cut.
+    for (const label of labels) {
+      expect(label.getAttribute('x')).toBe('0');
+      expect(label.getAttribute('text-anchor')).toBe('start');
+    }
+    const bars = [...container.querySelectorAll('.pb-chart-bar')];
+    const firstBarTop = Number(/^M[\d.-]+ ([\d.]+)H/.exec(bars[0]?.getAttribute('d') ?? '')?.[1]);
+    expect(Number(labels[0]?.getAttribute('y'))).toBeLessThan(firstBarTop);
     expect(screen.getByRole('img', { name: 'Beach Co-Invest Fund III: $40.0M' })).toBeTruthy();
     for (const value of container.querySelectorAll('.pb-chart-value')) {
       const x = Number(value.getAttribute('x'));
@@ -189,7 +261,28 @@ describe('charts', () => {
     ).toBeTruthy();
   });
 
-  it('at phone width gives stacked bars distinct short labels and keeps the ticks inside', () => {
+  it('beside the bars cuts a label too long for its column, keeping the ends that tell similar ones apart', () => {
+    measureAs(520);
+    const { container } = render(
+      <HorizontalBars
+        title="NAV by vehicle"
+        data={[
+          { label: 'Beach Co-Invest Opportunities Fund II', value: 120, display: '$120' },
+          { label: 'Beach Co-Invest Opportunities Fund III', value: 40, display: '$40' },
+        ]}
+        kind="money"
+        valueColumn="NAV"
+        summary="NAV by vehicle, two bars"
+      />,
+    );
+    expect(container.querySelector('svg.pb-chart-svg')?.getAttribute('data-labels')).toBe('side');
+    const labels = [...container.querySelectorAll('.pb-chart-label')].map((t) => t.textContent);
+    expect(labels).toHaveLength(2);
+    expect(new Set(labels).size).toBe(2);
+    for (const label of labels) expect(label).toMatch(/^Beach.*\.\.\..*Fund II+$/);
+  });
+
+  it('at phone width gives stacked bars their whole labels and keeps the ticks inside', () => {
     const width = 300;
     measureAs(width);
     const segments = (a: number) => [
@@ -210,8 +303,11 @@ describe('charts', () => {
       />,
     );
     const labels = [...container.querySelectorAll('.pb-chart-label')].map((t) => t.textContent);
-    expect(new Set(labels).size).toBe(3);
-    for (const label of labels) expect((label ?? '').length).toBeLessThanOrEqual(14);
+    expect(labels).toEqual([
+      'Seagrass Fund II',
+      'Seagrass Growth Fund II',
+      'Beach Co-Invest Fund III',
+    ]);
     expect(
       screen.getByRole('img', {
         name: 'Seagrass Growth Fund II: Healthcare $4.0M, Software $2.0M',
@@ -219,7 +315,10 @@ describe('charts', () => {
     ).toBeTruthy();
     for (const tick of container.querySelectorAll('.pb-chart-tick')) {
       const half = ((tick.textContent ?? '').length * 6.6) / 2;
-      expect(Number(tick.getAttribute('x')) + half).toBeLessThanOrEqual(width);
+      const x = Number(tick.getAttribute('x'));
+      expect(x + half).toBeLessThanOrEqual(width);
+      // The first figure starts on its gridline rather than being cut at the left edge.
+      if (tick.getAttribute('text-anchor') === 'middle') expect(x - half).toBeGreaterThanOrEqual(0);
     }
   });
 });

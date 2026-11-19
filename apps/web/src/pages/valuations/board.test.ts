@@ -73,6 +73,11 @@ describe('valuation board helpers', () => {
     expect(aboveVarianceFlag('-0.2059')).toBe(true);
     expect(aboveVarianceFlag('0.0999')).toBe(false);
     expect(aboveVarianceFlag(null)).toBe(false);
+    // Judged on the percent as it travels (ten places), and never on text that is no decimal.
+    expect(aboveVarianceFlag('-0.1')).toBe(true);
+    expect(aboveVarianceFlag('0.0999999999')).toBe(false);
+    expect(aboveVarianceFlag('')).toBe(false);
+    expect(aboveVarianceFlag('about a tenth')).toBe(false);
   });
 
   it('formats the approval date from a timestamp and never invents one', () => {

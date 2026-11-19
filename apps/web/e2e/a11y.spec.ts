@@ -12,8 +12,10 @@ import {
   latestQuarter,
   listRuns,
   loadDataset,
+  settled,
   signInAs,
   startExtractionBatch,
+  switchTo,
   walledDeal,
 } from './fixtures.js';
 
@@ -42,6 +44,7 @@ test.beforeAll(() => {
 
 /** The rule ids and node counts axe reports as serious or critical on the page as it stands. */
 async function seriousViolations(page: Page): Promise<string[]> {
+  await settled(page);
   const results = await new AxeBuilder({ page })
     .withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa'])
     .analyze();
@@ -72,15 +75,214 @@ test('home, portfolio and one-pager @a11y', async ({ page }) => {
   await expectNoSeriousViolations(page);
 });
 
-test('sign-in scene is static under reduced motion @a11y', async ({ page }) => {
-  await page.emulateMedia({ reducedMotion: 'reduce' });
+test('sign-in settles once and is still under reduced motion @a11y', async ({ page }) => {
   await page.goto('/sign-in');
   await page.getByTestId('mock-user-list').waitFor();
-  const names = await page
-    .locator('.pb-scene-glow, .pb-scene-wave, .pb-scene-tide, .pb-scene-foam')
-    .evaluateAll((els) => els.map((el) => getComputedStyle(el).animationName));
-  expect(names.length).toBeGreaterThan(0);
-  expect(names.every((n) => n === 'none')).toBe(true);
+  await movingThenStill(
+    page,
+    () => animationNames(page.locator('.pb-signin-picker > :not(.pb-banner), .pb-signin-row')),
+    'pb-enter',
+  );
+  // The page title never moves, with motion allowed or not.
+  await page.emulateMedia({ reducedMotion: 'no-preference' });
+  expect(await animationNames(page.locator('.pb-signin-picker > .pb-banner'))).toEqual(['none']);
+});
+
+test('the skip link takes the keyboard past the navigation to the page @a11y', async ({ page }) => {
+  await signInAs(page, 'ops.one', d);
+  await page.goto('/portfolio');
+  await page.getByTestId('portfolio-count').waitFor();
+  await page.keyboard.press('Tab');
+  const skip = page.getByRole('link', { name: 'Skip to content' });
+  await expect(skip).toBeFocused();
+  await expect(skip).toBeVisible();
+  await page.keyboard.press('Enter');
+  await expect(page.getByRole('main')).toBeFocused();
+  await expect(page).toHaveURL(/\/portfolio$/);
+});
+
+test('the phone bar and its navigation drawer @a11y', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await signInAs(page, 'ops.one', d);
+  await page.getByTestId('home-tiles').waitFor();
+  // The data rule stays in the bar, the navigation waits in the drawer.
+  await expect(page.getByRole('status')).toContainText('synthetic data only');
+  await expect(page.getByRole('navigation', { name: 'Main' })).toHaveCount(0);
+  await expectNoSeriousViolations(page);
+  await page.getByRole('button', { name: 'Open navigation' }).click();
+  const drawer = page.getByRole('dialog', { name: 'Navigation' });
+  await expect(drawer.getByRole('navigation', { name: 'Main' })).toBeVisible();
+  await expectNoSeriousViolations(page);
+  // A link in the drawer opens its page and closes the drawer.
+  await drawer.getByRole('link', { name: 'Sponsors' }).click();
+  await expect(page).toHaveURL(/\/sponsors$/);
+  await expect(drawer).toHaveCount(0);
+  await expect(page.getByRole('table', { name: 'Sponsors' })).toBeVisible();
+});
+
+/** The animation each element a locator finds would run, as the browser computes it. */
+async function animationNames(locator: Locator): Promise<string[]> {
+  return locator.evaluateAll((els) => els.map((el) => getComputedStyle(el).animationName));
+}
+
+/** The same, for a pseudo-element of each element ('::before', '::after'). */
+async function pseudoAnimationNames(locator: Locator, pseudo: string): Promise<string[]> {
+  return locator.evaluateAll(
+    (els, which) => els.map((el) => getComputedStyle(el, which).animationName),
+    pseudo,
+  );
+}
+
+/** Reads a locator's animations with motion allowed and then under the setting. */
+async function movingThenStill(
+  page: Page,
+  read: () => Promise<string[]>,
+  name: string,
+): Promise<void> {
+  await page.emulateMedia({ reducedMotion: 'no-preference' });
+  const moving = await read();
+  expect(moving.length).toBeGreaterThan(0);
+  expect(moving.every((n) => n === name)).toBe(true);
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  expect((await read()).every((n) => n === 'none')).toBe(true);
+}
+
+test('pages and loading states arrive composed under reduced motion @a11y', async ({ page }) => {
+  await signInAs(page, 'ops.one', d);
+  await page.goto('/sponsors');
+  await page.getByRole('table', { name: 'Sponsors' }).waitFor();
+  const sections = page.locator('.pb-main > section');
+  // The page's sections rise in, which shows the rule reaches them; under the setting they do not.
+  await page.emulateMedia({ reducedMotion: 'no-preference' });
+  const moving = await animationNames(sections);
+  expect(moving.length).toBeGreaterThan(0);
+  expect(moving.every((n) => n === 'pb-enter')).toBe(true);
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  expect((await animationNames(sections)).every((n) => n === 'none')).toBe(true);
+
+  // A page held pending: its skeleton neither fades in nor pulses.
+  const SPONSOR_LIST = /\/api\/v1\/sponsors\?/;
+  let release = (): void => undefined;
+  const held = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  let asked = (): void => undefined;
+  const requested = new Promise<void>((resolve) => {
+    asked = resolve;
+  });
+  await page.route(SPONSOR_LIST, async (route) => {
+    asked();
+    await held;
+    await route.continue();
+  });
+  await page.goto('/sponsors');
+  await requested;
+  const skeleton = page.locator('.pb-main > .pb-skeleton');
+  await expect(skeleton).toHaveCount(1);
+  expect(await animationNames(skeleton)).toEqual(['none']);
+  const bars = await animationNames(skeleton.locator('.pb-skeleton-bar'));
+  expect(bars.length).toBeGreaterThan(0);
+  expect(bars.every((n) => n === 'none')).toBe(true);
+  await page.emulateMedia({ reducedMotion: 'no-preference' });
+  expect(await animationNames(skeleton)).toEqual(['pb-fade']);
+  release();
+  // Let the held request go on before the route is removed.
+  await page.unrouteAll({ behavior: 'wait' });
+  await page.getByRole('table', { name: 'Sponsors' }).waitFor();
+
+  // The steps done fill their segments and the current tab draws its underline.
+  await page.goto(`/pipeline/${closingDeal}`);
+  const done = page.locator(".pb-steps > li[data-status='done']");
+  await done.first().waitFor();
+  await movingThenStill(page, () => pseudoAnimationNames(done, '::before'), 'pb-grow-x');
+  await page.goto(`/portfolio/${openDeal}`);
+  const tab = page.locator(".pb-tabs a[aria-current='page']");
+  await tab.waitFor();
+  await movingThenStill(page, () => pseudoAnimationNames(tab, '::after'), 'pb-tab-in');
+
+  // The result of a command (refused here, so nothing is written) drops in beside the controls
+  // and at the head of the log.
+  await switchTo(page, 'deal.one', d);
+  const COMMANDS = new RegExp(`/api/v1/opportunities/${sourcedDeal}/commands`);
+  await page.route(COMMANDS, (route) =>
+    route.fulfill({
+      status: 422,
+      contentType: 'application/problem+json',
+      body: JSON.stringify({
+        type: 'https://example.test/problems/workflow-precondition',
+        title: 'Workflow precondition',
+        status: 422,
+        detail: 'Held back for the motion check.',
+        request_id: 'motion-check',
+      }),
+    }),
+  );
+  await page.goto(`/pipeline/${sourcedDeal}`);
+  await page
+    .getByTestId('opportunity-stage-actions')
+    .getByRole('button', { name: /^Advance/ })
+    .click();
+  const newest = page.locator('.pb-action-log > li:first-child');
+  await expect(newest).toContainText('Held back for the motion check.');
+  await movingThenStill(page, () => animationNames(newest), 'pb-drop');
+  await movingThenStill(
+    page,
+    () => animationNames(page.locator('.pb-action-status > *')),
+    'pb-drop',
+  );
+  await page.unrouteAll({ behavior: 'wait' });
+});
+
+test('the NAV sparkline draws in once and is still under reduced motion @a11y', async ({
+  page,
+}) => {
+  await signInAs(page, 'ops.one', d);
+  const line = page.getByTestId('home-tiles').locator('.pb-sparkline-line');
+  await line.waitFor();
+  await movingThenStill(page, () => animationNames(line), 'pb-draw');
+  await movingThenStill(
+    page,
+    () => animationNames(page.getByTestId('home-tiles').locator('.pb-sparkline-dot')),
+    'pb-fade',
+  );
+});
+
+test('charts draw and grow in once and are still under reduced motion @a11y', async ({ page }) => {
+  await signInAs(page, 'ops.one', d);
+  await page.goto('/analytics');
+  await page.getByTestId('exposure-nav').waitFor();
+  // The entrance lasts about half a second and then clears itself; the document's animations are
+  // slowed tenfold so it is still running when it is read. The tab is opened in the page, so the
+  // slowed timeline is the one its charts start on.
+  const cdp = await page.context().newCDPSession(page);
+  await cdp.send('Animation.enable');
+  await cdp.send('Animation.setPlaybackRate', { playbackRate: 0.1 });
+  await page.emulateMedia({ reducedMotion: 'no-preference' });
+  await page
+    .getByRole('navigation', { name: 'Analytics' })
+    .getByRole('link', { name: 'Performance' })
+    .click();
+  await page.locator('.pb-chart[data-entering] .pb-chart-line').first().waitFor();
+  await page.locator('.pb-chart[data-entering] .pb-chart-bar').first().waitFor();
+  const lines = page.locator('.pb-main .pb-chart-line');
+  const bars = page.getByTestId('performance-contributions').locator('.pb-chart-bar');
+  const moving = { lines: await animationNames(lines), bars: await animationNames(bars) };
+  expect(moving.lines.length).toBeGreaterThan(0);
+  expect(moving.lines.every((n) => n === 'pb-draw')).toBe(true);
+  expect(moving.bars.length).toBeGreaterThan(0);
+  expect(moving.bars.every((n) => n === 'pb-grow-x')).toBe(true);
+  // Under the setting the entrance stops at once and its flag clears for good ...
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  await expect(page.locator('.pb-chart[data-entering]')).toHaveCount(0);
+  // ... and the stylesheet holds every mark still even while the flag is on.
+  await page.evaluate(() => {
+    for (const figure of document.querySelectorAll('.pb-chart')) {
+      figure.setAttribute('data-entering', '');
+    }
+  });
+  expect((await animationNames(lines)).every((n) => n === 'none')).toBe(true);
+  expect((await animationNames(bars)).every((n) => n === 'none')).toBe(true);
+  await cdp.send('Animation.setPlaybackRate', { playbackRate: 1 });
 });
 
 // ---- Every page added this round, at a laptop and a phone width --------------------------------
@@ -151,7 +353,10 @@ const WORKFLOW_PAGES: Visit[] = [
   { path: '/capital-activity/wires', ready: (p) => p.getByTestId('wire-register') },
   { path: `/capital-activity/wires/${wire}`, ready: (p) => p.getByTestId('wire-instruction') },
   { path: '/capital-activity/tickets', ready: (p) => p.getByTestId('trade-tickets') },
-  { path: '/reporting', ready: heading },
+  // The title stays while the report loads, so the scan waits for the report's own figures.
+  { path: '/reporting', ready: (p) => p.getByTestId('weekly-tiles') },
+  // Reporting packages (decision 0024): the list as operations reads it, with none started.
+  { path: '/reporting/packages', ready: (p) => p.getByTestId('packages-card') },
   { path: '/reporting/clients', ready: heading },
   { path: '/assistants', ready: heading },
 ];
@@ -180,6 +385,8 @@ const valuation = idOf(
 ).id;
 const W1_PAGES: Visit[] = [
   { path: '/valuations/changes', ready: (p) => p.getByTestId('change-requests-card') },
+  // Valuation suggestions (decision 0023): the tab as operations opens it, with none open.
+  { path: '/valuations/suggestions', ready: (p) => p.getByTestId('suggestions-card') },
   { path: `/valuations/${valuation}`, ready: (p) => p.getByTestId('valuation-detail') },
 ];
 // Phase 3: W3 pipeline (M5), diligence and closing (M8, M22)

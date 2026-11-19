@@ -64,10 +64,17 @@ import { PipelineController } from './pipeline/pipeline.controller.js';
 import { PipelineService } from './pipeline/pipeline.service.js';
 import { PortfolioController } from './portfolio/portfolio.controller.js';
 import { PortfolioService } from './portfolio/portfolio.service.js';
+import { PackagesController } from './packages/packages.controller.js';
+import { PackagesService } from './packages/packages.service.js';
 import { ReportsController } from './reports/reports.controller.js';
 import { ReportsService } from './reports/reports.service.js';
 import { SponsorsController } from './sponsors/sponsors.controller.js';
 import { SponsorsService } from './sponsors/sponsors.service.js';
+import { SuggestionDerivationService } from './suggestions/derivation.service.js';
+import { SuggestionsController } from './suggestions/suggestions.controller.js';
+import { SuggestionsService } from './suggestions/suggestions.service.js';
+import { UnderwritingController } from './underwriting/underwriting.controller.js';
+import { UnderwritingService } from './underwriting/underwriting.service.js';
 import { ValuationsController } from './valuations/valuations.controller.js';
 import { ValuationsService } from './valuations/valuations.service.js';
 import { ValuationWorkflowService } from './valuations/workflow.service.js';
@@ -82,14 +89,17 @@ export const CONTROLLERS = [
   PortfolioController,
   DataController,
   PerformanceController,
+  UnderwritingController,
   VehiclesController,
   SponsorsController,
   ValuationsController,
+  SuggestionsController,
   CapitalController,
   WiresController,
   ChangeRequestsController,
   AnalyticsController,
   ReportsController,
+  PackagesController,
   AuditController,
   IntakeController,
   OpsDropController,
@@ -127,15 +137,19 @@ export class AppModule implements NestModule {
         FlagsService,
         PortfolioService,
         PerformanceService,
+        UnderwritingService,
         VehiclesService,
         SponsorsService,
         ValuationsService,
         ValuationWorkflowService,
+        SuggestionDerivationService,
+        SuggestionsService,
         CapitalService,
         WiresService,
         ChangeRequestsService,
         AnalyticsService,
         ReportsService,
+        PackagesService,
         AuditService,
         IntakeService,
         OpsDropService,

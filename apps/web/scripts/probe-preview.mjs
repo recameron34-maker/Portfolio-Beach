@@ -7,6 +7,7 @@ import { createHash } from 'node:crypto';
 import { createReadStream, existsSync, readFileSync, statSync } from 'node:fs';
 import { createServer, request } from 'node:http';
 import { extname, join, resolve, sep } from 'node:path';
+import { isDeepStrictEqual } from 'node:util';
 import { chromium } from '@playwright/test';
 import {
   D,
@@ -16,7 +17,9 @@ import {
   toDollars,
   valueCreationRollup,
 } from '@pb/calc';
-import { accountingExports, generateDataset } from '@pb/synthetic';
+import { canonicalJson } from '@pb/contracts';
+import { runReportQa } from '@pb/report-engine';
+import { accountingExports, failingPackageCase, generateDataset } from '@pb/synthetic';
 import { readsRegister } from '@pb/workflows';
 import { keyFor } from './preview-plan.mjs';
 import { bankDetailLeaks } from './preview-wires.mjs';
@@ -731,6 +734,38 @@ check(
 const walkDocumentId = reviewed.documentId;
 const walkExtractionRunId = reviewed.id;
 
+// A reporting package exists only once somebody starts one in the session (the book seeds none).
+// Investor relations starts one here and generates it, so the package route opens a real package
+// with its figures and its checks for every user of the walk (a viewer is told who reads them).
+// It is the net package of the client the generator names; the journey at the end of this file
+// starts the gross one after a reset.
+const packageCase = failingPackageCase(d);
+const PACKAGES = '/api/v1/report-packages';
+const walkPackage = await api(packageCase.user.externalId, 'POST', PACKAGES, {
+  clientId: packageCase.client.id,
+  periodEnd: quarterEnd,
+  basis: 'net',
+  label: 'preliminary',
+});
+const walkPackageId = walkPackage.json?.id;
+const walkPackageRun = await api(
+  packageCase.user.externalId,
+  'POST',
+  `${PACKAGES}/${walkPackageId}/commands`,
+  { command: 'generate' },
+  { 'if-match': `"${walkPackage.json?.rowVersion}"` },
+);
+check(
+  'packages: one is started and generated for the route walk (201, then its checks, simulated)',
+  walkPackage.status === 201 &&
+    walkPackage.simulated &&
+    walkPackageRun.status === 200 &&
+    walkPackageRun.simulated &&
+    walkPackageRun.json?.content?.lines?.length > 0 &&
+    walkPackageRun.json.findings.length > 0,
+  `start ${walkPackage.status}, generate ${walkPackageRun.status}: ${walkPackageRun.json?.detail ?? walkPackageRun.json?.state ?? ''}`,
+);
+
 /** Concrete addresses for one user, ids taken from that user's own recorded lists. */
 function visitsFor(externalId, paths) {
   const positions =
@@ -782,6 +817,11 @@ function visitsFor(externalId, paths) {
       visits.push(path.replace('$id', walkDocumentId));
     } else if (path === '/documents/extraction/$id') {
       visits.push(path.replace('$id', walkExtractionRunId));
+    } else if (path === '/reporting/packages/$id') {
+      // The package started above, and the page of an id nobody started: "Package not found"
+      // for a role that reads packages, "not visible" for the rest.
+      if (walkPackageId !== undefined) visits.push(path.replace('$id', walkPackageId));
+      visits.push(path.replace('$id', '00000000-0000-4000-8000-0000000000f0'));
     } else {
       throw new Error(`the probe does not know how to fill ${path}`);
     }
@@ -2495,6 +2535,405 @@ check(
   recorded('viewer.one', `/api/v1/investments/${vcCredit.id}/value-creation`).json?.position ===
     null && (await page.getByTestId('deal-value-creation').count()) === 0,
 );
+// ---- The position against the sponsor's base case (decision 0022), as recorded ---------------
+
+const underwritingPath = (id) => `/api/v1/investments/${id}/underwriting`;
+const scenarioId = (name) => d.scenarios[name][0];
+const STATUS_WORDS = { ahead: 'Ahead of plan', on_plan: 'On plan', behind: 'Behind plan' };
+const loanRead = recorded('viewer.one', underwritingPath(vcCredit.id)).json;
+check(
+  'base case: recorded for every user and every position (200, 404 past the wall), a loan with the credit form and its case',
+  d.users.every((u) =>
+    d.investments.every((i) =>
+      [200, 404].includes(recorded(u.externalId, underwritingPath(i.id)).status),
+    ),
+  ) &&
+    recorded('viewer.one', underwritingPath(walledId)).status === 404 &&
+    recorded('deal.three', underwritingPath(walledId)).json?.comparedVersion === 1 &&
+    loanRead?.form === 'credit' &&
+    loanRead.versions.length === 1 &&
+    loanRead.versions[0].form === 'credit' &&
+    loanRead.versions[0].points.length === 0 &&
+    loanRead.comparedVersion === 1,
+);
+const statusOnPage = async (name) => {
+  const id = scenarioId(name);
+  await page.goto(`${origin}/#/portfolio/${id}/performance`);
+  const tile = page
+    .getByTestId('deal-underwriting-tiles')
+    .getByRole('group', { name: 'EBITDA against plan' });
+  await tile.waitFor();
+  const headline = recorded('viewer.one', underwritingPath(id)).json?.comparison?.headline;
+  return { headline, text: await tile.innerText() };
+};
+const seen = {};
+for (const name of ['underwriting_ahead', 'underwriting_on_plan', 'underwriting_behind'])
+  seen[name] = await statusOnPage(name);
+check(
+  'deal workspace: the base case card badges EBITDA ahead of, on and behind plan as the API judged each seeded position',
+  seen.underwriting_ahead.headline === 'ahead' &&
+    seen.underwriting_on_plan.headline === 'on_plan' &&
+    seen.underwriting_behind.headline === 'behind' &&
+    Object.values(seen).every((s) => s.text.includes(STATUS_WORDS[s.headline])),
+  Object.values(seen)
+    .map((s) => s.text.replaceAll('\n', ' '))
+    .join(' | '),
+);
+check(
+  'deal workspace: the base case card charts actual against plan and sets the drivers against the planned bridge',
+  (await page.getByRole('group', { name: 'EBITDA, actual and plan' }).count()) === 1 &&
+    (await page.getByRole('table', { name: 'Value creation against plan' }).count()) === 1 &&
+    (await page.getByTestId('deal-underwriting-case').innerText()).includes('Entry case'),
+);
+const noCase = d.investments.find(
+  (i) =>
+    recorded('viewer.one', underwritingPath(i.id)).json?.form === 'equity' &&
+    recorded('viewer.one', underwritingPath(i.id)).json.versions.length === 0,
+);
+await page.goto(`${origin}/#/portfolio/${noCase.id}/performance`);
+await page.getByTestId('deal-underwriting-empty').waitFor();
+const noCaseText = await page.getByTestId('deal-underwriting').innerText();
+await page.goto(`${origin}/#/portfolio/${scenarioId('underwriting_draft')}/performance`);
+await page.getByTestId('deal-underwriting-draft').waitFor();
+const draftText = await page.getByTestId('deal-underwriting').innerText();
+await page.goto(`${origin}/#/portfolio/${scenarioId('underwriting_withdrawn')}/performance`);
+await page.getByTestId('deal-underwriting-versions').waitFor();
+const withdrawnText = await page.getByTestId('deal-underwriting').innerText();
+check(
+  'deal workspace: no base case, a draft alone and a withdrawn case each say what they are, and none is compared',
+  noCaseText.includes('No base case recorded.') &&
+    draftText.includes('A draft base case waits for a second person to confirm it.') &&
+    withdrawnText.includes('No base case stands') &&
+    (await page.getByTestId('deal-underwriting-tiles').count()) === 0,
+);
+// A loan is judged on its IRR alone: its card shows the IRR as the API judged it and the yield
+// to maturity of its own credit terms, with no company figure, no chart and no drivers.
+await page.goto(`${origin}/#/portfolio/${vcCredit.id}/performance`);
+await page.getByTestId('deal-credit-terms').waitFor();
+await page.getByTestId('deal-underwriting-tiles').waitFor();
+await settle();
+const loanTiles = page.getByTestId('deal-underwriting-tiles');
+const loanIrrText = await loanTiles
+  .getByRole('group', { name: 'Gross IRR against plan' })
+  .innerText();
+const loanYieldText = await loanTiles.getByRole('group', { name: 'Yield to maturity' }).innerText();
+const loanTerms = recorded('viewer.one', `/api/v1/investments/${vcCredit.id}/performance`).json
+  ?.credit?.terms;
+const loanYield = loanRead?.comparison?.yieldToMaturity ?? null;
+check(
+  'deal workspace: a loan is compared on its IRR alone, with the yield to maturity of its credit terms and no company plan',
+  loanRead?.comparison?.metrics.length === 0 &&
+    loanRead.comparison.valueCreation === null &&
+    loanRead.comparison.returns.irrStatus !== null &&
+    loanIrrText.includes(STATUS_WORDS[loanRead.comparison.returns.irrStatus]) &&
+    loanYield !== null &&
+    loanYield === loanTerms?.yieldToMaturity &&
+    loanYieldText.includes(`${D(loanYield).times(100).toFixed(2)}%`) &&
+    (await loanTiles.getByRole('group').count()) === 5 &&
+    (await loanTiles.getByRole('group', { name: 'EBITDA against plan' }).count()) === 0 &&
+    (await page.getByTestId('deal-underwriting-chart').count()) === 0 &&
+    (await page.getByTestId('deal-underwriting-drivers').count()) === 0 &&
+    (await page.getByTestId('deal-underwriting-yield-note').innerText()).includes(
+      'Yield to maturity is priced on the fair value of the latest approved credit quarter, which our own mark does not change. It rises when that fair value falls, so it is not judged.',
+    ) &&
+    (await page.getByTestId('deal-underwriting-case').innerText()).includes('Expected repayment'),
+  `${loanIrrText.replaceAll('\n', ' ')} | ${loanYieldText.replaceAll('\n', ' ')}`,
+);
+// Its card follows the terms of the facility and comes before its quarters: the three cards in
+// the order the page holds them.
+const loanCardOrder = await page
+  .locator(
+    '[data-testid="deal-credit-terms"], [data-testid="deal-underwriting"], [data-testid="deal-credit-quarters"]',
+  )
+  .evaluateAll((cards) => cards.map((card) => card.getAttribute('data-testid')));
+check(
+  'deal workspace: the loan card sits after the credit terms and before the credit quarters',
+  loanCardOrder.join() === 'deal-credit-terms,deal-underwriting,deal-credit-quarters',
+  loanCardOrder.join(', '),
+);
+
+// ---- The base case read worked out in the browser, and the simulated writes -----------------
+
+// The shim works the comparison out again on every read (src/preview/routes/underwriting.ts),
+// from the credential's recorded performance, one-pager and value creation answers. Before any
+// simulated write it must give back what the API recorded, for every user and every position.
+const underwritingDiffs = [];
+let underwritingCompared = 0;
+for (const u of d.users) {
+  for (const i of d.investments) {
+    const was = recorded(u.externalId, underwritingPath(i.id));
+    const now = await api(u.externalId, 'GET', underwritingPath(i.id));
+    if ((was.json?.comparison ?? null) !== null) underwritingCompared += 1;
+    if (now.status !== was.status || (was.status === 200 && !isDeepStrictEqual(now.json, was.json)))
+      underwritingDiffs.push(`${u.externalId} ${i.investmentNumber}: ${now.status}`);
+  }
+}
+check(
+  'base case: the comparison worked out in the browser equals the API recording, for every user and every position',
+  underwritingDiffs.length === 0 && underwritingCompared > 0,
+  underwritingDiffs.length === 0
+    ? `${underwritingCompared} comparisons`
+    : underwritingDiffs.slice(0, 5).join(' | '),
+);
+
+// A version the reader picks was never recorded: the re-underwritten position answers both.
+const reunderwrittenId = scenarioId('underwriting_reunderwritten');
+const twoCases = recorded('viewer.one', underwritingPath(reunderwrittenId)).json;
+const laterCase = twoCases.versions.find((v) => v.kind === 'reunderwrite');
+const pickedRead = await api(
+  'viewer.one',
+  'GET',
+  `${underwritingPath(reunderwrittenId)}?version=${laterCase.version}`,
+);
+await page.goto(`${origin}/#/portfolio/${reunderwrittenId}/performance`);
+await page.getByTestId('deal-underwriting-tiles').waitFor();
+const missesBeforePick = (await misses()).length;
+const laterLabel = /Re-underwritten [A-Z][a-z]{2} \d{1,2}, \d{4}/.exec(
+  await page.getByTestId('deal-underwriting-versions').innerText(),
+)?.[0];
+await pickOption('Compared with', laterLabel);
+await page.getByRole('table', { name: `${laterLabel}, terms` }).waitFor();
+check(
+  'base case: the reader picks the re-underwritten case, the comparison is worked out for it and nothing is missed',
+  pickedRead.status === 200 &&
+    pickedRead.json?.comparedVersion === laterCase.version &&
+    twoCases.comparedVersion !== laterCase.version &&
+    pickedRead.json.comparison.returns.irrGap !== twoCases.comparison.returns.irrGap &&
+    (await misses()).length === missesBeforePick,
+  `${twoCases.comparedVersion} then ${pickedRead.json?.comparedVersion}`,
+);
+expectStatus(
+  'base case: a version that never stood as the plan is not found',
+  await api('viewer.one', 'GET', `${underwritingPath(reunderwrittenId)}?version=99`),
+  404,
+);
+
+// The two-person rule, on a position with no base case whose page was not opened yet (the page
+// holds a read for a minute): deal.one records a Draft and cannot confirm it, deal.two does, and
+// only then is the position compared.
+const journeyPosition = d.investments.find(
+  (i) =>
+    i.id !== noCase.id &&
+    recorded('deal.one', underwritingPath(i.id)).json?.form === 'equity' &&
+    recorded('deal.one', underwritingPath(i.id)).json.versions.length === 0,
+);
+const journeyPerf = recorded(
+  'deal.one',
+  `/api/v1/investments/${journeyPosition.id}/performance`,
+).json;
+const snapshot = journeyPerf.entry;
+const plannedExit = `${Number(snapshot.periodEnd.slice(0, 4)) + 7}-12-31`;
+const grown = (value, by) => (value === null ? null : D(value).times(by).toFixed(2));
+const caseBody = {
+  caseDate: snapshot.periodEnd,
+  plannedExitDate: plannedExit,
+  exitMultiple: '11',
+  grossMoic: '2.5',
+  grossIrr: '0.2',
+  points: [
+    {
+      periodEnd: snapshot.periodEnd,
+      revenueLtm: snapshot.revenueLtm,
+      ebitdaLtm: snapshot.ebitdaLtm,
+      netDebt: snapshot.netDebt,
+    },
+    {
+      periodEnd: plannedExit,
+      revenueLtm: grown(snapshot.revenueLtm, '1.8'),
+      ebitdaLtm: grown(snapshot.ebitdaLtm, '2'),
+      netDebt: grown(snapshot.netDebt, '0.6'),
+    },
+  ],
+  sourceNote: 'Sponsor base case model, held in the deal folder',
+};
+const caseCommands = (id) => `/api/v1/underwriting-cases/${id}/commands`;
+expectStatus(
+  'base case: a viewer cannot record one',
+  await api('viewer.one', 'POST', underwritingPath(journeyPosition.id), caseBody),
+  403,
+);
+const draftCase = await api('deal.one', 'POST', underwritingPath(journeyPosition.id), caseBody);
+expectStatus(
+  'base case: the deal team records a Draft, which is shown and not compared',
+  draftCase,
+  201,
+  draftCase.simulated &&
+    draftCase.json?.state === 'Draft' &&
+    (await api('viewer.one', 'GET', underwritingPath(journeyPosition.id))).json?.notCalculable ===
+      'draft_only',
+);
+const ownConfirm = await api('deal.one', 'POST', caseCommands(draftCase.json.id), {
+  command: 'confirm',
+});
+expectStatus(
+  'base case: the person who entered the figures cannot confirm them',
+  ownConfirm,
+  422,
+  (ownConfirm.json?.detail ?? '').includes('cannot confirm'),
+);
+const confirmedCase = await api(
+  'deal.two',
+  'POST',
+  caseCommands(draftCase.json.id),
+  { command: 'confirm' },
+  { 'if-match': `"${draftCase.json.rowVersion}"` },
+);
+const comparedNow = (await api('viewer.one', 'GET', underwritingPath(journeyPosition.id))).json;
+const journeyDetail = recorded('viewer.one', `/api/v1/investments/${journeyPosition.id}`).json;
+expectStatus(
+  'base case: a second person confirms it, and the position is compared with it from its own recorded figures',
+  confirmedCase,
+  200,
+  confirmedCase.json?.state === 'Confirmed' &&
+    confirmedCase.json.confirmedBy?.name === by('deal.two').displayName &&
+    comparedNow?.comparedVersion === 1 &&
+    comparedNow.comparison?.returns.grossMoic === journeyDetail.grossMoic &&
+    comparedNow.comparison.metrics.length === 3,
+);
+await page.goto(`${origin}/#/portfolio/${journeyPosition.id}/performance`);
+await page.getByTestId('deal-underwriting-tiles').waitFor();
+check(
+  'deal workspace: the card compares the position with the case confirmed in this session',
+  (await page.getByTestId('deal-underwriting-case').innerText()).includes(
+    by('deal.two').displayName,
+  ),
+);
+
+// The same rule through the page: deal.one records a base case with the form, which shows every
+// figure back in full before it saves, and is told a second person confirms it; deal.two
+// confirms, and the card compares the position for every reader.
+const formPosition = d.investments.find(
+  (i) =>
+    i.id !== noCase.id &&
+    i.id !== journeyPosition.id &&
+    recorded('deal.one', underwritingPath(i.id)).json?.form === 'equity' &&
+    recorded('deal.one', underwritingPath(i.id)).json.versions.length === 0,
+);
+if (formPosition === undefined) {
+  skip('base case form', 'skipped: no third position without a base case in this dataset');
+} else {
+  const formSnapshot = recorded('deal.one', `/api/v1/investments/${formPosition.id}/performance`)
+    .json.entry;
+  const formExit = `${Number(formSnapshot.periodEnd.slice(0, 4)) + 7}-12-31`;
+  const millions = (value, times = '1') => D(value).times(times).div(1_000_000).toFixed(1);
+  const dollars = (typed) => Number(D(typed).times(1_000_000).toFixed(0)).toLocaleString('en-US');
+  const inFull = (typed) => '$' + dollars(typed) + '.00';
+  const entryRevenue = millions(formSnapshot.revenueLtm);
+  await switchTo('deal.one');
+  await page.goto(`${origin}/#/portfolio/${formPosition.id}/performance`);
+  await page.getByRole('button', { name: 'Record base case' }).click();
+  const caseForm = page.getByRole('form', { name: 'Record the base case' });
+  await caseForm.getByLabel('Case date').fill(formSnapshot.periodEnd);
+  await caseForm.getByLabel('Planned exit').fill(formExit);
+  await caseForm.getByLabel('Exit multiple').fill('11');
+  await caseForm.getByLabel('Underwritten gross MOIC').fill('2.5');
+  await caseForm.getByLabel('Underwritten gross IRR').fill('20');
+  await caseForm.getByLabel('Twelve months ending, plan date 1').fill(formSnapshot.periodEnd);
+  const figure = (name, row) => caseForm.getByLabel(`${name} in US$ millions, plan date ${row}`);
+  await figure('Revenue', 1).fill(entryRevenue);
+  await figure('EBITDA', 1).fill(millions(formSnapshot.ebitdaLtm));
+  await figure('Net debt', 1).fill(millions(formSnapshot.netDebt));
+  await figure('Revenue', 2).fill(millions(formSnapshot.revenueLtm, '1.8'));
+  await figure('EBITDA', 2).fill(millions(formSnapshot.ebitdaLtm, '2'));
+  await figure('Net debt', 2).fill(millions(formSnapshot.netDebt, '0.6'));
+  await caseForm.getByLabel('Where the model is held').fill('Sponsor model, in the deal folder');
+  await caseForm.getByRole('button', { name: 'Review figures' }).click();
+  const reviewText = await page.getByTestId('underwriting-review').innerText();
+  await page.getByRole('button', { name: 'Save draft' }).click();
+  await page.getByTestId('underwriting-own-figures').waitFor();
+  const afterSave = await page.getByTestId('deal-underwriting').innerText();
+  check(
+    'base case form: the deal team records a Draft after seeing its figures in full, and is told a second person confirms it',
+    reviewText.includes(inFull(entryRevenue)) &&
+      reviewText.includes('Underwritten gross IRR') &&
+      reviewText.includes('20%') &&
+      afterSave.includes(
+        'Draft recorded: a second person confirms it (simulated in this preview',
+      ) &&
+      afterSave.includes('You entered these figures. A second person confirms them.') &&
+      afterSave.includes('A draft base case waits for a second person to confirm it.') &&
+      (await page.getByRole('button', { name: 'Confirm', exact: true }).count()) === 0 &&
+      (await page.getByRole('button', { name: 'Edit draft' }).count()) === 1,
+    `${inFull(entryRevenue)} in the review: ${reviewText.includes(inFull(entryRevenue))}`,
+  );
+  await switchTo('deal.two');
+  await page.goto(`${origin}/#/portfolio/${formPosition.id}/performance`);
+  await page.getByRole('button', { name: 'Confirm', exact: true }).click();
+  await page.getByTestId('deal-underwriting-tiles').waitFor();
+  const afterConfirm = await page.getByTestId('deal-underwriting').innerText();
+  await switchTo('viewer.one');
+  await page.goto(`${origin}/#/portfolio/${formPosition.id}/performance`);
+  await page.getByTestId('deal-underwriting-tiles').waitFor();
+  await settle();
+  const card = page.getByTestId('deal-underwriting');
+  check(
+    'base case form: a second person confirms on the page, and every reader then sees the position compared, with nothing to act on',
+    afterConfirm.includes('Base case confirmed (simulated in this preview') &&
+      afterConfirm.includes('EBITDA AGAINST PLAN') &&
+      (await page.getByTestId('deal-underwriting-case').innerText()).includes(
+        by('deal.two').displayName,
+      ) &&
+      (await card.getByRole('button', { name: 'Revise' }).count()) === 0 &&
+      (await card.getByRole('button', { name: 'Retire' }).count()) === 0,
+  );
+}
+
+// A loan's base case through the page: deal.one revises the seeded case from its own rates in
+// a loan's form (no exit multiple, no plan), an approver confirms the correction, and the loan
+// is compared with it.
+{
+  const seededLoanCase = loanRead.versions[0];
+  await switchTo('deal.one');
+  await page.goto(`${origin}/#/portfolio/${vcCredit.id}/performance`);
+  await page.getByTestId('deal-underwriting-tiles').waitFor();
+  await page.getByTestId('deal-underwriting').getByRole('button', { name: 'Revise' }).click();
+  const loanForm = page.getByRole('form', { name: 'Revise the base case' });
+  const yieldTyped = await loanForm.getByLabel('Underwritten yield').inputValue();
+  const loanFormShape =
+    (await loanForm.getByLabel('Expected repayment').inputValue()) ===
+      seededLoanCase.plannedExitDate &&
+    (await loanForm.getByLabel('Exit multiple').count()) === 0 &&
+    (await loanForm.getByRole('table').count()) === 0 &&
+    (await loanForm.getByRole('button', { name: 'Add a plan date' }).count()) === 0;
+  await loanForm.getByLabel('Annual loss rate').fill('2.5');
+  await loanForm.getByLabel('Reason for the revision').fill('The loss rate was mistyped');
+  await loanForm.getByRole('button', { name: 'Review figures' }).click();
+  const loanReview = await page.getByTestId('underwriting-review').innerText();
+  await page.getByRole('button', { name: 'Save draft' }).click();
+  await page.getByTestId('underwriting-own-figures').waitFor();
+  const loanDraft = await page.getByTestId('deal-underwriting-draft').innerText();
+  check(
+    "base case form: the deal team revises a loan's case in a loan's form, from its own rates, with no plan to type",
+    D(yieldTyped).div(100).eq(seededLoanCase.underwrittenYield) &&
+      loanFormShape &&
+      loanReview.includes('Annual loss rate') &&
+      loanReview.includes('2.5%') &&
+      !loanReview.includes('Plan as it will be saved') &&
+      loanDraft.includes('Draft correction of the case dated') &&
+      loanDraft.includes('2.50%') &&
+      (await page.getByTestId('deal-underwriting-tiles').count()) === 1,
+    `yield typed ${yieldTyped}`,
+  );
+  await switchTo('head.one');
+  await page.goto(`${origin}/#/portfolio/${vcCredit.id}/performance`);
+  await page.getByRole('button', { name: 'Confirm', exact: true }).click();
+  await page.getByTestId('deal-underwriting-versions').waitFor();
+  await page.getByTestId('deal-underwriting-case').getByText('2.50%').waitFor();
+  const loanNow = (await api('viewer.one', 'GET', underwritingPath(vcCredit.id))).json;
+  check(
+    'base case form: an approver confirms the correction of a loan, which replaces the case it corrects and is the one compared',
+    (await page.getByTestId('deal-underwriting').innerText()).includes(
+      'Correction confirmed: it replaces the case it corrects (simulated in this preview',
+    ) &&
+      loanNow?.comparedVersion === 2 &&
+      loanNow.versions.map((v) => v.state).join() === 'Superseded,Confirmed' &&
+      loanNow.versions[1].annualLossRate === '0.02500000' &&
+      loanNow.comparison.returns.grossIrr === loanRead.comparison.returns.grossIrr &&
+      loanNow.comparison.yieldToMaturity === loanRead.comparison.yieldToMaturity &&
+      (await page.getByTestId('deal-underwriting-tiles').getByRole('group').count()) === 5,
+    loanNow?.versions.map((v) => `${v.version} ${v.state}`).join(', '),
+  );
+}
 await switchTo('deal.three');
 await page.goto(`${origin}/#/analytics/value-creation`);
 await page.getByTestId('value-creation-tiles').waitFor();
@@ -2509,6 +2948,538 @@ check(
         .innerText()
     ).includes(moneyM(vcMember.portfolio.gain)),
   `${await vcRows.count()} rows`,
+);
+
+// ---- Valuation suggestions (decision 0023): the example sequence in the built preview ------
+// Nothing is recorded: a suggestion exists only once a statement or a sponsor report is approved
+// in the session. The session starts afresh, so the sequence is the one the walkthrough names.
+await api('viewer.one', 'POST', '/api/v1/preview/reset');
+const SUGGESTIONS = '/api/v1/valuation-suggestions';
+const suggestionsOf = async (who, query = '') =>
+  (await api(who, 'GET', `${SUGGESTIONS}?limit=200${query}`)).json;
+check(
+  'suggestions: none before anything is approved, and a viewer is refused',
+  (await suggestionsOf('ops.one', '&state=all'))?.items?.length === 0 &&
+    (await api('viewer.one', 'GET', `${SUGGESTIONS}?limit=200`)).status === 403,
+);
+await api('ops.one', 'POST', '/api/v1/documents/index');
+await api('admin.one', 'PATCH', '/api/v1/flags/ai.extraction', {
+  enabled: true,
+  reason: 'probe: valuation suggestions',
+});
+const staleDocuments =
+  (await api('ops.one', 'GET', `/api/v1/documents?limit=200&investmentId=${staleId}`)).json
+    ?.items ?? [];
+const staleDocument = (docType) =>
+  staleDocuments.find(
+    (x) => x.docType === docType && x.periodEnd === quarterEnd && x.reviewStatus === 'Classified',
+  );
+/** One run for one document, as operations queue it (a batch covers one document type). */
+const runFor = async (doc) => {
+  const batch = await api('ops.one', 'POST', '/api/v1/extraction/batches', {
+    documentIds: [doc.id],
+  });
+  const runs =
+    (await api('ops.one', 'GET', `/api/v1/extraction/runs?limit=200&batchId=${batch.json?.id}`))
+      .json?.items ?? [];
+  return runs.find((r) => r.documentId === doc.id);
+};
+/** Decides every value of a run (clean and flagged accepted, the rest rejected) and approves it. */
+const approveRun = async (who, runId) => {
+  const commands = `/api/v1/extraction/runs/${runId}/commands`;
+  const before = (await api(who, 'GET', `/api/v1/extraction/runs/${runId}`)).json;
+  for (const v of before?.values ?? []) {
+    if (v.decision !== null || v.validationState === 'clean') continue;
+    await api(
+      who,
+      'POST',
+      commands,
+      v.validationState === 'flagged'
+        ? { command: 'accept', field: v.field }
+        : { command: 'reject', field: v.field, reason: 'probe: not read' },
+    );
+  }
+  await api(who, 'POST', commands, { command: 'acceptClean' });
+  return api(who, 'POST', commands, { command: 'approve' });
+};
+const staleReport = staleDocument('doc_type.quarterly_financials');
+const staleStatement = staleDocument('doc_type.capital_account_statement');
+const statementExpected = docExpectations.positionStatements.find(
+  (p) => p.investmentId === staleId && p.periodEnd === quarterEnd,
+);
+if (staleReport === undefined || staleStatement === undefined || statementExpected === undefined) {
+  check(
+    'suggestions: the stale position has a report and a statement for the latest quarter',
+    false,
+    `report ${staleReport?.fileName}, statement ${staleStatement?.fileName}`,
+  );
+} else {
+  const reportRun = await runFor(staleReport);
+  const statementRun = await runFor(staleStatement);
+  const reportApproved = await approveRun('ops.one', reportRun.id);
+  const afterReport = await suggestionsOf('ops.one');
+  const fromReport = afterReport?.items?.[0];
+  check(
+    'suggestions: approving the sponsor report opens one, the last Locked mark scaled by the equity value',
+    reportApproved.status === 200 &&
+      afterReport?.openCount === 1 &&
+      fromReport?.investmentId === staleId &&
+      fromReport.periodEnd === quarterEnd &&
+      fromReport.basis === 'sponsor_equity_value' &&
+      fromReport.method === 'valuation_method.report_indication' &&
+      fromReport.suggestedValue !== null &&
+      fromReport.currentMark?.previousQuarter === true &&
+      fromReport.source.extractionRunId === reportRun.id &&
+      fromReport.workings.inputs.map((i) => i.key).join() ===
+        'reference_mark,reference_enterprise_value,reference_net_debt,enterprise_value,net_debt',
+    `${reportApproved.status}: ${fromReport?.basis} ${fromReport?.suggestedValue}`,
+  );
+  // A deal team reviewer approves the statement: they stand behind its figure from here on.
+  const statementApproved = await approveRun('deal.one', statementRun.id);
+  const afterStatement = await suggestionsOf('ops.one');
+  const fromStatement = afterStatement?.items?.[0];
+  const replaced = (await api('ops.one', 'GET', `${SUGGESTIONS}/${fromReport?.id}`)).json;
+  const beside = fromStatement?.crossChecks?.[0];
+  check(
+    'suggestions: approving the statement replaces it with the ending balance, the report indication beside it',
+    statementApproved.status === 200 &&
+      afterStatement?.openCount === 1 &&
+      fromStatement?.basis === 'capital_account_balance' &&
+      fromStatement.method === 'valuation_method.sponsor_mark' &&
+      D(fromStatement.suggestedValue).eq(statementExpected.endingBalance) &&
+      fromStatement.checks?.ties === true &&
+      fromStatement.crossChecks.length === 1 &&
+      beside.basis === 'sponsor_equity_value' &&
+      D(beside.value).eq(fromReport.suggestedValue) &&
+      beside.differs === false &&
+      D(beside.difference).abs().lt(10_000) &&
+      replaced?.state === 'Superseded' &&
+      replaced.supersededReason === 'better_source' &&
+      replaced.supersededById === fromStatement.id &&
+      replaced.suggestedValue === fromReport.suggestedValue,
+    `${fromStatement?.basis} ${fromStatement?.suggestedValue} beside ${beside?.value}; the first is ${replaced?.state}`,
+  );
+  const outcomes = {
+    report: (await suggestionsOf('ops.one', `&extractionRunId=${reportRun.id}&state=all`))
+      ?.runOutcome,
+    statement: (await suggestionsOf('ops.one', `&extractionRunId=${statementRun.id}&state=all`))
+      ?.runOutcome,
+  };
+  check(
+    'suggestions: each run says what its approval did',
+    outcomes.report?.outcome === 'opened' &&
+      outcomes.statement?.outcome === 'replaced' &&
+      outcomes.statement.suggestionId === fromStatement?.id,
+    JSON.stringify(outcomes),
+  );
+
+  // The pages, as operations: the run, the list, the workings and the draft opened from them.
+  await switchTo('ops.one');
+  await page.goto(`${origin}/#/documents/extraction/${statementRun.id}`);
+  await page.getByTestId('run-suggestion').waitFor();
+  check(
+    'suggestions: the statement run page says the suggestion was replaced, and what to do about a wrong position',
+    (await page.getByTestId('run-suggestion').innerText()).includes(
+      'Valuation suggestion replaced',
+    ) && (await page.getByTestId('run-relink-note').isVisible()),
+    await page.getByTestId('run-suggestion').innerText(),
+  );
+  await page.goto(`${origin}/#/valuations/suggestions`);
+  await page.getByTestId('suggestions-table').waitFor();
+  check(
+    'suggestions: the tab lists the open suggestion with its position and its source',
+    (await page.getByTestId('suggestions-table').innerText()).includes(staleDetail.companyName) &&
+      (await page.getByTestId('suggestions-table').innerText()).includes(
+        'Capital account statement',
+      ),
+    await page.getByTestId('suggestions-table').innerText(),
+  );
+  await page
+    .getByRole('link', { name: /^Workings, / })
+    .first()
+    .click();
+  await page.getByTestId('suggestion-detail').waitFor();
+  check(
+    'suggestions: the workings give the rule and the other source of the quarter',
+    (await page.getByTestId('suggestion-rule').innerText()).includes('ending capital balance') &&
+      (await page.getByTestId('suggestion-detail').innerText()).includes('Sponsor report'),
+    await page.getByTestId('suggestion-rule').innerText(),
+  );
+  await page.getByRole('button', { name: 'Open a draft valuation' }).click();
+  await page.getByRole('dialog').getByRole('button', { name: 'Open a draft valuation' }).click();
+  await page
+    .getByTestId('suggestion-action-status')
+    .filter({ hasText: 'Draft valuation opened' })
+    .waitFor();
+  const accepted = (await api('ops.one', 'GET', `${SUGGESTIONS}/${fromStatement?.id}`)).json;
+  const draft = (await api('ops.one', 'GET', `/api/v1/valuations/${accepted?.valuationId}`)).json;
+  check(
+    'suggestions: Open a draft valuation opens a Draft at the suggested value, with where it came from',
+    accepted?.state === 'Accepted' &&
+      draft?.state === 'Draft' &&
+      draft.investmentId === staleId &&
+      draft.periodEnd === quarterEnd &&
+      draft.method === 'valuation_method.sponsor_mark' &&
+      draft.fairValue === fromStatement.suggestedValue &&
+      draft.inputs?.['suggestion.id'] === fromStatement.id &&
+      draft.inputs['suggestion.documentId'] === staleStatement.id &&
+      (await suggestionsOf('ops.one'))?.openCount === 0,
+    `${accepted?.state}; draft ${draft?.state} ${draft?.fairValue}`,
+  );
+  await page.getByRole('link', { name: 'Open the valuation it went onto' }).click();
+  await page.getByTestId('valuation-from-suggestion').waitFor();
+  check(
+    'suggestions: the version screen says the valuation was started from a suggestion',
+    (await page.getByTestId('valuation-from-suggestion').innerText()).includes(
+      'Started from a suggestion of',
+    ),
+    await page.getByTestId('valuation-from-suggestion').innerText(),
+  );
+  // Whoever approved the run behind the figure cannot approve the valuation it went onto.
+  const versionCommands = `/api/v1/valuations/${draft?.id}/commands`;
+  await api('ops.two', 'POST', versionCommands, { command: 'prepare' });
+  const barred = await api('deal.one', 'POST', versionCommands, { command: 'dealTeamApprove' });
+  const another = await api('deal.two', 'POST', versionCommands, { command: 'dealTeamApprove' });
+  check(
+    'suggestions: the reviewer who approved the statement cannot approve the valuation; another deal team user can',
+    barred.status === 422 &&
+      (barred.json?.detail ?? '').includes('cannot approve the valuation') &&
+      another.status === 200 &&
+      another.json?.state === 'DealTeamApproved',
+    `barred ${barred.status}: ${barred.json?.detail ?? ''}; another ${another.status}`,
+  );
+  await switchTo('viewer.one');
+  await page.goto(`${origin}/#/valuations/suggestions`);
+  await page.getByTestId('suggestions-not-shown').waitFor();
+  check(
+    'suggestions: a viewer is told who suggestions are for, and the tab is not in the row',
+    !(await page.getByRole('navigation', { name: 'Valuations' }).innerText()).includes(
+      'Suggestions',
+    ),
+  );
+}
+
+// ---- Reporting packages (decision 0024): the release gate in the built preview --------------
+// Nothing is recorded: a package exists only once investor relations starts one in the session.
+// The session starts afresh, so the record is the recordings' own: the package the generator
+// names as failing fails on the position with no Locked mark at the start of the quarter and,
+// labelled final, on the stale mark no session has locked yet.
+await api('viewer.one', 'POST', '/api/v1/preview/reset');
+const preparer = packageCase.user.externalId;
+const breakRef = packageCase.positionNumber;
+const breakCompany = d.portfolioCompanies.find(
+  (c) => c.id === d.investments.find((i) => i.investmentNumber === breakRef).portfolioCompanyId,
+).name;
+const staleRef = d.investments.find((i) => i.id === staleId).investmentNumber;
+const quarterWords = `Q${Math.ceil(Number(quarterEnd.slice(5, 7)) / 3)} ${quarterEnd.slice(0, 4)}`;
+const packageWords = `${packageCase.client.name}, ${quarterWords}, gross, version 1`;
+const SIMULATED = '(simulated in this preview, not audited)';
+const packageStatus = page.getByTestId('package-action-status');
+const packageActions = page.getByTestId('package-actions');
+const packageOf = async (who, id) => (await api(who, 'GET', `${PACKAGES}/${id}`)).json;
+const packageCommand = (who, id, body, headers) =>
+  api(who, 'POST', `${PACKAGES}/${id}/commands`, body, headers);
+/** A card's or a row's text on one line, for the detail of a check. */
+const oneLine = (text) => text.replace(/\s+/g, ' ').slice(0, 160);
+/** A finding as the engine states it, for comparing the page's answer with the rules. */
+const findingKey = (f) => `${f.rule} ${f.entityRef}`;
+const asEngine = (findings) =>
+  findings
+    .map(({ rule, entityRef, expected, actual, passed, detail }) => ({
+      rule,
+      entityRef,
+      expected,
+      actual,
+      passed,
+      detail,
+    }))
+    .sort((a, b) => (findingKey(a) < findingKey(b) ? -1 : findingKey(a) > findingKey(b) ? 1 : 0));
+/** The cells of the Checks table row for a check about one thing: Result, Check, About, Expected, Found, Detail. */
+const checkCells = (checkName, about) =>
+  page
+    .getByRole('table', { name: 'Checks' })
+    .getByRole('row')
+    .filter({ has: page.getByRole('cell', { name: checkName, exact: true }) })
+    .filter({ hasText: about })
+    .getByRole('cell')
+    .allInnerTexts();
+
+check(
+  'packages: none after a reset; a viewer and a platform admin are refused the list',
+  (await api(preparer, 'GET', PACKAGES)).json?.items?.length === 0 &&
+    (await api('viewer.one', 'GET', PACKAGES)).status === 403 &&
+    (await api('admin.one', 'GET', PACKAGES)).status === 403,
+);
+await switchTo(preparer);
+await page.goto(`${origin}/#/reporting/packages`);
+await page.getByTestId('packages-empty').waitFor();
+await page.getByTestId('packages-card').getByRole('button', { name: 'Start package' }).click();
+const startForm = page.getByTestId('package-start-form');
+await startForm.getByRole('combobox', { name: 'Client' }).click();
+await page.getByRole('option', { name: packageCase.client.name, exact: true }).click();
+await startForm.getByRole('combobox', { name: 'Basis' }).click();
+await page.getByRole('option', { name: 'Gross', exact: true }).click();
+await startForm.getByRole('combobox', { name: 'Label' }).click();
+await page.getByRole('option', { name: 'Final', exact: true }).click();
+const quarterChosen = await startForm.getByRole('combobox', { name: 'Quarter' }).innerText();
+await startForm.getByRole('button', { name: 'Start package' }).click();
+await page.waitForURL(/#\/reporting\/packages\/[0-9a-f-]{36}$/);
+const packageHash = new URL(page.url()).hash.slice(1);
+const packageId = packageHash.split('/').pop();
+await page.getByTestId('package-gate').waitFor();
+const draftPackage = await packageOf(preparer, packageId);
+check(
+  'packages: investor relations starts a final package from the list; it opens as a Draft of the latest quarter with no figures',
+  quarterChosen === quarterWords &&
+    draftPackage?.state === 'Draft' &&
+    draftPackage.periodEnd === quarterEnd &&
+    draftPackage.asOf === fixtures.asOf &&
+    draftPackage.label === 'final' &&
+    draftPackage.content === null &&
+    draftPackage.preparedBy.name === by(preparer).displayName &&
+    (await page.getByTestId('package-checks').innerText()).includes('Not generated yet') &&
+    (await page.getByTestId('package-positions').innerText()).includes('Not generated yet') &&
+    (await packageActions.getByRole('button').allInnerTexts()).join() === 'Generate' &&
+    (await packageActions.getByText('Simulated').isVisible()),
+  `${quarterChosen}: ${draftPackage?.state} as of ${draftPackage?.asOf}`,
+);
+
+await packageActions.getByRole('button', { name: 'Generate' }).click();
+await packageStatus.filter({ hasText: 'is now QA failed' }).waitFor();
+const generatedPackage = await packageOf(preparer, packageId);
+const packageFindings = generatedPackage?.findings ?? [];
+const failedFindings = packageFindings.filter((f) => !f.passed);
+check(
+  'packages: Generate fails the gate on the position with no start mark and on the final label over the stale mark',
+  generatedPackage?.state === 'QAFailed' &&
+    generatedPackage.rowVersion === draftPackage.rowVersion + 2 &&
+    isDeepStrictEqual(failedFindings.map(findingKey).sort(), [
+      'QA-LBL-01 status',
+      `QA-QTD-01 ${breakRef}`,
+      `QA-RF-01 ${breakRef}`,
+      `QA-SIGN-01 ${breakRef}`,
+    ]) &&
+    (await packageStatus.innerText()) ===
+      `${packageWords} is now QA failed: 4 of ${packageFindings.length} checks failed in run 1 ${SIMULATED}`,
+  await packageStatus.innerText(),
+);
+check(
+  'packages: the findings are exactly what the report engine finds on the content the package shows',
+  generatedPackage?.content !== null &&
+    packageFindings.length > 0 &&
+    isDeepStrictEqual(
+      asEngine(packageFindings),
+      asEngine(
+        runReportQa(generatedPackage.content, {
+          toleranceUsd: String(definitions.rollForwardToleranceUsd),
+          moversCount: definitions.reporting.weeklyMoversCount,
+        }),
+      ),
+    ),
+  `${packageFindings.length} findings`,
+);
+const breakLine = generatedPackage?.content?.lines?.find((l) => l.ref === breakRef);
+const staleLine = generatedPackage?.content?.lines?.find((l) => l.ref === staleRef);
+const labelCells = await checkCells(
+  'Preliminary or final, gross or net',
+  'Preliminary or final label',
+);
+const startCells = await checkCells(
+  'Quarter starts from the prior locked mark',
+  `${breakRef} ${breakCompany}`,
+);
+const checksCard = await page.getByTestId('package-checks').innerText();
+check(
+  'packages: the failed checks show what each expected and found, in words, with no rule code and no identifier',
+  (await page.getByRole('table', { name: 'Checks' }).locator('tbody tr').count()) === 4 &&
+    labelCells[0] === 'Failed' &&
+    labelCells[3] === 'Preliminary' &&
+    labelCells[4] === 'Final' &&
+    startCells[0] === 'Failed' &&
+    startCells[3] === '-' &&
+    startCells[4] === '-' &&
+    !/QA-[A-Z]+-\d+/.test(checksCard) &&
+    !/[0-9a-f]{8}-[0-9a-f]{4}-/.test(checksCard),
+  `label ${labelCells.slice(3, 5).join(' / ')}; start ${startCells.slice(3, 5).join(' / ')}`,
+);
+const breakRow = page
+  .getByTestId('package-positions')
+  .getByRole('row')
+  .filter({ hasText: breakRef });
+const NO_START = 'Not calculable: no locked mark at the start of the quarter';
+check(
+  'packages: the line with no start mark shows no begin NAV and no gain, each saying why, never a zero',
+  breakLine?.beginNav === null &&
+    breakLine.gainLoss === null &&
+    breakLine.endNav !== null &&
+    (await breakRow.getByRole('cell').nth(0).getAttribute('title')) === NO_START &&
+    (await breakRow.getByRole('cell').nth(3).getAttribute('title')) === NO_START &&
+    (await breakRow.getByRole('cell').nth(0).innerText()).trim().startsWith('-') &&
+    (await breakRow.getByRole('cell').nth(4).innerText()) === moneyM(breakLine.endNav),
+  oneLine(await breakRow.innerText()),
+);
+const staleMarkWords = new Date(`${staleLine?.endNavPeriodEnd}T00:00:00Z`).toLocaleDateString(
+  'en-US',
+  { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC' },
+);
+check(
+  'packages: the stale position is carried at its last Locked mark and footnoted with that mark',
+  staleLine?.endNavPeriodEnd < quarterEnd &&
+    generatedPackage.content.footnotes.some((n) => n.ref === staleRef) &&
+    (await page.getByTestId('package-footnotes').innerText()).includes(
+      `Carried at the mark of ${staleMarkWords}, rolled forward for cash flows since.`,
+    ) &&
+    (await page.getByTestId('package-positions').innerText()).includes(
+      `Rolled forward from ${staleMarkWords}`,
+    ),
+  oneLine(await page.getByTestId('package-footnotes').innerText()),
+);
+// What the gate refuses while the checks fail, in the API's own statuses.
+const earlySubmit = await packageCommand(preparer, packageId, { command: 'submit' });
+const ownOverride = await packageCommand(preparer, packageId, {
+  command: 'overrideQa',
+  reason: 'probe: not an approver',
+});
+const staleOverride = await packageCommand(
+  'head.one',
+  packageId,
+  { command: 'overrideQa', reason: 'probe: a stale page' },
+  { 'if-match': `"${draftPackage.rowVersion}"` },
+);
+const outsiderIr = d.users.find(
+  (u) => u.roles.includes('investor_relations') && !u.clientIds.includes(packageCase.client.id),
+);
+const unseenPackage = await api(outsiderIr.externalId, 'GET', `${PACKAGES}/${packageId}`);
+check(
+  'packages: no Submit while the checks fail, no override by investor relations, none from a stale page, and no package for another client',
+  (await packageActions.getByRole('button', { name: 'Submit' }).count()) === 0 &&
+    (await packageActions.getByRole('button', { name: 'Override QA' }).isDisabled()) &&
+    earlySubmit.status === 409 &&
+    ownOverride.status === 403 &&
+    staleOverride.status === 412 &&
+    unseenPackage.status === 404 &&
+    (await packageOf(preparer, packageId))?.rowVersion === generatedPackage.rowVersion,
+  `submit ${earlySubmit.status}, override ${ownOverride.status}, stale ${staleOverride.status}, other client ${unseenPackage.status}`,
+);
+
+const overrideReason = 'probe: the breaks are disclosed in the cover letter';
+await switchTo('head.one');
+await page.goto(`${origin}/#${packageHash}`);
+await packageActions.getByRole('button', { name: 'Override QA' }).click();
+const overrideDialog = page.getByRole('dialog');
+const overrideSubject = await overrideDialog.innerText();
+await overrideDialog.getByRole('textbox', { name: /Reason/ }).fill(overrideReason);
+await overrideDialog.getByRole('button', { name: 'Override QA' }).click();
+await packageStatus.filter({ hasText: 'overridden' }).waitFor();
+const overriddenPackage = await packageOf('head.one', packageId);
+check(
+  'packages: an approver overrides the failed checks with a reason, recorded against each with their name',
+  overrideSubject.includes(
+    'The reason is recorded against all 4 failed checks of this run, with your name.',
+  ) &&
+    overriddenPackage?.state === 'QAPassed' &&
+    overriddenPackage.qa.overridden === 4 &&
+    overriddenPackage.findings
+      .filter((f) => !f.passed)
+      .every(
+        (f) =>
+          f.override?.reason === overrideReason &&
+          f.override.approver.name === by('head.one').displayName,
+      ) &&
+    isDeepStrictEqual(overriddenPackage.content, generatedPackage.content) &&
+    (await packageStatus.innerText()) ===
+      `${packageWords} is now QA passed: 4 failed checks overridden ${SIMULATED}` &&
+    (await page.getByTestId('package-override').innerText()).includes(`Reason: ${overrideReason}`),
+  await packageStatus.innerText(),
+);
+
+await switchTo(preparer);
+await page.goto(`${origin}/#${packageHash}`);
+await packageActions.getByRole('button', { name: 'Submit' }).click();
+await packageStatus.filter({ hasText: 'is now In review' }).waitFor();
+const preparerApproves = await packageCommand(preparer, packageId, { command: 'approve' });
+await switchTo('head.one');
+await page.goto(`${origin}/#${packageHash}`);
+await packageActions.getByRole('button', { name: 'Approve' }).click();
+await packageStatus.filter({ hasText: 'is now Approved' }).waitFor();
+const approvedPackage = await packageOf('head.one', packageId);
+const hashShown = await page.getByTestId('package-hash').innerText();
+check(
+  'packages: submitted by investor relations and approved by an approver; the hash is the SHA-256 of the content shown, in full on the page',
+  preparerApproves.status === 403 &&
+    approvedPackage?.state === 'Approved' &&
+    approvedPackage.reviewer?.name === by('head.one').displayName &&
+    approvedPackage.contentHash === sha256(canonicalJson(approvedPackage.content)) &&
+    isDeepStrictEqual(approvedPackage.content, generatedPackage.content) &&
+    hashShown.includes('Content hash (SHA-256)') &&
+    hashShown.includes(approvedPackage.contentHash),
+  `${approvedPackage?.state}; ${approvedPackage?.contentHash}`,
+);
+
+await switchTo(preparer);
+await page.goto(`${origin}/#${packageHash}`);
+await packageActions.getByRole('button', { name: 'Release' }).click();
+await packageStatus.filter({ hasText: 'is now Released' }).waitFor();
+const releasedPackage = await packageOf(preparer, packageId);
+const lateRegenerate = await packageCommand(preparer, packageId, { command: 'regenerate' });
+const startBody = {
+  clientId: packageCase.client.id,
+  periodEnd: quarterEnd,
+  basis: 'gross',
+  label: 'final',
+};
+const unexplainedVersion = await api(preparer, 'POST', PACKAGES, startBody);
+check(
+  'packages: released by investor relations, the page is read only, nothing leaves Released and a new version needs a reason',
+  releasedPackage?.state === 'Released' &&
+    releasedPackage.releasedBy?.name === by(preparer).displayName &&
+    releasedPackage.contentHash === approvedPackage.contentHash &&
+    (await packageActions.count()) === 0 &&
+    (await page.getByTestId('package-gate').getByRole('button').count()) === 0 &&
+    (await page.getByTestId('package-next').innerText()).includes(
+      'Released packages are read only.',
+    ) &&
+    lateRegenerate.status === 409 &&
+    unexplainedVersion.status === 422,
+  `${releasedPackage?.state}; regenerate ${lateRegenerate.status}; start again ${unexplainedVersion.status}`,
+);
+await page.goto(`${origin}/#/reporting/packages`);
+const packageListRow = page
+  .getByRole('table', { name: 'Client packages' })
+  .getByRole('row')
+  .filter({ hasText: packageCase.client.name });
+await packageListRow.waitFor();
+check(
+  'packages: the list shows the package Released, its checks as failed and overridden',
+  (await packageListRow.innerText()).includes('Released') &&
+    (await packageListRow.innerText()).includes('4 failed, overridden') &&
+    (await page.getByTestId('package-count').innerText()).includes('0 packages not yet released'),
+  oneLine(await packageListRow.innerText()),
+);
+// Who else opens the package: the other investor relations user finds none, a viewer is told
+// whom packages are for, and the deal team reads the released package with nothing to press.
+await switchTo(outsiderIr.externalId);
+await page.goto(`${origin}/#${packageHash}`);
+await page.getByText('Package not found').waitFor();
+await switchTo('viewer.one');
+await page.goto(`${origin}/#${packageHash}`);
+await page.getByTestId('package-unavailable').waitFor();
+const viewerPackage = await page.getByTestId('package-unavailable').innerText();
+await switchTo('deal.one');
+await page.goto(`${origin}/#${packageHash}`);
+await page.getByTestId('package-hash').waitFor();
+check(
+  'packages: not found for investor relations of another client, not visible to a viewer, read only for the deal team',
+  viewerPackage.includes('not visible to your role') &&
+    (await page.getByTestId('package-banner').innerText()).includes('Released') &&
+    (await packageActions.count()) === 0,
+  oneLine(viewerPackage),
+);
+await api('viewer.one', 'POST', '/api/v1/preview/reset');
+check(
+  'packages: a reset forgets every package of the session',
+  (await api(preparer, 'GET', PACKAGES)).json?.items?.length === 0 &&
+    (await api(preparer, 'GET', `${PACKAGES}/${packageId}`)).status === 404,
 );
 
 check(

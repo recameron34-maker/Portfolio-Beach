@@ -31,7 +31,8 @@ import type { CommandOption } from '../../lib/states.js';
 import { resultSuffix } from '../../lib/workflow.js';
 import type { ActionLog } from '../../lib/workflow.js';
 import { useOpportunityCommand } from './api.js';
-import { advanceBlocker, isIsoDate, isPositiveAmount, nextStage, termsOf } from './pipeline.js';
+import { advanceBlocker, isIsoDate, isPositiveAmount, termsOf } from './pipeline.js';
+import { dialogSurfaceMotion, useReducedMotion } from '../../components/motion.js';
 
 type StageOption = CommandOption<DealStage, OpportunityCommand>;
 
@@ -55,14 +56,16 @@ function PassDialog({
   const reasons = termsOf(taxonomy.data, 'pass_reason');
   const [code, setCode] = useState('');
   const [note, setNote] = useState('');
+  const motion = dialogSurfaceMotion(useReducedMotion());
   return (
     <Dialog
+      surfaceMotion={motion}
       open
       onOpenChange={(_e, d) => {
         if (!d.open) onCancel();
       }}
     >
-      <DialogSurface>
+      <DialogSurface className="pb-dialog" backdrop={{ className: 'pb-dialog-backdrop' }}>
         <form
           noValidate
           onSubmit={(e) => {
@@ -77,7 +80,7 @@ function PassDialog({
               <FluentField
                 label="Reason code"
                 required
-                hint="A pass needs a reason code; the pass history is searchable by it (docs/04 M5)."
+                hint="A pass needs a reason code; the pass history is searchable by it."
               >
                 <Dropdown
                   placeholder={reasons.length === 0 ? 'No reason codes loaded' : 'Choose a reason'}
@@ -135,14 +138,16 @@ function ClosingDialog({
   const [touched, setTouched] = useState(false);
   const amount = commitment.trim();
   const ready = isIsoDate(closeDate) && isPositiveAmount(amount);
+  const motion = dialogSurfaceMotion(useReducedMotion());
   return (
     <Dialog
+      surfaceMotion={motion}
       open
       onOpenChange={(_e, d) => {
         if (!d.open) onCancel();
       }}
     >
-      <DialogSurface>
+      <DialogSurface className="pb-dialog" backdrop={{ className: 'pb-dialog-backdrop' }}>
         <form
           noValidate
           onSubmit={(e) => {
@@ -163,8 +168,8 @@ function ClosingDialog({
                 </p>
               ) : (
                 <p className="pb-meta">
-                  The close date is the single source for every report (docs/04 M8); the checklist
-                  from config/closing_checklist.json opens with it.
+                  The close date is the single source for every report; the checklist from
+                  config/closing_checklist.json opens with it.
                 </p>
               )}
               <FluentField
@@ -187,7 +192,7 @@ function ClosingDialog({
                     }
                   : {
                       hint: isPositiveAmount(amount)
-                        ? `Reads as ${formatMoneyM(amount)}. Allocations must tie to it before the deal closes (M22).`
+                        ? `Reads as ${formatMoneyM(amount)}. Allocations must tie to it before the deal closes.`
                         : 'Digits with an optional decimal point, for example 15000000.00.',
                     })}
               >
@@ -213,6 +218,11 @@ function ClosingDialog({
   );
 }
 
+/** A stage command in words; the advance names the stage it moves the deal to ("Advance to IC"). */
+function stageCommandLabel(o: StageOption): string {
+  return o.command === 'advance' ? `Advance to ${humanizeState(o.to)}` : commandLabel(o.command);
+}
+
 /** The commitment the closing dialog starts from: the latest approved IC amount, else the target. */
 function suggestedCommitment(detail: OpportunityDetail): string {
   const approved = [...detail.icDecisions]
@@ -223,8 +233,9 @@ function suggestedCommitment(detail: OpportunityDetail): string {
 
 /**
  * The stage commands the transition table lists from this stage (docs/18 section 4): advance,
- * pass with a reason code, reopen with a reason. A gate the detail reports as closed disables the
- * advance and names the rule in the button's title; the API decides for real.
+ * named by the stage it moves to, pass with a reason code, reopen with a reason. A gate the
+ * detail reports as closed disables the advance and names the rule under the buttons and in the
+ * button's title; the API decides for real.
  */
 export function StageActions({
   detail,
@@ -247,7 +258,6 @@ export function StageActions({
   const options = raw.map((o) =>
     gatedKeys.has(`${o.command}-${o.to}`) ? { ...o, allowed: false } : o,
   );
-  const next = nextStage(detail.stage);
   const subject = `${detail.name} (${detail.companyName}), now ${humanizeState(detail.stage)}`;
   const issue = (option: StageOption, body: OpportunityCommandBody): void => {
     command.mutate(
@@ -290,7 +300,7 @@ export function StageActions({
   return (
     <div className="pb-pipe-actions" data-testid="opportunity-stage-actions">
       {options.length === 0 ? (
-        <p className="pb-meta">
+        <p className="pb-note">
           {humanizeState(detail.stage)} is the last stage; nothing further to do.
         </p>
       ) : (
@@ -298,23 +308,22 @@ export function StageActions({
           options={options}
           busy={command.isPending}
           appearance="secondary"
+          size="medium"
+          primary="advance"
           context={detail.name}
+          label={stageCommandLabel}
           notAllowedTitle={(o) =>
             gatedKeys.has(`${o.command}-${o.to}`) ? (blocker ?? undefined) : undefined
           }
+          showBlockedReason
           onIssue={start}
         />
       )}
-      <ul className="pb-list pb-cap-notes">
-        {next === null ? null : (
-          <li className="pb-meta">Advance moves the deal to {humanizeState(next)}.</li>
-        )}
-        {notes.map((o) => (
-          <li key={`${o.command}-${o.to}`} className="pb-meta">
-            {commandLabel(o.command)}: {o.note}
-          </li>
-        ))}
-      </ul>
+      {notes.map((o) => (
+        <p key={`${o.command}-${o.to}`} className="pb-note">
+          {stageCommandLabel(o)}: {o.note}
+        </p>
+      ))}
       {pending?.kind === 'pass' ? (
         <PassDialog
           subject={subject}
@@ -343,7 +352,7 @@ export function StageActions({
       {pending?.kind === 'override' ? (
         <ReasonDialog
           title="Advance"
-          subject={`${subject}. Diligence tasks required for IC are still open: your reason is recorded with the override (docs/18 section 4).`}
+          subject={`${subject}. Diligence tasks required for IC are still open: your reason is recorded with the override.`}
           onCancel={close}
           onSubmit={(reason) => {
             issue(pending.option, { command: 'advance', reason });

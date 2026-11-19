@@ -3,13 +3,14 @@ import { Link } from '@tanstack/react-router';
 import { keepPreviousData, useQuery } from '@tanstack/react-query';
 import type { AnalyticsSummary } from '@pb/contracts';
 import { analyticsQuery } from '../../app/queries.js';
-import { HorizontalBars, LineChart } from '../../components/charts/index.js';
+import { HorizontalBars, LineChart, SharedScale } from '../../components/charts/index.js';
 import { NavTrendCard } from '../../components/NavTrendCard.js';
 import { UnavailableState } from '../../components/UnavailableState.js';
 import {
   Card,
   EmptyState,
   NumCell,
+  PageContext,
   PageSkeleton,
   SectionHeader,
   StatTile,
@@ -47,30 +48,32 @@ function CashFlowsCard({ summary }: { summary: AnalyticsSummary }): ReactNode {
         Cash flows
       </SectionHeader>
       <div className="pb-two-col">
-        <HorizontalBars
-          title="Contributions by year"
-          data={years.map((y) => ({
-            label: y.period,
-            value: Number(y.contributions),
-            display: formatMoneyM(y.contributions),
-          }))}
-          kind="money"
-          valueColumn="Contributions"
-          summary={`Contributions by year over ${years.length} years, ${years[0]?.period ?? ''} to ${last.period}.`}
-          testId="performance-contributions"
-        />
-        <HorizontalBars
-          title="Distributions by year"
-          data={years.map((y) => ({
-            label: y.period,
-            value: Number(y.distributions),
-            display: formatMoneyM(y.distributions),
-          }))}
-          kind="money"
-          valueColumn="Distributions"
-          summary={`Distributions by year over ${years.length} years, ${years[0]?.period ?? ''} to ${last.period}.`}
-          testId="performance-distributions"
-        />
+        <SharedScale>
+          <HorizontalBars
+            title="Contributions by year"
+            data={years.map((y) => ({
+              label: y.period,
+              value: Number(y.contributions),
+              display: formatMoneyM(y.contributions),
+            }))}
+            kind="money"
+            valueColumn="Contributions"
+            summary={`Contributions by year over ${years.length} years, ${years[0]?.period ?? ''} to ${last.period}.`}
+            testId="performance-contributions"
+          />
+          <HorizontalBars
+            title="Distributions by year"
+            data={years.map((y) => ({
+              label: y.period,
+              value: Number(y.distributions),
+              display: formatMoneyM(y.distributions),
+            }))}
+            kind="money"
+            valueColumn="Distributions"
+            summary={`Distributions by year over ${years.length} years, ${years[0]?.period ?? ''} to ${last.period}.`}
+            testId="performance-distributions"
+          />
+        </SharedScale>
       </div>
       <LineChart
         title="Cumulative net cash flow"
@@ -127,7 +130,6 @@ function TopPositionsCard({ summary }: { summary: AnalyticsSummary }): ReactNode
         <>
           <HorizontalBars
             title="NAV of the largest positions"
-            subtitle="The largest is emphasised"
             data={top.map((p, i) => ({
               label: p.companyName,
               value: Number(p.nav ?? '0'),
@@ -187,10 +189,13 @@ export function PerformanceAnalyticsTab(): ReactNode {
   const t = summary.totals;
   return (
     <>
-      <p className="pb-meta">
-        As of {formatDate(summary.asOf)}. Pooled over {plural(t.count, 'position')}, active and
-        realized, that you are entitled to see.
-      </p>
+      <PageContext
+        items={[
+          `As of ${formatDate(summary.asOf)}`,
+          `Pooled over ${plural(t.count, 'position')} visible to you`,
+          'Active and realized',
+        ]}
+      />
       <div ref={balanceTiles} className="pb-tiles" data-testid="performance-tiles">
         <StatTile label="Invested" value={formatMoneyM(t.invested)} hint="Contributions to date" />
         <StatTile label="Distributions" value={formatMoneyM(t.distributions)} />

@@ -15,7 +15,6 @@ import {
   Input,
   Label,
   Option,
-  Spinner,
 } from '@fluentui/react-components';
 import { Add16Regular, Search16Regular } from '@fluentui/react-icons';
 import type {
@@ -26,6 +25,7 @@ import type {
   ValuationPage,
   ValuationRow,
   ValuationState,
+  ValuationSuggestionRow,
 } from '@pb/contracts';
 import { valuationMachine } from '@pb/workflows';
 import { previewMode } from '../../app/env.js';
@@ -37,7 +37,10 @@ import {
   useValuationCommand,
 } from '../../app/mutations.js';
 import type { ValuationCreateBody } from '../../app/mutations.js';
-import { VALUATION_TABS } from '../../app/nav.js';
+import { SUGGESTIONS_PATH } from '../../app/nav.js';
+import { ValuationTabs } from './ValuationTabs.js';
+import { suggestionsQuery } from './suggestions-api.js';
+import { canReadSuggestions, SOURCE_LABEL, suggestedForQuarter } from './suggestions.js';
 import {
   investmentsQuery,
   LIST_LIMIT,
@@ -50,17 +53,18 @@ import {
   Badge,
   Card,
   CountTile,
+  EmptyLine,
   EmptyState,
   Field,
   NumCell,
   PageHeader,
   PageSkeleton,
   PARTIAL_PAGE_HINT,
+  RowsSkeleton,
   SectionHeader,
   SimulatedBadge,
   StatTile,
   TableWrap,
-  TabNav,
   Toolbar,
 } from '../../components/ui.js';
 import { formatDate, formatMoneyM, formatPct, labelOf, MISSING, plural } from '../../lib/format.js';
@@ -104,41 +108,46 @@ import { resultSuffix, useActionLog } from '../../lib/workflow.js';
 import type { ActionLog } from '../../lib/workflow.js';
 import './valuations.css';
 import { balanceTiles } from '../../lib/tiles.js';
+import { dialogSurfaceMotion, useJustChanged, useReducedMotion } from '../../components/motion.js';
+import { useNarrowScreen } from '../../lib/media.js';
 
 type ValuationOption = CommandOption<ValuationState, ValuationCommand>;
 
-const GATE =
-  'Reports read Locked valuations only. Draft, Ops prepared and Deal team approved versions never reach a report.';
+const GATE = 'Reports read Locked valuations only.';
 
+/** The board's rule, one quiet line at the top of the tab, with what the preview does not do. */
 function Gate(): ReactNode {
   return (
-    <div className="pb-val-gates">
-      <p className="pb-notice" data-testid="valuation-gate">
-        {GATE}
-      </p>
-      {previewMode ? (
-        <p className="pb-meta">
-          Simulated changes do not recalculate NAV, MOIC or IRR; portfolio figures stay as recorded.
-        </p>
-      ) : null}
-    </div>
+    <p className="pb-meta pb-tab-rule" data-testid="valuation-gate">
+      {GATE}
+      {previewMode
+        ? ' In this preview, simulated changes do not recalculate NAV, MOIC or IRR.'
+        : null}
+    </p>
   );
 }
 
+/**
+ * The change against the prior Locked mark. A change above the variance flag carries a watch dot
+ * in a fixed slot before the figure, so every percentage keeps one right edge; the word is for a
+ * screen reader and the flag's rule is in the slot's title.
+ */
 function ChangeCell({ changePct }: { changePct: string | null }): ReactNode {
   const text = formatPct(changePct);
   if (!aboveVarianceFlag(changePct)) return <NumCell>{text}</NumCell>;
   return (
     <td className="num">
-      <span className="pb-val-change">
-        <span title={VARIANCE_TITLE}>
-          <Badge tone="watch">Variance</Badge>
-        </span>
-        {text}
+      <span className="pb-val-flag" title={VARIANCE_TITLE}>
+        <span className="pb-val-flag-dot" aria-hidden="true" />
+        <span className="pb-visually-hidden">Variance</span>
       </span>
+      {text}
     </td>
   );
 }
+
+/** The commands that step back on the board: quiet, so the one that moves a version on reads first. */
+const BACK: readonly ValuationCommand[] = ['sendBack', 'reopen'];
 
 function VersionTable({
   rows,
@@ -148,6 +157,7 @@ function VersionTable({
   busy,
   onToggle,
   onIssue,
+  rowProps,
 }: {
   rows: readonly ValuationRow[];
   roles: readonly string[];
@@ -156,8 +166,33 @@ function VersionTable({
   busy: boolean;
   onToggle: (id: string, checked: boolean) => void;
   onIssue: (row: ValuationRow, option: ValuationOption) => void;
+  /** The wash on the row the reader's own command changed. */
+  rowProps: ReturnType<typeof useJustChanged>['rowProps'];
 }): ReactNode {
   const selectable = plans.length > 0;
+  // On a phone the key figures come straight after the position, the first columns the held
+  // position column reveals; on a wider screen they read prior, current, change.
+  const narrow = useNarrowScreen();
+  const figuresFirst = narrow;
+  const head = {
+    period: <th key="period">Period</th>,
+    state: <th key="state">State</th>,
+    prior: (
+      <th key="prior" className="num">
+        Prior fair value
+      </th>
+    ),
+    fair: (
+      <th key="fair" className="num">
+        Fair value
+      </th>
+    ),
+    change: (
+      <th key="change" className="num">
+        Change
+      </th>
+    ),
+  };
   return (
     <TableWrap label="Valuations">
       <table className="pb-table pb-val-table" aria-label="Valuations">
@@ -169,19 +204,48 @@ function VersionTable({
               </th>
             ) : null}
             <th>Position</th>
-            <th>Period</th>
-            <th>State</th>
-            <th className="num">Prior fair value</th>
-            <th className="num">Fair value</th>
-            <th className="num">Change</th>
-            <th>Actions</th>
+            {figuresFirst
+              ? [head.fair, head.change, head.prior, head.period, head.state]
+              : [head.period, head.state, head.prior, head.fair, head.change]}
+            <th className="pb-val-actions-col">
+              <span className="pb-val-actions-head">
+                Actions
+                <SimulatedBadge />
+              </span>
+            </th>
           </tr>
         </thead>
         <tbody>
           {rows.map((row) => {
             const plan = batchPlanFor(row, plans);
+            const cell = {
+              period: (
+                <td key="period" className="pb-val-period">
+                  <Link to="/valuations/$id" params={{ id: row.id }}>
+                    {formatDate(row.periodEnd)}
+                  </Link>
+                  <span className="pb-cell-sub">
+                    <span>v{row.version}</span>
+                    <span>{labelOf(row.method)}</span>
+                  </span>
+                </td>
+              ),
+              state: (
+                <td key="state" className="pb-val-state">
+                  <Badge tone={valuationTone(row.state)}>{humanizeState(row.state)}</Badge>
+                  {row.approvedAt === null ? null : (
+                    <span className="pb-cell-sub">
+                      Approved <span>{approvedOn(row.approvedAt)}</span>
+                    </span>
+                  )}
+                </td>
+              ),
+              prior: <NumCell key="prior">{formatMoneyM(row.priorFairValue)}</NumCell>,
+              fair: <NumCell key="fair">{formatMoneyM(row.fairValue)}</NumCell>,
+              change: <ChangeCell key="change" changePct={row.changePct} />,
+            };
             return (
-              <tr key={row.id}>
+              <tr key={row.id} {...rowProps(row.id)}>
                 {selectable ? (
                   <td className="pb-val-select">
                     {plan === undefined ? null : (
@@ -204,31 +268,15 @@ function VersionTable({
                     <span>{row.vehicleName}</span>
                   </span>
                 </td>
-                <td className="pb-val-period">
-                  <Link to="/valuations/$id" params={{ id: row.id }}>
-                    {formatDate(row.periodEnd)}
-                  </Link>
-                  <span className="pb-cell-sub">
-                    <span>v{row.version}</span>
-                    <span>{labelOf(row.method)}</span>
-                  </span>
-                </td>
-                <td className="pb-val-state">
-                  <Badge tone={valuationTone(row.state)}>{humanizeState(row.state)}</Badge>
-                  {row.approvedAt === null ? null : (
-                    <span className="pb-cell-sub">
-                      Approved <span>{approvedOn(row.approvedAt)}</span>
-                    </span>
-                  )}
-                </td>
-                <NumCell>{formatMoneyM(row.priorFairValue)}</NumCell>
-                <NumCell>{formatMoneyM(row.fairValue)}</NumCell>
-                <ChangeCell changePct={row.changePct} />
-                <td>
+                {figuresFirst
+                  ? [cell.fair, cell.change, cell.prior, cell.period, cell.state]
+                  : [cell.period, cell.state, cell.prior, cell.fair, cell.change]}
+                <td className="pb-val-actions-col">
                   <CommandButtons
                     options={commandOptions(valuationMachine, row.state, roles)}
                     busy={busy}
                     appearance="outline"
+                    quiet={BACK}
                     context={versionLabel(row)}
                     onIssue={(option) => onIssue(row, option)}
                   />
@@ -340,28 +388,65 @@ function marksTile(status: MarksStatus, period: string): ReactNode {
   }
 }
 
+/** The mark suggested for a position with no version for the quarter, as a link to its workings. */
+function SuggestedCell({
+  suggestion,
+  companyName,
+}: {
+  suggestion: ValuationSuggestionRow | undefined;
+  companyName: string;
+}): ReactNode {
+  if (suggestion === undefined)
+    return (
+      <td>
+        <span className="pb-meta">{MISSING}</span>
+      </td>
+    );
+  return (
+    <td>
+      <Link to={SUGGESTIONS_PATH} search={{ id: suggestion.id }}>
+        {suggestion.suggestedValue === null
+          ? 'Not calculable'
+          : formatMoneyM(suggestion.suggestedValue)}
+        {/* The figure a person sees starts the link's name; the rest says what it is, for a reader who cannot see the column. */}
+        <span className="pb-visually-hidden">, suggested mark for {companyName}</span>
+      </Link>
+      <span className="pb-cell-sub">{SOURCE_LABEL[suggestion.basis]}</span>
+    </td>
+  );
+}
+
 function MissingMarksCard({
   status,
   period,
   canStart,
+  suggested,
+  suggestedError,
+  suggestedTruncated,
   onStart,
 }: {
   status: MarksStatus;
   period: string;
   canStart: boolean;
+  /** The Open suggestion of each position for this quarter; null when the reader is shown none. */
+  suggested: ReadonlyMap<string, ValuationSuggestionRow> | null;
+  /** Why the suggested marks could not be read, for a role that reads them; null otherwise. */
+  suggestedError: unknown;
+  /** True when more open suggestions exist for the quarter than the one page read holds. */
+  suggestedTruncated: boolean;
   onStart: (investmentId: string) => void;
 }): ReactNode {
   let body: ReactNode;
   switch (status.kind) {
     case 'loading':
-      body = <Spinner size="tiny" label="Loading active positions" />;
+      body = <RowsSkeleton rows={3} label="Loading active positions" />;
       break;
     case 'error':
       body = <UnavailableState inline error={status.error} subject="Active positions" />;
       break;
     case 'truncated':
       body = (
-        <EmptyState
+        <EmptyLine
           title="Missing marks need the full lists"
           detail={`More than ${LIST_LIMIT} valuation versions or active positions are visible, so a position could have a version beyond the first page. The list is not shown rather than guessed.`}
         />
@@ -370,10 +455,9 @@ function MissingMarksCard({
     case 'ready':
       body =
         status.missing.length === 0 ? (
-          <EmptyState
-            title="Every active position has a mark for this period"
-            detail={`Each active position has at least one valuation version for ${formatDate(period)}.`}
-          />
+          <p className="pb-meta" data-testid="missing-marks-none">
+            Every active position has at least one valuation version for {formatDate(period)}.
+          </p>
         ) : (
           <TableWrap label="Missing marks">
             <table className="pb-table" aria-label="Missing marks">
@@ -382,6 +466,7 @@ function MissingMarksCard({
                   <th>Inv #</th>
                   <th>Company</th>
                   <th>Vehicle</th>
+                  {suggested === null ? null : <th>Suggested</th>}
                   {canStart ? <th>Action</th> : null}
                 </tr>
               </thead>
@@ -397,6 +482,9 @@ function MissingMarksCard({
                       </Link>
                     </td>
                     <td>{p.vehicleName}</td>
+                    {suggested === null ? null : (
+                      <SuggestedCell suggestion={suggested.get(p.id)} companyName={p.companyName} />
+                    )}
                     {canStart ? (
                       <td>
                         <Button
@@ -421,6 +509,21 @@ function MissingMarksCard({
     <Card testId="missing-marks">
       <SectionHeader aside={formatDate(period)}>Missing marks</SectionHeader>
       {body}
+      {/* The column is left out when its read failed, and the card says so: never a silent gap. */}
+      {suggestedError === null || status.kind !== 'ready' || status.missing.length === 0 ? null : (
+        <UnavailableState
+          inline
+          error={suggestedError}
+          subject="Suggested marks"
+          testId="missing-marks-suggested-unavailable"
+        />
+      )}
+      {suggestedTruncated ? (
+        <p className="pb-meta" data-testid="missing-marks-suggested-truncated">
+          Showing the suggested marks of the first {LIST_LIMIT} open suggestions for this quarter;
+          more exist.
+        </p>
+      ) : null}
     </Card>
   );
 }
@@ -432,14 +535,16 @@ function ResetPreviewDialog({
   onCancel: () => void;
   onConfirm: () => void;
 }): ReactNode {
+  const motion = dialogSurfaceMotion(useReducedMotion());
   return (
     <Dialog
+      surfaceMotion={motion}
       open
       onOpenChange={(_e, d) => {
         if (!d.open) onCancel();
       }}
     >
-      <DialogSurface>
+      <DialogSurface className="pb-dialog" backdrop={{ className: 'pb-dialog-backdrop' }}>
         <DialogBody>
           <DialogTitle>Reset preview</DialogTitle>
           <DialogContent className="pb-dialog-content">
@@ -480,8 +585,11 @@ interface BoardActions {
   busy: boolean;
 }
 
-/** Commands, the batch, the new valuation form and the preview reset, each reporting into one action log. */
-function useBoardActions(log: ActionLog): BoardActions {
+/**
+ * Commands, the batch, the new valuation form and the preview reset, each reporting into one
+ * action log; `mark` washes the row a single command changed or created.
+ */
+function useBoardActions(log: ActionLog, mark: (id: string) => void): BoardActions {
   const command = useValuationCommand();
   const batch = useValuationBatchCommand();
   const create = useCreateValuation();
@@ -497,11 +605,13 @@ function useBoardActions(log: ActionLog): BoardActions {
           reason === undefined ? { command: option.command } : { command: option.command, reason },
       },
       {
-        onSuccess: (updated) =>
+        onSuccess: (updated) => {
+          mark(row.id);
           log.record(
             'good',
             `${versionLabel(updated)} is now ${humanizeState(updated.state)} ${resultSuffix()}`,
-          ),
+          );
+        },
         onError: (error) => {
           refreshIfVersionTaken(error);
           log.record(
@@ -514,11 +624,13 @@ function useBoardActions(log: ActionLog): BoardActions {
   };
   const createDraft = (body: ValuationCreateBody, position: InvestmentSummary): void => {
     create.mutate(body, {
-      onSuccess: (created) =>
+      onSuccess: (created) => {
+        mark(created.id);
         log.record(
           'good',
           `Draft valuation created for ${created.companyName}, ${formatDate(created.periodEnd)} ${resultSuffix()}`,
-        ),
+        );
+      },
       onError: (error) => {
         refreshIfVersionTaken(error);
         log.record(
@@ -607,14 +719,23 @@ function Board({ page, roles }: { page: ValuationPage; roles: readonly string[] 
   const [reasonFor, setReasonFor] = useState<Pending | null>(null);
   const [newFor, setNewFor] = useState<{ investmentId: string | null } | null>(null);
   const [confirmReset, setConfirmReset] = useState(false);
+  // The suggested marks are read for the roles that read suggestions and for nobody else.
+  const reader = canReadSuggestions(roles);
   const log = useActionLog();
-  const actions = useBoardActions(log);
+  const wash = useJustChanged();
+  const actions = useBoardActions(log, wash.mark);
 
   const isOps = roles.includes('operations');
   const plans = batchPlans(roles);
   const periods = latestFirst([...page.periods, ...page.items.map((r) => r.quarterEnd)]);
   const period =
     periodChoice !== null && periods.includes(periodChoice) ? periodChoice : periods[0];
+  // The open suggestions of the quarter shown and of no other, so the one page read holds that
+  // quarter's alone.
+  const suggestions = useQuery({
+    ...suggestionsQuery({ periodEnd: period }),
+    enabled: reader && period !== undefined,
+  });
   const activeItems = active.data?.items ?? [];
   // The form offers the positions a version may start for; with only the first page of versions
   // loaded that cannot be told, so every active position is offered and the write decides.
@@ -630,29 +751,37 @@ function Board({ page, roles }: { page: ValuationPage; roles: readonly string[] 
         : undefined;
   const clearSelection = (): void => setSelected(new Set());
 
+  const newBlocked = isOps && newTitle !== undefined;
   const header = (
     <PageHeader
       title="Valuations"
-      meta={`As of ${formatDate(page.asOf)}. Reports read Locked valuations only.`}
+      meta={`As of ${formatDate(page.asOf)}`}
       actions={
         isOps || previewMode ? (
-          <>
+          <span className="pb-actions pb-val-head-actions">
             {isOps ? (
-              <Button
-                size="small"
-                appearance="primary"
-                icon={<Add16Regular />}
-                disabled={newTitle !== undefined || period === undefined || actions.busy}
-                {...(newTitle === undefined ? {} : { title: newTitle })}
-                onClick={() => setNewFor({ investmentId: null })}
-              >
-                New valuation
-              </Button>
+              // Why New valuation is not offered, in words under it as well as in its title.
+              <span className="pb-command-item">
+                <Button
+                  appearance="primary"
+                  icon={<Add16Regular />}
+                  disabled={newTitle !== undefined || period === undefined || actions.busy}
+                  {...(newTitle === undefined ? {} : { title: newTitle })}
+                  {...(newBlocked ? { 'aria-describedby': 'valuation-new-blocked' } : {})}
+                  onClick={() => setNewFor({ investmentId: null })}
+                >
+                  New valuation
+                </Button>
+                {newBlocked ? (
+                  <span className="pb-meta pb-command-reason" id="valuation-new-blocked">
+                    {newTitle}
+                  </span>
+                ) : null}
+              </span>
             ) : null}
             {previewMode ? (
               <span className="pb-val-reset">
                 <Button
-                  size="small"
                   appearance="secondary"
                   disabled={actions.busy}
                   onClick={() => setConfirmReset(true)}
@@ -662,7 +791,7 @@ function Board({ page, roles }: { page: ValuationPage; roles: readonly string[] 
                 <SimulatedBadge />
               </span>
             ) : null}
-          </>
+          </span>
         ) : undefined
       }
     />
@@ -672,7 +801,7 @@ function Board({ page, roles }: { page: ValuationPage; roles: readonly string[] 
     return (
       <>
         {header}
-        <TabNav label="Valuations" items={VALUATION_TABS} />
+        <ValuationTabs />
         <Gate />
         <Card>
           <EmptyState
@@ -705,7 +834,7 @@ function Board({ page, roles }: { page: ValuationPage; roles: readonly string[] 
   return (
     <>
       {header}
-      <TabNav label="Valuations" items={VALUATION_TABS} />
+      <ValuationTabs />
       <Gate />
       <div ref={balanceTiles} className="pb-tiles" data-testid="valuation-tiles">
         <CountTile label="Locked" count={counts.locked} hint="Read by reports" partial={partial} />
@@ -725,12 +854,7 @@ function Board({ page, roles }: { page: ValuationPage; roles: readonly string[] 
       </div>
       <Card testId="valuation-board">
         <SectionHeader
-          aside={
-            <>
-              {`${rows.length} of ${plural(forPeriod, 'version')} for ${formatDate(period)}`}
-              <SimulatedBadge />
-            </>
-          }
+          aside={`${rows.length} of ${plural(forPeriod, 'version')} for ${formatDate(period)}`}
         >
           Versions
         </SectionHeader>
@@ -836,6 +960,7 @@ function Board({ page, roles }: { page: ValuationPage; roles: readonly string[] 
             busy={actions.busy}
             onToggle={toggle}
             onIssue={start}
+            rowProps={wash.rowProps}
           />
         )}
         {page.nextCursor !== null ? (
@@ -849,6 +974,15 @@ function Board({ page, roles }: { page: ValuationPage; roles: readonly string[] 
           status={marks}
           period={period}
           canStart={isOps}
+          suggested={
+            reader && suggestions.data !== undefined
+              ? suggestedForQuarter(suggestions.data.items, period)
+              : null
+          }
+          suggestedError={reader && suggestions.isError ? suggestions.error : null}
+          suggestedTruncated={
+            suggestions.data !== undefined && suggestions.data.nextCursor !== null
+          }
           onStart={(investmentId) => setNewFor({ investmentId })}
         />
         <ActionLogCard entries={log.entries} />
@@ -903,8 +1037,8 @@ export function ValuationsPage(): ReactNode {
   if (board.isError) {
     return (
       <>
-        <PageHeader title="Valuations" meta="Reports read Locked valuations only." />
-        <TabNav label="Valuations" items={VALUATION_TABS} />
+        <PageHeader title="Valuations" />
+        <ValuationTabs />
         <Gate />
         <UnavailableState
           card

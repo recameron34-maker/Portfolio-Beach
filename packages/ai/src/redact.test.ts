@@ -230,4 +230,23 @@ describe('redact (SEC-8.7)', () => {
       expect(r.text.split('\n')).toHaveLength(7);
     });
   });
+  it('stays linear on a long run that looks like the start of an address but never reaches one (CodeQL js/polynomial-redos)', () => {
+    // A document is untrusted text. Before the address pattern was bounded, a run of 60,000
+    // characters an address may start with, and no "@", took seconds: every position was a
+    // possible start and each one scanned to the end of the run.
+    const run = '%'.repeat(60_000);
+    const started = performance.now();
+    const result = redact(`before ${run} after pat@example.test`);
+    expect(performance.now() - started).toBeLessThan(500);
+    expect(result.counts.email).toBe(1);
+    expect(result.text).toContain(run);
+    expect(result.text).not.toContain('pat@example.test');
+  });
+
+  it('still redacts an address whose local part is as long as an address may be', () => {
+    const local = 'a'.repeat(64);
+    const result = redact(`write to ${local}@example.test today`);
+    expect(result.counts.email).toBe(1);
+    expect(result.text).not.toContain('@example.test');
+  });
 });

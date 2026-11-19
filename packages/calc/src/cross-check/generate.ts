@@ -10,7 +10,7 @@ import { dirname } from 'node:path';
 import { CALC_VERSION } from '../version.js';
 import { D, toDecimalString } from '../decimal.js';
 import type { Decimal } from '../decimal.js';
-import { addDays } from '../dates.js';
+import { addDays, containingQuarterEnd, daysBetween, nextQuarterEnd } from '../dates.js';
 import { xirr } from '../irr.js';
 import { dpi, rvpi, totalGain, tvpi, valueChange } from '../multiples.js';
 import { yieldToMaturity } from '../credit.js';
@@ -19,8 +19,32 @@ import { valueCreationAttribution } from '../attribution.js';
 import { gainByDriver, indexedLevel, sinceEntryMeasures, valueCreationBridge } from '../bridge.js';
 import type { BridgePoint } from '../bridge.js';
 import { bandIndexOf, entryCohortBands, turnBands, weightedAverage } from '../cohorts.js';
+import { dealFit, median } from '../fit.js';
+import type { FitInputs, FitThresholds } from '../fit.js';
 import { valueCreationRollup } from '../rollup.js';
+import { planHeadline, planMetrics, underwritingComparison } from '../underwriting.js';
+import type {
+  PlanFigures,
+  UnderwritingCase,
+  UnderwritingInputs,
+  UnderwritingTolerances,
+} from '../underwriting.js';
 import type { RollupPosition } from '../rollup.js';
+import {
+  hasFlowBetween,
+  heldMultipleMark,
+  impliedStakeMark,
+  latestLockedBefore,
+  lockedForOrAfter,
+  markComparison,
+  previousQuarterEnd,
+  quartersBetween,
+  sourceCrossCheck,
+  statementMark,
+  statementTieTolerance,
+} from '../suggestion.js';
+import type { StatementLines, TieTolerances } from '../suggestion.js';
+import { toDollars } from '../units.js';
 import { VALUE_CREATION_REASONS } from '../terms.js';
 import { directAlpha, ksPme } from '../pme.js';
 import type { CashFlow, IndexPoint } from '../index.js';
@@ -409,6 +433,478 @@ function run(seed: number, perKind: number): Case[] {
       tolerance: '1e-9',
       input: { asOf, edges, positions },
       result: valueCreationRollup(positions, bands, asOf),
+    });
+  }
+
+  // Deal fit measures, last again: scores at and around every threshold, and missing inputs.
+  const fitThresholds: FitThresholds = {
+    tierScores: {
+      'sponsor_tier.core': '100',
+      'sponsor_tier.active': '70',
+      'sponsor_tier.new': '40',
+      'sponsor_tier.watch': '15',
+    },
+    trackRecord: { zeroAtMoic: '1.0', fullAtMoic: '2.5' },
+    fundRelationship: { fund: '100', otherFund: '60', none: '0' },
+    caps: { sector: '0.25', sponsor: '0.2', geography: '0.7' },
+    size: { low: '0.5', high: '1.5', limit: '3' },
+  };
+  const tiers = [...Object.keys(fitThresholds.tierScores), 'sponsor_tier.unscored', null];
+  const share = (cap: number): string | null =>
+    rnd() < 0.12
+      ? null
+      : D(String(int(0, Math.round(cap * 14_000))))
+          .div(10_000)
+          .toString();
+  for (let i = 0; i < perKind; i++) {
+    const positions = Array.from({ length: int(0, 7) }, () => amount(250_000, 60_000_000));
+    const typical = median(positions);
+    const inputs: FitInputs = {
+      sponsorTier: pick(tiers),
+      sponsorMoic:
+        rnd() < 0.12
+          ? null
+          : D(String(int(0, 4000)))
+              .div(1000)
+              .toString(),
+      commitment: pick(['fund', 'otherFund', 'none'] as const),
+      sectorShare: share(0.25),
+      sponsorShare: share(0.2),
+      geographyShare: share(0.7),
+      targetCommitment: rnd() < 0.12 ? null : amount(0, 150_000_000),
+      medianPosition: typical === null ? null : typical.toString(),
+    };
+    cases.push({
+      id: id++,
+      kind: 'fit',
+      tolerance: '1e-10',
+      input: { thresholds: fitThresholds, inputs, positions },
+      result: {
+        scores: Object.fromEntries(
+          dealFit(inputs, fitThresholds).map((m) => [m.key, str(m.score)]),
+        ),
+        median: str(typical),
+      },
+    });
+  }
+
+  // The quarter against the underwritten plan (docs/08 section 11, rules 1 to 3), last again:
+  // dates on, between and outside the plan dates, missing figures, a plan in net cash, and
+  // actuals on and a cent either side of the tolerance.
+  const onPlanTolerance = '0.05';
+  const maybe = (value: string, missing: number): string | null => (rnd() < missing ? null : value);
+  for (let i = 0; i < perKind; i++) {
+    const points: PlanFigures[] = [];
+    let date = addDays('2019-01-01', int(0, 1500));
+    for (let n = int(0, 5); n > 0; n--) {
+      points.push({
+        periodEnd: date,
+        revenueLtm: maybe(amount(1_000_000, 4_000_000_000), 0.1),
+        ebitdaLtm: maybe(amount(100_000, 900_000_000), 0.1),
+        netDebt: maybe(amount(-200_000_000, 3_000_000_000), 0.1),
+      });
+      date = addDays(date, int(30, 500));
+    }
+    const first = points[0]?.periodEnd ?? '2021-06-30';
+    const on = points.length > 0 && rnd() < 0.35 ? pick(points) : null;
+    const edge = (planned: PlanFigures['netDebt']): string | null => {
+      if (planned === null) return maybe(amount(-50_000_000, 4_000_000_000), 0.1);
+      const factor = pick(['0.95', '1.05', '0.9', '1.1', '1']);
+      const nudge = pick(['-0.01', '0', '0', '0.01']);
+      return D(planned).times(factor).plus(nudge).toFixed(2);
+    };
+    const quarter: PlanFigures | null =
+      rnd() < 0.05
+        ? null
+        : on !== null
+          ? {
+              periodEnd: on.periodEnd,
+              revenueLtm: edge(on.revenueLtm),
+              ebitdaLtm: edge(on.ebitdaLtm),
+              netDebt: edge(on.netDebt),
+            }
+          : {
+              periodEnd: addDays(first, int(-200, 2200)),
+              revenueLtm: maybe(amount(-50_000_000, 4_000_000_000), 0.08),
+              ebitdaLtm: maybe(amount(-50_000_000, 900_000_000), 0.08),
+              netDebt: maybe(amount(-200_000_000, 3_000_000_000), 0.08),
+            };
+    const metrics = planMetrics(points, quarter, onPlanTolerance);
+    cases.push({
+      id: id++,
+      kind: 'plan',
+      tolerance: '1e-18',
+      input: { points, quarter, onPlanTolerance },
+      result: { metrics, headline: planHeadline(metrics) },
+    });
+  }
+
+  // The whole comparison against the base case (docs/08 section 11, rules 4 to 6), last again:
+  // equity cases and loans, held and realized, with every reason a caller can send or a plan can
+  // give, a path before and after the planned exit, and planned drivers either side of zero.
+  const tolerances: UnderwritingTolerances = { onPlanTolerance, irrTolerance: '0.02' };
+  const rate = (minBp: number, maxBp: number): string =>
+    D(String(int(minBp, maxBp)))
+      .div(10_000)
+      .toString();
+  for (let i = 0; i < perKind; i++) {
+    const entryDate = addDays('2017-01-01', int(0, 1800));
+    const points: PlanFigures[] = [];
+    let date = rnd() < 0.7 ? entryDate : addDays(entryDate, int(1, 400));
+    for (let n = int(0, 5); n > 0; n--) {
+      points.push({
+        periodEnd: date,
+        revenueLtm: maybe(amount(1_000_000, 4_000_000_000), 0.08),
+        ebitdaLtm: maybe(amount(-5_000_000, 900_000_000), 0.08),
+        netDebt: maybe(amount(-200_000_000, 3_000_000_000), 0.08),
+      });
+      date = addDays(date, int(120, 700));
+    }
+    const lastPlanDate = points[points.length - 1]?.periodEnd ?? addDays(entryDate, int(300, 2200));
+    const isLoan = rnd() < 0.25;
+    const base: UnderwritingCase = {
+      form: isLoan ? 'credit' : 'equity',
+      plannedExitDate: rnd() < 0.85 ? lastPlanDate : addDays(lastPlanDate, int(1, 300)),
+      exitMultiple: isLoan ? null : rate(40_000, 180_000),
+      grossMoic: rate(5_000, 40_000),
+      grossIrr: rate(-2_000, 6_000),
+      points: isLoan ? [] : points,
+    };
+
+    const entry: UnderwritingInputs['entry'] =
+      isLoan || rnd() < 0.1
+        ? null
+        : {
+            periodEnd: entryDate,
+            ebitdaLtm: maybe(amount(-2_000_000, 900_000_000), 0.06),
+            ev: maybe(amount(1_000_000, 9_000_000_000), 0.06),
+            netDebt: maybe(amount(-200_000_000, 3_000_000_000), 0.06),
+          };
+    const figures = (periodEnd: string): PlanFigures => ({
+      periodEnd,
+      revenueLtm: maybe(amount(-50_000_000, 4_000_000_000), 0.08),
+      ebitdaLtm: maybe(amount(-50_000_000, 900_000_000), 0.08),
+      netDebt: maybe(amount(-200_000_000, 3_000_000_000), 0.08),
+    });
+    // The current quarter: on a plan date, between the first and the last, or anywhere at all.
+    const firstPoint = points[0];
+    const where = rnd();
+    const currentDate =
+      firstPoint === undefined || where < 0.25
+        ? addDays(entryDate, int(-100, 2600))
+        : where < 0.5
+          ? pick(points).periodEnd
+          : addDays(firstPoint.periodEnd, int(0, daysBetween(firstPoint.periodEnd, lastPlanDate)));
+    const current = isLoan || rnd() < 0.08 ? null : figures(currentDate);
+    const quarters: PlanFigures[] = [];
+    if (!isLoan)
+      for (let q = int(0, 6), at = int(0, 4); q > 0; q--, at += int(1, 4))
+        quarters.push(figures(addDays(entryDate, at * 91)));
+    if (current !== null && rnd() < 0.5) quarters.push(current);
+
+    let bridge: UnderwritingInputs['bridge'] = null;
+    let bridgeNotCalculable: UnderwritingInputs['bridgeNotCalculable'] = null;
+    if (isLoan) bridge = null;
+    else if (entry === null)
+      bridgeNotCalculable = pick(['no_entry_snapshot', 'entry_snapshot_forward_dated'] as const);
+    else if (current === null) bridgeNotCalculable = 'no_current_quarter';
+    else if (rnd() < 0.15)
+      bridgeNotCalculable = pick(['missing_figures', 'non_positive_ebitda'] as const);
+    else {
+      const [growth, multiple, paydown] = [part(), part(), part()];
+      bridge = {
+        ebitdaGrowth: wire(growth),
+        multipleExpansion: wire(multiple),
+        debtPaydown: wire(paydown),
+        total: wire(growth.plus(multiple).plus(paydown)),
+      };
+    }
+
+    const flows: { date: string; amount: string }[] = [];
+    let invested = D('0');
+    let distributions = D('0');
+    // Half the positions are read well inside the plan, the rest up to seven years in.
+    const horizon = rnd() < 0.5 ? int(30, 700) : int(30, 2600);
+    if (rnd() >= 0.06) {
+      const first = amount(100_000, 60_000_000);
+      invested = D(first);
+      flows.push({ date: entryDate, amount: `-${first}` });
+      for (let n = int(0, 4); n > 0; n--) {
+        const day = int(1, horizon);
+        const value = amount(1, 30_000_000);
+        if (rnd() < 0.3) {
+          invested = invested.plus(value);
+          flows.push({ date: addDays(entryDate, day), amount: `-${value}` });
+        } else {
+          distributions = distributions.plus(value);
+          flows.push({ date: addDays(entryDate, day), amount: value });
+        }
+      }
+    }
+    const flagged = rnd() < 0.12;
+    const inputs: UnderwritingInputs = {
+      asOf: addDays(entryDate, horizon),
+      isActive: rnd() < 0.8,
+      entry,
+      current,
+      quarters,
+      bridge,
+      bridgeNotCalculable,
+      flows,
+      invested: flows.length === 0 ? null : wire(invested),
+      distributions: flows.length === 0 ? null : wire(distributions),
+      grossMoic: rnd() < 0.1 ? null : rate(0, 45_000),
+      grossIrr: flagged ? null : rate(-6_000, 9_000),
+      irrFlag: flagged
+        ? pick(['no_valuation', 'multiple_irr', 'insufficient_flows'] as const)
+        : rnd() < 0.1
+          ? 'short_period'
+          : null,
+      yieldToMaturity: isLoan && rnd() < 0.85 ? rate(300, 2_500) : null,
+    };
+    cases.push({
+      id: id++,
+      kind: 'underwriting',
+      tolerance: '1e-18',
+      input: { case: base, inputs, tolerances },
+      result: underwritingComparison(base, inputs, tolerances),
+    });
+  }
+
+  // The mark a capital account statement gives (docs/08 section 12, rule 12.1), last again:
+  // lines printed in each unit and in two, lines on, inside and beyond the tie tolerance, a line
+  // not stated, a share in and out of range, and contributions on and around their tolerance.
+  const tieSettings: TieTolerances = {
+    rollForwardToleranceUsd: '1',
+    tieToleranceByUnit: { USD_K: '2500', USD_M: '25000', USD_B: '25000000' },
+  };
+  const contributionsTolerancePct = '0.02';
+  const moneyUnits = ['USD', 'USD_K', 'USD_M', 'USD_B'] as const;
+  /** A figure as a statement prints it in a unit: cents in dollars, whole thousands, two places above. */
+  const printed = (unit: string, min: number, max: number): string => {
+    if (unit === 'USD') return amount(min * 1_000_000, max * 1_000_000);
+    if (unit === 'USD_K') return String(int(min * 1_000, max * 1_000));
+    if (unit === 'USD_M') return amount(min, max);
+    return D(String(int(min * 10, max * 10)))
+      .div(10_000)
+      .toString();
+  };
+  for (let i = 0; i < perKind; i++) {
+    const unit = pick(moneyUnits);
+    const unitOf = (): string => (rnd() < 0.08 ? pick(moneyUnits) : unit);
+    const read: [string, string][] = [];
+    const line = (value: string, missing: number): string | null => {
+      if (rnd() < missing) return null;
+      const lineUnit = unitOf();
+      read.push([value, lineUnit]);
+      return toDollars(value, lineUnit).toFixed();
+    };
+    const begin = printed(unit, 1, 900);
+    const paidIn = printed(unit, 0, 90);
+    const paidOut = printed(unit, 0, 90);
+    const gain = printed(unit, -90, 90);
+    const beginningBalance = line(begin, 0.08);
+    const contributionsInPeriod = line(paidIn, 0.08);
+    const distributionsInPeriod = line(paidOut, 0.08);
+    const netGainLoss = line(gain, 0.08);
+    // The ending balance the four lines give, in dollars, moved by nothing, by an amount on or
+    // around a tolerance, or by a lot; sometimes not stated, zero or below zero.
+    const sum = toDollars(begin, unit)
+      .plus(toDollars(paidIn, unit))
+      .minus(toDollars(paidOut, unit))
+      .plus(toDollars(gain, unit));
+    const off = pick([
+      '0',
+      '0',
+      '0',
+      '1',
+      '1.01',
+      '2500',
+      '2500.01',
+      '25000',
+      '25000.01',
+      '-20000',
+    ]);
+    let endingBalance: string | null = sum.plus(off).toFixed(2);
+    const how = rnd();
+    if (how < 0.05) endingBalance = null;
+    else if (how < 0.1) endingBalance = pick(['0.00', '-500000.00']);
+    const units = read.map(([, lineUnit]) => lineUnit);
+    if (endingBalance !== null) units.push(unit);
+    const record = rnd() < 0.08 ? '0' : amount(100_000, 900_000_000);
+    const contributionsToDate =
+      rnd() < 0.15
+        ? null
+        : D(record === '0' ? amount(1, 900_000_000) : record)
+            .times(pick(['1', '1.02', '0.98', '1.5', '0.5', '4']))
+            .plus(pick(['-0.01', '0', '0', '0.01']))
+            .toFixed(2);
+    const part = rnd();
+    const share =
+      part < 0.5
+        ? null
+        : part < 0.85
+          ? D(String(int(1, 10_000)))
+              .div(10_000)
+              .toString()
+          : pick(['0', '-0.25', '1.0001', '1']);
+    const lines: StatementLines = {
+      beginningBalance,
+      contributionsInPeriod,
+      distributionsInPeriod,
+      netGainLoss,
+      endingBalance,
+      contributionsToDate,
+      share,
+    };
+    const tieToleranceUsd = statementTieTolerance(units, tieSettings);
+    cases.push({
+      id: id++,
+      kind: 'statement_mark',
+      tolerance: '0',
+      input: { lines, units, record, settings: { ...tieSettings, contributionsTolerancePct } },
+      result: {
+        tieToleranceUsd: wire(tieToleranceUsd),
+        mark: statementMark(lines, record, { tieToleranceUsd, contributionsTolerancePct }),
+      },
+    });
+  }
+
+  // The mark a sponsor's report gives (rules 12.2 and 12.3), last again: with an enterprise
+  // value for the new quarter and without one, and every reason either rule can give.
+  for (let i = 0; i < perKind; i++) {
+    const referenceMark = rnd() < 0.06 ? null : rnd() < 0.04 ? '0.00' : amount(1, 900_000_000);
+    const flowsSinceReferenceMark = rnd() < 0.08;
+    const reference =
+      rnd() < 0.06
+        ? null
+        : {
+            ev: maybe(amount(1_000_000, 9_000_000_000), 0.06),
+            netDebt: maybe(amount(-500_000_000, 6_000_000_000), 0.06),
+            ebitda: maybe(amount(-20_000_000, 900_000_000), 0.08),
+          };
+    const ev = maybe(amount(1_000_000, 9_000_000_000), 0.45);
+    const current = {
+      netDebt: maybe(amount(-500_000_000, 6_000_000_000), 0.08),
+      ebitda: maybe(amount(-20_000_000, 900_000_000), 0.08),
+    };
+    const input = {
+      referenceMark,
+      flowsSinceReferenceMark,
+      reference,
+      current: { ev, ...current },
+    };
+    cases.push({
+      id: id++,
+      kind: 'report_mark',
+      tolerance: '0',
+      input,
+      result:
+        ev === null
+          ? heldMultipleMark({ referenceMark, flowsSinceReferenceMark, reference, current })
+          : impliedStakeMark({
+              referenceMark,
+              flowsSinceReferenceMark,
+              reference,
+              current: { ev, netDebt: current.netDebt },
+            }),
+    });
+  }
+
+  // A value beside the mark on record and beside another source (rules 12.4 and 12.5), last
+  // again: changes on and around the variance flag, a statement that starts on, near and off the
+  // record, and every missing figure.
+  const varianceFlag = '0.1';
+  const beside = (base: string): string =>
+    D(base)
+      .times(pick(['1.1', '0.9', '1.05', '1.25', '1', '0.4']))
+      .plus(pick(['-0.01', '0', '0', '0.01']))
+      .toFixed(2);
+  for (let i = 0; i < perKind; i++) {
+    const mark = rnd() < 0.04 ? '0.00' : amount(100, 900_000_000);
+    const suggested = rnd() < 0.08 ? null : mark === '0.00' ? amount(1, 900_000_000) : beside(mark);
+    const tieToleranceUsd = pick(['1', '2500', '25000']);
+    const statement =
+      rnd() < 0.5
+        ? null
+        : {
+            beginningBalance: maybe(
+              D(mark)
+                .plus(pick(['0', '0', tieToleranceUsd, `-${tieToleranceUsd}`, '0.01', '900000']))
+                .plus(pick(['0', '0', '0.01', '-0.01']))
+                .toFixed(2),
+              0.1,
+            ),
+            contributionsInPeriod: maybe(amount(0, 90_000_000), 0.1),
+            distributionsInPeriod: maybe(amount(0, 90_000_000), 0.1),
+            tieToleranceUsd,
+          };
+    const comparison = {
+      suggested,
+      current: rnd() < 0.08 ? null : mark,
+      currentIsPreviousQuarter: rnd() < 0.75,
+      statement,
+    };
+    const other = rnd() < 0.08 || suggested === null ? null : beside(suggested);
+    cases.push({
+      id: id++,
+      kind: 'mark_comparison',
+      tolerance: '0',
+      input: { comparison, other, varianceFlag },
+      result: {
+        comparison: markComparison({ ...comparison, varianceFlag }),
+        crossCheck: sourceCrossCheck(other, suggested, varianceFlag),
+      },
+    });
+  }
+
+  // Which marks and flows count for a suggestion's quarter (section 12), last again: marks on,
+  // just inside and just outside the tolerance of a quarter end, in the suggestion's own quarter,
+  // before and after it and across year ends, in every state; flows on and around both edges.
+  const nudges = [0, 0, 0, -3, 3, -7, 7, -8, 8, -1, 1, -45, 20];
+  const states = ['Locked', 'Locked', 'Locked', 'Draft', 'Reopened', 'OpsPrepared'];
+  for (let i = 0; i < perKind; i++) {
+    const quarterEnd = containingQuarterEnd(
+      `${int(2019, 2026)}-${pick(['02', '05', '08', '11'])}-15`,
+    );
+    const toleranceDays = pick([7, 7, 7, 0, 3, 10]);
+    const marks = Array.from({ length: int(0, 5) }, (_, n) => {
+      // A quarter end up to six quarters back, the suggestion's own, or the one after it.
+      let base = rnd() < 0.12 ? nextQuarterEnd(quarterEnd) : quarterEnd;
+      for (let back = int(0, 6); back > 0; back--) base = previousQuarterEnd(base);
+      return { id: `m${n}`, periodEnd: addDays(base, pick(nudges)), state: pick(states) };
+    });
+    const flows = Array.from({ length: int(0, 3) }, () => {
+      const anchor = marks.length > 0 && rnd() < 0.5 ? pick(marks).periodEnd : quarterEnd;
+      return {
+        date: rnd() < 0.6 ? addDays(anchor, pick([-1, 0, 1])) : addDays(quarterEnd, int(-400, 5)),
+      };
+    });
+    const from = addDays(quarterEnd, int(-900, 200));
+    const found = latestLockedBefore(marks, quarterEnd, toleranceDays);
+    cases.push({
+      id: id++,
+      kind: 'reference_marks',
+      tolerance: '0',
+      input: { quarterEnd, toleranceDays, marks, flows, from },
+      result: {
+        answer: {
+          reference:
+            found === null
+              ? null
+              : {
+                  mark: found.mark.id,
+                  reportsFor: found.reportsFor,
+                  previousQuarter: found.previousQuarter,
+                  ageQuarters: found.ageQuarters,
+                },
+          lockedForOrAfter: lockedForOrAfter(marks, quarterEnd, toleranceDays),
+          flowsSinceReference:
+            found === null ? null : hasFlowBetween(flows, found.mark.periodEnd, quarterEnd),
+        },
+        previousQuarterEnd: previousQuarterEnd(quarterEnd),
+        quartersFrom: quartersBetween(from, quarterEnd),
+      },
     });
   }
   return cases;

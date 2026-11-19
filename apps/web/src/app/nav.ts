@@ -6,7 +6,7 @@ export const NAV_GROUPS: { label: string; to: string }[] = [
   { label: 'Sponsors', to: '/sponsors' },
   { label: 'Documents', to: '/documents' },
   { label: 'Valuations', to: '/valuations' },
-  { label: 'Capital Activity', to: '/capital-activity' },
+  { label: 'Capital activity', to: '/capital-activity' },
   { label: 'Reporting', to: '/reporting' },
   { label: 'Analytics', to: '/analytics' },
   { label: 'Assistants', to: '/assistants' },
@@ -14,9 +14,17 @@ export const NAV_GROUPS: { label: string; to: string }[] = [
 ];
 
 // Phase 3: W1 valuations (M10) and change requests (M11)
-/** Valuations group tabs: the batch board and the deal change request queue. */
+/** Where the marks worked out from approved statements and reports are read and decided (decision 0023). */
+export const SUGGESTIONS_PATH = '/valuations/suggestions';
+
+/**
+ * Valuations group tabs: the batch board, the suggested marks and the deal change request queue.
+ * The Suggestions tab is shown to the roles that read suggestions only (valuationTabsFor in
+ * pages/valuations/suggestions.ts); every other role sees the row without it.
+ */
 export const VALUATION_TABS = [
   { to: '/valuations', label: 'Board', exact: true },
+  { to: SUGGESTIONS_PATH, label: 'Suggestions' },
   { to: '/valuations/changes', label: 'Change requests' },
 ];
 
@@ -40,8 +48,10 @@ export const CAPITAL_TABS = [
   { to: '/capital-activity/wires', label: 'Wire register' },
   { to: '/capital-activity/tickets', label: 'Trade tickets' },
 ];
+/** Reporting group tabs: the weekly report, the client packages and their release gate (decision 0024), the clients and the disclosures. */
 export const REPORTING_TABS = [
   { to: '/reporting', label: 'Weekly report', exact: true },
+  { to: '/reporting/packages', label: 'Packages' },
   { to: '/reporting/clients', label: 'Clients' },
   { to: '/reporting/disclosures', label: 'Disclosures' },
 ];
@@ -50,6 +60,7 @@ export const ANALYTICS_TABS = [
   { to: '/analytics/performance', label: 'Performance' },
   { to: '/analytics/value-creation', label: 'Value creation' },
   { to: '/analytics/entry-metrics', label: 'Entry metrics' },
+  { to: '/analytics/map', label: 'Map' },
   { to: '/analytics/credit', label: 'Credit book' },
   { to: '/analytics/realizations', label: 'Realizations' },
   { to: '/analytics/clients', label: 'Clients' },
@@ -67,8 +78,8 @@ export const ADMIN_TABS = [
 
 /** The Data group of the main navigation (docs/03 section 4, docs/04 M2); icons live in AppShell. */
 export const DATA_LINKS: { label: string; to: string }[] = [
-  { label: 'Data Health', to: '/data/health' },
-  { label: 'Data Dictionary', to: '/data/dictionary' },
+  { label: 'Data health', to: '/data/health' },
+  { label: 'Data dictionary', to: '/data/dictionary' },
   { label: 'Taxonomy', to: '/data/taxonomy' },
   { label: 'Intake', to: '/data/intake' },
   { label: 'Weekly values', to: '/data/weekly' },

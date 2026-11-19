@@ -12,7 +12,7 @@ import { commandResult } from '../intake/intake.js';
 
 /** The page header's context line: what the intake does and the control it passes through. */
 export const WEEKLY_META =
-  'Weekly report values to valuation staging: prior, variance, threshold flag, then a Draft valuation (SEC-9.1)';
+  'Weekly values checked against the last locked mark; an approved value becomes a draft valuation';
 
 /** What a role the weekly routes refuse is told (the API answers 403). */
 export const WEEKLY_FORBIDDEN = {

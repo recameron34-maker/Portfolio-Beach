@@ -36,7 +36,7 @@ describe('a workflow as a table of steps', () => {
   it('lists every check of a combined rule, not just the first that fails', () => {
     const close = stepRows(dealStageMachine).find((r) => r.to === 'Closed');
     expect(close?.rule).toBe(
-      'The closing checklist is incomplete. Allocations do not tie to the closing commitment (M22).',
+      'The closing checklist is incomplete. Allocations do not tie to the closing commitment.',
     );
   });
 

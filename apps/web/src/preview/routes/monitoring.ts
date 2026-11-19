@@ -1,4 +1,5 @@
 import definitions from '../../../../../config/definitions.json';
+import { recordSchemaIds } from '@pb/ai';
 import { latestQuarterEndOnOrBefore } from '@pb/calc';
 import {
   monitoringBoardQuery,
@@ -28,6 +29,7 @@ import {
   heldOn,
   todayOf,
 } from './documents.js';
+import { extractionSchemas } from './extraction.js';
 
 /**
  * Portfolio monitoring (docs/04 M9, decision 0012) simulated in the browser, the way
@@ -151,11 +153,18 @@ function expectedOf(
   return null;
 }
 
-/** The newest run of the investment for the period by (createdAt, id), with its undecided flagged and invalid rows counted. */
+/**
+ * The newest run of the investment for the period by (createdAt, id), with its undecided flagged
+ * and invalid rows counted. Only runs of a schema that writes to the quarterly record count
+ * (recordSchemaIds of @pb/ai, as in the API): a run over a capital account statement of the
+ * position promotes nothing and never takes the place of the report's run.
+ */
 function runOf(ctx: SimContext, investmentId: string, periodEnd: string): BoardRun | null {
+  const recordSchemas = recordSchemaIds(extractionSchemas());
   let latest: SimRun | null = null;
   for (const run of ctx.state.runs.values()) {
     if (run.investmentId !== investmentId || run.periodEnd !== periodEnd) continue;
+    if (!recordSchemas.includes(run.schemaId)) continue;
     if (
       latest === null ||
       run.createdAt > latest.createdAt ||

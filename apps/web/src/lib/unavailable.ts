@@ -35,8 +35,7 @@ export function unavailable(
     return (
       wording.notReady ?? {
         title: `${subject}: not available yet`,
-        detail:
-          'The endpoint behind this view is not built in this version. The view fills in once it lands.',
+        detail: 'This view is not available in this version.',
       }
     );
   }

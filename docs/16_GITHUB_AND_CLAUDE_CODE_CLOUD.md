@@ -11,7 +11,7 @@
 
 ## 2. Repository settings
 - Branch ruleset on `main`: PRs required, status checks required (`ci`, `security`), no force pushes. As the solo owner you review and merge Claude's PRs; Claude never merges.
-- Turn on: secret scanning with push protection, Dependabot alerts and updates, CodeQL, dependency review, private vulnerability reporting.
+- Turn on: secret scanning with push protection, Dependabot alerts and updates, CodeQL, dependency review, private vulnerability reporting. On a private personal repository GitHub does not offer CodeQL or dependency review; the `security` job then runs their free equivalents and skips GitHub's steps until the repository variable `CODE_SCANNING` is `on` (decision 0016). Dependency graph must be on for Dependabot alerts.
 - Actions: allow only pinned actions (full commit SHA); default token read-only.
 - `CODEOWNERS` lists you; add reviewers later when the repo moves to an organization.
 

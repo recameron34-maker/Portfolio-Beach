@@ -335,6 +335,7 @@ function controlsDataset(): ParsedSyntheticDataset {
         confirmedAt: null,
       },
     ],
+    underwritingCases: [],
   };
 }
 
@@ -358,6 +359,10 @@ function dataset(companyAliases?: SyntheticDataset['companyAliases']): Synthetic
         sector: 'sector.software',
         geography: 'geography.north_america',
         description: null,
+        hqCity: 'Austin',
+        hqCountry: 'US',
+        hqLatitude: '30.26720',
+        hqLongitude: '-97.74310',
       },
       {
         id: OTHER_COMPANY,
@@ -366,6 +371,10 @@ function dataset(companyAliases?: SyntheticDataset['companyAliases']): Synthetic
         sector: 'sector.healthcare',
         geography: 'geography.europe',
         description: null,
+        hqCity: null,
+        hqCountry: null,
+        hqLatitude: null,
+        hqLongitude: null,
       },
     ],
     fundHoldings: [],
@@ -590,6 +599,203 @@ describe('the seed loader and the Phase 3 controls (migration 0013)', () => {
       );
       expect(existsSync(join(scratch, 'malformed'))).toBe(false);
     });
+  });
+});
+
+describe('the seed loader and the underwritten base cases (migration 0021)', () => {
+  type SeedCase = ParsedSyntheticDataset['underwritingCases'][number];
+  const caseId = (n: number): string => `e0000000-0000-4000-8000-00000000000${String(n)}`;
+  let pointNo = 0;
+  const point = (periodEnd: string, ebitdaLtm: string | null, netDebt: string | null = null) => {
+    pointNo += 1;
+    return {
+      id: `e1000000-0000-4000-8000-${String(pointNo).padStart(12, '0')}`,
+      periodEnd,
+      revenueLtm: null,
+      ebitdaLtm,
+      netDebt,
+    };
+  };
+  const equity = (version: number, overrides: Partial<SeedCase> = {}): SeedCase => ({
+    id: caseId(version),
+    investmentId: INVESTMENT,
+    version,
+    form: 'equity',
+    state: 'Confirmed',
+    caseDate: '2022-03-15',
+    plannedExitDate: '2027-03-31',
+    exitMultiple: '12.50',
+    grossMoic: '2.5000',
+    grossIrr: '0.2000',
+    underwrittenYield: null,
+    annualLossRate: null,
+    note: null,
+    revisionReason: version === 1 ? null : 'Revised',
+    withdrawnReason: null,
+    sourceNote: 'Sponsor base case model, held in the deal folder',
+    enteredBy: DEAL,
+    enteredAt: '2022-03-22T10:00:00Z',
+    confirmedBy: HEAD,
+    confirmedAt: '2022-03-24T15:00:00Z',
+    points: [point('2021-12-31', '24000000.00', '95000000.00'), point('2027-03-31', '44000000.00')],
+    ...overrides,
+  });
+  /** A correction, a re-underwriting, a retired loan case and an open Draft: every state at once. */
+  const versions = (): SeedCase[] => [
+    equity(1, { state: 'Superseded' }),
+    equity(2, {
+      exitMultiple: '11.50',
+      revisionReason: 'The exit multiple was entered as 12.50; the model shows 11.50',
+      enteredBy: HEAD,
+      enteredAt: '2022-04-20T10:00:00Z',
+      confirmedBy: DEAL,
+      confirmedAt: '2022-04-21T15:00:00Z',
+    }),
+    equity(3, {
+      caseDate: '2024-06-30',
+      plannedExitDate: '2028-06-30',
+      revisionReason: 'Re-underwritten after the add-on acquisition',
+      enteredAt: '2024-08-14T10:00:00Z',
+      confirmedAt: '2024-08-16',
+      points: [point('2024-06-30', '30000000.00'), point('2028-06-30', '52000000.00')],
+    }),
+    {
+      ...equity(4, { state: 'Withdrawn', withdrawnReason: 'Confirmed against the wrong model' }),
+      form: 'credit',
+      caseDate: '2024-09-30',
+      plannedExitDate: '2029-09-30',
+      exitMultiple: null,
+      underwrittenYield: '0.1150',
+      annualLossRate: '0.0100',
+      points: [],
+    },
+    equity(5, {
+      state: 'Draft',
+      caseDate: '2025-03-31',
+      plannedExitDate: '2029-03-31',
+      enteredAt: '2025-06-24T10:00:00Z',
+      confirmedBy: null,
+      confirmedAt: null,
+      points: [point('2025-03-31', '33000000.00'), point('2029-03-31', '55000000.00')],
+    }),
+  ];
+  const withCases = (cases: SeedCase[]): ParsedSyntheticDataset => ({
+    ...controlsDataset(),
+    underwritingCases: cases,
+  });
+
+  it('accepts a dataset made before the base cases and reads them as none', () => {
+    const legacy: Record<string, unknown> = { ...controlsDataset() };
+    delete legacy.underwritingCases;
+    expect(syntheticDatasetSchema.parse(legacy).underwritingCases).toEqual([]);
+  });
+
+  it('records each version as the product does, and leaves every case where the dataset says it stands', async () => {
+    const handle = await createTestDb();
+    try {
+      // The first three versions, then the dataset grown by two: a version already there is
+      // left as it is and the new ones are recorded on top of it.
+      await loadSyntheticDataset(handle, withCases(versions().slice(0, 3)));
+      const counts = await loadSyntheticDataset(handle, withCases(versions()));
+      expect(counts).toMatchObject({ underwritingCases: 5, underwritingCasePoints: 8 });
+      const read = () =>
+        handle.query<{
+          version: number;
+          form: string;
+          state: string;
+          confirmed_by: string | null;
+          confirmed_at: Date | null;
+          entered_at: Date;
+          withdrawn_reason: string | null;
+          row_version: number;
+          points: number;
+        }>(
+          `select c.version, c.form, c.state::text as state, c.confirmed_by, c.confirmed_at, c.entered_at, c.withdrawn_reason, c.row_version,
+             (select count(*)::int from mon.underwriting_case_point p where p.case_id = c.id) as points
+           from mon.underwriting_case c order by c.version`,
+        );
+      const rows = await read();
+      expect(
+        rows.map((r) => [r.version, r.form, r.state, r.confirmed_by, r.points, r.row_version]),
+      ).toEqual([
+        // Inserted as a Draft, confirmed, then superseded by the confirmation of version 2.
+        [1, 'equity', 'Superseded', HEAD, 2, 3],
+        [2, 'equity', 'Confirmed', DEAL, 2, 2],
+        // A later case date: a re-underwriting, and both stay Confirmed.
+        [3, 'equity', 'Confirmed', HEAD, 2, 2],
+        // Confirmed, then retired: who confirmed it stays on the row.
+        [4, 'credit', 'Withdrawn', HEAD, 0, 3],
+        [5, 'equity', 'Draft', null, 2, 1],
+      ]);
+      expect(rows[3]?.withdrawn_reason).toBe('Confirmed against the wrong model');
+      // Instants are written as given; a date reads as UTC midnight, never a local time.
+      expect(new Date(rows[0]!.entered_at).toISOString()).toBe('2022-03-22T10:00:00.000Z');
+      expect(new Date(rows[0]!.confirmed_at!).toISOString()).toBe('2022-03-24T15:00:00.000Z');
+      expect(new Date(rows[2]!.confirmed_at!).toISOString()).toBe('2024-08-16T00:00:00.000Z');
+      // The history holds the life of version 1 as it was recorded.
+      const history = await handle.query<{ op: string; state: string }>(
+        `select op, row_image ->> 'state' as state from mon.underwriting_case_history where row_id = '${caseId(1)}' order by history_id`,
+      );
+      expect(history).toEqual([
+        { op: 'INSERT', state: 'Draft' },
+        { op: 'UPDATE', state: 'Confirmed' },
+        { op: 'UPDATE', state: 'Superseded' },
+      ]);
+      // Loading again changes nothing: no second row, no further row version, no new image.
+      await loadSyntheticDataset(handle, withCases(versions()));
+      expect(await read()).toEqual(rows);
+      const images = await handle.query<{ n: number }>(
+        'select count(*)::int as n from mon.underwriting_case_history',
+      );
+      expect(images[0]?.n).toBe(3 + 2 + 2 + 3 + 1);
+    } finally {
+      await handle.close();
+    }
+  });
+
+  it('refuses a dataset whose states no history leads to, and writes none of that position', async () => {
+    const handle = await createTestDb();
+    try {
+      // Superseded, with no later version dated as it is to have corrected it.
+      const orphan = [equity(1, { state: 'Superseded' })];
+      await expect(loadSyntheticDataset(handle, withCases(orphan))).rejects.toThrow(
+        /version 1\): the dataset says Superseded, and its versions lead to Confirmed/,
+      );
+      // Confirmed by the person who entered it (SEC-5.6): the database refuses the confirmation.
+      await expectDbRejection(
+        loadSyntheticDataset(handle, withCases([equity(1, { confirmedBy: DEAL })])),
+        /check constraint/,
+      );
+      // Confirmed with no source (SEC-9.4), and an equity case whose plan stops short of its exit.
+      await expectDbRejection(
+        loadSyntheticDataset(handle, withCases([equity(1, { sourceNote: null })])),
+        /check constraint/,
+      );
+      await expectDbRejection(
+        loadSyntheticDataset(
+          handle,
+          withCases([equity(1, { points: [point('2021-12-31', '24000000.00')] })]),
+        ),
+        /two plan points or more/,
+      );
+      const rows = await handle.query<{ n: number }>(
+        'select (select count(*) from mon.underwriting_case)::int + (select count(*) from mon.underwriting_case_point)::int as n',
+      );
+      expect(rows[0]?.n).toBe(0);
+    } finally {
+      await handle.close();
+    }
+  });
+
+  it('refuses a case with a figure that is not a decimal or a state that does not exist', () => {
+    const parse = (overrides: Record<string, unknown>) =>
+      syntheticDatasetSchema.safeParse(withCases([{ ...equity(1), ...overrides }])).success;
+    expect(parse({})).toBe(true);
+    expect(parse({ grossIrr: '20%' })).toBe(false);
+    expect(parse({ state: 'Locked' })).toBe(false);
+    expect(parse({ form: 'primary' })).toBe(false);
+    expect(parse({ version: 0 })).toBe(false);
+    expect(parse({ enteredAt: 'last week' })).toBe(false);
   });
 });
 

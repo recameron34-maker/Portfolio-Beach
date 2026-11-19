@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { Fragment, useCallback, useEffect, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import { Link, useParams, useSearch } from '@tanstack/react-router';
 import { useQuery } from '@tanstack/react-query';
@@ -12,6 +12,7 @@ import { intakeFileQuery, meQuery } from '../../app/queries.js';
 import { UnavailableState } from '../../components/UnavailableState.js';
 import {
   Badge,
+  Breadcrumbs,
   Card,
   EmptyState,
   ErrorState,
@@ -37,6 +38,8 @@ import {
   describeChange,
   DIFF_TONES,
   DIFF_WORDS,
+  exactMoney,
+  FIELD_LABELS,
   filterRows,
   findingDetail,
   findingTone,
@@ -54,13 +57,8 @@ import {
 } from './intake.js';
 import './intake.css';
 
-function BackLink(): ReactNode {
-  return (
-    <p className="pb-meta">
-      <Link to="/data/intake">All intake files</Link>
-    </p>
-  );
-}
+/** Where a staged file's page sits: under Intake. */
+const CRUMBS = [{ label: 'Intake', to: '/data/intake' }];
 
 function Tiles({ file }: { file: IntakeFileDetail }): ReactNode {
   const c = file.counts;
@@ -91,19 +89,31 @@ function Tiles({ file }: { file: IntakeFileDetail }): ReactNode {
   );
 }
 
-/** The file-level findings of a refused file; every intake's detail page shows them the same way. */
-export function FileFindingsCard({ findings }: { findings: readonly IntakeFinding[] }): ReactNode {
+/**
+ * The file-level findings of a refused file or run; every intake's detail page shows them the same
+ * way: a dot of the finding's severity, its rule as an identifier, the message and what was expected.
+ */
+export function FileFindingsCard({
+  findings,
+  title = 'File findings',
+  testId = 'intake-file-findings',
+}: {
+  findings: readonly IntakeFinding[];
+  title?: string;
+  testId?: string;
+}): ReactNode {
   return (
-    <Card tone="error" testId="intake-file-findings">
-      <SectionHeader>File findings</SectionHeader>
-      <ul className="pb-intake-file-findings" aria-label="File findings">
+    <Card tone="error" testId={testId}>
+      <SectionHeader>{title}</SectionHeader>
+      <ul className="pb-item-list pb-intake-file-findings" aria-label={title}>
         {findings.map((f, i) => {
           const detail = findingDetail(f);
           return (
             <li key={`${f.ruleId}-${i}`}>
-              <Badge tone={findingTone(f.severity)}>{f.ruleId}</Badge>
+              <span className={`pb-dot pb-status-${findingTone(f.severity)}`} aria-hidden="true" />
+              <span className="pb-rule-id">{f.ruleId}</span>
               <span>{f.message}</span>
-              {detail === null ? null : <span className="pb-meta">{detail}</span>}
+              {detail === null ? null : <span className="pb-note">{detail}</span>}
             </li>
           );
         })}
@@ -131,36 +141,58 @@ export function SubjectCell({
       ) : (
         <span>{name}</span>
       )}
-      <span className="pb-cell-sub">
-        {subject.investmentNumber === null ? null : (
+      {subject.investmentNumber === null ? null : (
+        <>
+          {' '}
           <span className="pb-key">{subject.investmentNumber}</span>
-        )}
-        {note === null ? null : (
+        </>
+      )}
+      {note === null ? null : (
+        <span className="pb-cell-sub">
           <Badge plain tone="watch">
             {note}
           </Badge>
-        )}
-      </span>
-      {candidates === null ? null : <span className="pb-intake-lines">{candidates}</span>}
+        </span>
+      )}
+      {candidates === null ? null : <span className="pb-cell-sub">{candidates}</span>}
     </td>
   );
 }
 
 /**
  * What approving the row writes: every change, to the cent, whether the quarter is new (every
- * figure, nothing on record) or restated. The approver must see each figure before it reaches
- * production (CLAUDE.md rule 5); the millions scale sits in the title.
+ * figure, nothing on record) or restated, as a small grid: the figure, what the record holds and
+ * what the file holds, right-aligned so the two compare. The approver must see each figure before
+ * it reaches production (CLAUDE.md rule 5); the millions scale sits in each line's title, and a
+ * screen reader hears each change as one sentence. An unchanged row says so in muted words.
  */
 function DiffCell({ diff }: { diff: IntakeRow['diff'] }): ReactNode {
+  if (diff.kind === 'unchanged' && diff.changes.length === 0) {
+    return (
+      <td>
+        <span className="pb-meta">No change</span>
+      </td>
+    );
+  }
+  const isNew = diff.kind === 'new';
   return (
-    <td>
+    <td className="pb-intake-diff-cell">
       <Badge tone={DIFF_TONES[diff.kind]}>{DIFF_WORDS[diff.kind]}</Badge>
       {diff.changes.length > 0 ? (
-        <span className="pb-intake-lines">
+        <span className="pb-intake-diff" title={isNew ? 'New, nothing on record' : undefined}>
           {diff.changes.map((c) => (
-            <span key={c.field} title={describeChange(c, 'millions')}>
-              {describeChange(c)}
-            </span>
+            <Fragment key={c.field}>
+              <span
+                className="pb-intake-diff-line"
+                title={describeChange(c, 'millions')}
+                aria-hidden="true"
+              >
+                <span className="pb-intake-diff-field">{FIELD_LABELS[c.field]}</span>
+                <span className="pb-intake-diff-record">{isNew ? '' : exactMoney(c.before)}</span>
+                <span className="pb-intake-diff-file">{exactMoney(c.after)}</span>
+              </span>
+              <span className="pb-visually-hidden">{describeChange(c)}</span>
+            </Fragment>
           ))}
         </span>
       ) : null}
@@ -168,7 +200,10 @@ function DiffCell({ diff }: { diff: IntakeRow['diff'] }): ReactNode {
   );
 }
 
-/** A row's findings as rule badges, with the messages behind a disclosure. */
+/**
+ * A row's findings: the count with the dot of its worst severity (the disclosure holds each
+ * message), then the rules as identifiers. Shared by every intake's rows.
+ */
 export function FindingsCell({ findings }: { findings: readonly IntakeFinding[] }): ReactNode {
   if (findings.length === 0) {
     return (
@@ -177,17 +212,13 @@ export function FindingsCell({ findings }: { findings: readonly IntakeFinding[] 
       </td>
     );
   }
+  const tone = findings.some((f) => findingTone(f.severity) === 'bad') ? 'bad' : 'watch';
   return (
     <td>
-      <span className="pb-intake-findings">
-        {findings.map((f, i) => (
-          <span key={`${f.ruleId}-${i}`} title={f.message}>
-            <Badge tone={findingTone(f.severity)}>{f.ruleId}</Badge>
-          </span>
-        ))}
-      </span>
-      <details className="pb-intake-details">
-        <summary>{plural(findings.length, 'finding')}</summary>
+      <details className="pb-details pb-findings">
+        <summary>
+          <Badge tone={tone}>{plural(findings.length, 'finding')}</Badge>
+        </summary>
         <ul className="pb-list">
           {findings.map((f, i) => {
             const detail = findingDetail(f);
@@ -200,6 +231,14 @@ export function FindingsCell({ findings }: { findings: readonly IntakeFinding[] 
           })}
         </ul>
       </details>
+      <span className="pb-rule-id">
+        {findings.map((f, i) => (
+          <Fragment key={`${f.ruleId}-${i}`}>
+            {i === 0 ? null : ', '}
+            <span title={f.message}>{f.ruleId}</span>
+          </Fragment>
+        ))}
+      </span>
     </td>
   );
 }
@@ -225,13 +264,17 @@ function DecisionCell({ row }: { row: IntakeRow }): ReactNode {
 function RowsTable({ rows }: { rows: readonly IntakeRow[] }): ReactNode {
   return (
     <TableWrap label="Staged rows">
-      <table className="pb-table pb-intake-rows" aria-label="Staged rows" data-testid="intake-rows">
+      <table
+        className="pb-table pb-hold-2 pb-intake-rows"
+        aria-label="Staged rows"
+        data-testid="intake-rows"
+      >
         <thead>
           <tr>
             <th className="num">Row</th>
             <th>Investment</th>
             <th>Period end</th>
-            <th>Diff</th>
+            <th>Record to file</th>
             <th>Findings</th>
             <th>Status</th>
             <th>Decision</th>
@@ -306,14 +349,7 @@ function RowsCard({
 
   return (
     <Card testId="intake-rows-card">
-      <SectionHeader
-        aside={
-          <>
-            {`${rows.length} of ${plural(file.rows.length, 'row')}`}
-            <SimulatedBadge />
-          </>
-        }
-      >
+      <SectionHeader aside={`${rows.length} of ${plural(file.rows.length, 'row')}`}>
         Staged rows
       </SectionHeader>
       <Toolbar
@@ -349,6 +385,7 @@ function RowsCard({
                   Reject flagged rows
                 </Button>
               ) : null}
+              <SimulatedBadge />
             </>
           ) : undefined
         }
@@ -429,11 +466,14 @@ function FileBody({
 }): ReactNode {
   return (
     <>
-      <BackLink />
       <PageHeader
+        crumbs={CRUMBS}
         title={file.fileName}
         meta={
           <span className="pb-meta-list">
+            <span>
+              <Badge tone={stagingTone(file.status)}>{humanizeState(file.status)}</Badge>
+            </span>
             <span>{sourceWord(file.source)}</span>
             {templateLine(file) === null ? null : <span>{templateLine(file)}</span>}
             <span>Received {dayOf(file.receivedAt)}</span>
@@ -441,7 +481,6 @@ function FileBody({
             <span>{plural(file.rowCount, 'row')}</span>
           </span>
         }
-        actions={<Badge tone={stagingTone(file.status)}>{humanizeState(file.status)}</Badge>}
         testId="intake-banner"
       />
       {duplicate ? (
@@ -471,7 +510,7 @@ export function IntakeFilePage(): ReactNode {
     const missing = q.error instanceof ApiError && q.error.status === 404;
     return (
       <>
-        <BackLink />
+        <Breadcrumbs items={CRUMBS} />
         {missing ? (
           <ErrorState
             title="Intake file not found or not visible to you"

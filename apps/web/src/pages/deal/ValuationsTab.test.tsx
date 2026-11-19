@@ -1,5 +1,5 @@
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
-import { cleanup, fireEvent, screen, within } from '@testing-library/react';
+import { cleanup, fireEvent, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { failing, mockApi, ok } from '../../test/api-mock.js';
 import {
@@ -14,8 +14,15 @@ import {
   changeRequestRowFixture,
   changeRequestRows,
   changeTypeTaxonomyFixture,
+  rolePrincipal,
   sentPosts,
+  sentRequests,
 } from '../../test/fixtures-valuations.js';
+import {
+  SUGGESTION_ID,
+  suggestionFixture,
+  suggestionPageFixture,
+} from '../../test/fixtures-suggestions.js';
 import { renderWithQuery } from '../../test/render.js';
 import { clearTaxonomyLabels, registerTaxonomyLabels } from '../../lib/format.js';
 import { ValuationsTab } from './ValuationsTab.js';
@@ -29,13 +36,14 @@ afterAll(() => clearTaxonomyLabels());
 const REQUESTS = `/api/v1/change-requests?limit=200&investmentId=${DEAL_ID}`;
 const TAXONOMY = '/api/v1/taxonomy';
 const CREATE = '/api/v1/change-requests';
+const SUGGESTED = `/api/v1/valuation-suggestions?investmentId=${DEAL_ID}&limit=200`;
 /** Dropdown journeys drive Fluent popovers; give them room on a loaded test runner. */
 const TIMEOUT = { timeout: 15_000 };
 
 vi.mock('@tanstack/react-router', async () => {
-  const { routerMock } = await import('../../test/router-mock.js');
   const { DEAL_ID: id } = await import('../../test/fixtures-deal.js');
-  return { ...routerMock(), useParams: () => ({ id }) };
+  const { routerMockWithSearch } = await import('../../test/router-mock.js');
+  return { ...routerMockWithSearch(), useParams: () => ({ id }) };
 });
 
 const EM_DASH = String.fromCharCode(0x2014);
@@ -90,6 +98,67 @@ describe('valuations tab', () => {
     expect(screen.queryByRole('button', { name: /lock|approve|prepare|reopen/i })).toBeNull();
     expect(screen.queryByRole('status')).not.toBeInTheDocument();
     expect(document.body.textContent).not.toContain(EM_DASH);
+  });
+
+  it('shows the mark suggested for the position while one is open, with its source and a way to its workings', async () => {
+    const open = suggestionFixture({ investmentId: DEAL_ID });
+    mockApi({
+      [DEAL_PATHS.me]: ok(rolePrincipal(['deal_team'])),
+      [DEAL_PATHS.detail]: ok(dealDetailFixture()),
+      [DEAL_PATHS.valuations]: ok(valuationPageFixture()),
+      [SUGGESTED]: ok(suggestionPageFixture([open])),
+    });
+    renderWithQuery(<ValuationsTab />);
+    const panel = await screen.findByTestId('deal-suggested-mark');
+    const table = within(panel).getByRole('table', { name: 'Suggested mark' });
+    const row = within(table).getAllByRole('row')[1]!;
+    expect(row).toHaveTextContent('Jun 30, 2025');
+    expect(within(row).getByText('$20.9M')).toBeInTheDocument();
+    expect(within(row).getByText('$18.4M')).toBeInTheDocument();
+    expect(within(row).getByText('Mar 31, 2025, one quarter old')).toBeInTheDocument();
+    expect(within(row).getByText('13.7%')).toBeInTheDocument();
+    expect(within(row).getByText('Capital account statement')).toBeInTheDocument();
+    expect(within(row).getByText('Variance')).toBeInTheDocument();
+    expect(within(row).getByRole('link', { name: 'Workings, Jun 30, 2025' })).toHaveAttribute(
+      'href',
+      `/valuations/suggestions?id=${SUGGESTION_ID.statement}`,
+    );
+    expect(panel).toHaveTextContent(
+      'It becomes a mark only once operations opens a draft valuation from it and the draft is approved and Locked.',
+    );
+    // The panel offers no decision: that is made on the Suggestions tab.
+    expect(within(panel).queryByRole('button')).not.toBeInTheDocument();
+  });
+
+  it('draws no panel for a position with no open suggestion, and asks for none for a role that does not read them', async () => {
+    mockApi({
+      [DEAL_PATHS.me]: ok(rolePrincipal(['operations'])),
+      [DEAL_PATHS.detail]: ok(dealDetailFixture()),
+      [DEAL_PATHS.valuations]: ok(valuationPageFixture()),
+      [SUGGESTED]: ok(suggestionPageFixture([])),
+    });
+    const first = renderWithQuery(<ValuationsTab />);
+    await screen.findByTestId('deal-valuations');
+    await waitFor(() => expect(sentRequests().map(([url]) => url)).toContain(SUGGESTED));
+    expect(screen.queryByTestId('deal-suggested-mark')).not.toBeInTheDocument();
+    first.unmount();
+    vi.restoreAllMocks();
+
+    for (const role of ['viewer', 'investor_relations', 'platform_admin'] as const) {
+      mockApi({
+        [DEAL_PATHS.me]: ok(rolePrincipal([role])),
+        [DEAL_PATHS.detail]: ok(dealDetailFixture()),
+        [DEAL_PATHS.valuations]: ok(valuationPageFixture()),
+        [SUGGESTED]: ok(suggestionPageFixture([suggestionFixture({ investmentId: DEAL_ID })])),
+      });
+      const page = renderWithQuery(<ValuationsTab />);
+      await screen.findByTestId('deal-valuations');
+      await screen.findByTestId('deal-change-requests');
+      expect(screen.queryByTestId('deal-suggested-mark')).not.toBeInTheDocument();
+      expect(sentRequests().some(([url]) => url.includes('valuation-suggestions'))).toBe(false);
+      page.unmount();
+      vi.restoreAllMocks();
+    }
   });
 
   it('says so when the position has no valuation versions', async () => {

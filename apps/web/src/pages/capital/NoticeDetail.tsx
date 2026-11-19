@@ -17,11 +17,13 @@ import { previewMode } from '../../app/env.js';
 import { describeActionError, useCapitalNoticeCommand } from '../../app/mutations.js';
 import type { CommandBody } from '../../app/mutations.js';
 import { capitalNoticeQuery, meQuery } from '../../app/queries.js';
+import { StepStrip } from '../../components/StepStrip.js';
 import { UnavailableState } from '../../components/UnavailableState.js';
 import {
   Badge,
+  Breadcrumbs,
   Card,
-  EmptyState,
+  EmptyLine,
   ErrorState,
   KeyValueTable,
   NumCell,
@@ -75,61 +77,73 @@ import { balanceTiles } from '../../lib/tiles.js';
 type NoticeOption = CommandOption<CapitalNoticeState, CapitalNoticeCommand>;
 
 const BANK_DETAILS =
-  'Bank details are never extracted from documents (SEC-12.1); tickets release only against a Verified instruction (SEC-12.2, SEC-12.3).';
+  'Bank details are never extracted from documents; tickets release only against a Verified instruction.';
 
-function BackLink(): ReactNode {
-  return (
-    <p className="pb-meta pb-cap-back">
-      <Link to="/capital-activity">All capital notices</Link>
-    </p>
-  );
-}
+/** Where a notice sits: Capital activity, then its notices. */
+const TRAIL = [
+  { label: 'Capital activity', to: '/capital-activity' },
+  { label: 'Notices', to: '/capital-activity' },
+];
 
+/** The commands that move a notice on; recording a wire change is not one of them. */
+const FORWARD: ReadonlySet<CapitalNoticeCommand> = new Set([
+  'extract',
+  'review',
+  'draftTicket',
+  'approveTicket',
+  'confirmFunding',
+  'reconcile',
+]);
+
+/** The seven states of docs/18 section 3 in the shared step strip. */
 function ProgressStrip({ state }: { state: CapitalNoticeState }): ReactNode {
   return (
-    <ol className="pb-cap-progress" aria-label="Notice progress">
-      {progressSteps(state).map((step, i) => (
-        <li
-          key={step.state}
-          data-status={step.status}
-          {...(step.status === 'current' ? { 'aria-current': 'step' as const } : {})}
-        >
-          <span className="pb-cap-step">
-            <span className="pb-cap-step-number" aria-hidden="true">
-              {i + 1}
-            </span>
-            {humanizeState(step.state)}
-          </span>
-          {step.status === 'done' ? (
-            <Badge tone="good">Done</Badge>
-          ) : step.status === 'current' ? (
-            <Badge tone="brand">Current</Badge>
-          ) : (
-            <Badge plain>Upcoming</Badge>
-          )}
-        </li>
-      ))}
-    </ol>
+    <StepStrip
+      label="Notice progress"
+      steps={progressSteps(state).map((step) => ({
+        key: step.state,
+        label: humanizeState(step.state),
+        status: step.status,
+      }))}
+    />
   );
 }
 
-/** The SEC-12.4 alerts: one badge and one plain sentence each, or the word that none stands. */
-function AlertsStrip({ alerts }: { alerts: readonly CapitalNoticeAlert[] }): ReactNode {
+/**
+ * The hold and the SEC-12.4 alerts in one block under the header, each line a dot, a word and
+ * its sentence. It takes the bad band once, when a hold or a bad alert stands; otherwise it is
+ * plain lines, or the one line that no alert stands.
+ */
+function HoldsAndAlerts({ notice }: { notice: CapitalNoticeDetail }): ReactNode {
+  const hold = notice.wireChangeHold;
+  const alerts = notice.alerts;
+  const bad = hold !== null || alerts.some((a) => ALERT_WORDS[a].tone === 'bad');
   return (
-    <div className="pb-cap-alerts" data-testid="notice-alerts">
-      {alerts.length === 0 ? (
-        <p className="pb-meta">No alerts on this notice.</p>
-      ) : (
-        <ul className="pb-cap-alert-list" aria-label="Notice alerts">
-          {alerts.map((alert) => (
-            <li key={alert}>
-              <Badge tone={ALERT_WORDS[alert].tone}>{ALERT_WORDS[alert].label}</Badge>
-              <span>{ALERT_WORDS[alert].sentence}</span>
-            </li>
-          ))}
-        </ul>
+    <section className={bad ? 'pb-cap-holds is-bad' : 'pb-cap-holds'} aria-label="Holds and alerts">
+      {hold === null ? null : (
+        <p className="pb-cap-hold-line" data-testid="wire-hold">
+          <Badge tone="bad">Held</Badge>
+          <span>
+            Wire instructions changed within the hold window. Ticket approval is held until{' '}
+            {formatDate(hold.until)} ({hold.holdDays} days).
+          </span>
+        </p>
       )}
-    </div>
+      <div data-testid="notice-alerts">
+        {alerts.length === 0 ? (
+          <p className="pb-meta">No alerts on this notice.</p>
+        ) : (
+          <ul className="pb-cap-alert-list" aria-label="Notice alerts">
+            {alerts.map((alert) => (
+              <li key={alert}>
+                <Badge tone={ALERT_WORDS[alert].tone}>{ALERT_WORDS[alert].label}</Badge>
+                <span>{ALERT_WORDS[alert].sentence}</span>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+    </section>
   );
 }
 
@@ -159,7 +173,7 @@ function CashFlowsCard({ notice }: { notice: CapitalNoticeDetail }): ReactNode {
     <Card testId="notice-cash-flows">
       <SectionHeader>Cash flows created</SectionHeader>
       {notice.cashFlows.length === 0 ? (
-        <EmptyState
+        <EmptyLine
           title="No cash flows yet"
           detail="They are created when the ticket is approved and funding is confirmed."
         />
@@ -180,7 +194,7 @@ function CashFlowsCard({ notice }: { notice: CapitalNoticeDetail }): ReactNode {
                   <td className="pb-nowrap">{formatDate(f.date)}</td>
                   <td>{labelOf(f.flowType)}</td>
                   <NumCell>{noticeAmount(f.amount, notice.currency)}</NumCell>
-                  <td>
+                  <td className="pb-nowrap">
                     <Badge tone={cashFlowTone(f.status)}>{labelOf(f.status)}</Badge>
                   </td>
                 </tr>
@@ -193,7 +207,10 @@ function CashFlowsCard({ notice }: { notice: CapitalNoticeDetail }): ReactNode {
   );
 }
 
-/** Whether the ticket can be released now, or every reason it cannot, in words (SEC-12.3). */
+/**
+ * Whether the ticket can be released now, or every reason it cannot, in words (SEC-12.3): a dot
+ * and a sentence a line, with no box (the holds and alerts above carry the page's one band).
+ */
 function ReleaseStatus({ ticket }: { ticket: TradeTicketRow }): ReactNode {
   if (nothingToRelease(ticket.state)) {
     return (
@@ -204,17 +221,21 @@ function ReleaseStatus({ ticket }: { ticket: TradeTicketRow }): ReactNode {
   }
   if (ticket.release.allowed) {
     return (
-      <p className="pb-notice pb-notice-good pb-cap-release" data-testid="ticket-release">
-        {RELEASE_ALLOWED}
+      <p className="pb-cap-release pb-cap-dot-line" data-testid="ticket-release">
+        <span className="pb-cap-dot is-good" aria-hidden="true" />
+        <span>{RELEASE_ALLOWED}</span>
       </p>
     );
   }
   return (
-    <div className="pb-notice pb-notice-bad pb-cap-release" data-testid="ticket-release">
-      <span>Release is blocked:</span>
-      <ul aria-label="Release blockers">
+    <div className="pb-cap-release" data-testid="ticket-release">
+      <p className="pb-cap-release-title">Release is blocked:</p>
+      <ul className="pb-cap-dot-list" aria-label="Release blockers">
         {ticket.release.blockers.map((b) => (
-          <li key={b}>{BLOCKER_WORDS[b]}</li>
+          <li key={b}>
+            <span className="pb-cap-dot is-bad" aria-hidden="true" />
+            <span>{BLOCKER_WORDS[b]}</span>
+          </li>
         ))}
       </ul>
     </div>
@@ -247,17 +268,21 @@ function TicketCard({ notice }: { notice: CapitalNoticeDetail }): ReactNode {
         Trade ticket
       </SectionHeader>
       {ticket === null ? (
-        <EmptyState
+        <EmptyLine
           title="No trade ticket yet"
-          detail="Draft ticket creates one from the notice's amount and due date. The preparer and the approver must differ (SEC-12.3)."
+          detail="Draft ticket creates one from the notice's amount and due date. The preparer and the approver must differ."
         />
       ) : (
         <>
           <KeyValueTable
             label="Trade ticket"
+            columns={1}
             rows={[
               { label: 'Amount', value: noticeAmount(ticket.amount, ticket.currency) },
-              { label: 'Funding date', value: formatDate(ticket.fundingDate) },
+              {
+                label: 'Funding date',
+                value: <span className="pb-nowrap">{formatDate(ticket.fundingDate)}</span>,
+              },
               { label: 'Prepared by', value: personAt(ticket.preparedBy, ticket.preparedAt) },
               { label: 'Approved by', value: personAt(ticket.approvedBy, ticket.approvedAt) },
               {
@@ -312,18 +337,19 @@ function WireCard({
         Wire instruction
       </SectionHeader>
       {restricted ? (
-        <EmptyState
+        <EmptyLine
           title="A Verified instruction is on file"
-          detail="Its details are kept in the wire register, which operations, approvers, auditors and platform admins read (SEC-12.2). The alerts and the release check on this page already take it into account."
+          detail="Its details are kept in the wire register, which operations, approvers, auditors and platform admins read. The alerts and the release check on this page already take it into account."
         />
       ) : wire === null ? (
-        <EmptyState
+        <EmptyLine
           title="No Verified instruction on file"
-          detail="The ticket can be approved only against a Verified instruction (SEC-12.2). Operations propose one in the wire register and a second person verifies it by callback."
+          detail="The ticket can be approved only against a Verified instruction. Operations propose one in the wire register and a second person verifies it by callback."
         />
       ) : (
         <KeyValueTable
           label="Active wire instruction"
+          columns={1}
           rows={[
             {
               label: 'Counterparty',
@@ -359,7 +385,12 @@ function WireCard({
   );
 }
 
-function WorkflowCard({
+/**
+ * The notice's commands directly under the header, with no heading or frame: the command that
+ * moves the notice on leads, why a command is blocked reads under the buttons, and the result
+ * line, the last-step sentence, the command notes and the bank details rule follow as quiet lines.
+ */
+function CommandBlock({
   notice,
   roles,
   onLog,
@@ -372,6 +403,7 @@ function WorkflowCard({
   const [reasonFor, setReasonFor] = useState<NoticeOption | null>(null);
   const [drafting, setDrafting] = useState(false);
   const options = commandOptions(capitalNoticeMachine, notice.state, roles);
+  const forward = options.find((o) => FORWARD.has(o.command))?.command;
   const subject = noticeSubject(notice);
   const send = (option: NoticeOption, body: CapitalNoticeCommandBody): void => {
     // The shared hook's body type leaves no room for an undefined reason (exactOptionalPropertyTypes).
@@ -401,19 +433,20 @@ function WorkflowCard({
   const draftOption = options.find((o) => o.command === 'draftTicket');
   const notes = options.filter((o) => o.note !== undefined);
   return (
-    <Card testId="notice-workflow">
-      <SectionHeader aside={previewMode ? <SimulatedBadge /> : undefined}>Workflow</SectionHeader>
-      <ActionStatus latest={onLog.latest} testId="notice-action-status" />
+    <div className="pb-command-block" data-testid="notice-workflow">
       {options.length === 0 ? (
         <p className="pb-meta">
           {humanizeState(notice.state)} is the last step; nothing further to do.
         </p>
       ) : (
-        <div className="pb-cap-actions">
+        <div className="pb-command-row">
           <CommandButtons
             options={options}
             busy={command.isPending}
             appearance="secondary"
+            size="medium"
+            primary={forward}
+            showBlockedReason
             notAllowedTitle={(o) => (o.command === 'extract' ? 'Service accounts only' : undefined)}
             onIssue={(o) =>
               o.command === 'draftTicket'
@@ -423,18 +456,16 @@ function WorkflowCard({
                   : issue(o)
             }
           />
+          {previewMode ? <SimulatedBadge /> : null}
         </div>
       )}
-      {notes.length > 0 ? (
-        <ul className="pb-list pb-cap-notes">
-          {notes.map((o) => (
-            <li key={o.command} className="pb-meta">
-              {commandLabel(o.command)}: {o.note}
-            </li>
-          ))}
-        </ul>
-      ) : null}
-      <p className="pb-meta" data-testid="bank-details-note">
+      <ActionStatus latest={onLog.latest} testId="notice-action-status" />
+      {notes.map((o) => (
+        <p key={o.command} className="pb-note">
+          {commandLabel(o.command)}: {o.note}
+        </p>
+      ))}
+      <p className="pb-note" data-testid="bank-details-note">
         {BANK_DETAILS}
       </p>
       {reasonFor !== null ? (
@@ -458,7 +489,7 @@ function WorkflowCard({
           }}
         />
       ) : null}
-    </Card>
+    </div>
   );
 }
 
@@ -472,13 +503,13 @@ function NoticeBody({
   const log = useActionLog();
   const subject = noticeSubject(notice);
   const splits = Object.entries(notice.split);
-  const hold = notice.wireChangeHold;
   return (
     <>
-      <BackLink />
       <PageHeader
         testId="notice-banner"
+        crumbs={TRAIL}
         title={`${labelOf(notice.noticeType)}: ${subject}`}
+        titleAside={<Badge tone={noticeTone(notice.state)}>{humanizeState(notice.state)}</Badge>}
         meta={
           <span className="pb-meta-list">
             <span>{notice.vehicleName}</span>
@@ -489,18 +520,16 @@ function NoticeBody({
             </span>
           </span>
         }
-        actions={<Badge tone={noticeTone(notice.state)}>{humanizeState(notice.state)}</Badge>}
       />
+      <CommandBlock notice={notice} roles={roles} onLog={log} />
       <ProgressStrip state={notice.state} />
-      {hold === null ? null : (
-        <p className="pb-notice pb-notice-bad pb-cap-hold" data-testid="wire-hold">
-          Wire instructions changed within the hold window. Ticket approval is held until{' '}
-          {formatDate(hold.until)} ({hold.holdDays} days, SEC-12.3).
-        </p>
-      )}
-      <AlertsStrip alerts={notice.alerts} />
+      <HoldsAndAlerts notice={notice} />
       <div ref={balanceTiles} className="pb-tiles" data-testid="notice-tiles">
-        <StatTile label="Amount" value={noticeAmount(notice.amount, notice.currency)} />
+        <StatTile
+          label="Amount"
+          value={noticeAmount(notice.amount, notice.currency)}
+          hint={notice.currency}
+        />
         <StatTile
           label="Settled"
           value={noticeAmount(notice.settledAmount, notice.currency)}
@@ -511,22 +540,6 @@ function NoticeBody({
           }
         />
         <DueTile notice={notice} />
-        <StatTile label="Currency" value={notice.currency} />
-      </div>
-      <div className="pb-two-col">
-        <WorkflowCard notice={notice} roles={roles} onLog={log} />
-        <Card testId="notice-notes">
-          <SectionHeader>Notes</SectionHeader>
-          {notice.notes.length === 0 ? (
-            <EmptyState title="No notes" />
-          ) : (
-            <ul className="pb-list">
-              {notice.notes.map((note, i) => (
-                <li key={i}>{note}</li>
-              ))}
-            </ul>
-          )}
-        </Card>
       </div>
       <div className="pb-two-col">
         <TicketCard notice={notice} />
@@ -536,7 +549,7 @@ function NoticeBody({
         <Card testId="notice-split">
           <SectionHeader>Split</SectionHeader>
           {splits.length === 0 ? (
-            <EmptyState
+            <EmptyLine
               title="No split recorded"
               detail="The notice does not break the amount into investment, fees, expenses or interest."
             />
@@ -553,7 +566,21 @@ function NoticeBody({
         </Card>
         <CashFlowsCard notice={notice} />
       </div>
-      <ActionLogCard entries={log.entries} />
+      <div className="pb-two-col">
+        <Card testId="notice-notes">
+          <SectionHeader>Notes</SectionHeader>
+          {notice.notes.length === 0 ? (
+            <EmptyLine title="No notes" />
+          ) : (
+            <ul className="pb-list">
+              {notice.notes.map((note, i) => (
+                <li key={i}>{note}</li>
+              ))}
+            </ul>
+          )}
+        </Card>
+        <ActionLogCard entries={log.entries} />
+      </div>
     </>
   );
 }
@@ -573,7 +600,7 @@ export function CapitalNoticePage(): ReactNode {
       q.error instanceof ApiError && (q.error.status === 404 || q.error.status === 403);
     return (
       <>
-        <BackLink />
+        <Breadcrumbs items={TRAIL} />
         {hidden ? (
           <ErrorState
             title="Notice not found or not visible to you"

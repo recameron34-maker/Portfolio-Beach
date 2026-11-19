@@ -1,5 +1,5 @@
 {
-  "_note": "Extraction schemas per document type (docs/04 M4, packages/ai). Each field: key (the model output key and the stg.extracted_value field), label (plain words for the review page), kind (date, money, percent, count), required, target (the mon.quarterly_performance column it promotes to, or null when it stays on the run), bounds (which unitSanityBoundsUsd range the converted dollar value is checked against, or null). Money values carry a unit among USD, USD_K, USD_M and USD_B and are converted to dollars by packages/calc toDollars at promotion; percent values are decimal fractions (0.4250 for 42.5%) with unit PCT; count values carry COUNT; date values carry DATE. highlights.bullets is the number of business highlight bullets the model writes; the openings and banned phrases come from config/style.json.",
+  "_note": "Extraction schemas per document type (docs/04 M4, packages/ai). Each field: key (the model output key and the stg.extracted_value field), label (plain words for the review page), kind (date, money, percent, count), required, target (the mon.quarterly_performance column it promotes to, or null when it stays on the run), bounds (which unitSanityBoundsUsd range the converted dollar value is checked against, or null). Money values carry a unit among USD, USD_K, USD_M and USD_B and are converted to dollars by packages/calc toDollars at promotion; percent values are decimal fractions (0.4250 for 42.5%) with unit PCT; count values carry COUNT; date values carry DATE. highlights.bullets is the number of business highlight bullets the model writes; the openings and banned phrases come from config/style.json. A schema with no target on any field (capital_account_statement: our capital account, for one position when the document is linked to it and in a fund otherwise) is reviewed and approved like any other and promotes nothing to mon.quarterly_performance; with highlights.bullets 0 and commentary false the model writes no narrative.",
   "schemas": {
     "quarterly_financials": {
       "label": "Quarterly financials",
@@ -127,8 +127,109 @@
           "bounds": null
         }
       ],
-      "highlights": { "bullets": 3 },
+      "highlights": {
+        "bullets": 3
+      },
       "commentary": true
+    },
+    "capital_account_statement": {
+      "label": "Capital account statement",
+      "docType": "doc_type.capital_account_statement",
+      "promptId": "capital_account_extraction",
+      "fields": [
+        {
+          "key": "period_end",
+          "label": "Period end",
+          "kind": "date",
+          "required": true,
+          "target": null,
+          "bounds": null
+        },
+        {
+          "key": "total_commitment",
+          "label": "Total commitment",
+          "kind": "money",
+          "required": false,
+          "target": null,
+          "bounds": null
+        },
+        {
+          "key": "contributions_to_date",
+          "label": "Contributions to date",
+          "kind": "money",
+          "required": false,
+          "target": null,
+          "bounds": null
+        },
+        {
+          "key": "distributions_to_date",
+          "label": "Distributions to date",
+          "kind": "money",
+          "required": false,
+          "target": null,
+          "bounds": null
+        },
+        {
+          "key": "unfunded_commitment",
+          "label": "Unfunded commitment",
+          "kind": "money",
+          "required": false,
+          "target": null,
+          "bounds": null
+        },
+        {
+          "key": "beginning_capital_balance",
+          "label": "Beginning capital balance",
+          "kind": "money",
+          "required": false,
+          "target": null,
+          "bounds": null
+        },
+        {
+          "key": "contributions_in_period",
+          "label": "Contributions in the period",
+          "kind": "money",
+          "required": false,
+          "target": null,
+          "bounds": null
+        },
+        {
+          "key": "distributions_in_period",
+          "label": "Distributions in the period",
+          "kind": "money",
+          "required": false,
+          "target": null,
+          "bounds": null
+        },
+        {
+          "key": "net_gain_loss",
+          "label": "Net gain or loss",
+          "kind": "money",
+          "required": false,
+          "target": null,
+          "bounds": null
+        },
+        {
+          "key": "ending_capital_balance",
+          "label": "Ending capital balance",
+          "kind": "money",
+          "required": false,
+          "target": null,
+          "bounds": null
+        },
+        {
+          "key": "investor_share_pct",
+          "label": "Our share of the vehicle",
+          "kind": "percent",
+          "required": false,
+          "target": null,
+          "bounds": null
+        }
+      ],
+      "highlights": {
+        "bullets": 0
+      },
+      "commentary": false
     }
   }
 }

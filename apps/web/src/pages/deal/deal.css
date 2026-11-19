@@ -1,37 +1,180 @@
 /* Deal workspace tabs (pages/deal). Scoped to this folder; colours come only from the theme variables.
    styles.css loads first, so a page class wins over a shared class of the same specificity. */
 
-/* A short explanatory line under a table or chart inside a card. */
-.pb-deal-note {
-  margin: 10px 0 0;
-}
-/* Space between a list and a degrade notice that follows it in the same card. */
-.pb-deal-gap {
-  margin-top: 14px;
+/* ---- The workspace frame: header, figures and the tab bar ---- */
+
+/* The investment number beside the company's name: small, even figures, quiet. */
+.pb-deal-number {
+  font-size: var(--pb-text-md);
+  line-height: var(--pb-text-md-lh);
+  font-weight: 400;
+  font-variant-numeric: tabular-nums lining-nums;
+  color: var(--pb-muted-strong);
 }
 
-/* Wide quarterly tables: headers may wrap and cells sit closer so the columns fit a laptop screen. */
+/* Every figure strip of the workspace sets its figures a step smaller than a page's key figures:
+   the strip repeats over every tab and leads nothing on its own. */
+.pb-deal-tiles {
+  --pb-text-fig: 20px;
+  --pb-text-fig-lh: 26px;
+}
+
+/* The tab bar stays in view under the top bar while a tab scrolls. Held there, it reaches across
+   the page's gutters, so nothing shows beside it, and its rule darkens. */
+.pb-tabs.pb-deal-tabs {
+  position: sticky;
+  top: var(--pb-header-h);
+  z-index: 10;
+  background: var(--pb-bg);
+  transition: box-shadow var(--pb-dur-fast) var(--pb-ease);
+}
+.pb-tabs.pb-deal-tabs[data-stuck] {
+  margin-inline: calc(var(--pb-space-6) * -1);
+  padding-inline: calc(var(--pb-space-6) - var(--pb-space-3)) var(--pb-space-6);
+  box-shadow:
+    inset 0 -1px 0 var(--pb-border-strong),
+    0 1px 0 rgba(var(--pb-text-rgb), 0.06);
+}
+@media (max-width: 1100px) {
+  .pb-tabs.pb-deal-tabs[data-stuck] {
+    margin-inline: calc(var(--pb-space-5) * -1);
+    padding-inline: calc(var(--pb-space-5) - var(--pb-space-3)) var(--pb-space-5);
+  }
+}
+@media (max-width: 760px) {
+  .pb-tabs.pb-deal-tabs[data-stuck] {
+    margin-inline: calc(var(--pb-space-3) * -1) 0;
+    padding-inline: 0;
+  }
+}
+
+/* "On this tab": links to the sections of a long tab, right-aligned under the tab bar. On a
+   screen wide enough for both, it rides in the tab bar's own row, at its right end, and stays in
+   view with it. On a phone it sits under the bar from the left. */
+.pb-deal-jump {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  align-items: baseline;
+  gap: 0 var(--pb-space-3);
+  margin: calc(var(--pb-space-3) * -1) 0 var(--pb-space-4);
+  font-size: var(--pb-text-sm);
+  line-height: var(--pb-text-sm-lh);
+}
+.pb-deal-jump-label {
+  color: var(--pb-muted);
+}
+.pb-deal-jump > ul {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0 var(--pb-space-3);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.pb-deal-jump a {
+  color: var(--pb-brand-primary);
+  font-weight: 500;
+  text-decoration: none;
+}
+.pb-deal-jump a:hover,
+.pb-deal-jump a:focus-visible {
+  text-decoration: underline;
+}
+.pb-deal-jump + .pb-card {
+  border-top: 0;
+  padding-top: 0;
+}
+@media (min-width: 1680px) {
+  .pb-deal-jump {
+    position: sticky;
+    top: var(--pb-header-h);
+    z-index: 11;
+    align-items: center;
+    width: fit-content;
+    /* A pixel short of the bar, so the bar's rule runs on under it. */
+    height: 35px;
+    margin: calc((36px + var(--pb-space-5)) * -1) 0 calc(var(--pb-space-5) + 1px) auto;
+    padding-left: var(--pb-space-4);
+    background: var(--pb-bg);
+  }
+}
+@media (max-width: 760px) {
+  .pb-deal-jump {
+    justify-content: flex-start;
+    margin-top: calc(var(--pb-space-2) * -1);
+  }
+}
+/* A section a jump lands on clears the top bar and the tab bar, and takes focus without a ring. */
+.pb-card[id] {
+  scroll-margin-top: calc(var(--pb-header-h) + 36px + var(--pb-space-4));
+}
+.pb-card[id]:focus {
+  outline: none;
+}
+
+/* ---- Inside the tabs ---- */
+
+/* A short explanatory line under a table or chart inside a section. */
+.pb-deal-note {
+  margin: var(--pb-space-2) 0 0;
+}
+/* Space between a list and a degrade notice that follows it in the same section. */
+.pb-deal-gap {
+  margin-top: var(--pb-space-3);
+}
+
+/* Wide quarterly tables: the columns in groups under a header row of their own (each group's first
+   column drawn off by a hairline), each figure at least eight characters wide and on one line, so
+   the columns fit a laptop screen and scroll sideways on a phone. */
 .pb-deal-dense thead th {
   height: auto;
-  min-height: 32px;
-  padding: 6px;
-  line-height: 16px;
-  white-space: normal;
+  padding: var(--pb-space-1) var(--pb-space-3) var(--pb-space-2);
+  white-space: nowrap;
   vertical-align: bottom;
 }
-.pb-deal-dense td {
-  padding: 7px 6px;
+.pb-deal-dense thead th[scope='colgroup'] {
+  padding-bottom: var(--pb-space-1);
+  border-bottom-color: var(--pb-hairline);
+  color: var(--pb-text);
 }
-.pb-deal-dense th:first-child,
-.pb-deal-dense td:first-child {
-  padding-left: 10px;
+.pb-deal-dense th.num,
+.pb-deal-dense td.num {
+  min-width: 8ch;
+  padding: var(--pb-cell-py) var(--pb-space-3);
+  white-space: nowrap;
+}
+.pb-deal-dense thead th.num {
+  padding-bottom: var(--pb-space-2);
+}
+.pb-deal-dense .pb-deal-group-start {
+  box-shadow: inset 1px 0 0 var(--pb-hairline);
+}
+.pb-deal-dense .pb-deal-source-col {
+  padding-left: var(--pb-space-4);
+}
+/* The credit table has fifteen columns: its lower headers may take two lines and its figures keep
+   the table's own 8px sides, so the whole table fits a laptop screen. */
+.pb-deal-credit thead th {
+  white-space: normal;
+}
+.pb-deal-credit th.num,
+.pb-deal-credit td.num {
+  min-width: 0;
+  padding-inline: var(--pb-space-2);
+}
+/* The entry snapshot's mark after its date: muted words, set apart by a margin, not a space. */
+.pb-deal-entry-mark {
+  margin-left: var(--pb-space-2);
+  font-size: var(--pb-text-sm);
+  color: var(--pb-muted-strong);
 }
 
 /* Two blocks side by side inside a card, stacked when the card is narrow (never wider than the card). */
 .pb-deal-split {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(min(100%, 300px), 1fr));
-  gap: 12px 16px;
+  gap: var(--pb-space-3) var(--pb-space-4);
   align-items: start;
 }
 
@@ -39,35 +182,64 @@
 .pb-deal-stack {
   display: inline-grid;
   justify-items: start;
-  gap: 4px;
+  gap: var(--pb-space-1);
 }
 
-/* Tile rows whose labels may wrap: every label takes two lines so the numbers line up. */
-@media (min-width: 481px) {
-  .pb-deal-aligned .pb-stat-label {
-    min-height: 32px;
-  }
+/* The base case card's figure labels keep their capitals for now: the preview's probe reads the
+   first of them as rendered ("EBITDA AGAINST PLAN") and may not change during the UI pass. When it
+   can, it compares without regard to case and this rule goes (docs/SESSION_LOG.md open items). */
+.pb-deal-plan-tiles .pb-stat-label {
+  text-transform: uppercase;
 }
 
-/* The workspace repeats its tiles above every tab, so on a phone they stay two to a row instead of
-   stacking into one long column before the tab bar. */
+/* Strips whose labels may wrap: each cell lays its label, figure and hint on rows it shares with
+   the cells beside it, so the figures of one row line up and a row whose labels all fit on one
+   line keeps no empty line for them. */
+.pb-deal-aligned > .pb-stat-tile {
+  display: grid;
+  grid-row: span 3;
+  grid-template-rows: subgrid;
+  row-gap: 2px;
+  align-content: start;
+}
+
+/* The workspace repeats its figures above every tab, so on a phone they stay two to a row instead
+   of stacking into one long column before the tab bar. */
 @media (max-width: 480px) {
   .pb-deal-tiles {
     --pb-tile-min: 120px;
-    gap: 8px;
   }
   .pb-deal-tiles .pb-stat-tile {
     min-height: 0;
-    padding: 10px 12px;
+    padding: var(--pb-space-2);
   }
+}
+
+/* "Since entry": the company's growth, then its value creation under a sub-title. The sentence on
+   our own gain reads as prose, under the bridge it explains. */
+.pb-deal-vc > .pb-subhead {
+  margin-top: var(--pb-space-5);
+}
+.pb-deal-vc-span {
+  margin: 0 0 var(--pb-space-3);
+}
+.pb-deal-vc .pb-toolbar {
+  margin-bottom: var(--pb-space-3);
+}
+.pb-deal-narrative {
+  max-width: 72ch;
+  margin: var(--pb-space-3) 0 var(--pb-space-5);
+  font-size: var(--pb-text-prose);
+  line-height: var(--pb-text-prose-lh);
+  color: var(--pb-text);
 }
 
 /* A cell value with a badge beside it (Entry, due date, this position); the badge wraps under when space is short. */
 .pb-deal-period {
   display: inline-flex;
   flex-wrap: wrap;
-  align-items: center;
-  gap: 4px 8px;
+  align-items: baseline;
+  gap: var(--pb-space-1) var(--pb-space-2);
 }
 
 /* A note row under a table row (a reopen reason): attached to the row above it. */
@@ -81,16 +253,16 @@ tr.pb-deal-note-row > td {
 /* Highlights grouped by quarter. */
 .pb-deal-highlights {
   display: grid;
-  gap: 14px;
+  gap: var(--pb-space-3);
 }
 .pb-deal-highlights h3 {
   display: flex;
   flex-wrap: wrap;
-  align-items: center;
-  gap: 6px 8px;
-  margin: 0 0 4px;
-  font-size: 13px;
-  line-height: 20px;
+  align-items: baseline;
+  gap: var(--pb-space-1) var(--pb-space-2);
+  margin: 0 0 var(--pb-space-1);
+  font-size: var(--pb-text-md);
+  line-height: var(--pb-text-md-lh);
   font-weight: 600;
   color: var(--pb-text);
 }
@@ -99,27 +271,16 @@ tr.pb-deal-note-row > td {
 .pb-deal-sponsor-name {
   display: flex;
   flex-wrap: wrap;
-  align-items: center;
-  gap: 6px 10px;
-  margin: 0 0 6px;
-  font-size: 16px;
-  line-height: 24px;
+  align-items: baseline;
+  gap: var(--pb-space-1) var(--pb-space-3);
+  margin: 0 0 var(--pb-space-1);
+  font-size: var(--pb-text-xl);
+  line-height: var(--pb-text-xl-lh);
   font-weight: 600;
 }
 .pb-deal-sponsor-description {
-  max-width: 78ch;
-  margin: 10px 0 0;
-}
-
-/* A link list in a half-width card: the facts sit under the name instead of beside it. */
-.pb-deal-stacked li {
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 2px;
-}
-.pb-deal-stacked .pb-meta {
-  flex: none;
-  text-align: left;
+  max-width: 72ch;
+  margin: var(--pb-space-2) 0 0;
 }
 
 /* Activity timeline: date, kind and text in aligned columns; the text wraps under them on phones. */
@@ -132,8 +293,8 @@ tr.pb-deal-note-row > td {
   display: grid;
   grid-template-columns: 104px 96px minmax(0, 1fr);
   align-items: baseline;
-  gap: 4px 12px;
-  padding: 8px 0;
+  gap: var(--pb-space-1) var(--pb-space-3);
+  padding: var(--pb-space-2) 0;
   border-top: 1px solid var(--pb-hairline);
 }
 .pb-deal-timeline > li:first-child {
@@ -144,6 +305,16 @@ tr.pb-deal-note-row > td {
   font-variant-numeric: tabular-nums lining-nums;
   color: var(--pb-muted-strong);
   white-space: nowrap;
+}
+/* What kind of record an entry is: a category, so plain small words, no dot. */
+.pb-deal-timeline-kind {
+  font-size: var(--pb-text-sm);
+  line-height: var(--pb-text-sm-lh);
+  color: var(--pb-muted-strong);
+}
+/* Who may read the audit trail, for a role that may not: one line under the timeline. */
+.pb-deal-audit-note {
+  margin: 0;
 }
 
 @media (max-width: 760px) {
@@ -160,7 +331,7 @@ tr.pb-deal-note-row > td {
   display: inline-flex;
   flex-wrap: wrap;
   align-items: baseline;
-  gap: 2px 8px;
+  gap: 2px var(--pb-space-2);
   white-space: nowrap;
 }
 
@@ -169,8 +340,20 @@ tr.pb-deal-note-row > td {
   display: flex;
   flex-wrap: wrap;
   align-items: end;
-  gap: 10px 14px;
-  margin: 12px 0 0;
+  gap: var(--pb-space-3) var(--pb-space-4);
+  margin: var(--pb-space-3) 0 0;
+}
+/* The command and, while it cannot act, what it still needs, on one line. */
+.pb-deal-outlook-submit {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--pb-space-1) var(--pb-space-3);
+}
+.pb-deal-outlook-blocked {
+  font-size: var(--pb-text-sm);
+  line-height: var(--pb-text-sm-lh);
+  color: var(--pb-muted-strong);
 }
 .pb-deal-outlook-control {
   min-width: 0;
@@ -200,8 +383,8 @@ tr.pb-deal-note-row > td {
   min-width: 220px;
 }
 .pb-deal-document > .pb-meta {
-  font-size: 12px;
-  line-height: 16px;
+  font-size: var(--pb-text-sm);
+  line-height: var(--pb-text-sm-lh);
   overflow-wrap: anywhere;
 }
 .pb-deal-run-link {
@@ -210,5 +393,102 @@ tr.pb-deal-note-row > td {
 .pb-deal-run-link:focus-visible {
   outline: 2px solid var(--pb-brand-accent);
   outline-offset: 2px;
-  border-radius: 4px;
+  border-radius: var(--pb-radius);
+}
+
+/* The base case card: a heading over one version of the case, with its state beside it. */
+.pb-deal-subhead {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--pb-space-1) var(--pb-space-2);
+  margin: 0 0 var(--pb-space-2);
+  font-size: var(--pb-text-md);
+  line-height: var(--pb-text-md-lh);
+  font-weight: 600;
+  color: var(--pb-text);
+}
+/* A table with a total row: the stronger rule above it, the figures at weight 600. Two classes so
+   the row header loses the hairline that .pb-table th[scope='row'] draws under body rows. */
+.pb-table.pb-deal-totals tfoot th,
+.pb-table.pb-deal-totals tfoot td {
+  padding: var(--pb-cell-py) var(--pb-space-2);
+  border-top: 1px solid var(--pb-border-strong);
+  border-bottom: 0;
+  font-weight: 600;
+}
+/* The picker of the version compared: wide enough for "Re-underwritten Jun 30, 2025, corrected". */
+.pb-deal-version-picker {
+  min-width: min(100%, 280px);
+}
+
+/* A row of actions under the record they act on: no rule under it, unlike a filter toolbar. */
+.pb-deal-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--pb-space-2);
+  margin-top: var(--pb-space-3);
+}
+/* The base case form: its fields in columns that fold on a narrow screen. A control fills its
+   column and gives up the width the library asks for, so five fields share a laptop's row. */
+.pb-deal-form-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 170px), 1fr));
+  gap: var(--pb-space-3) var(--pb-space-4);
+  align-items: start;
+  margin-top: var(--pb-space-3);
+}
+.pb-deal-form-grid .pb-deal-form-control {
+  width: 100%;
+  min-width: 0;
+}
+.pb-deal-form-grid + .pb-table-wrap {
+  margin-top: var(--pb-space-3);
+}
+/* The plan rows: columns of a fixed share, so an input fills its cell instead of setting the
+   cell's width, and the table scrolls inside its frame on a phone. A figure is typed
+   right-aligned, as it is read. */
+.pb-table.pb-deal-plan-form {
+  table-layout: fixed;
+  min-width: 620px;
+}
+.pb-deal-plan-form th:first-child {
+  width: 26%;
+}
+.pb-deal-plan-form th:last-child {
+  width: 88px;
+}
+.pb-table.pb-deal-plan-form td {
+  padding: var(--pb-cell-py) var(--pb-space-2);
+  vertical-align: middle;
+}
+.pb-deal-plan-form .pb-deal-plan-input,
+.pb-deal-plan-form .pb-deal-plan-date {
+  width: 100%;
+  min-width: 0;
+}
+.pb-deal-plan-form .pb-deal-plan-input input,
+.pb-deal-plan-form .pb-deal-plan-date input {
+  width: 100%;
+  min-width: 0;
+}
+.pb-deal-plan-form .pb-deal-plan-input input {
+  text-align: right;
+}
+/* What is wrong with the plan rows, listed under the table. */
+.pb-deal-form-faults {
+  margin: var(--pb-space-2) 0 0;
+  padding-left: var(--pb-space-4);
+  font-size: var(--pb-text-md);
+  line-height: var(--pb-text-md-lh);
+  color: var(--pb-bad-ink);
+}
+
+/* ---- Motion policy for this file (docs/06 section 5): each transitioned selector above, exactly
+   as declared, switched off under reduced motion or on a slow display. ---- */
+@media (prefers-reduced-motion: reduce), (update: slow) {
+  .pb-tabs.pb-deal-tabs {
+    transition: none;
+  }
 }

@@ -16,6 +16,7 @@ import { escapeHtml } from './html.js';
 const DOCUMENT_TAGS = /<!doctype\b|<html[\s>]|<head[\s>]|<body[\s>]/i;
 
 function between(document: string, tag: string): string {
+  // eslint-disable-next-line security/detect-non-literal-regexp -- the tag is 'head' or 'body', named by this file
   const open = new RegExp(`<${tag}(?:\\s[^>]*)?>`, 'i').exec(document);
   const close = document.toLowerCase().lastIndexOf(`</${tag}>`);
   if (open === null || close === -1) throw new Error(`the built page has no <${tag}> element`);
@@ -28,10 +29,21 @@ export function toFragment(document: string, title: string): string {
   const body = between(document, 'body');
   const links = head.match(/<link\b[^>]*\brel="stylesheet"[^>]*>/gi) ?? [];
   const styles = head.match(/<style\b[^>]*>[\s\S]*?<\/style>/gi) ?? [];
-  const external = /<script\b[^>]*\bsrc="[^"]*"[^>]*>\s*<\/script>/gi;
+  const external = /<script\b[^>]*\bsrc="[^"]*"[^>]*>\s*<\/script\b[^>]*>/gi;
   const scripts = [...(head.match(external) ?? []), ...(body.match(external) ?? [])];
   // Scripts written into the document itself belong to the document; the fragment has none.
-  const markup = body.replace(/<script\b[\s\S]*?<\/script>/gi, '').trim();
+  // They are removed until a pass changes nothing (taking one element out can leave the pieces
+  // of another side by side), with an end tag in any spelling a browser accepts, and a page that
+  // still carries a script afterwards is refused, not passed on.
+  let markup = body;
+  let before = '';
+  while (before !== markup) {
+    before = markup;
+    markup = markup.replace(/<script\b[\s\S]*?<\/script\b[^>]*>/gi, '');
+  }
+  markup = markup.trim();
+  if (/<script\b/i.test(markup))
+    throw new Error('the built page carries a script element the fragment cannot take');
   if (links.length === 0 || styles.length === 0 || scripts.length === 0 || markup === '')
     throw new Error(
       `the built page is not what the fragment is made from: ${links.length} stylesheet links, ${styles.length} inline styles, ${scripts.length} scripts`,

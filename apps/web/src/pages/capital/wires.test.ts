@@ -161,7 +161,10 @@ describe('wire register helpers', () => {
       callbackResult: 'not_confirmed',
       reason: 'no answer',
     });
-    expect(SECOND_PERSON_RULE).toContain('SEC-12.2');
+    // The page's own wording names the rule and cites no control number.
+    expect(SECOND_PERSON_RULE).toBe(
+      'The callback must be made by a person other than the proposer',
+    );
   });
 
   it('never builds a reject that names a callback result without its number source, or the reverse (W2-5)', () => {
@@ -224,7 +227,7 @@ describe('wire register helpers', () => {
       ]),
     ).toBe(false);
     expect(OLDER_VERSION_RULE).toBe(
-      'A newer version of this counterparty is already Verified; reject this older version instead (SEC-12.2)',
+      'A newer version of this counterparty is already Verified; reject this older version instead',
     );
   });
 });
@@ -246,7 +249,8 @@ describe('trade ticket helpers', () => {
 
   it('words every blocker and alert plainly, with no em dash', () => {
     for (const b of releaseBlocker.options) {
-      expect(BLOCKER_WORDS[b]).toMatch(/SEC-12\.[23]\)\.$/);
+      expect(BLOCKER_WORDS[b]).toMatch(/[a-z]\.$/);
+      expect(BLOCKER_WORDS[b]).not.toMatch(/SEC-\d|docs\/\d/);
       expect(BLOCKER_WORDS[b]).not.toContain(EM_DASH);
       expect(blockerLabel(b)).not.toContain('_');
     }

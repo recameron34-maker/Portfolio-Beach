@@ -1,0 +1,641 @@
+import { rmSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { latestQuarterEndOnOrBefore } from '@pb/calc';
+import {
+  documentDetail,
+  documentIndexResult,
+  documentPage,
+  expectedDocumentGenerateResult,
+  expectedDocumentPage,
+  extractionBatch,
+  extractionRunDetail,
+  extractionRunPage,
+  monitoringBoard,
+  problemDetails,
+} from '@pb/contracts';
+import type {
+  DocumentSummary,
+  ExpectedDocument,
+  ExtractionRun,
+  ExtractionRunDetail,
+  MonitoringBoardRow,
+} from '@pb/contracts';
+import type { SyntheticDataset } from '@pb/db';
+import {
+  STATEMENT_EXAMPLES,
+  STATEMENT_FIELDS,
+  UNTAGGED_FILE_NAME,
+  positionStatementDocument,
+} from '@pb/synthetic';
+import type { SyntheticDocument } from '@pb/synthetic';
+import { STATEMENT_HOLD_REASONS } from '@pb/validation';
+import { DEFAULT_APPROVAL_REASON } from '../extraction/review.service.js';
+import { startHarness } from './harness.js';
+import type { Harness } from './harness.js';
+
+/*
+ * The four guards of a capital account statement (decision 0023, docs/18 section 6): a statement
+ * that names a position which does not link is held for a person; only a statement linked to no
+ * position fills a fund's expected row; the monitoring board keeps the quarterly report's run
+ * when a statement of the position has a newer one; and approving a statement run promotes
+ * nothing, with or without a position. The engine runs with the statement schema of
+ * config/extraction_schema.json over the seeded statements and over statements written beside
+ * them with the generator's own builder.
+ */
+
+const PROBLEM = 'https://portfolio-beach.example/problems/';
+const QF = 'doc_type.quarterly_financials';
+const CAS = 'doc_type.capital_account_statement';
+const STATEMENT_SCHEMA_ID = 'capital_account_statement';
+
+/**
+ * The statements written beside the synthetic set, by the name the tests know them by: each a
+ * position-level statement of the latest quarter with the lines of docs/08 section 12, example 1.
+ */
+function extraStatements(dataset: SyntheticDataset): Map<string, SyntheticDocument> {
+  const periodEnd = latestQuarterEndOnOrBefore(dataset.asOf);
+  const investment = (number: string) =>
+    dataset.investments.find((i) => i.investmentNumber === number)!;
+  const companyOf = (number: string): string =>
+    dataset.portfolioCompanies.find((c) => c.id === investment(number).portfolioCompanyId)!.name;
+  /** A statement from the fund and vehicle of a position, naming what the case asks. */
+  const write = (
+    from: string,
+    names: { linkedTo: string | null; fileCompany: string; reference: string | null },
+    contributionsToDate: string,
+  ): SyntheticDocument => {
+    const position = investment(from);
+    const linked = names.linkedTo === null ? null : investment(names.linkedTo);
+    return positionStatementDocument({
+      periodEnd,
+      fund: dataset.sponsorFunds.find((f) => f.id === position.sponsorFundId)!,
+      vehicleName: dataset.vehicles.find((v) => v.id === position.vehicleId)!.name,
+      investment:
+        linked === null
+          ? null
+          : {
+              id: linked.id,
+              investmentNumber: linked.investmentNumber,
+              companyName: companyOf(linked.investmentNumber),
+            },
+      fileCompany: names.fileCompany,
+      reference: names.reference,
+      lines: { ...STATEMENT_EXAMPLES.ties.lines, contributionsToDate },
+    });
+  };
+  const own = (number: string, reference: string | null) => ({
+    linkedTo: number,
+    fileCompany: companyOf(number),
+    reference,
+  });
+  return new Map([
+    // Linked by the company in the file name alone.
+    ['byName', write('INV-0002', own('INV-0002', null), '8.10')],
+    // A position with no report for the quarter (late_financials).
+    ['noReport', write('INV-0001', own('INV-0001', 'INV-0001'), '6.25')],
+    // Indexed only after the quarter's expected rows exist (kept out of the inbox until then).
+    ['late', write('INV-0011', own('INV-0011', 'INV-0011'), '2.20')],
+    // A name that links to nothing.
+    [
+      'unknown',
+      write(
+        'INV-0002',
+        { linkedTo: null, fileCompany: 'Northgate Holdco', reference: null },
+        '3.30',
+      ),
+    ],
+    // A company two positions hold (the second position is added to the record below).
+    ['twoPositions', write('INV-0005', { ...own('INV-0005', null), linkedTo: null }, '4.40')],
+    // A reference that is no number on record, beside a name that links.
+    ['badReference', write('INV-0003', own('INV-0003', 'INV-9999'), '5.50')],
+    // A reference and a name that belong to two positions.
+    [
+      'disagree',
+      write('INV-0004', { ...own('INV-0004', 'INV-0006'), linkedTo: 'INV-0006' }, '7.70'),
+    ],
+  ]);
+}
+
+describe('capital account statements: held for review, expected rows, the board and approval (decision 0023)', () => {
+  let h: Harness;
+  let written: Map<string, SyntheticDocument>;
+  let everything: DocumentSummary[];
+  let reportRuns: ExtractionRun[];
+  let statementRuns: ExtractionRun[];
+
+  const quarterEnd = (): string => latestQuarterEndOnOrBefore(h.dataset.asOf);
+  const inbox = (): string => join(h.runtime.config.PB_DOCUMENT_ROOT, 'inbox');
+  const investment = (number: string) =>
+    h.dataset.investments.find((i) => i.investmentNumber === number)!;
+  const fundOf = (number: string) =>
+    h.dataset.sponsorFunds.find((f) => f.id === investment(number).sponsorFundId)!;
+  const walledNumber = (): string =>
+    h.dataset.investments.find((i) => i.id === h.dataset.scenarios.walled_deal![0])!
+      .investmentNumber;
+  const staleNumber = (): string =>
+    h.dataset.investments.find((i) => i.id === h.dataset.scenarios.stale_valuation![0])!
+      .investmentNumber;
+  const fundStatementName = (fundName: string): string =>
+    `${quarterEnd()} ${fundName} - Capital account statement.pdf`;
+  /** The seeded position-level statement of a position for the latest quarter. */
+  const seededName = (number: string): string =>
+    h.documents.expectations.positionStatements.find(
+      (p) => p.investmentNumber === number && p.periodEnd === quarterEnd(),
+    )!.fileName;
+
+  beforeAll(async () => {
+    h = await startHarness({
+      enableFlags: ['ai.extraction'],
+      extraDocuments: (dataset) => [...extraStatements(dataset).values()],
+    });
+    written = extraStatements(h.dataset);
+    // A second position on a company the book already holds, through another vehicle: the name
+    // alone then fits two positions.
+    const twin = investment('INV-0005');
+    const otherVehicle = h.dataset.vehicles.find((v) => v.id !== twin.vehicleId)!;
+    await h.runtime.db.query(
+      `insert into core.investment (investment_number, vehicle_id, portfolio_company_id, sponsor_fund_id, sponsor_id, deal_type, entry_date)
+       values ('INV-0921', $1, $2, $3, $4, $5, $6)`,
+      [
+        otherVehicle.id,
+        twin.portfolioCompanyId,
+        twin.sponsorFundId,
+        twin.sponsorId,
+        twin.dealType,
+        twin.entryDate,
+      ],
+    );
+    // The fund-level statement of one fund never arrives, so its expected row can only be filled
+    // by mistake: position-level statements of that fund do arrive. One of them comes late.
+    rmSync(join(inbox(), fundStatementName(fundOf('INV-0002').name)));
+    rmSync(join(inbox(), written.get('late')!.fileName));
+  });
+  afterAll(async () => {
+    await h.close();
+  });
+
+  const get = (who: string, path: string, requestId = 'req-stg-get') =>
+    h.http().get(path).set('authorization', h.as(who)).set('x-request-id', requestId);
+  const post = (who: string, path: string, body: object, requestId: string) =>
+    h.http().post(path).set('authorization', h.as(who)).set('x-request-id', requestId).send(body);
+  const list = async (who: string, query = ''): Promise<DocumentSummary[]> =>
+    documentPage.parse((await get(who, `/api/v1/documents?limit=200${query}`).expect(200)).body)
+      .items;
+  const doc = (key: string): DocumentSummary =>
+    everything.find((d) => d.fileName === written.get(key)!.fileName)!;
+  const refresh = async (): Promise<void> => {
+    everything = await list('deal.three');
+  };
+  const expectedOf = async (who: string, fundName: string): Promise<ExpectedDocument> =>
+    expectedDocumentPage
+      .parse(
+        (
+          await get(who, `/api/v1/expected-documents?limit=200&periodEnd=${quarterEnd()}`).expect(
+            200,
+          )
+        ).body,
+      )
+      .items.find((r) => r.sponsorFundName === fundName && r.docType === CAS)!;
+  const runsOf = async (who: string, query = ''): Promise<ExtractionRun[]> =>
+    extractionRunPage.parse(
+      (await get(who, `/api/v1/extraction/runs?limit=200${query}`).expect(200)).body,
+    ).items;
+  const runCommand = (who: string, id: string, body: object, requestId = 'req-stg-run') =>
+    post(who, `/api/v1/extraction/runs/${id}/commands`, body, requestId);
+  const boardRow = async (who: string, number: string): Promise<MonitoringBoardRow> =>
+    monitoringBoard
+      .parse((await get(who, '/api/v1/monitoring/board').expect(200)).body)
+      .rows.find((r) => r.investmentNumber === number)!;
+  const count = async (sql: string, params: unknown[] = []): Promise<number> =>
+    (await h.runtime.db.query<{ n: number }>(sql, params))[0]!.n;
+  /** The quarter on record with every column, lineage and bookkeeping included, as text. */
+  const quarterRow = async (investmentId: string): Promise<string> =>
+    JSON.stringify(
+      await h.runtime.db.query(
+        'select * from mon.quarterly_performance where investment_id = $1 and period_end = $2',
+        [investmentId, quarterEnd()],
+      ),
+    );
+  const evidenceOf = async (fileName: string): Promise<Record<string, unknown>> =>
+    (
+      await h.runtime.db.query<{ classifier_evidence: Record<string, unknown> }>(
+        'select classifier_evidence from doc.document where file_name = $1',
+        [fileName],
+      )
+    )[0]!.classifier_evidence;
+
+  it('classifies a statement that names one position to that position, and holds the rest for a person', async () => {
+    const result = documentIndexResult.parse(
+      (await post('operations', '/api/v1/documents/index', {}, 'req-stg-index').expect(200)).body,
+    );
+    // Everything in the inbox but the duplicate copy, the fund statement taken out and the late one.
+    expect(result.indexed).toBe(h.documents.documents.length - 2 + written.size - 1);
+    await refresh();
+
+    // The seeded position-level statements name their position twice over, and so do two here.
+    const seeded = h.documents.expectations.positionStatements;
+    expect(seeded.length).toBeGreaterThanOrEqual(6);
+    for (const [fileName, number] of [
+      ...seeded.map((p) => [p.fileName, p.investmentNumber] as const),
+      [written.get('byName')!.fileName, 'INV-0002'] as const,
+      [written.get('noReport')!.fileName, 'INV-0001'] as const,
+    ]) {
+      const found = everything.find((d) => d.fileName === fileName)!;
+      expect(found.reviewStatus, fileName).toBe('Classified');
+      expect(found.docType, fileName).toBe(CAS);
+      expect(found.investmentNumber, fileName).toBe(number);
+      expect(found.sponsorFundName, fileName).toBe(fundOf(number).name);
+    }
+
+    const { notLinked, disagree } = STATEMENT_HOLD_REASONS;
+    for (const [key, reason, linkedTo] of [
+      ['unknown', notLinked, null],
+      ['twoPositions', notLinked, null],
+      // The links stay as the document names them: the name where the reference is unknown, the
+      // reference where both link.
+      ['badReference', notLinked, 'INV-0003'],
+      ['disagree', disagree, 'INV-0006'],
+    ] as const) {
+      const found = doc(key);
+      expect(found.reviewStatus, key).toBe('NeedsReview');
+      expect(found.docType, key).toBeNull();
+      expect(found.classifiedAt, key).toBeNull();
+      expect(found.investmentNumber, key).toBe(linkedTo);
+      expect(found.classificationConfidence, key).toBe('0.9700');
+      expect(
+        found.classifierEvidence.candidates.map((c) => c.reason),
+        key,
+      ).toContain(reason);
+      expect(
+        found.classifierEvidence.candidates.map((c) => c.reason),
+        key,
+      ).toContain(`classifier suggestion: ${CAS}`);
+      // The evidence says why and names nothing: no company, no investment number.
+      const evidence = await evidenceOf(found.fileName);
+      expect(evidence.reason, key).toBe(reason);
+      const text = JSON.stringify(evidence);
+      expect(text, key).not.toMatch(/INV-\d/);
+      for (const company of h.dataset.portfolioCompanies)
+        expect(text, key).not.toContain(company.name);
+      expect(text, key).not.toContain('Northgate');
+    }
+    const queue = documentPage.parse(
+      (await get('deal.three', '/api/v1/documents/review-queue?limit=200').expect(200)).body,
+    );
+    for (const key of ['unknown', 'twoPositions', 'badReference', 'disagree'])
+      expect(queue.items.map((d) => d.fileName)).toContain(written.get(key)!.fileName);
+
+    // The index's audit event of a held statement gives the reason and the transition taken.
+    const events = await h.runtime.db.query<{
+      reason: string | null;
+      details: Record<string, unknown>;
+    }>(
+      "select reason, details from audit.event where action = 'document.index' and request_id = 'req-stg-index' and entity_id = $1",
+      [doc('disagree').id],
+    );
+    expect(events).toHaveLength(1);
+    expect(events[0]!.reason).toBe(disagree);
+    expect(events[0]!.details.command).toBe('flagForReview');
+
+    // A fund statement names no position and is classified as before.
+    const fundLevel = everything.find(
+      (d) => d.fileName === fundStatementName(fundOf(staleNumber()).name),
+    )!;
+    expect(fundLevel.reviewStatus).toBe('Classified');
+    expect(fundLevel.investmentId).toBeNull();
+    // The walled position's statements are behind its wall.
+    const outside = (await list('operations')).map((d) => d.fileName);
+    const walledStatements = seeded.filter((p) => p.investmentNumber === walledNumber());
+    expect(walledStatements).toHaveLength(2);
+    for (const p of walledStatements) expect(outside).not.toContain(p.fileName);
+  });
+
+  it('never fills a fund expected row with a position-level statement, at generation or at the index', async () => {
+    const result = expectedDocumentGenerateResult.parse(
+      (
+        await post(
+          'operations',
+          '/api/v1/expected-documents/generate',
+          { periodEnd: quarterEnd() },
+          'req-stg-generate',
+        ).expect(201)
+      ).body,
+    );
+    expect(result.created).toBeGreaterThan(0);
+    // The fund whose own statement never arrived: its classified position-level statement
+    // carries the fund's id and still does not answer for the fund.
+    const missingFund = fundOf('INV-0002').name;
+    expect(doc('byName').sponsorFundName).toBe(missingFund);
+    expect((await expectedOf('operations', missingFund)).receivedDocumentId).toBeNull();
+    // A fund with both kinds: its row takes the fund-level statement.
+    for (const number of [staleNumber(), walledNumber()]) {
+      const fundName = fundOf(number).name;
+      const fundLevel = everything.find((d) => d.fileName === fundStatementName(fundName))!;
+      const row = await expectedOf('operations', fundName);
+      expect(row.receivedDocumentId, fundName).toBe(fundLevel.id);
+      expect(row.status, fundName).toBe('received');
+    }
+    // A position-level statement indexed after the rows exist: classified, and the row stays empty.
+    const late = written.get('late')!;
+    expect(fundOf('INV-0011').name).toBe(missingFund);
+    writeFileSync(join(inbox(), late.fileName), late.bytes);
+    const again = documentIndexResult.parse(
+      (await post('operations', '/api/v1/documents/index', {}, 'req-stg-index-2').expect(200)).body,
+    );
+    expect(again.indexed).toBe(1);
+    await refresh();
+    expect(doc('late').reviewStatus).toBe('Classified');
+    expect(doc('late').investmentNumber).toBe('INV-0011');
+    expect((await expectedOf('operations', missingFund)).receivedDocumentId).toBeNull();
+  });
+
+  it('fills no row from a statement held for review, and lets the reviewer say which kind it is', async () => {
+    const missingFund = fundOf('INV-0002').name;
+    const classify = (key: string, body: object, requestId: string) =>
+      post(
+        'operations',
+        `/api/v1/documents/${doc(key).id}/commands`,
+        { command: 'classify', docType: CAS, ...body },
+        requestId,
+      );
+    // Held: nothing was matched, whatever links the statement carries.
+    expect(doc('unknown').sponsorFundName).toBe(missingFund);
+    expect(doc('badReference').sponsorFundName).toBe(missingFund);
+    expect(
+      await count(
+        'select count(*)::int as n from doc.expected_document where received_document_id = any($1::uuid[])',
+        [['unknown', 'twoPositions', 'badReference', 'disagree'].map((key) => doc(key).id)],
+      ),
+    ).toBe(0);
+
+    // The reviewer keeps the position the statement names: it is position-level, the row stays empty.
+    const kept = documentDetail.parse(
+      (await classify('badReference', {}, 'req-stg-classify-1').expect(200)).body,
+    );
+    expect(kept.reviewStatus).toBe('Classified');
+    expect(kept.investmentNumber).toBe('INV-0003');
+    expect((await expectedOf('operations', missingFund)).receivedDocumentId).toBeNull();
+
+    // The reviewer chooses the position of the company two positions hold.
+    const chosen = documentDetail.parse(
+      (
+        await classify(
+          'twoPositions',
+          { investmentId: investment('INV-0005').id },
+          'req-stg-classify-2',
+        ).expect(200)
+      ).body,
+    );
+    expect(chosen.investmentNumber).toBe('INV-0005');
+    expect((await expectedOf('operations', fundOf('INV-0005').name)).receivedDocumentId).not.toBe(
+      chosen.id,
+    );
+
+    // The reviewer leaves the position empty: a fund statement, which fills the fund's row.
+    const fundLevel = documentDetail.parse(
+      (await classify('unknown', {}, 'req-stg-classify-3').expect(200)).body,
+    );
+    expect(fundLevel.reviewStatus).toBe('Classified');
+    expect(fundLevel.investmentId).toBeNull();
+    const row = await expectedOf('operations', missingFund);
+    expect(row.receivedDocumentId).toBe(fundLevel.id);
+    expect(row.status).toBe('received');
+    await refresh();
+  });
+
+  it('keeps the report run on the monitoring board when a statement of the position has a newer run', async () => {
+    const reports = extractionBatch.parse(
+      (
+        await post(
+          'operations',
+          '/api/v1/extraction/batches',
+          { periodEnd: quarterEnd(), docType: QF },
+          'req-stg-batch-reports',
+        ).expect(201)
+      ).body,
+    );
+    expect(reports.state).toBe('succeeded');
+    reportRuns = await runsOf('deal.three', `&batchId=${reports.id}`);
+    const reportRunOf = (number: string): ExtractionRun =>
+      reportRuns.find((r) => r.investmentNumber === number)!;
+    const before = {
+      linked: await boardRow('deal.three', staleNumber()),
+      byName: await boardRow('deal.three', 'INV-0002'),
+      walled: await boardRow('deal.three', walledNumber()),
+      noReport: await boardRow('deal.three', 'INV-0001'),
+    };
+    expect(before.linked.runId).toBe(reportRunOf(staleNumber()).id);
+    expect(before.walled.runId).toBe(reportRunOf(walledNumber()).id);
+    expect(before.noReport.runId).toBeNull();
+
+    // Every classified statement of the quarter is extracted with the statement schema.
+    const statements = extractionBatch.parse(
+      (
+        await post(
+          'operations',
+          '/api/v1/extraction/batches',
+          { periodEnd: quarterEnd(), docType: CAS },
+          'req-stg-batch-statements',
+        ).expect(201)
+      ).body,
+    );
+    expect(statements.state).toBe('succeeded');
+    expect(statements.runs.failed).toBe(0);
+    statementRuns = await runsOf('deal.three', `&batchId=${statements.id}`);
+    for (const fileName of [
+      seededName(staleNumber()),
+      seededName(walledNumber()),
+      written.get('byName')!.fileName,
+      written.get('noReport')!.fileName,
+      written.get('late')!.fileName,
+    ]) {
+      const run = statementRuns.find((r) => r.fileName === fileName)!;
+      expect(run.state, fileName).toBe('Succeeded');
+      expect(run.schemaId, fileName).toBe(STATEMENT_SCHEMA_ID);
+      expect(run.promptId, fileName).toBe('capital_account_extraction');
+      expect(run.investmentId, fileName).toBe(
+        everything.find((d) => d.fileName === fileName)!.investmentId,
+      );
+      // The eleven lines of the schema are staged, and no narrative with them.
+      expect(run.counts.values, fileName).toBe(STATEMENT_FIELDS.length);
+    }
+    // Each position's statement run is newer than its report run, and the board does not move.
+    expect(await boardRow('deal.three', staleNumber())).toEqual(before.linked);
+    expect(await boardRow('deal.three', 'INV-0002')).toEqual(before.byName);
+    expect(await boardRow('deal.three', walledNumber())).toEqual(before.walled);
+    // A position with a statement run and no report run has no run on the board.
+    const noReport = await boardRow('deal.three', 'INV-0001');
+    expect(noReport).toEqual(before.noReport);
+    expect(noReport.runState).toBeNull();
+    expect(noReport.documentId).toBeNull();
+  });
+
+  it('approves a position-level statement run without touching the quarter on record, lineage included', async () => {
+    const run = statementRuns.find((r) => r.fileName === seededName(staleNumber()))!;
+    const position = investment(staleNumber());
+    const before = await quarterRow(position.id);
+    expect(JSON.parse(before)).toHaveLength(1);
+    const historyBefore = await count(
+      "select count(*)::int as n from mon.quarterly_performance_history where row_image ->> 'investment_id' = $1",
+      [position.id],
+    );
+    const boardBefore = await boardRow('operations', staleNumber());
+
+    const reviewed = extractionRunDetail.parse(
+      (await runCommand('operations', run.id, { command: 'acceptClean' }).expect(200)).body,
+    );
+    expect(reviewed.values.find((v) => v.field === 'period_end')!.decision).toBe('accepted');
+    const approved: ExtractionRunDetail = extractionRunDetail.parse(
+      (
+        await runCommand('operations', run.id, { command: 'approve' }, 'req-stg-approve-1').expect(
+          200,
+        )
+      ).body,
+    );
+    const approver = h.dataset.users.find((u) => u.externalId === 'ops.one')!;
+    expect(approved.run.approvedBy).toBe(approver.displayName);
+    expect(approved.run.approvedAt).toBe(h.runtime.adapters.clock.now());
+    expect(approved.run.promotedRecordId).toBeNull();
+
+    // The quarter on record is the row it was, to the last column.
+    expect(await quarterRow(position.id)).toBe(before);
+    expect(
+      await count(
+        "select count(*)::int as n from mon.quarterly_performance_history where row_image ->> 'investment_id' = $1",
+        [position.id],
+      ),
+    ).toBe(historyBefore);
+    expect(
+      await count(
+        "select count(*)::int as n from audit.event where action = 'quarterly_performance.promote' and request_id = 'req-stg-approve-1'",
+      ),
+    ).toBe(0);
+    const [event] = await h.runtime.db.query<{
+      reason: string | null;
+      details: Record<string, unknown>;
+    }>(
+      "select reason, details from audit.event where action = 'extraction_run.approve' and request_id = 'req-stg-approve-1'",
+    );
+    expect(event!.reason).toBe(DEFAULT_APPROVAL_REASON);
+    expect(event!.details).toMatchObject({
+      investmentId: position.id,
+      periodEnd: quarterEnd(),
+      schemaId: STATEMENT_SCHEMA_ID,
+      readAs: 'position_account',
+      promoted: false,
+      before: { approvedBy: null, promotedRecordId: null },
+      after: { approvedBy: approver.id, promotedRecordId: null },
+    });
+    // The board still follows the report: its run, its approval.
+    expect(await boardRow('operations', staleNumber())).toEqual(boardBefore);
+
+    const again = await runCommand('operations', run.id, { command: 'approve' }).expect(409);
+    expect(problemDetails.parse(again.body).detail).toBe(
+      'extraction: the run is already approved and promoted',
+    );
+  });
+
+  it('approves a fund-level statement run with no position, and writes nothing to the quarterly record', async () => {
+    const fundName = fundOf(staleNumber()).name;
+    const run = statementRuns.find((r) => r.fileName === fundStatementName(fundName))!;
+    expect(run.investmentId).toBeNull();
+    const snapshot = async (): Promise<string> =>
+      JSON.stringify(
+        await h.runtime.db.query(
+          'select count(*)::int as n, max(updated_at) as latest, sum(row_version)::int as versions from mon.quarterly_performance',
+        ),
+      );
+    const before = await snapshot();
+    await runCommand('operations', run.id, { command: 'acceptClean' }).expect(200);
+    const approved = extractionRunDetail.parse(
+      (
+        await runCommand(
+          'operations',
+          run.id,
+          { command: 'approve', reason: 'Read against the statement' },
+          'req-stg-approve-2',
+        ).expect(200)
+      ).body,
+    );
+    expect(approved.run.approvedBy).not.toBeNull();
+    expect(approved.run.promotedRecordId).toBeNull();
+    expect(await snapshot()).toBe(before);
+    const [event] = await h.runtime.db.query<{ reason: string; details: Record<string, unknown> }>(
+      "select reason, details from audit.event where action = 'extraction_run.approve' and request_id = 'req-stg-approve-2'",
+    );
+    expect(event!.reason).toBe('Read against the statement');
+    expect(event!.details).toMatchObject({
+      investmentId: null,
+      readAs: 'fund_account',
+      promoted: false,
+    });
+  });
+
+  it('still refuses a statement run whose period end is not accepted, and one of another quarter', async () => {
+    const run = statementRuns.find((r) => r.fileName === written.get('byName')!.fileName)!;
+    const unreviewed = await runCommand('operations', run.id, { command: 'approve' }).expect(409);
+    expect(problemDetails.parse(unreviewed.body).detail).toBe(
+      'extraction: Period end is required and not accepted or edited',
+    );
+    // The statement's quarter is its own period end, never another (docs/08 section 5).
+    await h.runtime.db.query('update doc.extraction_run set period_end = $1 where id = $2', [
+      '2025-03-31',
+      run.id,
+    ]);
+    await runCommand('operations', run.id, { command: 'acceptClean' }).expect(200);
+    const refused = await runCommand('operations', run.id, { command: 'approve' }).expect(422);
+    expect(problemDetails.parse(refused.body).detail).toMatch(
+      /is not the quarter the run covers \(2025-03-31\); edit it$/,
+    );
+    expect(
+      await count(
+        'select count(*)::int as n from doc.extraction_run where id = $1 and approved_by is null',
+        [run.id],
+      ),
+    ).toBe(1);
+  });
+
+  it('still needs a position to approve a run of a schema that writes to the quarterly record', async () => {
+    // The untagged scan is a quarterly report the classifier could not link: a person classifies
+    // it with a type and no position, and its run cannot be approved.
+    const scan = everything.find((d) => d.fileName === UNTAGGED_FILE_NAME)!;
+    expect(scan.reviewStatus).toBe('NeedsReview');
+    expect(scan.investmentId).toBeNull();
+    await post(
+      'operations',
+      `/api/v1/documents/${scan.id}/commands`,
+      { command: 'classify', docType: QF, periodEnd: quarterEnd() },
+      'req-stg-classify-scan',
+    ).expect(200);
+    const batch = extractionBatch.parse(
+      (
+        await post(
+          'operations',
+          '/api/v1/extraction/batches',
+          { documentIds: [scan.id] },
+          'req-stg-batch-scan',
+        ).expect(201)
+      ).body,
+    );
+    const [run] = await runsOf('operations', `&batchId=${batch.id}`);
+    expect(run!.state).toBe('Succeeded');
+    expect(run!.investmentId).toBeNull();
+    for (const value of extractionRunDetail.parse(
+      (await get('operations', `/api/v1/extraction/runs/${run!.id}`).expect(200)).body,
+    ).values) {
+      if (value.decision !== null || value.validationState === 'clean') continue;
+      await runCommand('operations', run!.id, {
+        command: 'reject',
+        field: value.field,
+        reason: 'not reviewed in this test',
+      }).expect(200);
+    }
+    await runCommand('operations', run!.id, { command: 'acceptClean' }).expect(200);
+    const refused = await runCommand('operations', run!.id, { command: 'approve' }).expect(422);
+    expect(problemDetails.parse(refused.body)).toMatchObject({
+      type: `${PROBLEM}workflow-precondition`,
+      detail: 'extraction: the document is not linked to an investment; classify it with one first',
+    });
+  });
+});

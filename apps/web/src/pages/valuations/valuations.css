@@ -1,10 +1,13 @@
-/* Valuation board (docs/04 M10). Tokens only; shared table, tile and badge styles live in styles.css,
-   which loads first, so a page class wins over a shared class of the same specificity. Filters keep
-   .pb-toolbar in front to outrank Fluent's own classes. */
+/* Valuations: the board, a version, the suggestions and the change requests (docs/04 M10, M11).
+   Tokens only; shared table, tile, step and badge styles live in styles.css, which loads first, so
+   a page class wins over a shared class of the same specificity. Filters keep .pb-toolbar in front
+   to outrank Fluent's own classes. */
+
+/* The notes of a version tied to a suggestion, one after the other. */
 .pb-val-gates {
   display: grid;
-  gap: 6px;
-  margin: 0 0 16px;
+  gap: var(--pb-space-2);
+  margin: 0 0 var(--pb-space-5);
 }
 .pb-val-gates > .pb-notice,
 .pb-val-gates > .pb-meta {
@@ -13,6 +16,11 @@
 .pb-val-reset {
   display: inline-flex;
   align-items: center;
+}
+/* The board's header actions, with why New valuation is not offered under that button, from its
+   edge; the buttons stay level with each other. */
+.pb-val-head-actions {
+  align-items: flex-start;
 }
 
 /* Filters sized to their content, so the toolbar holds one row on a laptop screen. */
@@ -24,19 +32,26 @@
   width: 250px;
 }
 
-.pb-val-change {
+/* The variance flag: a watch dot in a fixed slot before the change, so every percentage keeps one
+   right edge whether it carries the flag or not. */
+.pb-val-flag {
   display: inline-flex;
+  justify-content: flex-start;
   align-items: center;
-  justify-content: flex-end;
-  gap: 8px;
-}
-
-/* Seven columns fit a laptop screen: each cell holds its figure or name on the first line and the
-   detail that identifies it (investment number and vehicle; version and method; approval date) on a
-   muted second line. On a phone the table scrolls inside its frame. */
-.pb-val-table td {
+  width: 12px;
+  height: var(--pb-text-md-lh);
   vertical-align: top;
 }
+.pb-val-flag-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--pb-watch);
+}
+
+/* Each cell holds its figure or name on the first line and the detail that identifies it
+   (investment number and vehicle; version and method; approval date) on a muted second line. On a
+   phone the table scrolls inside its frame, the position held on the left. */
 .pb-val-position {
   min-width: 200px;
 }
@@ -47,9 +62,20 @@
 .pb-val-state > .pb-cell-sub {
   display: block;
 }
-.pb-val-table .pb-command-buttons {
-  flex-wrap: wrap;
-  gap: 4px;
+/* The commands of a row, on the right and on one line; the column's marker beside its heading. */
+.pb-val-table .pb-val-actions-col {
+  width: 1%;
+  text-align: right;
+  white-space: nowrap;
+}
+.pb-val-table td.pb-val-actions-col > .pb-command-buttons {
+  flex-wrap: nowrap;
+  justify-content: flex-end;
+}
+.pb-val-actions-head {
+  display: inline-flex;
+  align-items: baseline;
+  justify-content: flex-end;
 }
 @media (max-width: 760px) {
   .pb-toolbar .pb-val-filter,
@@ -58,113 +84,51 @@
   }
 }
 
-/* Row selection and the batch bar (docs/04 M10): the selected count and one button per batch
-   command the signed-in roles may run. */
+/* Row selection and the batch bar (docs/04 M10): a flat row over the table with the selected count
+   and one button per batch command the signed-in roles may run. */
 .pb-val-batch {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 8px 12px;
-  margin: 0 0 12px;
-  padding: 8px 12px;
-  border: 1px solid var(--pb-border);
-  border-radius: var(--pb-radius);
-  background: var(--pb-surface-2);
+  gap: var(--pb-space-2) var(--pb-space-3);
+  margin: 0;
+  padding: var(--pb-space-2) 0;
+  border: 0;
+  border-bottom: 1px solid var(--pb-hairline);
+  border-radius: 0;
+  background: none;
 }
 .pb-val-batch > .pb-meta {
-  margin: 0;
+  margin: 0 var(--pb-space-2) 0 0;
+  color: var(--pb-text);
+  font-variant-numeric: tabular-nums;
 }
 .pb-val-table .pb-val-select {
   width: 40px;
   padding-right: 0;
 }
 
-/* The version screen: the four steps of docs/18 section 1 as an ordered list that wraps. */
-.pb-val-progress {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 8px;
-  margin: 0 0 16px;
-  padding: 0;
-  list-style: none;
+/* A version's method inputs as pairs read like a ledger: the name on the left, the value on the
+   right, so dollar figures line up on their last digit. */
+.pb-val-inputs .pb-kv td {
+  text-align: right;
 }
-.pb-val-progress > li {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 8px;
-  min-width: 0;
-  padding: 10px;
-  background: var(--pb-bg);
-  border: 1px solid var(--pb-border);
-  border-radius: var(--pb-radius);
-}
-.pb-val-progress > li[aria-current='step'] {
-  border-color: var(--pb-brand-primary);
-  box-shadow: inset 0 3px 0 var(--pb-brand-accent);
-}
-.pb-val-step {
-  display: flex;
-  align-items: flex-start;
-  gap: 6px;
-  font-size: 13px;
-  line-height: 18px;
-  font-weight: 600;
-  color: var(--pb-text);
-}
-.pb-val-progress > li[data-status='upcoming'] .pb-val-step {
-  font-weight: 500;
-  color: var(--pb-muted-strong);
-}
-.pb-val-step-number {
-  flex: none;
-  display: inline-grid;
-  place-items: center;
-  width: 18px;
-  height: 18px;
-  border-radius: 50%;
-  border: 1px solid var(--pb-border);
-  background: var(--pb-surface-2);
-  color: var(--pb-muted-strong);
-  font-size: 11px;
-  line-height: 1;
-  font-weight: 600;
+.pb-val-inputs .pb-kv td:has(> .pb-val-money) {
+  white-space: nowrap;
   font-variant-numeric: tabular-nums;
-}
-.pb-val-progress > li[data-status='done'] .pb-val-step-number {
-  border-color: rgba(var(--pb-good-rgb), 0.18);
-  background: var(--pb-good-tint);
-  color: var(--pb-good-ink);
-}
-.pb-val-progress > li[aria-current='step'] .pb-val-step-number {
-  border-color: var(--pb-brand-primary);
-  background: var(--pb-brand-primary);
-  color: var(--pb-bg);
-}
-.pb-val-back {
-  margin: 0 0 6px;
-}
-/* The commands of the version and, on a Draft, its edit, on one row that wraps. */
-.pb-val-actions {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 8px;
-  margin: 0 0 12px;
 }
 
 /* The lock text: the exact bytes the hash covers, in a monospace block that wraps but never reflows. */
 .pb-val-lock,
 .pb-val-hash {
-  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  font-size: 12.5px;
-  line-height: 18px;
+  font-family: var(--pb-font-mono);
+  font-size: var(--pb-text-sm);
+  line-height: var(--pb-text-sm-lh);
   overflow-wrap: anywhere;
 }
 .pb-val-lock {
-  margin: 0 0 8px;
-  padding: 10px 12px;
+  margin: var(--pb-space-3) 0 var(--pb-space-2);
+  padding: var(--pb-space-3);
   border: 1px solid var(--pb-border);
   border-radius: var(--pb-radius);
   background: var(--pb-surface-2);
@@ -174,30 +138,147 @@
 /* The change request form (docs/04 M11): one column of fields, the details as key and value rows. */
 .pb-val-form {
   display: grid;
-  gap: 12px;
+  gap: var(--pb-space-3);
   max-width: 640px;
 }
 .pb-val-form-row {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto;
-  gap: 8px;
+  gap: var(--pb-space-2);
   align-items: end;
 }
 .pb-val-form-actions {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 8px 12px;
+  gap: var(--pb-space-2) var(--pb-space-3);
 }
 .pb-val-form-actions > .pb-meta {
   margin: 0;
 }
-
 @media (max-width: 760px) {
-  .pb-val-progress {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
   .pb-val-form-row {
     grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* Valuation suggestions (decision 0023): the flags of a suggestion on one line that wraps, and a
+   figure cell's muted second line (the mark's date and age, a percent) on the right, under it. */
+.pb-val-flags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--pb-space-1) var(--pb-space-3);
+  margin-top: var(--pb-space-1);
+}
+.pb-card > .pb-val-flags {
+  margin: 0 0 var(--pb-space-3);
+}
+.pb-val-table td.num > .pb-cell-sub {
+  justify-content: flex-end;
+}
+.pb-val-table .pb-val-mark {
+  min-width: 132px;
+}
+/* Muted words on the selected row's tint keep their contrast (docs/06 section 1). */
+.pb-val-table tr.is-selected .pb-meta,
+.pb-val-table tr.is-selected .is-missing {
+  color: var(--pb-muted-strong);
+}
+
+/* The chosen suggestion under the queue: its header holds the company and its state, the quarter
+   and where it came from, and the commands on the right; a new choice settles into place once. */
+.pb-val-detail-head {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-areas: 'title actions' 'meta actions';
+  column-gap: var(--pb-space-5);
+  row-gap: 2px;
+  align-items: center;
+  margin: 0 0 var(--pb-space-3);
+}
+.pb-val-detail-title {
+  grid-area: title;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0 var(--pb-space-3);
+  min-width: 0;
+}
+.pb-val-detail-title > h2 {
+  margin: 0;
+  font-size: var(--pb-text-lg);
+  line-height: var(--pb-text-lg-lh);
+  font-weight: 600;
+  color: var(--pb-text);
+}
+.pb-val-detail-title > h2 > span:focus {
+  outline: none;
+}
+.pb-val-detail-title > h2 > span:focus-visible {
+  outline: 2px solid var(--pb-brand-accent);
+  outline-offset: 2px;
+  border-radius: var(--pb-radius-sm);
+}
+.pb-val-detail-head > .pb-meta-list {
+  grid-area: meta;
+  margin: 0;
+}
+.pb-val-detail-actions {
+  grid-area: actions;
+  justify-self: end;
+}
+.pb-val-detail-head + .pb-note {
+  margin: 0 0 var(--pb-space-3);
+}
+@media (max-width: 760px) {
+  .pb-val-detail-head {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-areas: 'title' 'meta' 'actions';
+    row-gap: var(--pb-space-2);
+  }
+  .pb-val-detail-actions {
+    justify-self: start;
+  }
+}
+.pb-main > div.pb-val-detail {
+  animation: pb-enter var(--pb-dur) var(--pb-ease) backwards;
+}
+.pb-val-workings {
+  display: grid;
+  gap: var(--pb-space-2);
+  margin: var(--pb-space-3) 0 0;
+}
+.pb-val-workings > p,
+.pb-val-workings > ul,
+.pb-val-workings > .pb-subhead {
+  margin: 0;
+}
+.pb-val-workings > * + .pb-subhead {
+  margin-top: var(--pb-space-3);
+}
+/* The document a suggestion was worked out from, under its header. */
+.pb-val-source-file {
+  margin: 0 0 var(--pb-space-3);
+  overflow-wrap: anywhere;
+}
+/* The inputs of the workings keep a width their words fit in, so a phone scrolls the table instead
+   of breaking a name a word a line. A source that opens its page: left-aligned like the plain
+   sources beside it, wide enough that a long file name wraps to a few lines (the table's class
+   outranks the button's own minimum width). */
+.pb-val-workings .pb-table td:first-child {
+  min-width: 16ch;
+}
+.pb-table .pb-val-source {
+  justify-content: flex-start;
+  min-width: 220px;
+  height: auto;
+  padding-block: var(--pb-space-1);
+  text-align: left;
+}
+
+/* Motion policy (docs/06 section 5): each animated selector above, exactly as declared. */
+@media (prefers-reduced-motion: reduce), (update: slow) {
+  .pb-main > div.pb-val-detail {
+    animation: none;
   }
 }

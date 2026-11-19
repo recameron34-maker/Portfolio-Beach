@@ -22,6 +22,15 @@ export interface TypedCashFlow extends CashFlow {
   kind: FlowKind;
 }
 
+/**
+ * The flow kind of a stored flow type: the taxonomy code (core.taxonomy_term, domain flow_type)
+ * without its domain, so flow_type.contribution is a contribution. One place reads the code,
+ * whoever holds the row: the API, the static preview and the synthetic generator.
+ */
+export function flowKindOf(flowType: string): FlowKind {
+  return flowType.replace('flow_type.', '') as FlowKind;
+}
+
 /** Normalizes and sorts flows by date (stable for equal dates). */
 export function normalizeFlows(flows: readonly CashFlow[]): DatedAmount[] {
   return flows

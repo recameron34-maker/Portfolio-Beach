@@ -33,6 +33,7 @@ import type { ActionLog } from '../../lib/workflow.js';
 import { changeRequestsQuery } from '../valuations/api.js';
 import { ChangeRequestForm } from '../valuations/ChangeRequestForm.js';
 import { canSubmitRequest } from '../valuations/changes.js';
+import { SuggestedMarkPanel } from '../valuations/SuggestedMarkPanel.js';
 import {
   datePart,
   lockedSeries,
@@ -53,7 +54,7 @@ function LockedChart({ rows }: { rows: readonly VersionPoint[] }): ReactNode {
     return (
       <EmptyState
         title="No Locked valuations yet"
-        detail="The chart plots Locked versions only, the ones reports read (docs/18 section 1)."
+        detail="The chart plots Locked versions only, the ones reports read."
       />
     );
   }
@@ -304,7 +305,8 @@ function ChangeRequestsCard({
 }
 
 /**
- * Valuations tab (docs/04 M10, M11): every version of this position's valuation with its state,
+ * Valuations tab (docs/04 M10, M11): the mark suggested for the position while one is open
+ * (decision 0023), every version of this position's valuation with its state,
  * the change against the prior Locked value and any reopen reason (the workflow actions live on
  * the valuation board), then the position's change requests and the form to request one.
  */
@@ -349,6 +351,7 @@ export function ValuationsTab(): ReactNode {
   }
   return (
     <>
+      <SuggestedMarkPanel investmentId={id} roles={roles} />
       <VersionsCard page={q.data} />
       {requests}
     </>

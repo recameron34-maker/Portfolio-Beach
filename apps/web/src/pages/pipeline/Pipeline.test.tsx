@@ -38,7 +38,7 @@ describe('pipeline board', () => {
     navigate.mockClear();
   });
 
-  it('shows one column per stage in docs/18 order with Passed last, and a card per deal', async () => {
+  it('shows one column per live stage in docs/18 order, a card per deal, and Closed and Passed as a table', async () => {
     mockApi(routes(['viewer']));
     renderWithQuery(<PipelinePage />);
     const board = await screen.findByTestId('pipeline-board');
@@ -53,49 +53,98 @@ describe('pipeline board', () => {
       'IC',
       'Approved',
       'Closing',
-      'Closed',
-      'Passed',
     ]);
+    // Each column's heading carries its count; the columns arrive left to right.
+    expect(columns.map((c) => c.querySelector('h3')?.textContent)).toEqual([
+      'Sourced1',
+      'Screening1',
+      'Prescreen1',
+      'Diligence1',
+      'IC1',
+      'Approved1',
+      'Closing1',
+    ]);
+    expect(columns.map((c) => c.style.getPropertyValue('--i'))).toEqual([
+      '0',
+      '1',
+      '2',
+      '3',
+      '4',
+      '5',
+      '6',
+    ]);
+    expect(within(board).queryByTestId('pipeline-column-Closed')).toBeNull();
+    expect(within(board).queryByTestId('pipeline-column-Passed')).toBeNull();
+
     const diligence = within(board).getByTestId('pipeline-column-Diligence');
     const card = within(diligence).getByTestId(`opportunity-card-${OPP_ID.diligence}`);
     expect(within(card).getByRole('link', { name: 'Project Dune' })).toHaveAttribute(
       'href',
       `/pipeline/${OPP_ID.diligence}`,
     );
-    expect(card).toHaveTextContent('Dune Logistics Holdings');
-    expect(card).toHaveTextContent('Kelpwood Capital Partners, Kelpwood Fund I');
-    expect(card).toHaveTextContent('Co invest equity');
-    expect(card).toHaveTextContent('$15.0M');
+    // One fact a line, in the same order on every card: company, sponsor and fund, deal type,
+    // deal lead, then the target and the days in stage.
+    expect(
+      [...card.querySelectorAll('.pb-pipe-card-line')].map((line) => line.textContent),
+    ).toEqual([
+      'Dune Logistics Holdings',
+      'Kelpwood Capital Partners, Kelpwood Fund I',
+      'Co invest equity',
+      'Blake Mbeki',
+    ]);
+    expect(card).toHaveTextContent('Target $15.0M');
     expect(card).toHaveTextContent('Blake Mbeki');
-    // 40 days at Diligence sits within the 90-day guide: plain text, no badge.
+    // 40 days at Diligence sits within the 90-day guide: plain text, no dot.
     expect(card).toHaveTextContent('40 days in stage');
     expect(card).toHaveAttribute('data-tone', 'neutral');
-    expect(within(card).queryByText('40 days in stage')?.closest('.pb-badge')).toBeNull();
-    // 45 days at Sourced is past the 30-day guide: a watch badge naming the guide.
+    expect(card.querySelector('.pb-badge')).toBeNull();
+    // Lines wrap rather than being cut short, so no line hides its words in a title.
+    expect(card.querySelector('[title]')).toBeNull();
+    // 45 days at Sourced is past the 30-day guide: a watch dot and the days, naming the guide.
     const sourced = within(board).getByTestId(`opportunity-card-${OPP_ID.sourced}`);
     expect(sourced).toHaveAttribute('data-tone', 'watch');
-    const aging = within(sourced).getByText('45 days in stage');
+    const aging = within(sourced).getByText('45 days');
     expect(aging.closest('.pb-badge')).toHaveClass('pb-badge-watch');
-    expect(aging.closest('[title]')).toHaveAttribute(
-      'title',
-      'Over the 30-day guide for Sourced (config pipeline.stageAgingDays)',
-    );
+    expect(aging.closest('[title]')).toHaveAttribute('title', 'Over the 30-day guide for Sourced');
+    expect(sourced).toHaveTextContent('45 days in stage');
     // A missing target commitment and a missing deal lead read as such, never as zero.
     expect(sourced).toHaveTextContent('No deal lead');
-    expect(sourced).toHaveTextContent('-');
-    // Closed and Passed never age.
-    expect(within(board).getByTestId(`opportunity-card-${OPP_ID.passed}`)).toHaveAttribute(
-      'data-tone',
-      'neutral',
+    expect(sourced).toHaveTextContent('-Target not recorded');
+
+    // Closed and Passed: one open table with the card's fields, after the board.
+    const settled = screen.getByRole('table', { name: 'Closed and passed' });
+    expect(
+      within(settled)
+        .getAllByRole('columnheader')
+        .map((h) => h.textContent),
+    ).toEqual([
+      'Deal',
+      'Company',
+      'Sponsor and fund',
+      'Deal type',
+      'Target',
+      'Deal lead',
+      'Days in stage',
+      'Stage',
+    ]);
+    const passed = within(settled).getByTestId(`opportunity-row-${OPP_ID.passed}`);
+    expect(passed).toHaveTextContent('Project Dusk');
+    expect(passed).toHaveTextContent('Passed');
+    expect(within(passed).getByRole('link', { name: 'Project Dusk' })).toHaveAttribute(
+      'href',
+      `/pipeline/${OPP_ID.passed}`,
     );
-    expect(within(board).getByTestId('pipeline-column-Passed')).toHaveTextContent('Project Dusk');
 
     const tiles = screen.getByTestId('pipeline-tiles');
     expect(within(tiles).getByRole('group', { name: 'In pipeline' })).toHaveTextContent('7');
     expect(within(tiles).getByRole('group', { name: 'Aging' })).toHaveTextContent('1');
     expect(within(tiles).getByRole('group', { name: 'At closing' })).toHaveTextContent('1');
     expect(within(tiles).getByRole('group', { name: 'Passed' })).toHaveTextContent('1');
-    expect(screen.getByTestId('workflow-deal_stage')).toBeInTheDocument();
+    // How a deal moves between stages, folded under its summary.
+    const spec = screen.getByTestId('workflow-deal_stage');
+    expect(spec.querySelector('details:not([open]) > summary')).toHaveTextContent(
+      'How a deal moves between stages',
+    );
     expect(document.body.textContent).not.toContain(EM_DASH);
   });
 
@@ -126,9 +175,7 @@ describe('pipeline board', () => {
     expect(await screen.findByText('1 of 9 deals')).toBeInTheDocument();
     expect(screen.getByTestId(`opportunity-card-${OPP_ID.screening}`)).toBeInTheDocument();
     expect(screen.queryByTestId(`opportunity-card-${OPP_ID.diligence}`)).toBeNull();
-    expect(screen.getByTestId('pipeline-column-Diligence')).toHaveTextContent(
-      'No deals at Diligence',
-    );
+    expect(screen.getByTestId('pipeline-column-Diligence')).toHaveTextContent('Diligence0None');
     await userEvent.click(screen.getByRole('combobox', { name: 'Deal lead' }));
     await userEvent.click(await screen.findByRole('option', { name: 'Blake Mbeki' }, TIMEOUT));
     // The Screening deal is led by Blake Mbeki too, so it stays; the lead-less Sourced deal never shows.

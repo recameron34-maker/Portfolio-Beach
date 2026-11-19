@@ -88,6 +88,7 @@ function writeDocuments(root: string, dataset: GeneratedDataset): void {
   let sidecars = 0;
   for (const document of set.documents) {
     const hash = createHash('sha256').update(document.bytes).digest('hex');
+    // eslint-disable-next-line security/detect-possible-timing-attacks -- an integrity check of generated files, nothing secret
     if (hash !== document.truth.contentHash)
       throw new Error(
         `synth:documents: ${document.fileName}: the generator's hash differs from node:crypto's`,

@@ -46,11 +46,13 @@ describe('NavTrendCard', () => {
           { periodEnd: '2025-03-31', value: '110000000.00' },
           { periodEnd: '2025-06-30', value: '125000000.00' },
         ]}
-        heading="Trend"
         testId="nav"
       />,
     );
-    expect(screen.getByRole('heading', { name: /^Trend/ })).toBeInTheDocument();
+    // The chart's title is the section's only title, and its heading.
+    expect(screen.getAllByRole('heading')).toHaveLength(1);
+    expect(screen.getByRole('heading', { level: 2, name: 'NAV by quarter' })).toBeInTheDocument();
+    expect(screen.getByRole('group', { name: 'NAV by quarter' })).toBeInTheDocument();
     expect(screen.getByTestId('nav-gaps')).toHaveTextContent(/^Not calculable for 4 quarters:/);
   });
 
@@ -67,6 +69,8 @@ describe('NavTrendCard', () => {
     );
     expect(screen.getByTestId('nav-empty')).toHaveTextContent('No NAV trend yet');
     expect(screen.queryByRole('group', { name: 'NAV by quarter' })).not.toBeInTheDocument();
+    // The section keeps its heading with no chart under it.
+    expect(screen.getByRole('heading', { level: 2, name: 'NAV by quarter' })).toBeInTheDocument();
     expect(screen.queryByTestId('nav-gaps')).not.toBeInTheDocument();
   });
 });

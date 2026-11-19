@@ -1,4 +1,4 @@
-import { normalizeWhitespace } from '@pb/ai';
+import { loadExtractionSchemas, normalizeWhitespace, promotesToRecord } from '@pb/ai';
 import { isMoneyUnit, isQuarterEnd } from '@pb/calc';
 import {
   API_PREFIX,
@@ -22,6 +22,7 @@ import type {
   PageLayout,
   Taxonomy,
 } from '@pb/contracts';
+import schemaConfig from '../../../../../config/extraction_schema.json';
 import { ApiError } from '../../api/client.js';
 import { describeActionError, plainRule } from '../../app/mutations.js';
 import type { Tone } from '../../components/ui.js';
@@ -40,7 +41,58 @@ import type { DocTypeOption } from '../documents/documents.js';
  */
 
 export const EXTRACTION_META =
-  'AI extraction of quarterly figures, reviewed by exception before anything is promoted (SEC-8.4, SEC-9.1)';
+  'AI extraction of quarterly figures, reviewed by exception before anything is promoted';
+
+/* ---- What a run's schema means for the page (config/extraction_schema.json) ---- */
+
+const SCHEMAS = loadExtractionSchemas(schemaConfig);
+
+/** What the review page changes with the schema a run was extracted against. */
+export interface RunSchemaTraits {
+  /** The approval writes the accepted figures to the quarter on record. */
+  promotes: boolean;
+  /** The model drafts highlights or a commentary beside the values. */
+  narrative: boolean;
+}
+
+/**
+ * A quarterly report's approval promotes its figures and carries a drafted narrative; a capital
+ * account statement's does neither. Read from the schema itself (the rule the API applies), so a
+ * new schema needs no change here. A schema the config no longer holds reads as one that
+ * promotes: the page then offers what the API refuses by name.
+ */
+export function runSchemaTraits(schemaId: string): RunSchemaTraits {
+  const found = SCHEMAS[schemaId];
+  if (found === undefined) return { promotes: true, narrative: true };
+  return {
+    promotes: promotesToRecord(found),
+    narrative: found.highlights.bullets > 0 || found.commentary,
+  };
+}
+
+/**
+ * How the lines of an approved statement will be read, said before anyone approves: our account
+ * for the one position the document is linked to, or our account in a fund when it is linked to
+ * none. Null for a run whose approval promotes figures to the quarterly record.
+ */
+export function statementReading(detail: ExtractionRunDetail): string | null {
+  if (runSchemaTraits(detail.run.schemaId).promotes) return null;
+  const { run, document } = detail;
+  if (run.investmentId !== null) {
+    const company = run.companyName ?? 'the linked position';
+    return run.investmentNumber === null
+      ? `Our account for ${company}`
+      : `Our account for ${company}, ${run.investmentNumber}`;
+  }
+  return `Our account in ${document.sponsorFundName ?? 'a fund this document is not linked to'}`;
+}
+
+/** The document types a batch can extract today, by their labels: "Quarterly financials, Capital account statement". */
+export function extractableTypesText(): string {
+  return Object.values(SCHEMAS)
+    .map((schema) => schema.label)
+    .join(', ');
+}
 
 /* ---- Roles, from the contract's route table (config over code) ---- */
 
@@ -162,8 +214,8 @@ export function unitLabel(unit: ExtractionUnit): string {
 }
 
 /**
- * A value as the document states it, in its own unit: "$125.40M", "42.50%", "Jun 30, 2025",
- * "120"; the missing placeholder when the model answered null. Nothing is converted here: the
+ * A value as the document states it, in its own unit: "$125.40M", "-$7.94M", "42.50%",
+ * "Jun 30, 2025", "120"; the missing placeholder when the model answered null. Nothing is converted here: the
  * dollars reach the record only through the promotion, which converts with packages/calc.
  */
 export function valueText(
@@ -173,8 +225,13 @@ export function valueText(
 ): string {
   if (value === null || value === '') return MISSING;
   switch (kind) {
-    case 'money':
-      return unit !== null && isMoneyUnit(unit) ? `$${value}${MONEY_SUFFIX[unit] ?? ''}` : value;
+    case 'money': {
+      if (unit === null || !isMoneyUnit(unit)) return value;
+      // The sign goes before the dollar sign, as every other figure writes it: "-$7.94M".
+      const negative = value.startsWith('-');
+      const digits = negative ? value.slice(1) : value;
+      return `${negative ? '-' : ''}$${digits}${MONEY_SUFFIX[unit] ?? ''}`;
+    }
     case 'percent':
       return formatPct(value, 2);
     case 'date':
@@ -260,7 +317,9 @@ export function runGates(run: ExtractionRun, roles: readonly string[]): RunGates
     return {
       reviewable: false,
       retryable: false,
-      blocked: 'This run is approved and its figures are promoted',
+      blocked: runSchemaTraits(run.schemaId).promotes
+        ? 'This run is approved and its figures are promoted'
+        : 'This run is approved',
     };
   const retryable = run.state === 'Failed' || run.state === 'NeedsRetry';
   if (run.state !== 'Succeeded')
@@ -332,7 +391,10 @@ export function promotedPeriod(detail: ExtractionRunDetail): string | null {
 }
 
 export function approvedPhrase(detail: ExtractionRunDetail): string {
-  return `Approved: figures promoted for ${formatDate(promotedPeriod(detail))}`;
+  const period = formatDate(promotedPeriod(detail));
+  return runSchemaTraits(detail.run.schemaId).promotes
+    ? `Approved: figures promoted for ${period}`
+    : `Approved: the statement for ${period}; nothing was written to the quarterly record`;
 }
 
 export function retriedPhrase(detail: ExtractionRunDetail): string {

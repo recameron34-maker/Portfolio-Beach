@@ -91,11 +91,14 @@ describe('intake file', () => {
     expect(banner).toHaveTextContent('Received Jul 1, 2025');
     expect(banner).toHaveTextContent('By Avery Castellanos');
     expect(banner).toHaveTextContent('7 rows');
+    // The file's status is a dot and a word in the meta line; the header holds no command.
     expect(within(banner).getByText('Flagged')).toHaveClass('pb-badge-watch');
-    expect(screen.getByRole('link', { name: 'All intake files' })).toHaveAttribute(
-      'href',
-      '/data/intake',
-    );
+    expect(within(banner).getByText('Flagged').closest('.pb-meta-list')).not.toBeNull();
+    expect(
+      within(screen.getByRole('navigation', { name: 'Breadcrumb' })).getByRole('link', {
+        name: 'Intake',
+      }),
+    ).toHaveAttribute('href', '/data/intake');
     expect(screen.queryByTestId('intake-duplicate')).not.toBeInTheDocument();
     expect(screen.queryByTestId('intake-file-findings')).not.toBeInTheDocument();
 
@@ -121,20 +124,30 @@ describe('intake file', () => {
     );
     expect(within(unchanged).getByText('INV-0001')).toHaveClass('pb-key');
     expect(within(unchanged).getByText('Jun 30, 2025')).toBeInTheDocument();
-    expect(within(unchanged).getByText('Unchanged')).toHaveClass('pb-badge-neutral');
+    // An unchanged row says so in muted words, with no state to read.
+    expect(within(unchanged).getByText('No change')).toHaveClass('pb-meta');
+    expect(within(unchanged).queryByText('Unchanged')).not.toBeInTheDocument();
     expect(within(unchanged).getByText('None')).toBeInTheDocument();
     expect(within(unchanged).getByText('Validated')).toHaveClass('pb-badge-neutral');
     expect(within(unchanged).getByText('-')).toBeInTheDocument();
 
-    // Each change to the cent, so a small restatement never reads as two equal figures; $M in the title.
+    // Each change to the cent, so a small restatement never reads as two equal figures: a line of
+    // the figure, the record's and the file's, $M in its title, and one sentence for a screen reader.
     const changed = rowOf('Silverline Staffing Holdings');
     expect(within(changed).getByText('Changed')).toHaveClass('pb-badge-watch');
-    const revenue = within(changed).getByText('Revenue $20,100,000.00 to $20,502,000.00');
-    expect(revenue).toHaveAttribute('title', 'Revenue $20.1M to $20.5M');
-    expect(within(changed).getByText('EBITDA $4,140,000.00 to $3,970,000.00')).toHaveAttribute(
-      'title',
-      'EBITDA $4.1M to $4.0M',
+    expect(within(changed).getByText('Revenue $20,100,000.00 to $20,502,000.00')).toHaveClass(
+      'pb-visually-hidden',
     );
+    const revenueLine = within(changed).getByText('Revenue', {
+      selector: '.pb-intake-diff-field',
+    }).parentElement!;
+    expect(revenueLine).toHaveAttribute('title', 'Revenue $20.1M to $20.5M');
+    expect(revenueLine).toHaveAttribute('aria-hidden', 'true');
+    expect(within(revenueLine).getByText('$20,100,000.00')).toHaveClass('pb-intake-diff-record');
+    expect(within(revenueLine).getByText('$20,502,000.00')).toHaveClass('pb-intake-diff-file');
+    expect(
+      within(changed).getByText('EBITDA', { selector: '.pb-intake-diff-field' }).parentElement,
+    ).toHaveAttribute('title', 'EBITDA $4.1M to $4.0M');
     expect(within(changed).queryByText('Revenue $20.1M to $20.5M')).not.toBeInTheDocument();
 
     // A new quarter shows every figure approval would write, with nothing on record before it.
@@ -145,13 +158,16 @@ describe('intake file', () => {
     expect(within(added).getByText('EBITDA - to $4,140,000.00')).toBeInTheDocument();
     expect(within(added).getByText('EV - to $52,000,000.00')).toBeInTheDocument();
     expect(within(added).getByText('Net debt - to $12,500,000.00')).toBeInTheDocument();
-    const offQuarter = within(added).getByText('TYPE-03', { selector: '.pb-badge' });
-    expect(offQuarter).toHaveClass('pb-badge-bad');
-    expect(offQuarter.closest('[title]')).toHaveAttribute(
+    // Nothing on record: the record's column stays empty and the grid says why.
+    expect(within(added).getByTitle('New, nothing on record')).toHaveClass('pb-intake-diff');
+    // The finding's severity once, as the dot of its count; the rule as an identifier.
+    const offQuarter = within(added).getByText('TYPE-03');
+    expect(offQuarter.closest('.pb-rule-id')).not.toBeNull();
+    expect(offQuarter).toHaveAttribute(
       'title',
       'The period end is more than a few days from a calendar quarter end',
     );
-    expect(within(added).getByText('1 finding')).toBeInTheDocument();
+    expect(within(added).getByText('1 finding')).toHaveClass('pb-badge-bad');
     expect(
       within(added).getByText(
         'TYPE-03: The period end is more than a few days from a calendar quarter end (Expected a quarter end, actual 2024-06-16)',
@@ -167,9 +183,7 @@ describe('intake file', () => {
     expect(
       within(unmatched).getByText('Candidates: INV-0001 Meridian Data Partners (near miss)'),
     ).toBeInTheDocument();
-    expect(within(unmatched).getByText('XREF-01', { selector: '.pb-badge' })).toHaveClass(
-      'pb-badge-bad',
-    );
+    expect(within(unmatched).getByText('XREF-01').closest('.pb-rule-id')).not.toBeNull();
     expect(within(unmatched).getByText('Flagged')).toHaveClass('pb-badge-watch');
 
     const guarded = rowOf('Summit Services Company');
@@ -233,7 +247,8 @@ describe('intake file', () => {
     expect(await screen.findByText('2 rows promoted (audited)')).toBeInTheDocument();
     expect(screen.getByTestId('intake-action-status')).toHaveClass('pb-action-status');
     expect(sentPosts()).toEqual([[commandsPath(FILE_ID.update), { command: 'approve' }]]);
-    expect(within(rowOf('Meridian Data Partners')).getByText('Promoted')).toHaveClass(
+    // The message is the page's own; the rows follow the file, which lands a moment later.
+    expect(await within(rowOf('Meridian Data Partners')).findByText('Promoted')).toHaveClass(
       'pb-badge-good',
     );
     expect(within(tile('Promoted')).getByText('3')).toBeInTheDocument();
@@ -266,7 +281,7 @@ describe('intake file', () => {
     await dialogClosed();
     expect(await screen.findByText('3 rows rejected (audited)')).toBeInTheDocument();
     expect(sentPosts()).toEqual([[commandsPath(FILE_ID.update), { command: 'reject', reason }]]);
-    expect(within(rowOf('Meridian Data Partner')).getByText('Rejected')).toHaveClass(
+    expect(await within(rowOf('Meridian Data Partner')).findByText('Rejected')).toHaveClass(
       'pb-badge-bad',
     );
     expect(within(rowOf('Meridian Data Partner')).getByText(reason)).toBeInTheDocument();
@@ -404,7 +419,11 @@ describe('intake file', () => {
     const banner = await screen.findByTestId('intake-banner');
     expect(banner).toHaveTextContent('Template: none matched');
     const findings = screen.getByRole('list', { name: 'File findings' });
-    expect(within(findings).getByText('LAYOUT-05')).toHaveClass('pb-badge-bad');
+    // A dot of the finding's severity, then its rule as an identifier.
+    expect(within(findings).getByText('LAYOUT-05')).toHaveClass('pb-rule-id');
+    expect(within(findings).getByText('LAYOUT-05').previousElementSibling).toHaveClass(
+      'pb-status-bad',
+    );
     expect(findings).toHaveTextContent('No template matches this workbook');
     expect(findings).toHaveTextContent('Expected quarterly-figures');
     expect(findings).toHaveTextContent('actual sheets: Figures, Notes; header hash:');
@@ -455,7 +474,7 @@ describe('intake file', () => {
     });
     renderWithQuery(<IntakeFilePage />);
     const findings = await screen.findByRole('list', { name: 'File findings' });
-    expect(within(findings).getByText('LAYOUT-02')).toHaveClass('pb-badge-bad');
+    expect(within(findings).getByText('LAYOUT-02')).toHaveClass('pb-rule-id');
     expect(findings).toHaveTextContent('The file lacks the column PeriodEnd');
     expect(findings).toHaveTextContent('Expected PeriodEnd');
     const empty = screen.getByTestId('intake-no-rows');
@@ -486,7 +505,11 @@ describe('intake file', () => {
       );
       renderWithQuery(<IntakeFilePage />);
       expect(await screen.findByText(text), String(status)).toBeInTheDocument();
-      expect(screen.getByRole('link', { name: 'All intake files' })).toBeInTheDocument();
+      expect(
+        within(screen.getByRole('navigation', { name: 'Breadcrumb' })).getByRole('link', {
+          name: 'Intake',
+        }),
+      ).toBeInTheDocument();
     }
   });
 

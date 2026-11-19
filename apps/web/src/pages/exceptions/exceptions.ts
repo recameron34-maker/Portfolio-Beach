@@ -14,8 +14,7 @@ import type { CommandOption } from '../../lib/states.js';
  */
 
 /** The page header's context line. */
-export const EXCEPTIONS_META =
-  'What an intake could not decide for itself, worked by operations (docs/18 section 9)';
+export const EXCEPTIONS_META = 'What an intake could not decide for itself, worked by operations';
 
 /** What a role the queue refuses is told (the API answers 403; viewers, investor relations and platform admins). */
 export const EXCEPTIONS_FORBIDDEN = {

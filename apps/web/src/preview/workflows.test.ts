@@ -6,16 +6,24 @@ import {
   featureFlagList,
   investmentDetail,
   problemDetails,
+  reportPackageCommandBody,
+  reportPackageDetail,
   valuationPage,
   valuationRow,
 } from '@pb/contracts';
 import type { ValuationRow } from '@pb/contracts';
-import { capitalNoticeMachine, forbiddenPairs, valuationMachine } from '@pb/workflows';
+import {
+  capitalNoticeMachine,
+  forbiddenPairs,
+  reportingPackageMachine,
+  valuationMachine,
+} from '@pb/workflows';
+import type { ReportingPackageCommand, ReportingPackageState } from '@pb/workflows';
 import { lockHashOf } from './routes/valuations.js';
 import { createPreviewFetch } from './shim.js';
 import { createPreviewState } from './state.js';
-import type { PreviewState } from './state.js';
-import { AS_OF, IDS, USERS, buildWorld, problemOf, send } from './test-fixtures.js';
+import type { PreviewState, SimReportPackage } from './state.js';
+import { AS_OF, IDS, USERS, buildWorld, personOf, problemOf, send } from './test-fixtures.js';
 import type { Answer } from './test-fixtures.js';
 
 const never: typeof fetch = () => Promise.reject(new Error('no network in the preview'));
@@ -315,6 +323,151 @@ describe('capital notice commands follow docs/18 section 3 through the transitio
       },
     );
     expect(unknown.text).toBe(hidden.text.replace(IDS.notice.walled, IDS.open));
+  });
+});
+
+/** A package of the session in the state given, prepared by operations' colleague so nobody here is its preparer. */
+const packageIn = (state: ReportingPackageState, n: number): SimReportPackage => ({
+  id: `5b000000-0000-4000-8000-${String(n).padStart(12, '0')}`,
+  client: { id: IDS.client, name: 'Test Client One' },
+  periodEnd: '2025-03-31',
+  asOf: AS_OF,
+  basis: 'gross',
+  label: 'preliminary',
+  version: 1,
+  state,
+  preparedBy: personOf(USERS.ops2),
+  reviewer: null,
+  approvedAt: null,
+  releasedAt: null,
+  rowVersion: 4,
+  correctionReason: null,
+  contentHash: null,
+  releasedBy: null,
+  content: null,
+  findings: [],
+  tieOutExplanations: {},
+  changeLog: [],
+});
+
+/** The commands the contract lets a person send; qaPass and qaFail are the system's own. */
+const PERSON_COMMANDS = reportPackageCommandBody.options.map((o) => o.shape.command.value);
+
+describe('reporting package commands follow docs/18 section 5 through the transition table', () => {
+  /** A session holding one package in every state of the machine, Generated included though no package rests there. */
+  function seeded(): {
+    f: typeof fetch;
+    state: PreviewState;
+    idOf: (s: ReportingPackageState) => string;
+  } {
+    const { f, state } = setup();
+    const byState = new Map<ReportingPackageState, string>();
+    reportingPackageMachine.states.forEach((s, i) => {
+      const sim = packageIn(s, i + 1);
+      state.reportPackages.set(sim.id, sim);
+      byState.set(s, sim.id);
+    });
+    return { f, state, idOf: (s) => byState.get(s) ?? '' };
+  }
+  const path = (id: string): string => `/api/v1/report-packages/${id}/commands`;
+  const bodyOf = (cmd: ReportingPackageCommand): Record<string, unknown> =>
+    cmd === 'overrideQa' ? { command: cmd, reason: 'testing the table' } : { command: cmd };
+
+  it('lets a person send the six commands of the contract, and never the QA outcome', async () => {
+    expect([...PERSON_COMMANDS].sort()).toEqual(
+      ['approve', 'generate', 'overrideQa', 'regenerate', 'release', 'submit'].sort(),
+    );
+    const { f, state, idOf } = seeded();
+    // qaPass and qaFail are rows of the table for the service alone: at the boundary a person,
+    // whatever roles they hold, is refused before the machine is asked, from every state.
+    for (const from of reportingPackageMachine.states) {
+      for (const cmd of ['qaPass', 'qaFail']) {
+        const answer = await send(f, USERS.all.externalId, 'POST', path(idOf(from)), {
+          command: cmd,
+        });
+        expect(answer.status, `${cmd} from ${from}`).toBe(400);
+        expect(problemOf(answer).code).toBe('validation');
+      }
+      expect(state.reportPackages.get(idOf(from))).toMatchObject({ state: from, rowVersion: 4 });
+    }
+  });
+
+  it('refuses every forbidden (state, command) pair with 409, even for a user holding every role', async () => {
+    const { f, state, idOf } = seeded();
+    const pairs = forbiddenPairs(reportingPackageMachine).filter((p) =>
+      (PERSON_COMMANDS as readonly string[]).includes(p.command),
+    );
+    // Six states a package rests in and Generated, six commands, eight rows a person can ask for.
+    expect(pairs).toHaveLength(7 * 6 - 6);
+    for (const { from, command: cmd } of pairs) {
+      const answer = await send(f, USERS.all.externalId, 'POST', path(idOf(from)), bodyOf(cmd));
+      expect(answer.status, `${cmd} from ${from}`).toBe(409);
+      expect(problemOf(answer)).toEqual({
+        code: 'workflow-transition',
+        detail: `reporting_package: ${cmd} is not allowed from ${from}`,
+      });
+      expect(answer.headers.get('x-pb-simulated')).toBe('true');
+      // A refused command changes nothing.
+      expect(state.reportPackages.get(idOf(from))).toMatchObject({ state: from, rowVersion: 4 });
+    }
+    // There is no way back: nothing leads from QA passed, In review, Approved or Released to an earlier state.
+    const order: ReportingPackageState[] = ['QAPassed', 'InReview', 'Approved', 'Released'];
+    for (const t of reportingPackageMachine.transitions)
+      if (order.includes(t.from))
+        expect(order.indexOf(t.to), `${t.command} from ${t.from}`).toBeGreaterThan(
+          order.indexOf(t.from),
+        );
+  });
+
+  it('refuses a role the row does not name with 403, on every row a person can ask for', async () => {
+    const { f, state, idOf } = seeded();
+    const rows = reportingPackageMachine.transitions.filter((t) =>
+      (PERSON_COMMANDS as readonly string[]).includes(t.command),
+    );
+    expect(rows).toHaveLength(6);
+    let refused = 0;
+    for (const t of rows) {
+      for (const user of [USERS.ops, USERS.head, USERS.deal, USERS.viewer, USERS.admin]) {
+        if (t.roles.some((r) => user.roles.includes(r))) continue;
+        const answer = await send(
+          f,
+          user.externalId,
+          'POST',
+          path(idOf(t.from)),
+          bodyOf(t.command),
+        );
+        expect(answer.status, `${t.command} from ${t.from} as ${user.externalId}`).toBe(403);
+        expect(problemOf(answer).code).toBe('forbidden');
+        refused += 1;
+      }
+      expect(state.reportPackages.get(idOf(t.from))).toMatchObject({ state: t.from });
+    }
+    // Operations and the approver each hold one of the route's roles, so the machine refuses them.
+    expect(refused).toBeGreaterThan(rows.length * 3);
+    const machine = await send(f, USERS.ops.externalId, 'POST', path(idOf('InReview')), {
+      command: 'approve',
+    });
+    expect(problemOf(machine).detail).toBe(
+      'reporting_package: approve from InReview requires one of: approver',
+    );
+  });
+
+  it('requires a reason to override a failed QA, and the row then moves', async () => {
+    const { f, idOf } = seeded();
+    // The contract asks for the reason first: without one the body is refused at the boundary.
+    for (const body of [{ command: 'overrideQa' }, { command: 'overrideQa', reason: '  ' }])
+      expect(
+        (await send(f, USERS.head.externalId, 'POST', path(idOf('QAFailed')), body)).status,
+      ).toBe(400);
+    const moved = await send(f, USERS.head.externalId, 'POST', path(idOf('QAFailed')), {
+      command: 'overrideQa',
+      reason: 'testing the table',
+    });
+    expect(reportPackageDetail.parse(moved.json)).toMatchObject({
+      state: 'QAPassed',
+      rowVersion: 5,
+    });
+    expect(moved.headers.get('etag')).toBe('"5"');
   });
 });
 

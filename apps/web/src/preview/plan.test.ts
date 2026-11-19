@@ -46,12 +46,15 @@ import {
   VALUE_CREATION_EXPORT_PATH,
   valueCreationQuery,
 } from '../pages/analytics/value-creation-queries.js';
+import { underwritingQuery } from '../pages/deal/underwriting-api.js';
 import { exceptionQuery, exceptionsQuery } from '../pages/exceptions/exceptions-queries.js';
 import { opsDropDropsQuery } from '../pages/intake/ops-drop.js';
 import {
   lookthroughRunQuery,
   lookthroughRunsQuery,
 } from '../pages/lookthrough/lookthrough-queries.js';
+import { reportPackageQuery, reportPackagesQuery } from '../pages/reporting/packages/api.js';
+import { suggestionQuery, suggestionsQuery } from '../pages/valuations/suggestions-api.js';
 import { weeklyDropsQuery, weeklyFileQuery, weeklyFilesQuery } from '../pages/weekly/queries.js';
 import { getKey, isPublicPath, normalizeKey } from './keys.js';
 import { SIM_ROUTES } from './routes/index.js';
@@ -222,6 +225,7 @@ describe('the recording plan', () => {
       investmentPerformanceQuery(INV),
       valueCreationQuery,
       investmentValueCreationQuery(INV),
+      underwritingQuery(INV),
       sponsorQuery(SPO),
       vehicleQuery(VEH),
       capitalNoticeQuery(NOT),
@@ -248,6 +252,14 @@ describe('the recording plan', () => {
       monitoringBoardQuery(),
       monitoringBoardQuery({ periodEnd: '2025-06-30', asOf: '2025-09-30' }),
       realizationOutlookQuery(INV),
+      suggestionsQuery(),
+      suggestionsQuery({ state: 'all' }),
+      suggestionsQuery({ investmentId: INV }),
+      suggestionsQuery({ investmentId: INV, periodEnd: '2025-06-30' }),
+      suggestionsQuery({ extractionRunId: INV, state: 'all' }),
+      suggestionQuery(INV),
+      reportPackagesQuery(),
+      reportPackageQuery(INV),
     ];
     for (const limit of [undefined, ...INVESTMENT_LIMITS])
       for (const dealType of [undefined, ...DEAL_TYPES])
@@ -283,6 +295,9 @@ describe('the recording plan', () => {
       // The one-pager is simulated too, so a position a simulated close created has one; every
       // recorded position still answers from its recording through the same route.
       `/api/v1/investments/${INV}`,
+      // The comparison with the base case is worked out in the shim on every read, from the
+      // recorded read of the position and its other recordings.
+      `/api/v1/investments/${INV}/underwriting`,
       '/api/v1/documents?limit=200',
       '/api/v1/documents?limit=200&q=report&reviewStatus=NeedsReview',
       `/api/v1/documents?limit=200&investmentId=${INV}`,
@@ -298,10 +313,24 @@ describe('the recording plan', () => {
       '/api/v1/monitoring/board',
       '/api/v1/monitoring/board?asOf=2025-09-30&periodEnd=2025-06-30',
       `/api/v1/monitoring/outlook/${INV}`,
+      // Valuation suggestions are never recorded: one exists only once a statement or a report
+      // is approved in the session, so the shim answers every read of them.
+      '/api/v1/valuation-suggestions?limit=200',
+      '/api/v1/valuation-suggestions?limit=200&state=all',
+      `/api/v1/valuation-suggestions?investmentId=${INV}&limit=200`,
+      `/api/v1/valuation-suggestions?investmentId=${INV}&limit=200&periodEnd=2025-06-30`,
+      `/api/v1/valuation-suggestions?extractionRunId=${INV}&limit=200&state=all`,
+      `/api/v1/valuation-suggestions/${INV}`,
+      // Reporting packages are never recorded either: the book seeds none, so the shim answers
+      // the list and each package from what the session started.
+      '/api/v1/report-packages',
+      `/api/v1/report-packages/${INV}`,
     ]);
-    // The hub's empty state, each investment's documents and its outlook are recorded all the
-    // same, so the recordings hold the API's own answer before the simulation adds anything.
+    // The hub's empty state, each investment's documents, its outlook and its base case are
+    // recorded all the same, so the recordings hold the API's own answer before the simulation
+    // adds anything.
     for (const path of [
+      `/api/v1/investments/${INV}/underwriting`,
       '/api/v1/documents?limit=200',
       '/api/v1/documents/review-queue?limit=200',
       '/api/v1/expected-documents?limit=200',
@@ -314,6 +343,29 @@ describe('the recording plan', () => {
       expect(planned.has(keyOf(path)), path).toBe(true);
   });
 
+  it('records nothing for the reporting packages: the book seeds none, so the shim answers them', () => {
+    const paths = ['/api/v1/report-packages', `/api/v1/report-packages/${INV}`];
+    for (const path of paths) {
+      expect(simulatedGet(path), path).toBe(true);
+      expect(planned.has(keyOf(path)), path).toBe(false);
+    }
+    expect(
+      plan.families.flatMap((f) => f.paths).filter((p) => p.includes('/report-packages')),
+    ).toEqual([]);
+    // The two writes are simulated beside them, so no package request reaches the recordings.
+    for (const [method, path] of [
+      ['POST', '/api/v1/report-packages'],
+      ['POST', `/api/v1/report-packages/${INV}/commands`],
+    ] as const)
+      expect(
+        SIM_ROUTES.some((r) => r.method === method && r.match(path) !== null),
+        `${method} ${path}`,
+      ).toBe(true);
+    // What a generate reads is recorded for every user: the clients and each position's one-pager.
+    expect(planned.has(keyOf('/api/v1/clients'))).toBe(true);
+    expect(planned.has(keyOf(`/api/v1/investments/${INV}`))).toBe(true);
+  });
+
   it('records every id for every family that takes one, and the audit trail first', () => {
     const paths = (name: string): string[] =>
       plan.families.find((f) => f.name === name)?.paths ?? [];
@@ -324,6 +376,9 @@ describe('the recording plan', () => {
     );
     expect(paths('investment value creation')).toEqual(
       each((id) => `/api/v1/investments/${id}/value-creation`),
+    );
+    expect(paths('investment underwriting')).toEqual(
+      each((id) => `/api/v1/investments/${id}/underwriting`),
     );
     expect(paths('vehicle detail')).toEqual([`/api/v1/vehicles/${VEH}`]);
     expect(paths('sponsor detail')).toEqual([`/api/v1/sponsors/${SPO}`]);
@@ -341,7 +396,11 @@ describe('the recording plan', () => {
       CHANGE_REQUESTS_PATH,
       `/api/v1/change-requests/${REQUEST}`,
     ]);
-    expect(paths('pipeline')).toEqual([OPPORTUNITIES_PATH, `/api/v1/opportunities/${OPP}`]);
+    expect(paths('pipeline')).toEqual([
+      OPPORTUNITIES_PATH,
+      `/api/v1/opportunities/${OPP}`,
+      `/api/v1/opportunities/${OPP}/fit`,
+    ]);
     expect(paths('closings')).toEqual([`/api/v1/closings/${CLOSING}`]);
     expect(plan.families.map((f) => f.name)).not.toContain('intake');
     expect(paths('investment lists')).toHaveLength(

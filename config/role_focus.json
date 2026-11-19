@@ -1,0 +1,373 @@
+{
+  "version": 1,
+  "about": "What each role sees first: the order of the main navigation, the order of the tabs inside an area, and the work the home page lists. Nothing here grants or hides access; the API decides that. A link left out of a list keeps its usual place after the listed ones. \"landing\" sends a main navigation link to another page of its area for a role.",
+  "precedence": [
+    "approver",
+    "operations",
+    "deal_team",
+    "investor_relations",
+    "auditor",
+    "platform_admin",
+    "viewer"
+  ],
+  "roles": {
+    "deal_team": {
+      "area": "Deal team",
+      "does": "Source deals, run diligence, and follow the positions you lead.",
+      "nav": ["/pipeline", "/portfolio", "/sponsors", "/analytics", "/documents"],
+      "tabs": {
+        "/portfolio": [
+          "/portfolio",
+          "/portfolio/monitoring",
+          "/portfolio/watchlist",
+          "/portfolio/vehicles"
+        ]
+      },
+      "home": ["work", "tiles", "attention", "charts", "capital", "dataHealth"],
+      "work": [
+        {
+          "to": "/pipeline",
+          "label": "Pipeline",
+          "what": "Move deals through the stages, the diligence tasks and the gates"
+        },
+        {
+          "to": "/portfolio/monitoring",
+          "label": "Monitoring board",
+          "what": "See which quarterly reports are in, read and approved for your positions"
+        },
+        {
+          "to": "/valuations",
+          "label": "Valuations",
+          "what": "Review the marks operations prepared, and approve them or send them back"
+        },
+        {
+          "to": "/valuations/suggestions",
+          "label": "Valuation suggestions",
+          "what": "Marks worked out from approved statements and reports"
+        },
+        {
+          "to": "/valuations/changes",
+          "label": "Change requests",
+          "what": "Ask for a correction to a deal's record and follow it until it is applied"
+        },
+        {
+          "to": "/sponsors",
+          "label": "Sponsors",
+          "what": "Funds, positions and commitments by sponsor"
+        },
+        {
+          "to": "/analytics/value-creation",
+          "label": "Value creation",
+          "what": "Where the gain on each position came from"
+        }
+      ],
+      "landing": {}
+    },
+    "operations": {
+      "area": "Operations",
+      "does": "Keep the record: capital activity, valuations, documents, closings and data intake.",
+      "nav": [
+        "/capital-activity",
+        "/valuations",
+        "/documents",
+        "/portfolio",
+        "/data/intake",
+        "/data/exceptions",
+        "/reporting"
+      ],
+      "tabs": {
+        "/capital-activity": [
+          "/capital-activity",
+          "/capital-activity/tickets",
+          "/capital-activity/wires",
+          "/capital-activity/commitments"
+        ],
+        "/documents": [
+          "/documents",
+          "/documents/review",
+          "/documents/extraction",
+          "/documents/expected"
+        ],
+        "/portfolio": [
+          "/portfolio",
+          "/portfolio/monitoring",
+          "/portfolio/vehicles",
+          "/portfolio/watchlist"
+        ]
+      },
+      "home": ["work", "capital", "dataHealth", "tiles", "attention", "charts"],
+      "work": [
+        {
+          "to": "/capital-activity",
+          "label": "Capital notices",
+          "what": "Review calls and distributions and draft the trade tickets"
+        },
+        {
+          "to": "/capital-activity/wires",
+          "label": "Wire register",
+          "what": "Propose wire instructions and make the callbacks"
+        },
+        {
+          "to": "/valuations",
+          "label": "Valuation board",
+          "what": "Draft and prepare the quarter's marks"
+        },
+        {
+          "to": "/valuations/suggestions",
+          "label": "Valuation suggestions",
+          "what": "Marks worked out from approved statements and reports"
+        },
+        {
+          "to": "/valuations/changes",
+          "label": "Change requests",
+          "what": "Start, apply or reject the corrections the deal team asked for"
+        },
+        {
+          "to": "/documents/review",
+          "label": "Document review queue",
+          "what": "Decide the tags the classifier was not sure of"
+        },
+        {
+          "to": "/documents/extraction",
+          "label": "Extraction",
+          "what": "Review the figures read from sponsor reports before they reach the record"
+        },
+        {
+          "to": "/data/intake",
+          "label": "Intake",
+          "what": "Stage the accounting export and approve the validated rows"
+        },
+        {
+          "to": "/data/exceptions",
+          "label": "Exceptions",
+          "what": "Work the data exceptions that are open"
+        }
+      ],
+      "landing": {}
+    },
+    "approver": {
+      "area": "Approvals",
+      "does": "Give the second signature: valuations, trade tickets, changed wire instructions and committee decisions.",
+      "nav": [
+        "/valuations",
+        "/capital-activity",
+        "/pipeline",
+        "/portfolio",
+        "/analytics",
+        "/reporting"
+      ],
+      "tabs": {
+        "/capital-activity": [
+          "/capital-activity",
+          "/capital-activity/tickets",
+          "/capital-activity/wires",
+          "/capital-activity/commitments"
+        ],
+        "/reporting": [
+          "/reporting/packages",
+          "/reporting",
+          "/reporting/clients",
+          "/reporting/disclosures"
+        ]
+      },
+      "home": ["work", "tiles", "attention", "capital", "charts", "dataHealth"],
+      "work": [
+        {
+          "to": "/valuations",
+          "label": "Valuation board",
+          "what": "Approve the reviewed marks and lock the quarter"
+        },
+        {
+          "to": "/capital-activity/tickets",
+          "label": "Trade tickets",
+          "what": "Approve a release that someone else prepared"
+        },
+        {
+          "to": "/reporting/packages",
+          "label": "Client packages",
+          "what": "Decide on failed checks and approve the packages in review"
+        },
+        {
+          "to": "/pipeline",
+          "label": "Pipeline",
+          "what": "Take deals to the investment committee and record the decision"
+        },
+        {
+          "to": "/capital-activity/wires",
+          "label": "Wire register",
+          "what": "Verify a changed instruction by callback"
+        },
+        {
+          "to": "/analytics",
+          "label": "Analytics",
+          "what": "Exposure, performance and realizations across the portfolio"
+        }
+      ],
+      "landing": {}
+    },
+    "investor_relations": {
+      "area": "Investor relations",
+      "does": "Report to the clients you are entitled to.",
+      "nav": ["/reporting", "/portfolio", "/analytics", "/sponsors"],
+      "tabs": {
+        "/reporting": [
+          "/reporting/packages",
+          "/reporting",
+          "/reporting/clients",
+          "/reporting/disclosures"
+        ],
+        "/analytics": ["/analytics", "/analytics/clients", "/analytics/performance"]
+      },
+      "home": ["work", "tiles", "charts", "attention"],
+      "work": [
+        {
+          "to": "/reporting/packages",
+          "label": "Client packages",
+          "what": "Start a client's quarterly package, run the checks and release it"
+        },
+        {
+          "to": "/reporting/clients",
+          "label": "Clients",
+          "what": "Each client's look-through across the vehicles it is in"
+        },
+        {
+          "to": "/reporting",
+          "label": "Weekly report",
+          "what": "The week's figures, movers and capital activity"
+        },
+        {
+          "to": "/reporting/disclosures",
+          "label": "Disclosures",
+          "what": "The approved wording that goes with client figures"
+        },
+        {
+          "to": "/analytics/clients",
+          "label": "Client analytics",
+          "what": "Exposure and performance by client"
+        },
+        {
+          "to": "/portfolio",
+          "label": "Portfolio",
+          "what": "The positions behind your clients' vehicles"
+        }
+      ],
+      "landing": {}
+    },
+    "auditor": {
+      "area": "Audit",
+      "does": "Read the record and the trail of who changed what. Nothing can be changed from this role.",
+      "nav": ["/admin/flags", "/valuations", "/capital-activity", "/documents", "/reporting"],
+      "tabs": {
+        "/admin/flags": [
+          "/admin/audit",
+          "/admin/access",
+          "/data/health",
+          "/admin/health",
+          "/admin/flags"
+        ],
+        "/capital-activity": [
+          "/capital-activity",
+          "/capital-activity/wires",
+          "/capital-activity/tickets",
+          "/capital-activity/commitments"
+        ]
+      },
+      "home": ["work", "dataHealth", "tiles", "attention", "capital", "charts"],
+      "work": [
+        {
+          "to": "/admin/audit",
+          "label": "Audit trail",
+          "what": "Every change to a figure: who, when, the old value and the new"
+        },
+        {
+          "to": "/admin/access",
+          "label": "Access and walls",
+          "what": "Who holds which role and who is behind an information wall"
+        },
+        {
+          "to": "/valuations",
+          "label": "Valuations",
+          "what": "Versions, approvals and locks for every mark"
+        },
+        {
+          "to": "/capital-activity/wires",
+          "label": "Wire register",
+          "what": "Each instruction, its callback and who verified it"
+        },
+        {
+          "to": "/data/health",
+          "label": "Data health",
+          "what": "Orphans, open exceptions and stale positions"
+        }
+      ],
+      "landing": {
+        "/admin/flags": "/admin/audit"
+      }
+    },
+    "platform_admin": {
+      "area": "Administration",
+      "does": "Run the platform: feature flags, access, integrations and reference data. This role does not read deal workflows.",
+      "nav": ["/admin/flags", "/data/health", "/data/dictionary", "/data/taxonomy", "/assistants"],
+      "tabs": {},
+      "home": ["work", "dataHealth", "tiles", "charts"],
+      "work": [
+        {
+          "to": "/admin/flags",
+          "label": "Flags",
+          "what": "Switch a feature or an assistant on or off, with a reason"
+        },
+        {
+          "to": "/admin/access",
+          "label": "Access and walls",
+          "what": "Roles, client entitlements and information walls"
+        },
+        {
+          "to": "/admin/health",
+          "label": "Integration health",
+          "what": "The state of each adapter and its last check"
+        },
+        {
+          "to": "/data/dictionary",
+          "label": "Data dictionary",
+          "what": "Field definitions and display rules"
+        },
+        {
+          "to": "/data/taxonomy",
+          "label": "Taxonomy",
+          "what": "The terms every list and filter uses"
+        }
+      ],
+      "landing": {}
+    },
+    "viewer": {
+      "area": "Portfolio",
+      "does": "Read the portfolio you are entitled to see. Nothing can be changed from this role.",
+      "nav": ["/portfolio", "/analytics", "/sponsors", "/reporting"],
+      "tabs": {},
+      "home": ["work", "tiles", "charts", "attention"],
+      "work": [
+        {
+          "to": "/portfolio",
+          "label": "Portfolio",
+          "what": "Every position with invested capital, NAV, MOIC and IRR"
+        },
+        {
+          "to": "/analytics",
+          "label": "Analytics",
+          "what": "Exposure, performance, the credit book and realizations"
+        },
+        {
+          "to": "/reporting",
+          "label": "Weekly report",
+          "what": "The week's figures, movers and capital activity"
+        },
+        {
+          "to": "/sponsors",
+          "label": "Sponsors",
+          "what": "Funds, positions and commitments by sponsor"
+        }
+      ],
+      "landing": {}
+    }
+  }
+}

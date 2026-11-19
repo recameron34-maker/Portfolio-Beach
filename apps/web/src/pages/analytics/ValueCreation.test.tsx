@@ -74,12 +74,11 @@ const TIMEOUT = 20_000;
 const urlOf = (input: RequestInfo | URL): string =>
   typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
 
-/** The first column of a table's body rows, top to bottom. */
+/** The first column of a table's body rows, top to bottom (a table may have two header rows). */
 const firstCells = (table: HTMLElement): string[] =>
-  within(table)
-    .getAllByRole('row')
-    .slice(1)
-    .map((row) => within(row).getAllByRole('cell')[0]?.textContent ?? '');
+  [...table.querySelectorAll('tbody tr')].map(
+    (row) => within(row as HTMLElement).getAllByRole('cell')[0]?.textContent ?? '',
+  );
 
 const rowOf = (table: HTMLElement, text: string): HTMLElement => {
   const row = within(table).getByText(text).closest('tr');
@@ -473,7 +472,7 @@ describe('Analytics: Value creation tab', () => {
     expect(within(bridge).queryByRole('img', { name: /Revenue growth/ })).not.toBeInTheDocument();
     await userEvent.click(
       screen.getByRole('switch', {
-        name: 'Open EBITDA growth into revenue growth and margin change',
+        name: 'Split EBITDA growth into revenue and margin',
       }),
     );
     expect(
@@ -547,6 +546,9 @@ describe('Analytics: Value creation tab', () => {
         '2 of 3 marks sit above the line: our mark grew faster than the company EBITDA. 1 position has no EBITDA growth or no mark growth and is not plotted.',
       ),
     ).toBeInTheDocument();
+    // Too few marks to call one far from the rest: none is held at the axis edge.
+    expect(chart.querySelector('[data-held]')).toBeNull();
+    expect(screen.queryByText(/beyond the axis/)).not.toBeInTheDocument();
     const figure = screen.getByTestId('value-creation-scatter');
     await userEvent.click(within(figure).getByRole('button', { name: 'Show table' }));
     const table = within(figure).getByRole('table', {
@@ -633,22 +635,28 @@ describe('Analytics: Value creation tab', () => {
         .getAllByRole('columnheader')
         .map((h) => h.textContent?.replace(/[▲▼]/g, '')),
     ).toEqual([
+      // The upper row: the columns on their own, which span both rows, and the groups.
       'Inv #',
       'Company',
+      'EV / EBITDA',
+      'Net debt / EBITDA',
+      'Growth since entry',
+      'Entry stake',
+      'Our gain',
+      'Gain by driver',
+      'Gross MOIC',
+      'Gross IRR',
+      // The lower row: each column under its group keeps its whole name for a screen reader.
       'Entry EV / EBITDA',
       'Current EV / EBITDA',
       'Entry net debt / EBITDA',
       'Current net debt / EBITDA',
       'EBITDA growth',
       'Mark growth',
-      'Entry stake',
-      'Our gain',
       'Gain: EBITDA growth',
-      'Gain: multiple expansion',
-      'Gain: debt paydown',
-      'Gain: mark and timing',
-      'Gross MOIC',
-      'Gross IRR',
+      'Gain: Multiple expansion',
+      'Gain: Debt paydown',
+      'Gain: Mark and timing',
     ]);
     const first = rowOf(table, 'Saltmarsh Holdings');
     // A stake of 4.0%: +$10.0M, +$2.6M and +$1.2M of the company's drivers, and +$0.7M besides.
@@ -685,6 +693,101 @@ describe('Analytics: Value creation tab', () => {
     );
     // No current multiple or leverage either: placeholders, each in its own cell.
     expect(within(negative).getAllByText(MISSING)).toHaveLength(2);
+  });
+
+  it('groups the columns under a header row of their own, with the short words on screen and each whole name heard', async () => {
+    mockApi({ [VIEW]: ok(valueCreationFixture()) });
+    renderWithQuery(<ValueCreationTab />);
+    const table = await screen.findByRole('table', { name: 'Value creation by position' });
+    expect(table.querySelectorAll('thead tr')).toHaveLength(2);
+    for (const [group, span] of [
+      ['EV / EBITDA', '2'],
+      ['Net debt / EBITDA', '2'],
+      ['Growth since entry', '2'],
+      ['Gain by driver', '4'],
+    ] as const) {
+      const header = within(table).getByRole('columnheader', { name: group });
+      expect(header).toHaveAttribute('scope', 'colgroup');
+      expect(header).toHaveAttribute('colspan', span);
+    }
+    // A column on its own spans both rows.
+    for (const name of ['Inv #', 'Company', 'Entry stake', 'Our gain', 'Gross MOIC', 'Gross IRR'])
+      expect(
+        within(table).getByRole('columnheader', { name: new RegExp(`^${name}`) }),
+      ).toHaveAttribute('rowspan', '2');
+    // On screen a lower header reads "Entry"; the words its group already shows are hidden.
+    const entry = within(table).getByRole('columnheader', { name: /^Entry EV \/ EBITDA/ });
+    expect(entry.querySelector('.pb-visually-hidden')).toHaveTextContent('EV / EBITDA');
+    const multiple = within(table).getByRole('columnheader', { name: /^Gain: Multiple expansion/ });
+    expect(
+      [...multiple.querySelectorAll('.pb-visually-hidden')].map((el) => el.textContent),
+    ).toEqual(['Gain:', 'expansion']);
+    // Each group's first column is set off by a hairline, header and cells alike.
+    expect(entry).toHaveClass('is-group-start');
+    const first = rowOf(table, 'Saltmarsh Holdings');
+    const cells = within(first).getAllByRole('cell');
+    expect(cells.map((c) => c.classList.contains('is-group-start'))).toEqual([
+      false,
+      false,
+      true,
+      false,
+      true,
+      false,
+      true,
+      false,
+      false,
+      false,
+      true,
+      false,
+      false,
+      false,
+      false,
+      false,
+    ]);
+    // The reason that stands for the four parts starts its group too.
+    const none = rowOf(table, 'Tidepool Analytics');
+    expect(within(none).getByText(/The entry snapshot is dated/)).toHaveClass('is-group-start');
+    // The identifier and the company are the cells held in view while the figures scroll.
+    expect(cells[0]).toHaveClass('pb-vc-key');
+    expect(cells[1]).toHaveClass('pb-vc-company');
+  });
+
+  it('puts the date, the scope and Export CSV in one row under the tabs, the export apart from the table', async () => {
+    mockApi({ [VIEW]: ok(valueCreationFixture()) });
+    renderWithQuery(<ValueCreationTab />);
+    const button = await screen.findByTestId('value-creation-export');
+    const context = button.closest('.pb-page-context');
+    expect(context).not.toBeNull();
+    expect(context).toHaveTextContent('As of Jun 30, 2025');
+    expect(context).toHaveTextContent('Equity and continuation vehicle positions visible to you');
+    expect(context).toHaveTextContent('Active and realized');
+    expect(context).not.toHaveTextContent('entitled');
+    // The result line sits beside the button, in the same row.
+    expect(context).toContainElement(screen.getByTestId('value-creation-action-status'));
+    expect(screen.getByTestId('value-creation-positions')).not.toContainElement(button);
+    // The row comes first, before the headline figures.
+    expect(
+      context!.compareDocumentPosition(screen.getByTestId('value-creation-tiles')) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+  });
+
+  it('turns one sort mark when the order flips, rather than swapping it for another', async () => {
+    mockApi({ [VIEW]: ok(valueCreationFixture()) });
+    renderWithQuery(<ValueCreationTab />);
+    const table = await screen.findByRole('table', { name: 'Value creation by position' });
+    const marks = (): Element[] => [...table.querySelectorAll('.pb-sort-mark')];
+    expect(marks()).toHaveLength(1);
+    expect(marks()[0]).toHaveClass('is-descending');
+    const moic = within(table).getByRole('columnheader', { name: /^Gross MOIC/ });
+    await userEvent.click(within(moic).getByRole('button'));
+    const mark = moic.querySelector('.pb-sort-mark');
+    expect(mark).toHaveClass('is-descending');
+    await userEvent.click(within(moic).getByRole('button'));
+    // The same mark, turned back.
+    expect(moic.querySelector('.pb-sort-mark')).toBe(mark);
+    expect(mark).not.toHaveClass('is-descending');
+    expect(marks()).toHaveLength(1);
   });
 
   it('sorts by a column from its header, largest first, and the other way on a second press', async () => {
@@ -766,7 +869,7 @@ describe('Analytics: Value creation tab', () => {
       const chart = screen.getByRole('group', { name: 'Valuation growth against EBITDA growth' });
       expect(within(chart).getByRole('img', { name: /^Saltmarsh Holdings/ })).toBeInTheDocument();
       expect(within(chart).queryByRole('img', { name: /^Kelp Forest Foods/ })).toBeNull();
-      expect(screen.getByText(/narrowed by the filters above/)).toBeInTheDocument();
+      expect(screen.getByText(/narrowed by the filters below/)).toBeInTheDocument();
 
       // A second filter narrows further; clearing brings the whole book back.
       await pick('Entry year', '2021');

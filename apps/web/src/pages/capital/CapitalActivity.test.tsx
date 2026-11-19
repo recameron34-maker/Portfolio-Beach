@@ -66,7 +66,9 @@ describe('capital activity board', () => {
     ]);
     const call = within(attention).getByRole('link', { name: 'Silverline Staffing Holdings' });
     expect(call).toHaveAttribute('href', `/capital-activity/${NOTICE_ID.extracted}`);
-    expect(within(call.closest('tr')!).getByText('Wire change')).toHaveClass('pb-badge-plain');
+    // The scenario is quiet words after a dot on the company's line, not a tag.
+    expect(within(call.closest('tr')!).getByText('Wire change')).toHaveClass('pb-cap-scenario');
+    expect(call.closest('td')).toHaveTextContent('Silverline Staffing HoldingsWire change');
     expect(within(call.closest('tr')!).getByText('Extracted')).toBeInTheDocument();
     expect(within(attention).getByText('Overdue by 3 days')).toHaveClass('pb-badge-bad');
     expect(within(attention).getByText('Due in 2 days')).toHaveClass('pb-badge-watch');
@@ -208,18 +210,67 @@ describe('commitments and unfunded', () => {
     );
 
     const table = screen.getByRole('table', { name: 'Commitments' });
-    expect(within(table).getByRole('columnheader', { name: 'Client' })).toBeInTheDocument();
+    // Folded to its figures: the descriptive columns are second lines of the fund and the vehicle.
+    expect(
+      within(table)
+        .getAllByRole('columnheader')
+        .map((h) => h.textContent),
+    ).toEqual([
+      'Sponsor fund',
+      'Vehicle',
+      'Committed',
+      'Called',
+      'Distributed',
+      'Recallable',
+      'Unfunded',
+      'Committed on',
+    ]);
+    const kelpwood = within(table).getByText('Kelpwood Fund I').closest('td')!;
+    expect(kelpwood).toHaveTextContent(/^Kelpwood Fund I.+2015Buyout$/);
     const client = within(table).getByText('Client Gamma Insurance').closest('tr')!;
+    expect(within(client).getByText('Client Gamma Insurance')).toHaveClass('pb-cell-sub');
     expect(within(client).getAllByText('-').length).toBeGreaterThanOrEqual(4);
     const over = within(table).getByText('Oysterbed Credit Fund I').closest('tr')!;
-    expect(within(over).getByText('Over-called')).toBeInTheDocument();
-    expect(within(over).getByText('-$0.4M')).toBeInTheDocument();
+    // The over-called word sits on the figure's line, before it.
+    expect(within(over).getByText('Over-called').closest('td')).toHaveTextContent(
+      'Over-called-$0.4M',
+    );
     const total = within(table).getByRole('rowheader', { name: 'Total' }).closest('tr')!;
+    expect(total.closest('tfoot')).not.toBeNull();
     expect(within(total).getByText('$120.0M')).toBeInTheDocument();
     expect(within(total).getByText('$6.1M')).toBeInTheDocument();
     expect(screen.getByTestId('commitments-note')).toHaveTextContent(
-      'Totals sum the commitments whose figures are known; a commitment with no recorded cash flow shows the missing placeholder. Calc version 0.1.0 (docs/08).',
+      'Totals sum the commitments whose figures are known; a commitment with no recorded cash flow shows -. Calc version 0.1.0.',
     );
+  });
+
+  it('shows the missing placeholder for a vintage or strategy the record lacks, and no client line for a pooled vehicle', async () => {
+    const list = commitmentListFixture();
+    const first = list.items[0];
+    if (first === undefined) throw new Error('fixture has no commitment');
+    list.items[0] = { ...first, vintage: null, strategy: null, clientName: null };
+    mockApi({ [COMMITMENTS]: ok(list) });
+    renderWithQuery(<CommitmentsPage />);
+    const table = await screen.findByRole('table', { name: 'Commitments' });
+    const fund = within(table).getByText(first.sponsorFundName).closest('td')!;
+    const detail = fund.querySelector<HTMLElement>('.pb-cap-fund-detail')!;
+    // The sponsor, then the placeholder for each missing fact, never a word in its place.
+    expect([...detail.children].map((part) => part.textContent)).toEqual([
+      first.sponsorName,
+      '-Vintage not recorded',
+      '-Strategy not recorded',
+    ]);
+    for (const what of ['Vintage', 'Strategy']) {
+      const hidden = within(detail).getByText(`${what} not recorded`);
+      expect(hidden).toHaveClass('pb-visually-hidden');
+      expect(hidden.parentElement).toHaveAttribute('title', `${what} not recorded`);
+      expect(hidden.previousElementSibling).toHaveTextContent('-');
+      expect(hidden.previousElementSibling).toHaveAttribute('aria-hidden', 'true');
+    }
+    // A null client is a pooled vehicle's commitment (or one the reader may not see named): the
+    // vehicle stands alone, with no second line.
+    const vehicle = within(fund.closest('tr')!).getByText(first.vehicleName).closest('td')!;
+    expect(vehicle.querySelector('.pb-cell-sub')).toBeNull();
   });
 
   it('filters by vehicle, dropping the client column and the all-vehicle total', async () => {

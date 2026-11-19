@@ -140,6 +140,20 @@ export const investmentListQuery = pageQuery.extend({
 });
 
 /**
+ * A portfolio company's head office (migration 0018): the city and country as recorded, and the
+ * coordinates the co-investment map draws it at. Coordinates are plain degrees, north and east
+ * positive; they are positions, not money, so they travel as numbers.
+ */
+export const companyHq = z.object({
+  city: z.string().min(1),
+  /** ISO 3166-1 alpha-2, in capitals. */
+  country: z.string().regex(/^[A-Z]{2}$/),
+  latitude: z.number().min(-90).max(90),
+  longitude: z.number().min(-180).max(180),
+});
+export type CompanyHq = z.infer<typeof companyHq>;
+
+/**
  * One row of the portfolio grid (M9 metrics from packages/calc, null where not calculable). The
  * vehicle and sponsor ids let a page link a position to its vehicle and sponsor.
  */
@@ -155,6 +169,8 @@ export const investmentSummary = z.object({
   dealType: z.string(),
   sector: z.string().nullable(),
   geography: z.string().nullable(),
+  /** The company's head office; null when none is recorded (it is never placed by a guess). */
+  hq: companyHq.nullable(),
   /** Entry year, the vintage used for cohort views. */
   vintage: z.number().int(),
   entryDate: isoDate,
@@ -1519,6 +1535,7 @@ export type DataExceptionCommandBody = z.infer<typeof dataExceptionCommandBody>;
 
 /** A taxonomy code of one domain, such as sector.software: the domain, a dot, then the code. */
 export const taxonomyCodeOf = (domain: string): z.ZodString =>
+  // eslint-disable-next-line security/detect-non-literal-regexp -- the domain is a taxonomy name written in code
   z.string().regex(new RegExp(`^${domain}\\.[a-z0-9_]+$`));
 
 /**

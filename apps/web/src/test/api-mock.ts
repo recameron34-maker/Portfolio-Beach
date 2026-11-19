@@ -6,8 +6,15 @@ export interface MockResponse {
   body: unknown;
 }
 
-/** Fixtures keyed by path, or by path plus query string when a route needs to tell them apart. */
-export type MockRoutes = Record<string, MockResponse | ((url: URL) => MockResponse)>;
+/**
+ * Fixtures keyed by path, or by path plus query string when a route needs to tell them apart. A
+ * route given as a function also gets the method, for a path that is read and written at one
+ * address (a list and the POST that adds to it).
+ */
+export type MockRoutes = Record<
+  string,
+  MockResponse | ((url: URL, method: string) => MockResponse)
+>;
 
 export const ok = (body: unknown): MockResponse => ({ status: 200, body });
 
@@ -46,23 +53,25 @@ export const failing = (status: 403 | 404 | 501, instance: string): MockResponse
 
 /** Answers fetch from the fixtures; a path the routes do not name answers 404. Restore with vi.restoreAllMocks(). */
 export function mockApi(routes: MockRoutes): void {
-  vi.spyOn(globalThis, 'fetch').mockImplementation((input: RequestInfo | URL) => {
-    const raw = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
-    const url = new URL(raw, 'http://test.local');
-    const route = routes[url.pathname + url.search] ?? routes[url.pathname];
-    const { status, body } =
-      route === undefined
-        ? failing(404, url.pathname)
-        : typeof route === 'function'
-          ? route(url)
-          : route;
-    return Promise.resolve(
-      new Response(JSON.stringify(body), {
-        status,
-        headers: {
-          'content-type': status >= 400 ? 'application/problem+json' : 'application/json',
-        },
-      }),
-    );
-  });
+  vi.spyOn(globalThis, 'fetch').mockImplementation(
+    (input: RequestInfo | URL, init?: RequestInit) => {
+      const raw = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
+      const url = new URL(raw, 'http://test.local');
+      const route = routes[url.pathname + url.search] ?? routes[url.pathname];
+      const { status, body } =
+        route === undefined
+          ? failing(404, url.pathname)
+          : typeof route === 'function'
+            ? route(url, (init?.method ?? 'GET').toUpperCase())
+            : route;
+      return Promise.resolve(
+        new Response(JSON.stringify(body), {
+          status,
+          headers: {
+            'content-type': status >= 400 ? 'application/problem+json' : 'application/json',
+          },
+        }),
+      );
+    },
+  );
 }

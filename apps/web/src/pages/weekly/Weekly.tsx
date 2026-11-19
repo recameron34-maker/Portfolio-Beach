@@ -1,4 +1,4 @@
-import { useId, useState } from 'react';
+import { useState } from 'react';
 import type { ChangeEvent, ReactNode } from 'react';
 import { Link, useNavigate } from '@tanstack/react-router';
 import { keepPreviousData, useInfiniteQuery, useQuery } from '@tanstack/react-query';
@@ -15,6 +15,7 @@ import {
   NumCell,
   PageHeader,
   PageSkeleton,
+  RowsSkeleton,
   SectionHeader,
   TableWrap,
   Toolbar,
@@ -28,6 +29,8 @@ import {
   isStagingState,
   uploadSizeProblem,
 } from '../intake/intake.js';
+import { DropFolderTable, FileField } from '../intake/Intake.js';
+import type { DropRow } from '../intake/Intake.js';
 import { useWeeklyImport } from './mutations.js';
 import { weeklyDropsQuery, weeklyFilesQuery } from './queries.js';
 import { WEEKLY_FORBIDDEN, WEEKLY_META } from './weekly.js';
@@ -51,7 +54,6 @@ function readText(file: File): Promise<string> {
 
 /** Operations only: stage a weekly values file from a chosen file or from the drop folder. */
 function UploadCard({ onStaged }: { onStaged: (result: WeeklyImportResult) => void }): ReactNode {
-  const inputId = useId();
   const importer = useWeeklyImport();
   const drops = useQuery(weeklyDropsQuery);
   const [chosen, setChosen] = useState<{ fileName: string; csv: string } | null>(null);
@@ -94,6 +96,15 @@ function UploadCard({ onStaged }: { onStaged: (result: WeeklyImportResult) => vo
     }
   };
 
+  const waiting: DropRow[] = (drops.data?.items ?? []).map((item) => ({
+    id: item.id,
+    name: item.name,
+    folder: 'Weekly values',
+    receivedAt: item.receivedAt,
+    busy,
+    stage: () => stage({ dropId: item.id }, `Stage ${item.name}`),
+  }));
+
   return (
     <Card testId="weekly-upload">
       <SectionHeader>Stage weekly values</SectionHeader>
@@ -102,28 +113,17 @@ function UploadCard({ onStaged }: { onStaged: (result: WeeklyImportResult) => vo
         with the prior (the latest Locked mark, or the weekly value promoted after it) before anyone
         approves it; an approved value becomes a Draft valuation, never a mark.
       </p>
-      <div className="pb-intake-upload">
-        <div className="pb-field">
-          <Label htmlFor={inputId}>Weekly values (CSV)</Label>
-          <input
-            id={inputId}
-            type="file"
-            accept=".csv,text/csv"
-            disabled={busy}
-            onChange={(event) => void onFile(event)}
-          />
-        </div>
-        <Button
-          size="small"
-          appearance="primary"
-          disabled={chosen === null || busy}
-          onClick={() => {
-            if (chosen !== null) stage(chosen, `Stage ${chosen.fileName}`);
-          }}
-        >
-          Stage weekly values
-        </Button>
-      </div>
+      <FileField
+        label="Weekly values (CSV)"
+        accept=".csv,text/csv"
+        busy={busy}
+        onFile={(event) => void onFile(event)}
+        command="Stage weekly values"
+        ready={chosen !== null}
+        onStage={() => {
+          if (chosen !== null) stage(chosen, `Stage ${chosen.fileName}`);
+        }}
+      />
       <div role="status" className="pb-intake-upload-status" data-testid="weekly-upload-status">
         {message === null ? null : (
           <p
@@ -135,41 +135,17 @@ function UploadCard({ onStaged }: { onStaged: (result: WeeklyImportResult) => vo
           </p>
         )}
       </div>
-      {drops.data !== undefined && drops.data.items.length > 0 ? (
-        <>
-          <SectionHeader>From the drop folder</SectionHeader>
-          <ul
-            className="pb-intake-drop"
-            aria-label="Files in the weekly drop folder"
-            data-testid="weekly-drops"
-          >
-            {drops.data.items.map((item) => (
-              <li key={item.id}>
-                <span>{item.name}</span>
-                <span className="pb-meta">Received {dayOf(item.receivedAt)}</span>
-                <Button
-                  size="small"
-                  appearance="outline"
-                  disabled={busy}
-                  aria-label={`Stage, ${item.name}`}
-                  onClick={() => stage({ dropId: item.id }, `Stage ${item.name}`)}
-                >
-                  Stage
-                </Button>
-              </li>
-            ))}
-          </ul>
-        </>
-      ) : drops.isError ? (
+      {waiting.length > 0 ? <DropFolderTable rows={waiting} testId="weekly-drops" /> : null}
+      {drops.isError ? (
         <UnavailableState inline error={drops.error} subject="The drop folder" />
       ) : null}
     </Card>
   );
 }
 
-function FilesTable({ files }: { files: readonly IntakeFile[] }): ReactNode {
+function FilesTable({ files, busy }: { files: readonly IntakeFile[]; busy: boolean }): ReactNode {
   return (
-    <TableWrap label="Weekly files">
+    <TableWrap label="Weekly files" busy={busy}>
       <table
         className="pb-table pb-weekly-files"
         aria-label="Weekly files"
@@ -242,7 +218,7 @@ function FilesCard({ isOps }: { isOps: boolean }): ReactNode {
         </Field>
       </Toolbar>
       {files.isPending ? (
-        <PageSkeleton rows={4} />
+        <RowsSkeleton rows={4} label="Loading weekly files" />
       ) : files.isError ? (
         <UnavailableState
           error={files.error}
@@ -261,7 +237,7 @@ function FilesCard({ isOps }: { isOps: boolean }): ReactNode {
           }
         />
       ) : (
-        <FilesTable files={items} />
+        <FilesTable files={items} busy={files.isPlaceholderData} />
       )}
       {files.hasNextPage ? (
         <p className="pb-weekly-more">

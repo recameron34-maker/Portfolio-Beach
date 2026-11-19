@@ -13,6 +13,7 @@ import type {
   InvestmentPerformance,
   LegalTerm,
   OpportunityDetail,
+  OpportunityFit,
   OpportunityRow,
   Person,
   Principal,
@@ -308,18 +309,29 @@ export function defaultOutlookFixture(inv: BookInvestment): RealizationOutlookDe
   };
 }
 
+/** What a generated world records beyond the book: the positions' valuation versions and approved cash flows, and further switches. */
+export interface RecordedPositions {
+  valuations?: readonly ValuationRow[];
+  cashFlows?: ReadonlyMap<string, InvestmentDetail['cashFlows']>;
+  /** Switches recorded beside the two every generated world lists. */
+  flags?: readonly { key: string; enabled: boolean; description: string }[];
+}
+
 /**
  * The recordings of a world over the real generator's book (the simulated intake, document,
  * extraction and monitoring tests): every mock user's own sign-in and flag list, their view of
  * each of the book's investments with its performance and default outlook (the walled deal
  * answers 404 outside the wall, as the build records it), an empty valuations board for the
  * simulated Drafts to land on, and Data Health with no open exception for the overlay to count
- * onto. `quarterStatuses` records the named quarters with another status than approved.
+ * onto. `quarterStatuses` records the named quarters with another status than approved. `record`
+ * adds what the valuation suggestions read of a position: its valuation versions, on the board
+ * and on its one-pager, and its approved cash flows (the walled position's for its members only).
  */
 export function generatedWorld(
   book: PreviewBook,
   walledId: string,
   quarterStatuses: readonly RecordedQuarterStatus[] = [],
+  record: RecordedPositions = {},
 ): PreviewFixtures {
   const users = Object.values(USERS);
   const b = new FixtureBuilder(users, book.asOf);
@@ -336,9 +348,16 @@ export function generatedWorld(
     lockedValuationsLatestQuarter: 0,
     activeInvestments: book.investments.filter((i) => i.isActive).length,
   };
-  const board: ValuationPage = { items: [], nextCursor: null, asOf: book.asOf, periods: [] };
+  const versions = record.valuations ?? [];
   for (const user of users) {
     const c = user.externalId;
+    const seen = versions.filter((v) => v.investmentId !== walledId || WALL_MEMBERS.includes(c));
+    const board: ValuationPage = {
+      items: seen,
+      nextCursor: null,
+      asOf: book.asOf,
+      periods: [...new Set(seen.map((v) => v.quarterEnd))].sort().reverse(),
+    };
     b.add(c, '/api/v1/auth/me', {
       userId: user.userId,
       externalId: c,
@@ -353,6 +372,7 @@ export function generatedWorld(
       flags: [
         { key: 'ai.classifier', enabled: true, description: 'Classifier switch' },
         { key: 'ai.extraction', enabled: false, description: 'Extraction kill switch' },
+        ...(record.flags ?? []),
       ],
     });
     for (const inv of book.investments) {
@@ -368,6 +388,23 @@ export function generatedWorld(
             entryDate: inv.entryDate,
             exitDate: inv.exitDate,
             isActive: inv.isActive,
+            cashFlows: [...(record.cashFlows?.get(inv.id) ?? [])],
+            valuations: seen
+              .filter((v) => v.investmentId === inv.id)
+              .map(({ periodEnd, version, state, fairValue, method }) => ({
+                periodEnd,
+                version,
+                state,
+                fairValue,
+                method,
+              }))
+              .sort((x, y) =>
+                x.periodEnd === y.periodEnd
+                  ? x.version - y.version
+                  : x.periodEnd < y.periodEnd
+                    ? -1
+                    : 1,
+              ),
           }),
         );
         b.add(c, `${path}/performance`, performanceFixture(book, inv, quarterStatuses));
@@ -407,6 +444,7 @@ export function investmentFixture(
     dealType: 'deal_type.co_invest_equity',
     sector: null,
     geography: null,
+    hq: null,
     vintage: 2023,
     entryDate: '2023-01-15',
     closeDate: '2023-01-15',
@@ -647,6 +685,7 @@ export function testBook(): PreviewBook {
       byDocType: {},
       scenarioFiles: {},
       walledFiles: [],
+      positionStatements: [],
       total: 0,
       lateFinancials: null,
     },
@@ -1455,6 +1494,48 @@ export function buildWorld(
     return row;
   };
   const opportunityWalled = (id: string): boolean => id === o.walled;
+  /**
+   * The fit the API answered for a recorded deal (docs/08 section 8): the figures and scores of
+   * the page fixture's worked example, the same for every deal here since only the route is under
+   * test. No deal made in a test has one.
+   */
+  const fitOf = (d: OpportunityDetail): OpportunityFit => ({
+    opportunityId: d.id,
+    asOf: AS_OF,
+    measures: [
+      { key: 'sponsor_relationship', score: '70', missing: null },
+      { key: 'track_record', score: '40', missing: null },
+      { key: 'fund_relationship', score: '100', missing: null },
+      { key: 'sector_room', score: '20', missing: null },
+      { key: 'sponsor_room', score: '75', missing: null },
+      { key: 'geography_room', score: '50', missing: null },
+      { key: 'size_fit', score: null, missing: 'no_target_commitment' },
+    ],
+    inputs: {
+      sponsorTier: 'sponsor_tier.active',
+      sponsorPositions: 3,
+      sponsorMoic: '1.6',
+      commitment: 'fund',
+      sector: d.sector,
+      sectorShare: '0.2',
+      sponsorShare: '0.05',
+      geography: d.geography,
+      geographyShare: '0.35',
+      targetCommitment: null,
+      currency: d.currency,
+      comparablePositions: 12,
+      medianPosition: '12000000',
+      sizeRatio: null,
+    },
+    thresholds: {
+      tierScores: { 'sponsor_tier.core': '100', 'sponsor_tier.active': '70' },
+      trackRecord: { zeroAtMoic: '1', fullAtMoic: '2.5' },
+      fundRelationship: { fund: '100', otherFund: '60', none: '0' },
+      caps: { sector: '0.25', sponsor: '0.2', geography: '0.7' },
+      size: { low: '0.5', high: '1.5', limit: '3' },
+    },
+    calcVersion: 'test',
+  });
 
   const b = new FixtureBuilder(users);
   b.add('', '/api/v1/auth/mock-users', {
@@ -1727,13 +1808,21 @@ export function buildWorld(
       });
       for (const d of opportunities) {
         const path = `/api/v1/opportunities/${d.id}`;
-        if (opportunityWalled(d.id) && !member) b.notFound(c, path);
-        else b.add(c, path, d);
+        if (opportunityWalled(d.id) && !member) {
+          b.notFound(c, path);
+          b.notFound(c, `${path}/fit`);
+        } else {
+          b.add(c, path, d);
+          b.add(c, `${path}/fit`, fitOf(d));
+        }
       }
       for (const cl of closings) b.add(c, `/api/v1/closings/${cl.id}`, cl);
     } else {
       b.forbidden(c, OPPORTUNITIES_PATH);
-      for (const d of opportunities) b.forbidden(c, `/api/v1/opportunities/${d.id}`);
+      for (const d of opportunities) {
+        b.forbidden(c, `/api/v1/opportunities/${d.id}`);
+        b.forbidden(c, `/api/v1/opportunities/${d.id}/fit`);
+      }
       for (const cl of closings) b.forbidden(c, `/api/v1/closings/${cl.id}`);
     }
   }

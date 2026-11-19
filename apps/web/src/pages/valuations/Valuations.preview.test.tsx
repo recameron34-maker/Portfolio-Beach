@@ -76,12 +76,16 @@ describe('valuation board (preview)', () => {
     await screen.findByRole('table', { name: 'Valuations' });
     await screen.findByRole('button', { name: 'New valuation' });
     expect(screen.getAllByText('Simulated').length).toBeGreaterThanOrEqual(1);
+    // The marker stands beside the commands it qualifies: over the table's Actions column.
+    const table = screen.getByRole('table', { name: 'Valuations' });
     expect(
-      screen.getByText(
-        'Simulated changes do not recalculate NAV, MOIC or IRR; portfolio figures stay as recorded.',
-      ),
+      within(within(table).getByRole('columnheader', { name: /^Actions/ })).getByText('Simulated'),
     ).toBeInTheDocument();
-    expect(button('New valuation')).toBeEnabled();
+    expect(screen.getByTestId('valuation-gate')).toHaveTextContent(
+      'Reports read Locked valuations only. In this preview, simulated changes do not recalculate NAV, MOIC or IRR.',
+    );
+    // What a role may do follows the signed-in user, who is read on their own.
+    await waitFor(() => expect(button('New valuation')).toBeEnabled());
     expect(button('Reset preview')).toBeEnabled();
     expect(button('Prepare, Cobalt Energy Group, Jun 30, 2025 v1')).toBeEnabled();
     expect(button('Send back, Silverline Staffing Holdings, Jun 30, 2025 v1')).toBeEnabled();
@@ -102,9 +106,11 @@ describe('valuation board (preview)', () => {
     renderWithQuery(<ValuationsPage />);
     await screen.findByRole('table', { name: 'Valuations' });
     await screen.findByTestId('missing-marks');
-    expect(
-      button('Deal team approve, Silverline Staffing Holdings, Jun 30, 2025 v1'),
-    ).toBeEnabled();
+    await waitFor(() =>
+      expect(
+        button('Deal team approve, Silverline Staffing Holdings, Jun 30, 2025 v1'),
+      ).toBeEnabled(),
+    );
     const prepare = button('Prepare, Cobalt Energy Group, Jun 30, 2025 v1');
     expect(prepare).toBeDisabled();
     expect(prepare).toHaveAttribute('title', 'Needs operations');
@@ -146,10 +152,7 @@ describe('valuation board (preview)', () => {
       routes(['deal_team'], {
         [`/api/v1/valuations/${VAL_ID.prepared}/commands`]: {
           status: 422,
-          body: refusalFixture(
-            422,
-            'valuation: the preparer cannot approve their own valuation (SEC-5.6)',
-          ),
+          body: refusalFixture(422, 'valuation: the preparer cannot approve their own valuation'),
         },
       }),
     );
@@ -159,7 +162,7 @@ describe('valuation board (preview)', () => {
       button('Deal team approve, Silverline Staffing Holdings, Jun 30, 2025 v1'),
     );
     const notice = await within(screen.getByRole('status')).findByText(
-      'Deal team approve for Silverline Staffing Holdings, Jun 30, 2025 v1: Blocked by a rule. The preparer cannot approve their own valuation (SEC-5.6)',
+      'Deal team approve for Silverline Staffing Holdings, Jun 30, 2025 v1: Blocked by a rule. The preparer cannot approve their own valuation',
     );
     expect(notice).toHaveClass('pb-notice', 'pb-notice-bad');
     expect(
@@ -310,7 +313,10 @@ describe('valuation board (preview)', () => {
     );
     renderWithQuery(<ValuationsPage />);
     await screen.findByRole('table', { name: 'Valuations' });
-    await userEvent.click(await screen.findByRole('button', { name: 'New valuation' }));
+    // The button is offered once the page knows who is signed in and what may be valued.
+    const start = await screen.findByRole('button', { name: 'New valuation' });
+    await waitFor(() => expect(start).toBeEnabled());
+    await userEvent.click(start);
     const dialog = await screen.findByRole('dialog');
     const create = within(dialog).getByRole('button', { name: 'Create draft' });
     expect(create).toBeDisabled();

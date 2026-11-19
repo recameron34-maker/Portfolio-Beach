@@ -7,7 +7,7 @@ import type { AppRole } from '@pb/db';
 import { loadSyntheticDataset } from '@pb/db';
 import { createTestDb } from '@pb/db/testing';
 import { generateDataset, generateDocuments } from '@pb/synthetic';
-import type { DocumentSet } from '@pb/synthetic';
+import type { DocumentSet, SyntheticDocument } from '@pb/synthetic';
 import type { SyntheticDataset } from '@pb/db';
 import { FixedClock } from '@pb/adapters';
 import { createApp } from '../app.js';
@@ -22,6 +22,8 @@ export interface Harness {
   dataset: SyntheticDataset;
   /** The synthetic document set written to PB_DOCUMENT_ROOT before the runtime was built; its expectations drive assertions. */
   documents: DocumentSet;
+  /** The documents a test added to the inbox beside the set (HarnessOptions.extraDocuments); none by default. */
+  extraDocuments: SyntheticDocument[];
   http: () => request.Agent;
   /** Bearer credential for the first user holding a role (or the named external id). */
   as: (roleOrExternalId: string) => string;
@@ -35,6 +37,13 @@ export interface HarnessOptions {
   accountingLayout?: unknown;
   /** Feature flags switched on through the flags endpoint as platform_admin once the app is up (audited), such as 'ai.extraction'. */
   enableFlags?: readonly string[];
+  /**
+   * Documents written into the inbox beside the synthetic set, each with its truth sidecar,
+   * before the runtime is built: statements the seed does not hold (lines that do not tie, a
+   * name that does not link), written with the generator's own builder so the prototype
+   * extractor answers them like any other document.
+   */
+  extraDocuments?: (dataset: SyntheticDataset) => SyntheticDocument[];
 }
 
 /**
@@ -76,7 +85,11 @@ export async function startHarness(options: HarnessOptions = {}): Promise<Harnes
   // The document root is written before the runtime is built, so the composition loads the
   // truths and registers the prototype models over them.
   const documents = generateDocuments(dataset);
-  writeDocumentRoot(config.PB_DOCUMENT_ROOT, documents);
+  const extraDocuments = options.extraDocuments?.(dataset) ?? [];
+  writeDocumentRoot(config.PB_DOCUMENT_ROOT, {
+    documents: [...documents.documents, ...extraDocuments],
+    expectations: documents.expectations,
+  });
   const runtime = await buildRuntime(config, {
     db,
     logger: createLogger('silent'),
@@ -115,6 +128,7 @@ export async function startHarness(options: HarnessOptions = {}): Promise<Harnes
     runtime,
     dataset,
     documents,
+    extraDocuments,
     http: () => request(server),
     as,
     close: async () => {

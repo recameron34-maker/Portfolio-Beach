@@ -67,6 +67,7 @@ export function investmentFixture(overrides: Partial<InvestmentSummary> = {}): I
     dealType: 'deal_type.co_invest_equity',
     sector: 'sector.software',
     geography: 'geography.north_america',
+    hq: { city: 'Austin', country: 'US', latitude: 30.2672, longitude: -97.7431 },
     vintage: 2018,
     entryDate: '2018-11-15',
     exitDate: null,

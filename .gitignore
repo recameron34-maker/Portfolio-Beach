@@ -48,3 +48,5 @@ apps/site/dist-artifact/
 .wrangler/
 # agent worktrees (never committed)
 .claude/worktrees/
+# narration clips and voice model files (made by apps/site/scripts, never committed)
+apps/site/.cache/

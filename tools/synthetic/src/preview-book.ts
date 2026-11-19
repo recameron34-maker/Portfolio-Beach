@@ -35,6 +35,12 @@ export interface PreviewBookInvestment {
   /** The company's aliases (core.company_alias), as the API's investment directory lists them. */
   aliases: string[];
   dealType: string;
+  /**
+   * The currency the position is held in (core.investment.currency). The dataset states none, so
+   * the seed loads every position with the column's default, US dollars; the book says so, and
+   * the simulated valuation suggestions read it here, never as an assumption of their own.
+   */
+  currency: string;
   entryDate: string;
   exitDate: string | null;
   isActive: boolean;
@@ -159,6 +165,9 @@ export interface PreviewBook {
   documentExpectations: DocumentSetExpectations;
 }
 
+/** The currency every seeded position is held in: the default of core.investment.currency, which the seed leaves in place. */
+const POSITION_CURRENCY = 'USD';
+
 /**
  * The deal types whose sponsors report quarterly figures, so the tracker expects a quarterly
  * report per quarter (apps/api/src/documents/expected.ts QUARTERLY_REPORTING_DEAL_TYPES, a
@@ -242,6 +251,7 @@ export function previewBook(
       canonicalName: company?.canonicalName ?? '',
       aliases: aliasesOf(dataset, inv.portfolioCompanyId),
       dealType: inv.dealType,
+      currency: POSITION_CURRENCY,
       entryDate: inv.entryDate,
       exitDate: inv.exitDate,
       isActive: inv.isActive,

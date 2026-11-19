@@ -397,7 +397,10 @@ export interface SortKey {
 }
 
 export const encodeCursor = (key: SortKey): string =>
-  btoa(`${key.at}|${key.id}`).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+  btoa(`${key.at}|${key.id}`)
+    .replace(/\+/g, '-')
+    .replace(/\//g, '_')
+    .replace(/={1,2}$/, '');
 
 export function decodeCursor(cursor: string): SortKey | null {
   let text: string;
@@ -411,7 +414,8 @@ export function decodeCursor(cursor: string): SortKey | null {
   return { at: match[1] ?? '', id: match[2] ?? '' };
 }
 
-const byText = (a: string, b: string): number => (a < b ? -1 : a > b ? 1 : 0);
+/** Order by text, code unit by code unit: the order Postgres gives ISO dates and ids. */
+export const byText = (a: string, b: string): number => (a < b ? -1 : a > b ? 1 : 0);
 
 export interface Page<T> {
   items: T[];

@@ -1,7 +1,7 @@
 export { generateDataset } from './generate.js';
 export type { GenerateOptions, GeneratedDataset } from './generate.js';
 export { verifyDataset } from './verify.js';
-export type { VerifyReport } from './verify.js';
+export type { VerifyReport, VerifyTolerances } from './verify.js';
 export { PROFILES, DATA_SCENARIOS, DOCUMENT_SCENARIOS } from './profiles.js';
 export { Rng } from './prng.js';
 export { accountingExport, accountingExports } from './accounting-export.js';
@@ -53,6 +53,7 @@ export {
   intakeDecimal,
   intakeWholeNumber,
   pipelineStageAgingDays,
+  underwritingTolerances,
 } from './settings.js';
 export type { IntakeDecimalKey, IntakeWholeNumberKey, PipelineStageKey } from './settings.js';
 export {
@@ -108,6 +109,32 @@ export type {
   WireInstructionState,
 } from './controls.js';
 export { activePositions, latestLockedMark, takeRows, walledInvestment } from './marks.js';
+export { FAILING_PACKAGE_SCENARIOS, failingPackageCase } from './package-case.js';
+export type { FailingPackageCase, FailingPackageScenario } from './package-case.js';
+export {
+  UNDERWRITING_CREDIT_DEAL_TYPE,
+  UNDERWRITING_EXISTING_SCENARIOS,
+  UNDERWRITING_GROWTH_SHIFT,
+  UNDERWRITING_IRR_SHIFT,
+  UNDERWRITING_LOSS_RATE,
+  UNDERWRITING_MIN_HELD_DAYS,
+  UNDERWRITING_NONE_EVERY,
+  UNDERWRITING_PLAN_YEARS,
+  UNDERWRITING_SCENARIOS,
+  calcCaseOf,
+  generateUnderwriting,
+  irrOfMoic,
+  seededComparison,
+  underwritingInputsOf,
+  underwrittenYieldOf,
+} from './underwriting.js';
+export type {
+  UnderwritingBase,
+  UnderwritingCaseRow,
+  UnderwritingDeps,
+  UnderwritingPointRow,
+  UnderwritingScenario,
+} from './underwriting.js';
 export {
   WEEKLY_HEADER,
   WEEKLY_MOVES,
@@ -161,6 +188,8 @@ export type {
   OpsDropSheet,
   OpsDropWorkbook,
 } from './ops-drop.js';
+export { STATEMENT_EXAMPLES, statementExample } from './statement-examples.js';
+export type { StatementExample, StatementExampleTarget } from './statement-examples.js';
 export {
   DOCUMENT_DEFAULTS,
   DOCUMENT_FOOTER,
@@ -169,8 +198,11 @@ export {
   INJECTION_PAGE_ONE_TEXT,
   INJECTION_TEXT,
   NOTICE_FIELDS,
+  PLAIN_POSITION_STATEMENTS,
   QUARTERLY_FIELDS,
   RESTATEMENT_DRIFT,
+  STATEMENT_BALANCE_FIELDS,
+  STATEMENT_DENOMINATIONS,
   STATEMENT_FIELDS,
   SYNTHETIC_DOC_TYPES,
   UNTAGGED_FILE_NAME,
@@ -178,6 +210,8 @@ export {
   documentFileName,
   generateDocuments,
   millions,
+  positionStatementDocument,
+  positionStatementFileName,
   sanitizeFileName,
   sha256Hex,
   wrapText,
@@ -188,7 +222,12 @@ export type {
   DocumentSetExpectations,
   GenerateDocumentsOptions,
   LateFinancials,
+  PositionStatementExpectation,
+  PositionStatementInput,
   QuarterlyField,
+  StatementDenomination,
+  StatementField,
+  StatementLines,
   SyntheticDocType,
   SyntheticDocument,
   Truth,

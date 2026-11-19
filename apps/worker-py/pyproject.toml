@@ -30,7 +30,11 @@ target-version = "py312"
 src = ["src", "tests"]
 
 [tool.ruff.lint]
-select = ["E", "F", "I", "B", "UP", "N", "W", "RUF"]
+# S is the security rule set (flake8-bandit), the static analysis of the Python worker (decision 0016).
+select = ["E", "F", "I", "B", "UP", "N", "W", "RUF", "S"]
+# This package is the cross-check of the calculations: it states what it expects with assert, in
+# src as in tests, and never runs with assertions switched off.
+ignore = ["S101"]
 
 [tool.mypy]
 strict = true

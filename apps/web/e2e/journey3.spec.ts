@@ -371,11 +371,12 @@ test('operations prepares, the deal team approves and an approver locks a valuat
       .getByTestId('valuation-detail-tiles')
       .getByRole('group', { name: 'Fair value', exact: true }),
   ).toContainText(moneyM(CORRECTED));
+  // The inputs are key and value pairs, one a row, with no header row.
   const inputRows = page.getByRole('table', { name: 'Method inputs' }).getByRole('row');
-  await expect(inputRows).toHaveCount(3);
-  await expect(inputRows.nth(1)).toContainText('multiple');
-  await expect(inputRows.nth(1)).toContainText('11.5');
-  await expect(inputRows.nth(2)).toContainText(INPUTS.source);
+  await expect(inputRows).toHaveCount(2);
+  await expect(inputRows.nth(0)).toContainText('multiple');
+  await expect(inputRows.nth(0)).toContainText('11.5');
+  await expect(inputRows.nth(1)).toContainText(INPUTS.source);
   const edited = await apiCall(
     page,
     'GET',

@@ -21,6 +21,7 @@ export const MONTH_NAMES = [
   'december',
 ] as const;
 
+// eslint-disable-next-line security/detect-non-literal-regexp -- built from the month names above
 const MONTH_DAY_YEAR = new RegExp(
   `\\b(${MONTH_NAMES.join('|')})\\s+(\\d{1,2}),?\\s+(\\d{4})\\b`,
   'i',

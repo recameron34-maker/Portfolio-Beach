@@ -22,6 +22,7 @@ import {
   QUARTERLY_REPORTING_DEAL_TYPES,
   deriveExpected,
   dueDateFor,
+  expectedParentOf,
 } from './expected.js';
 import { receivedOnSql } from './rows.js';
 import { documentSettingsOf } from './settings.js';
@@ -61,25 +62,19 @@ export interface MatchableDocument {
 /**
  * Sets received_document_id on the expected row a classified document answers (the same parent,
  * period end and type), when that row exists and is still empty. A report matches by its
- * investment, a statement by its sponsor fund. Runs in whatever identity the caller holds; the
- * index and the classify command call it as the system actor. Answers whether a row was matched.
+ * investment, a statement by its sponsor fund (expectedParentOf): a statement linked to a
+ * position is our account for that one position and answers for no fund. Runs in whatever
+ * identity the caller holds; the index and the classify command call it as the system actor.
+ * Answers whether a row was matched.
  */
 export async function matchExpectedDocument(tx: Tx, doc: MatchableDocument): Promise<boolean> {
-  if (doc.docType === null || doc.periodEnd === null) return false;
-  if (
-    doc.docType !== EXPECTED_DOC_TYPES.quarterlyFinancials &&
-    doc.docType !== EXPECTED_DOC_TYPES.capitalAccountStatement
-  )
-    return false;
+  if (doc.periodEnd === null) return false;
+  const answers = expectedParentOf(doc);
+  if (answers === null) return false;
   const parent =
-    doc.docType === EXPECTED_DOC_TYPES.quarterlyFinancials
-      ? doc.investmentId === null
-        ? null
-        : eq(x.investmentId, doc.investmentId)
-      : doc.sponsorFundId === null
-        ? null
-        : eq(x.sponsorFundId, doc.sponsorFundId);
-  if (parent === null) return false;
+    answers.kind === 'investment'
+      ? eq(x.investmentId, answers.id)
+      : eq(x.sponsorFundId, answers.id);
   const updated = await tx
     .update(x)
     .set({ receivedDocumentId: doc.id })
@@ -87,7 +82,7 @@ export async function matchExpectedDocument(tx: Tx, doc: MatchableDocument): Pro
       and(
         parent,
         eq(x.periodEnd, doc.periodEnd),
-        eq(x.docType, doc.docType),
+        eq(x.docType, answers.docType),
         isNull(x.receivedDocumentId),
       ),
     )
@@ -196,7 +191,9 @@ export class ExpectedDocumentsService {
   /**
    * Matches the empty rows of a quarter with documents already classified for it: the earliest
    * indexed Classified document of the same parent, period and type. The index does the same
-   * for a document classified after its row existed.
+   * for a document classified after its row existed. A fund's row takes only a document linked
+   * to no position, as expectedParentOf says: a position-level statement carries its fund's id
+   * too, and it is our account for one position, never the fund's statement.
    */
   private async matchIndexed(stx: Tx, periodEnd: string): Promise<number> {
     const result = await stx.execute(sql`
@@ -207,7 +204,8 @@ export class ExpectedDocumentsService {
           and d.doc_type = x.doc_type
           and d.period_end = x.period_end
           and ((x.investment_id is not null and d.investment_id = x.investment_id)
-            or (x.investment_id is null and d.sponsor_fund_id = x.sponsor_fund_id))
+            or (x.investment_id is null and d.investment_id is null
+              and d.sponsor_fund_id = x.sponsor_fund_id))
         order by d.indexed_at asc, d.id asc
         limit 1)
       where x.period_end = ${periodEnd}
@@ -218,7 +216,8 @@ export class ExpectedDocumentsService {
             and d.doc_type = x.doc_type
             and d.period_end = x.period_end
             and ((x.investment_id is not null and d.investment_id = x.investment_id)
-              or (x.investment_id is null and d.sponsor_fund_id = x.sponsor_fund_id)))
+              or (x.investment_id is null and d.investment_id is null
+                and d.sponsor_fund_id = x.sponsor_fund_id)))
       returning x.id`);
     return result.rows.length;
   }

@@ -12,6 +12,12 @@ import { rolePrincipal } from '../../test/fixtures-valuations.js';
 import { renderWithQuery } from '../../test/render.js';
 import { ClosingTab } from './ClosingTab.js';
 
+/** A row of the tie-out ledger (Commitment, Allocated, Difference) inside the tie-out section. */
+const ledgerRow = (section: HTMLElement, label: string): HTMLElement =>
+  within(within(section).getByRole('table', { name: 'Allocation tie-out' })).getByRole('row', {
+    name: new RegExp(`^${label}`),
+  });
+
 vi.mock('../../app/env.js', () => ({ previewMode: true }));
 vi.mock('@tanstack/react-router', async () => {
   const { routerMock } = await import('../../test/router-mock.js');
@@ -74,8 +80,8 @@ describe('closing tab', () => {
       'closing-tie-out',
     );
     // The commitment and the received total lead; the client breakdown is not offered.
-    expect(within(tieOut).getByRole('group', { name: 'Commitment' })).toHaveTextContent('$20.0M');
-    expect(within(tieOut).getByRole('group', { name: 'Allocated' })).toHaveTextContent('$20.0M');
+    expect(ledgerRow(tieOut, 'Commitment')).toHaveTextContent('$20.0M');
+    expect(ledgerRow(tieOut, 'Allocated')).toHaveTextContent('$20.0M');
     expect(within(tieOut).getByTestId('allocations-hidden-lines')).toHaveTextContent(
       '1 client line is not shown. Client-level lines are for operations, the investment team (the deal team and approvers) and auditors, and for readers entitled to the client.',
     );
@@ -120,8 +126,9 @@ describe('closing tab', () => {
     expect(within(panel).getByTestId('closing-reopen')).toBeDisabled();
     expect(within(panel).getByTestId('closing-reopen')).toHaveAttribute('title', POSITION);
     expect(within(panel).getByTestId('closing-record')).toHaveTextContent(
-      `Confirmed by operations. ${POSITION}.`,
+      'Confirmed by operations.',
     );
+    expect(within(panel).getByTestId('closing-position-note')).toHaveTextContent(`${POSITION}.`);
     expect(within(panel).queryByTestId('closing-confirm')).toBeNull();
   });
 });

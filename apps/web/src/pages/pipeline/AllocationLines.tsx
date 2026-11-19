@@ -64,7 +64,7 @@ export function AllocationLead({
       <StatTile
         label="Target"
         value={formatMoneyM(targetCommitment)}
-        hint="Target commitment; the tie-out starts once the closing record exists (M22)"
+        hint="Target commitment; the tie-out starts once the closing record exists"
       />
     </div>
   );

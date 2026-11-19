@@ -184,6 +184,7 @@ describe('RLS access matrix', () => {
               ...(a.clientIds ? { clientIds: a.clientIds } : {}),
             },
             async (tx) => {
+              if (wc.before !== undefined) await tx.execute(sql.raw(wc.before));
               const result = await tx.execute(sql.raw(wc.sql));
               // An UPDATE or DELETE that RLS filters down to zero rows is a denial, not a success.
               const affected = 'affectedRows' in result ? result.affectedRows : result.rowCount;

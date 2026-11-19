@@ -6,7 +6,7 @@ import { D, valueCreationRollup } from '@pb/calc';
 import { investmentValueCreation, matchesValueCreationFilters, valueCreation } from '@pb/contracts';
 import type { InvestmentValueCreation, ValueCreation } from '@pb/contracts';
 import { generateDataset } from '@pb/synthetic';
-import { apiCall, loadDataset, signInAs, switchTo, walledDeal } from './fixtures.js';
+import { apiCall, loadDataset, settled, signInAs, switchTo, walledDeal } from './fixtures.js';
 
 /**
  * Value creation and entry metric analytics (docs/04 M13 and M20) over the real API: the Value
@@ -69,6 +69,7 @@ const positions = (page: Page): Locator =>
 const bodyRows = (table: Locator): Locator => table.locator('tbody tr');
 
 async function expectNoSeriousViolations(page: Page): Promise<void> {
+  await settled(page);
   const results = await new AxeBuilder({ page })
     .withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa'])
     .analyze();
@@ -137,9 +138,7 @@ test('value creation: the headline, a bridge that sums to it, the positions and 
 
   // EBITDA growth opens into revenue growth and margin change, and the bridge has a table twin.
   if (g.revenueGrowth !== null && g.marginChange !== null) {
-    await page
-      .getByRole('switch', { name: 'Open EBITDA growth into revenue growth and margin change' })
-      .check();
+    await page.getByRole('switch', { name: 'Split EBITDA growth into revenue and margin' }).check();
     await expect(
       bridge.getByRole('img', { name: `Revenue growth: ${signed(g.revenueGrowth)}`, exact: true }),
     ).toBeVisible();
@@ -541,7 +540,10 @@ test('deal workspace: a position shows its own bridge, indexed lines and entry a
   const goneSeries = await oneFor(page, 'viewer.one', gone.id);
   expect(goneSeries.series.every((point) => point.periodEnd <= gone.exitDate!)).toBe(true);
   await page.goto(`/portfolio/${gone.id}/performance`);
-  await expect(page.getByTestId('deal-value-creation')).toContainText(
+  // The range shows once in the "Since entry" section: in its title, or over the bridge when the
+  // bridge runs over other quarters than the growth figures.
+  await expect(page.getByTestId('deal-value-creation')).toBeVisible();
+  await expect(page.getByTestId('deal-since-entry')).toContainText(
     `Entry snapshot ${day(gone.entry!.periodEnd)} to ${day(gone.current!.periodEnd)}`,
   );
 
@@ -589,9 +591,7 @@ test('value creation pages with their tables shown @a11y', async ({ page }) => {
   if (position === undefined) throw new Error('no position has a bridge');
   await page.goto(`/portfolio/${position.id}/performance`);
   await page.getByTestId('deal-value-creation').waitFor();
-  await page
-    .getByRole('switch', { name: 'Open EBITDA growth into revenue growth and margin change' })
-    .check();
+  await page.getByRole('switch', { name: 'Split EBITDA growth into revenue and margin' }).check();
   await page
     .getByTestId('deal-value-creation-index')
     .getByRole('button', { name: 'Show table' })

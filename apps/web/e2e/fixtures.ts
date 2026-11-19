@@ -56,6 +56,26 @@ export async function signInAs(page: Page, externalId: string, d: E2eDataset): P
   await page.getByTestId('current-user').waitFor();
 }
 
+/**
+ * Waits for every finite animation on the page to finish (the loading pulse is the only one that
+ * loops), so an accessibility scan never measures contrast while a block is still fading in. Gives
+ * up after five seconds rather than hang on an animation that never ends.
+ */
+export async function settled(page: Page): Promise<void> {
+  await page.evaluate(async () => {
+    const finite = document
+      .getAnimations()
+      .filter((a) => a.effect?.getComputedTiming().iterations !== Infinity)
+      .map((a) =>
+        a.finished.then(
+          () => undefined,
+          () => undefined,
+        ),
+      );
+    await Promise.race([Promise.all(finite), new Promise((resolve) => setTimeout(resolve, 5_000))]);
+  });
+}
+
 /** Switches the acting user through the shell's role switcher (the prototype's sign-in). */
 export async function switchTo(page: Page, externalId: string, d: E2eDataset): Promise<void> {
   const user = d.users.find((u) => u.externalId === externalId);

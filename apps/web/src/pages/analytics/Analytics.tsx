@@ -5,6 +5,7 @@ import { ANALYTICS_TABS } from '../../app/nav.js';
 import { ClientLookThrough } from '../../components/ClientLookThrough.js';
 import { PageHeader, PageSkeleton, TabNav } from '../../components/ui.js';
 import { parseValueCreationSearch, valueCreationSearch } from './value-creation-filters.js';
+import './analytics.css';
 
 export { ExposureTab } from './ExposureTab.js';
 export { PerformanceAnalyticsTab } from './PerformanceTab.js';
@@ -39,6 +40,17 @@ export function EntryMetricsTab(): ReactNode {
   );
 }
 
+/* The co-investment map loads on demand too: the world's outline comes with it and nowhere else. */
+const LazyMapTab = lazy(async () => ({ default: (await import('./map/MapTab.js')).MapTab }));
+
+export function MapTab(): ReactNode {
+  return (
+    <Suspense fallback={<PageSkeleton tiles={4} rows={6} />}>
+      <LazyMapTab />
+    </Suspense>
+  );
+}
+
 /** The two tabs that share the value creation filters: a filter set on one carries to the other. */
 const FILTERED_TABS: readonly string[] = ['/analytics/value-creation', '/analytics/entry-metrics'];
 
@@ -50,11 +62,8 @@ export function AnalyticsLayout(): ReactNode {
   );
   return (
     <>
-      <PageHeader
-        title="Analytics"
-        meta="Exposure, performance, value creation, entry metrics, credit, realizations and client views"
-      />
-      <TabNav label="Analytics" items={items} />
+      <PageHeader title="Analytics" />
+      <TabNav label="Analytics" items={items} className="pb-analytics-tabs" />
       <Outlet />
     </>
   );

@@ -4,10 +4,24 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { D, addMonths } from '@pb/calc';
+import {
+  D,
+  addMonths,
+  containingQuarterEnd,
+  impliedStakeMark,
+  markComparison,
+  sourceCrossCheck,
+  statementMark,
+  summarizeFlows,
+  toDollars,
+} from '@pb/calc';
 import { readPdf } from '@pb/pdf';
 import type { PdfDocument } from '@pb/pdf';
 import { nodeInflate } from '@pb/pdf/node';
+import { linkInvestment, statementHold } from '@pb/validation';
+import type { InvestmentDirectoryEntry } from '@pb/validation';
+import definitions from '../../../config/definitions.json' with { type: 'json' };
+import extractionSchemas from '../../../config/extraction_schema.json' with { type: 'json' };
 import style from '../../../config/style.json' with { type: 'json' };
 import {
   DOCUMENT_DEFAULTS,
@@ -15,19 +29,25 @@ import {
   DOC_TYPE_LABELS,
   INJECTION_PAGE_ONE_TEXT,
   INJECTION_TEXT,
+  PLAIN_POSITION_STATEMENTS,
   QUARTERLY_FIELDS,
   RESTATEMENT_DRIFT,
+  STATEMENT_BALANCE_FIELDS,
+  STATEMENT_FIELDS,
   SYNTHETIC_DOC_TYPES,
   UNTAGGED_FILE_NAME,
   dateInWords,
   documentFileName,
   generateDocuments,
   millions,
+  positionStatementDocument,
   sanitizeFileName,
   sha256Hex,
   wrapText,
 } from './documents.js';
-import type { SyntheticDocument } from './documents.js';
+import type { SyntheticDocument, TruthField } from './documents.js';
+import { STATEMENT_EXAMPLES, statementExample } from './statement-examples.js';
+import type { StatementExample } from './statement-examples.js';
 import { generateDataset } from './generate.js';
 import { walledInvestment } from './marks.js';
 
@@ -38,6 +58,12 @@ const { documents, expectations } = set;
 const reports = documents.filter(
   (d) => d.truth.docType === SYNTHETIC_DOC_TYPES.quarterlyFinancials,
 );
+/** A statement linked to no position is fund-level; one linked to a position is position-level. */
+const statements = documents.filter(
+  (d) => d.truth.docType === SYNTHETIC_DOC_TYPES.capitalAccountStatement,
+);
+const fundStatements = statements.filter((d) => d.truth.investmentId === null);
+const positionStatements = statements.filter((d) => d.truth.investmentId !== null);
 const byName = new Map(documents.map((d) => [d.fileName, d]));
 const read = (bytes: Uint8Array): Promise<PdfDocument> => readPdf(bytes, { inflate: nodeInflate });
 
@@ -61,7 +87,7 @@ describe('the synthetic document set (docs/14 section 9)', () => {
   it('counts match the expectations and stay in the small profile range', () => {
     expect(expectations.total).toBe(documents.length);
     expect(expectations.total).toBeGreaterThanOrEqual(40);
-    expect(expectations.total).toBeLessThanOrEqual(80);
+    expect(expectations.total).toBeLessThanOrEqual(95);
     const summed = Object.values(expectations.byDocType).reduce((a, b) => a + b, 0);
     expect(summed).toBe(expectations.total);
     for (const [code, count] of Object.entries(expectations.byDocType))
@@ -69,8 +95,15 @@ describe('the synthetic document set (docs/14 section 9)', () => {
     expect(Object.keys(expectations.byDocType).sort()).toEqual(
       Object.values(SYNTHETIC_DOC_TYPES).sort(),
     );
-    expect(expectations.byDocType[SYNTHETIC_DOC_TYPES.capitalAccountStatement]).toBe(
+    // One fund-level statement per committed fund; the rest are position-level and listed.
+    expect(fundStatements).toHaveLength(
       new Set(small.commitments.map((c) => c.sponsorFundId)).size,
+    );
+    expect(expectations.byDocType[SYNTHETIC_DOC_TYPES.capitalAccountStatement]).toBe(
+      fundStatements.length + expectations.positionStatements.length,
+    );
+    expect(positionStatements.map((d) => d.fileName).sort()).toEqual(
+      expectations.positionStatements.map((p) => p.fileName).sort(),
     );
   });
 
@@ -170,13 +203,21 @@ describe('the synthetic document set (docs/14 section 9)', () => {
     );
   });
 
-  it('writes one capital account statement per sponsor fund with a commitment, from the cash flows', () => {
-    const statements = documents.filter(
-      (d) => d.truth.docType === SYNTHETIC_DOC_TYPES.capitalAccountStatement,
-    );
+  it('writes one fund-level capital account statement per sponsor fund with a commitment, from the cash flows', () => {
     const fundIds = new Set(small.commitments.map((c) => c.sponsorFundId));
-    expect(new Set(statements.map((d) => d.truth.sponsorFundId))).toEqual(fundIds);
-    for (const statement of statements) {
+    expect(new Set(fundStatements.map((d) => d.truth.sponsorFundId))).toEqual(fundIds);
+    expect(fundStatements).toHaveLength(fundIds.size);
+    for (const statement of fundStatements) {
+      // The truth holds the eleven keys of the statement schema: a fund-level statement states
+      // the commitment lines and no balance of ours, so the six balance and share keys are null.
+      expect(Object.keys(statement.truth.fields)).toEqual([...STATEMENT_FIELDS]);
+      for (const key of [...STATEMENT_BALANCE_FIELDS, 'investor_share_pct'])
+        expect(statement.truth.fields[key], key).toEqual({
+          value: null,
+          unit: null,
+          page: null,
+          quote: null,
+        });
       expect(statement.truth.periodEnd).toBe(small.asOf);
       expect(statement.truth.investmentId).toBeNull();
       expect(statement.fileName).toBe(
@@ -551,6 +592,478 @@ describe('the scenario documents', () => {
   });
 });
 
+/** The hashes of the eleven fund-level statements at seed 42, as they were before a statement schema existed. */
+const FUND_STATEMENT_HASHES: Readonly<Record<string, string>> = {
+  'Dunecrest Fund IV': '00231acbea3dc0947a2977b89191a5eff762c5f08bf9cd7a6f24797bd71b76d5',
+  'Kelpwood Fund I': 'ae7dcbad87801ea20841c2daad60df2a9262b14a929101b50216dd884fafa530',
+  'Kelpwood Fund III': 'b8c42d489f2f78a3f716f2fa25b32c52e84e7f0190af055eac10554f33bcc835',
+  'Marram Fund I': '7f86f1c3f05aed9a2e9a4d43133fc53d55756b53bbcb834a9b834fd9700a32f9',
+  'Marram Fund III': '58024e2400c9a19ec50c94cda0fa0f347429239bcbc44bfa9ac97fdd2618a8eb',
+  'Oysterbed Credit Fund I': 'e7592ad2c7224bf133bcf1cebf8881060ff11e7b83928937384d7fa381521666',
+  'Seagrass Fund II': '2a3dc7fa6f4b05583223e00eb748f8989ffe4df8217b2573c6d5751de83d7724',
+  'Seagrass Growth Fund II': 'f03bbbeab4d0ff166419c053426618cc506efd38d143fc6b09081c14644cb226',
+  'Skerry Fund I': '87756cb258fefc247c2132b7e14fcb2e96d5d44181db1d2aa041bbbdf8ec373e',
+  'Skerry Growth Fund II': '62bc186756805d593b8da295b52f195eff53168427bafea9ffdbafcf0b47b50e',
+  'Stormglass Fund I': '0d9157d65b0d3d79431bdc2c9fec8685963dff0b49ec197f80658346cd80bf53',
+};
+
+describe('position-level capital account statements (decision 0023)', () => {
+  const suggestions = definitions.valuationSuggestions;
+  const tolerances = {
+    tieToleranceUsd: String(suggestions.tieToleranceByUnit.USD_M),
+    contributionsTolerancePct: String(suggestions.contributionsTolerancePct),
+  };
+  const varianceFlag = String(definitions.valuationVarianceFlag);
+  const asOf = small.asOf;
+  const prior = containingQuarterEnd(addMonths(asOf, -3));
+  const investmentOf = (id: string) => {
+    const found = small.investments.find((i) => i.id === id);
+    if (found === undefined) throw new Error(`no investment ${id}`);
+    return found;
+  };
+  const companyOf = (portfolioCompanyId: string): string =>
+    small.portfolioCompanies.find((c) => c.id === portfolioCompanyId)?.name ?? '';
+  const directory: InvestmentDirectoryEntry[] = small.investments.map((i) => ({
+    id: i.id,
+    investmentNumber: i.investmentNumber,
+    companyName: companyOf(i.portfolioCompanyId),
+    canonicalName: companyOf(i.portfolioCompanyId).toLowerCase(),
+    aliases: [],
+    dealType: i.dealType,
+    entryDate: i.entryDate,
+    exitDate: i.exitDate,
+    isActive: i.isActive,
+  }));
+  /** A truth line in dollars, or null when the statement does not state it. */
+  const dollars = (field: TruthField | undefined): string | null =>
+    field === undefined || field.value === null || field.unit === null
+      ? null
+      : toDollars(field.value, field.unit).toFixed(2);
+  /** The approved contributions on a position on or before a date, as the record holds them. */
+  const recordContributions = (investmentId: string, until: string): string =>
+    summarizeFlows(
+      small.cashFlows
+        .filter(
+          (f) =>
+            f.investmentId === investmentId &&
+            f.status === 'record_status.approved' &&
+            f.flowDate <= until,
+        )
+        .map((f) => ({
+          date: f.flowDate,
+          amount: f.amount,
+          kind: f.flowType.replace('flow_type.', '') as 'contribution',
+        })),
+    ).contributions.toFixed(2);
+  /** Rule 12.1 over a statement's truth. */
+  const markOf = (document: SyntheticDocument) => {
+    const f = document.truth.fields;
+    return statementMark(
+      {
+        beginningBalance: dollars(f.beginning_capital_balance),
+        contributionsInPeriod: dollars(f.contributions_in_period),
+        distributionsInPeriod: dollars(f.distributions_in_period),
+        netGainLoss: dollars(f.net_gain_loss),
+        endingBalance: dollars(f.ending_capital_balance),
+        contributionsToDate: dollars(f.contributions_to_date),
+        share: f.investor_share_pct?.value ?? null,
+      },
+      recordContributions(document.truth.investmentId ?? '', document.truth.periodEnd),
+      tolerances,
+    );
+  };
+  const lockedMark = (investmentId: string, periodEnd: string): string | null =>
+    small.valuations.find(
+      (v) => v.investmentId === investmentId && v.state === 'Locked' && v.periodEnd === periodEnd,
+    )?.fairValue ?? null;
+  const statementOf = (investmentId: string, periodEnd: string): SyntheticDocument => {
+    const found = positionStatements.find(
+      (d) => d.truth.investmentId === investmentId && d.truth.periodEnd === periodEnd,
+    );
+    if (found === undefined) throw new Error(`no statement for ${investmentId} at ${periodEnd}`);
+    return found;
+  };
+
+  it('keeps the eleven fund-level statements byte for byte: same names, same hashes', () => {
+    expect(
+      Object.fromEntries(fundStatements.map((d) => [d.truth.sponsorFundName, d.truth.contentHash])),
+    ).toEqual(FUND_STATEMENT_HASHES);
+    for (const statement of fundStatements)
+      expect(sha256Hex(statement.bytes)).toBe(statement.truth.contentHash);
+  });
+
+  it('holds the keys of the statement schema in config, in its order, in every statement truth', () => {
+    const configured = extractionSchemas.schemas.capital_account_statement.fields.map((f) => f.key);
+    expect([...STATEMENT_FIELDS]).toEqual(configured);
+    for (const statement of statements)
+      expect(Object.keys(statement.truth.fields), statement.fileName).toEqual(configured);
+  });
+
+  it('writes two statements for the stale valuation, the roll forward break and the walled position, and for plain positions no scenario took', () => {
+    const scenarioIds = ['stale_valuation', 'roll_forward_break', 'walled_deal'].map(
+      (scenario) => small.scenarios[scenario]?.[0] ?? '',
+    );
+    const covered = new Set(expectations.positionStatements.map((p) => p.investmentId));
+    for (const id of scenarioIds) expect(covered.has(id), id).toBe(true);
+    // In the small profile every other active position carries a data scenario or was taken by
+    // a document scenario, so no plain position remains.
+    expect(covered.size).toBe(3);
+    expect(expectations.positionStatements.map((p) => [p.investmentNumber, p.periodEnd])).toEqual(
+      [...covered]
+        .map((id) => investmentOf(id).investmentNumber)
+        .sort()
+        .flatMap((number) => [
+          [number, prior],
+          [number, asOf],
+        ]),
+    );
+    for (const p of expectations.positionStatements) {
+      const inv = investmentOf(p.investmentId);
+      expect([
+        'deal_type.co_invest_equity',
+        'deal_type.cv_single_asset',
+        'deal_type.cv_multi_asset',
+      ]).toContain(inv.dealType);
+      expect(inv.isActive).toBe(true);
+      expect(p.companyName).toBe(companyOf(inv.portfolioCompanyId));
+      const document = fileOf(p.fileName);
+      expect(document.truth.investmentId).toBe(p.investmentId);
+      expect(document.truth.scenarios).toEqual([]);
+      expect(dollars(document.truth.fields.ending_capital_balance)).toBe(p.endingBalance);
+      expect(dollars(document.truth.fields.beginning_capital_balance)).toBe(p.beginningBalance);
+    }
+    // The default profile has plain positions to spare: three more, six statements more.
+    const large = generateDataset({ profile: 'default', seed: 42 });
+    const more = generateDocuments(large).expectations.positionStatements;
+    expect(new Set(more.map((p) => p.investmentId)).size).toBe(3 + PLAIN_POSITION_STATEMENTS);
+    const taggedIds = new Set(
+      large.investments.filter((i) => i.scenarioTags.length > 0).map((i) => i.id),
+    );
+    expect(more.filter((p) => !taggedIds.has(p.investmentId))).toHaveLength(
+      PLAIN_POSITION_STATEMENTS * 2,
+    );
+  });
+
+  it('takes the ending balance from the Locked mark of the quarter, and from the marking rule where there is none', () => {
+    for (const p of expectations.positionStatements) {
+      const mark = lockedMark(p.investmentId, p.periodEnd);
+      expect(p.fromLockedMark, p.fileName).toBe(mark !== null);
+      if (mark !== null)
+        expect(p.endingBalance, p.fileName).toBe(D(millions(mark)).times(1_000_000).toFixed(2));
+    }
+    // The two quarters the scenarios leave without a mark: the stale position's latest quarter
+    // and the quarter before the roll forward break's.
+    const unmarked = expectations.positionStatements
+      .filter((p) => !p.fromLockedMark)
+      .map((p) => [p.investmentId, p.periodEnd]);
+    expect(unmarked).toEqual(
+      [
+        [small.scenarios.stale_valuation?.[0], asOf],
+        [small.scenarios.roll_forward_break?.[0], prior],
+      ].sort((a, b) =>
+        investmentOf(a[0] ?? '').investmentNumber.localeCompare(
+          investmentOf(b[0] ?? '').investmentNumber,
+        ),
+      ),
+    );
+    // By the rule the dataset marks positions by: cost over the equity at entry, times the
+    // quarter's enterprise value less net debt (or a tenth of cost when that is larger).
+    for (const [investmentId = '', periodEnd = ''] of unmarked) {
+      const rows = small.quarterlyPerformance.filter((q) => q.investmentId === investmentId);
+      const snapshot = rows.find((q) => q.isEntrySnapshot);
+      const quarter = rows.find((q) => !q.isEntrySnapshot && q.periodEnd === periodEnd);
+      const cost = D(recordContributions(investmentId, investmentOf(investmentId).entryDate));
+      const equity = D(quarter?.ev ?? '0').minus(quarter?.netDebt ?? '0');
+      const floor = cost.times('0.1');
+      const value = cost
+        .div(snapshot?.totalEquity ?? '1')
+        .times(equity.gt(floor) ? equity : floor)
+        .toFixed(2);
+      const statement = statementOf(investmentId, periodEnd);
+      expect(statement.truth.fields.ending_capital_balance?.value).toBe(millions(value));
+    }
+  });
+
+  it('ties: every statement states all five balance lines and they add up exactly', () => {
+    expect(positionStatements.length).toBeGreaterThanOrEqual(6);
+    for (const statement of positionStatements) {
+      const f = statement.truth.fields;
+      for (const key of [
+        ...STATEMENT_BALANCE_FIELDS,
+        'contributions_to_date',
+        'distributions_to_date',
+      ]) {
+        expect(f[key]?.value, `${statement.fileName} ${key}`).not.toBeNull();
+        expect(f[key]?.unit, `${statement.fileName} ${key}`).toBe('USD_M');
+      }
+      // Our own account: no commitment lines, no share of a vehicle.
+      for (const key of ['total_commitment', 'unfunded_commitment', 'investor_share_pct'])
+        expect(f[key]?.value, `${statement.fileName} ${key}`).toBeNull();
+      const mark = markOf(statement);
+      expect(mark.ownAccount, statement.fileName).toBe(true);
+      expect(mark.ties, statement.fileName).toBe(true);
+      expect(mark.tieDifference, statement.fileName).toBe('0');
+      expect(D(mark.value ?? '0').toFixed(2), statement.fileName).toBe(
+        dollars(f.ending_capital_balance),
+      );
+      expect(mark.reason, statement.fileName).toBeNull();
+      // The flows are the approved cash flows of the position, to the cent of a million.
+      expect(mark.contributionsCheck.differs, statement.fileName).toBe(false);
+      expect(f.contributions_to_date?.value, statement.fileName).toBe(
+        millions(
+          recordContributions(statement.truth.investmentId ?? '', statement.truth.periodEnd),
+        ),
+      );
+    }
+  });
+
+  it('chains: each statement begins where the one before it ended', () => {
+    for (const id of new Set(positionStatements.map((d) => d.truth.investmentId ?? ''))) {
+      const earlier = statementOf(id, prior);
+      const later = statementOf(id, asOf);
+      expect(later.truth.fields.beginning_capital_balance?.value, later.fileName).toBe(
+        earlier.truth.fields.ending_capital_balance?.value,
+      );
+    }
+  });
+
+  it('links to its position by the company in its file name and by the reference on page one', () => {
+    for (const statement of positionStatements) {
+      const inv = investmentOf(statement.truth.investmentId ?? '');
+      const company = companyOf(inv.portfolioCompanyId);
+      const fund = statement.truth.sponsorFundName;
+      expect(statement.fileName).toBe(
+        `${statement.truth.periodEnd} ${fund} - Capital account statement - ${company}.pdf`,
+      );
+      expect(statement.truth.sponsorFundId).toBe(inv.sponsorFundId);
+      const pageOne = pdfOf(statement).pages[0]?.text ?? '';
+      const reference = /\bINV-\d{4}\b/.exec(pageOne)?.[0] ?? null;
+      expect(reference, statement.fileName).toBe(inv.investmentNumber);
+      const byName = linkInvestment(
+        { investmentNumber: null, companyName: company },
+        directory,
+        [],
+      );
+      const byNumber = linkInvestment(
+        { investmentNumber: reference, companyName: null },
+        directory,
+        [],
+      );
+      expect(byName.investment?.id, statement.fileName).toBe(inv.id);
+      expect(byNumber.investment?.id, statement.fileName).toBe(inv.id);
+      // So the review rule of docs/18 section 6 lets it through.
+      expect(
+        statementHold({ investmentNumber: reference, companyName: company }, directory, []),
+      ).toBeNull();
+      // The page: letterhead, title, who it is for with our reference, the period end, one account block.
+      const lines = pdfOf(statement).pages[0]?.lines.map((l) => l.text) ?? [];
+      const vehicle = small.vehicles.find((v) => v.id === inv.vehicleId)?.name ?? '';
+      expect(lines.slice(0, 6)).toEqual([
+        fund,
+        'Capital Account Statement',
+        `for the quarter ended ${dateInWords(statement.truth.periodEnd)}`,
+        `Prepared for ${vehicle}, reference ${inv.investmentNumber}`,
+        `Period end ${statement.truth.periodEnd}`,
+        `Account ${vehicle} US$ millions`,
+      ]);
+      expect(pdfOf(statement).info.title).toContain(company);
+    }
+  });
+
+  it('the example sequence on the stale valuation position: the statement and the report indication agree within US$ 10,000', () => {
+    const id = small.scenarios.stale_valuation?.[0] ?? '';
+    const statement = statementOf(id, asOf);
+    const mark = markOf(statement);
+    const rows = small.quarterlyPerformance.filter((q) => q.investmentId === id);
+    const now = rows.find((q) => !q.isEntrySnapshot && q.periodEnd === asOf);
+    const before = rows.find((q) => !q.isEntrySnapshot && q.periodEnd === prior);
+    const reference = lockedMark(id, prior);
+    expect(lockedMark(id, asOf)).toBeNull();
+    expect(reference).not.toBeNull();
+    // No cash moved after the last Locked mark, so the report's rule applies (docs/08 12.2).
+    const flowsSince = small.cashFlows.some(
+      (f) => f.investmentId === id && f.flowDate > prior && f.flowDate <= asOf,
+    );
+    expect(flowsSince).toBe(false);
+    const indication = impliedStakeMark({
+      referenceMark: reference,
+      flowsSinceReferenceMark: flowsSince,
+      reference: { ev: before?.ev ?? null, netDebt: before?.netDebt ?? null },
+      current: { ev: now?.ev ?? '0', netDebt: now?.netDebt ?? null },
+    });
+    expect(indication.reason).toBeNull();
+    expect(mark.value).not.toBeNull();
+    const apart = D(indication.value ?? '0')
+      .minus(mark.value ?? '0')
+      .abs();
+    expect(apart.lt(10_000), `the two are ${apart.toFixed(2)} apart`).toBe(true);
+    // The tenth-of-cost floor of the marking rule is not what gave the balance.
+    const cost = D(recordContributions(id, asOf));
+    expect(
+      D(now?.ev ?? '0')
+        .minus(now?.netDebt ?? '0')
+        .gt(cost.times('0.1')),
+    ).toBe(true);
+    // The badges the walkthrough names: the mark moved by more than the variance flag against
+    // the previous quarter's, the lines add up, the contributions agree, the two sources agree.
+    const comparison = markComparison({
+      suggested: mark.value,
+      current: reference,
+      currentIsPreviousQuarter: true,
+      varianceFlag,
+      statement: { ...mark.ours, tieToleranceUsd: tolerances.tieToleranceUsd },
+    });
+    const crossCheck = sourceCrossCheck(indication.value, mark.value, varianceFlag);
+    expect({
+      variance: comparison.variance,
+      ties: mark.ties,
+      contributionsDiffer: mark.contributionsCheck.differs,
+      sourcesDiffer: crossCheck.differs,
+    }).toEqual({ variance: true, ties: true, contributionsDiffer: false, sourcesDiffer: false });
+    expect(mark.value).toBe('38140000');
+    expect(comparison.change).toBe('-7938308.34');
+    // The statement starts where our record does, so the change net of flows is shown.
+    expect(comparison.netOfFlows).toBe('-7938308.34');
+  });
+});
+
+describe('example statements for tests (statementExample)', () => {
+  const inv = small.investments.find((i) => i.id === small.scenarios.stale_valuation?.[0]);
+  if (inv === undefined) throw new Error('the small profile has no stale valuation position');
+  const fund = small.sponsorFunds.find((f) => f.id === inv.sponsorFundId);
+  if (fund === undefined) throw new Error('the stale valuation position has no fund');
+  const company = small.portfolioCompanies.find((c) => c.id === inv.portfolioCompanyId)?.name ?? '';
+  const target = {
+    periodEnd: small.asOf,
+    fund,
+    vehicleName: small.vehicles.find((v) => v.id === inv.vehicleId)?.name ?? '',
+    investment: { id: inv.id, investmentNumber: inv.investmentNumber, companyName: company },
+  };
+  const examples = Object.keys(STATEMENT_EXAMPLES) as StatementExample[];
+  const written = new Map(examples.map((key) => [key, statementExample(key, target)]));
+  const of = (key: StatementExample): SyntheticDocument => {
+    const found = written.get(key);
+    if (found === undefined) throw new Error(`no example ${key}`);
+    return found;
+  };
+  const valuesOf = (key: StatementExample): Record<string, string | null> =>
+    Object.fromEntries(Object.entries(of(key).truth.fields).map(([k, f]) => [k, f.value]));
+  const unitsOf = (key: StatementExample): (string | null)[] =>
+    [...new Set(Object.values(of(key).truth.fields).map((f) => f.unit))].sort();
+
+  it('writes each example as one page whose every stated value is cited on it', async () => {
+    for (const key of examples) {
+      const document = of(key);
+      const pdf = await read(document.bytes);
+      expect(pdf.pageCount, key).toBe(1);
+      expect(Object.keys(document.truth.fields), key).toEqual([...STATEMENT_FIELDS]);
+      expect(document.truth.contentHash, key).toBe(sha256Hex(document.bytes));
+      const text = pdf.pages[0]?.text ?? '';
+      expect(text, key).not.toContain(EM_DASH);
+      for (const [name, f] of Object.entries(document.truth.fields)) {
+        if (f.value === null) {
+          expect(f, `${key} ${name}`).toEqual({ value: null, unit: null, page: null, quote: null });
+          continue;
+        }
+        expect(f.page, `${key} ${name}`).toBe(1);
+        expect(text, `${key} ${name}`).toContain(f.quote ?? '');
+      }
+    }
+    // Every example differs from every other, and from the seeded statement of that quarter.
+    const hashes = new Set([...written.values()].map((d) => d.truth.contentHash));
+    expect(hashes.size).toBe(examples.length);
+  });
+
+  it('records our own account as printed, in millions (docs/08 section 12, examples 1, 2 and 8)', () => {
+    expect(valuesOf('ties')).toEqual({
+      period_end: small.asOf,
+      total_commitment: null,
+      contributions_to_date: '12.40',
+      distributions_to_date: '0.35',
+      unfunded_commitment: null,
+      beginning_capital_balance: '18.42',
+      contributions_in_period: '2.00',
+      distributions_in_period: '0.35',
+      net_gain_loss: '0.87',
+      ending_capital_balance: '20.94',
+      investor_share_pct: null,
+    });
+    expect(unitsOf('ties')).toEqual(['DATE', 'USD_M', null].sort());
+    expect(valuesOf('tiesWithinTolerance').net_gain_loss).toBe('0.89');
+    expect(valuesOf('doesNotTie').net_gain_loss).toBe('0.92');
+    expect(valuesOf('contributionsDiffer').contributions_to_date).toBe('30.00');
+    for (const key of ['tiesWithinTolerance', 'doesNotTie', 'contributionsDiffer'] as const)
+      expect(valuesOf(key).ending_capital_balance, key).toBe('20.94');
+  });
+
+  it('records a whole vehicle with our share, and no balance of ours when the share is not given (example 3)', () => {
+    expect(valuesOf('wholeVehicle')).toMatchObject({
+      contributions_to_date: '49.60',
+      beginning_capital_balance: '73.68',
+      contributions_in_period: '8.00',
+      distributions_in_period: '1.40',
+      net_gain_loss: '3.48',
+      ending_capital_balance: '83.76',
+      investor_share_pct: '0.2500',
+    });
+    expect(of('wholeVehicle').truth.fields.investor_share_pct).toEqual({
+      value: '0.2500',
+      unit: 'PCT',
+      page: 1,
+      quote: 'Our share of the vehicle 25.00%',
+    });
+    const noShare = valuesOf('wholeVehicleNoShare');
+    for (const key of [...STATEMENT_BALANCE_FIELDS, 'investor_share_pct'])
+      expect(noShare[key], key).toBeNull();
+    // The totals to date are still the statement's own.
+    expect(noShare.contributions_to_date).toBe('49.60');
+    expect(noShare.distributions_to_date).toBe('1.40');
+  });
+
+  it('records no money line of a statement in another currency, and the unit of one in thousands', () => {
+    const euro = valuesOf('euro');
+    expect(euro.period_end).toBe(small.asOf);
+    for (const key of STATEMENT_FIELDS) if (key !== 'period_end') expect(euro[key], key).toBeNull();
+    expect(unitsOf('thousands')).toEqual(['DATE', 'USD_K', null].sort());
+    expect(valuesOf('thousands').ending_capital_balance).toBe('20940.00');
+  });
+
+  it('records a fund-style statement on a position: the commitment lines and no balance', () => {
+    const fundStyle = valuesOf('fundStyle');
+    expect(fundStyle).toMatchObject({
+      total_commitment: '120.00',
+      unfunded_commitment: '33.75',
+      contributions_to_date: '86.25',
+      distributions_to_date: '14.10',
+    });
+    for (const key of STATEMENT_BALANCE_FIELDS) expect(fundStyle[key], key).toBeNull();
+    expect(of('fundStyle').truth.investmentId).toBe(inv.id);
+  });
+
+  it('names what the test asks: another company in the file name, another reference, or none', () => {
+    const lines = STATEMENT_EXAMPLES.ties.lines;
+    const renamed = positionStatementDocument({
+      ...target,
+      fileCompany: 'Northgate Holdco',
+      reference: 'INV-9999',
+      lines,
+    });
+    expect(renamed.fileName).toBe(
+      `${small.asOf} ${fund.name} - Capital account statement - Northgate Holdco.pdf`,
+    );
+    const fundNamed = positionStatementDocument({
+      ...target,
+      investment: null,
+      fileCompany: null,
+      reference: null,
+      lines,
+    });
+    expect(fundNamed.fileName).toBe(`${small.asOf} ${fund.name} - Capital account statement.pdf`);
+    expect(fundNamed.truth.investmentId).toBeNull();
+    expect(renamed.truth.contentHash).not.toBe(of('ties').truth.contentHash);
+  });
+});
+
 describe('the PDFs read back with @pb/pdf', () => {
   it('cites every value by a quote found verbatim on its page, with the page count right', () => {
     let quotes = 0;
@@ -661,10 +1174,17 @@ describe('options and helpers', () => {
       (e.byDocType[SYNTHETIC_DOC_TYPES.capitalCall] ?? 0) +
       (e.byDocType[SYNTHETIC_DOC_TYPES.distributionNotice] ?? 0);
     expect(notices(fewer.expectations)).toBeLessThan(notices(expectations));
-    expect(fewer.expectations.byDocType[SYNTHETIC_DOC_TYPES.capitalAccountStatement]).toBe(
-      expectations.byDocType[SYNTHETIC_DOC_TYPES.capitalAccountStatement],
-    );
-    // With one quarter per investment no investment has two kept quarters, so no scenario fits.
+    const fundLevel = (s: typeof set): number =>
+      s.documents.filter(
+        (d) =>
+          d.truth.docType === SYNTHETIC_DOC_TYPES.capitalAccountStatement &&
+          d.truth.investmentId === null,
+      ).length;
+    expect(fundLevel(fewer)).toBe(fundLevel(set));
+    // With one quarter per investment no investment has two kept quarters, so no scenario fits,
+    // and the positions the scenarios would have taken get statements of their own instead.
+    expect(expectations.positionStatements).toHaveLength(6);
+    expect(fewer.expectations.positionStatements).toHaveLength((3 + PLAIN_POSITION_STATEMENTS) * 2);
     expect(fewer.expectations.lateFinancials).toBeNull();
     expect(fewer.expectations.scenarioFiles.injection_doc).toEqual([]);
     expect(() => generateDocuments(small, { quartersPerInvestment: 0 })).toThrow(/at least 1/);
@@ -676,6 +1196,11 @@ describe('options and helpers', () => {
     expect(sanitizeFileName('Fund I: a/b\\c*d?e"f<g>h|i')).toBe('Fund I a b c d e f g h i');
     expect(sanitizeFileName('  two   spaces  ')).toBe('two spaces');
     expect(sanitizeFileName('trailing dots...')).toBe('trailing dots');
+    // A long run of dots that does not end the name: kept, and cut in linear time.
+    const dots = '.'.repeat(60_000);
+    const started = performance.now();
+    expect(sanitizeFileName(`a${dots}b...`)).toBe(`a${dots}b`);
+    expect(performance.now() - started).toBeLessThan(500);
     expect(sanitizeFileName('tab\tand\u0007bell')).toBe('tabandbell');
     expect(sanitizeFileName('Marram Fund III (A)')).toBe('Marram Fund III (A)');
     expect(documentFileName('2025-06-30', 'Marram Fund I', 'doc_type.capital_call', 'A/B Co')).toBe(

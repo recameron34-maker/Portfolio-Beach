@@ -5,13 +5,19 @@ import type { ExtractionRunDetail } from '@pb/contracts';
 import { failing, mockApi, ok } from '../../test/api-mock.js';
 import type { MockRoutes } from '../../test/api-mock.js';
 import { ID } from '../../test/fixtures.js';
-import { rolePrincipal, sentPosts } from '../../test/fixtures-valuations.js';
+import {
+  runOutcomePageFixture,
+  SUGGESTION_ID,
+  suggestionFixture,
+} from '../../test/fixtures-suggestions.js';
+import { rolePrincipal, sentPosts, sentRequests } from '../../test/fixtures-valuations.js';
 import { renderWithQuery } from '../../test/render.js';
 import { navigate } from '../../test/router-mock.js';
 import { ExtractionRunPage } from './ExtractionRun.js';
 import {
   acceptedCleanDetailFixture,
   approvedDetailFixture,
+  cleanValues,
   detailFixture,
   editedDetailFixture,
   failedDetailFixture,
@@ -19,18 +25,23 @@ import {
   rejectedDetailFixture,
   RUN_ID,
   runFixture,
+  STATEMENT_RUN_ID,
+  statementDetailFixture,
 } from './test-fixtures.js';
 
 const route = vi.hoisted(() => ({ id: '' }));
 
 vi.mock('@tanstack/react-router', async () => ({
-  ...(await import('../../test/router-mock.js')).routerMock(),
+  ...(await import('../../test/router-mock.js')).routerMockWithSearch(),
   useParams: () => ({ id: route.id }),
 }));
 
 const ME = '/api/v1/auth/me';
 const detailPath = (id: string): string => `/api/v1/extraction/runs/${id}`;
 const commandsPath = (id: string): string => `${detailPath(id)}/commands`;
+/** What the run page asks once a run is approved: the suggestions that run produced, in every state. */
+const outcomePath = (id: string): string =>
+  `/api/v1/valuation-suggestions?extractionRunId=${id}&limit=200&state=all`;
 /** Dialog journeys drive Fluent popovers; give them room on a loaded test runner. */
 const TIMEOUT = { timeout: 15_000 };
 
@@ -116,10 +127,19 @@ describe('extraction run review', () => {
     expect(banner).toHaveTextContent('Cost $0.0071');
     expect(within(banner).getByText('Succeeded')).toHaveClass('pb-badge-good');
     expect(within(banner).getByText('Awaiting approval')).toHaveClass('pb-badge-watch');
-    expect(screen.getByRole('link', { name: 'All extraction runs' })).toHaveAttribute(
+    // The trail names where the run sits: Documents, then Extraction.
+    const trail = screen.getByRole('navigation', { name: 'Breadcrumb' });
+    expect(within(trail).getByRole('link', { name: 'Documents' })).toHaveAttribute(
+      'href',
+      '/documents',
+    );
+    expect(within(trail).getByRole('link', { name: 'Extraction' })).toHaveAttribute(
       'href',
       '/documents/extraction',
     );
+    // The run's state and approval are words in the meta line; the header holds no command.
+    expect(within(banner).getByText('Succeeded').closest('.pb-meta-list')).not.toBeNull();
+    expect(within(banner).queryByRole('button')).not.toBeInTheDocument();
 
     expect(within(tile('Values')).getByText('15')).toBeInTheDocument();
     expect(within(tile('Clean')).getByText('12')).toBeInTheDocument();
@@ -141,19 +161,29 @@ describe('extraction run review', () => {
     const revenue = rowOf('Revenue LTM');
     expect(revenue).toHaveTextContent('required');
     expect(within(revenue).getByText('$125.40M')).toBeInTheDocument();
+    // One Source column: the page as a command, then the quote under it; the value right-aligned.
     expect(
-      within(revenue).getByRole('button', { name: 'Show Revenue LTM on page 2' }),
-    ).toHaveTextContent('Page 2');
+      within(fields())
+        .getAllByRole('columnheader')
+        .map((h) => h.textContent),
+    ).toEqual(['Field', 'Value', 'Source', 'Confidence', 'Validation', 'Decision', 'Actions']);
+    expect(within(fields()).getByRole('columnheader', { name: 'Value' })).toHaveClass('num');
+    expect(within(revenue).getByText('$125.40M').closest('td')).toHaveClass('num');
+    const source = within(revenue).getByRole('button', { name: 'Show Revenue LTM on page 2' });
+    expect(source).toHaveTextContent('Page 2');
     expect(within(revenue).getByText('LTM revenue 125.40')).toHaveClass('pb-extraction-quote');
+    expect(within(revenue).getByText('LTM revenue 125.40').closest('td')).toBe(
+      source.closest('td'),
+    );
     expect(within(revenue).getByText('100%')).toBeInTheDocument();
     expect(within(revenue).getByText('Clean')).toHaveClass('pb-badge-good');
     expect(within(revenue).getByText('-')).toBeInTheDocument();
 
     const cash = rowOf('Cash');
     expect(within(cash).getByText('Invalid')).toHaveClass('pb-badge-bad');
-    expect(within(cash).getByText('EXT-CITE-02', { selector: '.pb-badge' })).toHaveClass(
-      'pb-badge-bad',
-    );
+    // The severity is the validation word's, said once; the rule is an identifier, not a pill.
+    expect(within(cash).getByText('EXT-CITE-02').closest('.pb-rule-id')).not.toBeNull();
+    expect(within(cash).queryByText('EXT-CITE-02', { selector: '.pb-badge' })).toBeNull();
     expect(within(cash).getByText('1 finding')).toBeInTheDocument();
     expect(
       within(cash).getByText('EXT-CITE-02: Cash: the quote was not found on page 2'),
@@ -168,9 +198,7 @@ describe('extraction run review', () => {
     const headcount = rowOf('Headcount');
     expect(within(headcount).getByText('62%')).toBeInTheDocument();
     expect(within(headcount).getByText('Flagged')).toHaveClass('pb-badge-watch');
-    expect(within(headcount).getByText('EXT-CONF-01', { selector: '.pb-badge' })).toHaveClass(
-      'pb-badge-watch',
-    );
+    expect(within(headcount).getByText('EXT-CONF-01').closest('.pb-rule-id')).not.toBeNull();
     expect(within(rowOf('Sponsor ownership')).getByText('62.50%')).toBeInTheDocument();
     expect(within(rowOf('Period end')).getByText('Jun 30, 2025')).toBeInTheDocument();
 
@@ -197,6 +225,32 @@ describe('extraction run review', () => {
     );
   });
 
+  it('says once who decided when every decision shares its reviewer and time', async () => {
+    mockApi(routes(['deal_team'], { [detailPath(RUN_ID.succeeded)]: ok(readyDetailFixture()) }));
+    renderWithQuery(<ExtractionRunPage />);
+    expect(await screen.findByTestId('run-decided')).toHaveTextContent(
+      /^Every decision below was made by .+, .+\.$/,
+    );
+    // Each decision cell then holds its word alone.
+    const revenue = rowOf('Revenue LTM');
+    expect(within(revenue).getByText('Accepted')).toBeInTheDocument();
+    expect(revenue).not.toHaveTextContent('By ');
+    expect(screen.queryByTestId('run-blocked')).not.toBeInTheDocument();
+  });
+
+  it('shows a value the document does not state as missing, with why', async () => {
+    const values = cleanValues({ cash: { value: null, unit: null, page: null, quote: null } });
+    mockApi(
+      routes(['deal_team'], { [detailPath(RUN_ID.succeeded)]: ok(detailFixture({ values })) }),
+    );
+    renderWithQuery(<ExtractionRunPage />);
+    await screen.findByTestId('run-fields');
+    const cash = rowOf('Cash');
+    expect(within(cash).getByText('Not in the document')).toBeInTheDocument();
+    expect(within(cash).queryByRole('button', { name: /^Show Cash/ })).not.toBeInTheDocument();
+    expect(within(cash).getAllByText('-').length).toBeGreaterThanOrEqual(2);
+  });
+
   it('tells a viewer who reviews and offers no actions', async () => {
     mockApi(routes(['viewer']));
     renderWithQuery(<ExtractionRunPage />);
@@ -205,7 +259,7 @@ describe('extraction run review', () => {
     );
     expect(screen.queryByRole('button', { name: 'Accept clean values' })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /^Accept, / })).not.toBeInTheDocument();
-    expect(within(fields()).getAllByRole('columnheader')).toHaveLength(7);
+    expect(within(fields()).getAllByRole('columnheader')).toHaveLength(6);
   });
 
   it('accepts one value and reports it', async () => {
@@ -233,7 +287,8 @@ describe('extraction run review', () => {
     expect(sentPosts()).toEqual([
       [commandsPath(RUN_ID.succeeded), { command: 'accept', field: 'revenue_ltm' }],
     ]);
-    expect(within(rowOf('Revenue LTM')).getByText('Accepted')).toHaveClass('pb-badge-good');
+    // The message is the page's own; the row follows the run, which lands a moment later.
+    expect(await within(rowOf('Revenue LTM')).findByText('Accepted')).toHaveClass('pb-badge-good');
     expect(within(rowOf('Revenue LTM')).getByText('By Blake Mbeki')).toBeInTheDocument();
     expect(within(tile('Decided')).getByText('1')).toBeInTheDocument();
   });
@@ -245,7 +300,7 @@ describe('extraction run review', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Accept clean values' }));
     expect(await screen.findByText('12 clean values accepted (audited)')).toBeInTheDocument();
     expect(sentPosts()).toEqual([[commandsPath(RUN_ID.succeeded), { command: 'acceptClean' }]]);
-    expect(within(tile('Decided')).getByText('12')).toBeInTheDocument();
+    expect(await within(tile('Decided')).findByText('12')).toBeInTheDocument();
     expect(within(rowOf('Net debt')).getByText('-')).toBeInTheDocument();
     // The flagged values still wait, so the approval still does.
     expect(screen.getByRole('button', { name: 'Approve and promote' })).toHaveAttribute(
@@ -300,7 +355,7 @@ describe('extraction run review', () => {
         ],
       ]);
       const row = rowOf('Headcount');
-      expect(within(row).getByText('118')).toBeInTheDocument();
+      expect(await within(row).findByText('118')).toBeInTheDocument();
       expect(within(row).getByText('was 120')).toHaveClass('pb-extraction-was');
       expect(within(row).getByText('Edited')).toHaveClass('pb-badge-brand');
       // Focus returns to the button that opened the dialog.
@@ -362,7 +417,7 @@ describe('extraction run review', () => {
         { command: 'reject', field: 'cash', reason: 'Not on the page' },
       ],
     ]);
-    expect(within(rowOf('Cash')).getByText('Rejected')).toHaveClass('pb-badge-bad');
+    expect(await within(rowOf('Cash')).findByText('Rejected')).toHaveClass('pb-badge-bad');
   });
 
   it('approves once every value is decided and reports the promotion', TIMEOUT, async () => {
@@ -389,13 +444,25 @@ describe('extraction run review', () => {
     ).toBeInTheDocument();
     expect(sentPosts()).toEqual([[commandsPath(RUN_ID.succeeded), { command: 'approve' }]]);
     const banner = screen.getByTestId('run-banner');
-    expect(within(banner).getByText('Approved by Blake Mbeki')).toHaveClass('pb-badge-good');
+    // The message is the page's own; the banner follows the record, which lands a moment later.
+    expect(await within(banner).findByText('Approved by Blake Mbeki')).toHaveClass('pb-badge-good');
     const again = screen.getByRole('button', { name: 'Approve and promote' });
     expect(again).toHaveAttribute('aria-disabled', 'true');
     expect(again).toHaveAttribute('title', 'This run is approved and its figures are promoted');
+    // Nothing in the table can be decided once the run is approved: no Actions column, and why
+    // is said once over the values; the narrative offers no command either.
+    expect(await screen.findByTestId('run-blocked')).toHaveTextContent(
+      'This run is approved and its figures are promoted.',
+    );
     expect(
-      within(rowOf('Revenue LTM')).getByRole('button', { name: 'Accept, Revenue LTM' }),
-    ).toHaveAttribute('aria-disabled', 'true');
+      within(fields()).queryByRole('columnheader', { name: 'Actions' }),
+    ).not.toBeInTheDocument();
+    expect(
+      within(rowOf('Revenue LTM')).queryByRole('button', { name: 'Accept, Revenue LTM' }),
+    ).not.toBeInTheDocument();
+    expect(
+      within(screen.getByTestId('run-narrative')).queryByRole('button'),
+    ).not.toBeInTheDocument();
     expect(screen.queryByText('AI draft')).not.toBeInTheDocument();
   });
 
@@ -439,6 +506,242 @@ describe('extraction run review', () => {
       expect(sentPosts()).toEqual([[commandsPath(RUN_ID.succeeded), { command: 'approve' }]]);
     },
   );
+
+  it(
+    'says how a position-level statement will be read, shows no narrative card and approves without promoting',
+    TIMEOUT,
+    async () => {
+      const id = STATEMENT_RUN_ID;
+      mockApi(
+        routes(
+          ['operations'],
+          {
+            [detailPath(id)]: () =>
+              ok(statementDetailFixture({ stage: sentPosts().length > 0 ? 'approved' : 'ready' })),
+            [commandsPath(id)]: ok(statementDetailFixture({ stage: 'approved' })),
+          },
+          id,
+        ),
+      );
+      renderWithQuery(<ExtractionRunPage />);
+      await screen.findByTestId('run-fields');
+      // The eleven lines of the statement, the ones it does not state shown as missing.
+      expect(tile('Values')).toHaveTextContent('11');
+      expect(rowOf('Ending capital balance')).toHaveTextContent('20.94');
+      expect(rowOf('Our share of the vehicle')).toBeInTheDocument();
+      expect(screen.getByTestId('run-read-as')).toHaveTextContent(
+        'Once approved, this is read as: Our account for Meridian Data Partners, INV-0001.',
+      );
+      expect(screen.getByTestId('run-review')).toHaveTextContent(
+        'Approving a statement writes nothing to the quarterly record.',
+      );
+      expect(screen.getByTestId('run-review')).not.toHaveTextContent('promoted');
+      // No highlights and no commentary are drafted for a statement: the card is not there.
+      expect(screen.queryByTestId('run-narrative')).not.toBeInTheDocument();
+      expect(screen.queryByText('Highlights and commentary')).not.toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: 'Approve and promote' })).not.toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Accept clean values' })).toHaveAttribute(
+        'title',
+        'Every clean value is decided',
+      );
+
+      await userEvent.click(screen.getByRole('button', { name: 'Approve' }));
+      const dialog = await screen.findByRole('dialog');
+      expect(within(dialog).getByRole('heading', { name: 'Approve' })).toBeInTheDocument();
+      expect(dialog).toHaveTextContent(
+        'The accepted and edited lines are read as: Our account for Meridian Data Partners, INV-0001. Nothing is written to the quarterly record.',
+      );
+      expect(dialog).not.toHaveTextContent('quarter on record');
+      await userEvent.click(within(dialog).getByRole('button', { name: 'Approve' }));
+      await dialogClosed();
+      expect(
+        await screen.findByText(
+          'Approved: the statement for Jun 30, 2025; nothing was written to the quarterly record (audited)',
+        ),
+      ).toBeInTheDocument();
+      expect(sentPosts()).toEqual([[commandsPath(id), { command: 'approve' }]]);
+      expect(await screen.findByText('Read as:', { exact: false })).toBeInTheDocument();
+      expect(screen.getByTestId('run-read-as')).toHaveTextContent(
+        'Read as: Our account for Meridian Data Partners, INV-0001.',
+      );
+      const again = screen.getByRole('button', { name: 'Approve' });
+      expect(again).toHaveAttribute('aria-disabled', 'true');
+      expect(again).toHaveAttribute('title', 'This run is approved');
+    },
+  );
+
+  it('says what the approval of a statement did to the valuation suggestions, and what to do when it sits on the wrong position', async () => {
+    const id = STATEMENT_RUN_ID;
+    mockApi(
+      routes(
+        ['operations'],
+        {
+          [detailPath(id)]: ok(statementDetailFixture({ stage: 'approved' })),
+          [outcomePath(id)]: ok(
+            runOutcomePageFixture(
+              { outcome: 'opened', reason: null, suggestionId: SUGGESTION_ID.statement },
+              [suggestionFixture()],
+            ),
+          ),
+        },
+        id,
+      ),
+    );
+    renderWithQuery(<ExtractionRunPage />);
+    const line = await screen.findByTestId('run-suggestion');
+    expect(line).toHaveTextContent('Valuation suggestion opened.');
+    expect(within(line).getByRole('link', { name: 'Open the suggestion' })).toHaveAttribute(
+      'href',
+      `/valuations/suggestions?id=${SUGGESTION_ID.statement}`,
+    );
+    expect(screen.getByTestId('run-relink-note')).toHaveTextContent(
+      'Wrong position, or none? A classified document cannot be relinked yet. Dismiss the suggestion; a draft can still be started on the board.',
+    );
+  });
+
+  it.each([
+    [
+      'replaced',
+      { outcome: 'replaced', reason: null, suggestionId: SUGGESTION_ID.statement },
+      'Valuation suggestion replaced.',
+      true,
+    ],
+    [
+      'left unchanged',
+      { outcome: 'unchanged', reason: null, suggestionId: SUGGESTION_ID.statement },
+      'The valuation suggestion open for this quarter is unchanged.',
+      true,
+    ],
+    [
+      'not suggested for a locked quarter',
+      { outcome: 'none', reason: 'mark_locked', suggestionId: null },
+      'No mark suggested: a mark for this quarter or a later one is Locked.',
+      false,
+    ],
+  ] as const)(
+    'says a suggestion was %s when a quarterly report is approved, with no relink note',
+    async (_name, outcome, sentence, linked) => {
+      mockApi(
+        routes(['deal_team'], {
+          [detailPath(RUN_ID.succeeded)]: ok(approvedDetailFixture()),
+          [outcomePath(RUN_ID.succeeded)]: ok(runOutcomePageFixture(outcome)),
+        }),
+      );
+      renderWithQuery(<ExtractionRunPage />);
+      const line = await screen.findByTestId('run-suggestion');
+      expect(line).toHaveTextContent(sentence);
+      expect(within(line).queryAllByRole('link')).toHaveLength(linked ? 1 : 0);
+      expect(screen.queryByTestId('run-relink-note')).not.toBeInTheDocument();
+    },
+  );
+
+  it('says why no mark is suggested for a statement of our account in a fund', async () => {
+    const id = STATEMENT_RUN_ID;
+    mockApi(
+      routes(
+        ['auditor'],
+        {
+          [detailPath(id)]: ok(statementDetailFixture({ stage: 'approved', fundLevel: true })),
+          [outcomePath(id)]: ok(
+            runOutcomePageFixture({
+              outcome: 'none',
+              reason: 'fund_commitment',
+              suggestionId: null,
+            }),
+          ),
+        },
+        id,
+      ),
+    );
+    renderWithQuery(<ExtractionRunPage />);
+    expect(await screen.findByTestId('run-suggestion')).toHaveTextContent(
+      'No mark suggested: this is our account in a fund commitment, which has no valuation record yet.',
+    );
+    expect(screen.getByTestId('run-relink-note')).toBeInTheDocument();
+  });
+
+  it('asks for no suggestion before the run is approved, nor for a role that does not read them', async () => {
+    mockApi(routes(['operations']));
+    const first = renderWithQuery(<ExtractionRunPage />);
+    await screen.findByTestId('run-fields');
+    expect(sentRequests().some(([url]) => url.includes('valuation-suggestions'))).toBe(false);
+    first.unmount();
+    vi.restoreAllMocks();
+
+    for (const role of ['viewer', 'investor_relations', 'platform_admin'] as const) {
+      mockApi(
+        routes([role], {
+          [detailPath(RUN_ID.succeeded)]: ok(approvedDetailFixture()),
+          [outcomePath(RUN_ID.succeeded)]: ok(
+            runOutcomePageFixture({
+              outcome: 'opened',
+              reason: null,
+              suggestionId: SUGGESTION_ID.statement,
+            }),
+          ),
+        }),
+      );
+      const page = renderWithQuery(<ExtractionRunPage />);
+      await screen.findByTestId('run-fields');
+      expect(sentRequests().some(([url]) => url.includes('valuation-suggestions'))).toBe(false);
+      expect(screen.queryByTestId('run-suggestion')).not.toBeInTheDocument();
+      page.unmount();
+      vi.restoreAllMocks();
+    }
+  });
+
+  it('says so when what the approval did could not be read', async () => {
+    mockApi(
+      routes(['operations'], {
+        [detailPath(RUN_ID.succeeded)]: ok(approvedDetailFixture()),
+        [outcomePath(RUN_ID.succeeded)]: {
+          status: 500,
+          body: {
+            type: 'https://portfolio-beach.example/problems/internal',
+            title: 'Internal error',
+            status: 500,
+            request_id: 'test',
+          },
+        },
+      }),
+    );
+    renderWithQuery(<ExtractionRunPage />);
+    expect(await screen.findByTestId('run-suggestion-unavailable', {}, TIMEOUT)).toHaveTextContent(
+      'Whether this approval suggested a mark could not be read.',
+    );
+    expect(screen.queryByTestId('run-suggestion')).not.toBeInTheDocument();
+  });
+
+  it('reads a statement linked to no position as our account in the fund', async () => {
+    const id = STATEMENT_RUN_ID;
+    mockApi(
+      routes(
+        ['deal_team'],
+        { [detailPath(id)]: ok(statementDetailFixture({ fundLevel: true })) },
+        id,
+      ),
+    );
+    renderWithQuery(<ExtractionRunPage />);
+    await screen.findByTestId('run-fields');
+    expect(screen.getByTestId('run-read-as')).toHaveTextContent(
+      'Once approved, this is read as: Our account in Kelpwood Fund IV.',
+    );
+    expect(screen.getByTestId('run-banner')).toHaveTextContent('No linked investment');
+    expect(screen.queryByTestId('run-narrative')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Accept clean values' })).toHaveAttribute(
+      'title',
+      'Accepts 11 undecided clean values',
+    );
+  });
+
+  it('keeps the narrative card and no reading line for a quarterly report', async () => {
+    mockApi(routes());
+    renderWithQuery(<ExtractionRunPage />);
+    await screen.findByTestId('run-fields');
+    expect(screen.getByTestId('run-narrative')).toBeInTheDocument();
+    expect(screen.queryByTestId('run-read-as')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Approve and promote' })).toBeInTheDocument();
+  });
 
   it('shows a review refusal as the problem sentence', async () => {
     mockApi(
@@ -555,7 +858,11 @@ describe('extraction run review', () => {
     expect(await screen.findByTestId('error-state')).toHaveTextContent(
       'Extraction run not found or not visible to you',
     );
-    expect(screen.getByRole('link', { name: 'All extraction runs' })).toBeInTheDocument();
+    expect(
+      within(screen.getByRole('navigation', { name: 'Breadcrumb' })).getByRole('link', {
+        name: 'Extraction',
+      }),
+    ).toHaveAttribute('href', '/documents/extraction');
 
     cleanup();
     vi.restoreAllMocks();

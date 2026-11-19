@@ -78,12 +78,65 @@ describe('analytics tabs', () => {
       );
     expect(requested.some((url) => url.includes('/api/v1/investments'))).toBe(false);
 
-    await userEvent.click(screen.getByRole('combobox'));
-    await userEvent.click(await screen.findByRole('option', { name: 'Vehicle' }));
+    // The grouping is one choice of six, side by side, in the row under the tabs.
+    const groupBy = screen.getByRole('group', { name: 'Group by' });
+    expect(
+      within(groupBy)
+        .getAllByRole('button')
+        .map((b) => b.textContent),
+    ).toEqual(['Sector', 'Geography', 'Deal type', 'Vehicle', 'Sponsor', 'Vintage']);
+    expect(within(groupBy).getByRole('button', { name: 'Sector' })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    );
+    await userEvent.click(within(groupBy).getByRole('button', { name: 'Vehicle' }));
+    expect(within(groupBy).getByRole('button', { name: 'Vehicle' })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    );
     expect(await screen.findByRole('group', { name: 'NAV by vehicle' })).toBeInTheDocument();
     expect(screen.getByRole('table', { name: 'Exposure by vehicle' })).toHaveTextContent(
       'Beach CV Opportunities I',
     );
+  });
+
+  it('exposure: says what the figures are over once, under the tabs, and titles the one-chart section with its chart', async () => {
+    mockApi({ [ANALYTICS]: ok(analyticsFixture()) });
+    const { container } = renderWithQuery(<ExposureTab />);
+    await screen.findByRole('group', { name: 'NAV by sector' });
+    const context = container.querySelector('.pb-page-context');
+    expect(context).not.toBeNull();
+    expect(
+      [...context!.querySelectorAll('.pb-page-context-items > span')].map((s) => s.textContent),
+    ).toEqual(['As of Jun 30, 2025', '2 active positions', 'Locked marks only']);
+    expect(context).toContainElement(screen.getByRole('group', { name: 'Group by' }));
+    // No section repeats the tab's name, and the date is said only there.
+    expect(screen.queryByRole('heading', { name: 'Exposure' })).toBeNull();
+    expect(screen.getAllByText(/As of Jun 30, 2025/)).toHaveLength(1);
+    // The section that holds only the vehicles chart takes the chart's title as its own.
+    expect(
+      screen.getByRole('heading', { level: 2, name: 'NAV by vehicle and deal type' }),
+    ).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: 'Vehicles' })).toBeNull();
+  });
+
+  it('exposure: on a phone the grouping is a list named Group by', async () => {
+    vi.stubGlobal('matchMedia', (query: string) => ({
+      matches: query === '(max-width: 760px)',
+      addEventListener: () => undefined,
+      removeEventListener: () => undefined,
+    }));
+    try {
+      mockApi({ [ANALYTICS]: ok(analyticsFixture()) });
+      renderWithQuery(<ExposureTab />);
+      const list = await screen.findByRole('combobox', { name: 'Group by' });
+      expect(screen.queryByRole('group', { name: 'Group by' })).toBeNull();
+      await userEvent.click(list);
+      await userEvent.click(await screen.findByRole('option', { name: 'Vehicle' }));
+      expect(await screen.findByRole('group', { name: 'NAV by vehicle' })).toBeInTheDocument();
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 
   it('exposure: stacks each vehicle in the API order and notes positions without a Locked valuation', async () => {

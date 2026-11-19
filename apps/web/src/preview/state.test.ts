@@ -227,7 +227,31 @@ describe('seeding from the recordings', () => {
       setAt: '2025-07-01T00:00:00.000Z',
       rowVersion: 1,
     });
+    // A reporting package exists only in the session, so a reset leaves none.
+    state.reportPackages.set('p', {
+      id: 'p',
+      client: { id: 'c', name: 'Test Client One' },
+      periodEnd: '2025-06-30',
+      asOf: '2025-06-30',
+      basis: 'gross',
+      label: 'preliminary',
+      version: 1,
+      state: 'Draft',
+      preparedBy: { id: 'u', name: 'Test Investor Relations' },
+      reviewer: null,
+      approvedAt: null,
+      releasedAt: null,
+      rowVersion: 1,
+      correctionReason: null,
+      contentHash: null,
+      releasedBy: null,
+      content: null,
+      findings: [],
+      tieOutExplanations: {},
+      changeLog: [],
+    });
     resetPreviewState(state);
+    expect(state.reportPackages.size).toBe(0);
     expect(state.valuations).toBeNull();
     expect(state.notices).toBeNull();
     expect(state.flags.size).toBe(0);

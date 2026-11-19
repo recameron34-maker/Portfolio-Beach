@@ -1,26 +1,25 @@
 import { useState } from 'react';
-import type { ReactNode } from 'react';
+import type { CSSProperties, ReactNode } from 'react';
 import { bridgeSpans } from './bridge.js';
 import type { BridgeStep } from './bridge.js';
 import { ChartFigure } from './ChartFigure.js';
 import type { TooltipState } from './ChartFigure.js';
 import {
+  BAR,
+  barRows,
   chartLabels,
-  compactValue,
-  LABEL_GAP,
+  axisLabels,
   labelBudget,
-  labelColumn,
   labelStride,
   linearScale,
   niceTicks,
   seriesColor,
+  tickAnchor,
   valueLabelPosition,
 } from './scale.js';
 import type { ValueKind } from './scale.js';
 import { useWidth } from './useWidth.js';
 
-const ROW = 30;
-const BAR = 18;
 /** Room right of the plot for the value label at the end of the longest bar. */
 const PAD_R = 76;
 /** The plot never shrinks below this; the value labels then hold to the chart's right edge. */
@@ -31,10 +30,13 @@ const MIN_PLOT = 40;
  * per step: totals in the neutral tone, increases in the first series colour, decreases in the
  * second. Each bar carries its figure as text, so colour is never the only signal; a connector
  * joins each step to the next. Hover and focus tooltips and the table twin come from ChartFigure.
+ * Steps are 12px bars; labels follow the bar charts' layout (whole above each bar under 480px of
+ * chart width, cut to fit beside it from there).
  */
 export function BridgeChart({
   title,
   subtitle,
+  hideCaption,
   steps,
   kind,
   summary,
@@ -42,25 +44,35 @@ export function BridgeChart({
 }: {
   title: string;
   subtitle?: string | undefined;
+  /** The section's title names the chart: the title is kept for screen readers and the table. */
+  hideCaption?: boolean | undefined;
   steps: BridgeStep[];
   kind: ValueKind;
   summary: string;
   testId?: string | undefined;
 }): ReactNode {
-  const [ref, width] = useWidth();
+  const [ref, width, measured] = useWidth();
   const [tooltip, setTooltip] = useState<TooltipState | null>(null);
   const spans = bridgeSpans(steps);
   const levels = spans.flatMap((s) => [s.from, s.to]);
   const ticks = niceTicks(Math.min(0, ...levels), Math.max(0, ...levels), 4);
+  const tickText = axisLabels(ticks, kind);
   const lo = ticks[0] ?? 0;
   const hi = ticks[ticks.length - 1] ?? 1;
-  const labelW = labelColumn(width);
-  const shortLabels = chartLabels(
+  const rows = barRows(
+    width,
     steps.map((s) => s.label),
-    labelBudget(labelW),
   );
-  const plotW = Math.max(MIN_PLOT, width - labelW - PAD_R);
-  const x = linearScale(lo, hi, labelW, labelW + plotW);
+  const ROW = rows.row;
+  const labels =
+    rows.layout === 'side'
+      ? chartLabels(
+          steps.map((s) => s.label),
+          labelBudget(rows.labelWidth),
+        )
+      : steps.map((s) => s.label);
+  const plotW = Math.max(MIN_PLOT, width - rows.plotLeft - PAD_R);
+  const x = linearScale(lo, hi, rows.plotLeft, rows.plotLeft + plotW);
   const height = steps.length * ROW + 28;
   const stride = labelStride(ticks.length - 1, plotW);
   const fillOf = (step: BridgeStep): string =>
@@ -80,6 +92,7 @@ export function BridgeChart({
     <ChartFigure
       title={title}
       subtitle={subtitle}
+      hideCaption={hideCaption}
       series={[
         { name: 'Increase', color: seriesColor(1) },
         { name: 'Decrease', color: seriesColor(2) },
@@ -88,6 +101,7 @@ export function BridgeChart({
       summary={summary}
       tooltip={tooltip}
       testId={testId}
+      measured={measured}
     >
       <div ref={ref} className="pb-chart-canvas">
         <svg
@@ -112,16 +126,16 @@ export function BridgeChart({
                   x={x(t)}
                   y={steps.length * ROW + 18}
                   className="pb-chart-tick"
-                  textAnchor="middle"
+                  textAnchor={tickAnchor(x(t))}
                 >
-                  {compactValue(t, kind)}
+                  {tickText[i]}
                 </text>
               ) : null}
             </g>
           ))}
           {steps.map((step, i) => {
             const span = spans[i] ?? { from: 0, to: 0 };
-            const y = i * ROW + (ROW - BAR) / 2;
+            const y = i * ROW + rows.barTop;
             const start = Math.min(x(span.from), x(span.to));
             const end = Math.max(x(span.from), x(span.to));
             const value = valueLabelPosition(end, width);
@@ -133,6 +147,7 @@ export function BridgeChart({
                 role="img"
                 aria-label={`${step.label}: ${step.display}`}
                 className="pb-chart-mark"
+                style={{ '--i': i } as CSSProperties}
                 onPointerEnter={() => show(step, i, end)}
                 onPointerLeave={() => setTooltip(null)}
                 onFocus={() => show(step, i, end)}
@@ -140,16 +155,21 @@ export function BridgeChart({
               >
                 <rect x={0} y={i * ROW} width={width} height={ROW} className="pb-chart-hit" />
                 <text
-                  x={labelW - LABEL_GAP}
-                  y={y + BAR / 2 + 4}
+                  x={rows.labelX}
+                  y={i * ROW + rows.labelBaseline}
                   className="pb-chart-label"
-                  textAnchor="end"
+                  textAnchor={rows.labelAnchor}
                 >
-                  {shortLabels[i]}
+                  {labels[i]}
                 </text>
                 <path
                   d={`M${start} ${y}h${Math.max(1, end - start)}v${BAR}h${-Math.max(1, end - start)}Z`}
                   fill={fillOf(step)}
+                  className={
+                    step.kind === 'change' && step.value < 0
+                      ? 'pb-chart-step is-negative'
+                      : 'pb-chart-step'
+                  }
                 />
                 {next !== undefined ? (
                   <line
@@ -157,7 +177,7 @@ export function BridgeChart({
                     x2={x(span.to)}
                     y1={y + BAR}
                     y2={y + ROW}
-                    className="pb-chart-crosshair"
+                    className="pb-chart-connector"
                   />
                 ) : null}
                 <text

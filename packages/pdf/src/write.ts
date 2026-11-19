@@ -78,7 +78,12 @@ export function formatNumber(value: number, what: string): string {
   if (!Number.isFinite(value))
     throw new PdfError(`${what} is not a finite number`, 'invalid_input');
   if (Math.abs(value) > 1e9) throw new PdfError(`${what} is too large to write`, 'invalid_input');
-  const text = value.toFixed(4).replace(/\.?0+$/, '');
+  // toFixed(4) always carries a point: drop the zeros that end the fraction, then a bare point.
+  const fixed = value.toFixed(4);
+  let end = fixed.length;
+  while (fixed[end - 1] === '0') end -= 1;
+  if (fixed[end - 1] === '.') end -= 1;
+  const text = fixed.slice(0, end);
   return text === '-0' || text === '' ? '0' : text;
 }
 

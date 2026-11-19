@@ -29,6 +29,7 @@ import type {
   QuarterSource as QuarterLineage,
 } from '@pb/contracts';
 import { schema } from '@pb/db';
+import type { Tx } from '@pb/db';
 import { configInteger } from '../common/definitions.js';
 import { DEFINITIONS } from '../common/tokens.js';
 import { ProblemError } from '../common/problem.js';
@@ -250,10 +251,95 @@ function creditQuarterRow(row: CreditSource, cashCoupon: string): CreditQuarterR
   };
 }
 
+/** The scheduled repayments of a facility as its jsonb column holds them; a step that cannot be read is left out. */
+const amortizationOf = (value: unknown): { date: string; amount: string }[] =>
+  entriesOf(value, (e) => {
+    const date = isoDateOf(e.date);
+    const amount = decimalOf(e.amount);
+    return date === null || amount === null ? null : { date, amount };
+  });
+
+/** What the yield to maturity reads of a facility's terms and of its credit rows. */
+type YieldTerms = Pick<
+  CreditTermsSource,
+  'cashCoupon' | 'pikCoupon' | 'maturityDate' | 'paymentFrequency' | 'amortization'
+>;
+type YieldRow = Pick<
+  CreditSource,
+  'periodEnd' | 'isEntrySnapshot' | 'status' | 'parValue' | 'fairValue'
+>;
+
+/**
+ * A loan's yield to maturity as of a date (docs/08 section 10): the latest approved credit row
+ * (fair value and par on or before the date) priced over the contractual flows to maturity. Null
+ * past maturity or without a priced row. The one place the yield is worked out: the Credit terms
+ * of the Performance tab and the comparison with the underwritten base case both read it here.
+ */
+export function creditYieldToMaturity(
+  terms: YieldTerms,
+  rows: readonly YieldRow[],
+  asOf: string,
+): Decimal | null {
+  const latest = latestPeriod(withCalcStatus(rows), asOf);
+  const fairValue = latest?.fairValue ?? null;
+  const par = latest?.parValue ?? null;
+  const frequency = FREQUENCIES.find((f) => f === terms.paymentFrequency);
+  if (fairValue === null || par === null || frequency === undefined) return null;
+  return yieldToMaturity({
+    asOf,
+    fairValue,
+    par,
+    cashCoupon: terms.cashCoupon,
+    pikCoupon: terms.pikCoupon,
+    maturity: terms.maturityDate,
+    frequency,
+    // Steps already paid by the as-of date are reflected in the row's par; only the remaining
+    // steps are future flows. Passing a past step would repay it a second time.
+    scheduledPrincipal: amortizationOf(terms.amortization).filter((step) => step.date > asOf),
+  }).value;
+}
+
+/**
+ * The yield to maturity of a position's loan as of a date, as a decimal string, from the rows the
+ * caller's transaction may read. Null for a position with no credit terms.
+ */
+export async function loadCreditYieldToMaturity(
+  tx: Tx,
+  investmentId: string,
+  asOf: string,
+): Promise<string | null> {
+  const t = schema.creditTerms;
+  const terms = (
+    await tx
+      .select({
+        cashCoupon: t.cashCoupon,
+        pikCoupon: t.pikCoupon,
+        maturityDate: t.maturityDate,
+        paymentFrequency: t.paymentFrequency,
+        amortization: t.amortization,
+      })
+      .from(t)
+      .where(eq(t.investmentId, investmentId))
+      .limit(1)
+  )[0];
+  if (terms === undefined) return null;
+  const c = schema.creditPerformance;
+  const rows = await tx
+    .select({
+      periodEnd: c.periodEnd,
+      isEntrySnapshot: c.isEntrySnapshot,
+      status: c.status,
+      parValue: c.parValue,
+      fairValue: c.fairValue,
+    })
+    .from(c)
+    .where(eq(c.investmentId, investmentId));
+  return str(creditYieldToMaturity(terms, rows, asOf));
+}
+
 /**
  * The facility terms with the schedules read from jsonb and the two derived yields. Yield to
- * maturity prices the latest approved credit row (fair value and par on or before the as-of date)
- * over the contractual flows to maturity; it is null past maturity or without a priced row.
+ * maturity is creditYieldToMaturity above.
  */
 function creditTermsOf(
   terms: CreditTermsSource,
@@ -261,11 +347,7 @@ function creditTermsOf(
   asOf: string,
   baseRate: string | null,
 ): CreditTermsDetail {
-  const amortization = entriesOf(terms.amortization, (e) => {
-    const date = isoDateOf(e.date);
-    const amount = decimalOf(e.amount);
-    return date === null || amount === null ? null : { date, amount };
-  });
+  const amortization = amortizationOf(terms.amortization);
   const callProtection = entriesOf(terms.callProtection, (e) => {
     const until = isoDateOf(e.until);
     const premium = decimalOf(e.premium);
@@ -277,25 +359,6 @@ function creditTermsOf(
     const test = textOf(e.test);
     return name === null || level === null || test === null ? null : { name, level, test };
   });
-  const latest = latestPeriod(withCalcStatus(rows), asOf);
-  const fairValue = latest?.fairValue ?? null;
-  const par = latest?.parValue ?? null;
-  const frequency = FREQUENCIES.find((f) => f === terms.paymentFrequency);
-  let ytm: Decimal | null = null;
-  if (fairValue !== null && par !== null && frequency !== undefined) {
-    ytm = yieldToMaturity({
-      asOf,
-      fairValue,
-      par,
-      cashCoupon: terms.cashCoupon,
-      pikCoupon: terms.pikCoupon,
-      maturity: terms.maturityDate,
-      frequency,
-      // Steps already paid by the as-of date are reflected in the row's par; only the remaining
-      // steps are future flows. Passing a past step would repay it a second time.
-      scheduledPrincipal: amortization.filter((step) => step.date > asOf),
-    }).value;
-  }
   return {
     facilityType: terms.facilityType,
     seniorityRank: terms.seniorityRank,
@@ -315,7 +378,7 @@ function creditTermsOf(
     covenants,
     // Null whenever the base rate itself is unknown (docs/08 section 10); never an assumed rate.
     allInCoupon: str(allInCoupon({ baseRate, floor: terms.floor, spread: terms.spread })),
-    yieldToMaturity: str(ytm),
+    yieldToMaturity: str(creditYieldToMaturity(terms, rows, asOf)),
     pastMaturity: terms.maturityDate < asOf,
   };
 }

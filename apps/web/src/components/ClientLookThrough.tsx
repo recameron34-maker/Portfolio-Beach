@@ -1,3 +1,4 @@
+import { useId } from 'react';
 import type { ReactNode } from 'react';
 import { keepPreviousData, useQuery } from '@tanstack/react-query';
 import type { ClientSummary } from '@pb/contracts';
@@ -9,14 +10,15 @@ import {
   formatPct,
   joinList,
   labelOf,
+  MISSING,
   plural,
 } from '../lib/format.js';
 import { UnavailableState } from './UnavailableState.js';
 import {
-  Badge,
   Card,
   EmptyState,
   NumCell,
+  PageContext,
   PageSkeleton,
   SectionHeader,
   StatTile,
@@ -25,30 +27,39 @@ import {
 import { WHO_READS_EVERY_CLIENT } from '../lib/roles.js';
 import { balanceTiles } from '../lib/tiles.js';
 
-const ENTITLED = `Client data is visible to ${WHO_READS_EVERY_CLIENT}, and to the investor relations users entitled to each client (SEC-5.2, SEC-5.4).`;
+const ENTITLED = `Client data is visible to ${WHO_READS_EVERY_CLIENT}, and to the investor relations users entitled to each client.`;
+
+/**
+ * A figure of a vehicle's row. A share the client has no figure for carries the row's reason on its
+ * placeholder, under the pointer and for a screen reader, as the package positions do.
+ */
+function ShareTd({ text, why }: { text: string; why: string | undefined }): ReactNode {
+  if (text !== MISSING || why === undefined) return <NumCell>{text}</NumCell>;
+  return (
+    <td className="num is-missing" title={why}>
+      {text}
+      <span className="pb-visually-hidden"> {why}</span>
+    </td>
+  );
+}
 
 function ClientCard({ client }: { client: ClientSummary }): ReactNode {
+  const reasonId = useId();
   const t = client.totals;
   // A total is not calculable while a vehicle's share is not (no ownership yet, or no pooled figures).
   const unknown = client.vehicles
     .filter((v) => v.invested === null || v.distributions === null || v.nav === null)
     .map((v) => v.vehicleName);
+  // Said once, under the strip; each total it leaves out points to it.
   const why =
-    unknown.length === 0 ? undefined : `Not calculable: no share for ${joinList(unknown)}`;
-  const hintFor = (value: string | null): string | undefined => (value === null ? why : undefined);
+    unknown.length === 0 ? undefined : `Totals not calculable: no share for ${joinList(unknown)}.`;
+  const reasonFor = (value: string | null): string | undefined =>
+    value === null && why !== undefined ? reasonId : undefined;
+  const bases = client.reportingBases.map((b) => labelOf(b)).join(', ');
   return (
     <Card testId={`client-${client.id}`}>
       <SectionHeader
-        aside={
-          <>
-            <span>{labelOf(client.reportingCadence)} reporting</span>
-            {client.reportingBases.map((b) => (
-              <Badge key={b} plain tone="brand">
-                {labelOf(b)}
-              </Badge>
-            ))}
-          </>
-        }
+        aside={`${labelOf(client.reportingCadence)} reporting${bases === '' ? '' : ` \u00B7 ${bases}`}`}
       >
         {client.name}
       </SectionHeader>
@@ -57,24 +68,32 @@ function ClientCard({ client }: { client: ClientSummary }): ReactNode {
         <StatTile
           label="Invested share"
           value={formatMoneyM(t.invested)}
-          hint={hintFor(t.invested)}
+          describedBy={reasonFor(t.invested)}
         />
         <StatTile
           label="Distributions share"
           value={formatMoneyM(t.distributions)}
-          hint={hintFor(t.distributions)}
+          describedBy={reasonFor(t.distributions)}
         />
-        <StatTile label="NAV share" value={formatMoneyM(t.nav)} hint={hintFor(t.nav)} />
-        <StatTile label="Gross MOIC" value={formatMoic(t.grossMoic)} hint={hintFor(t.grossMoic)} />
+        <StatTile label="NAV share" value={formatMoneyM(t.nav)} describedBy={reasonFor(t.nav)} />
+        <StatTile
+          label="Gross MOIC"
+          value={formatMoic(t.grossMoic)}
+          describedBy={reasonFor(t.grossMoic)}
+        />
       </div>
+      {why === undefined ? null : (
+        <p className="pb-meta pb-client-reason" id={reasonId}>
+          {why}
+        </p>
+      )}
       <TableWrap label={`${client.name} vehicles`}>
         <table className="pb-table" aria-label={`${client.name} vehicles`}>
           <thead>
             <tr>
               <th>Vehicle</th>
-              <th>Type</th>
               <th className="num">Commitment</th>
-              <th className="num">Closing</th>
+              <th className="num">Closing no.</th>
               <th className="num">Ownership</th>
               <th className="num">Invested share</th>
               <th className="num">Distributions share</th>
@@ -84,9 +103,10 @@ function ClientCard({ client }: { client: ClientSummary }): ReactNode {
           </thead>
           <tbody>
             {client.vehicles.map((v) => {
-              const cells = [
-                formatMoneyM(v.commitment),
-                String(v.closingNumber),
+              const rowWhy = unknown.includes(v.vehicleName)
+                ? `Not calculable: no share for ${v.vehicleName}`
+                : undefined;
+              const shares = [
                 formatPct(v.ownershipPct),
                 formatMoneyM(v.invested),
                 formatMoneyM(v.distributions),
@@ -95,10 +115,14 @@ function ClientCard({ client }: { client: ClientSummary }): ReactNode {
               ];
               return (
                 <tr key={v.vehicleId}>
-                  <td>{v.vehicleName}</td>
-                  <td>{labelOf(v.vehicleType)}</td>
-                  {cells.map((c, i) => (
-                    <NumCell key={i}>{c}</NumCell>
+                  <td className="pb-col-text">
+                    {v.vehicleName}
+                    <span className="pb-cell-sub">{labelOf(v.vehicleType)}</span>
+                  </td>
+                  <NumCell>{formatMoneyM(v.commitment)}</NumCell>
+                  <NumCell>{String(v.closingNumber)}</NumCell>
+                  {shares.map((text, i) => (
+                    <ShareTd key={i} text={text} why={rowWhy} />
                   ))}
                 </tr>
               );
@@ -118,7 +142,12 @@ function ClientCard({ client }: { client: ClientSummary }): ReactNode {
  * figures (position times ownership, docs/03 section 4). Rendered by Reporting, Clients and by the
  * Analytics Clients tab; the API returns only the clients the caller is entitled to (SEC-5.2).
  */
-export function ClientLookThrough(): ReactNode {
+export function ClientLookThrough({
+  note,
+}: {
+  /** A sentence after the last client, such as how a share is worked out. */
+  note?: string | undefined;
+} = {}): ReactNode {
   const q = useQuery({ ...clientsQuery, placeholderData: keepPreviousData });
   if (q.isPending) return <PageSkeleton tiles={5} rows={3} />;
   if (q.isError) {
@@ -130,8 +159,7 @@ export function ClientLookThrough(): ReactNode {
         forbidden={{ title: 'No entitled clients', detail: ENTITLED }}
         notReady={{
           title: 'Client look-through is not available yet',
-          detail:
-            'The clients endpoint is still being built; this view follows its contract and fills in when it lands.',
+          detail: 'Client views are not available in this version.',
         }}
         errorTitle="Client look-through unavailable"
         testId="clients-unavailable"
@@ -148,13 +176,15 @@ export function ClientLookThrough(): ReactNode {
   }
   return (
     <>
-      <p className="pb-meta" data-testid="clients-asof">
-        As of {formatDate(asOf)}. {plural(items.length, 'entitled client')}; shares use approved
-        figures and cover the positions visible to you.
-      </p>
+      <PageContext
+        testId="clients-asof"
+        items={[`As of ${formatDate(asOf)}`, plural(items.length, 'entitled client')]}
+        note="Shares use approved figures and cover the positions visible to you."
+      />
       {items.map((c) => (
         <ClientCard key={c.id} client={c} />
       ))}
+      {note === undefined ? null : <p className="pb-meta pb-client-note">{note}</p>}
     </>
   );
 }

@@ -1,7 +1,7 @@
 /* Pipeline, opportunity and closing pages (docs/04 M5, M8, M22). Tokens only; shared table, tile,
-   badge and toolbar styles live in styles.css, which loads first, so a page class wins over a
-   shared class of the same specificity. Filters keep .pb-toolbar in front to outrank Fluent's own
-   classes. */
+   badge, form and toolbar styles live in styles.css, which loads first, so a page class wins over
+   a shared class of the same specificity. Filters keep .pb-toolbar in front to outrank Fluent's
+   own classes. */
 
 /* Filters sized to their content, so the toolbar holds one row on a laptop screen. */
 .pb-toolbar .pb-pipe-filter {
@@ -9,195 +9,238 @@
   width: 220px;
 }
 
-/* The board: one column per stage, scrolling sideways inside its card on narrow screens. */
+/* ---- The board: one column per live stage, Sourced to Closing ----
+   White columns divided by a rule, each headed by its stage and count over the stronger rule a
+   table header has. Like a table, the board reaches 8px past its section and its cards keep 8px
+   at their sides, so a card's text lines up with the section title; it scrolls sideways inside
+   the section when seven columns do not fit. The columns arrive left to right, once; the cards
+   have no entrance of their own. */
 .pb-pipe-board {
   display: grid;
   grid-auto-flow: column;
-  grid-auto-columns: minmax(196px, 1fr);
-  gap: 10px;
-  margin: 0 0 8px;
-  padding: 0 0 8px;
+  grid-template-columns: repeat(7, minmax(148px, 1fr));
+  margin: 0 calc(var(--pb-space-2) * -1) var(--pb-space-5);
+  padding: 0;
   overflow-x: auto;
   list-style: none;
 }
 .pb-pipe-column {
   display: flex;
   flex-direction: column;
-  gap: 8px;
   min-width: 0;
-  padding: 8px;
-  background: var(--pb-surface-2);
-  border: 1px solid var(--pb-hairline);
-  border-radius: var(--pb-radius);
+  background: var(--pb-bg);
+  animation: pb-enter var(--pb-dur-enter) var(--pb-ease) backwards;
+  animation-delay: calc(var(--i, 0) * var(--pb-stagger));
+}
+.pb-pipe-column + .pb-pipe-column {
+  border-left: 1px solid var(--pb-border);
 }
 .pb-pipe-column > h3 {
   display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  margin: 0 0 2px;
-  padding: 0 2px;
-  font-size: 11px;
-  line-height: 16px;
+  align-items: baseline;
+  gap: var(--pb-space-2);
+  margin: 0;
+  padding: 0 var(--pb-space-2) var(--pb-space-2);
+  border-bottom: 1px solid var(--pb-border-strong);
+  font-size: var(--pb-text-sm);
+  line-height: var(--pb-text-sm-lh);
   font-weight: 600;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--pb-muted);
+  color: var(--pb-text);
 }
-.pb-pipe-column > h3 > .pb-badge {
-  text-transform: none;
-  letter-spacing: 0;
+.pb-pipe-count {
+  font-weight: 500;
+  color: var(--pb-muted-strong);
+  font-variant-numeric: tabular-nums;
 }
 .pb-pipe-cards {
   display: grid;
-  gap: 8px;
+  grid-template-columns: minmax(0, 1fr);
   margin: 0;
   padding: 0;
   list-style: none;
 }
-.pb-pipe-card {
-  display: grid;
-  gap: 4px;
-  padding: 10px 12px;
-  background: var(--pb-bg);
-  border: 1px solid var(--pb-border);
-  border-radius: var(--pb-radius);
-  box-shadow: var(--pb-shadow-1);
-}
-.pb-pipe-card[data-tone='watch'] {
-  border-left: 3px solid var(--pb-watch);
-}
-.pb-pipe-card > a {
-  font-weight: 600;
-  line-height: 20px;
-}
-.pb-pipe-card > .pb-meta {
-  font-size: 12px;
-  line-height: 16px;
-}
-.pb-pipe-card-foot {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: space-between;
-  gap: 4px 8px;
-  margin-top: 2px;
-  font-size: 12px;
-  line-height: 16px;
-  color: var(--pb-muted-strong);
-  font-variant-numeric: tabular-nums lining-nums;
-}
 .pb-pipe-empty {
-  padding: 10px 4px;
-  font-size: 12px;
-  line-height: 16px;
-  color: var(--pb-muted);
+  margin: 0;
+  padding: var(--pb-space-2);
+  font-size: var(--pb-text-sm);
+  line-height: var(--pb-text-sm-lh);
+  color: var(--pb-muted-strong);
 }
 
-/* Opportunity page */
-.pb-pipe-back {
-  margin: 0 0 6px;
-}
-.pb-pipe-actions {
-  margin: 0 0 12px;
-}
-.pb-pipe-actions .pb-command-buttons {
-  gap: 6px;
-}
-
-/* The stage strip: the eight live stages of docs/18 section 4 as an ordered list that wraps. */
-.pb-pipe-stages {
+/* A card: the same rows on every card, each wrapping rather than cut short: the deal, the company,
+   the sponsor and fund, the deal type, the deal lead, then the target and the days in stage. The
+   deal's name is the link, and its ::after covers the card, so the whole card opens the deal;
+   the focus ring is drawn on that cover. Under the pointer the card takes a table row's tint. */
+.pb-pipe-card {
+  position: relative;
   display: grid;
-  grid-template-columns: repeat(8, minmax(0, 1fr));
-  gap: 6px;
-  margin: 0 0 16px;
-  padding: 0;
-  list-style: none;
-}
-.pb-pipe-stages > li {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 2px;
   min-width: 0;
-  padding: 8px 10px;
+  padding: var(--pb-space-2);
   background: var(--pb-bg);
-  border: 1px solid var(--pb-border);
-  border-radius: var(--pb-radius);
-  font-size: 12px;
-  line-height: 16px;
+  border-bottom: 1px solid var(--pb-hairline);
+  transition: background-color var(--pb-dur-fast) var(--pb-ease);
+}
+.pb-pipe-card:hover {
+  background: var(--pb-primary-tint-4);
+}
+.pb-pipe-card-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--pb-space-2);
+  min-width: 0;
+}
+.pb-pipe-card-name {
+  min-width: 0;
+  overflow-wrap: break-word;
   font-weight: 600;
   color: var(--pb-text);
+  text-decoration: none;
 }
-.pb-pipe-stages > li[aria-current='step'] {
-  border-color: var(--pb-brand-primary);
-  box-shadow: inset 0 3px 0 var(--pb-brand-accent);
+.pb-pipe-card-name::after {
+  content: '';
+  position: absolute;
+  inset: 0;
 }
-.pb-pipe-stages > li[data-status='upcoming'] {
-  font-weight: 500;
+.pb-pipe-card-name:hover {
+  text-decoration: underline;
+  text-decoration-color: currentColor;
+}
+.pb-pipe-card-name:focus-visible {
+  outline: none;
+}
+.pb-pipe-card-name:focus-visible::after {
+  outline: 2px solid var(--pb-brand-accent);
+  outline-offset: -2px;
+}
+.pb-pipe-target {
+  flex: none;
+  font-size: var(--pb-text-sm);
+  line-height: var(--pb-text-sm-lh);
+  color: var(--pb-text);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.pb-pipe-target.is-missing {
   color: var(--pb-muted-strong);
+}
+.pb-pipe-card-line {
+  min-width: 0;
+  overflow-wrap: break-word;
+  font-size: var(--pb-text-sm);
+  line-height: var(--pb-text-sm-lh);
+  color: var(--pb-muted-strong);
+}
+.pb-pipe-days {
+  flex: none;
+  white-space: nowrap;
+  font-size: var(--pb-text-sm);
+  line-height: var(--pb-text-sm-lh);
+  color: var(--pb-muted-strong);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---- The opportunity's header: the stage, its commands and the preview marker ----
+   One row on the right of the title; the buttons are the page's own commands, so they are
+   full size, and why one is blocked reads under the button it explains, from its edge. */
+.pb-pipe-head-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: flex-end;
+  gap: var(--pb-space-2) var(--pb-space-3);
+}
+.pb-pipe-head-actions > .pb-pipe-stage,
+.pb-pipe-head-actions > .pb-simulated {
+  margin: 0;
+  padding-top: 6px;
+}
+.pb-pipe-actions {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  max-width: 48ch;
+}
+.pb-pipe-actions > .pb-note {
+  margin-top: var(--pb-space-1);
+  text-align: right;
 }
 
 /* Gates: a dot and a sentence per gate (docs/06: never colour alone, the badge carries the word). */
 .pb-pipe-gates {
   display: grid;
-  gap: 8px;
+  gap: var(--pb-space-2);
   margin: 0;
   padding: 0;
   list-style: none;
 }
 .pb-pipe-gates > li {
-  display: flex;
-  align-items: flex-start;
-  gap: 10px;
-  font-size: 13px;
-  line-height: 20px;
+  display: grid;
+  grid-template-columns: 76px minmax(0, 1fr);
+  gap: var(--pb-space-3);
+  max-width: 96ch;
 }
-.pb-pipe-gates .pb-badge {
-  flex: none;
-  margin-top: 1px;
+.pb-pipe-outcome {
+  margin: 0 0 var(--pb-space-3);
 }
 
-/* Forms inside cards: the controls in a row on a laptop, each on its own line on a phone. */
+/* ---- Forms ----
+   The fields in a grid aligned at the top, so a hint under one field never pushes its neighbour;
+   a long field (title, conditions) takes two tracks; the commands close the form on a row of
+   their own, with why a command is blocked beside it. */
 .pb-pipe-form {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: end;
-  gap: 10px 14px;
-  margin: 12px 0 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 180px), 1fr));
+  align-items: start;
+  gap: var(--pb-space-3) var(--pb-space-4);
+  margin: var(--pb-space-4) 0 0;
 }
-.pb-pipe-form > .pb-field {
+.pb-pipe-form > .pb-pipe-span-2 {
+  grid-column: span 2;
+}
+.pb-pipe-form > .pb-pipe-check,
+.pb-pipe-form > .pb-pipe-submit {
+  align-self: end;
+  justify-self: start;
+}
+.pb-pipe-form-end {
+  grid-column: 1 / -1;
+}
+/* Every control fills its track: Fluent's dropdown keeps a 250px minimum of its own, which would
+   run it under the field beside it. */
+:is(.pb-pipe-form, .pb-pipe-term-form, .pb-pipe-new) :is(.fui-Dropdown, .fui-Input, .fui-Textarea) {
+  width: 100%;
   min-width: 0;
 }
-.pb-pipe-control {
-  min-width: 0;
-  width: 200px;
+.pb-pipe-gap {
+  margin-top: var(--pb-space-3);
 }
-.pb-pipe-control.is-short {
-  width: 140px;
+
+/* The new opportunity: two or three fields a row on a laptop, one on a phone. */
+.pb-form-grid.pb-pipe-new {
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 260px), 1fr));
+  margin: 0 0 var(--pb-space-4);
 }
-.pb-pipe-control.is-wide {
-  width: 300px;
-}
-.pb-pipe-form-note {
-  flex-basis: 100%;
+.pb-pipe-new-actions > .pb-note {
   margin: 0;
 }
 
-/* The new opportunity form: two columns of fields on a laptop, one on a phone. */
-.pb-pipe-new {
+/* Adding a legal term: the term type and its first field name in a 220px column, the source and
+   the values beside them, labels at the top. */
+.pb-pipe-term-form {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(min(100%, 280px), 1fr));
-  gap: 12px 16px;
-  margin: 0 0 14px;
+  grid-template-columns: 220px minmax(0, 1fr);
+  align-items: start;
+  gap: var(--pb-space-2) var(--pb-space-3);
+  margin: var(--pb-space-4) 0 0;
 }
-.pb-pipe-new-actions {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 8px 12px;
+.pb-pipe-term-form > .pb-pipe-form-end {
+  margin-top: var(--pb-space-1);
 }
 
-/* Allocations editor rows: the pickers and amounts aligned in columns; stacked on a phone. */
+/* Allocations editor rows: the pickers and amounts aligned in columns. */
 .pb-pipe-allocations td {
   vertical-align: middle;
 }
@@ -212,26 +255,26 @@
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 8px 14px;
-  margin: 12px 0 0;
+  gap: var(--pb-space-2) var(--pb-space-3);
+  margin: var(--pb-space-3) 0 0;
 }
 
 /* Allocation lines by vehicle (D1-06): the vehicle's totals are the primary row; its own line and
    its client lines sit under it, indented, and the client lines read smaller and quieter, behind a
-   disclosure that starts closed. The commitment and the received total lead in the tiles above. */
+   disclosure that starts closed. The commitment and the received total lead above them. */
 .pb-pipe-lines .pb-pipe-vehicle-row > th,
 .pb-pipe-lines .pb-pipe-vehicle-row > td {
   font-weight: 600;
 }
 .pb-pipe-lines .pb-pipe-sub-row > td:first-child,
 .pb-pipe-lines .pb-pipe-client-row > td:first-child {
-  padding-left: 26px;
+  padding-left: var(--pb-space-5);
 }
 .pb-pipe-lines .pb-pipe-client-row > td {
-  padding-top: 4px;
-  padding-bottom: 4px;
-  font-size: 12px;
-  line-height: 16px;
+  padding-top: var(--pb-space-1);
+  padding-bottom: var(--pb-space-1);
+  font-size: var(--pb-text-sm);
+  line-height: var(--pb-text-sm-lh);
   color: var(--pb-muted-strong);
 }
 /* A vehicle's rows end with a hairline even when its last row is a client line or the disclosure. */
@@ -246,14 +289,14 @@
 .pb-pipe-breakdown {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: var(--pb-space-2);
   margin: 0;
   padding: 0;
   border: 0;
   background: none;
   font: inherit;
-  font-size: 12px;
-  line-height: 16px;
+  font-size: var(--pb-text-sm);
+  line-height: var(--pb-text-sm-lh);
   color: var(--pb-brand-primary);
   cursor: pointer;
 }
@@ -265,56 +308,242 @@
   border-style: solid;
   border-width: 4px 0 4px 6px;
   border-color: transparent transparent transparent currentColor;
+  transition: transform var(--pb-dur-fast) var(--pb-ease);
 }
 .pb-pipe-breakdown[aria-expanded='true']::before {
   transform: rotate(90deg);
 }
 /* The quiet line for a reader who is not shown every line: beside the breakdown, never a banner. */
 .pb-pipe-hidden-lines {
-  margin: 10px 0 0;
-  font-size: 12px;
-  line-height: 16px;
+  margin: var(--pb-space-3) 0 0;
+  font-size: var(--pb-text-sm);
+  line-height: var(--pb-text-sm-lh);
 }
 
-/* Key and value rows in the legal term form. */
-.pb-pipe-kv-rows {
-  display: grid;
-  gap: 8px;
-  margin: 0 0 8px;
+/* ---- The closing ----
+   The tie-out as a ledger: the commitment and the received total, then the difference under the
+   stronger rule a total takes, its figure in the outcome's ink (the aside says it in words). It
+   runs the width of its section, so its figures stand over the lines' received column. */
+.pb-pipe-ledger {
+  width: 100%;
+  margin: 0 0 var(--pb-space-4);
+  border-collapse: collapse;
+  font-variant-numeric: tabular-nums;
 }
-.pb-pipe-kv-row {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-  gap: 8px;
+.pb-pipe-ledger th,
+.pb-pipe-ledger td {
+  padding: var(--pb-cell-py) 0;
+  text-align: left;
+  vertical-align: top;
+  font-weight: 400;
+}
+.pb-pipe-ledger td.num {
+  text-align: right;
+  white-space: nowrap;
+}
+.pb-pipe-ledger tbody tr + tr > * {
+  border-top: 1px solid var(--pb-hairline);
+}
+.pb-pipe-ledger tfoot > tr > * {
+  border-top: 1px solid var(--pb-border-strong);
+  font-weight: 600;
+}
+.pb-pipe-ledger td.is-good {
+  color: var(--pb-good-ink);
+}
+.pb-pipe-ledger td.is-bad {
+  color: var(--pb-bad-ink);
+}
+
+/* A legal term's fields, one a line. */
+.pb-pipe-term-lines {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+/* What stops the confirmation, a line each. */
+.pb-pipe-blockers {
+  margin: var(--pb-space-2) 0 0;
+  padding: 0;
+  list-style: none;
+}
+.pb-pipe-blockers > li {
+  margin: 0;
+}
+
+/* A row's commands in a column sized to its contents stay on one line. */
+.pb-table td.pb-col-fit > .pb-command-buttons {
+  flex-wrap: nowrap;
 }
 
 /* The lock-style monospace fields (ids) wrap anywhere so a card never scrolls sideways. */
 .pb-pipe-id {
-  font-family: ui-monospace, 'Cascadia Mono', 'Segoe UI Mono', Menlo, monospace;
-  font-size: 12px;
+  font-family: var(--pb-font-mono);
+  font-size: var(--pb-text-sm);
   overflow-wrap: anywhere;
 }
 
-@media (max-width: 1240px) {
-  .pb-pipe-stages {
-    grid-template-columns: repeat(4, minmax(0, 1fr));
-  }
+/* Once the deal is a position, the closing panel says so once at its top; the sections under the
+   sentence draw no rule of their own. */
+.pb-page-body > .pb-notice:first-child {
+  margin-top: 0;
+  margin-bottom: var(--pb-space-5);
 }
-@media (max-width: 760px) {
-  .pb-toolbar .pb-pipe-filter,
-  .pb-pipe-form > .pb-field,
-  .pb-pipe-control,
-  .pb-pipe-control.is-short,
-  .pb-pipe-control.is-wide {
-    flex: 1 1 100%;
-    width: 100%;
-  }
-  .pb-pipe-kv-row {
+.pb-page-body > .pb-notice:first-child + .pb-two-col > .pb-card {
+  border-top: 0;
+  padding-top: 0;
+}
+
+/* ---- Portfolio fit (DealFit.tsx): the radar chart beside the reading of each measure ---- */
+.pb-fit-lead {
+  margin: 0 0 var(--pb-space-3);
+  max-width: 84ch;
+}
+.pb-fit {
+  display: grid;
+  grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr);
+  gap: var(--pb-space-2) var(--pb-space-6);
+  align-items: start;
+}
+.pb-fit .pb-chart {
+  margin: 0;
+}
+.pb-fit-list {
+  display: grid;
+  gap: 2px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.pb-fit-measure {
+  padding: var(--pb-space-2) var(--pb-space-3);
+  border-left: 2px solid transparent;
+  border-radius: var(--pb-radius-sm);
+  transition:
+    background-color var(--pb-dur-fast) var(--pb-ease),
+    border-color var(--pb-dur-fast) var(--pb-ease);
+}
+.pb-fit-measure.is-active {
+  background: var(--pb-primary-tint-8);
+  border-left-color: var(--pb-brand-accent);
+}
+.pb-fit-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: var(--pb-space-3);
+}
+.pb-fit-name {
+  font-size: var(--pb-text-md);
+  font-weight: 600;
+  color: var(--pb-text);
+}
+.pb-fit-score {
+  font-weight: 600;
+  color: var(--pb-text);
+  font-variant-numeric: tabular-nums;
+}
+/* The score again as a length, so the list can be read down its edge; the number says the same. */
+.pb-fit-meter {
+  height: 4px;
+  margin: var(--pb-space-1) 0 var(--pb-space-2);
+  border-radius: var(--pb-radius-sm);
+  background: var(--pb-border);
+  overflow: hidden;
+}
+.pb-fit-meter > span {
+  display: block;
+  height: 100%;
+  border-radius: var(--pb-radius-sm);
+  background: var(--pb-chart-1);
+  transform-origin: left center;
+  /* Fills with the radar's points: 80ms in, then one stagger step per measure (its row sets
+     --pb-radar-i, the index of its axis on the radar). */
+  animation: pb-grow-x var(--pb-dur-slow) var(--pb-ease) backwards;
+  animation-delay: calc(80ms + var(--pb-radar-i, 0) * var(--pb-stagger));
+}
+.pb-fit-basis {
+  margin: 0;
+  font-size: var(--pb-text-md);
+  line-height: var(--pb-text-md-lh);
+  color: var(--pb-text);
+}
+.pb-fit-rule {
+  margin: 2px 0 0;
+  font-size: var(--pb-text-sm);
+  line-height: var(--pb-text-sm-lh);
+  color: var(--pb-muted);
+}
+/* On the active measure's tint the rule reads in the stronger muted ink. */
+.pb-fit-measure.is-active .pb-fit-rule {
+  color: var(--pb-muted-strong);
+}
+.pb-fit-chart {
+  min-width: 0;
+}
+.pb-fit-note {
+  margin: var(--pb-space-1) 0 0;
+  max-width: 60ch;
+}
+@media (max-width: 900px) {
+  .pb-fit {
     grid-template-columns: minmax(0, 1fr);
   }
 }
-@media (max-width: 560px) {
-  .pb-pipe-stages {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+
+@media (max-width: 760px) {
+  /* The board as one section a stage: its heading ("Screening 2"), then its cards or "None". */
+  .pb-pipe-board {
+    grid-auto-flow: row;
+    grid-template-columns: minmax(0, 1fr);
+    row-gap: var(--pb-space-4);
+    overflow-x: visible;
+  }
+  .pb-pipe-column + .pb-pipe-column {
+    border-left: 0;
+  }
+  /* The header's commands under the meta line, from the left. */
+  .pb-pipe-head-actions {
+    justify-content: flex-start;
+  }
+  .pb-pipe-actions {
+    align-items: flex-start;
+  }
+  .pb-pipe-actions > .pb-note {
+    text-align: left;
+  }
+  .pb-toolbar .pb-pipe-filter,
+  .pb-pipe-control,
+  .pb-pipe-control.is-short {
+    flex: 1 1 100%;
+    width: 100%;
+  }
+  .pb-pipe-form > .pb-pipe-span-2 {
+    grid-column: 1 / -1;
+  }
+  .pb-pipe-term-form {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  /* Controls a thumb can hit in the forms. */
+  :is(.pb-pipe-new, .pb-pipe-form, .pb-pipe-term-form) :is(.fui-Input, .fui-Dropdown) {
+    min-height: 40px;
+  }
+  .pb-pipe-gates > li {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 2px;
+  }
+}
+
+/* ---- Reduced motion: the animated selectors of the pipeline pages, switched off (docs/06 section 5) ---- */
+@media (prefers-reduced-motion: reduce), (update: slow) {
+  .pb-fit-meter > span,
+  .pb-pipe-column {
+    animation: none;
+  }
+  .pb-fit-measure,
+  .pb-pipe-card,
+  .pb-pipe-breakdown::before {
+    transition: none;
   }
 }

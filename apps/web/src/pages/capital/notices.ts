@@ -3,7 +3,7 @@ import { capitalNoticeMachine } from '@pb/workflows';
 import definitions from '../../../../../config/definitions.json';
 import type { BarDatum } from '../../components/charts/index.js';
 import type { Tone } from '../../components/ui.js';
-import { formatMoneyM, labelOf, MISSING, plural } from '../../lib/format.js';
+import { formatMoneyM, formatMoneyMIn, labelOf, plural } from '../../lib/format.js';
 
 /**
  * Reminder days before a due date (config/definitions.json capitalActivity). The list endpoint
@@ -33,9 +33,7 @@ export function noticeSubject(
 
 /** $M for dollars; another currency keeps its code in place of the dollar sign ("EUR 2.5M"). */
 export function noticeAmount(amount: string | null, currency: string): string {
-  const text = formatMoneyM(amount);
-  if (currency === 'USD' || text === MISSING) return text;
-  return text.replace('$', `${currency} `);
+  return formatMoneyMIn(amount, currency);
 }
 
 export interface NoticeCounts {

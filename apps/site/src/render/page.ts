@@ -19,14 +19,14 @@ import type { Markup } from './html.js';
 import { icon, isIconName } from './icons.js';
 import { lengthText, sizeText } from './media.js';
 import type { Brochure, DemoVideo, Media } from './media.js';
-import { crest, ripple, scene } from './scene.js';
+import { mark } from './mark.js';
 
 function namedIcon(name: string, size = 24): Markup {
   if (!isIconName(name)) throw new Error(`the site has no icon named ${name}`);
   return icon(name, size);
 }
 
-/** Keeps a hyphenated term on one line: in large centred type a break after its hyphen reads badly. */
+/** Keeps a hyphenated term on one line: in large type a break after its hyphen reads badly. */
 function unbroken(text: string, term: string): Markup {
   const at = text.indexOf(term);
   if (at === -1) return html`${text}`;
@@ -55,7 +55,7 @@ function demoLink(href: string, label: string, classes: string, withArrow: boole
 }
 
 function eyebrow(text: string): Markup {
-  return html`<p class="eyebrow">${text}${ripple()}</p>`;
+  return html`<p class="eyebrow">${text}</p>`;
 }
 
 /** A screenshot from the media folder at two widths. A click opens the large one. */
@@ -93,7 +93,7 @@ function screenshot(
 function header(demoHref: string | null): Markup {
   return html`<header class="site-header" data-header>
     <div class="container site-header-inner">
-      <a class="wordmark" href="#top">${SITE.name}</a>
+      <a class="wordmark" href="#top">${mark()}<span>${SITE.name}</span></a>
       <button
         class="icon-button menu-toggle"
         type="button"
@@ -122,9 +122,10 @@ function header(demoHref: string | null): Markup {
   </header>`;
 }
 
-function hero(demoHref: string | null): Markup {
+/** The opening: the name, what it is, the two actions, then the product itself in a plain frame. */
+function hero(media: Media, demoHref: string | null): Markup {
+  const shot = OVERVIEW.heroShot;
   return html`<section class="hero" id="top" aria-labelledby="hero-title">
-    ${scene()}
     <div class="container hero-inner">
       <p class="chip">
         <span class="chip-mark">${SITE.notice}</span>
@@ -137,26 +138,25 @@ function hero(demoHref: string | null): Markup {
         <a class="button button-quiet" href="#videos">${icon('play', 18)}${HERO.secondary}</a>
       </div>
       <p class="hero-note">${HERO.note}</p>
+      <figure class="lead-shot" data-reveal>
+        ${screenshot(media, shot.name, shot.alt, {
+          sizes: '(min-width: 1240px) 1180px, 94vw',
+          eager: true,
+        })}
+        <figcaption>${shot.caption}</figcaption>
+      </figure>
     </div>
   </section>`;
 }
 
-function overview(media: Media): Markup {
-  const { together, roles, flow, heroShot } = OVERVIEW;
+function overview(): Markup {
+  const { together, roles, flow } = OVERVIEW;
   return html`<section
     class="band band-plain overview"
     id="overview"
     aria-labelledby="overview-title"
   >
     <div class="container">
-      <figure class="lead-shot" data-reveal>
-        ${screenshot(media, heroShot.name, heroShot.alt, {
-          sizes: '(min-width: 1240px) 1100px, 94vw',
-          eager: true,
-        })}
-        <figcaption>${heroShot.caption}</figcaption>
-      </figure>
-
       <div class="section-head" data-reveal>
         ${eyebrow(OVERVIEW.eyebrow)}
         <h2 id="overview-title">${OVERVIEW.title}</h2>
@@ -259,8 +259,7 @@ const inProgress = (status: RoadmapStatus): boolean => status === 'In progress';
 function tour(media: Media): Markup {
   const { roadmap } = TOUR;
   const features: readonly Feature[] = TOUR.features;
-  return html`<section class="band band-sand tour" id="tour" aria-labelledby="tour-title">
-    ${crest()}
+  return html`<section class="band band-surface tour" id="tour" aria-labelledby="tour-title">
     <div class="container">
       <div class="section-head" data-reveal>
         ${eyebrow(TOUR.eyebrow)}
@@ -310,7 +309,6 @@ function controls(): Markup {
     id="controls"
     aria-labelledby="controls-title"
   >
-    ${crest()}
     <div class="container">
       <div class="section-head" data-reveal>
         ${eyebrow(CONTROLS.eyebrow)}
@@ -360,7 +358,10 @@ function video(item: DemoVideo, wide: boolean, mirrored: boolean): Markup {
     <div class="video-text">
       <h3>${item.title}</h3>
       <p>${item.summary}</p>
-      <p class="meta">${lengthText(item.seconds)} · ${sizeText(item.bytes)} · no sound</p>
+      <p class="meta">
+        ${lengthText(item.seconds)} · ${sizeText(item.bytes)} ·
+        ${item.narrated === true ? VIDEOS.narratedMeta : VIDEOS.silentMeta}
+      </p>
       <p class="video-unsupported" data-video-unsupported hidden>${VIDEOS.unsupported}</p>
       <details class="steps">
         <summary>${VIDEOS.stepsLabel}</summary>
@@ -372,14 +373,24 @@ function video(item: DemoVideo, wide: boolean, mirrored: boolean): Markup {
   </article>`;
 }
 
+/**
+ * What the lead says about sound: that a voice reads the captions when every recording has a
+ * voice track, that there is none when no recording has one, and nothing when they differ (each
+ * recording says which it is beside its length).
+ */
+function soundNote(items: readonly DemoVideo[]): string {
+  if (items.length > 0 && items.every((item) => item.narrated === true)) return VIDEOS.narrated;
+  if (items.every((item) => item.narrated !== true)) return VIDEOS.silent;
+  return '';
+}
+
 function videos(media: Media): Markup {
   return html`<section class="band band-plain videos" id="videos" aria-labelledby="videos-title">
-    ${crest()}
     <div class="container">
       <div class="section-head" data-reveal>
         ${eyebrow(VIDEOS.eyebrow)}
         <h2 id="videos-title">${VIDEOS.title}</h2>
-        <p class="lead">${VIDEOS.lead}</p>
+        <p class="lead">${VIDEOS.lead} ${soundNote(media.videos)}</p>
       </div>
       <div class="video-grid">
         ${media.videos.map((item, i) => {
@@ -424,11 +435,10 @@ function brochure(item: Brochure): Markup {
 
 function brochures(media: Media): Markup {
   return html`<section
-    class="band band-sand brochures"
+    class="band band-surface brochures"
     id="brochures"
     aria-labelledby="brochures-title"
   >
-    ${crest()}
     <div class="container">
       <div class="section-head" data-reveal>
         ${eyebrow(BROCHURES.eyebrow)}
@@ -441,8 +451,7 @@ function brochures(media: Media): Markup {
 }
 
 function demo(demoHref: string | null): Markup {
-  return html`<section class="band band-shore demo" id="demo" aria-labelledby="demo-title">
-    ${crest()}
+  return html`<section class="band band-plain demo" id="demo" aria-labelledby="demo-title">
     <div class="container demo-inner" data-reveal>
       <div class="demo-text">
         ${eyebrow(DEMO.eyebrow)}
@@ -466,9 +475,8 @@ function demo(demoHref: string | null): Markup {
 
 function footer(): Markup {
   return html`<footer class="site-footer">
-    ${crest()}
     <div class="container site-footer-inner">
-      <p class="wordmark wordmark-footer">${SITE.name}</p>
+      <p class="wordmark wordmark-footer">${mark()}<span>${SITE.name}</span></p>
       <p class="footer-notice">${SITE.footer}</p>
     </div>
   </footer>`;
@@ -491,7 +499,7 @@ export function renderPage(media: Media, options: PageOptions = {}): string {
   return html`<a class="skip-link" href="#main">Skip to the content</a>
     ${header(demoHref)}
     <main id="main">
-      ${hero(demoHref)} ${overview(media)} ${tour(media)} ${controls()} ${videos(media)}
+      ${hero(media, demoHref)} ${overview()} ${tour(media)} ${controls()} ${videos(media)}
       ${brochures(media)} ${demo(demoHref)}
     </main>
     ${footer()} ${lightbox()}`.value;

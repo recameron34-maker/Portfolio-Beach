@@ -377,6 +377,7 @@ export class WiresService {
       .select({ enc: wire.bankDetailsEnc })
       .from(wire)
       .where(eq(wire.id, id));
+    // eslint-disable-next-line security/detect-possible-timing-attacks -- a missing row, not a comparison of secrets
     if (secret === undefined) return null;
     const bankDetails = decryptBankDetails(this.cipher, secret.enc);
     await audit({ action: 'wire_instruction.read', entity: ENTITY, entityId: id });

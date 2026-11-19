@@ -2,6 +2,7 @@ import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest
 import { cleanup, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { valuationLockText } from '@pb/contracts';
+import { suggestionDraftKeys } from '@pb/workflows';
 import { failing, mockApi, ok } from '../../test/api-mock.js';
 import type { MockRoutes } from '../../test/api-mock.js';
 import {
@@ -16,6 +17,12 @@ import {
   valuationMethodTaxonomyFixture,
   valuationRowFixture,
 } from '../../test/fixtures-valuations.js';
+import {
+  SOURCE,
+  SUGGESTION_ID,
+  suggestionFixture,
+  suggestionPageFixture,
+} from '../../test/fixtures-suggestions.js';
 import { renderWithQuery } from '../../test/render.js';
 import { clearTaxonomyLabels, registerTaxonomyLabels } from '../../lib/format.js';
 import { ValuationDetailPage } from './ValuationDetail.js';
@@ -23,7 +30,7 @@ import { ValuationDetailPage } from './ValuationDetail.js';
 const params = vi.hoisted(() => ({ id: '00000000-0000-4000-8000-000000000104' }));
 
 vi.mock('@tanstack/react-router', async () => ({
-  ...(await import('../../test/router-mock.js')).routerMock(),
+  ...(await import('../../test/router-mock.js')).routerMockWithSearch(),
   useParams: () => ({ id: params.id }),
 }));
 
@@ -42,6 +49,20 @@ const TAXONOMY = '/api/v1/taxonomy';
 const detailPath = (id: string): string => `/api/v1/valuations/${id}`;
 const commandsPath = (id: string): string => `/api/v1/valuations/${id}/commands`;
 const NEW_DRAFT_ID = '00000000-0000-4000-8000-000000000199';
+/** What the version screen asks while a version is being worked on: the open suggestions of its position and quarter. */
+const OPEN_FOR_QUARTER = `/api/v1/valuation-suggestions?investmentId=${POSITION_ID.meridian}&limit=200&periodEnd=2025-06-30`;
+/** The keys a suggestion writes on the draft opened from it (suggestionDraftKeys of @pb/workflows). */
+const SUGGESTED_INPUTS: Record<string, string> = suggestionDraftKeys({
+  id: SUGGESTION_ID.statement,
+  basis: 'capital_account_balance',
+  value: '20940000.00',
+  periodEnd: '2025-06-30',
+  documentId: SOURCE.statementDocument,
+  page: 1,
+  runId: SOURCE.statementRun,
+  inputs: suggestionFixture().workings.inputs,
+  crossChecks: [],
+});
 /** Dialog journeys drive Fluent popovers; give them room on a loaded test runner. */
 const TIMEOUT = { timeout: 15_000 };
 
@@ -138,16 +159,29 @@ describe('valuation version screen', () => {
       `/portfolio/${POSITION_ID.meridian}`,
     );
     expect(within(banner).getByText('Locked')).toHaveClass('pb-badge-good');
-    expect(screen.getByRole('link', { name: 'Valuation board' })).toHaveAttribute(
+    // The trail replaces the back link; the state sits on the title's line, outside the heading.
+    const trail = within(banner).getByRole('navigation', { name: 'Breadcrumb' });
+    expect(within(trail).getByRole('link', { name: 'Valuations' })).toHaveAttribute(
       'href',
       '/valuations',
     );
+    expect(within(trail).getByRole('link', { name: 'Board' })).toHaveAttribute(
+      'href',
+      '/valuations',
+    );
+    expect(screen.queryByRole('link', { name: 'Valuation board' })).not.toBeInTheDocument();
+    expect(within(banner).getByRole('heading', { level: 1 })).not.toHaveTextContent('Locked');
+    // The commands sit in a flat block under the header, with no heading of their own.
+    const block = screen.getByTestId('valuation-workflow');
+    expect(within(block).queryByRole('heading')).not.toBeInTheDocument();
 
     const steps = within(screen.getByRole('list', { name: 'Valuation progress' })).getAllByRole(
       'listitem',
     );
+    // The shared step strip: each step done says so, the current one too.
     expect(steps).toHaveLength(4);
-    expect(steps[0]).toHaveTextContent('DraftDone');
+    expect(steps[0]).toHaveAttribute('data-status', 'done');
+    expect(steps[0]).toHaveTextContent(/^Draft.*Done$/);
     expect(steps[3]).toHaveAttribute('aria-current', 'step');
     expect(steps[3]).toHaveTextContent('LockedCurrent');
 
@@ -280,10 +314,7 @@ describe('valuation version screen', () => {
       ),
       [commandsPath(VAL_ID.prepared)]: {
         status: 422,
-        body: refusalFixture(
-          422,
-          'valuation: the preparer cannot approve their own valuation (SEC-5.6)',
-        ),
+        body: refusalFixture(422, 'valuation: the preparer cannot approve their own valuation'),
       },
     });
     renderWithQuery(<ValuationDetailPage />);
@@ -299,7 +330,7 @@ describe('valuation version screen', () => {
     await userEvent.click(approve);
     expect(
       await within(screen.getByRole('status')).findByText(
-        'Deal team approve for Meridian Data Partners, Jun 30, 2025 v1: Blocked by a rule. The preparer cannot approve their own valuation (SEC-5.6)',
+        'Deal team approve for Meridian Data Partners, Jun 30, 2025 v1: Blocked by a rule. The preparer cannot approve their own valuation',
       ),
     ).toHaveClass('pb-notice-bad');
     expect(sentPosts()).toEqual([[commandsPath(VAL_ID.prepared), { command: 'dealTeamApprove' }]]);
@@ -340,9 +371,10 @@ describe('valuation version screen', () => {
     renderWithQuery(<ValuationDetailPage />);
     const card = await screen.findByTestId('valuation-inputs');
     expect(card).toHaveTextContent('3 inputs');
-    const rows = within(within(card).getByRole('table', { name: 'Method inputs' }))
-      .getAllByRole('row')
-      .slice(1);
+    // Key and value pairs, one a row, with no header row.
+    const rows = within(within(card).getByRole('table', { name: 'Method inputs' })).getAllByRole(
+      'row',
+    );
     expect(rows.map((r) => r.textContent)).toEqual([
       'basisLTM EBITDA',
       'comps{"count":6,"set":"peers"}',
@@ -651,13 +683,218 @@ describe('valuation version screen', () => {
     },
   );
 
+  it('says a draft was started from a suggestion, with its source, and flags a newer one open for the quarter', async () => {
+    const newer = suggestionFixture({
+      id: SUGGESTION_ID.replacement,
+      investmentId: POSITION_ID.meridian,
+    });
+    mockApi(
+      draftRoutes(['operations'], {
+        [detailPath(VAL_ID.draft)]: ok(draftDetail({ inputs: SUGGESTED_INPUTS })),
+        [OPEN_FOR_QUARTER]: ok(suggestionPageFixture([newer])),
+      }),
+    );
+    renderWithQuery(<ValuationDetailPage />);
+    const from = await screen.findByTestId('valuation-from-suggestion');
+    expect(from).toHaveTextContent('Started from a suggestion of $20.9M. Source document, page 1.');
+    expect(within(from).getByRole('link', { name: 'Source document' })).toHaveAttribute(
+      'href',
+      `/documents/${SOURCE.statementDocument}`,
+    );
+    expect(within(from).getByRole('link', { name: 'Open the suggestion' })).toHaveAttribute(
+      'href',
+      `/valuations/suggestions?id=${SUGGESTION_ID.statement}`,
+    );
+    const note = await screen.findByTestId('valuation-newer-suggestion');
+    expect(note).toHaveTextContent('A newer suggestion is open for this quarter.');
+    expect(within(note).getByRole('link', { name: 'Open it' })).toHaveAttribute(
+      'href',
+      `/valuations/suggestions?id=${SUGGESTION_ID.replacement}`,
+    );
+    // What the suggestion wrote is among the inputs the lock will cover, said in words: no stored
+    // key name and no identifier is drawn.
+    const inputs = screen.getByTestId('valuation-inputs');
+    const kept = within(inputs).getByRole('table', { name: 'From the suggestion' });
+    expect(within(kept).getByRole('row', { name: /Suggested from/ })).toHaveTextContent(
+      'Capital account statement',
+    );
+    expect(within(kept).getByRole('row', { name: /Suggested mark/ })).toHaveTextContent(
+      '$20,940,000.00',
+    );
+    expect(within(kept).getByRole('row', { name: /Ending capital balance/ })).toHaveTextContent(
+      '$20,940,000.00',
+    );
+    expect(inputs).not.toHaveTextContent('suggestion.');
+    expect(inputs).not.toHaveTextContent(SOURCE.statementDocument);
+    expect(inputs).not.toHaveTextContent(SOURCE.statementRun);
+    expect(inputs).not.toHaveTextContent(SUGGESTION_ID.statement);
+    // The lock text keeps every key as stored.
+    expect(SUGGESTED_INPUTS['suggestion.documentId']).toBe(SOURCE.statementDocument);
+  });
+
+  it('says a document raised the suggestion when no figure was read from a page of it', async () => {
+    const { 'suggestion.page': _page, ...withoutPage } = SUGGESTED_INPUTS;
+    mockApi(
+      draftRoutes(['operations'], {
+        [detailPath(VAL_ID.draft)]: ok(draftDetail({ inputs: withoutPage })),
+        [OPEN_FOR_QUARTER]: ok(suggestionPageFixture([])),
+      }),
+    );
+    renderWithQuery(<ValuationDetailPage />);
+    const from = await screen.findByTestId('valuation-from-suggestion');
+    expect(from).toHaveTextContent(
+      'Started from a suggestion of $20.9M. Raised when this document was approved.',
+    );
+    expect(from).not.toHaveTextContent('Source document');
+    expect(within(from).getByRole('link', { name: 'this document' })).toHaveAttribute(
+      'href',
+      `/documents/${SOURCE.statementDocument}`,
+    );
+  });
+
+  it('shows no newer suggestion when the one open is the one the draft started from, and none at all for a draft made by hand with nothing open', async () => {
+    mockApi(
+      draftRoutes(['approver'], {
+        [detailPath(VAL_ID.draft)]: ok(draftDetail({ inputs: SUGGESTED_INPUTS })),
+        [OPEN_FOR_QUARTER]: ok(
+          suggestionPageFixture([suggestionFixture({ investmentId: POSITION_ID.meridian })]),
+        ),
+      }),
+    );
+    const first = renderWithQuery(<ValuationDetailPage />);
+    await screen.findByTestId('valuation-from-suggestion');
+    await waitFor(() => expect(sentRequests().map(([url]) => url)).toContain(OPEN_FOR_QUARTER));
+    expect(screen.queryByTestId('valuation-newer-suggestion')).not.toBeInTheDocument();
+    first.unmount();
+    vi.restoreAllMocks();
+
+    mockApi(draftRoutes(['operations'], { [OPEN_FOR_QUARTER]: ok(suggestionPageFixture([])) }));
+    renderWithQuery(<ValuationDetailPage />);
+    await screen.findByTestId('valuation-inputs');
+    await waitFor(() => expect(sentRequests().map(([url]) => url)).toContain(OPEN_FOR_QUARTER));
+    expect(screen.queryByTestId('valuation-from-suggestion')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('valuation-newer-suggestion')).not.toBeInTheDocument();
+  });
+
+  it('tells a draft made by hand that a suggestion is open for its quarter', async () => {
+    mockApi(
+      draftRoutes(['deal_team'], {
+        [OPEN_FOR_QUARTER]: ok(
+          suggestionPageFixture([suggestionFixture({ investmentId: POSITION_ID.meridian })]),
+        ),
+      }),
+    );
+    renderWithQuery(<ValuationDetailPage />);
+    const note = await screen.findByTestId('valuation-newer-suggestion');
+    expect(note).toHaveTextContent('A suggestion is open for this quarter.');
+    expect(screen.queryByTestId('valuation-from-suggestion')).not.toBeInTheDocument();
+  });
+
+  it('asks for no suggestion on a Locked version, nor for a role that does not read them, and still says where the value came from', async () => {
+    mockApi(
+      routes(['operations'], {
+        [detailPath(VAL_ID.locked)]: ok(valuationDetailFixture({ inputs: SUGGESTED_INPUTS })),
+      }),
+    );
+    const first = renderWithQuery(<ValuationDetailPage />);
+    await screen.findByTestId('valuation-from-suggestion');
+    expect(sentRequests().some(([url]) => url.includes('valuation-suggestions'))).toBe(false);
+    first.unmount();
+    vi.restoreAllMocks();
+
+    mockApi(
+      draftRoutes(['viewer'], {
+        [detailPath(VAL_ID.draft)]: ok(draftDetail({ inputs: SUGGESTED_INPUTS })),
+        [OPEN_FOR_QUARTER]: ok(suggestionPageFixture()),
+      }),
+    );
+    renderWithQuery(<ValuationDetailPage />);
+    const from = await screen.findByTestId('valuation-from-suggestion');
+    expect(from).toHaveTextContent('Started from a suggestion of $20.9M. Source document, page 1.');
+    // A viewer reads the valuation and its inputs, never the suggestion itself.
+    expect(
+      within(from).queryByRole('link', { name: 'Open the suggestion' }),
+    ).not.toBeInTheDocument();
+    expect(sentRequests().some(([url]) => url.includes('valuation-suggestions'))).toBe(false);
+  });
+
+  it(
+    'keeps what the suggestion wrote out of the edit: shown read only, sent back as stored, and refused as a new name',
+    TIMEOUT,
+    async () => {
+      const inputs = { ...SUGGESTED_INPUTS, note: 'per statement' };
+      mockApi(
+        draftRoutes(['operations'], { [detailPath(VAL_ID.draft)]: ok(draftDetail({ inputs })) }),
+      );
+      renderWithQuery(<ValuationDetailPage />);
+      await userEvent.click(await screen.findByRole('button', { name: 'Edit draft' }));
+      const dialog = await screen.findByRole('dialog');
+      // Only the input a person wrote is a row of the form.
+      expect(within(dialog).getByRole('textbox', { name: 'Input 1 name' })).toHaveValue('note');
+      expect(
+        within(dialog).queryByRole('textbox', { name: 'Input 2 name' }),
+      ).not.toBeInTheDocument();
+      const kept = within(dialog).getByRole('list', { name: 'Inputs kept from the suggestion' });
+      expect(within(kept).getAllByRole('listitem')).toHaveLength(
+        Object.keys(SUGGESTED_INPUTS).length,
+      );
+      expect(within(kept).getByText('suggestion.value')).toBeInTheDocument();
+      expect(within(dialog).getByTestId('valuation-suggestion-keys')).toHaveTextContent(
+        'Written by the suggestion this draft took its value from. They stay as they are, and the lock covers them.',
+      );
+      const save = within(dialog).getByRole('button', { name: 'Save changes' });
+      expect(save).toBeDisabled();
+
+      // A name of the suggestion's own cannot be typed in.
+      await userEvent.click(within(dialog).getByRole('button', { name: 'Add input' }));
+      await userEvent.type(
+        within(dialog).getByRole('textbox', { name: 'Input 2 name' }),
+        'suggestion.value',
+      );
+      await userEvent.type(within(dialog).getByRole('textbox', { name: 'Input 2 value' }), '1');
+      expect(
+        within(dialog).getByText(
+          'Input names that start with "suggestion." are written by a suggestion and cannot be added here.',
+        ),
+      ).toBeInTheDocument();
+      expect(save).toBeDisabled();
+      await userEvent.click(within(dialog).getByRole('button', { name: 'Remove input 2' }));
+
+      // A change to the person's own input goes with the suggestion's keys exactly as stored.
+      const note = within(dialog).getByRole('textbox', { name: 'Input 1 value' });
+      await userEvent.clear(note);
+      await userEvent.type(note, 'per the June statement');
+      vi.mocked(globalThis.fetch).mockClear();
+      mockApi(
+        draftRoutes(['operations'], {
+          [detailPath(VAL_ID.draft)]: ok(
+            draftDetail({ inputs: { ...inputs, note: 'per the June statement' }, rowVersion: 5 }),
+          ),
+        }),
+      );
+      await userEvent.click(save);
+      await dialogClosed();
+      expect(sentEdits()).toEqual([
+        [
+          detailPath(VAL_ID.draft),
+          { inputs: { ...SUGGESTED_INPUTS, note: 'per the June statement' } },
+          '"4"',
+        ],
+      ]);
+    },
+  );
+
   it.each([404, 403] as const)('says not found or not visible on a %s', async (status) => {
     mockApi(routes(['operations'], { [detailPath(VAL_ID.locked)]: failing(status, 'x') }));
     renderWithQuery(<ValuationDetailPage />);
     expect(
       await screen.findByText('Valuation not found or not visible to you'),
     ).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: 'Valuation board' })).toBeInTheDocument();
+    expect(
+      within(screen.getByRole('navigation', { name: 'Breadcrumb' })).getByRole('link', {
+        name: 'Board',
+      }),
+    ).toHaveAttribute('href', '/valuations');
   });
 
   it('degrades to a not-available state on a 501', async () => {

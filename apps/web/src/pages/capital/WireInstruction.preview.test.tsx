@@ -73,7 +73,7 @@ describe('wire instruction page (preview): the bundle carries masked details onl
       ]);
       expect(within(card).getByTestId('wire-details-note')).toHaveTextContent(PREVIEW_DETAILS_NOTE);
       expect(PREVIEW_DETAILS_NOTE).toBe(
-        'Full bank details are not part of this preview: it carries the bank name and the last four digits of the account number only. In the product, operations and approvers read the full details here and each read is recorded in the audit trail (SEC-11.1).',
+        'Full bank details are not part of this preview: it carries the bank name and the last four digits of the account number only. In the product, operations and approvers read the full details here and each read is recorded in the audit trail.',
       );
       // Nothing clear, and no table that claims to be.
       expect(
@@ -93,7 +93,7 @@ describe('wire instruction page (preview): the bundle carries masked details onl
     const card = await screen.findByTestId('wire-instruction');
     expect(within(card).queryByTestId('wire-details-reveal')).not.toBeInTheDocument();
     expect(within(card).getByTestId('wire-details-note')).toHaveTextContent(
-      'Bank details in clear are shown to operations and approvers only (SEC-12.2); every other role sees the masked form.',
+      'Bank details in clear are shown to operations and approvers only; every other role sees the masked form.',
     );
   });
 

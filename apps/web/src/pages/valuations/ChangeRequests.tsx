@@ -28,7 +28,7 @@ import { containingQuarterEnd } from '@pb/calc';
 import { dealChangeRequestMachine } from '@pb/workflows';
 import { previewMode } from '../../app/env.js';
 import { describeActionError } from '../../app/mutations.js';
-import { VALUATION_TABS } from '../../app/nav.js';
+import { ValuationTabs } from './ValuationTabs.js';
 import { dataHealthQuery, LIST_LIMIT, meQuery, mockUsersQuery } from '../../app/queries.js';
 import { UnavailableState } from '../../components/UnavailableState.js';
 import {
@@ -42,7 +42,6 @@ import {
   SectionHeader,
   SimulatedBadge,
   TableWrap,
-  TabNav,
   Toolbar,
 } from '../../components/ui.js';
 import {
@@ -80,11 +79,11 @@ import {
 } from './changes.js';
 import type { NamedOption } from './changes.js';
 import './valuations.css';
+import { dialogSurfaceMotion, useJustChanged, useReducedMotion } from '../../components/motion.js';
 
 type RequestOption = CommandOption<ChangeRequestState, ChangeRequestCommand>;
 
-const META =
-  'Changes to a position, routed to operations and applied in a quarter (docs/18 section 8)';
+const META = 'Changes to a position, routed to operations and applied in a quarter';
 
 /** What a role the queue refuses is told (the API answers 403). */
 const FORBIDDEN = {
@@ -121,14 +120,16 @@ function PeriodDialog({
   onSubmit: (periodEnd: string) => void;
 }): ReactNode {
   const [period, setPeriod] = useState(periods[0] ?? '');
+  const motion = dialogSurfaceMotion(useReducedMotion());
   return (
     <Dialog
+      surfaceMotion={motion}
       open
       onOpenChange={(_e, d) => {
         if (!d.open) onCancel();
       }}
     >
-      <DialogSurface>
+      <DialogSurface className="pb-dialog" backdrop={{ className: 'pb-dialog-backdrop' }}>
         <form
           onSubmit={(e) => {
             e.preventDefault();
@@ -198,14 +199,16 @@ function RouteDialog({
 }): ReactNode {
   const [ownerId, setOwnerId] = useState('');
   const owner = owners.find((o) => o.id === ownerId);
+  const motion = dialogSurfaceMotion(useReducedMotion());
   return (
     <Dialog
+      surfaceMotion={motion}
       open
       onOpenChange={(_e, d) => {
         if (!d.open) onCancel();
       }}
     >
-      <DialogSurface>
+      <DialogSurface className="pb-dialog" backdrop={{ className: 'pb-dialog-backdrop' }}>
         <form
           onSubmit={(e) => {
             e.preventDefault();
@@ -267,11 +270,14 @@ function QueueTable({
   roles,
   busy,
   onIssue,
+  rowProps,
 }: {
   rows: readonly ChangeRequestRow[];
   roles: readonly string[];
   busy: boolean;
   onIssue: (row: ChangeRequestRow, option: RequestOption) => void;
+  /** The wash on the row the reader's own command changed. */
+  rowProps: ReturnType<typeof useJustChanged>['rowProps'];
 }): ReactNode {
   return (
     <TableWrap label="Change requests">
@@ -288,12 +294,17 @@ function QueueTable({
             <th>Owner</th>
             <th>Submitted</th>
             <th>State</th>
-            <th>Actions</th>
+            <th className="pb-val-actions-col">
+              <span className="pb-val-actions-head">
+                Actions
+                <SimulatedBadge />
+              </span>
+            </th>
           </tr>
         </thead>
         <tbody>
           {rows.map((r) => (
-            <tr key={r.id}>
+            <tr key={r.id} {...rowProps(r.id)}>
               <td className="pb-val-position">
                 <Link to="/portfolio/$id" params={{ id: r.investmentId }}>
                   {r.investmentName}
@@ -306,7 +317,7 @@ function QueueTable({
                 </span>
               </td>
               <td>{r.summary}</td>
-              <td>{r.owner?.name ?? MISSING}</td>
+              <td className="pb-nowrap">{r.owner?.name ?? MISSING}</td>
               <td className="pb-val-period">
                 <span>{r.submittedBy.name}</span>
                 <span className="pb-cell-sub">
@@ -326,7 +337,7 @@ function QueueTable({
                   </span>
                 )}
               </td>
-              <td data-testid="change-request-actions">
+              <td className="pb-val-actions-col" data-testid="change-request-actions">
                 <CommandButtons
                   options={commandOptions(dealChangeRequestMachine, r.state, roles)}
                   busy={busy}
@@ -397,26 +408,13 @@ function QuarterEndCard({
   };
   return (
     <Card testId="quarter-end-check">
-      <SectionHeader aside={previewMode ? <SimulatedBadge /> : undefined}>
-        Quarter-end check
-      </SectionHeader>
+      <SectionHeader>Quarter-end check</SectionHeader>
       <p className="pb-meta">
         Lists every request not applied by the quarter end and opens a data exception for each one
-        still missing from the exceptions list (docs/04 M11). Running it again opens nothing more.
+        still missing from the exceptions list. Running it again opens nothing more.
       </p>
-      <Toolbar
-        end={
-          <Button
-            size="small"
-            appearance="primary"
-            disabled={blocked !== null || check.isPending || period === ''}
-            {...(blocked === null ? {} : { title: blocked })}
-            onClick={run}
-          >
-            Run quarter-end check
-          </Button>
-        }
-      >
+      {/* The command follows the one field it acts on, so the two read as one row. */}
+      <Toolbar>
         <Field>
           <Label htmlFor="quarter-end-period">Quarter end</Label>
           <Dropdown
@@ -433,6 +431,18 @@ function QuarterEndCard({
             ))}
           </Dropdown>
         </Field>
+        <span className="pb-actions">
+          <Button
+            size="small"
+            appearance="primary"
+            disabled={blocked !== null || check.isPending || period === ''}
+            {...(blocked === null ? {} : { title: blocked })}
+            onClick={run}
+          >
+            Run quarter-end check
+          </Button>
+          {previewMode ? <SimulatedBadge /> : null}
+        </span>
       </Toolbar>
       {result === null ? null : (
         <div data-testid="quarter-end-result">
@@ -520,6 +530,7 @@ function Queue({
   const [pending, setPending] = useState<Pending | null>(null);
   const [routeError, setRouteError] = useState<string | null>(null);
   const log = useActionLog();
+  const wash = useJustChanged();
   const command = useChangeRequestCommand();
   const counts = requestCounts(page.items);
   const partial = page.nextCursor !== null;
@@ -538,6 +549,7 @@ function Queue({
       { id: row.id, body },
       {
         onSuccess: (updated) => {
+          wash.mark(row.id);
           log.record(
             'good',
             `${requestLabel(updated)} is now ${humanizeState(updated.state)} ${resultSuffix()}`,
@@ -573,7 +585,7 @@ function Queue({
   return (
     <>
       <PageHeader title="Change requests" meta={META} />
-      <TabNav label="Valuations" items={VALUATION_TABS} />
+      <ValuationTabs />
       <div ref={balanceTiles} className="pb-tiles" data-testid="change-request-tiles">
         <CountTile
           label="Submitted"
@@ -602,14 +614,7 @@ function Queue({
         />
       </div>
       <Card testId="change-requests-card">
-        <SectionHeader
-          aside={
-            <>
-              {`${rows.length} of ${plural(page.items.length, 'request')}`}
-              <SimulatedBadge />
-            </>
-          }
-        >
+        <SectionHeader aside={`${rows.length} of ${plural(page.items.length, 'request')}`}>
           Queue
         </SectionHeader>
         <Toolbar>
@@ -663,7 +668,13 @@ function Queue({
             testId="change-requests-empty"
           />
         ) : (
-          <QueueTable rows={rows} roles={roles} busy={command.isPending} onIssue={start} />
+          <QueueTable
+            rows={rows}
+            roles={roles}
+            busy={command.isPending}
+            onIssue={start}
+            rowProps={wash.rowProps}
+          />
         )}
         {partial ? (
           <p className="pb-meta" data-testid="change-requests-truncated">
@@ -739,7 +750,7 @@ export function ChangeRequestsPage(): ReactNode {
     return (
       <>
         <PageHeader title="Change requests" meta={META} />
-        <TabNav label="Valuations" items={VALUATION_TABS} />
+        <ValuationTabs />
         <UnavailableState
           card
           error={list.error}

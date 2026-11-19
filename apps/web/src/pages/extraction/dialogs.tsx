@@ -17,6 +17,7 @@ import { MONEY_UNITS } from '@pb/contracts';
 import type { ExtractedValue, ExtractionRunCommandBody } from '@pb/contracts';
 import { editBody, editProblems, unitLabel, valueHint, valueText } from './extraction.js';
 import type { EditForm } from './extraction.js';
+import { dialogSurfaceMotion, useReducedMotion } from '../../components/motion.js';
 
 /**
  * Replaces a value with the reviewer's own, and for a money field its unit (docs/18 section 7).
@@ -46,14 +47,16 @@ export function EditValueDialog({
     touched && problems[key] !== undefined
       ? { validationState: 'error' as const, validationMessage: problems[key] }
       : {};
+  const motion = dialogSurfaceMotion(useReducedMotion());
   return (
     <Dialog
+      surfaceMotion={motion}
       open
       onOpenChange={(_e, d) => {
         if (!d.open) onCancel();
       }}
     >
-      <DialogSurface>
+      <DialogSurface className="pb-dialog" backdrop={{ className: 'pb-dialog-backdrop' }}>
         <form
           onSubmit={(e) => {
             e.preventDefault();
@@ -125,26 +128,32 @@ export function EditValueDialog({
 /**
  * Approves the run: the accepted and edited values are promoted into the quarter on record in
  * one audited transaction (SEC-9.1). The reason is optional; without one the API records the
- * document the figures came from.
+ * document the figures came from. For a capital account statement (`readAs` says how its lines
+ * will be read) nothing is promoted, and the dialog says so.
  */
 export function ApproveDialog({
   subject,
+  readAs = null,
   onCancel,
   onSubmit,
 }: {
   subject: string;
+  /** How an approved statement is read; null for a run whose approval promotes figures. */
+  readAs?: string | null;
   onCancel: () => void;
   onSubmit: (reason: string | undefined) => void;
 }): ReactNode {
   const [reason, setReason] = useState('');
+  const motion = dialogSurfaceMotion(useReducedMotion());
   return (
     <Dialog
+      surfaceMotion={motion}
       open
       onOpenChange={(_e, d) => {
         if (!d.open) onCancel();
       }}
     >
-      <DialogSurface>
+      <DialogSurface className="pb-dialog" backdrop={{ className: 'pb-dialog-backdrop' }}>
         <form
           onSubmit={(e) => {
             e.preventDefault();
@@ -153,14 +162,21 @@ export function ApproveDialog({
           }}
         >
           <DialogBody>
-            <DialogTitle>Approve and promote</DialogTitle>
+            <DialogTitle>{readAs === null ? 'Approve and promote' : 'Approve'}</DialogTitle>
             <DialogContent className="pb-dialog-content">
               <p className="pb-meta">{subject}</p>
-              <p className="pb-meta">
-                The accepted and edited values become the quarter on record, with the document, page
-                and run as their source. The highlights and commentary are written only when
-                accepted.
-              </p>
+              {readAs === null ? (
+                <p className="pb-meta">
+                  The accepted and edited values become the quarter on record, with the document,
+                  page and run as their source. The highlights and commentary are written only when
+                  accepted.
+                </p>
+              ) : (
+                <p className="pb-meta">
+                  The accepted and edited lines are read as: {readAs}. Nothing is written to the
+                  quarterly record.
+                </p>
+              )}
               <FluentField label="Reason" hint="Optional; kept in the audit trail.">
                 <Input value={reason} onChange={(_e, d) => setReason(d.value)} />
               </FluentField>
@@ -170,7 +186,7 @@ export function ApproveDialog({
                 Cancel
               </Button>
               <Button appearance="primary" type="submit">
-                Approve and promote
+                {readAs === null ? 'Approve and promote' : 'Approve'}
               </Button>
             </DialogActions>
           </DialogBody>

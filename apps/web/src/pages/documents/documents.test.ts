@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { documentCommandBody, expectedDocumentGenerateBody, ROUTES } from '@pb/contracts';
+import { STATEMENT_HOLD_REASONS } from '@pb/validation';
 import { clearTaxonomyLabels, registerTaxonomyLabels } from '../../lib/format.js';
+import { POSITION_ID } from '../../test/fixtures-valuations.js';
 import {
   ageTitle,
   candidatesText,
@@ -32,6 +34,7 @@ import {
   REVIEW_STATUSES,
   reviewWord,
   sizeText,
+  statementHoldLine,
   subjectOf,
 } from './documents.js';
 import {
@@ -114,6 +117,34 @@ describe('documents helpers', () => {
       'near miss',
     );
     expect(candidatesText({ keywords: [], candidates: [] })).toBe('-');
+  });
+
+  it('says what to choose for a statement held because its position did not link', () => {
+    const held = (reason: string, investmentId: string | null, reviewStatus = 'NeedsReview') =>
+      statementHoldLine({
+        reviewStatus: reviewStatus as 'NeedsReview' | 'Classified',
+        investmentId,
+        classifierEvidence: {
+          keywords: [],
+          candidates: [{ reason }, { reason: 'classifier suggestion: doc_type.other' }],
+        },
+      });
+    const { notLinked, disagree } = STATEMENT_HOLD_REASONS;
+    // Linked to no position: empty means a fund statement.
+    expect(held(notLinked, null)).toBe(
+      'This statement names a position that did not link. Choose the position, or leave it empty for a fund statement.',
+    );
+    // The reference already linked a position, which a blank keeps: Classified is final.
+    expect(held(disagree, POSITION_ID.meridian)).toBe(
+      'The reference and the company named on this statement disagree. Choose the position it is for; left empty, it keeps the one linked now.',
+    );
+    expect(held(notLinked, POSITION_ID.meridian)).toBe(
+      'This statement names a position that did not link. Choose the position it is for; left empty, it keeps the one linked now.',
+    );
+    // Any other reason, and a document a person has classified, carry no line.
+    expect(held('suggested doc_type.other below the threshold', null)).toBeNull();
+    expect(held(notLinked, null, 'Classified')).toBeNull();
+    expect(statementHoldLine(scanFixture())).toBeNull();
   });
 
   it('writes the exact status phrases', () => {

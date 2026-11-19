@@ -253,6 +253,38 @@ describe('Portfolio Beach API', () => {
       expect(member.items.length).toBe(h.dataset.investments.length);
     });
 
+    it('gives each position its company head office, whole or null, as the company records it', async () => {
+      const page = investmentPage.parse(
+        (
+          await h
+            .http()
+            .get('/api/v1/investments?limit=200')
+            .set('authorization', h.as('deal.three'))
+            .expect(200)
+        ).body,
+      );
+      const companyOf = new Map(h.dataset.portfolioCompanies.map((c) => [c.id, c]));
+      let placed = 0;
+      for (const item of page.items) {
+        const inv = h.dataset.investments.find((i) => i.id === item.id)!;
+        const company = companyOf.get(inv.portfolioCompanyId)!;
+        if (company.hqCity === null) {
+          expect(item.hq, item.companyName).toBeNull();
+          continue;
+        }
+        expect(item.hq, item.companyName).toEqual({
+          city: company.hqCity,
+          country: company.hqCountry,
+          latitude: Number(company.hqLatitude),
+          longitude: Number(company.hqLongitude),
+        });
+        placed += 1;
+      }
+      // Both cases are in the seeded book: most positions placed, some with nothing recorded.
+      expect(placed).toBeGreaterThan(0);
+      expect(placed).toBeLessThan(page.items.length);
+    });
+
     it('returns 404, not 403, for a record the caller cannot see, and audits a successful open', async () => {
       await h
         .http()

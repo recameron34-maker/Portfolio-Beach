@@ -13,6 +13,7 @@ import {
   watchlistFixture,
 } from '../test/fixtures.js';
 import { renderWithQuery } from '../test/render.js';
+import { homeRows, ROLE_FOCUS } from '../lib/role-focus.js';
 import { HomePage } from './Home.js';
 
 vi.mock('@tanstack/react-router', async () =>
@@ -37,7 +38,13 @@ describe('home dashboard', () => {
     mockApi(routes());
     renderWithQuery(<HomePage />);
     const tiles = await screen.findByTestId('home-tiles');
-    expect(screen.getByRole('heading', { name: 'Welcome, Emerson Marchetti' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { level: 1, name: 'Home' })).toBeInTheDocument();
+    // The meta line says as of when, whose view it is and what it covers.
+    expect(
+      screen.getByText(
+        'As of Jun 30, 2025. Emerson Marchetti, deal team. Figures cover the positions visible to you.',
+      ),
+    ).toBeInTheDocument();
     expect(within(tiles).getByRole('group', { name: 'Active positions' })).toHaveTextContent('2');
     expect(within(tiles).getByRole('group', { name: 'Invested capital' })).toHaveTextContent(
       '$390.7M',
@@ -50,15 +57,28 @@ describe('home dashboard', () => {
     expect(
       within(tiles).getByRole('img', { name: 'NAV trend over the last 3 quarters' }),
     ).toBeInTheDocument();
+    // Each hint names the basis; how the figure is worked out moves to the cell's title.
+    const moic = within(tiles).getByRole('group', { name: 'Gross MOIC' });
+    expect(moic).toHaveTextContent('Pooled');
+    expect(moic).toHaveAttribute('title', '(distributions + NAV) / invested');
+    expect(within(tiles).getByRole('group', { name: 'Current NAV' })).toHaveTextContent(
+      'Locked marks',
+    );
+    expect(within(tiles).getByRole('group', { name: 'Gross IRR' })).toHaveTextContent(
+      'Pooled, XIRR',
+    );
 
-    const attention = await screen.findByRole('list', { name: 'Flagged positions' });
+    const attention = await screen.findByRole('table', { name: 'Flagged positions' });
     expect(
       within(attention).getByRole('link', { name: 'Silverline Staffing Holdings' }),
     ).toHaveAttribute('href', `/portfolio/${ID.inv1}`);
     expect(within(attention).getByTitle(/at or below zero/)).toHaveTextContent('Negative EBITDA');
-    expect(screen.getByText('Needs action: 1')).toBeInTheDocument();
-    expect(screen.getByText('Watch: 1')).toBeInTheDocument();
-    expect(screen.getByText('Clear: 3')).toBeInTheDocument();
+    const counts = within(screen.getByTestId('home-attention')).getByRole('heading', {
+      name: /^Attention/,
+    });
+    expect(within(counts).getByText('1 needs action')).toBeInTheDocument();
+    expect(within(counts).getByText('1 watch')).toBeInTheDocument();
+    expect(within(counts).getByText('3 clear')).toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'Open the watchlist' })).toHaveAttribute(
       'href',
       '/portfolio/watchlist',
@@ -67,14 +87,107 @@ describe('home dashboard', () => {
     expect(screen.getByRole('group', { name: 'Exposure by vehicle' })).toBeInTheDocument();
     expect(screen.getByRole('group', { name: 'NAV by quarter' })).toBeInTheDocument();
     expect(screen.getAllByText('Locked marks only').length).toBeGreaterThan(0);
+    // A chart's title is its section's heading: no second heading over either chart.
+    expect(screen.queryByRole('heading', { name: 'Exposure' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: /^Trend/ })).not.toBeInTheDocument();
+    expect(
+      screen.getByRole('heading', { level: 2, name: 'Exposure by vehicle' }),
+    ).toBeInTheDocument();
+    expect(screen.getByRole('heading', { level: 2, name: 'NAV by quarter' })).toBeInTheDocument();
 
-    expect(await screen.findByText('1 stale positions')).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: 'Analytics' })).toHaveAttribute('href', '/analytics');
-    expect(screen.getByRole('link', { name: 'Capital Activity' })).toHaveAttribute(
-      'href',
-      '/capital-activity',
-    );
+    // Data health: the first three checks, each with its count.
+    const checks = await screen.findByRole('table', { name: 'Data checks' });
+    const rows = within(checks).getAllByRole('row').slice(1);
+    expect(rows.map((r) => within(r).getByRole('rowheader').textContent)).toEqual([
+      'Orphan investments',
+      'Open exceptions',
+      'Stale positions',
+    ]);
+    expect(rows[2]).toHaveTextContent('1');
     expect(screen.queryByRole('status')).not.toBeInTheDocument();
+  });
+
+  it('leads with the work of the signed-in role: what it does, and a link to each place it does it', async () => {
+    mockApi(routes());
+    renderWithQuery(<HomePage />);
+    const work = await screen.findByTestId('home-work');
+    const focus = ROLE_FOCUS.roles.deal_team;
+    if (focus === undefined) throw new Error('the deal team has a focus');
+    expect(within(work).getByText('Your work')).toBeInTheDocument();
+    expect(within(work).getByText('Deal team')).toBeInTheDocument();
+    expect(screen.getByTestId('home-work-does')).toHaveTextContent(focus.does);
+    const links = within(within(work).getByRole('list', { name: 'Your work' })).getAllByRole(
+      'link',
+    );
+    expect(links.map((a) => [a.textContent, a.getAttribute('href')])).toEqual(
+      focus.work.map((link) => [link.label, link.to]),
+    );
+    expect(links[0]).toHaveTextContent('Pipeline');
+    for (const link of focus.work) expect(within(work).getByText(link.what)).toBeInTheDocument();
+    // The work comes before the figures on the page.
+    const tiles = screen.getByTestId('home-tiles');
+    expect(work.compareDocumentPosition(tiles) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it.each([
+    ['operations', ['home-work', 'home-capital', 'home-tiles', 'home-attention', 'home-exposure']],
+    ['approver', ['home-work', 'home-tiles', 'home-attention', 'home-capital', 'home-exposure']],
+  ] as const)('orders the page for %s as its focus says', async (role, order) => {
+    mockApi({
+      ...routes(),
+      '/api/v1/auth/me': ok({ ...principalFixture(), roles: [role] }),
+      '/api/v1/capital-notices?limit=200': ok(capitalNoticePageFixture([])),
+    });
+    renderWithQuery(<HomePage />);
+    await screen.findByTestId('home-tiles');
+    await screen.findByTestId('home-exposure');
+    const found = order.map((id) => screen.getByTestId(id));
+    for (let i = 1; i < found.length; i += 1) {
+      const before = found[i - 1];
+      const after = found[i];
+      if (before === undefined || after === undefined) throw new Error('a section is missing');
+      expect(
+        before.compareDocumentPosition(after) & Node.DOCUMENT_POSITION_FOLLOWING,
+        `${order[i - 1]} before ${order[i]}`,
+      ).toBeTruthy();
+    }
+    expect(screen.getByTestId('home-work-does')).toHaveTextContent(
+      ROLE_FOCUS.roles[role]?.does ?? 'no focus',
+    );
+  });
+
+  it('shows a role only the sections it uses: investor relations has no capital activity or data health card', async () => {
+    mockApi({
+      ...routes(),
+      '/api/v1/auth/me': ok({ ...principalFixture(), roles: ['investor_relations'] }),
+    });
+    renderWithQuery(<HomePage />);
+    await screen.findByTestId('home-tiles');
+    expect(screen.getByTestId('home-work')).toHaveTextContent('Investor relations');
+    expect(screen.getByTestId('home-attention')).toBeInTheDocument();
+    expect(screen.queryByTestId('home-capital')).not.toBeInTheDocument();
+    expect(screen.queryByText(/stale positions/i)).not.toBeInTheDocument();
+  });
+
+  it('pairs half-width cards that follow each other, and gives every other section its own row', () => {
+    expect(homeRows(['work', 'tiles', 'attention', 'capital', 'charts', 'dataHealth'])).toEqual([
+      ['work'],
+      ['tiles'],
+      ['attention', 'capital'],
+      ['charts'],
+      ['dataHealth'],
+    ]);
+    expect(homeRows(['work', 'capital', 'dataHealth', 'tiles', 'attention', 'charts'])).toEqual([
+      ['work'],
+      ['capital', 'dataHealth'],
+      ['tiles'],
+      ['attention'],
+      ['charts'],
+    ]);
+    expect(homeRows(['attention', 'capital', 'dataHealth'])).toEqual([
+      ['attention', 'capital'],
+      ['dataHealth'],
+    ]);
   });
 
   it('degrades the capital activity card to an empty state when the endpoint is not implemented', async () => {
@@ -107,6 +220,8 @@ describe('home dashboard', () => {
       `/capital-activity/${ID.notice1}`,
     );
     expect(within(table).getByText('Overdue')).toBeInTheDocument();
+    // Overdue: the date itself in the bad ink, a dot and the word beside it.
+    expect(within(table).getByText('Jun 28, 2025')).toHaveClass('pb-overdue-date');
     expect(within(table).getByText('Reviewed')).toBeInTheDocument();
     expect(within(table).getByText('$2.5M')).toBeInTheDocument();
     expect(within(table).getByText('Jun 28, 2025')).toBeInTheDocument();
@@ -135,7 +250,7 @@ describe('home dashboard', () => {
     expect(
       await screen.findByText('Portfolio analytics: not visible to your role'),
     ).toBeInTheDocument();
-    expect(await screen.findByRole('list', { name: 'Flagged positions' })).toBeInTheDocument();
+    expect(await screen.findByRole('table', { name: 'Flagged positions' })).toBeInTheDocument();
     expect(screen.queryByTestId('home-tiles')).not.toBeInTheDocument();
   });
 });

@@ -48,6 +48,7 @@ Global rules in `CLAUDE.md` apply to every module. Workflow states are defined i
 - AI classifier assigns metadata with a confidence score; below the threshold (`classifierConfidenceThreshold`) it goes to a review queue.
 - Doc types (config): quarterly financials, quarterly letter, capital call, distribution notice, capital account statement, K-1, audited financials, CIM, management presentation, LPA, side letter, subscription docs, closing set, valuation support, AGM materials, other.
 - Expected Document tracker per investment and period with aging and "missing" alerts.
+- A capital account statement is one of two kinds, and the kind is its link (decision 0023): linked to a position it is our capital account for that one co-investment or continuation vehicle; linked to no position it is our account in a fund we committed to. The tracker expects one fund-level statement per committed fund, and only a statement linked to no position fills that row. A statement that names a position which does not link to exactly one, or whose reference and company name disagree, goes to the review queue whatever the classifier's confidence (`docs/18` section 6); the reviewer chooses the position or leaves it empty for a fund statement.
 - Full-text and semantic search, filtered by permissions.
 - Duplicate detection by content hash.
 **Prototype scope:** local folder adapter; synthetic PDFs from `tools/synthetic`.
@@ -65,6 +66,7 @@ Global rules in `CLAUDE.md` apply to every module. Workflow states are defined i
 - Review-by-exception UI: page image beside fields, flagged fields first, accept / edit / reject, bulk-accept clean items.
 - Batch runs with a status board (Received, Extracted, In review, Approved, Exported), concurrency limits, retries and cost logging.
 - Variants: co-invest quarterly financials; primary fund reports and capital account statements; CIM / pitchbook to a draft Pipeline Opportunity.
+- Capital account statements (decision 0023; schema `capital_account_statement`, prompt `capital_account_extraction`): eleven lines, the period end, the four commitment lines of a fund statement, the five balance lines of our account (beginning balance, contributions and distributions in the period, net gain or loss, ending balance) and our share of the vehicle when the lines are the whole vehicle's. No field has a target and no narrative is written, so a statement is extracted and reviewed like a report and its approval writes nothing to the quarterly record. The review page says how the approved lines will be read: our account for the position the document is linked to, or our account in a fund when it is linked to none. A balance of a whole vehicle with no share of ours, or of a statement not in US dollars, is answered null: nothing is assumed and nothing is converted.
 - Commentary drafts from **approved** numbers only (`docs/07`).
 **Prototype scope:** mock AI client returns fixture outputs; an optional real model on synthetic PDFs only.
 **Depends on:** M2, M3.
@@ -84,12 +86,14 @@ Global rules in `CLAUDE.md` apply to every module. Workflow states are defined i
 - Contact pickers limited to the deal's own sponsor contacts.
 - Diagnostic views available only to admins on an admin route.
 - AI summary and suggested next steps at the top of each deal (labeled AI draft).
+- Portfolio fit on each opportunity (asked by the owner, decision 0018): seven draft measures from 0 to 100, worked out from recorded figures by the rules of `docs/08` section 8, drawn as a radar chart with the figure and the rule behind each score beside it. A measure with no recorded input has no score.
 **Prototype scope:** fully built.
 **Depends on:** M1.
 **AC**
 - A deal moves Sourced to Closed with data captured once and converted into an Investment on close.
 - Moving to Passed without a reason code fails (API test).
 - Contact picker never returns another sponsor's contacts (test).
+- Every fit score equals its rule over the figures the API returns with it, and those figures equal what the Exposure tab and the sponsor page report (API test); a measure with a missing input is answered with no score and a reason, never a zero.
 
 ## M6. Relationship Intelligence
 **Purpose:** relationship history that builds itself.
@@ -137,7 +141,7 @@ Global rules in `CLAUDE.md` apply to every module. Workflow states are defined i
 ## M9. Portfolio Monitoring
 **Purpose:** the quarterly view of the whole portfolio.
 **Features**
-- Monitoring board: investment x quarter status with aging, fed by Expected Documents and extraction status.
+- Monitoring board: investment x quarter status with aging, fed by Expected Documents and extraction status. The run shown for a position is the latest run of a schema that writes to the quarterly record (the report's), never a run over a capital account statement of the position.
 - Metrics from `packages/calc` (`docs/08`): MOIC, IRR, TVPI, DPI, RVPI, entry vs. current EV/EBITDA, net debt/EBITDA, margin, YoY (exact fiscal quarter), growth since entry, holding period.
 - Watchlist rules in config (leverage, EBITDA decline, markdown, covenant flags, missing financials); alerts to the deal team.
 - Realization outlook (next 18 months, partial or full) changes **only** by explicit edit, audited.
@@ -145,6 +149,7 @@ Global rules in `CLAUDE.md` apply to every module. Workflow states are defined i
 - Private credit monitoring: credit terms (facility, coupon split cash / PIK, floor, spread, OID, maturity, amortization, call protection, covenants); per period par, cost, fair value, accrued and PIK, cash interest received, principal repaid; current yield, yield to maturity, interest coverage, leverage through the tranche, LTV, DSCR (`docs/08` section 10); covenant and payment status; maturity ladder across the credit vehicle.
 - Credit watchlist rules in config: coverage below covenant level, PIK toggle or deferred interest, LTV above threshold, maturity inside 12 months, payment status not current.
 - Entry snapshot pinned by flag, never inferred from the earliest date.
+- Performance against the sponsor's underwritten base case (asked by the owner, decision 0022): the deal team records the base case of a position (for equity and continuation vehicles the plan for twelve-month revenue, EBITDA and net debt at each date, the exit multiple and the underwritten gross MOIC and IRR; for private credit the underwritten yield, loss rate, MOIC and IRR) and a second person confirms it. The Performance tab of the deal then shows the current quarter against plan at the same date, the share of the planned value creation earned, and gross MOIC and IRR against underwriting, each ahead of, on or behind plan by the rules of `docs/08` section 11 and the tolerances in config (`underwriting`). A revision is a new version: dated as the case it corrects it replaces it, dated later it is a re-underwriting and both stay; the entry case is the one compared unless the reader picks another.
 **Prototype scope:** fully built.
 **Depends on:** M1, M4.
 **AC**
@@ -152,6 +157,12 @@ Global rules in `CLAUDE.md` apply to every module. Workflow states are defined i
 - Prior Year shows the missing placeholder when the exact quarter is absent (test).
 - "Monitoring status for a quarter" export lists every active investment with its status.
 - A credit position with EBITDA at or below zero shows the missing placeholder for coverage and leverage, never a number (test).
+- Every figure of the base case comparison equals its rule in `docs/08` section 11 over the figures the API returns with it, and the actual side equals what the value creation card and the position summary report for the same date (API test).
+- A plan figure between two plan dates is a straight line by days and is flagged as such; a quarter before the plan starts, after it ends, or beside a plan date with no figure shows the missing placeholder with its reason, never the nearest plan figure and never a zero (calculation and API tests).
+- The person who last changed the figures of a base case cannot confirm it: the database, the state machine and the API each refuse (tests). Only a confirmed case is compared; a draft alone shows no comparison.
+- A version dated as a confirmed case supersedes it and a later-dated version leaves it in place; superseded and withdrawn cases never change again, and every forbidden transition is refused (workflow tests).
+- A base case on a walled position is invisible outside the wall (404, RLS test); a primary fund has no base case and a create is refused (API test).
+- A loan marked below par reads behind plan on its IRR, and its yield to maturity carries no status (API test).
 
 ## M10. Valuation Workflow
 **Purpose:** one controlled valuation per investment per period.
@@ -161,11 +172,19 @@ Global rules in `CLAUDE.md` apply to every module. Workflow states are defined i
 - Batch approval screen with filters and variance vs. prior.
 - Reporting gate: reports read only Locked valuations.
 - Open deal change requests (M11) shown on the valuation screen.
-**Prototype scope:** fully built.
-**Depends on:** M9.
+- Valuation suggestions (asked by the owner, decision 0023): when a person approves the figures read from a capital account statement or a sponsor's quarterly report, the platform works out the mark they imply for the position and quarter, shows each input with its source, and sets it beside the mark on record. The sources are tried in a configured order (`valuationSuggestions.sourceOrder`): a position-level statement's ending balance, then the last Locked mark scaled by the change in the sponsor's equity value, then the same with the earlier multiple held (`docs/08` section 12). The first with a value is the suggestion and the others sit beside it as cross-checks, never blended. Operations opens a draft valuation from it, puts its value and method on the Draft already open for the quarter, or dismisses it with a reason (`docs/18` section 14); the deal team, approvers and auditors read; nobody else is sent a request. A suggestion never writes a mark: the Draft goes through the workflow above, and whoever approved a run behind the suggestion, or typed one of its figures, can take neither approval of that valuation, nor of the version a reopen starts from it. Pages: the Suggestions tab with the workings and the decisions, a Suggested column on the board's Missing marks card, a panel on the deal's Valuations tab, a line on the version screen and what the approval did on the extraction run page. A fund-level statement (our account in a fund commitment), a private credit position and a position not held in US dollars raise none.
+**Prototype scope:** fully built. Suggestions for fund-level statements wait on how a commitment carries a mark (decision 0023, question 1).
+**Depends on:** M9; valuation suggestions also on M3 and M4.
 **AC**
 - A Locked valuation cannot be updated in place: database constraint + API test.
 - Preparer cannot be final approver (segregation of duties test).
+- Every figure of a suggestion equals its rule in `docs/08` section 12 over the inputs returned with it; a missing input gives a reason and no value, never a zero and never another quarter's figure (calculation and API tests).
+- At most one suggestion is Open for a position and quarter: a statement approved while a report-based one is Open replaces it, a report approved after a statement changes only the cross-check, and two approvals at once end with one (database constraint + API test).
+- No suggestion is raised for a fund-level statement, a private credit position, a position not in US dollars or not held at the period end, a quarter with a Locked mark for it or a later one, or a value already dismissed or already on a valuation (API tests, each with its sentence on the run page).
+- Accepting a suggestion opens a Draft and nothing else; the Draft carries the suggestion's keys, which an edit cannot change or drop and which the lock hash covers (API test). A suggestion whose figures moved is replaced or closed at accept and the command is refused (API test).
+- Every person who approved a run behind an accepted suggestion, or typed one of its figures, is refused both approvals of that valuation (workflow and API tests).
+- A walled position's statement, run and suggestion are invisible outside the wall (404, RLS test); a viewer, investor relations and a platform admin read no suggestion (RLS and page tests).
+- Approving a capital account statement changes nothing on the quarterly record, its lineage included (API test).
 
 ## M11. Deal Change Requests
 **Features:** one form (add-on, new security, distribution treatment, recap, partial exit, other); routing to operations; status until applied; quarter-end list of unapplied changes.
@@ -189,11 +208,14 @@ Global rules in `CLAUDE.md` apply to every module. Workflow states are defined i
 - Client configurations: per-vehicle documents, summary deck, multiple reporting bases per client.
 - Mover commentary per `docs/07`.
 - Request routing for ad hoc client and DDQ requests with templated drafts.
-- **Report QA engine (release gate):** NAV roll-forward per position; QTD tables start from beginning-of-quarter values; prior-report tie-out with recorded explanations; sign sanity; movers recalculated after any correction (commentary against a superseded list is flagged); preliminary vs. final and gross vs. net labeling; per-vehicle data readiness; client-only fields validated separately.
+- **Report QA engine (release gate):** (the rules are specified in `docs/08` section 7 and built as `runReportQa` in `packages/report-engine`) NAV roll-forward per position; QTD tables start from beginning-of-quarter values; prior-report tie-out with recorded explanations; sign sanity; movers recalculated after any correction (commentary against a superseded list is flagged); preliminary vs. final and gross vs. net labeling; per-vehicle data readiness; client-only fields validated separately.
+- **Reporting, Packages** (decision 0024): the list of the packages of the clients a reader sees, newest quarter first, with where each stands at the release gate and what its checks said; starting one for a client, a quarter that has ended and a basis (investor relations: one in progress at a time for the three, and a reason for a new version of a Released one); and the package's page: the gate of `docs/18` section 5 as six steps with what happens next, the commands each role may take from the state (generate, regenerate with tie-out explanations, override a failed QA with a reason, submit, approve, release), the checks of the latest run with what each expected and found, the positions, footnotes and client share as stored, the tie-out explanations, the generation runs, and once approved the SHA-256 of the content. No rule code and no identifier is shown; a missing figure is the placeholder with its reason, never zero; the page adds nothing up. The static preview simulates the four routes over the packages started in the session, building the snapshot by the rule the API uses (`snapshotRequestOf`).
+**Prototype scope:** the QA engine, the package record, the snapshot builder, the API and the Packages pages are built. The template engine, the files a package becomes, net figures, mover commentary and request routing are not. A net package shows gross figures under a notice; a package holds the positions its preparer could read; there is no way back from QA passed or In review (decision 0024).
 **Depends on:** M10, M19.
 **AC**
 - Regenerating a package with unchanged data produces identical shape geometry (snapshot test).
 - Any failed QA check blocks release unless an Approver overrides with a reason.
+- On the Packages pages (decision 0024; page tests, the preview's route tests and `apps/web/e2e/report-packages.spec.ts`): a failed check shows what it expected and what it found, and while one fails Submit is not offered; an override is an approver's, needs a reason and is recorded against every failed check of the run with their name; the preparer is refused the approval; the content hash shows once the package is approved and is the SHA-256 of the stored content; a Released package offers no command and the API refuses any; a package of a client the reader does not read is "Package not found"; a held line with no Locked mark at the start of the quarter shows no begin NAV and no gain, each with the reason, never zero.
 
 ## M15. Shared Services and Assistants
 **Features**
@@ -227,7 +249,7 @@ Global rules in `CLAUDE.md` apply to every module. Workflow states are defined i
 
 ## M20. Advanced Analytics
 **Features:** look-through exposures at cost and NAV; benchmarking with quartiles and PME (Kaplan-Schoar, Direct Alpha); liquidity forecasting (Takahashi-Alexander with tunable parameters); value creation attribution (revenue, margin, multiple, leverage); exit analytics; credit analytics (maturity ladder, weighted average yield and spread, exposure by seniority and base rate, PIK share of income); manager diligence pack.
-**Prototype scope:** synthetic benchmark and index series.
+**Prototype scope:** synthetic benchmark and index series. Built ahead of the phase at the owner's request: value creation and entry metric analytics (decision 0014) and the co-investment map of company head offices (decision 0017).
 **Depends on:** M9, M16. **AC:** PME and attribution results match the worked examples in `docs/08`.
 
 ## M21. Data Access: Excel Add-in, API and Warehouse Feed

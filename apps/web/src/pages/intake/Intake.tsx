@@ -12,6 +12,7 @@ import type {
 } from '@pb/contracts';
 import { previewMode } from '../../app/env.js';
 import { describeActionError, useIntakeImport } from '../../app/mutations.js';
+import { ADMIN_TABS } from '../../app/nav.js';
 import { intakeExportsQuery, intakeFilesQuery, LIST_LIMIT, meQuery } from '../../app/queries.js';
 import { UnavailableState } from '../../components/UnavailableState.js';
 import {
@@ -24,6 +25,7 @@ import {
   SectionHeader,
   SimulatedBadge,
   TableWrap,
+  TabNav,
 } from '../../components/ui.js';
 import { MISSING, plural } from '../../lib/format.js';
 import { humanizeState, stagingTone } from '../../lib/states.js';
@@ -98,26 +100,139 @@ function UploadStatus({
   );
 }
 
+/** One file waiting in a drop folder, with the command that stages it. */
+export interface DropRow {
+  id: string;
+  name: string;
+  /** The folder in words: "Accounting exports". */
+  folder: string;
+  receivedAt: string;
+  busy: boolean;
+  stage: () => void;
+}
+
 /**
- * Operations only: stage an operations workbook from a chosen .xlsx file or from the ops drop
- * folder (docs/04 M2 ops-drop-import). The file is read as bytes and sent as base64; the API
- * matches it to a template by its sheet names and header, reads it like an accounting export and
- * stages it, or refuses an unknown template with a file finding naming the templates it knows.
+ * The files waiting in the drop folders, as one table: the file, its folder, when it arrived and
+ * the command that stages it (named "Stage, <file>"). Shared by Intake and Weekly values.
  */
-function WorkbookUpload({
-  onStaged,
+export function DropFolderTable({
+  rows,
+  testId,
 }: {
-  onStaged: (result: IntakeImportResult) => void;
+  rows: readonly DropRow[];
+  testId?: string | undefined;
+}): ReactNode {
+  return (
+    <>
+      <SectionHeader aside={plural(rows.length, 'file')}>Waiting in the drop folders</SectionHeader>
+      <TableWrap label="Waiting in the drop folders">
+        <table
+          className="pb-table pb-intake-drops"
+          aria-label="Waiting in the drop folders"
+          data-testid={testId}
+        >
+          <thead>
+            <tr>
+              <th>File</th>
+              <th>Folder</th>
+              <th>Received</th>
+              <th className="num">
+                <span className="pb-visually-hidden">Command</span>
+                <SimulatedBadge />
+              </th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((row) => (
+              <tr key={`${row.folder}|${row.id}`}>
+                <td>{row.name}</td>
+                <td>{row.folder}</td>
+                <td className="pb-nowrap">{dayOf(row.receivedAt)}</td>
+                <td className="num pb-col-fit">
+                  <Button
+                    size="small"
+                    appearance="outline"
+                    disabled={row.busy}
+                    aria-label={`Stage, ${row.name}`}
+                    onClick={row.stage}
+                  >
+                    Stage
+                  </Button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </TableWrap>
+    </>
+  );
+}
+
+/**
+ * A native file input and its command, in the app's look (styles.css .pb-file): the input keeps
+ * its label, its tab stop and its focus ring; only its button is drawn as a small button.
+ */
+export function FileField({
+  label,
+  accept,
+  busy,
+  onFile,
+  command,
+  ready,
+  onStage,
+}: {
+  label: string;
+  accept: string;
+  busy: boolean;
+  onFile: (event: ChangeEvent<HTMLInputElement>) => void;
+  command: string;
+  ready: boolean;
+  onStage: () => void;
 }): ReactNode {
   const inputId = useId();
-  const importer = useOpsDropImport();
-  const drops = useQuery(opsDropDropsQuery);
-  const [chosen, setChosen] = useState<{ fileName: string; workbookBase64: string } | null>(null);
-  const [message, setMessage] = useState<UploadMessage | null>(null);
-  const busy = importer.isPending;
+  return (
+    <div className="pb-intake-upload">
+      <div className="pb-field">
+        <Label htmlFor={inputId}>{label}</Label>
+        <input
+          id={inputId}
+          className="pb-file"
+          type="file"
+          accept={accept}
+          disabled={busy}
+          onChange={onFile}
+        />
+      </div>
+      <span className="pb-actions">
+        <Button size="small" appearance="primary" disabled={!ready || busy} onClick={onStage}>
+          {command}
+        </Button>
+        <SimulatedBadge />
+      </span>
+    </div>
+  );
+}
 
-  const stage = (body: OpsDropImportBody, label: string): void => {
-    importer.mutate(body, {
+/**
+ * Operations only: stage an accounting export (CSV, read as text) or an operations workbook (XLSX,
+ * read as bytes and sent as base64; the API matches it to a template by its sheet names and header
+ * and refuses an unknown one with a file finding naming the templates it knows), from a chosen
+ * file, from the drop folders or, in the preview, a sample. Each upload reports in its own region.
+ */
+function UploadCard({ onStaged }: { onStaged: (result: IntakeImportResult) => void }): ReactNode {
+  const exportImporter = useIntakeImport();
+  const workbookImporter = useOpsDropImport();
+  const exports = useQuery(intakeExportsQuery);
+  const drops = useQuery(opsDropDropsQuery);
+  const [chosen, setChosen] = useState<{ fileName: string; csv: string } | null>(null);
+  const [book, setBook] = useState<{ fileName: string; workbookBase64: string } | null>(null);
+  const [message, setMessage] = useState<UploadMessage | null>(null);
+  const [bookMessage, setBookMessage] = useState<UploadMessage | null>(null);
+  const exportBusy = exportImporter.isPending;
+  const bookBusy = workbookImporter.isPending;
+
+  const stage = (body: IntakeImportBody, label: string): void => {
+    exportImporter.mutate(body, {
       onSuccess: (result) => {
         setMessage(null);
         onStaged(result);
@@ -126,109 +241,14 @@ function WorkbookUpload({
         setMessage({ tone: 'bad', text: `${label}: ${describeActionError(error)}` }),
     });
   };
-  const onFile = async (event: ChangeEvent<HTMLInputElement>): Promise<void> => {
-    const file = event.target.files?.[0];
-    setChosen(null);
-    if (file === undefined) return;
-    // The same rule as the export: nothing in the file, or more than the API takes, said here in
-    // plain words before the button is enabled (the limit is the API's, read from config).
-    const problem = uploadSizeProblem(file.size, MAX_WORKBOOK_BYTES);
-    if (problem !== null) {
-      setMessage({ tone: 'bad', text: problem });
-      return;
-    }
-    try {
-      const bytes = await readBytes(file);
-      if (bytes.length === 0) {
-        setMessage({ tone: 'bad', text: EMPTY_FILE_PROBLEM });
-        return;
-      }
-      setChosen({ fileName: file.name, workbookBase64: base64Of(bytes) });
-      setMessage(null);
-    } catch (error) {
-      setMessage({
-        tone: 'bad',
-        text: error instanceof Error ? error.message : 'The file could not be read.',
-      });
-    }
-  };
-
-  return (
-    <>
-      <SectionHeader>Stage a workbook</SectionHeader>
-      <p className="pb-meta">
-        An operations workbook is matched to a template by its sheet names and its header row, then
-        read like an accounting export. A workbook that matches no template is refused and stages
-        nothing.
-      </p>
-      <div className="pb-intake-upload">
-        <div className="pb-field">
-          <Label htmlFor={inputId}>Operations workbook (XLSX)</Label>
-          <input
-            id={inputId}
-            type="file"
-            accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-            disabled={busy}
-            onChange={(event) => void onFile(event)}
-          />
-        </div>
-        <Button
-          size="small"
-          appearance="primary"
-          disabled={chosen === null || busy}
-          onClick={() => {
-            if (chosen !== null) stage(chosen, `Stage ${chosen.fileName}`);
-          }}
-        >
-          Stage workbook
-        </Button>
-      </div>
-      <UploadStatus message={message} testId="intake-workbook-status" />
-      {drops.data !== undefined && drops.data.items.length > 0 ? (
-        <>
-          <SectionHeader>From the ops drop folder</SectionHeader>
-          <ul className="pb-intake-drop" aria-label="Workbooks in the ops drop folder">
-            {drops.data.items.map((item) => (
-              <li key={item.id}>
-                <span>{item.name}</span>
-                <span className="pb-meta">Received {dayOf(item.receivedAt)}</span>
-                <Button
-                  size="small"
-                  appearance="outline"
-                  disabled={busy}
-                  aria-label={`Stage, ${item.name}`}
-                  onClick={() => stage({ dropId: item.id }, `Stage ${item.name}`)}
-                >
-                  Stage
-                </Button>
-              </li>
-            ))}
-          </ul>
-        </>
-      ) : drops.isError ? (
-        <UnavailableState inline error={drops.error} subject="The ops drop folder" />
-      ) : null}
-    </>
-  );
-}
-
-/** Operations only: stage an export from a chosen file, from the drop folder or, in the preview, a sample. */
-function UploadCard({ onStaged }: { onStaged: (result: IntakeImportResult) => void }): ReactNode {
-  const inputId = useId();
-  const importer = useIntakeImport();
-  const exports = useQuery(intakeExportsQuery);
-  const [chosen, setChosen] = useState<{ fileName: string; csv: string } | null>(null);
-  const [message, setMessage] = useState<UploadMessage | null>(null);
-  const busy = importer.isPending;
-
-  const stage = (body: IntakeImportBody, label: string): void => {
-    importer.mutate(body, {
+  const stageBook = (body: OpsDropImportBody, label: string): void => {
+    workbookImporter.mutate(body, {
       onSuccess: (result) => {
-        setMessage(null);
+        setBookMessage(null);
         onStaged(result);
       },
       onError: (error) =>
-        setMessage({ tone: 'bad', text: `${label}: ${describeActionError(error)}` }),
+        setBookMessage({ tone: 'bad', text: `${label}: ${describeActionError(error)}` }),
     });
   };
   const onFile = async (event: ChangeEvent<HTMLInputElement>): Promise<void> => {
@@ -256,6 +276,32 @@ function UploadCard({ onStaged }: { onStaged: (result: IntakeImportResult) => vo
       });
     }
   };
+  const onBook = async (event: ChangeEvent<HTMLInputElement>): Promise<void> => {
+    const file = event.target.files?.[0];
+    setBook(null);
+    if (file === undefined) return;
+    // The same rule as the export: nothing in the file, or more than the API takes, said here in
+    // plain words before the button is enabled (the limit is the API's, read from config).
+    const problem = uploadSizeProblem(file.size, MAX_WORKBOOK_BYTES);
+    if (problem !== null) {
+      setBookMessage({ tone: 'bad', text: problem });
+      return;
+    }
+    try {
+      const bytes = await readBytes(file);
+      if (bytes.length === 0) {
+        setBookMessage({ tone: 'bad', text: EMPTY_FILE_PROBLEM });
+        return;
+      }
+      setBook({ fileName: file.name, workbookBase64: base64Of(bytes) });
+      setBookMessage(null);
+    } catch (error) {
+      setBookMessage({
+        tone: 'bad',
+        text: error instanceof Error ? error.message : 'The file could not be read.',
+      });
+    }
+  };
   const stageSample = async (scenario: SampleScenario): Promise<void> => {
     let csv: string;
     try {
@@ -268,62 +314,69 @@ function UploadCard({ onStaged }: { onStaged: (result: IntakeImportResult) => vo
     }
     stage({ fileName: sampleFileName(scenario), csv }, `Stage the ${scenario} sample`);
   };
+  const waiting: DropRow[] = [
+    ...(exports.data?.items ?? []).map((item) => ({
+      id: item.id,
+      name: item.name,
+      folder: 'Accounting exports',
+      receivedAt: item.receivedAt,
+      busy: exportBusy,
+      stage: () => stage({ exportId: item.id }, `Stage ${item.name}`),
+    })),
+    ...(drops.data?.items ?? []).map((item) => ({
+      id: item.id,
+      name: item.name,
+      folder: 'Operations workbooks',
+      receivedAt: item.receivedAt,
+      busy: bookBusy,
+      stage: () => stageBook({ dropId: item.id }, `Stage ${item.name}`),
+    })),
+  ];
 
   return (
     <Card testId="intake-upload">
-      <SectionHeader aside={<SimulatedBadge />}>Stage an export</SectionHeader>
+      <SectionHeader>Stage an export</SectionHeader>
       <p className="pb-meta">
         The file is read here and sent as text. Every row is linked, validated and compared with the
         current quarter before anyone approves it; nothing reaches production until then.
       </p>
-      <div className="pb-intake-upload">
-        <div className="pb-field">
-          <Label htmlFor={inputId}>Accounting export (CSV)</Label>
-          <input
-            id={inputId}
-            type="file"
-            accept=".csv,text/csv"
-            disabled={busy}
-            onChange={(event) => void onFile(event)}
-          />
-        </div>
-        <Button
-          size="small"
-          appearance="primary"
-          disabled={chosen === null || busy}
-          onClick={() => {
-            if (chosen !== null) stage(chosen, `Stage ${chosen.fileName}`);
-          }}
-        >
-          Stage export
-        </Button>
-      </div>
+      <FileField
+        label="Accounting export (CSV)"
+        accept=".csv,text/csv"
+        busy={exportBusy}
+        onFile={(event) => void onFile(event)}
+        command="Stage export"
+        ready={chosen !== null}
+        onStage={() => {
+          if (chosen !== null) stage(chosen, `Stage ${chosen.fileName}`);
+        }}
+      />
       <UploadStatus message={message} testId="intake-upload-status" />
-      {exports.data !== undefined && exports.data.items.length > 0 ? (
-        <>
-          <SectionHeader>From the drop folder</SectionHeader>
-          <ul className="pb-intake-drop" aria-label="Exports in the drop folder">
-            {exports.data.items.map((item) => (
-              <li key={item.id}>
-                <span>{item.name}</span>
-                <span className="pb-meta">Received {dayOf(item.receivedAt)}</span>
-                <Button
-                  size="small"
-                  appearance="outline"
-                  disabled={busy}
-                  aria-label={`Stage, ${item.name}`}
-                  onClick={() => stage({ exportId: item.id }, `Stage ${item.name}`)}
-                >
-                  Stage
-                </Button>
-              </li>
-            ))}
-          </ul>
-        </>
-      ) : exports.isError ? (
+      <SectionHeader>Stage a workbook</SectionHeader>
+      <p className="pb-meta">
+        An operations workbook is matched to a template by its sheet names and its header row, then
+        read like an accounting export. A workbook that matches no template is refused and stages
+        nothing.
+      </p>
+      <FileField
+        label="Operations workbook (XLSX)"
+        accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        busy={bookBusy}
+        onFile={(event) => void onBook(event)}
+        command="Stage workbook"
+        ready={book !== null}
+        onStage={() => {
+          if (book !== null) stageBook(book, `Stage ${book.fileName}`);
+        }}
+      />
+      <UploadStatus message={bookMessage} testId="intake-workbook-status" />
+      {waiting.length > 0 ? <DropFolderTable rows={waiting} /> : null}
+      {exports.isError ? (
         <UnavailableState inline error={exports.error} subject="The drop folder" />
       ) : null}
-      <WorkbookUpload onStaged={onStaged} />
+      {drops.isError ? (
+        <UnavailableState inline error={drops.error} subject="The ops drop folder" />
+      ) : null}
       {previewMode ? (
         <>
           <SectionHeader>Sample exports</SectionHeader>
@@ -331,13 +384,13 @@ function UploadCard({ onStaged }: { onStaged: (result: IntakeImportResult) => vo
             Three synthetic exports built for the preview: one that matches the record, one with a
             restated position and a new quarter, and one with a defect for each validation rule.
           </p>
-          <div className="pb-intake-samples">
+          <div className="pb-actions">
             {SAMPLE_SCENARIOS.map((scenario) => (
               <Button
                 key={scenario}
                 size="small"
                 appearance="secondary"
-                disabled={busy}
+                disabled={exportBusy}
                 data-testid={`intake-sample-${scenario}`}
                 onClick={() => void stageSample(scenario)}
               >
@@ -445,6 +498,7 @@ export function IntakePage(): ReactNode {
     return (
       <>
         <PageHeader title="Intake" meta={INTAKE_META} />
+        <TabNav label="Admin" items={ADMIN_TABS} />
         <UnavailableState
           card
           error={files.error}
@@ -460,6 +514,7 @@ export function IntakePage(): ReactNode {
   return (
     <>
       <PageHeader title="Intake" meta={INTAKE_META} />
+      <TabNav label="Admin" items={ADMIN_TABS} />
       {isOps ? (
         <UploadCard
           onStaged={(result) =>

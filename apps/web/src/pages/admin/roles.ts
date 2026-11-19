@@ -19,7 +19,7 @@ export const ROLE_ROWS: readonly RoleRow[] = [
   {
     role: 'deal_team',
     label: 'Deal team',
-    sees: 'Reads what a viewer reads plus every client, its LP commitments and the client lines of a deal (the investment team is entitled to all clients, SEC-5.2), and can add sponsors, edit the investments it can see and give the first-step valuation approval; no walls or audit events.',
+    sees: 'Reads what a viewer reads plus every client, its LP commitments and the client lines of a deal (the investment team is entitled to all clients), and can add sponsors, edit the investments it can see and give the first-step valuation approval; no walls or audit events.',
   },
   {
     role: 'operations',
@@ -34,12 +34,12 @@ export const ROLE_ROWS: readonly RoleRow[] = [
   {
     role: 'investor_relations',
     label: 'Investor relations',
-    sees: 'Reads the portfolio plus the clients and LP commitments it is entitled to (SEC-5.2); no valuation history, walls or audit events, and no writes.',
+    sees: 'Reads the portfolio plus the clients and LP commitments it is entitled to; no valuation history, walls or audit events, and no writes.',
   },
   {
     role: 'platform_admin',
     label: 'Platform admin',
-    sees: 'Changes feature flags and taxonomy terms, creates walls and reads every wall and the audit trail; configuration rights give no access to client data or valuation history (SEC-5.4).',
+    sees: 'Changes feature flags and taxonomy terms, creates walls and reads every wall and the audit trail; configuration rights give no access to client data or valuation history.',
   },
   {
     role: 'auditor',
@@ -54,4 +54,4 @@ export const ROLE_ROWS: readonly RoleRow[] = [
 ];
 
 export const ROLE_SOURCE =
-  'Source: docs/05 section 5 and packages/db/src/rls/matrix.ts, proven by packages/db/src/rls/matrix.test.ts (pnpm test:rls). A wall adds its records to a member’s view on top of the role (SEC-5.3); non-members never learn the record exists.';
+  'Each role is enforced on the server and again in the database, and every role is tested against every table. A wall adds its records to a member’s view on top of the role; non-members never learn the record exists.';

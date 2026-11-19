@@ -43,7 +43,6 @@ import {
   csvRowCount,
   documentStatusWord,
   downloadText,
-  dueLabel,
   everyPage,
   exportFileName,
   exportResult,
@@ -98,82 +97,109 @@ function Tiles({ counts }: { counts: MonitoringBoard['counts'] }): ReactNode {
   );
 }
 
-/** The expected report: its status, its due date and age, and the document on file when one is. */
-function DocumentCell({ row }: { row: MonitoringBoardRow }): ReactNode {
-  const due = dueLabel(row.dueDate);
-  const age = ageLabel(row.documentStatus, row.ageDays);
+/** The expected report's status as a dot and a word; the word opens the document when one is on file. */
+function ReportCell({ row }: { row: MonitoringBoardRow }): ReactNode {
+  const word = documentStatusWord(row.documentStatus);
+  const badge = <Badge tone={expectedStatusTone(row.documentStatus)}>{word}</Badge>;
   return (
-    <td className="pb-monitoring-status">
-      <Badge tone={expectedStatusTone(row.documentStatus)}>
-        {documentStatusWord(row.documentStatus)}
-      </Badge>
-      <span className="pb-monitoring-lines">
-        <span>{due ?? 'No due date yet'}</span>
-        {age === null ? null : <span>{age}</span>}
-        {row.documentId === null ? null : (
-          <Link
-            to="/documents/$id"
-            params={{ id: row.documentId }}
-            aria-label={`Document, ${row.companyName}`}
-          >
-            Document
-          </Link>
-        )}
-      </span>
+    <td className="pb-nowrap">
+      {row.documentId === null ? (
+        badge
+      ) : (
+        <Link
+          to="/documents/$id"
+          params={{ id: row.documentId }}
+          aria-label={`Document, ${row.companyName}, ${word}`}
+        >
+          {badge}
+        </Link>
+      )}
     </td>
   );
 }
 
-/** The latest extraction run of the position for the quarter, with a link to its review. */
-function RunCell({ row }: { row: MonitoringBoardRow }): ReactNode {
+/**
+ * When the report is due, and under the date how early, late or far off it is, for every report:
+ * quiet for a report received or still expected, in the report's own ink (watch or bad) once it is
+ * late or missing.
+ */
+function DueCell({ row }: { row: MonitoringBoardRow }): ReactNode {
+  const age = ageLabel(row.documentStatus, row.ageDays);
+  const overdue = row.documentStatus === 'late' || row.documentStatus === 'missing';
   return (
-    <td>
-      {row.runState === null ? (
-        <span className="pb-meta">{MISSING}</span>
+    <td className="pb-nowrap">
+      {row.dueDate === null ? (
+        <span className="pb-meta">No due date yet</span>
       ) : (
-        <Badge tone={runStateTone(row.runState)}>{runStateWord(row.runState)}</Badge>
+        formatDate(row.dueDate)
       )}
-      {row.runId === null ? null : (
-        <span className="pb-monitoring-lines">
-          <Link
-            to="/documents/extraction/$id"
-            params={{ id: row.runId }}
-            aria-label={`Run, ${row.companyName}`}
-          >
-            Run
-          </Link>
+      {age === null ? null : (
+        <span
+          className={
+            overdue
+              ? `pb-cell-sub pb-monitoring-age is-${expectedStatusTone(row.documentStatus)}`
+              : 'pb-cell-sub pb-monitoring-age'
+          }
+        >
+          {age}
         </span>
       )}
     </td>
   );
 }
 
-/** The approval the quarter has reached; an approved quarter without a recorded time shows the placeholder. */
+/** The latest extraction run of the position for the quarter, as a dot and a word that opens its review. */
+function RunCell({ row }: { row: MonitoringBoardRow }): ReactNode {
+  if (row.runState === null) return <td className="is-missing">{MISSING}</td>;
+  const word = runStateWord(row.runState);
+  const badge = <Badge tone={runStateTone(row.runState)}>{word}</Badge>;
+  return (
+    <td className="pb-nowrap">
+      {row.runId === null ? (
+        badge
+      ) : (
+        <Link
+          to="/documents/extraction/$id"
+          params={{ id: row.runId }}
+          aria-label={`Run, ${row.companyName}, ${word}`}
+        >
+          {badge}
+        </Link>
+      )}
+    </td>
+  );
+}
+
+/** The approval the quarter has reached, with the day beside it; an approved quarter without a recorded time shows the placeholder. */
 function ApprovalCell({ row }: { row: MonitoringBoardRow }): ReactNode {
   return (
-    <td>
+    <td className="pb-nowrap">
       <Badge tone={approvalTone(row.approval)}>{approvalWord(row.approval)}</Badge>
       {row.approval === 'approved' ? (
-        <span className="pb-monitoring-lines">
-          <span>{approvedOnText(row.approvedAt)}</span>
-        </span>
+        <span className="pb-monitoring-day">{approvedOnText(row.approvedAt)}</span>
       ) : null}
     </td>
   );
 }
 
-function BoardTable({ rows }: { rows: readonly MonitoringBoardRow[] }): ReactNode {
+function BoardTable({
+  rows,
+  busy,
+}: {
+  rows: readonly MonitoringBoardRow[];
+  busy: boolean;
+}): ReactNode {
   return (
-    <TableWrap label="Monitoring board">
+    <TableWrap label="Monitoring board" busy={busy}>
       <table className="pb-table pb-monitoring-table" aria-label="Monitoring board">
         <thead>
           <tr>
-            <th>Inv #</th>
             <th>Company</th>
             <th>Vehicle</th>
             <th>Sponsor fund</th>
             <th>Deal type</th>
             <th>Report</th>
+            <th>Due</th>
             <th>Run</th>
             <th className="num">Flags</th>
             <th>Approval</th>
@@ -182,18 +208,17 @@ function BoardTable({ rows }: { rows: readonly MonitoringBoardRow[] }): ReactNod
         <tbody>
           {rows.map((row) => (
             <tr key={row.investmentId}>
-              <td>
-                <span className="pb-key">{row.investmentNumber}</span>
-              </td>
               <td className="pb-monitoring-company">
                 <Link to="/portfolio/$id" params={{ id: row.investmentId }}>
                   {row.companyName}
-                </Link>
+                </Link>{' '}
+                <span className="pb-key">{row.investmentNumber}</span>
               </td>
-              <td>{row.vehicleName}</td>
-              <td>{row.sponsorFundName ?? MISSING}</td>
-              <td>{labelOf(row.dealType)}</td>
-              <DocumentCell row={row} />
+              <td className="pb-col-text">{row.vehicleName}</td>
+              <td className="pb-col-text">{row.sponsorFundName ?? MISSING}</td>
+              <td className="pb-col-text">{labelOf(row.dealType)}</td>
+              <ReportCell row={row} />
+              <DueCell row={row} />
               <RunCell row={row} />
               <NumCell>{flagsText(row)}</NumCell>
               <ApprovalCell row={row} />
@@ -263,7 +288,7 @@ export function MonitoringPage(): ReactNode {
         meta={
           data === undefined
             ? MONITORING_META
-            : `Quarter ended ${formatDate(data.periodEnd)}, judged as of ${formatDate(data.asOf)}. ${MONITORING_META}.`
+            : `Quarter ended ${formatDate(data.periodEnd)}, as of ${formatDate(data.asOf)}. ${MONITORING_META}.`
         }
         actions={
           <Button
@@ -289,45 +314,45 @@ export function MonitoringPage(): ReactNode {
         />
       ) : (
         <>
+          <Toolbar>
+            <Field>
+              <Label htmlFor="monitoring-period">Quarter</Label>
+              <Dropdown
+                id="monitoring-period"
+                className="pb-monitoring-filter"
+                value={quarterLabel(period ?? data.periodEnd)}
+                selectedOptions={[period ?? data.periodEnd]}
+                onOptionSelect={(_e, d) => {
+                  if (d.optionValue !== undefined) setPeriod(d.optionValue);
+                }}
+              >
+                {periodOptions(
+                  positions.data?.map((i) => i.entryDate) ?? [],
+                  filters.asOf ?? data.asOf,
+                  data.periodEnd,
+                ).map((end) => (
+                  <Option key={end} value={end}>
+                    {quarterLabel(end)}
+                  </Option>
+                ))}
+              </Dropdown>
+            </Field>
+            <Field>
+              <Label htmlFor="monitoring-asof">As of</Label>
+              <Input
+                id="monitoring-asof"
+                type="date"
+                className="pb-monitoring-date"
+                value={asOfInput ?? data.asOf}
+                onChange={(_e, d) => setAsOfInput(d.value)}
+              />
+            </Field>
+          </Toolbar>
           <Tiles counts={data.counts} />
           <Card testId="monitoring-board">
             <SectionHeader aside={plural(data.rows.length, 'position')}>
               Positions for the quarter
             </SectionHeader>
-            <Toolbar>
-              <Field>
-                <Label htmlFor="monitoring-period">Quarter</Label>
-                <Dropdown
-                  id="monitoring-period"
-                  className="pb-monitoring-filter"
-                  value={quarterLabel(period ?? data.periodEnd)}
-                  selectedOptions={[period ?? data.periodEnd]}
-                  onOptionSelect={(_e, d) => {
-                    if (d.optionValue !== undefined) setPeriod(d.optionValue);
-                  }}
-                >
-                  {periodOptions(
-                    positions.data?.map((i) => i.entryDate) ?? [],
-                    filters.asOf ?? data.asOf,
-                    data.periodEnd,
-                  ).map((end) => (
-                    <Option key={end} value={end}>
-                      {quarterLabel(end)}
-                    </Option>
-                  ))}
-                </Dropdown>
-              </Field>
-              <Field>
-                <Label htmlFor="monitoring-asof">As of</Label>
-                <Input
-                  id="monitoring-asof"
-                  type="date"
-                  className="pb-monitoring-date"
-                  value={asOfInput ?? data.asOf}
-                  onChange={(_e, d) => setAsOfInput(d.value)}
-                />
-              </Field>
-            </Toolbar>
             <ActionStatus latest={log.latest} testId="monitoring-action-status" />
             {data.rows.length === 0 ? (
               <EmptyState
@@ -336,9 +361,9 @@ export function MonitoringPage(): ReactNode {
                 testId="monitoring-empty"
               />
             ) : (
-              <BoardTable rows={data.rows} />
+              <BoardTable rows={data.rows} busy={board.isPlaceholderData} />
             )}
-            <p className="pb-meta">{thresholdsLine()}</p>
+            <p className="pb-note">{thresholdsLine()}</p>
           </Card>
         </>
       )}

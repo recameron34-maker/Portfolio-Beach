@@ -11,7 +11,8 @@ const REASON = 'Preview demonstration of the mock assistant';
 /**
  * Preview only: the ai.assistant kill switch stays off by default (migration 0003), so the preview
  * offers platform admins the same simulated flag change the Admin, Flags page makes, and tells
- * everyone else which mock user can make it. Outside the preview this renders nothing.
+ * everyone else which mock user can make it. It sits on the line that says the assistant is off.
+ * Outside the preview this renders nothing.
  */
 export function AssistantSwitch(): ReactNode {
   const me = useQuery(meQuery);
@@ -25,7 +26,8 @@ export function AssistantSwitch(): ReactNode {
     return (
       <div className="pb-assistant-switch" data-testid="assistant-switch">
         <Button
-          appearance="primary"
+          size="small"
+          appearance="secondary"
           disabled={change.isPending}
           onClick={() => change.mutate({ key: 'ai.assistant', enabled: true, reason: REASON })}
         >

@@ -1,21 +1,67 @@
 /* Portfolio Beach stylesheet. Colours and fonts come only from the CSS variables that theme.ts emits
-   from config/brand.json; this file never writes a hex, rgb or font name. Scale tokens below are not colours.
-   Grid areas: header, banner, nav, main. Any new direct child of .pb-shell must set grid-area. */
+   from config/brand.json; this file never writes a hex, rgb or font name (the faces themselves are
+   declared in app/fonts.css). Scale tokens below are not colours.
+   Grid areas: rail, top, main. Any new direct child of .pb-shell in the flow must set grid-area. */
+@import './app/fonts.css';
+
+/* The ledger look's tokens (decision 0026, docs/06 sections 1, 2 and 5). Every size, space, radius
+   and duration below is written by its name; a px value elsewhere is a rule or a fixed geometry. */
 :root {
-  --pb-header-h: 48px;
+  --pb-header-h: 44px;
   --pb-nav-w: 224px;
-  --pb-radius-sm: 4px;
-  --pb-radius: 8px;
-  --pb-radius-lg: 12px;
-  --pb-ease: cubic-bezier(0.2, 0, 0, 1);
-  --pb-ease-inout: cubic-bezier(0.45, 0, 0.55, 1);
-  --pb-dur-fast: 120ms;
-  --pb-dur: 180ms;
-  --pb-shadow-1: 0 1px 2px rgba(var(--pb-text-rgb), 0.06);
+
+  /* Shape: 2px on identifiers and focus outlines, 4px on controls and notices, 6px on dialogs. */
+  --pb-radius-sm: 2px;
+  --pb-radius: 4px;
+  --pb-radius-lg: 6px;
+  /* Shadows only on what floats over the page: tooltips and menus (2), dialogs and the drawer (3).
+     Sections, figures and steps carry none; the first token stays so the rules that name it hold. */
+  --pb-shadow-1: 0 0 0 transparent;
   --pb-shadow-2:
     0 2px 6px rgba(var(--pb-text-rgb), 0.06), 0 6px 16px -8px rgba(var(--pb-primary-rgb), 0.16);
   --pb-shadow-3:
     0 12px 32px -12px rgba(var(--pb-primary-rgb), 0.28), 0 2px 6px rgba(var(--pb-text-rgb), 0.06);
+
+  /* Space, on a 4px scale. A table cell's 6px vertical padding is the one value off it. */
+  --pb-space-1: 4px;
+  --pb-space-2: 8px;
+  --pb-space-3: 12px;
+  --pb-space-4: 16px;
+  --pb-space-5: 24px;
+  --pb-space-6: 32px;
+  --pb-space-7: 48px;
+  --pb-cell-py: 6px;
+
+  /* Type: one sans family, weights 400, 500 and 600, each size with its line height. */
+  --pb-text-xs: 11px; /* axis ticks only */
+  --pb-text-xs-lh: 16px;
+  --pb-text-sm: 12px; /* labels, table headers, sub-lines, status words, crumbs */
+  --pb-text-sm-lh: 16px;
+  --pb-text-md: 13px; /* body, cells, navigation, tabs, buttons, inputs */
+  --pb-text-md-lh: 20px;
+  --pb-text-lg: 14px; /* section titles */
+  --pb-text-lg-lh: 20px;
+  --pb-text-xl: 16px; /* dialog titles */
+  --pb-text-xl-lh: 24px;
+  --pb-text-title: 20px; /* page titles */
+  --pb-text-title-lh: 28px;
+  --pb-text-fig: 22px; /* key figures */
+  --pb-text-fig-lh: 28px;
+  --pb-text-prose: 14px; /* commentary and descriptions */
+  --pb-text-prose-lh: 22px;
+
+  /* Motion (section "Motion" below; mirrored in components/motion.ts, which a test holds to it). */
+  --pb-ease: cubic-bezier(0.2, 0, 0, 1); /* entrances and hovers */
+  --pb-ease-inout: cubic-bezier(0.45, 0, 0.55, 1); /* lines drawing, camera moves */
+  --pb-ease-exit: cubic-bezier(0.4, 0, 1, 1); /* exits only */
+  --pb-dur-instant: 80ms; /* press, tooltip */
+  --pb-dur-fast: 120ms; /* colour, border, chevrons, exits */
+  --pb-dur: 180ms; /* small entrances, status lines */
+  --pb-dur-enter: 220ms; /* page, section and dialog entrances */
+  --pb-dur-slow: 320ms; /* bars growing, a step filling, the radar opening */
+  --pb-dur-draw: 480ms; /* a line or sparkline drawing */
+  --pb-stagger: 24ms;
+  --pb-rise: 4px;
 }
 
 /* ---- Base ---- */
@@ -27,23 +73,34 @@ body,
   background: var(--pb-bg);
   color: var(--pb-text);
   font-family: var(--pb-font-ui);
-  font-size: 14px;
-  line-height: 1.5;
+  font-size: var(--pb-text-md);
+  line-height: var(--pb-text-md-lh);
+  /* Plex sets every digit on one width already; this keeps figures in columns in the fallback faces. */
+  font-variant-numeric: tabular-nums lining-nums;
   -webkit-text-size-adjust: 100%;
   -webkit-font-smoothing: antialiased;
 }
+/* The scrollbar's room is kept even when a dialog stops the page scrolling, so nothing shifts. */
+html {
+  scrollbar-gutter: stable;
+}
 * {
   box-sizing: border-box;
+}
+/* Bold is the type scale's heaviest weight, 600: the bundled face stops there (docs/06 section 2). */
+b,
+strong {
+  font-weight: 600;
 }
 a {
   color: var(--pb-brand-primary);
   text-decoration-thickness: 1px;
   text-underline-offset: 2px;
-  text-decoration-color: rgba(var(--pb-accent-rgb), 0.5);
+  text-decoration-color: rgba(var(--pb-primary-rgb), 0.35);
   transition: text-decoration-color var(--pb-dur-fast) var(--pb-ease);
 }
 a:hover {
-  text-decoration-color: var(--pb-brand-accent);
+  text-decoration-color: var(--pb-brand-primary);
 }
 :focus-visible {
   outline: 2px solid var(--pb-brand-accent);
@@ -65,208 +122,335 @@ p:last-child {
 }
 
 /* ---- Shell ---- */
+/* A rail the full height of the page beside a top bar and the page. The rail's surface and its
+   rule belong to the grid column, so they run to the foot of every page; its contents stay in view
+   while the page scrolls. Under 760px one bar holds everything and the navigation is a drawer. */
 .pb-shell {
   display: grid;
   grid-template-columns: var(--pb-nav-w) minmax(0, 1fr);
-  grid-template-rows: var(--pb-header-h) auto minmax(0, 1fr);
-  grid-template-areas: 'header header' 'banner banner' 'nav main';
+  grid-template-rows: var(--pb-header-h) minmax(0, 1fr);
+  grid-template-areas: 'rail top' 'rail main';
   min-height: 100vh;
   min-height: 100dvh;
 }
 
-.pb-header {
-  grid-area: header;
-  position: sticky;
-  top: 0;
-  z-index: 30;
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  height: var(--pb-header-h);
-  padding: 0 16px 0 20px;
-  background: var(--pb-brand-primary);
-  color: var(--pb-bg);
-  border-bottom: 1px solid var(--pb-primary-deep);
-  /* Fluent v9 reads its tokens as CSS variables, so the Dropdown and Button inside the header re-theme without reaching into their markup. Every name below is one the compiled Dropdown or Button styles read. */
-  --colorNeutralBackground1: var(--pb-primary-deep);
-  --colorNeutralBackground1Hover: var(--pb-brand-primary);
-  --colorNeutralBackground1Pressed: var(--pb-brand-primary);
-  --colorNeutralBackground3: var(--pb-primary-deep);
-  --colorNeutralForeground1: var(--pb-bg);
-  --colorNeutralForeground4: rgba(var(--pb-bg-rgb), 0.8);
-  --colorNeutralForeground2BrandHover: var(--pb-bg);
-  --colorNeutralForeground2BrandPressed: var(--pb-bg);
-  --colorNeutralStroke1: rgba(var(--pb-bg-rgb), 0.55);
-  --colorNeutralStroke1Hover: var(--pb-bg);
-  --colorNeutralStroke1Pressed: var(--pb-bg);
-  --colorNeutralStrokeAccessible: rgba(var(--pb-bg-rgb), 0.55);
-  --colorNeutralStrokeAccessibleHover: var(--pb-bg);
-  --colorNeutralStrokeAccessiblePressed: var(--pb-bg);
-  --colorCompoundBrandStroke: var(--pb-bg);
-  --colorCompoundBrandStrokePressed: var(--pb-bg);
-  --colorStrokeFocus2: var(--pb-bg);
-  --colorTransparentBackgroundHover: rgba(var(--pb-bg-rgb), 0.12);
-  --colorTransparentBackgroundPressed: rgba(var(--pb-bg-rgb), 0.18);
-  --colorSubtleBackgroundHover: rgba(var(--pb-bg-rgb), 0.12);
-  --colorSubtleBackgroundPressed: rgba(var(--pb-bg-rgb), 0.18);
+/* Skip to content: out of sight until the keyboard reaches it, then over the page's corner. */
+.pb-skip:not(:focus) {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
 }
-.pb-header :focus-visible {
-  outline-color: var(--pb-bg);
-}
-.pb-wordmark {
-  font-family: var(--pb-font-display);
-  font-size: 18px;
-  line-height: 1;
-  letter-spacing: 0.01em;
+.pb-skip:focus {
+  position: fixed;
+  top: var(--pb-space-2);
+  left: var(--pb-space-2);
+  z-index: 40;
+  padding: var(--pb-space-2) var(--pb-space-3);
+  border-radius: var(--pb-radius);
+  background: var(--pb-text);
   color: var(--pb-bg);
+  font-weight: 500;
   text-decoration: none;
-  white-space: nowrap;
 }
-.pb-wordmark:focus-visible {
-  outline-offset: 6px;
-  border-radius: 2px;
-}
-.pb-header-spacer {
-  flex: 1;
-}
-.pb-header-identity {
-  display: contents;
-}
-.pb-header-user {
-  font-size: 13px;
-  line-height: 16px;
-  color: var(--pb-bg);
-  white-space: nowrap;
-}
-.pb-header .pb-header-switcher {
-  min-width: 220px;
-}
-.pb-header .pb-header-signout {
-  height: 28px;
+
+.pb-rail {
+  grid-area: rail;
   min-width: 0;
-  padding: 0 10px;
-  border: 1px solid rgba(var(--pb-bg-rgb), 0.55);
-  border-radius: var(--pb-radius-sm);
-  background: transparent;
-  color: var(--pb-bg);
-  font-size: 12px;
-  font-weight: 600;
-}
-.pb-header .pb-header-signout:hover {
-  background: rgba(var(--pb-bg-rgb), 0.12);
-  border-color: var(--pb-bg);
-  color: var(--pb-bg);
-}
-
-.pb-mock-banner {
-  grid-area: banner;
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  min-height: 30px;
-  padding: 5px 20px;
-  background: var(--pb-sand-pale);
-  color: var(--pb-text);
-  font-size: 12.5px;
-  line-height: 18px;
-  border-bottom: 1px solid var(--pb-sand-edge);
-}
-.pb-mock-tag {
-  flex: none;
-  display: inline-block;
-  padding: 1px 7px;
-  border-radius: 999px;
-  background: var(--pb-brand-sand);
-  color: var(--pb-brand-primary);
-  font-size: 10.5px;
-  line-height: 14px;
-  font-weight: 700;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
-}
-
-.pb-nav {
-  grid-area: nav;
-  position: sticky;
-  top: var(--pb-header-h);
-  align-self: start;
-  max-height: calc(100vh - var(--pb-header-h));
-  overflow-y: auto;
-  overscroll-behavior: contain;
-  padding: 12px 8px 16px;
-  background: var(--pb-bg);
+  background: var(--pb-surface-2);
   border-right: 1px solid var(--pb-border);
 }
+.pb-rail-inner {
+  position: sticky;
+  top: 0;
+  display: flex;
+  flex-direction: column;
+  max-height: 100vh;
+  max-height: 100dvh;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.pb-rail-brand {
+  flex: none;
+  display: flex;
+  align-items: center;
+  height: var(--pb-header-h);
+  padding: 0 var(--pb-space-4);
+}
+.pb-rail .pb-nav {
+  padding: var(--pb-space-2) var(--pb-space-2) var(--pb-space-5);
+}
+
+/* The wordmark: the mark in the brand ink with three bars of the page colour, then the name. */
+.pb-wordmark {
+  display: inline-flex;
+  align-items: center;
+  border-radius: var(--pb-radius-sm);
+  color: var(--pb-text);
+  text-decoration: none;
+}
+.pb-wordmark:focus-visible {
+  outline-offset: var(--pb-space-1);
+}
+.pb-wordmark-lockup {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--pb-space-2);
+  white-space: nowrap;
+}
+.pb-wordmark-mark {
+  display: block;
+  flex: none;
+}
+.pb-wordmark-tile {
+  fill: var(--pb-brand-primary);
+}
+.pb-wordmark-bar {
+  fill: var(--pb-bg);
+}
+.pb-wordmark-name {
+  font-size: var(--pb-text-lg);
+  line-height: var(--pb-text-lg-lh);
+  font-weight: 600;
+  letter-spacing: 0;
+  color: var(--pb-text);
+}
+
+/* Navigation: groups under a small label; the current area white on the rail, in a hairline ring. */
 .pb-nav-group {
   display: flex;
   flex-direction: column;
-  gap: 1px;
+  gap: 2px;
 }
 .pb-nav-group + .pb-nav-group {
-  margin-top: 14px;
-  padding-top: 12px;
-  border-top: 1px solid var(--pb-hairline);
+  margin-top: var(--pb-space-4);
 }
 .pb-nav-group-label {
   display: block;
-  margin: 0 12px 6px;
-  font-size: 10.5px;
-  line-height: 14px;
-  font-weight: 600;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
-  color: var(--pb-muted);
+  margin: 0 0 var(--pb-space-1);
+  padding: 0 var(--pb-space-2);
+  font-size: var(--pb-text-sm);
+  line-height: var(--pb-text-sm-lh);
+  font-weight: 500;
+  color: var(--pb-muted-strong);
 }
 .pb-nav-item {
-  position: relative;
   display: flex;
   align-items: center;
-  gap: 10px;
-  height: 32px;
-  padding: 0 10px;
-  border-radius: 6px;
+  gap: var(--pb-space-2);
+  height: 30px;
+  padding: 0 var(--pb-space-2);
+  border: 1px solid transparent;
+  border-radius: var(--pb-radius);
   color: var(--pb-text);
-  font-size: 13.5px;
+  font-size: var(--pb-text-md);
+  line-height: var(--pb-text-md-lh);
   font-weight: 500;
   text-decoration: none;
   white-space: nowrap;
   transition:
+    color var(--pb-dur-fast) var(--pb-ease),
     background-color var(--pb-dur-fast) var(--pb-ease),
-    color var(--pb-dur-fast) var(--pb-ease);
+    border-color var(--pb-dur-fast) var(--pb-ease);
 }
 .pb-nav-item:hover {
-  background: var(--pb-primary-tint-4);
-  color: var(--pb-brand-primary);
+  background: var(--pb-primary-tint-8);
 }
 .pb-nav-item:focus-visible {
-  outline-offset: 1px;
+  outline-offset: -1px;
 }
 .pb-nav-item[aria-current='page'] {
-  background: var(--pb-primary-tint-8);
-  color: var(--pb-brand-primary);
+  background: var(--pb-bg);
+  border-color: var(--pb-border);
   font-weight: 600;
-  box-shadow: inset 3px 0 0 var(--pb-brand-accent);
 }
 .pb-nav-icon {
   display: inline-flex;
-  flex: 0 0 20px;
-  width: 20px;
-  height: 20px;
+  flex: none;
+  width: 16px;
+  height: 16px;
   color: var(--pb-muted-strong);
   transition: color var(--pb-dur-fast) var(--pb-ease);
 }
 .pb-nav-icon > svg {
-  width: 20px;
-  height: 20px;
+  width: 16px;
+  height: 16px;
 }
 .pb-nav-label {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
 }
-.pb-nav-item:hover .pb-nav-icon,
+.pb-nav-item:hover .pb-nav-icon {
+  color: var(--pb-text);
+}
 .pb-nav-item[aria-current='page'] .pb-nav-icon {
   color: var(--pb-brand-primary);
+}
+
+/* The top bar over the page: the prototype marker on the left, the user on the right. */
+.pb-topbar {
+  grid-area: top;
+  position: sticky;
+  top: 0;
+  z-index: 30;
+  display: flex;
+  align-items: center;
+  gap: var(--pb-space-3);
+  min-width: 0;
+  height: var(--pb-header-h);
+  padding: 0 var(--pb-space-6);
+  background: var(--pb-bg);
+  border-bottom: 1px solid var(--pb-hairline);
+}
+.pb-topbar-spacer {
+  flex: 1 0 0;
+}
+
+/* The prototype marker: a watch dot and "Prototype", then the data rule, cut short if it must be
+   (the whole sentence stays in the element and its title). */
+.pb-mock-banner {
+  display: flex;
+  align-items: center;
+  gap: var(--pb-space-2);
+  flex: 0 1 auto;
+  min-width: 0;
+  font-size: var(--pb-text-sm);
+  line-height: var(--pb-text-sm-lh);
+}
+.pb-mock-word {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: var(--pb-space-1);
+  font-weight: 600;
+  color: var(--pb-watch-ink);
+}
+.pb-mock-word::before {
+  content: '';
+  flex: none;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--pb-watch);
+}
+.pb-mock-sentence {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--pb-muted-strong);
+}
+
+/* The user: initials, the name, the switcher showing the role in words, and Sign out. */
+.pb-topbar-identity {
+  display: flex;
+  flex: 0 1 auto;
+  align-items: center;
+  gap: var(--pb-space-2);
+  min-width: 0;
+}
+.pb-initials {
+  display: inline-grid;
+  flex: none;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: var(--pb-primary-tint-12);
+  color: var(--pb-brand-primary);
+  font-size: var(--pb-text-sm);
+  line-height: var(--pb-text-sm-lh);
+  font-weight: 600;
+}
+.pb-topbar-user {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 500;
+}
+/* Fluent's Dropdown keeps its behaviour; two classes here outrank its one-class styles. */
+.fui-Dropdown.pb-user-switcher {
+  min-width: 0;
+  border-color: var(--pb-border);
+  border-radius: var(--pb-radius);
+}
+.fui-Dropdown.pb-user-switcher:hover {
+  border-color: var(--pb-border-strong);
+}
+.fui-Listbox.pb-user-list {
+  min-width: 280px;
+  border: 1px solid var(--pb-border);
+  border-radius: var(--pb-radius);
+  box-shadow: var(--pb-shadow-2);
+}
+/* The users grouped by role, dense enough that every group fits under the bar. */
+.fui-Listbox.pb-user-list .fui-Option {
+  padding-block: var(--pb-space-1);
+}
+.fui-Listbox.pb-user-list .fui-OptionGroup__label {
+  padding-block: var(--pb-space-1) 2px;
+  font-size: var(--pb-text-sm);
+  line-height: var(--pb-text-sm-lh);
+  font-weight: 500;
+  color: var(--pb-muted-strong);
+}
+.fui-Button.pb-topbar-signout {
+  min-width: 0;
+  color: var(--pb-muted-strong);
+  font-weight: 500;
+}
+.fui-Button.pb-topbar-icon {
+  flex: none;
+  min-width: 44px;
+  width: 44px;
+  height: 44px;
+  color: var(--pb-text);
+}
+
+/* The phone's navigation: a drawer from the start edge, the rail's surface, the same groups. */
+.fui-OverlayDrawer.pb-drawer {
+  --fui-Drawer--size: 300px;
+  background: var(--pb-surface-2);
+  box-shadow: var(--pb-shadow-3);
+}
+.fui-DrawerHeader.pb-drawer-head {
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--pb-space-2);
+  height: var(--pb-header-h);
+  padding: 0 var(--pb-space-1) 0 var(--pb-space-4);
+}
+.fui-DrawerBody.pb-drawer-body {
+  padding: var(--pb-space-2) var(--pb-space-2) var(--pb-space-5);
+}
+.pb-drawer-note {
+  margin: 0 var(--pb-space-2) var(--pb-space-4);
+  font-size: var(--pb-text-sm);
+  line-height: var(--pb-text-sm-lh);
+  color: var(--pb-muted-strong);
+}
+.pb-drawer-identity {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--pb-space-2);
+  margin: var(--pb-space-5) var(--pb-space-2) 0;
+  padding-top: var(--pb-space-4);
+  border-top: 1px solid var(--pb-border);
+}
+.pb-drawer-user {
+  flex: 1 1 0;
+  min-width: 0;
+  font-weight: 500;
+}
+.pb-drawer-identity > .fui-Dropdown.pb-user-switcher {
+  flex: 1 1 100%;
+  background: var(--pb-bg);
 }
 
 .pb-main {
@@ -274,258 +458,607 @@ p:last-child {
   min-width: 0;
   width: 100%;
   max-width: 1480px;
-  padding: 24px 28px 56px;
+  padding: var(--pb-space-5) var(--pb-space-6) var(--pb-space-7);
+}
+/* The skip link's target takes focus without drawing a ring around the whole page. */
+.pb-main:focus {
+  outline: none;
 }
 
 /* ---- Page header, meta ---- */
+/* A grid: the trail of a record's page above the title, the title, the meta line under it, and the
+   page's actions on the right, centred on title and meta. No rule under it; the page's first
+   section carries none either. */
 .pb-banner {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-areas: 'crumbs crumbs' 'title actions' 'meta actions';
+  column-gap: var(--pb-space-5);
+  row-gap: 2px;
+  align-items: center;
+  margin: 0 0 var(--pb-space-5);
+  padding: 0;
+  border: 0;
+}
+.pb-banner > .pb-crumbs {
+  grid-area: crumbs;
+  margin-bottom: 2px;
+}
+.pb-banner > h1,
+.pb-banner-title > h1 {
+  grid-area: title;
+  min-width: 0;
+  margin: 0;
+  font-family: var(--pb-font-ui);
+  font-size: var(--pb-text-title);
+  line-height: var(--pb-text-title-lh);
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  color: var(--pb-text);
+}
+.pb-banner > .pb-meta {
+  grid-area: meta;
+  min-width: 0;
+}
+/* A record's identifier and state on the title's line, after the heading and outside it. */
+.pb-banner-title {
+  grid-area: title;
   display: flex;
   flex-wrap: wrap;
   align-items: baseline;
-  gap: 6px 18px;
-  margin: 0 0 20px;
-  padding: 0 0 14px;
-  border-bottom: 1px solid var(--pb-hairline);
+  gap: 0 var(--pb-space-3);
+  min-width: 0;
 }
-.pb-banner h1 {
-  margin: 0;
-  font-family: var(--pb-font-display);
-  font-weight: 400;
-  font-size: 24px;
-  line-height: 30px;
-  letter-spacing: 0.005em;
-  color: var(--pb-brand-primary);
+.pb-banner-title-aside {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0 var(--pb-space-3);
 }
 .pb-banner-actions {
+  grid-area: actions;
+  justify-self: end;
   display: inline-flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 8px;
-  margin-left: auto;
+  gap: var(--pb-space-2);
+}
+/* What follows a record's name inside its title (a version's quarter and number): lighter, in
+   even figures, set off by a gap; the colon a screen reader hears is hidden from sight. */
+.pb-title-suffix {
+  font-weight: 400;
+  white-space: nowrap;
+  letter-spacing: 0;
+  color: var(--pb-muted);
+  font-variant-numeric: tabular-nums;
+}
+.pb-title-part::before {
+  content: '\00B7';
+  margin-right: var(--pb-space-1);
+}
+/* A record's commands directly under its header (a valuation version, a capital notice), with no
+   heading, rule or frame: the command row, then the result of the reader's command, then the
+   quiet lines that say what a command needs or why none is left. */
+.pb-command-block {
+  margin: 0 0 var(--pb-space-5);
+}
+.pb-command-block > * {
+  margin: 0;
+}
+.pb-command-block > * + :not(:empty) {
+  margin-top: var(--pb-space-2);
+}
+.pb-command-block .pb-action-status > .pb-notice,
+.pb-command-block > .pb-notice {
+  width: fit-content;
+  max-width: 100%;
+  margin: 0;
+}
+.pb-command-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: var(--pb-space-2) var(--pb-space-3);
+}
+/* The marker sits level with the buttons, whatever reason lines hang under them. */
+.pb-command-row > .pb-simulated {
+  margin-top: var(--pb-space-2);
+}
+/* The trail of a record's page: earlier steps as quiet links, a slash between them. */
+.pb-crumbs > ol {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: var(--pb-text-sm);
+  line-height: var(--pb-text-sm-lh);
+  color: var(--pb-muted-strong);
+}
+.pb-crumbs li + li::before {
+  content: '/';
+  margin: 0 var(--pb-space-2);
+  color: var(--pb-border-strong);
+}
+.pb-crumbs a {
+  color: var(--pb-muted-strong);
+  text-decoration: none;
+}
+.pb-crumbs a:hover,
+.pb-crumbs a:focus-visible {
+  color: var(--pb-brand-primary);
+  text-decoration: underline;
+  text-decoration-color: currentColor;
 }
 .pb-meta {
-  font-size: 13px;
-  line-height: 20px;
+  font-size: var(--pb-text-md);
+  line-height: var(--pb-text-md-lh);
   color: var(--pb-muted);
 }
 .pb-meta-list {
   display: inline-flex;
   flex-wrap: wrap;
-  font-size: 13px;
-  line-height: 20px;
+  column-gap: var(--pb-space-4);
+  font-size: var(--pb-text-md);
+  line-height: var(--pb-text-md-lh);
   color: var(--pb-muted);
+  /* A line that wraps never starts with a dot: each dot sits in the gap before its item, and the
+     one before an item that opens a line falls outside the list, where this clips it. The margin
+     keeps a focus ring at the list's edge in view. */
+  overflow-x: clip;
+  overflow-clip-margin: var(--pb-space-1);
+}
+.pb-meta-list > span {
+  position: relative;
 }
 .pb-meta-list > span + span::before {
   content: '\00B7';
-  margin: 0 8px;
+  position: absolute;
+  right: 100%;
+  width: var(--pb-space-4);
+  text-align: center;
+}
+/* One plain-text item of the meta that can run long (a file name): clipped, its text in title. */
+.pb-meta-clip {
+  display: inline-block;
+  max-width: 40ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  vertical-align: bottom;
 }
 
-/* ---- Cards and section headers ---- */
+/* A tab's rule in one quiet line at the top of its body, under the tab row (the valuation board,
+   the suggestions, the trade tickets, the wire register); the section under it draws no rule. */
+.pb-tab-rule {
+  margin: 0 0 var(--pb-space-4);
+}
+
+/* What a tab's figures are over (PageContext), directly under the tab row: the as-of date and the
+   scope as items with a dot between them on the left, the tab's own controls on the right, and a
+   scope sentence on a line of its own. It draws no rule, so the tab row's rule is the only line
+   between the header and the tab's first section, which draws none either. */
+.pb-page-context {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--pb-space-2) var(--pb-space-4);
+  margin: 0 0 var(--pb-space-4);
+}
+.pb-page-context-items {
+  min-width: 0;
+  margin: 0;
+}
+/* The controls keep their own spacing, so an empty result line beside them takes no room. */
+.pb-page-context-controls {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  row-gap: var(--pb-space-2);
+  margin-left: auto;
+}
+.pb-page-context-controls > * + * {
+  margin-left: var(--pb-space-3);
+}
+.pb-page-context-controls > .pb-action-status:empty + * {
+  margin-left: 0;
+}
+.pb-page-context-controls > .pb-action-status > .pb-notice {
+  margin: 0;
+  padding-block: var(--pb-space-1);
+}
+.pb-page-context-note {
+  flex: 0 0 100%;
+  margin: 0;
+  font-size: var(--pb-text-sm);
+  line-height: var(--pb-text-sm-lh);
+  color: var(--pb-muted);
+}
+
+/* ---- Sections and section titles ---- */
+/* A section (Card) is flat: a hairline rule above its content and space below, no frame. The first
+   section after the page header, the tabs, the figures strip or the analytics context row carries
+   no rule, looking past a result line that is still empty and into a wrapper that holds a page's
+   body (pb-page-body); a frame (is-panel) is only for what stands apart from the page, and keeps
+   its whole frame wherever it opens. */
 .pb-card {
-  background: var(--pb-bg);
-  border: 1px solid var(--pb-border);
-  border-radius: var(--pb-radius);
-  padding: 18px 20px 20px;
-  margin-bottom: 16px;
-  box-shadow: var(--pb-shadow-1);
+  background: none;
+  border: 0;
+  border-top: 1px solid var(--pb-border);
+  border-radius: 0;
+  box-shadow: none;
+  padding: var(--pb-space-4) 0 0;
+  margin: 0 0 var(--pb-space-6);
 }
 .pb-card > :last-child {
   margin-bottom: 0;
 }
-.pb-card-tinted {
-  background: var(--pb-sand-pale);
-  border-color: var(--pb-sand-edge);
-  box-shadow: none;
+:is(.pb-banner, .pb-tabs, .pb-tiles, .pb-page-context, .pb-tab-rule) + .pb-card:not(.is-panel),
+:is(.pb-banner, .pb-tabs, .pb-tiles, .pb-page-context, .pb-tab-rule) + .pb-two-col > .pb-card,
+:is(.pb-banner, .pb-tabs, .pb-tiles, .pb-page-context, .pb-tab-rule)
+  + .pb-action-status:empty
+  + .pb-card:not(.is-panel),
+:is(.pb-banner, .pb-tabs, .pb-tiles, .pb-page-context, .pb-tab-rule)
+  + .pb-action-status:empty
+  + .pb-two-col
+  > .pb-card,
+:is(.pb-banner, .pb-tabs, .pb-tiles, .pb-page-context, .pb-tab-rule)
+  + .pb-page-body
+  > .pb-card:first-child,
+:is(.pb-banner, .pb-tabs, .pb-tiles, .pb-page-context, .pb-tab-rule)
+  + .pb-page-body
+  > .pb-two-col:first-child
+  > .pb-card {
+  border-top: 0;
+  padding-top: 0;
 }
-.pb-card-tinted .pb-meta,
-.pb-card-tinted .pb-stat-label,
-.pb-card-tinted .pb-stat-hint,
-.pb-card-tinted .pb-kv th {
-  color: var(--pb-muted-strong);
+/* A section that ends on a figures strip: the strip's lower rule is the next section's rule, so
+   the next section draws none and starts as close under it as a section starts under its own. */
+.pb-card:has(> .pb-tiles:last-child):has(+ .pb-card) {
+  margin-bottom: 0;
 }
-.pb-card-tinted .pb-table-wrap {
-  border-color: var(--pb-sand-edge);
-  background: transparent;
+.pb-card:has(> .pb-tiles:last-child) + .pb-card {
+  border-top: 0;
 }
-.pb-card-tinted .pb-table td,
-.pb-card-tinted .pb-table th[scope='row'] {
-  border-bottom-color: var(--pb-sand-edge);
+.pb-card.is-panel {
+  border: 1px solid var(--pb-border);
+  border-radius: var(--pb-radius-lg);
+  padding: var(--pb-space-4);
 }
-.pb-card-tinted .pb-table tbody tr:hover td,
-.pb-card-tinted .pb-table tbody tr:hover th {
-  background: transparent;
-}
-.pb-card-error {
-  box-shadow:
-    inset 3px 0 0 var(--pb-bad),
-    var(--pb-shadow-1);
-}
+/* An error: its title in the bad ink after a dot of the bad colour. */
 .pb-card-error .pb-section-header {
   color: var(--pb-bad-ink);
 }
-.pb-card-error .pb-section-header > span:first-child {
-  border-bottom-color: var(--pb-bad);
+.pb-card-error .pb-section-header > span:first-child::before {
+  content: '';
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  margin-right: var(--pb-space-2);
+  border-radius: 50%;
+  background: var(--pb-bad);
+  vertical-align: 2px;
 }
+/* A title and its aside share a line while they fit; past that the aside drops under the title,
+   so a phone never folds the title a word a line. */
 .pb-section-header {
   display: flex;
+  flex-wrap: wrap;
   align-items: baseline;
   justify-content: space-between;
-  gap: 12px;
-  margin: 0 0 14px;
-  font-size: 11px;
-  line-height: 16px;
+  gap: var(--pb-space-1) var(--pb-space-3);
+  margin: 0 0 var(--pb-space-3);
+  font-size: var(--pb-text-lg);
+  line-height: var(--pb-text-lg-lh);
   font-weight: 600;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
-  color: var(--pb-brand-primary);
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--pb-text);
 }
-.pb-section-header > span:first-child {
-  display: inline-block;
-  padding-bottom: 5px;
-  border-bottom: 2px solid var(--pb-brand-accent);
-}
-/* The aside wraps inside its half of the header (chips on a phone) instead of widening the card. */
+/* The aside wraps inside its half of the title (chips on a phone) instead of widening the section. */
 .pb-section-aside {
   display: inline-flex;
   flex-wrap: wrap;
   justify-content: flex-end;
   align-items: center;
-  gap: 4px 8px;
+  gap: var(--pb-space-1) var(--pb-space-2);
   min-width: 0;
-  font-size: 12px;
-  line-height: 16px;
-  font-weight: 500;
+  font-size: var(--pb-text-sm);
+  line-height: var(--pb-text-sm-lh);
+  font-weight: 400;
   letter-spacing: 0;
   text-transform: none;
   color: var(--pb-muted);
 }
-/* Two cards side by side once each can be 440px wide (room for a four-column table); else stacked */
+/* A section title with commands beside it: the commands sit right, outside the heading. */
+.pb-section-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--pb-space-2) var(--pb-space-3);
+  margin: 0 0 var(--pb-space-3);
+}
+.pb-section-head > .pb-section-header {
+  flex: 1 1 auto;
+  margin: 0;
+}
+.pb-section-actions {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--pb-space-2);
+  margin-left: auto;
+}
+.pb-subhead {
+  margin: var(--pb-space-4) 0 var(--pb-space-1);
+  font-size: var(--pb-text-md);
+  line-height: var(--pb-text-md-lh);
+  font-weight: 600;
+  color: var(--pb-text);
+}
+.pb-subhead:first-child {
+  margin-top: 0;
+}
+/* Two sections side by side once each can be 440px wide (room for a four-column table); else
+   stacked. Each keeps its own rule; the gap is the space between sections. */
 .pb-two-col {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(min(100%, 440px), 1fr));
-  gap: 16px;
+  gap: var(--pb-space-6);
   align-items: start;
-  margin-bottom: 16px;
+  margin-bottom: var(--pb-space-6);
 }
 .pb-two-col > .pb-card {
   margin-bottom: 0;
 }
 
-/* ---- Stat tiles ---- */
-/* --pb-tile-min is the narrowest a tile may get; balanceTiles (lib/tiles.ts) then evens out the rows */
+/* ---- Figures strip ---- */
+/* One strip of cells between two rules, the figures in ink. The rules between cells are drawn by
+   the cells themselves (a 1px shadow on each cell's left and top), and the strip clips the ones on
+   its first column and first row, so the empty end of a short last row stays plain page.
+   --pb-tile-min is the narrowest a cell may get; balanceTiles (lib/tiles.ts) then evens out the
+   rows. Like a table, the strip reaches 8px past the section on each side and its cells keep 8px
+   at their sides, so every label starts on the section title's edge and every rule of a strip or
+   a table runs the same 8px past it. */
 .pb-tiles {
-  --pb-tile-min: 172px;
+  --pb-tile-min: 150px;
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(min(100%, var(--pb-tile-min)), 1fr));
-  gap: 12px;
-  margin-bottom: 16px;
+  gap: 0;
+  margin: 0 calc(var(--pb-space-2) * -1) var(--pb-space-6);
+  background: var(--pb-bg);
+  border-block: 1px solid var(--pb-border);
+  overflow: hidden;
 }
-/* Home: four columns with Current NAV across two, so seven tiles fill two even rows */
-.pb-home-tiles {
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+.pb-tiles > * {
+  box-shadow:
+    -1px 0 0 var(--pb-hairline),
+    0 -1px 0 var(--pb-hairline);
+}
+/* The strip clips at its edge, so a control in a cell keeps its focus ring inside the cell. */
+.pb-tiles :focus-visible {
+  outline-offset: -2px;
+}
+/* Home's seven figures: cells a little narrower than elsewhere, so the seven sit in one row from
+   about 1100px; balanceTiles makes it four and three below that, and two on a phone (the 480px
+   rule sets the phone's minimum). */
+.pb-home-figures {
+  --pb-tile-min: 116px;
+}
+/* A short strip (two or three figures): cells as wide as their figures need, not spread across
+   the page, and the rules as long as the cells. */
+.pb-tiles.is-compact {
+  grid-template-columns: none;
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(160px, 220px);
+  width: max-content;
+  max-width: calc(100% + var(--pb-space-4));
+}
+/* Figures in labelled groups (a vehicle's capital and its returns): each group a strip with its
+   name over it, side by side while both fit with four cells across, else one over the other. */
+.pb-tiles-groups {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 480px), 1fr));
+  gap: 0 var(--pb-space-6);
+  margin-bottom: var(--pb-space-6);
+}
+.pb-tiles-group {
+  display: grid;
+  grid-template-rows: auto 1fr;
+  gap: var(--pb-space-1);
+  min-width: 0;
+}
+.pb-tiles-group > .pb-tiles {
+  --pb-tile-min: 120px;
+  margin-bottom: 0;
+}
+.pb-tiles-group-label {
+  font-size: var(--pb-text-sm);
+  line-height: var(--pb-text-sm-lh);
+  font-weight: 600;
+  color: var(--pb-muted-strong);
+}
+.pb-tiles-groups + .pb-card {
+  border-top: 0;
+  padding-top: 0;
 }
 .pb-stat-tile.is-wide {
   grid-column: span 2;
 }
-.pb-stat-tile.is-wide .pb-sparkline {
-  width: 126px;
-  height: 36px;
-}
 .pb-stat-tile {
   display: flex;
   flex-direction: column;
-  gap: 4px;
-  min-height: 84px;
-  padding: 12px 14px 12px;
+  gap: 2px;
+  min-width: 0;
+  min-height: 0;
+  padding: var(--pb-space-2) var(--pb-space-2) var(--pb-space-3);
   background: var(--pb-bg);
-  border: 1px solid var(--pb-border);
-  border-radius: var(--pb-radius);
-  box-shadow: var(--pb-shadow-1);
+  border: 0;
+  border-radius: 0;
 }
+/* The label leads; a tone shows as a dot before it (not on a zero), never on the figure. */
 .pb-stat-label {
-  font-size: 11px;
-  line-height: 16px;
-  font-weight: 600;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--pb-muted);
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  font-size: var(--pb-text-sm);
+  line-height: var(--pb-text-sm-lh);
+  font-weight: 500;
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--pb-muted-strong);
+}
+.pb-stat-tile[data-tone]:not([data-zero]) > .pb-stat-label::before {
+  content: '';
+  flex: none;
+  width: 6px;
+  height: 6px;
+  margin-top: 5px;
+  border-radius: 50%;
+  background: var(--pb-border-strong);
+}
+.pb-stat-tile[data-tone='good']:not([data-zero]) > .pb-stat-label::before {
+  background: var(--pb-good);
+}
+.pb-stat-tile[data-tone='watch']:not([data-zero]) > .pb-stat-label::before {
+  background: var(--pb-watch);
+}
+.pb-stat-tile[data-tone='bad']:not([data-zero]) > .pb-stat-label::before {
+  background: var(--pb-bad);
 }
 .pb-stat-value {
-  font-size: 26px;
-  line-height: 30px;
+  font-size: var(--pb-text-fig);
+  line-height: var(--pb-text-fig-lh);
   font-weight: 600;
   letter-spacing: -0.01em;
-  color: var(--pb-brand-primary);
+  color: var(--pb-text);
   font-variant-numeric: tabular-nums lining-nums;
 }
+/* The missing placeholder stays quiet, on the figure's line so the hints below still line up. */
 .pb-stat-value.is-missing {
-  color: var(--pb-muted-strong);
+  font-size: var(--pb-text-lg);
   font-weight: 500;
+  letter-spacing: 0;
+  color: var(--pb-muted-strong);
 }
 .pb-stat-hint {
-  font-size: 12px;
-  line-height: 16px;
+  font-size: var(--pb-text-sm);
+  line-height: var(--pb-text-sm-lh);
   color: var(--pb-muted);
-}
-.pb-stat-tile[data-tone='good'] .pb-stat-value {
-  color: var(--pb-good-ink);
-}
-.pb-stat-tile[data-tone='watch'] .pb-stat-value {
-  color: var(--pb-watch-ink);
-}
-.pb-stat-tile[data-tone='bad'] .pb-stat-value {
-  color: var(--pb-bad-ink);
 }
 
 /* ---- Tables ---- */
 /* The frame every table sits in (TableWrap): a focusable region that scrolls sideways inside its
-   card. Positioned, so visually hidden text inside the table (absolutely positioned) scrolls and
-   clips with the table instead of widening the page. */
+   section. Positioned, so visually hidden text inside the table (absolutely positioned) scrolls and
+   clips with the table instead of widening the page. It reaches 8px past the section on each side,
+   so a cell's text lines up with the section title and the hover band runs past it. Where the table
+   is wider than the frame, a soft edge on the side that scrolls says so (two covers that travel
+   with the rows over two shadows that stay put). */
 .pb-table-wrap {
   position: relative;
   overflow-x: auto;
   -webkit-overflow-scrolling: touch;
-  border: 1px solid var(--pb-border);
-  border-radius: 6px;
-  background: var(--pb-bg);
+  margin-inline: calc(var(--pb-space-2) * -1);
+  border: 0;
+  border-radius: 0;
+  background:
+    linear-gradient(to right, var(--pb-bg), var(--pb-bg)) left center / var(--pb-space-2) 100%
+      no-repeat local,
+    linear-gradient(to left, var(--pb-bg), var(--pb-bg)) right center / var(--pb-space-2) 100%
+      no-repeat local,
+    linear-gradient(to right, rgba(var(--pb-text-rgb), 0.08), transparent) left center /
+      var(--pb-space-2) 100% no-repeat scroll,
+    linear-gradient(to left, rgba(var(--pb-text-rgb), 0.08), transparent) right center /
+      var(--pb-space-2) 100% no-repeat scroll;
 }
 .pb-table-wrap:focus-visible {
   outline-offset: 0;
 }
+/* A long table: a region of limited height whose header stays in view while the rows scroll. While
+   rows lie below its foot, a soft edge at the foot says so (a cover that travels with the rows over
+   a shade that stays put, as at the sides) and the foot takes a rule (TableWrap marks
+   data-more-below); at the last row both are gone. */
+.pb-table-wrap.is-tall {
+  max-height: min(72vh, 760px);
+  overflow: auto;
+  overscroll-behavior: contain;
+  border-bottom: 1px solid transparent;
+  background:
+    linear-gradient(to right, var(--pb-bg), var(--pb-bg)) left center / var(--pb-space-2) 100%
+      no-repeat local,
+    linear-gradient(to left, var(--pb-bg), var(--pb-bg)) right center / var(--pb-space-2) 100%
+      no-repeat local,
+    linear-gradient(to top, var(--pb-bg), var(--pb-bg)) center bottom / 100% var(--pb-space-4)
+      no-repeat local,
+    linear-gradient(to right, rgba(var(--pb-text-rgb), 0.08), transparent) left center /
+      var(--pb-space-2) 100% no-repeat scroll,
+    linear-gradient(to left, rgba(var(--pb-text-rgb), 0.08), transparent) right center /
+      var(--pb-space-2) 100% no-repeat scroll,
+    linear-gradient(to top, rgba(var(--pb-text-rgb), 0.1), transparent) center bottom / 100%
+      var(--pb-space-4) no-repeat scroll;
+}
+.pb-table-wrap.is-tall[data-more-below] {
+  border-bottom-color: var(--pb-border-strong);
+}
+.pb-table-wrap.is-tall thead th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--pb-bg);
+}
 .pb-table-wrap + .pb-table-wrap,
 .pb-table-wrap + .pb-notice {
-  margin-top: 12px;
+  margin-top: var(--pb-space-3);
 }
 .pb-table-wrap + .pb-meta {
-  margin-top: 10px;
+  margin-top: var(--pb-space-2);
+}
+/* A short table of a few columns (checks, flags, switches, a deal's financial performance) stops
+   at a reading width, so a state or a command sits near the words it belongs to; a register keeps
+   the page's width. */
+.pb-table.pb-table-short {
+  max-width: 880px;
+}
+/* A table of two or three short columns (a schedule of dates and amounts): as wide as it needs. */
+.pb-table.is-compact {
+  width: auto;
+  min-width: 280px;
 }
 .pb-table {
   width: 100%;
   border-collapse: separate;
   border-spacing: 0;
-  font-size: 13px;
-  line-height: 20px;
+  font-size: var(--pb-text-md);
+  line-height: var(--pb-text-md-lh);
 }
+/* The header is quiet: no fill, small muted words over a stronger rule, no rules between columns. */
 .pb-table thead th {
   height: 32px;
-  padding: 0 10px;
+  padding: 0 var(--pb-space-2) var(--pb-space-2);
   text-align: left;
-  vertical-align: middle;
-  background: var(--pb-brand-primary);
-  color: var(--pb-bg);
-  font-size: 12px;
+  vertical-align: bottom;
+  background: none;
+  color: var(--pb-muted-strong);
+  font-size: var(--pb-text-sm);
+  line-height: var(--pb-text-sm-lh);
   font-weight: 600;
-  letter-spacing: 0.03em;
+  letter-spacing: 0;
   white-space: nowrap;
+  border-bottom: 1px solid var(--pb-border-strong);
 }
-.pb-table thead th + th {
-  box-shadow: inset 1px 0 0 rgba(var(--pb-bg-rgb), 0.18);
-}
+/* Rows of 32px around a 20px line; cells top-aligned so a cell with a second line reads down. */
 .pb-table td,
 .pb-table th[scope='row'] {
-  padding: 7px 10px;
+  padding: var(--pb-cell-py) var(--pb-space-2);
   border-bottom: 1px solid var(--pb-hairline);
-  vertical-align: middle;
+  vertical-align: top;
   text-align: left;
+}
+.pb-table th[scope='row'] {
+  font-weight: 500;
 }
 .pb-table tbody tr:last-child td,
 .pb-table tbody tr:last-child th {
@@ -535,13 +1068,53 @@ p:last-child {
 .pb-table tbody tr:hover th {
   background: var(--pb-primary-tint-4);
 }
+/* The row the reader picked: a tint across it and the accent along its first cell. */
+.pb-table tr.is-selected > *,
+.pb-table tbody tr.is-selected:hover > * {
+  background: var(--pb-primary-tint-8);
+}
+.pb-table tr.is-selected > :first-child {
+  box-shadow: inset 2px 0 0 var(--pb-brand-accent);
+}
 .pb-table td.num,
 .pb-table th.num {
   text-align: right;
+  white-space: nowrap;
   font-variant-numeric: tabular-nums lining-nums;
 }
 .pb-table td.is-missing {
   color: var(--pb-muted-strong);
+}
+/* Totals sit in tfoot, under a stronger rule; a total's row header too, with no hairline under it. */
+.pb-table tfoot td,
+.pb-table tfoot th,
+.pb-table tfoot th[scope='row'] {
+  border-top: 1px solid var(--pb-border-strong);
+  border-bottom: 0;
+  font-weight: 600;
+}
+/* A dense table: 28px rows, for the long lists read line by line. Its cells keep their 8px sides,
+   so the text still starts under the header and on the section title's edge. */
+.pb-table.is-dense {
+  --pb-cell-py: 4px;
+}
+.pb-table a {
+  color: var(--pb-brand-primary);
+  font-weight: 500;
+  text-decoration: none;
+}
+.pb-table a:hover,
+.pb-table a:focus-visible {
+  text-decoration: underline;
+  text-decoration-color: currentColor;
+}
+/* A column as narrow as its content, and a text column that never folds to a word a line. */
+.pb-col-fit {
+  width: 1%;
+  white-space: nowrap;
+}
+.pb-col-text {
+  min-width: 18ch;
 }
 .pb-kv th[scope='row'] {
   width: 18%;
@@ -553,15 +1126,17 @@ p:last-child {
 .pb-kv tbody tr:hover th {
   background: transparent;
 }
+/* An identifier (INV-0001, Row 2) beside a name: plain small text with even figures, not a tag. */
 .pb-key {
-  display: inline-block;
-  padding: 1px 6px;
-  border-radius: var(--pb-radius-sm);
-  background: var(--pb-primary-tint-8);
-  color: var(--pb-brand-primary);
-  font-size: 12.5px;
-  line-height: 18px;
-  letter-spacing: 0.01em;
+  display: inline;
+  padding: 0;
+  margin-right: var(--pb-space-1);
+  border-radius: 0;
+  background: none;
+  color: var(--pb-muted-strong);
+  font-size: var(--pb-text-sm);
+  letter-spacing: 0;
+  font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
 .pb-list {
@@ -573,77 +1148,95 @@ p:last-child {
 }
 
 /* ---- Badges, status, chips ---- */
+/* A state is a dot and a word, never colour alone and never a pill: the dot carries the tone, the
+   word stays in the text colour unless the state needs its ink (watch, bad). Laid out on the text's
+   baseline so a status reads on the same line as the words beside it. */
 .pb-badge {
   display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  height: 20px;
-  padding: 0 8px;
-  border-radius: 999px;
-  border: 1px solid transparent;
-  font-size: 11px;
-  line-height: 18px;
-  font-weight: 600;
-  letter-spacing: 0.03em;
+  align-items: baseline;
+  gap: var(--pb-space-1);
+  font-size: var(--pb-text-sm);
+  line-height: var(--pb-text-sm-lh);
+  font-weight: 500;
+  letter-spacing: 0;
   white-space: nowrap;
-  vertical-align: middle;
+  vertical-align: baseline;
 }
 .pb-badge-dot {
+  align-self: center;
   width: 6px;
   height: 6px;
   border-radius: 50%;
-  background: currentColor;
+  background: var(--pb-border-strong);
   flex: none;
 }
 .pb-badge-neutral {
   color: var(--pb-muted-strong);
-  background: var(--pb-surface-2);
-  border-color: var(--pb-border);
 }
-.pb-badge-brand {
-  color: var(--pb-brand-primary);
-  background: var(--pb-primary-tint-8);
-  border-color: var(--pb-primary-tint-12);
-}
+.pb-badge-good,
+.pb-badge-brand,
 .pb-badge-accent {
-  color: var(--pb-accent-ink);
-  background: var(--pb-accent-tint-10);
-}
-.pb-badge-good {
-  color: var(--pb-good-ink);
-  background: var(--pb-good-tint);
-  border-color: rgba(var(--pb-good-rgb), 0.18);
+  color: var(--pb-text);
 }
 .pb-badge-watch {
   color: var(--pb-watch-ink);
-  background: var(--pb-watch-tint);
-  border-color: rgba(var(--pb-watch-rgb), 0.22);
 }
 .pb-badge-bad {
   color: var(--pb-bad-ink);
-  background: var(--pb-bad-tint);
-  border-color: rgba(var(--pb-bad-rgb), 0.18);
 }
-.pb-badge-plain .pb-badge-dot {
+.pb-badge-good > .pb-badge-dot {
+  background: var(--pb-good);
+}
+.pb-badge-watch > .pb-badge-dot {
+  background: var(--pb-watch);
+}
+.pb-badge-bad > .pb-badge-dot {
+  background: var(--pb-bad);
+}
+.pb-badge-brand > .pb-badge-dot {
+  background: var(--pb-brand-primary);
+}
+.pb-badge-accent > .pb-badge-dot {
+  background: var(--pb-brand-accent);
+}
+/* A category is plain text: no dot, no tone. */
+.pb-badge.pb-badge-plain {
+  color: var(--pb-muted-strong);
+}
+.pb-badge-plain > .pb-badge-dot {
   display: none;
 }
+/* The preview's "Simulated" and an assistant's "AI draft": a hollow ring and the word. */
 .pb-ai-draft,
 .pb-simulated {
   display: inline-flex;
-  align-items: center;
-  height: 18px;
-  padding: 0 7px;
-  margin-left: 6px;
-  border-radius: 999px;
-  border: 1px dashed var(--pb-watch);
-  background: var(--pb-watch-tint);
+  align-items: baseline;
+  gap: var(--pb-space-1);
+  margin-left: var(--pb-space-2);
+  font-size: var(--pb-text-sm);
+  line-height: var(--pb-text-sm-lh);
+  font-weight: 500;
+  letter-spacing: 0;
+  white-space: nowrap;
+  vertical-align: baseline;
   color: var(--pb-watch-ink);
-  font-size: 10.5px;
-  line-height: 16px;
-  font-weight: 600;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  vertical-align: middle;
+}
+.pb-ai-draft::before,
+.pb-simulated::before {
+  content: '';
+  align-self: center;
+  flex: none;
+  width: 6px;
+  height: 6px;
+  box-sizing: border-box;
+  border: 1.5px solid var(--pb-watch);
+  border-radius: 50%;
+}
+.pb-ai-draft {
+  color: var(--pb-accent-ink);
+}
+.pb-ai-draft::before {
+  border-color: var(--pb-brand-accent);
 }
 .pb-status-good {
   color: var(--pb-good-ink);
@@ -656,41 +1249,43 @@ p:last-child {
 }
 .pb-dot {
   display: inline-block;
-  width: 8px;
-  height: 8px;
-  margin-right: 6px;
+  width: 6px;
+  height: 6px;
+  margin-right: var(--pb-space-2);
   border-radius: 50%;
   background: currentColor;
-  vertical-align: 1px;
+  vertical-align: 2px;
 }
 .pb-chips {
   display: flex;
   flex-wrap: wrap;
-  gap: 8px;
-  margin: 0 0 10px;
+  gap: var(--pb-space-1) var(--pb-space-3);
+  margin: 0 0 var(--pb-space-3);
 }
-/* A workflow's states as a row of chips (WorkflowSpec on the phase pages) */
-.pb-workflow-states {
-  list-style: none;
-  padding: 0;
-  margin: 4px 0 14px;
+/* A workflow's steps (WorkflowSpec), folded under its summary; once open, the sentence and the
+   table follow the summary at the section's usual spacing. */
+.pb-workflow-spec > .pb-meta {
+  margin: var(--pb-space-2) 0 var(--pb-space-3);
 }
 
-/* ---- Toolbar, fields, tabs ---- */
+/* ---- Toolbar, fields, forms, quiet controls, tabs ---- */
+/* Filters over a table: no rule of their own, the table's header rule is the line under them. */
 .pb-toolbar {
   display: flex;
   flex-wrap: wrap;
   align-items: end;
-  gap: 10px 14px;
-  margin: 0 0 14px;
-  padding: 0 0 14px;
-  border-bottom: 1px solid var(--pb-hairline);
+  gap: var(--pb-space-3) var(--pb-space-4);
+  margin: 0 0 var(--pb-space-4);
+}
+/* A row of controls under a table (a pager, a count) keeps a little room from the last row. */
+.pb-table-wrap + .pb-toolbar {
+  margin-top: var(--pb-space-3);
 }
 .pb-toolbar-end {
   display: inline-flex;
   flex-wrap: wrap;
   align-items: end;
-  gap: 10px 8px;
+  gap: var(--pb-space-2);
   margin-left: auto;
 }
 .pb-toolbar .pb-header-spacer {
@@ -701,262 +1296,447 @@ p:last-child {
 }
 .pb-field {
   display: grid;
-  gap: 4px;
+  gap: var(--pb-space-1);
 }
 .pb-field > label,
 .pb-field > .fui-Label {
-  font-size: 11px;
-  line-height: 16px;
-  font-weight: 600;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  color: var(--pb-muted);
+  font-size: var(--pb-text-sm);
+  line-height: var(--pb-text-sm-lh);
+  font-weight: 500;
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--pb-muted-strong);
 }
-/* Tabs wrap to a second line rather than hide past the edge; phones swipe a single row instead */
-/* Tabs wrap at every width (a phone shows two rows rather than hiding tabs off the edge). */
+/* A form's fields in a row that wraps, their controls on one bottom line; or in an even grid. */
+.pb-form-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: var(--pb-space-3) var(--pb-space-4);
+}
+.pb-form-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 200px), 1fr));
+  align-items: start;
+  gap: var(--pb-space-3) var(--pb-space-4);
+}
+.pb-w-s {
+  width: 150px;
+}
+.pb-w-m {
+  width: 200px;
+}
+.pb-w-l {
+  width: 260px;
+}
+/* A command that sits among text (Show table, Clear filters): words in the link colour, a tint
+   under the pointer, no frame. */
+.pb-btn-quiet {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--pb-space-1);
+  min-height: 28px;
+  padding: 0 var(--pb-space-2);
+  border: 0;
+  border-radius: var(--pb-radius);
+  background: transparent;
+  color: var(--pb-brand-primary);
+  font: inherit;
+  font-size: var(--pb-text-md);
+  line-height: var(--pb-text-md-lh);
+  font-weight: 500;
+  cursor: pointer;
+}
+.pb-btn-quiet:hover {
+  background: var(--pb-primary-tint-8);
+}
+.pb-btn-quiet:active {
+  background: var(--pb-primary-tint-12);
+}
+.pb-btn-quiet:disabled {
+  color: var(--pb-muted-strong);
+  background: transparent;
+  cursor: default;
+}
+/* One choice of a few, side by side: the chosen one (aria-pressed) tinted in the link colour. */
+.pb-segmented {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 2px;
+  padding: 2px;
+  border: 1px solid var(--pb-border);
+  border-radius: var(--pb-radius);
+}
+.pb-segmented > button {
+  min-height: 28px;
+  padding: 0 var(--pb-space-3);
+  border: 0;
+  border-radius: var(--pb-radius-sm);
+  background: transparent;
+  color: var(--pb-muted-strong);
+  font: inherit;
+  font-size: var(--pb-text-md);
+  line-height: var(--pb-text-md-lh);
+  font-weight: 500;
+  cursor: pointer;
+}
+.pb-segmented > button:hover {
+  color: var(--pb-text);
+  background: var(--pb-primary-tint-4);
+}
+.pb-segmented > button[aria-pressed='true'] {
+  color: var(--pb-brand-primary);
+  background: var(--pb-primary-tint-8);
+  font-weight: 600;
+}
+.pb-btn-quiet,
+.pb-segmented > button {
+  transition:
+    color var(--pb-dur-fast) var(--pb-ease),
+    background-color var(--pb-dur-fast) var(--pb-ease);
+}
+.pb-btn-quiet:active,
+.pb-segmented > button:active {
+  transition-duration: var(--pb-dur-instant);
+}
+
+/* Tabs: the words in a row over a hairline; the current tab in ink with an accent line drawn under
+   it, over the hairline (section "Motion"). The hairline is painted behind the row, so a row that
+   scrolls (a phone) never clips the accent line. They wrap on a wide screen; on a phone they are
+   one row that scrolls. The row starts a tab's side room left of the page's edge, so the first
+   tab's word sits on the edge the title and the tables' text share, its hit area in the gutter. */
 .pb-tabs {
   display: flex;
   flex-wrap: wrap;
-  gap: 2px;
-  margin: 0 0 16px;
-  border-bottom: 1px solid var(--pb-border);
-  overflow-x: auto;
+  gap: 0 var(--pb-space-1);
+  margin: 0 0 var(--pb-space-5) calc(var(--pb-space-3) * -1);
+  box-shadow: inset 0 -1px 0 var(--pb-border);
   scrollbar-width: none;
 }
 .pb-tabs::-webkit-scrollbar {
   display: none;
 }
 .pb-tabs a {
+  position: relative;
   flex: none;
   display: inline-flex;
   align-items: center;
   height: 36px;
-  padding: 0 12px;
-  margin-bottom: -1px;
+  padding: 0 var(--pb-space-3);
   color: var(--pb-muted-strong);
-  font-size: 13px;
+  font-size: var(--pb-text-md);
   font-weight: 500;
   text-decoration: none;
-  border-bottom: 2px solid transparent;
-  transition:
-    color var(--pb-dur-fast) var(--pb-ease),
-    border-color var(--pb-dur-fast) var(--pb-ease);
+  transition: color var(--pb-dur-fast) var(--pb-ease);
 }
 .pb-tabs a:hover {
-  color: var(--pb-brand-primary);
+  color: var(--pb-text);
 }
 .pb-tabs a:focus-visible {
   outline-offset: -2px;
 }
 .pb-tabs a[aria-current='page'] {
-  color: var(--pb-brand-primary);
+  color: var(--pb-text);
   font-weight: 600;
-  border-bottom-color: var(--pb-brand-accent);
 }
 
 /* ---- Empty, notice, loading ---- */
+/* Nothing to show: a title and its reason, left-aligned, with no frame and no mark. On its own in a
+   section or on the page it takes a little more room and a larger title. */
 .pb-empty {
   display: grid;
-  justify-items: center;
-  gap: 6px;
-  padding: 32px 20px;
-  border: 1px dashed var(--pb-border-strong);
-  border-radius: 6px;
-  background: var(--pb-surface-2);
-  text-align: center;
+  gap: 2px;
+  justify-items: start;
+  padding: var(--pb-space-3) 0;
+  text-align: left;
 }
-.pb-empty-mark {
-  width: 56px;
-  height: 20px;
-  margin-bottom: 4px;
+/* Nothing to show inside a section, in one muted line (EmptyLine): what is missing, then why. */
+.pb-empty-line {
+  margin: 0;
+}
+.pb-empty-line-title {
+  font-weight: 500;
   color: var(--pb-muted-strong);
+}
+.pb-card > .pb-empty:only-child,
+.pb-main > .pb-empty {
+  padding: var(--pb-space-5) 0;
 }
 .pb-empty-title {
   margin: 0;
-  font-size: 14px;
-  line-height: 20px;
+  font-size: var(--pb-text-md);
+  line-height: var(--pb-text-md-lh);
   font-weight: 600;
   color: var(--pb-text);
 }
+.pb-card > .pb-empty:only-child > .pb-empty-title,
+.pb-main > .pb-empty > .pb-empty-title {
+  font-size: var(--pb-text-lg);
+  line-height: var(--pb-text-lg-lh);
+}
 .pb-empty-detail {
   margin: 0;
-  max-width: 52ch;
-  font-size: 13px;
-  line-height: 20px;
+  max-width: 72ch;
+  font-size: var(--pb-text-md);
+  line-height: var(--pb-text-md-lh);
   color: var(--pb-muted-strong);
 }
+.pb-empty + .pb-meta {
+  margin-top: var(--pb-space-2);
+}
+/* A notice: a dot and a sentence on a quiet band, no frame and no bar. The tone shows in the dot,
+   the band and the ink. A control inside one sits in a trailing span after the sentence. */
 .pb-notice {
-  display: flex;
-  align-items: flex-start;
-  gap: 10px;
-  margin: 12px 0 0;
-  padding: 8px 12px;
-  border: 1px solid var(--pb-border);
-  border-left: 3px solid var(--pb-brand-accent);
-  border-radius: 0 6px 6px 0;
+  position: relative;
+  display: block;
+  margin: var(--pb-space-3) 0;
+  padding: var(--pb-space-2) var(--pb-space-3) var(--pb-space-2) var(--pb-space-5);
+  border-radius: var(--pb-radius);
   background: var(--pb-primary-tint-4);
-  font-size: 13px;
-  line-height: 20px;
+  font-size: var(--pb-text-md);
+  line-height: var(--pb-text-md-lh);
   color: var(--pb-text);
 }
+.pb-notice::before {
+  content: '';
+  position: absolute;
+  left: var(--pb-space-3);
+  top: calc(var(--pb-space-2) + 7px);
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--pb-brand-accent);
+}
+.pb-notice > ul,
+.pb-notice > ol {
+  margin: var(--pb-space-1) 0 0;
+  padding-left: var(--pb-space-4);
+}
+.pb-notice-action {
+  margin-left: var(--pb-space-2);
+}
 .pb-notice-good {
-  border-color: rgba(var(--pb-good-rgb), 0.25);
-  border-left-color: var(--pb-good);
   background: var(--pb-good-tint);
   color: var(--pb-good-ink);
 }
+.pb-notice-good::before {
+  background: var(--pb-good);
+}
+.pb-notice-watch {
+  background: var(--pb-watch-tint);
+  color: var(--pb-watch-ink);
+}
+.pb-notice-watch::before {
+  background: var(--pb-watch);
+}
 .pb-notice-bad {
-  border-color: rgba(var(--pb-bad-rgb), 0.25);
-  border-left-color: var(--pb-bad);
   background: var(--pb-bad-tint);
   color: var(--pb-bad-ink);
 }
+.pb-notice-bad::before {
+  background: var(--pb-bad);
+}
+/* Loading in the shape of what replaces it: a title bar, a strip of figures, 32px rows. */
 .pb-skeleton {
   display: grid;
-  gap: 12px;
+  gap: var(--pb-space-5);
 }
 .pb-skeleton-bar {
-  height: 14px;
+  height: 12px;
   border-radius: var(--pb-radius-sm);
   background: var(--pb-primary-tint-8);
-  animation: pb-pulse 1400ms var(--pb-ease-inout) infinite alternate;
 }
 .pb-skeleton-bar.is-title {
-  width: 40%;
-  height: 26px;
+  width: 30%;
+  height: 20px;
+}
+/* Under a page's own header (the title and tabs stay while it loads) the skeleton draws no title. */
+.pb-banner ~ .pb-skeleton > .pb-skeleton-bar.is-title {
+  display: none;
 }
 .pb-skeleton-tiles {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(172px, 1fr));
-  gap: 12px;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 150px), 1fr));
+  border-block: 1px solid var(--pb-border);
+  overflow: hidden;
 }
 .pb-skeleton-tile {
-  height: 84px;
-  border: 1px solid var(--pb-border);
-  border-radius: var(--pb-radius);
-  background: var(--pb-primary-tint-4);
-  animation: pb-pulse 1400ms var(--pb-ease-inout) infinite alternate;
+  display: grid;
+  gap: var(--pb-space-2);
+  padding: var(--pb-space-3) var(--pb-space-4);
+  box-shadow: -1px 0 0 var(--pb-hairline);
 }
-@keyframes pb-pulse {
-  from {
-    opacity: 1;
-  }
-  to {
-    opacity: 0.45;
-  }
+.pb-skeleton-tile > .pb-skeleton-bar:first-child {
+  width: 50%;
+}
+.pb-skeleton-tile > .pb-skeleton-bar + .pb-skeleton-bar {
+  width: 70%;
+  height: 20px;
+}
+.pb-skeleton-row {
+  display: flex;
+  align-items: center;
+  gap: var(--pb-space-5);
+  height: 32px;
+  border-bottom: 1px solid var(--pb-hairline);
+}
+.pb-skeleton-row > .pb-skeleton-bar {
+  flex: none;
+  width: 15%;
+}
+.pb-skeleton-row > .pb-skeleton-bar:first-child {
+  width: 40%;
+}
+.pb-skeleton-row > .pb-skeleton-bar:last-child {
+  width: 10%;
+}
+.pb-skeleton-rows {
+  gap: 0;
 }
 
 /* ---- Lists on Home ---- */
-.pb-linklist {
-  list-style: none;
+/* The work of the signed-in role: the sentence that says what the role does as the section's meta
+   line, then a 36px row for each place it does it, the link and what is there on one line (cut
+   short, whole in its title). Two columns from 1100px; on a phone the description wraps under. */
+.pb-home-work-does {
+  margin: calc(var(--pb-space-2) * -1) 0 var(--pb-space-3);
+  max-width: 72ch;
+}
+.pb-home-work {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  column-gap: var(--pb-space-6);
   margin: 0;
   padding: 0;
+  list-style: none;
 }
-.pb-linklist li {
+.pb-home-work > li {
   display: flex;
-  flex-wrap: wrap;
-  justify-content: space-between;
-  gap: 4px 16px;
-  padding: 9px 0;
+  align-items: baseline;
+  gap: var(--pb-space-3);
+  min-width: 0;
+  min-height: 36px;
+  padding: var(--pb-space-2) 0;
   border-top: 1px solid var(--pb-hairline);
-  font-size: 14px;
-  line-height: 20px;
 }
-.pb-linklist li:first-child {
-  border-top: 0;
-  padding-top: 0;
+.pb-home-work a {
+  flex: none;
+  font-weight: 600;
+  color: var(--pb-text);
+  text-decoration: none;
 }
-.pb-linklist li:last-child {
-  padding-bottom: 0;
+.pb-home-work a:hover,
+.pb-home-work a:focus-visible {
+  text-decoration: underline;
+  text-decoration-color: currentColor;
 }
-.pb-linklist .pb-meta {
-  flex: 1 1 200px;
-  text-align: right;
+.pb-home-work-what {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--pb-muted);
+}
+@media (min-width: 1100px) {
+  .pb-home-work {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+@media (max-width: 760px) {
+  .pb-home-work > li {
+    display: block;
+  }
+  .pb-home-work-what {
+    display: block;
+    white-space: normal;
+  }
 }
 
-/* ---- Stat tile figure: a sparkline beside the key number ---- */
+/* ---- Stat tile figure: a small figure beside the key number, or a sparkline after the hint ----
+   The sparkline follows the hint, so every hint of a strip sits on one line. */
 .pb-stat-row {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
-  gap: 4px 10px;
+  gap: var(--pb-space-1) var(--pb-space-2);
   min-width: 0;
+}
+.pb-stat-row:has(> .pb-sparkline) {
+  display: contents;
 }
 .pb-stat-row > .pb-sparkline {
   flex: none;
+  order: 1;
   max-width: 100%;
+  margin-top: var(--pb-space-1);
 }
 
 /* ---- Preview guide (preview only): walkthroughs for a reviewer, on sign-in and on Home ---- */
-.pb-signin > .pb-card + .pb-card {
-  margin-top: 12px;
-}
 .pb-guide-head {
   display: flex;
   flex-wrap: wrap;
   align-items: baseline;
   justify-content: space-between;
-  gap: 4px 12px;
-  margin: 0 0 14px;
+  gap: var(--pb-space-1) var(--pb-space-3);
+  margin: 0 0 var(--pb-space-3);
 }
 .pb-guide-head > .pb-section-header {
   margin: 0;
 }
 .pb-guide-intro {
-  margin: -4px 0 12px;
-}
-.pb-guide-list {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(min(100%, 280px), 1fr));
-  gap: 16px 28px;
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
-.pb-guide-list h3 {
-  margin: 0 0 6px;
-  font-size: 13px;
-  line-height: 20px;
-  font-weight: 600;
-  color: var(--pb-text);
+  margin: calc(var(--pb-space-1) * -1) 0 var(--pb-space-3);
 }
 .pb-guide-steps {
   margin: 0;
-  padding-left: 18px;
-  font-size: 13px;
-  line-height: 20px;
+  padding-left: var(--pb-space-5);
+  font-size: var(--pb-text-md);
+  line-height: var(--pb-text-md-lh);
 }
 .pb-guide-steps > li + li {
-  margin-top: 4px;
+  margin-top: var(--pb-space-1);
 }
+/* A sample file's name, in the identifier style, inside a sentence. */
+.pb-guide-steps .pb-key {
+  margin-right: 0;
+}
+/* A walkthrough a row: its title as a disclosure (pb-details), its steps under it once opened.
+   On Home, two columns from 1100px; a row keeps the height of the taller of its two. */
 .pb-guide-compact > details {
   border-top: 1px solid var(--pb-hairline);
 }
-.pb-guide-compact summary {
-  padding: 8px 0;
-  font-size: 13px;
-  line-height: 20px;
+.pb-guide-compact > details > summary {
+  display: flex;
   font-weight: 600;
-  color: var(--pb-brand-primary);
-  cursor: pointer;
 }
 .pb-guide-compact .pb-guide-steps {
-  padding-bottom: 10px;
+  padding-bottom: var(--pb-space-3);
+}
+@media (min-width: 1100px) {
+  .pb-guide-compact.is-columns {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    column-gap: var(--pb-space-6);
+    align-items: start;
+  }
 }
 .pb-guide-foot {
-  margin-top: 16px;
-  padding-top: 12px;
+  margin-top: var(--pb-space-4);
+  padding-top: var(--pb-space-3);
   border-top: 1px solid var(--pb-hairline);
 }
 .pb-guide-reset {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 8px 12px;
+  gap: var(--pb-space-2) var(--pb-space-3);
+}
+.pb-guide-reset > .pb-simulated {
+  margin-left: 0;
 }
 .pb-guide-result {
-  margin: 8px 0 0;
+  margin: var(--pb-space-2) 0 0;
 }
 .pb-guide-result:empty {
   margin: 0;
@@ -967,24 +1747,132 @@ p:last-child {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 2px 8px;
-  margin-top: 4px;
-  font-size: 12px;
-  line-height: 16px;
-  color: var(--pb-muted);
+  gap: 2px var(--pb-space-2);
+  margin-top: var(--pb-space-1);
+  font-size: var(--pb-text-sm);
+  line-height: var(--pb-text-sm-lh);
+  color: var(--pb-muted-strong);
 }
 
-/* ---- Assistant switch (preview only): the simulated flag change beside its label ---- */
-.pb-assistant-switch {
+/* ---- Assistant: the off state in one line, the questions and the answer ---- */
+/* Off: the sentence, then (preview only) the simulated switch and its marker, on one line. */
+.pb-assistant-off {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 8px 12px;
-  margin: 0 0 16px;
+  gap: var(--pb-space-2) var(--pb-space-4);
+  margin: 0 0 var(--pb-space-5);
+}
+.pb-assistant-off > p {
+  margin: 0;
+}
+.pb-assistant-switch {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--pb-space-2) var(--pb-space-3);
+}
+.pb-assistant-switch > .pb-simulated {
+  margin-left: 0;
 }
 .pb-assistant-switch > .pb-notice {
   flex-basis: 100%;
   margin: 0;
+}
+/* The questions and the answer: one column, then from 1100px the questions on the left (360px)
+   and the answer beside them, each a section with its own rule. The first one after the header
+   (and the off line) has none, like any first section. */
+.pb-assistant {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  column-gap: var(--pb-space-6);
+  align-items: start;
+}
+:is(.pb-banner, .pb-assistant-off) + .pb-assistant > .pb-card:first-child {
+  border-top: 0;
+  padding-top: 0;
+}
+.pb-assistant-waiting {
+  display: none;
+}
+@media (min-width: 1100px) {
+  .pb-assistant {
+    grid-template-columns: 360px minmax(0, 1fr);
+  }
+  :is(.pb-banner, .pb-assistant-off) + .pb-assistant > .pb-card {
+    border-top: 0;
+    padding-top: 0;
+  }
+  .pb-assistant-waiting {
+    display: block;
+  }
+}
+/* A question a row: 36px of words and a chevron, a tint under the pointer; the one asked in ink at
+   600 with the accent along its edge. Off, the words stay readable in the stronger grey. */
+.pb-questions {
+  margin: 0 calc(var(--pb-space-2) * -1) var(--pb-space-4);
+  padding: 0;
+  list-style: none;
+}
+.pb-questions > li + li {
+  border-top: 1px solid var(--pb-hairline);
+}
+.pb-question {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--pb-space-3);
+  width: 100%;
+  min-height: 36px;
+  padding: var(--pb-space-2);
+  margin: 0;
+  border: 0;
+  border-radius: 0;
+  background: none;
+  color: var(--pb-text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition:
+    color var(--pb-dur-fast) var(--pb-ease),
+    background-color var(--pb-dur-fast) var(--pb-ease);
+}
+.pb-question:hover {
+  background: var(--pb-primary-tint-4);
+}
+.pb-question:focus-visible {
+  outline-offset: -2px;
+}
+.pb-question[aria-pressed='true'] {
+  font-weight: 600;
+  background: var(--pb-primary-tint-8);
+  box-shadow: inset 2px 0 0 var(--pb-brand-accent);
+}
+.pb-question[aria-disabled='true'] {
+  color: var(--pb-muted-strong);
+  cursor: default;
+}
+.pb-question[aria-disabled='true']:hover {
+  background: none;
+}
+.pb-question-chevron {
+  flex: none;
+  color: var(--pb-muted-strong);
+}
+.pb-sources-label {
+  margin: var(--pb-space-4) 0 var(--pb-space-1);
+  font-size: var(--pb-text-sm);
+  line-height: var(--pb-text-sm-lh);
+  font-weight: 500;
+  color: var(--pb-muted-strong);
+}
+.pb-source-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--pb-space-1) var(--pb-space-4);
+  margin: 0;
+  padding: 0;
+  list-style: none;
 }
 
 /* ---- Workflow actions (valuation board, capital notices): command buttons, the page's one status
@@ -993,13 +1881,44 @@ p:last-child {
   display: inline-flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 2px 4px;
+  gap: 2px var(--pb-space-1);
 }
-.pb-command-buttons > button {
+.pb-command-buttons > button,
+.pb-command-run > button {
   white-space: nowrap;
 }
+/* Why a command is blocked, in words under the button it explains (CommandButtons
+   showBlockedReason): the blocked button, or the blocked buttons side by side that share the
+   reason, and the words under them from their first button's edge, as one item in the row. The
+   words wrap within a short measure, so a long reason never pushes the next button far away. */
+.pb-command-buttons.pb-command-group {
+  align-items: flex-start;
+}
+.pb-command-item {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: flex-start;
+  min-width: 0;
+}
+.pb-command-run {
+  display: inline-flex;
+  gap: 2px var(--pb-space-1);
+}
+.pb-command-reason {
+  display: block;
+  max-width: 28ch;
+  margin-top: var(--pb-space-1);
+  font-size: var(--pb-text-sm);
+  line-height: var(--pb-text-sm-lh);
+}
+/* The result of the reader's own command, beside the controls: a sentence on the neutral band with
+   a dot in the outcome's colour; a refusal keeps its own band. The words say which it was. */
 .pb-action-status > .pb-notice {
-  margin: 0 0 12px;
+  margin: 0 0 var(--pb-space-3);
+}
+.pb-action-status > .pb-notice-good {
+  background: var(--pb-primary-tint-4);
+  color: var(--pb-text);
 }
 .pb-action-log {
   list-style: none;
@@ -1009,11 +1928,11 @@ p:last-child {
 .pb-action-log > li {
   display: flex;
   align-items: baseline;
-  gap: 10px;
-  padding: 8px 0;
+  gap: var(--pb-space-3);
+  padding: var(--pb-space-2) 0;
   border-top: 1px solid var(--pb-hairline);
-  font-size: 13px;
-  line-height: 20px;
+  font-size: var(--pb-text-md);
+  line-height: var(--pb-text-md-lh);
 }
 .pb-action-log > li:first-child {
   border-top: 0;
@@ -1024,48 +1943,241 @@ p:last-child {
 }
 .pb-action-log .pb-badge {
   flex: none;
+  min-width: 64px;
+}
+/* A dialog: a frame of its own over a dimmed page. Two classes, so these outrank Fluent's styles,
+   which are injected after this sheet. */
+.fui-DialogSurface.pb-dialog {
+  border-radius: var(--pb-radius-lg);
+  box-shadow: var(--pb-shadow-3);
+}
+.pb-dialog .fui-DialogTitle {
+  font-size: var(--pb-text-xl);
+  line-height: var(--pb-text-xl-lh);
+  font-weight: 600;
+}
+.fui-DialogSurface__backdrop.pb-dialog-backdrop {
+  background: rgba(var(--pb-text-rgb), 0.32);
 }
 .pb-dialog-content {
   display: grid;
-  gap: 14px;
+  gap: var(--pb-space-3);
 }
 .pb-dialog-content > p {
   margin: 0;
 }
 
-/* ---- Attention list (Home): position, vehicle and its flags ---- */
-.pb-attention {
-  list-style: none;
-  margin: 0 0 10px;
+/* ---- Step strip (components/StepStrip.tsx): the steps of a workflow in one row, each a segment
+   across the top and its name under it. Done segments are dark, the current one the accent, those
+   ahead a hairline. Under 560px the names give way to one line that says where the record is. ---- */
+.pb-steps {
+  display: grid;
+  grid-template-columns: repeat(var(--pb-steps, 8), minmax(0, 1fr));
+  column-gap: var(--pb-space-1);
+  margin: 0 0 var(--pb-space-5);
   padding: 0;
+  list-style: none;
 }
-.pb-attention > li {
+.pb-steps > li {
+  position: relative;
   display: flex;
   flex-direction: column;
-  align-items: flex-start;
-  gap: 4px;
-  padding: 8px 0;
+  min-width: 0;
+  padding: var(--pb-space-2) 0 0;
+  font-size: var(--pb-text-sm);
+  line-height: var(--pb-text-sm-lh);
+  font-weight: 500;
+  color: var(--pb-text);
+  overflow-wrap: anywhere;
+}
+.pb-steps > li::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: var(--pb-border);
+}
+.pb-steps > li[data-status='done']::before {
+  background: var(--pb-muted-strong);
+}
+.pb-steps > li[aria-current='step']::before {
+  background: var(--pb-brand-accent);
+}
+.pb-steps > li[aria-current='step'] {
+  font-weight: 600;
+}
+.pb-steps > li[data-status='upcoming'] {
+  font-weight: 400;
+  color: var(--pb-muted-strong);
+}
+/* The state of a step in words under its name: quiet for done, the accent's ink for current. */
+.pb-step-state {
+  font-weight: 400;
+  color: var(--pb-muted-strong);
+}
+.pb-steps > li[aria-current='step'] > .pb-step-state {
+  font-weight: 500;
+  color: var(--pb-accent-ink);
+}
+.pb-steps-summary {
+  display: none;
+  margin: 0 0 var(--pb-space-5);
+  font-size: var(--pb-text-sm);
+  line-height: var(--pb-text-sm-lh);
+  color: var(--pb-text);
+}
+
+/* ---- Shared helpers: a cell's second line, a disclosure, a list of items, a row of markers, a
+   note under a control, a row of actions. Pages use these rather than their own copies. ---- */
+.pb-details > summary {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--pb-space-2);
+  min-height: 32px;
+  color: var(--pb-brand-primary);
+  font-weight: 500;
+  list-style: none;
+  cursor: pointer;
+}
+.pb-details > summary::-webkit-details-marker {
+  display: none;
+}
+.pb-details > summary::before {
+  content: '';
+  flex: none;
+  width: 0;
+  height: 0;
+  border-block: 4px solid transparent;
+  border-left: 6px solid currentColor;
+  transition: transform var(--pb-dur-fast) var(--pb-ease);
+}
+.pb-details[open] > summary::before {
+  transform: rotate(90deg);
+}
+.pb-item-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.pb-item-list > li {
+  padding: var(--pb-space-2) 0;
   border-top: 1px solid var(--pb-hairline);
 }
-.pb-attention > li:first-child {
+.pb-item-list > li:first-child {
   border-top: 0;
   padding-top: 0;
 }
-.pb-attention-main {
-  display: inline-flex;
+.pb-marker-row {
+  display: flex;
   flex-wrap: wrap;
   align-items: baseline;
-  gap: 2px 10px;
-  min-width: 0;
+  gap: var(--pb-space-1) var(--pb-space-3);
 }
-.pb-attention .pb-chips {
-  margin: 0;
+.pb-note {
+  margin: var(--pb-space-2) 0 0;
+  font-size: var(--pb-text-sm);
+  line-height: var(--pb-text-sm-lh);
+  color: var(--pb-muted-strong);
+}
+.pb-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--pb-space-2);
+}
+/* A second title inside a section (a form, then a list) keeps a section's distance from what is
+   above it. */
+.pb-card > * + .pb-section-header,
+.pb-card > * + .pb-section-head {
+  margin-top: var(--pb-space-5);
 }
 
-/* ---- Flag list inside a table cell (Watchlist): a badge and its message per flag ---- */
+/* ---- Data operations: the file input, rule identifiers, findings ---- */
+/* The browser's own file input (the staging forms), kept for its label, tab stop and focus ring:
+   its button drawn as the app's small secondary button, the chosen file's name after it. */
+.pb-file {
+  max-width: 100%;
+  font: inherit;
+  font-size: var(--pb-text-md);
+  line-height: var(--pb-text-md-lh);
+  color: var(--pb-muted-strong);
+}
+.pb-file::file-selector-button {
+  height: 28px;
+  margin-right: var(--pb-space-3);
+  padding: 0 var(--pb-space-3);
+  border: 1px solid var(--pb-border-strong);
+  border-radius: var(--pb-radius);
+  background: var(--pb-bg);
+  color: var(--pb-text);
+  font: inherit;
+  font-weight: 500;
+  cursor: pointer;
+  transition:
+    background-color var(--pb-dur-fast) var(--pb-ease),
+    border-color var(--pb-dur-fast) var(--pb-ease);
+}
+.pb-file:hover:not(:disabled)::file-selector-button {
+  border-color: var(--pb-muted-strong);
+  background: var(--pb-primary-tint-4);
+}
+.pb-file:focus-visible {
+  outline: 2px solid var(--pb-brand-accent);
+  outline-offset: 2px;
+  border-radius: var(--pb-radius-sm);
+}
+.pb-file:disabled::file-selector-button {
+  border-color: var(--pb-border);
+  color: var(--pb-muted-strong);
+  cursor: default;
+}
+/* A rule's identifier (EXT-CITE-02): small monospace words, never a pill; several in one cell are
+   comma-separated, each with its message in its title. */
+.pb-rule-id {
+  font-family: var(--pb-font-mono);
+  font-size: var(--pb-text-sm);
+  line-height: var(--pb-text-sm-lh);
+  color: var(--pb-muted-strong);
+  overflow-wrap: break-word;
+}
+.pb-table a.pb-rule-id {
+  color: var(--pb-brand-primary);
+}
+/* A cell's findings: the count with its severity's dot (the disclosure holds the messages), the
+   rule identifiers on the line under it. */
+.pb-findings > summary {
+  min-height: 0;
+}
+.pb-findings > summary > .pb-badge {
+  font-weight: 500;
+}
+.pb-findings > .pb-list {
+  margin: var(--pb-space-1) 0 0;
+  font-size: var(--pb-text-sm);
+  line-height: var(--pb-text-sm-lh);
+}
+.pb-findings + .pb-rule-id,
+.pb-findings-ids {
+  display: block;
+}
+
+/* ---- Home: the watchlist's counts as one line of dots, and a date that is overdue ---- */
+.pb-count-dots {
+  display: inline-flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: var(--pb-space-1) var(--pb-space-4);
+}
+.pb-overdue-date {
+  color: var(--pb-bad-ink);
+}
+
+/* ---- Flag list inside a table cell (Watchlist): per flag a dot, the flag in words, its message ---- */
 .pb-flag-list {
   display: grid;
-  gap: 6px;
+  gap: var(--pb-space-1);
   margin: 0;
   padding: 0;
   list-style: none;
@@ -1073,73 +2185,164 @@ p:last-child {
 .pb-flag-list > li {
   display: flex;
   flex-wrap: wrap;
-  align-items: center;
-  gap: 2px 8px;
+  align-items: baseline;
+  gap: 0 var(--pb-space-2);
 }
-.pb-flag-list .pb-meta {
-  line-height: 18px;
+.pb-flag-list .pb-badge {
+  font-weight: 600;
+}
+.pb-flag-message {
+  color: var(--pb-muted-strong);
+}
+/* The watchlist: the position takes a third and wraps; on a phone its flags follow under it. */
+.pb-watchlist-position {
+  width: 34%;
+  min-width: 200px;
+}
+.pb-watchlist td > .pb-flag-list:not(:first-child) {
+  margin-top: var(--pb-space-2);
+}
+/* On a phone the table is one column, which nothing scrolls past: no held column, no edge. */
+@media (max-width: 760px) {
+  .pb-watchlist :is(th, td):first-child {
+    position: static;
+    box-shadow: none;
+  }
 }
 
 /* ---- AG Grid companions ---- */
+/* The grid reaches 8px past its section, as a table does, so its text starts on the title's edge.
+   While columns lie beyond its right edge, the edge shows a shade, as a table's frame does
+   (Portfolio.tsx marks data-more-after from the grid's scroll). */
 .pb-grid {
-  height: clamp(360px, calc(100vh - 340px), 760px);
+  position: relative;
+  height: max(360px, calc(100dvh - var(--pb-header-h) - 220px));
+  margin-inline: calc(var(--pb-space-2) * -1);
+}
+.pb-grid[data-more-after]::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 2;
+  width: var(--pb-space-3);
+  background: linear-gradient(to left, rgba(var(--pb-text-rgb), 0.1), transparent);
+  pointer-events: none;
+}
+/* The grid's controls in one row over it: search, deal type, active only, then on the right the
+   count, the row density and the export. Previous and Next sit under the grid, right-aligned, and
+   only when there is a second page. On a phone the search takes its own line. */
+.pb-grid-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--pb-space-2) var(--pb-space-4);
+  margin: 0 0 var(--pb-space-3);
+}
+.pb-grid-search {
+  flex: 0 1 280px;
+  min-width: 260px;
+}
+.pb-grid-search > .fui-Input {
   width: 100%;
+}
+.pb-grid-field {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--pb-space-2);
+}
+.pb-grid-field > .fui-Label {
+  font-size: var(--pb-text-sm);
+  line-height: var(--pb-text-sm-lh);
+  font-weight: 500;
+  color: var(--pb-muted-strong);
+  white-space: nowrap;
+}
+.pb-grid-field > .pb-grid-deal-type {
+  width: 200px;
+  min-width: 0;
+}
+.pb-grid-toolbar-end {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--pb-space-1) var(--pb-space-2);
+  margin-left: auto;
+}
+.pb-grid-toolbar-end > .pb-meta {
+  margin: 0 var(--pb-space-2) 0 0;
+  white-space: nowrap;
+}
+.pb-grid-pager {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--pb-space-2);
+  margin-top: var(--pb-space-2);
 }
 .pb-grid .ag-row {
   cursor: pointer;
 }
 .pb-grid .ag-cell.pb-num {
+  justify-content: flex-end;
+  text-align: right;
   font-variant-numeric: tabular-nums lining-nums;
+}
+/* A column's filter and resize controls show under the pointer or the keyboard, and stay shown
+   while a filter is set; at rest the header is just its words. A touch screen has no pointer
+   resting on a header, so there they always show. */
+.pb-grid .ag-header-cell-filter-button,
+.pb-grid .ag-header-cell-resize {
+  transition: opacity var(--pb-dur-fast) var(--pb-ease);
+}
+@media (hover: hover) {
+  .pb-grid
+    .ag-header-cell:not(:hover, :focus-within, .ag-header-cell-filtered)
+    .ag-header-cell-filter-button,
+  .pb-grid .ag-header-cell:not(:hover, :focus-within) .ag-header-cell-resize {
+    opacity: 0;
+  }
 }
 .pb-grid .ag-cell.pb-cell-nm {
   color: var(--pb-muted-strong);
 }
-.pb-grid .ag-cell .pb-badge {
-  vertical-align: middle;
-}
 
 /* ---- Reporting, assistants and admin pages ---- */
-.pb-report-actions {
-  display: inline-flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 12px;
+/* A client of the look-through (Reporting and Analytics, Clients): why a total is missing, said
+   once under the strip it explains; how a share is worked out, once after the last client. */
+.pb-tiles:has(+ .pb-client-reason) {
+  margin-bottom: var(--pb-space-2);
+}
+.pb-client-reason {
+  margin: 0 0 var(--pb-space-5);
+}
+.pb-client-note {
+  margin: 0;
 }
 .pb-prose {
-  max-width: 78ch;
+  max-width: 72ch;
+  font-size: var(--pb-text-prose);
+  line-height: var(--pb-text-prose-lh);
 }
 .pb-prose p {
   margin: 0 0 10px;
-  font-size: 14px;
-  line-height: 22px;
 }
 .pb-prose p:last-child {
   margin-bottom: 0;
-}
-.pb-questions {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
-  gap: 8px;
-  margin: 0 0 14px;
-}
-.pb-questions > button {
-  justify-content: flex-start;
-  text-align: left;
-  min-height: 36px;
 }
 .pb-ask {
   display: flex;
   flex-wrap: wrap;
   align-items: end;
-  gap: 10px;
-  margin: 0 0 10px;
+  gap: var(--pb-space-2) var(--pb-space-3);
+  margin: 0 0 var(--pb-space-2);
 }
 .pb-ask > .pb-field {
-  flex: 1 1 320px;
+  flex: 1 1 200px;
 }
 .pb-mock-line {
-  margin-top: 12px;
-  padding-top: 10px;
+  margin-top: var(--pb-space-3);
+  padding-top: var(--pb-space-3);
   border-top: 1px solid var(--pb-hairline);
 }
 .pb-nowrap {
@@ -1149,423 +2352,512 @@ p:last-child {
   font-variant-numeric: tabular-nums;
   cursor: help;
 }
+/* The role table: the role in words, "Your role" after it in muted words, its users under it. */
 .pb-role-cell {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 6px 8px;
-  min-width: 220px;
+  min-width: 200px;
 }
-.pb-role-cell > .pb-meta {
-  flex-basis: 100%;
+@media (max-width: 760px) {
+  .pb-role-cell {
+    min-width: 120px;
+  }
+}
+.pb-role-mine {
+  margin-left: var(--pb-space-2);
+  font-size: var(--pb-text-sm);
+  line-height: var(--pb-text-sm-lh);
+  font-weight: 400;
+  color: var(--pb-muted);
+  white-space: nowrap;
 }
 .pb-wall-description {
-  margin: 0 0 10px;
+  margin: 0 0 var(--pb-space-3);
+  max-width: 72ch;
+}
+/* A wall's members and records: a label and a comma-separated list of names, a pair a line. */
+.pb-wall-facts {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: var(--pb-space-1) var(--pb-space-4);
+  margin: 0;
+}
+.pb-wall-facts > dt {
+  font-size: var(--pb-text-sm);
+  line-height: var(--pb-text-md-lh);
+  font-weight: 500;
+  color: var(--pb-muted-strong);
+}
+.pb-wall-facts > dd {
+  margin: 0;
+}
+
+/* ---- Flags: the reason that unlocks the switches, then a row a flag ---- */
+.pb-flag-reason {
+  max-width: 480px;
+  margin: 0 0 var(--pb-space-4);
+}
+.pb-flag-reason-row {
+  display: flex;
+  align-items: center;
+  gap: var(--pb-space-2);
+}
+.pb-flag-reason-row > .fui-Input {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.pb-flag-reason > .pb-note {
+  margin: 0;
+}
+.pb-flags th[scope='row'] {
+  font-weight: 500;
+}
+/* A kill switch says so after its description, in plain words set apart from the sentence. */
+.pb-flag-marker {
+  margin-left: var(--pb-space-2);
+  font-size: var(--pb-text-sm);
+  font-weight: 400;
+  color: var(--pb-muted-strong);
+  white-space: nowrap;
+}
+.pb-flags .pb-flag-change {
+  text-align: right;
+}
+.pb-switch-cell {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--pb-space-2);
+  /* The cell sits right; the switch's thumb is placed by its own left edge, so it must not be. */
+  text-align: left;
+}
+/* The switch's own box is taller than a 20px line: the row centres it rather than growing. */
+.pb-flags .pb-switch-cell > .fui-Switch {
+  margin-block: calc(var(--pb-space-2) * -1);
+}
+
+/* ---- Check lists (CheckList): a check, its result after a dot, its detail, a command ---- */
+.pb-checks th[scope='row'] {
+  min-width: 14ch;
+}
+/* On a wide screen the check is as wide as its name, so each result sits close to its check. */
+@media (min-width: 761px) {
+  .pb-checks th[scope='row'] {
+    width: 1%;
+    padding-right: var(--pb-space-6);
+    white-space: nowrap;
+  }
+}
+.pb-checks .pb-checks-result-col {
+  width: 1%;
+}
+.pb-check-cell:not(.is-wide) {
+  white-space: nowrap;
+}
+.pb-check-result {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--pb-space-2);
+  font-variant-numeric: tabular-nums lining-nums;
+}
+/* A row with no tone keeps the dot's room, so every result starts on the same edge. */
+.pb-check-dot {
+  flex: none;
+  width: 6px;
+  height: 6px;
+  margin-top: 7px;
+  border-radius: 50%;
+}
+.pb-check-result[data-tone='good'] > .pb-check-dot {
+  background: var(--pb-good);
+}
+.pb-check-result[data-tone='watch'] > .pb-check-dot {
+  background: var(--pb-watch);
+}
+.pb-check-result[data-tone='bad'] > .pb-check-dot {
+  background: var(--pb-bad);
+}
+.pb-check-result[data-tone='neutral'] > .pb-check-dot {
+  background: var(--pb-border-strong);
+}
+.pb-check-result[data-tone='brand'] > .pb-check-dot {
+  background: var(--pb-brand-primary);
+}
+.pb-check-result[data-tone='accent'] > .pb-check-dot {
+  background: var(--pb-brand-accent);
+}
+.pb-check-value {
+  min-width: 0;
+  max-width: 80ch;
+}
+.pb-check-note {
+  color: var(--pb-muted-strong);
+}
+.pb-check-lines {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.pb-checks-action {
+  width: 1%;
+  text-align: right;
+  white-space: nowrap;
+}
+/* The detail never folds to a word a line; on a phone the row's command closes it. */
+.pb-check-detail {
+  min-width: 16ch;
+}
+.pb-check-command {
+  display: block;
+  white-space: nowrap;
+}
+.pb-check-detail:not(:empty) > .pb-check-command:not(:first-child) {
+  margin-top: var(--pb-space-1);
+}
+
+/* ---- Data dictionary: a term a group of rows, its settings indented under it ---- */
+/* Two classes, so no row of a term carries the table's hairline: only the groups are ruled. */
+.pb-dict.pb-table tbody > tr > * {
+  border-bottom: 0;
+}
+.pb-dict tbody + tbody > tr:first-child > * {
+  border-top: 1px solid var(--pb-hairline);
+}
+.pb-dict .pb-dict-name {
+  width: 32%;
+  min-width: 20ch;
+}
+.pb-dict .pb-dict-name[data-depth='1'] {
+  padding-left: calc(var(--pb-space-2) + var(--pb-space-4));
+  font-weight: 400;
+  color: var(--pb-muted-strong);
+}
+.pb-dict .pb-dict-name[data-depth='2'] {
+  padding-left: calc(var(--pb-space-2) + var(--pb-space-4) * 2);
+  font-weight: 400;
+  color: var(--pb-muted-strong);
+}
+.pb-dict-value {
+  min-width: 24ch;
+  overflow-wrap: anywhere;
+  font-variant-numeric: tabular-nums lining-nums;
+}
+
+/* ---- Taxonomy: one table of every domain, a sticky index beside it from 1100px ---- */
+.pb-taxonomy-table {
+  table-layout: fixed;
+  min-width: 640px;
+}
+.pb-taxonomy-code,
+.pb-taxonomy-label {
+  width: 36%;
+}
+.pb-taxonomy-parent {
+  width: 16%;
+}
+.pb-taxonomy-status {
+  width: 12%;
+}
+.pb-taxonomy-table td {
+  overflow-wrap: anywhere;
+}
+.pb-taxonomy-table .pb-key {
+  white-space: normal;
+}
+/* A domain opens its rows: its name and count on the panel grey, under the sticky header (two
+   classes, so the phone's held first column keeps the grey). */
+.pb-taxonomy-table .pb-group-row > th {
+  padding: var(--pb-cell-py) var(--pb-space-2);
+  background: var(--pb-surface-2);
+  border-bottom: 1px solid var(--pb-hairline);
+  text-align: left;
+  scroll-margin-top: 33px;
+}
+.pb-taxonomy-table .pb-group-row > th:focus-visible {
+  outline-offset: -2px;
+}
+.pb-group-name {
+  font-size: var(--pb-text-md);
+  line-height: var(--pb-text-md-lh);
+  font-weight: 600;
+  color: var(--pb-text);
+}
+.pb-group-count {
+  margin-left: var(--pb-space-3);
+  font-size: var(--pb-text-sm);
+  line-height: var(--pb-text-sm-lh);
+  font-weight: 400;
+  color: var(--pb-muted-strong);
+}
+.pb-taxonomy-table tbody tr.pb-group-row:hover > th {
+  background: var(--pb-surface-2);
+}
+.pb-taxonomy-index {
+  display: none;
+  margin-left: calc(var(--pb-space-2) * -1);
+}
+@media (min-width: 1100px) {
+  .pb-taxonomy {
+    display: grid;
+    grid-template-columns: 200px minmax(0, 1fr);
+    column-gap: var(--pb-space-5);
+    align-items: start;
+  }
+  .pb-taxonomy-index {
+    display: block;
+    position: sticky;
+    top: var(--pb-space-4);
+  }
+}
+.pb-taxonomy-index > ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.pb-taxonomy-index button {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--pb-space-2);
+  width: 100%;
+  min-height: 28px;
+  padding: var(--pb-space-1) var(--pb-space-2);
+  border: 0;
+  border-radius: var(--pb-radius);
+  background: none;
+  color: var(--pb-text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: background-color var(--pb-dur-fast) var(--pb-ease);
+}
+.pb-taxonomy-index button:hover {
+  background: var(--pb-primary-tint-4);
+}
+.pb-taxonomy-index-count {
+  font-size: var(--pb-text-sm);
+  color: var(--pb-muted-strong);
+  font-variant-numeric: tabular-nums;
+}
+
+/* A count beside a filter, on the input's line. */
+.pb-toolbar > .pb-toolbar-count {
+  align-self: end;
+  margin: 0;
+  line-height: 32px;
 }
 
 /* ---- Sign-in page ---- */
+/* One column at the page's gutter under a bar like the app's: the wordmark and the data rule, then
+   the title, the users in one framed list grouped by role, the Entra note and the walkthroughs. */
 .pb-signin-page {
-  position: relative;
-  isolation: isolate;
   min-height: 100vh;
   min-height: 100dvh;
-  display: grid;
-  grid-template-rows: 1fr auto 1fr;
-  justify-items: center;
-  padding: 24px 16px;
-  overflow-x: hidden;
+  background: var(--pb-bg);
 }
-.pb-signin-lockup,
-.pb-signin,
-.pb-signin-legal {
-  position: relative;
-  z-index: 1;
-}
-.pb-signin-lockup {
-  align-self: end;
+.pb-signin-bar {
   display: flex;
-  flex-direction: column;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 6px;
-  margin-bottom: 22px;
-  text-align: center;
+  justify-content: space-between;
+  gap: var(--pb-space-1) var(--pb-space-5);
+  min-height: var(--pb-header-h);
+  padding: var(--pb-space-2) var(--pb-space-6);
+  border-bottom: 1px solid var(--pb-hairline);
 }
-.pb-signin-wordmark {
+.pb-signin-legal {
   margin: 0;
-  font-family: var(--pb-font-display);
-  font-weight: 400;
-  font-size: 30px;
-  line-height: 36px;
-  letter-spacing: 0.01em;
-  color: var(--pb-brand-primary);
+  font-size: var(--pb-text-sm);
+  line-height: var(--pb-text-sm-lh);
+  color: var(--pb-muted-strong);
 }
-.pb-signin-tagline {
-  margin: 0;
-  font-size: 11px;
-  line-height: 16px;
-  font-weight: 600;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
-  color: var(--pb-brand-primary);
-}
-.pb-signin {
-  width: 100%;
-  max-width: 440px;
-  align-self: center;
-}
-.pb-signin > .pb-card {
-  margin: 0;
-  padding: 22px 24px 20px;
-  border-radius: var(--pb-radius-lg);
-  border-color: var(--pb-border);
-  box-shadow: var(--pb-shadow-3);
+.pb-signin-picker {
+  max-width: calc(640px + var(--pb-space-6) * 2);
+  padding: var(--pb-space-6) var(--pb-space-6) var(--pb-space-7);
 }
 .pb-signin-list {
-  display: grid;
-  gap: 6px;
-  max-height: min(56vh, 520px);
-  overflow-y: auto;
-  padding: 2px;
-  margin: 0 -2px;
-}
-.pb-signin-list > button {
-  display: flex;
-  justify-content: flex-start;
-  align-items: center;
-  min-height: 36px;
-  padding: 0 12px;
+  overflow: hidden;
   border: 1px solid var(--pb-border);
-  border-radius: 6px;
+  border-radius: var(--pb-radius-lg);
+  background: var(--pb-bg);
+}
+.pb-signin-list > .pb-skeleton {
+  padding: 0 var(--pb-space-3);
+}
+.pb-signin-group + .pb-signin-group {
+  border-top: 1px solid var(--pb-border);
+}
+.pb-signin-group-label {
+  padding: var(--pb-space-1) var(--pb-space-3);
+  border-bottom: 1px solid var(--pb-hairline);
+  background: var(--pb-surface-2);
+  font-size: var(--pb-text-sm);
+  line-height: var(--pb-text-sm-lh);
+  font-weight: 500;
+  color: var(--pb-muted-strong);
+}
+.pb-signin-row {
+  display: flex;
+  align-items: center;
+  gap: var(--pb-space-3);
+  width: 100%;
+  min-height: 36px;
+  margin: 0;
+  padding: 0 var(--pb-space-3);
+  border: 0;
+  border-top: 1px solid var(--pb-hairline);
   background: var(--pb-bg);
   color: var(--pb-text);
-  font-size: 13px;
-  font-weight: 500;
+  font: inherit;
   text-align: left;
   cursor: pointer;
   transition:
+    color var(--pb-dur-fast) var(--pb-ease),
     background-color var(--pb-dur-fast) var(--pb-ease),
-    border-color var(--pb-dur-fast) var(--pb-ease),
-    color var(--pb-dur-fast) var(--pb-ease);
+    border-color var(--pb-dur-fast) var(--pb-ease);
 }
-.pb-signin-list > button:hover {
+.pb-signin-group-label + .pb-signin-row {
+  border-top: 0;
+}
+.pb-signin-row:hover {
   background: var(--pb-primary-tint-4);
-  border-color: var(--pb-border-strong);
   color: var(--pb-brand-primary);
 }
-.pb-signin-list > button:active {
+.pb-signin-row:active {
   background: var(--pb-primary-tint-8);
+  transition-duration: var(--pb-dur-instant);
+}
+.pb-signin-row:focus-visible {
+  outline-offset: -2px;
+}
+.pb-signin-name {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 500;
+}
+.pb-signin-role {
+  flex: none;
+  font-size: var(--pb-text-sm);
+  line-height: var(--pb-text-sm-lh);
+  color: var(--pb-muted-strong);
+}
+.pb-signin-chevron {
+  flex: none;
+  width: 16px;
+  height: 16px;
+  color: var(--pb-muted-strong);
 }
 .pb-signin-foot {
-  margin: 14px 0 0;
-  padding-top: 12px;
-  border-top: 1px solid var(--pb-hairline);
-  font-size: 12px;
-  line-height: 18px;
+  margin: var(--pb-space-3) 0 var(--pb-space-6);
+  font-size: var(--pb-text-sm);
+  line-height: var(--pb-text-sm-lh);
   color: var(--pb-muted);
-}
-.pb-signin-legal {
-  align-self: start;
-  margin: 22px 0 0;
-  max-width: 60ch;
-  font-size: 12px;
-  line-height: 18px;
-  font-weight: 500;
-  letter-spacing: 0.01em;
-  text-align: center;
-  color: var(--pb-brand-primary);
-}
-
-/* Scene: a horizon of light. Back to front: sky, sea, glow, far swell, inner swell, sand, tide (foam), hairline.
-   Geometry is in vh so the swell boxes always end under the opaque sand; animation is transform and opacity only. */
-.pb-scene {
-  --pb-horizon: 58vh;
-  --pb-shore: 80vh;
-  position: fixed;
-  inset: 0;
-  z-index: 0;
-  overflow: hidden;
-  background: var(--pb-bg);
-  pointer-events: none;
-  user-select: none;
-  contain: strict;
-}
-.pb-scene-sky {
-  position: absolute;
-  left: 0;
-  right: 0;
-  top: 0;
-  height: var(--pb-horizon);
-  background: linear-gradient(180deg, var(--pb-bg) 0%, var(--pb-bg) 34%, var(--pb-sky) 100%);
-}
-.pb-scene-sea {
-  position: absolute;
-  left: 0;
-  right: 0;
-  top: var(--pb-horizon);
-  height: calc(var(--pb-shore) - var(--pb-horizon));
-  background: linear-gradient(180deg, var(--pb-sea) 0%, var(--pb-sky) 100%);
-}
-.pb-scene-glow {
-  position: absolute;
-  left: 0;
-  right: 0;
-  top: calc(var(--pb-horizon) - 20vmin);
-  height: 40vmin;
-  background: radial-gradient(ellipse 36% 50% at 50% 50%, var(--pb-sand-pale) 0%, transparent 70%);
-  opacity: 0.7;
-  will-change: opacity;
-  animation: pb-breathe 12000ms var(--pb-ease-inout) infinite alternate;
-}
-.pb-scene-wave {
-  position: absolute;
-  left: 0;
-  width: 200%;
-  height: calc(var(--pb-shore) - var(--pb-horizon) + 64px);
-  display: block;
-  will-change: transform;
-}
-.pb-scene-wave path {
-  fill: currentColor;
-}
-.pb-scene-wave-a {
-  top: calc(var(--pb-horizon) - 28px);
-  color: var(--pb-sea-deep);
-  opacity: 0.45;
-  animation: pb-drift-left 36000ms linear infinite;
-}
-.pb-scene-wave-b {
-  top: calc(var(--pb-horizon) + 40px);
-  color: var(--pb-bg);
-  opacity: 0.22;
-  animation: pb-drift-right 52000ms linear infinite;
-}
-.pb-scene-sand {
-  position: absolute;
-  left: 0;
-  right: 0;
-  top: var(--pb-shore);
-  bottom: 0;
-  background: linear-gradient(180deg, var(--pb-sand-pale) 0%, var(--pb-brand-sand) 100%);
-}
-.pb-scene-tide {
-  position: absolute;
-  left: 0;
-  width: 100%;
-  top: calc(var(--pb-shore) - 16px);
-  height: 40px;
-  will-change: transform;
-  animation: pb-tide 9000ms var(--pb-ease-inout) infinite alternate;
-}
-.pb-scene-foam {
-  display: block;
-  width: 200%;
-  height: 100%;
-  color: var(--pb-bg);
-  opacity: 0.9;
-  will-change: transform;
-  animation: pb-drift-left 44000ms linear infinite;
-}
-.pb-scene-foam path {
-  fill: none;
-  stroke: currentColor;
-  stroke-width: 2;
-  vector-effect: non-scaling-stroke;
-}
-.pb-scene-horizon {
-  position: absolute;
-  left: 0;
-  right: 0;
-  top: var(--pb-horizon);
-  height: 1px;
-  background: rgba(var(--pb-primary-rgb), 0.28);
-}
-@keyframes pb-drift-left {
-  from {
-    transform: translate3d(0, 0, 0);
-  }
-  to {
-    transform: translate3d(-50%, 0, 0);
-  }
-}
-@keyframes pb-drift-right {
-  from {
-    transform: translate3d(-50%, 0, 0);
-  }
-  to {
-    transform: translate3d(0, 0, 0);
-  }
-}
-@keyframes pb-tide {
-  from {
-    transform: translate3d(0, 0, 0);
-  }
-  to {
-    transform: translate3d(0, -6px, 0);
-  }
-}
-@keyframes pb-breathe {
-  from {
-    opacity: 0.55;
-  }
-  to {
-    opacity: 0.85;
-  }
-}
-
-/* ---- Motion policy: the only animated selectors in the app, parked at composed static offsets ---- */
-@media (prefers-reduced-motion: reduce), (update: slow) {
-  .pb-scene-glow,
-  .pb-scene-wave,
-  .pb-scene-tide,
-  .pb-scene-foam,
-  .pb-skeleton-bar,
-  .pb-skeleton-tile {
-    animation: none;
-    will-change: auto;
-  }
-  .pb-scene-glow {
-    opacity: 0.7;
-  }
-  .pb-scene-wave-a {
-    transform: translate3d(-12%, 0, 0);
-  }
-  .pb-scene-wave-b {
-    transform: translate3d(-31%, 0, 0);
-  }
-  .pb-scene-tide {
-    transform: translate3d(0, -3px, 0);
-  }
-  .pb-scene-foam {
-    transform: translate3d(-7%, 0, 0);
-  }
-  .pb-skeleton-bar,
-  .pb-skeleton-tile {
-    opacity: 0.7;
-  }
-  a,
-  .pb-nav-item,
-  .pb-nav-icon,
-  .pb-tabs a,
-  .pb-signin-list > button {
-    transition: none;
-  }
 }
 
 /* ---- Responsive ---- */
 @media (max-width: 1100px) {
   .pb-main {
-    padding: 20px 20px 48px;
+    padding: var(--pb-space-5) var(--pb-space-5) var(--pb-space-7);
   }
-}
-/* Below this the sidebar leaves too little room for four of Home's tiles across */
-@media (max-width: 960px) {
-  .pb-home-tiles {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+  .pb-topbar {
+    padding: 0 var(--pb-space-5);
   }
 }
 @media (max-width: 760px) {
+  :root {
+    --pb-header-h: 48px;
+    --pb-text-fig: 20px;
+    --pb-text-fig-lh: 26px;
+  }
+  /* One bar: the menu, the mark, the prototype marker, the user and Sign out, the 44px buttons at
+     its edges so their icons sit on the page's 16px gutter. The navigation opens in the drawer. */
   .pb-shell {
     grid-template-columns: minmax(0, 1fr);
-    grid-template-rows: auto auto auto minmax(0, 1fr);
-    grid-template-areas: 'header' 'banner' 'nav' 'main';
+    grid-template-areas: 'top' 'main';
   }
-  .pb-header {
-    position: static;
-    height: auto;
-    min-height: var(--pb-header-h);
-    flex-wrap: wrap;
-    gap: 8px 10px;
-    padding: 8px 12px 8px 16px;
+  .pb-topbar {
+    gap: var(--pb-space-1);
+    padding: 0 var(--pb-space-1);
   }
-  .pb-header-spacer {
-    order: 1;
-  }
-  .pb-header .pb-header-signout {
-    order: 2;
-  }
-  .pb-header-identity {
-    order: 3;
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    flex: 1 1 100%;
-    min-width: 0;
-  }
-  .pb-header-user {
-    flex: 0 1 auto;
-    max-width: 42%;
+  .pb-topbar .pb-wordmark-name {
+    position: absolute;
+    width: 1px;
+    height: 1px;
     overflow: hidden;
-    text-overflow: ellipsis;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
   }
-  .pb-header .pb-header-switcher {
-    flex: 1 1 160px;
-    min-width: 0;
-  }
-  .pb-mock-banner {
-    padding: 5px 16px;
-  }
-  .pb-nav {
-    position: sticky;
-    top: 0;
-    z-index: 20;
-    max-height: none;
-    display: flex;
-    gap: 2px;
-    overflow-x: auto;
-    overflow-y: hidden;
-    padding: 6px 8px;
-    border-right: 0;
-    border-bottom: 1px solid var(--pb-border);
-    scrollbar-width: none;
-    -webkit-overflow-scrolling: touch;
-  }
-  .pb-nav::-webkit-scrollbar {
-    display: none;
-  }
-  .pb-nav-group {
-    flex-direction: row;
-    gap: 2px;
-  }
-  .pb-nav-group + .pb-nav-group {
-    margin: 0 0 0 6px;
-    padding: 0 0 0 6px;
-    border-top: 0;
-    border-left: 1px solid var(--pb-hairline);
-  }
-  .pb-nav-group-label {
-    display: none;
-  }
-  .pb-nav-item {
+  .pb-topbar > .pb-wordmark {
     flex: none;
-    height: 34px;
-    padding: 0 10px;
-    gap: 8px;
-    font-size: 13px;
+    padding: var(--pb-space-1);
   }
-  .pb-nav-icon,
-  .pb-nav-icon > svg {
-    width: 18px;
-    height: 18px;
-    flex-basis: 18px;
+  .pb-topbar > .pb-mock-banner {
+    flex: none;
+    margin-left: var(--pb-space-2);
   }
-  .pb-nav-item[aria-current='page'] {
-    background: transparent;
-    box-shadow: inset 0 -2px 0 var(--pb-brand-accent);
-    border-radius: 6px 6px 0 0;
+  .pb-topbar-identity {
+    flex: 0 1 auto;
   }
   .pb-main {
-    padding: 16px 16px 40px;
+    padding: var(--pb-space-4) var(--pb-space-4) var(--pb-space-6);
   }
-  .pb-banner h1 {
-    font-size: 22px;
-    line-height: 28px;
+  /* The page header in one column: the actions under the meta line, from the left. */
+  .pb-banner {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-areas: 'crumbs' 'title' 'meta' 'actions';
   }
-  .pb-tiles {
-    gap: 10px;
+  .pb-banner-actions {
+    justify-self: start;
+    margin-top: var(--pb-space-2);
   }
-  .pb-stat-value {
-    font-size: 22px;
-    line-height: 26px;
+  /* A table that scrolls sideways keeps its first column in view, with a hairline at its edge only
+     while the table is wider than its frame (TableWrap marks data-overflow-x), so a table that fits
+     draws no rule between columns. A key and value table holds one pair a row on a phone and needs
+     neither. Kept at one class, so a hovered or selected row and a page's own pinned column still
+     win. A table whose first column is a row number (`pb-hold-2`) holds its second, the position,
+     so a row is still named once the reader has scrolled to its findings. */
+  :where(.pb-table:not(.pb-kv)) :is(th, td):first-child {
+    position: sticky;
+    left: 0;
+    z-index: 1;
+    background: var(--pb-bg);
+  }
+  :where(.pb-table-wrap[data-overflow-x] .pb-table:not(.pb-kv)) :is(th, td):first-child {
+    box-shadow: inset -1px 0 0 var(--pb-hairline);
+  }
+  :where(.pb-table:not(.pb-kv)) thead th:first-child {
+    background: var(--pb-bg);
+  }
+  /* In a tall region every header cell is held at the top; the held column's stays over the ones
+     that scroll beneath it sideways (it lost to them before, being at their level). */
+  .pb-table-wrap.is-tall .pb-table:not(.pb-kv) thead tr:first-child > th:first-child {
+    z-index: 2;
+  }
+  /* A second header row's first cell heads a group's first column, not the held one (which spans
+     both rows): it scrolls with its column, under the held one. */
+  .pb-table:not(.pb-kv) thead tr + tr > th:first-child {
+    left: auto;
+    z-index: 0;
+  }
+  :where(.pb-table.pb-hold-2) :is(th, td):first-child {
+    position: static;
+    box-shadow: none;
+  }
+  :where(.pb-table.pb-hold-2) :is(th, td):nth-child(2) {
+    position: sticky;
+    left: 0;
+    z-index: 1;
+    background: var(--pb-bg);
+  }
+  :where(.pb-table-wrap[data-overflow-x] .pb-table.pb-hold-2) :is(th, td):nth-child(2) {
+    box-shadow: inset -1px 0 0 var(--pb-hairline);
+  }
+  /* A header may wrap on a phone, so a long one ("LTM / Current (Jun 30, 2025)") never sets its
+     column's width: the column is as wide as its cells need, and a figure column's figures keep
+     their one line. */
+  .pb-table thead th,
+  .pb-table thead th.num {
+    white-space: normal;
   }
   .pb-toolbar > .pb-field {
     flex: 1 1 100%;
@@ -1573,42 +2865,196 @@ p:last-child {
   .pb-toolbar-end {
     margin-left: 0;
   }
+  /* A tab's controls under its context items, from the left like the toolbars'. */
+  .pb-page-context-controls {
+    justify-content: flex-start;
+    margin-left: 0;
+  }
+  .pb-w-s,
+  .pb-w-m,
+  .pb-w-l {
+    width: 100%;
+  }
+  /* Tabs in one row that scrolls. TabNav marks each end that hides tabs, and that end fades out,
+     so a tab cut off at either edge always shows that more lie beyond it. */
+  .pb-tabs {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+  }
+  .pb-tabs[data-more-after] {
+    mask-image: linear-gradient(
+      to right,
+      var(--pb-text) calc(100% - var(--pb-space-5)),
+      transparent
+    );
+  }
+  .pb-tabs[data-more-before] {
+    mask-image: linear-gradient(
+      to left,
+      var(--pb-text) calc(100% - var(--pb-space-5)),
+      transparent
+    );
+  }
+  .pb-tabs[data-more-before][data-more-after] {
+    mask-image: linear-gradient(
+      to right,
+      transparent,
+      var(--pb-text) var(--pb-space-5),
+      var(--pb-text) calc(100% - var(--pb-space-5)),
+      transparent
+    );
+  }
   .pb-grid {
     height: 62vh;
   }
-  .pb-scene-wave-b {
-    display: none;
+  .pb-grid-search {
+    flex: 1 1 100%;
+    min-width: 0;
   }
-  .pb-signin-page {
-    padding: 20px 12px;
+  .pb-grid-toolbar-end {
+    flex: 1 1 100%;
+    margin-left: 0;
   }
-  .pb-signin-wordmark {
-    font-size: 26px;
-    line-height: 32px;
+  .pb-grid-toolbar-end > .pb-meta {
+    flex: 1 1 100%;
   }
-  .pb-signin > .pb-card {
-    padding: 18px 16px 16px;
+  .pb-grid-toolbar-end > .fui-Button {
+    white-space: nowrap;
   }
-  .pb-signin-list {
-    max-height: none;
+  /* A switch or a quiet button that starts a row of controls starts on the page's text edge:
+     Fluent sets the switch 8px in, and a quiet button's icon sits inside its own padding. */
+  .pb-main :is(.pb-toolbar, .pb-grid-toolbar) > .fui-Switch > .fui-Switch__indicator {
+    margin-left: 0;
+  }
+  .pb-grid-toolbar-end > .pb-meta + * {
+    margin-left: calc(var(--pb-space-2) * -1);
+  }
+  /* Sign-in: the data rule under the wordmark, the column at the phone's gutter. */
+  .pb-signin-bar {
+    padding: var(--pb-space-2) var(--pb-space-4);
+  }
+  .pb-signin-picker {
+    padding: var(--pb-space-5) var(--pb-space-4) var(--pb-space-6);
+  }
+}
+/* Controls a finger can hit: 44px tall on a touch screen or a phone. */
+@media (pointer: coarse), (max-width: 760px) {
+  .pb-main .fui-Button,
+  .pb-drawer .fui-Button,
+  .pb-tabs a,
+  .pb-nav-item,
+  .pb-signin-row,
+  .pb-chart-toggle,
+  .pb-details > summary,
+  .pb-guide-compact summary,
+  .pb-btn-quiet,
+  .pb-segmented > button,
+  .pb-question,
+  .pb-taxonomy-index button {
+    min-height: 44px;
+  }
+  .pb-command-buttons,
+  .pb-command-run,
+  .pb-actions {
+    gap: var(--pb-space-2);
+  }
+  /* In a table a row stays as tall as its text: a button keeps its drawn size, with its label on
+     the row's line, and an invisible band 44px tall around it takes the touch, reaching into the
+     cell's padding. A row's commands stay on one line, so the table, which scrolls sideways
+     anyway, grows wider instead of each row growing taller. */
+  .pb-main .pb-table .fui-Button {
+    position: relative;
+    min-height: 0;
+  }
+  .pb-main .pb-table .fui-Button::before {
+    content: '';
+    position: absolute;
+    top: 50%;
+    left: 0;
+    right: 0;
+    height: 44px;
+    transform: translateY(-50%);
+  }
+  .pb-table .pb-command-buttons,
+  .pb-table .pb-extraction-actions {
+    flex-wrap: nowrap;
+  }
+  /* A disclosure in a table (a cell's findings) keeps its line too, with the same touch band. */
+  .pb-main .pb-table .pb-details > summary {
+    position: relative;
+    min-height: 0;
+  }
+  .pb-main .pb-table .pb-details > summary::after {
+    content: '';
+    position: absolute;
+    top: 50%;
+    left: 0;
+    right: 0;
+    height: 44px;
+    transform: translateY(-50%);
+  }
+  .pb-file::file-selector-button {
+    height: 44px;
+  }
+}
+@media (max-width: 560px) {
+  /* The strip keeps its segments; the names give way to one line under it. */
+  .pb-steps {
+    margin-bottom: var(--pb-space-2);
+  }
+  .pb-steps > li {
+    min-height: var(--pb-space-2);
+    padding: 0;
+  }
+  .pb-steps > li > span {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+  }
+  .pb-steps-summary {
+    display: block;
+  }
+  /* A record on no step (a deal that passed) has no line to sum it up, so its strip keeps the
+     names, two to a row. */
+  .pb-steps:not(:has(> li[aria-current='step'])) {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    row-gap: var(--pb-space-2);
+    margin-bottom: var(--pb-space-5);
+  }
+  .pb-steps:not(:has(> li[aria-current='step'])) > li {
+    padding: var(--pb-space-2) 0 0;
+  }
+  .pb-steps:not(:has(> li[aria-current='step'])) > li > span:not(.pb-visually-hidden) {
+    position: static;
+    width: auto;
+    height: auto;
+    overflow: visible;
+    clip: auto;
+    white-space: normal;
+  }
+  /* The header's meta items one under another, without the dots between them. */
+  .pb-banner .pb-meta-list {
+    flex-direction: column;
+  }
+  .pb-banner .pb-meta-list > span + span::before {
+    content: none;
   }
 }
 @media (max-width: 480px) {
   .pb-tiles {
-    --pb-tile-min: 280px;
-  }
-  .pb-home-tiles {
-    grid-template-columns: minmax(0, 1fr);
+    --pb-tile-min: 140px;
   }
   .pb-stat-tile.is-wide {
     grid-column: auto;
   }
 }
 @media print {
-  .pb-header,
-  .pb-nav,
-  .pb-mock-banner,
-  .pb-scene,
+  .pb-rail,
+  .pb-topbar,
+  .pb-skip,
   .pb-no-print,
   .pb-tabs {
     display: none;
@@ -1621,13 +3067,261 @@ p:last-child {
   }
   .pb-card,
   .pb-stat-tile {
-    box-shadow: none;
     break-inside: avoid;
   }
   .pb-table-wrap {
     overflow: visible;
+    background: none;
   }
+  .pb-table-wrap.is-tall {
+    max-height: none;
+    overflow: visible;
+  }
+  /* Headers print in ink over an ink rule, repeat on every page, and rows never split. */
+  .pb-table thead {
+    display: table-header-group;
+  }
+  .pb-table thead th {
+    color: var(--pb-text);
+    border-bottom-color: var(--pb-text);
+  }
+  .pb-table tr {
+    break-inside: avoid;
+  }
+  /* Four figures a row on paper. balanceTiles writes the screen's columns inline and a page being
+     printed is not measured again, so only an important rule reaches past them. */
   .pb-tiles {
-    grid-template-columns: repeat(4, minmax(0, 1fr));
+    grid-template-columns: repeat(4, minmax(0, 1fr)) !important;
+  }
+}
+
+/* ---- Motion (decision 0026, docs/06 section 5) ----
+   Quick, short, decelerating, never overshooting, and played once: a CSS animation runs when its
+   element is inserted and never again while it stays mounted, so a route change plays it and a
+   refetch, a sort or a filter does not. Every entrance fills backwards, never both, so a finished
+   element keeps no transform. Figures being read are never animated. The policy at the very end
+   repeats each animated selector exactly and switches it off. */
+@keyframes pb-enter {
+  from {
+    opacity: 0;
+    transform: translate3d(0, var(--pb-rise), 0);
+  }
+}
+@keyframes pb-drop {
+  from {
+    opacity: 0;
+    transform: translate3d(0, calc(var(--pb-rise) * -1), 0);
+  }
+}
+@keyframes pb-fade {
+  from {
+    opacity: 0;
+  }
+}
+@keyframes pb-pop {
+  from {
+    opacity: 0;
+    transform: scale(0.6);
+  }
+}
+@keyframes pb-grow-x {
+  from {
+    transform: scaleX(0);
+  }
+}
+@keyframes pb-tab-in {
+  from {
+    opacity: 0;
+    transform: scaleX(0.4);
+  }
+}
+@keyframes pb-wash {
+  from {
+    background-color: var(--pb-primary-tint-8);
+  }
+  to {
+    background-color: transparent;
+  }
+}
+@keyframes pb-draw {
+  from {
+    stroke-dashoffset: 1;
+  }
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+@keyframes pb-pulse {
+  to {
+    opacity: 0.55;
+  }
+}
+
+/* Page and tab entrance: each new top-level block rises once, a step behind the one before it. The
+   frame (title, tabs) stays still; the figures strip staggers its own cells. A page whose body is
+   one wrapper puts pb-enter-children on it. */
+.pb-main > :not(.pb-banner, .pb-tabs, .pb-skeleton, .pb-tiles),
+.pb-enter-children > * {
+  animation: pb-enter var(--pb-dur-enter) var(--pb-ease) backwards;
+}
+.pb-main > :nth-child(2),
+.pb-enter-children > :nth-child(2) {
+  animation-delay: var(--pb-stagger);
+}
+.pb-main > :nth-child(3),
+.pb-enter-children > :nth-child(3) {
+  animation-delay: calc(var(--pb-stagger) * 2);
+}
+.pb-main > :nth-child(4),
+.pb-enter-children > :nth-child(4) {
+  animation-delay: calc(var(--pb-stagger) * 3);
+}
+.pb-main > :nth-child(5),
+.pb-enter-children > :nth-child(5) {
+  animation-delay: calc(var(--pb-stagger) * 4);
+}
+.pb-main > :nth-child(n + 6),
+.pb-enter-children > :nth-child(n + 6) {
+  animation-delay: calc(var(--pb-stagger) * 5);
+}
+
+/* The figures strip: cells arrive left to right; a figure never counts up. */
+.pb-tiles > * {
+  animation: pb-enter var(--pb-dur-enter) var(--pb-ease) backwards;
+}
+.pb-tiles > :nth-child(2) {
+  animation-delay: 20ms;
+}
+.pb-tiles > :nth-child(3) {
+  animation-delay: 40ms;
+}
+.pb-tiles > :nth-child(4) {
+  animation-delay: 60ms;
+}
+.pb-tiles > :nth-child(5) {
+  animation-delay: 80ms;
+}
+.pb-tiles > :nth-child(6) {
+  animation-delay: 100ms;
+}
+.pb-tiles > :nth-child(7) {
+  animation-delay: 120ms;
+}
+.pb-tiles > :nth-child(n + 8) {
+  animation-delay: 140ms;
+}
+
+/* The tab that became current: its underline draws in. It plays on every tab change, whether the
+   row was rendered again or kept, because the pseudo-element is created then. */
+.pb-tabs a[aria-current='page']::after {
+  content: '';
+  position: absolute;
+  left: var(--pb-space-3);
+  right: var(--pb-space-3);
+  bottom: 0;
+  height: 2px;
+  background: var(--pb-brand-accent);
+  animation: pb-tab-in var(--pb-dur) var(--pb-ease) backwards;
+}
+
+/* Steps: done segments fill in order and the current one last; after a command only the segment
+   whose status changed fills (its animation name changes from none). StepStrip sets --i. */
+.pb-steps > li[data-status='done']::before,
+.pb-steps > li[aria-current='step']::before {
+  transform-origin: left center;
+  animation: pb-grow-x var(--pb-dur) var(--pb-ease) backwards;
+  animation-delay: calc(var(--i, 0) * 30ms);
+}
+
+/* The reader's own command: its result line drops in beside the controls and the row it changed
+   washes once (components/motion.ts, useJustChanged). Never on a refetch; the role="status" region
+   itself does not move. */
+.pb-action-status > *,
+.pb-action-log > li:first-child {
+  animation: pb-drop var(--pb-dur) var(--pb-ease) backwards;
+}
+.pb-table tr[data-just-changed] > * {
+  animation: pb-wash calc(var(--pb-dur-slow) * 2) var(--pb-ease-inout);
+}
+/* A table whose rows are being replaced: aria-busy says the same in words. */
+.pb-table-wrap {
+  transition: opacity var(--pb-dur-fast) var(--pb-ease);
+}
+.pb-table-wrap[aria-busy='true'] {
+  opacity: 0.55;
+}
+/* A view the reader swaps in place (a chart and its table, a document's page): the outgoing one
+   leaves at once and the incoming one fades in. Set only after the reader's own swap. */
+.pb-swap-in {
+  animation: pb-fade var(--pb-dur-fast) var(--pb-ease) backwards;
+}
+
+/* Loading appears only if it lasts, and pulses until replaced: the app's only loop. Declared after
+   the entrance rules, so .pb-main > .pb-skeleton outranks their delays. */
+.pb-skeleton,
+.pb-main > .pb-skeleton {
+  animation: pb-fade var(--pb-dur) var(--pb-ease) 120ms backwards;
+}
+.pb-skeleton-bar {
+  animation: pb-pulse 1200ms var(--pb-ease-inout) infinite alternate;
+}
+
+/* Sign-in: the column settles, then the users in turn, all by about half a second; then nothing
+   moves. SignIn.tsx sets each row's --i. */
+.pb-signin-picker > :not(.pb-banner) {
+  animation: pb-enter var(--pb-dur-enter) var(--pb-ease) backwards;
+}
+.pb-signin-picker > :nth-child(n + 3) {
+  animation-delay: 40ms;
+}
+.pb-signin-row {
+  animation: pb-enter var(--pb-dur) var(--pb-ease) backwards;
+  animation-delay: calc(80ms + min(var(--i, 0), 12) * 20ms);
+}
+
+/* ---- Motion policy: every animated or transitioned selector of this file, repeated exactly as it is
+   declared (a media block adds no specificity, so only the same selector later in the file wins),
+   switched off under reduced motion or on a slow display. Fluent's spinner keeps turning under its
+   own reduced-motion rule, so it is stopped here at two classes, above Griffel's one. Each other
+   stylesheet that animates keeps its own list at its foot (docs/06 section 5);
+   components/motion.test.ts holds every one of them. ---- */
+@media (prefers-reduced-motion: reduce), (update: slow) {
+  .pb-main > :not(.pb-banner, .pb-tabs, .pb-skeleton, .pb-tiles),
+  .pb-enter-children > *,
+  .pb-tiles > *,
+  .pb-tabs a[aria-current='page']::after,
+  .pb-steps > li[data-status='done']::before,
+  .pb-steps > li[aria-current='step']::before,
+  .pb-action-status > *,
+  .pb-action-log > li:first-child,
+  .pb-table tr[data-just-changed] > *,
+  .pb-swap-in,
+  .pb-skeleton,
+  .pb-main > .pb-skeleton,
+  .pb-skeleton-bar,
+  .pb-signin-picker > :not(.pb-banner),
+  .pb-signin-row,
+  .fui-Spinner > .fui-Spinner__spinner,
+  .fui-Spinner__spinner > .fui-Spinner__spinnerTail {
+    animation: none;
+  }
+  .pb-skeleton-bar {
+    opacity: 0.7;
+  }
+  a,
+  .pb-nav-item,
+  .pb-nav-icon,
+  .pb-tabs a,
+  .pb-btn-quiet,
+  .pb-segmented > button,
+  .pb-details > summary::before,
+  .pb-signin-row,
+  .pb-question,
+  .pb-taxonomy-index button,
+  .pb-file::file-selector-button,
+  .pb-table-wrap,
+  .pb-grid .ag-header-cell-filter-button,
+  .pb-grid .ag-header-cell-resize {
+    transition: none;
   }
 }

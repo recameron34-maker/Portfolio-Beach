@@ -167,9 +167,19 @@ if (ARTIFACT) {
   const styling = /<link\b[^>]*rel="stylesheet"[^>]*>|<style\b/g;
   const markupAt = entrySource.indexOf('<a class="skip-link"');
   const scriptsAt = at(/<script\b/g);
-  const tail = entrySource
-    .slice(scriptsAt)
-    .replace(/<script\b[^>]*\bsrc="[^"]*"[^>]*><\/script>/g, '');
+  // What follows the first script tag must be script tags that load a file and nothing else.
+  // They are counted, not cut out: cutting an element out of text can leave the pieces of
+  // another side by side, so a check that removes and then looks at the rest can be fooled.
+  const afterMarkup = entrySource.slice(scriptsAt);
+  const fileScript = /<script\b[^>]*\bsrc="[^"]*"[^>]*><\/script\b[^>]*>/gi;
+  const fileScripts = afterMarkup.match(fileScript) ?? [];
+  const scriptTags = (afterMarkup.match(/<script\b/gi) ?? []).length;
+  const tail =
+    scriptTags === fileScripts.length &&
+    afterMarkup.replace(/\s+/g, '').length ===
+      fileScripts.reduce((sum, tag) => sum + tag.replace(/\s+/g, '').length, 0)
+      ? ''
+      : afterMarkup;
   check(
     'artifact.html: the title, then the stylesheet link and the inline style, then the markup, then the script, and no inline script',
     at(styling) > 0 &&

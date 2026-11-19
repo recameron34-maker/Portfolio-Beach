@@ -114,7 +114,11 @@ describe('extraction page', () => {
     const done = rowOf('Extraction batches', '12 runs');
     expect(within(done).getByText('Succeeded')).toHaveClass('pb-badge-good');
     expect(within(done).getByText('100%')).toBeInTheDocument();
-    expect(within(done).getByText('24576 in, 768 out')).toBeInTheDocument();
+    // Tokens in and out are two figure columns, right-aligned like the cost.
+    expect(within(batches).getByRole('columnheader', { name: 'Tokens in' })).toHaveClass('num');
+    expect(within(batches).getByRole('columnheader', { name: 'Tokens out' })).toHaveClass('num');
+    expect(within(done).getByText('24576')).toHaveClass('num');
+    expect(within(done).getByText('768')).toHaveClass('num');
     expect(within(done).getByText('$0.0852')).toBeInTheDocument();
     expect(within(done).getByText('Avery Castellanos')).toBeInTheDocument();
 
@@ -144,6 +148,8 @@ describe('extraction page', () => {
 
     const failedRun = rowOf('Extraction runs', 'schema_invalid');
     expect(within(failedRun).getByText('Failed')).toHaveClass('pb-badge-bad');
+    // An error code reads as a rule identifier, and the company keeps its number on its line.
+    expect(within(failedRun).getByText('schema_invalid')).toHaveClass('pb-rule-id');
     expect(within(failedRun).getByText('Ashby Renewables Group')).toBeInTheDocument();
     expect(within(failedRun).getAllByText('-')).toHaveLength(2);
     expect(screen.queryByRole('button', { name: 'Load more runs' })).not.toBeInTheDocument();
@@ -153,7 +159,12 @@ describe('extraction page', () => {
     mockApi(routes(['operations']));
     renderWithQuery(<ExtractionPage />);
     const form = await screen.findByTestId('extraction-batch-form');
-    expect(within(form).getByRole('textbox', { name: 'Period end' })).toHaveValue('');
+    // A date control: it answers YYYY-MM-DD, the form the batch's check reads.
+    expect(within(form).getByLabelText('Period end')).toHaveAttribute('type', 'date');
+    expect(within(form).getByLabelText('Period end')).toHaveValue('');
+    expect(form).toHaveTextContent(
+      'Types that can be read today: Quarterly financials, Capital account statement.',
+    );
     expect(within(form).getByRole('combobox', { name: 'Document type' })).toHaveTextContent(
       'Quarterly financials',
     );
@@ -180,7 +191,7 @@ describe('extraction page', () => {
     expect(within(form).getByRole('alert')).toHaveTextContent(
       'Enter a quarter end as YYYY-MM-DD, for example 2025-06-30.',
     );
-    await userEvent.type(within(form).getByRole('textbox', { name: 'Period end' }), '2025-06-15');
+    await userEvent.type(within(form).getByLabelText('Period end'), '2025-06-15');
     await userEvent.click(within(form).getByRole('button', { name: 'Start extraction' }));
     expect(within(form).getByRole('alert')).toHaveTextContent('quarter end');
     expect(sentPosts()).toEqual([]);
@@ -197,7 +208,7 @@ describe('extraction page', () => {
       );
       renderWithQuery(<ExtractionPage />);
       const form = await screen.findByTestId('extraction-batch-form');
-      await userEvent.type(within(form).getByRole('textbox', { name: 'Period end' }), '2025-06-30');
+      await userEvent.type(within(form).getByLabelText('Period end'), '2025-06-30');
       await pick('Document type', 'Capital call');
       await pick('Document type', 'Quarterly financials');
       await userEvent.click(within(form).getByRole('button', { name: 'Start extraction' }));
@@ -217,7 +228,7 @@ describe('extraction page', () => {
     mockApi(routes(['operations'], { [BATCH_POST]: killSwitch }));
     renderWithQuery(<ExtractionPage />);
     const form = await screen.findByTestId('extraction-batch-form');
-    await userEvent.type(within(form).getByRole('textbox', { name: 'Period end' }), '2025-06-30');
+    await userEvent.type(within(form).getByLabelText('Period end'), '2025-06-30');
     await userEvent.click(within(form).getByRole('button', { name: 'Start extraction' }));
     expect(
       await screen.findByText('Start extraction: AI extraction is switched off (ai.extraction)'),

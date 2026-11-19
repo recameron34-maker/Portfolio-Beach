@@ -2,6 +2,7 @@ import { readdirSync, readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import type { Response } from 'express';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { latestQuarterEndOnOrBefore } from '@pb/calc';
 import { IF_MATCH_CASES, ROUTES, problemDetails, rowVersionEtag } from '@pb/contracts';
 import type { RouteDefinition } from '@pb/contracts';
 import type { AppRole } from '@pb/db';
@@ -85,6 +86,18 @@ const VALID_BODY: Readonly<Record<string, object>> = {
   'POST /api/v1/change-requests/{id}/commands': { command: 'start' },
   'POST /api/v1/opportunities/{id}/commands': { command: 'advance' },
   'POST /api/v1/closings/{id}/commands': { command: 'confirm' },
+  'POST /api/v1/report-packages/{id}/commands': { command: 'generate' },
+  'PATCH /api/v1/underwriting-cases/{id}': {
+    caseDate: '2021-06-30',
+    plannedExitDate: '2026-06-30',
+    grossMoic: '2.5',
+    grossIrr: '0.2',
+  },
+  'POST /api/v1/underwriting-cases/{id}/commands': { command: 'confirm' },
+  'POST /api/v1/valuation-suggestions/{id}/commands': {
+    command: 'dismiss',
+    reason: 'The statement is for another vehicle',
+  },
 };
 
 /**
@@ -96,6 +109,67 @@ describe('the routes the contract marks ifMatch', () => {
   let h: Harness;
   beforeAll(async () => {
     h = await startHarness();
+    // The synthetic book seeds no reporting package: one is started here so that its read can
+    // be checked with the others below.
+    const clientId = h.dataset.users.find((u) => u.externalId === 'ir.one')?.clientIds[0];
+    await h
+      .http()
+      .post('/api/v1/report-packages')
+      .set('authorization', h.as('ir.one'))
+      .set('idempotency-key', 'row-version-test-package')
+      .send({
+        clientId,
+        periodEnd: latestQuarterEndOnOrBefore(h.dataset.asOf),
+        basis: 'gross',
+        label: 'preliminary',
+      })
+      .expect(201);
+    // Nor does it seed a valuation suggestion: one appears only when a statement or a report
+    // is approved. A statement of an open position with its approved run is written to the
+    // record here, with the suggestion that run gave, as the owner connection.
+    const position = h.dataset.investments.find(
+      (i) => i.id === h.dataset.scenarios.stale_valuation?.[0],
+    );
+    const reviewer = h.dataset.users.find((u) => u.externalId === 'ops.two');
+    if (position === undefined || reviewer === undefined)
+      throw new Error('the synthetic book lost the stale valuation position or ops.two');
+    const quarterEnd = latestQuarterEndOnOrBefore(h.dataset.asOf);
+    const [document, run] = [
+      '9a000000-0000-4000-8000-000000000001',
+      '9a000000-0000-4000-8000-000000000002',
+    ];
+    await h.runtime.db.query(
+      `insert into doc.document (id, source_system, source_item_id, file_name, folder, title, doc_type, sponsor_id, sponsor_fund_id, investment_id, period_end, content_hash, size_bytes, page_count, received_at, review_status, classification_confidence)
+       values ($1, 'local_folder', 'inbox/row-version-statement.pdf', 'row-version-statement.pdf', 'inbox', 'Capital account statement', 'doc_type.capital_account_statement', $2, $3, $4, $5, 'row-version-test-hash', 8192, 1, now(), 'Classified', 0.97)`,
+      [document, position.sponsorId, position.sponsorFundId, position.id, quarterEnd],
+    );
+    await h.runtime.db.query(
+      `insert into doc.extraction_run (id, document_id, investment_id, period_end, schema_id, prompt_id, prompt_version, model_id, state, requested_by, approved_by, approved_at)
+       values ($1, $2, $3, $4, 'capital_account_statement', 'capital_account_extraction', '1', 'mock', 'Succeeded', $5, $5, now())`,
+      [run, document, position.id, quarterEnd, reviewer.id],
+    );
+    await h.runtime.db.query(
+      `insert into mon.valuation_suggestion (investment_id, period_end, basis, method, suggested_value, workings, source_document_id, extraction_run_id, source_page, source_reviewer_ids, prompt_version, model_id, calc_version)
+       values ($1, $2, 'capital_account_balance', 'valuation_method.sponsor_mark', 38140000, $3::jsonb, $4, $5, 1, $6::uuid[], '1', 'mock', 'row-version-test')`,
+      [
+        position.id,
+        quarterEnd,
+        JSON.stringify({
+          inputs: [
+            {
+              key: 'ending_capital_balance',
+              value: '38140000',
+              periodEnd: quarterEnd,
+              source: { kind: 'document', id: document, page: 1 },
+              edited: false,
+            },
+          ],
+        }),
+        document,
+        run,
+        `{${reviewer.id}}`,
+      ],
+    );
   });
   afterAll(async () => {
     await h.close();
@@ -137,30 +211,59 @@ describe('the routes the contract marks ifMatch', () => {
     }
   });
 
-  /** Where each guarded record kind is read, and the table a seeded one comes from. */
-  const READS: Readonly<Record<string, { path: string; table: string }>> = {
+  /**
+   * Where each guarded record kind is read, and the table a seeded one comes from. A base case is
+   * read with the other versions of its position, so its read is found by the position
+   * (`parent`) and answers the versions in a list (`list`), each with its own row version.
+   */
+  const READS: Readonly<
+    Record<string, { path: string; table: string; parent?: string; list?: string }>
+  > = {
     valuation: { path: '/api/v1/valuations/{id}', table: 'mon.valuation' },
     capital_notice: { path: '/api/v1/capital-notices/{id}', table: 'mon.capital_notice' },
     wire_instruction: { path: '/api/v1/wire-instructions/{id}', table: 'mon.wire_instruction' },
     change_request: { path: '/api/v1/change-requests/{id}', table: 'mon.deal_change_request' },
     opportunity: { path: '/api/v1/opportunities/{id}', table: 'deal.opportunity' },
     closing: { path: '/api/v1/closings/{id}', table: 'deal.closing' },
+    reporting_package: { path: '/api/v1/report-packages/{id}', table: 'rpt.package' },
+    valuation_suggestion: {
+      path: '/api/v1/valuation-suggestions/{id}',
+      table: 'mon.valuation_suggestion',
+    },
+    underwriting_case: {
+      path: '/api/v1/investments/{id}/underwriting',
+      table: 'mon.underwriting_case',
+      parent: 'investment_id',
+      list: 'versions',
+    },
   };
 
   it('tag the record they guard: its read answers the row version as the ETag a command may carry back', async () => {
     expect(Object.keys(READS).sort()).toEqual([...new Set(guarded.map((r) => r.ifMatch))].sort());
     for (const [kind, read] of Object.entries(READS)) {
-      const ids = await h.runtime.db.query<{ id: string }>(
-        `select id from ${read.table} order by id limit 20`,
+      const ids = await h.runtime.db.query<{ id: string; record: string; row_version: number }>(
+        `select ${read.parent ?? 'id'} as id, id as record, row_version from ${read.table} order by id limit 20`,
       );
       let tagged = false;
-      for (const { id } of ids) {
+      for (const { id, record, row_version: stored } of ids) {
         const res = await h
           .http()
           .get(read.path.replace('{id}', id))
           .set('authorization', h.as('operations'));
         if (res.status !== 200) continue; // behind a wall operations is not on
+        if (read.list !== undefined) {
+          // Several records in one answer: no single tag stands for it, so each record carries
+          // the row version a command sends back, and the answer is stored by nobody either.
+          const rows = (res.body as Record<string, { id: string; rowVersion: number }[]>)[
+            read.list
+          ];
+          expect(rows?.find((row) => row.id === record)?.rowVersion, kind).toBe(stored);
+          expect(res.headers['cache-control'], kind).toBe('no-store');
+          tagged = true;
+          break;
+        }
         const body = res.body as { rowVersion: number };
+        expect(body.rowVersion, kind).toBe(stored);
         expect(res.headers.etag, kind).toBe(rowVersionEtag(body.rowVersion));
         // The tag is a concurrency token, not a cache validator: a detail carries child rows the
         // row version does not cover (tasks, items, alerts, open change requests). So a
@@ -190,7 +293,7 @@ describe('the routes the contract marks ifMatch', () => {
       const text = readFileSync(`${src}/${file}`, 'utf8');
       if (!text.includes('ifMatchVersions(')) continue;
       const answers = text.match(
-        /\): Promise<(ValuationRow|ValuationDetail|CapitalNoticeControlDetail|TradeTicketRow|WireInstructionDetail|ChangeRequestRow|ChangeRequestDetail|OpportunityDetail|ClosingDetail)> \{/g,
+        /\): Promise<(ValuationRow|ValuationDetail|CapitalNoticeControlDetail|TradeTicketRow|WireInstructionDetail|ChangeRequestRow|ChangeRequestDetail|OpportunityDetail|ClosingDetail|ReportPackageDetail|UnderwritingCaseVersion|ValuationSuggestionRow)> \{/g,
       );
       expect(text.split('withEtag(').length - 1, file).toBe(answers?.length ?? 0);
     }

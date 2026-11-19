@@ -221,7 +221,7 @@ export const wallListFixture = (over: Partial<WallList> = {}): WallList => ({
     {
       id: uuid(81),
       name: 'Project Dune',
-      description: 'Restricted: named members only (SEC-5.3).',
+      description: 'Restricted: named members only.',
       members: [
         { userId: uuid(91), displayName: 'Deal Three' },
         { userId: uuid(92), displayName: 'Head One' },

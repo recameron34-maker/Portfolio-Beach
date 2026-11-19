@@ -6,7 +6,6 @@ import { Button } from '@fluentui/react-components';
 import { previewMode } from '../app/env.js';
 import { describeActionError, usePreviewReset } from '../app/mutations.js';
 import { mockUsersQuery } from '../app/queries.js';
-import { useNarrowScreen } from '../lib/media.js';
 import { guidePeople } from '../lib/preview-guide.js';
 import type { GuidePeople } from '../lib/preview-guide.js';
 import { Card, SectionHeader, SimulatedBadge } from './ui.js';
@@ -17,7 +16,7 @@ interface Walkthrough {
   steps: ReactNode[];
 }
 
-/** Twelve walkthroughs of two to four steps each, in the order a reviewer would try them. */
+/** Fourteen walkthroughs of two to four steps each, in the order a reviewer would try them. */
 function walkthroughs(p: GuidePeople): Walkthrough[] {
   return [
     {
@@ -101,9 +100,9 @@ function walkthroughs(p: GuidePeople): Walkthrough[] {
       title: 'Weekly values',
       steps: [
         <>
-          As {p.operations}, open <Link to="/data/weekly">Weekly values</Link> under Data and stage
-          weekly-values-defects.csv from the drop folder: every value is compared with its prior,
-          and a move beyond the threshold is flagged for a person.
+          As {p.operations}, open <Link to="/data/weekly">Weekly values</Link> under Data and stage{' '}
+          <span className="pb-key">weekly-values-defects.csv</span> from the drop folder: every
+          value is compared with its prior, and a move beyond the threshold is flagged for a person.
         </>,
         <>
           Approve the validated rows: each becomes a Draft valuation on the{' '}
@@ -139,13 +138,14 @@ function walkthroughs(p: GuidePeople): Walkthrough[] {
       title: 'Workbook drop',
       steps: [
         <>
-          As {p.operations}, open <Link to="/data/intake">Intake</Link> under Data and stage
-          ops-drop-clean.xlsx from the ops drop folder: the workbook is matched to its template by
-          its sheets and header, then staged like an accounting export.
+          As {p.operations}, open <Link to="/data/intake">Intake</Link> under Data and stage{' '}
+          <span className="pb-key">ops-drop-clean.xlsx</span> from the ops drop folder: the workbook
+          is matched to its template by its sheets and header, then staged like an accounting
+          export.
         </>,
         <>
-          Stage ops-drop-unknown-template.xlsx: it is refused with a finding that names the
-          templates the drop knows, and nothing is staged.
+          Stage <span className="pb-key">ops-drop-unknown-template.xlsx</span>: it is refused with a
+          finding that names the templates the drop knows, and nothing is staged.
         </>,
       ],
     },
@@ -178,7 +178,7 @@ function walkthroughs(p: GuidePeople): Walkthrough[] {
       title: 'Extraction review',
       steps: [
         <>
-          As {p.admin}, turn ai.extraction on under <Link to="/admin/flags">Flags</Link>; then as{' '}
+          As {p.admin}, turn on AI extraction under <Link to="/admin/flags">Flags</Link>; then as{' '}
           {p.operations}, open <Link to="/documents/extraction">Extraction</Link> and start a batch
           for the latest quarter's quarterly financials: each run reads its report through the
           recorded fixture and the validator.
@@ -190,6 +190,34 @@ function walkthroughs(p: GuidePeople): Walkthrough[] {
         <>
           Approve and promote: the figures reach the position's Performance tab in dollars, with a
           source link to the page they were read from.
+        </>,
+      ],
+    },
+    {
+      id: 'suggestions',
+      title: 'Valuation suggestions',
+      steps: [
+        <>
+          With the documents indexed and AI extraction on (the two walkthroughs above), as{' '}
+          {p.operations} open <Link to="/documents/extraction">Extraction</Link> and start two
+          batches for the latest quarter: its quarterly financials, then its capital account
+          statements.
+        </>,
+        <>
+          Open the report run of the position that <Link to="/valuations">Valuations</Link> lists
+          under Missing marks, decide its values and approve it: the run page says a valuation
+          suggestion was opened, the last Locked mark scaled by the sponsor's equity value.
+        </>,
+        <>
+          Switch to {p.dealTeam} and approve the statement run of the same position: its ending
+          balance replaces the first suggestion. Open{' '}
+          <Link to="/valuations/suggestions">Suggestions</Link> under Valuations to read the
+          workings, the page each figure came from and the report's indication beside it.
+        </>,
+        <>
+          Back as {p.operations}, choose Open a draft valuation and Prepare the draft: no mark is
+          written until it is approved and locked, and {p.dealTeam}, who approved the statement, is
+          refused Deal team approve.
         </>,
       ],
     },
@@ -206,6 +234,11 @@ function walkthroughs(p: GuidePeople): Walkthrough[] {
         <>
           Switch to {p.dealTeam} and set the realization outlook on a position's Performance tab
           with a reason; every other role reads it.
+        </>,
+        <>
+          On the same tab, as {p.dealTeam}, record the sponsor's base case for a position that has
+          none, then switch to {p.approver} to confirm it: the card then sets the position against
+          plan. Whoever entered the figures cannot confirm them.
         </>,
       ],
     },
@@ -226,6 +259,28 @@ function walkthroughs(p: GuidePeople): Walkthrough[] {
         <>
           Open the <Link to="/reporting">Weekly report</Link> and choose Print: the printed page
           leaves out the menus.
+        </>,
+      ],
+    },
+    {
+      id: 'packages',
+      title: 'Client packages',
+      steps: [
+        <>
+          As {p.investorRelations}, open <Link to="/reporting/packages">Packages</Link> under
+          Reporting, choose Start package, pick a client, Gross and Final, and start it.
+        </>,
+        <>
+          Generate it: the checks run and some fail. Each failed check shows what it expected and
+          what it found, and Submit is not offered while one fails.
+        </>,
+        <>
+          Switch to {p.approver}, open the package from the list and choose Override QA with a
+          reason. Back as {p.investorRelations}, Submit it.
+        </>,
+        <>
+          As {p.approver}, Approve it: the hash of everything the package shows appears. As{' '}
+          {p.investorRelations}, Release it: the package is read only from then on.
         </>,
       ],
     },
@@ -277,10 +332,10 @@ function ResetPreview(): ReactNode {
         >
           Reset preview
         </Button>
-        <SimulatedBadge />
         <span className="pb-meta">
           Simulated changes stay in this browser tab and reset when the page reloads.
         </span>
+        <SimulatedBadge />
       </div>
       <p className="pb-meta pb-guide-result" aria-live="polite" data-testid="guide-reset-result">
         {message}
@@ -301,12 +356,12 @@ function Guide({
   const users = useQuery(mockUsersQuery);
   const items = walkthroughs(guidePeople(users.data?.users ?? []));
   const compact = variant === 'sign-in';
-  // On a phone the open walkthroughs run longer than a screen, so Home folds them like sign-in.
-  const folded = useNarrowScreen() || compact;
+  // Folded at every width, a walkthrough a row, so the guide never outweighs the page above it;
+  // on Home, two columns from 1100px.
   return (
     <Card testId="preview-guide">
       <div className="pb-guide-head">
-        <SectionHeader>What to try in this preview</SectionHeader>
+        <SectionHeader>{`Preview walkthroughs (${items.length})`}</SectionHeader>
         {onHide === undefined ? null : (
           <Button size="small" appearance="subtle" autoFocus={focusHide} onClick={onHide}>
             Hide guide
@@ -315,36 +370,25 @@ function Guide({
       </div>
       <p className="pb-meta pb-guide-intro">
         {compact
-          ? 'Twelve short walkthroughs on synthetic data. Sign in as the user a step names; after that, switch users with the user menu at the top of any page.'
-          : 'Twelve short walkthroughs on synthetic data. Switch users with the user menu at the top of any page.'}
+          ? 'Fourteen short walkthroughs on synthetic data. Sign in as the user a step names; after that, switch users with the user menu at the top of any page.'
+          : 'Fourteen short walkthroughs on synthetic data. Switch users with the user menu at the top of any page.'}
       </p>
-      {folded ? (
-        <div className="pb-guide-compact">
-          {items.map((w) => (
-            <details key={w.id} data-testid={`guide-${w.id}`}>
-              <summary>{w.title}</summary>
-              <StepList steps={w.steps} />
-            </details>
-          ))}
-        </div>
-      ) : (
-        <ul className="pb-guide-list">
-          {items.map((w) => (
-            <li key={w.id} data-testid={`guide-${w.id}`}>
-              <h3>{w.title}</h3>
-              <StepList steps={w.steps} />
-            </li>
-          ))}
-        </ul>
-      )}
+      <div className={compact ? 'pb-guide-compact' : 'pb-guide-compact is-columns'}>
+        {items.map((w) => (
+          <details key={w.id} className="pb-details" data-testid={`guide-${w.id}`}>
+            <summary>{w.title}</summary>
+            <StepList steps={w.steps} />
+          </details>
+        ))}
+      </div>
       {compact ? null : <ResetPreview />}
     </Card>
   );
 }
 
 /**
- * The preview walkthrough guide (lib/preview-guide.ts names the people): a compact card under the
- * sign-in list, and a card at the top of Home that the reviewer can hide, with the preview reset.
+ * The preview walkthrough guide (lib/preview-guide.ts names the people): a section under the
+ * sign-in list, and one after Home's dashboard that the reviewer can hide, with the preview reset.
  * Renders nothing outside the static preview.
  */
 export function PreviewGuide({

@@ -1,5 +1,6 @@
 import { addDays, daysBetween } from '@pb/calc';
 import type { DocumentDefinitions, ExpectedDocumentStatus } from '@pb/contracts';
+import { EQUITY_DEAL_TYPES } from '@pb/workflows';
 
 /*
  * The expected-document tracker's rules (docs/04 M3, decision 0012), pure so the list, the
@@ -8,18 +9,19 @@ import type { DocumentDefinitions, ExpectedDocumentStatus } from '@pb/contracts'
  * config/definitions.json documents.*, so changing a threshold changes every row at once.
  */
 
-/** The deal types whose sponsors report quarterly figures, so a quarterly_financials row is expected each quarter. */
-export const QUARTERLY_REPORTING_DEAL_TYPES: readonly string[] = [
-  'deal_type.co_invest_equity',
-  'deal_type.cv_single_asset',
-  'deal_type.cv_multi_asset',
-];
+/**
+ * The deal types whose sponsors report quarterly figures, so a quarterly_financials row is
+ * expected each quarter: the equity deal types, the list a valuation suggestion is worked out for
+ * (EQUITY_DEAL_TYPES of @pb/workflows).
+ */
+export const QUARTERLY_REPORTING_DEAL_TYPES: readonly string[] = EQUITY_DEAL_TYPES;
 
-/** The two document types the tracker expects: a report per investment, a statement per sponsor fund. */
-export const EXPECTED_DOC_TYPES = {
-  quarterlyFinancials: 'doc_type.quarterly_financials',
-  capitalAccountStatement: 'doc_type.capital_account_statement',
-} as const;
+/**
+ * The two document types the tracker expects (a report per investment, a statement per sponsor
+ * fund) and which expected row a classified document answers: shared with the preview through
+ * @pb/validation, so a position-level statement fills a fund's row on neither side.
+ */
+export { EXPECTED_DOC_TYPES, expectedParentOf } from '@pb/validation';
 
 /** When a quarter's document is due: the period end plus the configured days. */
 export function dueDateFor(

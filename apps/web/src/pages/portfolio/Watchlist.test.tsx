@@ -36,21 +36,54 @@ describe('watchlist page', () => {
 
     const table = screen.getByRole('table', { name: 'Flagged positions' });
     expect(within(table).getAllByRole('row')).toHaveLength(3);
+    // Two columns: the position (its number, vehicle and deal type under the company) and its flags.
+    expect(
+      within(table)
+        .getAllByRole('columnheader')
+        .map((h) => h.textContent),
+    ).toEqual(['Position', 'Flags']);
     expect(within(table).getByRole('link', { name: 'Cobalt Energy Group' })).toHaveAttribute(
       'href',
       `/portfolio/${ID.inv2}`,
     );
-    expect(within(table).getByText('INV-0004')).toHaveClass('pb-key');
+    const sub = within(table).getByText(/^INV-0004 · /);
+    expect(sub).toHaveClass('pb-cell-sub');
+    expect(sub.closest('td')).toHaveTextContent('Silverline Staffing Holdings');
     expect(within(table).getByText('Negative EBITDA')).toBeInTheDocument();
     expect(
       within(table).getByText('EBITDA LTM of -3484738.35 for 2025-06-30 is at or below zero'),
-    ).toBeInTheDocument();
+    ).toHaveClass('pb-flag-message');
 
     const thresholds = screen.getByRole('table', { name: 'Thresholds (config/definitions.json)' });
     expect(within(thresholds).getByText('netDebtToEbitdaMax')).toHaveClass('pb-key');
     expect(within(thresholds).getByText('Net debt / EBITDA, maximum')).toBeInTheDocument();
     expect(thresholds).toHaveTextContent('0.15');
     expect(screen.queryByRole('status')).not.toBeInTheDocument();
+  });
+
+  it('puts the flags under the position on a phone, in the same table', async () => {
+    const original = globalThis.matchMedia;
+    globalThis.matchMedia = ((query: string) => ({
+      matches: query === '(max-width: 760px)',
+      media: query,
+      addEventListener: () => undefined,
+      removeEventListener: () => undefined,
+    })) as unknown as typeof globalThis.matchMedia;
+    try {
+      mockApi({ [WATCHLIST]: ok(watchlistFixture()) });
+      renderWithQuery(<WatchlistPage />);
+      const table = await screen.findByRole('table', { name: 'Flagged positions' });
+      expect(
+        within(table)
+          .getAllByRole('columnheader')
+          .map((h) => h.textContent),
+      ).toEqual(['Position and flags']);
+      const row = within(table).getByRole('link', { name: 'Cobalt Energy Group' }).closest('tr');
+      expect(row?.querySelectorAll('td')).toHaveLength(1);
+      expect(row).toHaveTextContent('Stale valuation');
+    } finally {
+      globalThis.matchMedia = original;
+    }
   });
 
   it('filters to the positions that need action', async () => {

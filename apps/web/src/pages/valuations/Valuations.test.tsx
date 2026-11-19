@@ -7,6 +7,7 @@ import { investmentPageFixture } from '../../test/fixtures.js';
 import {
   activePositions,
   POSITION_ID,
+  PRIOR_PERIOD,
   rolePrincipal,
   sentPosts,
   sentRequests,
@@ -14,11 +15,18 @@ import {
   valuationPageFixture,
   vehicleListFixture,
 } from '../../test/fixtures-valuations.js';
+import {
+  notCalculableFixture,
+  reportSuggestionFixture,
+  SUGGESTION_ID,
+  suggestionFixture,
+  suggestionPageFixture,
+} from '../../test/fixtures-suggestions.js';
 import { renderWithQuery } from '../../test/render.js';
 import { ValuationsPage } from './Valuations.js';
 
 vi.mock('@tanstack/react-router', async () =>
-  (await import('../../test/router-mock.js')).routerMock(),
+  (await import('../../test/router-mock.js')).routerMockWithSearch(),
 );
 
 const ME = '/api/v1/auth/me';
@@ -26,6 +34,9 @@ const BOARD = '/api/v1/valuations?limit=200';
 const ACTIVE = '/api/v1/investments?limit=200&active=true';
 const VEHICLES = '/api/v1/vehicles';
 const BATCH = '/api/v1/valuations/batch-commands';
+/** The open suggestions of the quarter the board shows: the latest by default. */
+const SUGGESTIONS = '/api/v1/valuation-suggestions?limit=200&periodEnd=2025-06-30';
+const SUGGESTIONS_PRIOR = `/api/v1/valuation-suggestions?limit=200&periodEnd=${PRIOR_PERIOD}`;
 /** Dialog and checkbox journeys drive Fluent controls; give them room on a loaded test runner. */
 const TIMEOUT = { timeout: 15_000 };
 
@@ -59,12 +70,12 @@ describe('valuation board', () => {
     mockApi(routes());
     renderWithQuery(<ValuationsPage />);
     const table = await screen.findByRole('table', { name: 'Valuations' });
-    expect(
-      screen.getByText('As of Jun 30, 2025. Reports read Locked valuations only.'),
-    ).toBeInTheDocument();
+    expect(screen.getByText('As of Jun 30, 2025')).toBeInTheDocument();
+    // The board's rule is one quiet line at the top of the tab, not a notice.
     expect(screen.getByTestId('valuation-gate')).toHaveTextContent(
-      'Reports read Locked valuations only. Draft, Ops prepared and Deal team approved versions never reach a report.',
+      /^Reports read Locked valuations only\.$/,
     );
+    expect(screen.getByTestId('valuation-gate')).not.toHaveClass('pb-notice');
     expect(within(tile('Locked')).getByText('2')).toBeInTheDocument();
     expect(within(tile('In flight')).getByText('3')).toBeInTheDocument();
     expect(within(tile('Reopened')).getByText('1')).toBeInTheDocument();
@@ -93,7 +104,7 @@ describe('valuation board', () => {
     expect(within(meridianRow).getByText('Sponsor mark')).toBeInTheDocument();
 
     const reopened = within(table).getByText('Reopened').closest('tr')!;
-    expect(within(reopened).getByText('None')).toBeInTheDocument();
+    expect(within(reopened).getByText('No actions')).toHaveClass('pb-visually-hidden');
     expect(screen.queryByText('Showing the first 200', { exact: false })).not.toBeInTheDocument();
     expect(screen.queryByText('Simulated')).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Reset preview' })).not.toBeInTheDocument();
@@ -215,7 +226,7 @@ describe('valuation board', () => {
                 problem: {
                   status: 422,
                   code: 'workflow-precondition',
-                  detail: 'valuation: the preparer cannot approve their own valuation (SEC-5.6)',
+                  detail: 'valuation: the preparer cannot approve their own valuation',
                 },
               },
             ],
@@ -241,7 +252,7 @@ describe('valuation board', () => {
       );
       expect(
         within(screen.getByRole('list', { name: 'Actions this session' })).getByText(
-          'Lock for Summit Services Co, Jun 30, 2025 v1: Blocked by a rule. The preparer cannot approve their own valuation (SEC-5.6)',
+          'Lock for Summit Services Co, Jun 30, 2025 v1: Blocked by a rule. The preparer cannot approve their own valuation',
         ),
       ).toBeInTheDocument();
       expect(sentPosts()).toEqual([[BATCH, { command: 'lock', ids: [VAL_ID.approved] }]]);
@@ -284,10 +295,166 @@ describe('valuation board', () => {
       expect(await within(tile('Missing marks')).findByText('4')).toBeInTheDocument();
 
       // Every filter is applied in the browser: the list is requested once, unfiltered, and the
-      // page issues exactly the reads the preview recorder knows about.
+      // page issues exactly the reads the preview recorder knows about, with the open
+      // suggestions (never recorded: the preview answers them itself) for a role that reads them.
       const urls = sentRequests().map(([url]) => url);
       expect(urls.filter((u) => u.startsWith('/api/v1/valuations'))).toEqual([BOARD]);
-      expect([...new Set(urls)].sort()).toEqual([ME, VEHICLES, ACTIVE, BOARD].sort());
+      expect([...new Set(urls)].sort()).toEqual(
+        [ME, VEHICLES, ACTIVE, BOARD, SUGGESTIONS, SUGGESTIONS_PRIOR].sort(),
+      );
+    },
+  );
+
+  it('shows the mark suggested for a position with no version, for the same quarter only', async () => {
+    const forQuarter = suggestionFixture({
+      investmentId: POSITION_ID.summitCare,
+      investmentNumber: 'INV-0015',
+      companyName: 'Summit Care Holdings',
+    });
+    // An open suggestion for the same position and another quarter is never shown in its place.
+    const earlier = reportSuggestionFixture({
+      investmentId: POSITION_ID.summitCare,
+      periodEnd: PRIOR_PERIOD,
+    });
+    mockApi(routes({ [SUGGESTIONS]: ok(suggestionPageFixture([forQuarter, earlier])) }));
+    renderWithQuery(<ValuationsPage />);
+    const card = await screen.findByTestId('missing-marks');
+    const table = await within(card).findByRole('table', { name: 'Missing marks' });
+    const link = await within(table).findByRole('link', {
+      name: '$20.9M, suggested mark for Summit Care Holdings',
+    });
+    expect(link).toHaveAttribute('href', `/valuations/suggestions?id=${SUGGESTION_ID.statement}`);
+    const row = link.closest('tr')!;
+    expect(within(row).getByText('Capital account statement')).toBeInTheDocument();
+    expect(within(row).queryByText('$7.8M')).not.toBeInTheDocument();
+    expect(within(table).getByRole('columnheader', { name: 'Suggested' })).toBeInTheDocument();
+    // The Suggestions tab is in the row for a role that reads them.
+    expect(
+      within(screen.getByRole('navigation', { name: 'Valuations' })).getByRole('link', {
+        name: 'Suggestions',
+      }),
+    ).toHaveAttribute('href', '/valuations/suggestions');
+  });
+
+  it('says so for a suggestion that is not calculable, and shows the placeholder where there is none', async () => {
+    const summitCare = {
+      investmentId: POSITION_ID.summitCare,
+      investmentNumber: 'INV-0015',
+      companyName: 'Summit Care Holdings',
+    };
+    mockApi(
+      routes({ [SUGGESTIONS]: ok(suggestionPageFixture([notCalculableFixture(summitCare)])) }),
+    );
+    const first = renderWithQuery(<ValuationsPage />);
+    const table = await within(await screen.findByTestId('missing-marks')).findByRole('table', {
+      name: 'Missing marks',
+    });
+    expect(
+      await within(table).findByRole('link', {
+        name: 'Not calculable, suggested mark for Summit Care Holdings',
+      }),
+    ).toBeInTheDocument();
+    expect(within(table).queryByText('$0.0M')).not.toBeInTheDocument();
+    first.unmount();
+    vi.restoreAllMocks();
+
+    mockApi(routes({ [SUGGESTIONS]: ok(suggestionPageFixture([])) }));
+    renderWithQuery(<ValuationsPage />);
+    const again = await within(await screen.findByTestId('missing-marks')).findByRole('table', {
+      name: 'Missing marks',
+    });
+    await within(again).findByRole('columnheader', { name: 'Suggested' });
+    const row = within(again).getByText('Summit Care Holdings').closest('tr')!;
+    expect(within(row).getByText('-')).toHaveClass('pb-meta');
+    expect(
+      within(again).queryByRole('link', { name: /suggested mark for/ }),
+    ).not.toBeInTheDocument();
+  });
+
+  it(
+    'asks for the suggestions of the quarter shown, and of another when the period changes',
+    TIMEOUT,
+    async () => {
+      const earlier = reportSuggestionFixture({
+        investmentId: POSITION_ID.summit,
+        investmentNumber: 'INV-0013',
+        companyName: 'Summit Services Co',
+        periodEnd: PRIOR_PERIOD,
+      });
+      mockApi(
+        routes({
+          [SUGGESTIONS]: ok(suggestionPageFixture([])),
+          [SUGGESTIONS_PRIOR]: ok(suggestionPageFixture([earlier])),
+        }),
+      );
+      renderWithQuery(<ValuationsPage />);
+      const card = await screen.findByTestId('missing-marks');
+      await within(card).findByRole('columnheader', { name: 'Suggested' });
+      expect(
+        within(card).queryByRole('link', { name: /suggested mark for/ }),
+      ).not.toBeInTheDocument();
+      await pick('Period', 'Mar 31, 2025');
+      expect(
+        await within(card).findByRole('link', {
+          name: '$7.8M, suggested mark for Summit Services Co',
+        }),
+      ).toBeInTheDocument();
+      expect(
+        sentRequests()
+          .map(([url]) => url)
+          .filter((url) => url.includes('valuation-suggestions')),
+      ).toEqual([SUGGESTIONS, SUGGESTIONS_PRIOR]);
+    },
+  );
+
+  it('says the suggested marks are unavailable when their read fails, and lists the positions without them', async () => {
+    mockApi(routes({ [SUGGESTIONS]: failing(501, '/api/v1/valuation-suggestions') }));
+    renderWithQuery(<ValuationsPage />);
+    const card = await screen.findByTestId('missing-marks');
+    const table = await within(card).findByRole('table', { name: 'Missing marks' });
+    expect(
+      await within(card).findByTestId('missing-marks-suggested-unavailable'),
+    ).toBeInTheDocument();
+    expect(
+      within(table).queryByRole('columnheader', { name: 'Suggested' }),
+    ).not.toBeInTheDocument();
+    expect(within(table).getByText('Summit Care Holdings')).toBeInTheDocument();
+  });
+
+  it('says when more open suggestions exist for the quarter than the page read holds', async () => {
+    mockApi(
+      routes({
+        [SUGGESTIONS]: ok(suggestionPageFixture([], { nextCursor: 'more' })),
+      }),
+    );
+    renderWithQuery(<ValuationsPage />);
+    const card = await screen.findByTestId('missing-marks');
+    expect(await within(card).findByTestId('missing-marks-suggested-truncated')).toHaveTextContent(
+      'Showing the suggested marks of the first 200 open suggestions for this quarter; more exist.',
+    );
+  });
+
+  it.each(['viewer', 'investor_relations', 'platform_admin'] as const)(
+    'asks for no suggestion and shows no column or tab to a %s',
+    async (role) => {
+      mockApi(
+        routes({
+          [ME]: ok(rolePrincipal([role])),
+          [SUGGESTIONS]: ok(suggestionPageFixture()),
+        }),
+      );
+      renderWithQuery(<ValuationsPage />);
+      const card = await screen.findByTestId('missing-marks');
+      const table = await within(card).findByRole('table', { name: 'Missing marks' });
+      expect(
+        within(table).queryByRole('columnheader', { name: 'Suggested' }),
+      ).not.toBeInTheDocument();
+      expect(
+        within(screen.getByRole('navigation', { name: 'Valuations' })).queryByRole('link', {
+          name: 'Suggestions',
+        }),
+      ).not.toBeInTheDocument();
+      expect(sentRequests().some(([url]) => url.includes('valuation-suggestions'))).toBe(false);
     },
   );
 
@@ -325,9 +492,9 @@ describe('valuation board', () => {
       }),
     );
     renderWithQuery(<ValuationsPage />);
-    expect(
-      await screen.findByText('Every active position has a mark for this period'),
-    ).toBeInTheDocument();
+    expect(await screen.findByTestId('missing-marks-none')).toHaveTextContent(
+      'Every active position has at least one valuation version for Jun 30, 2025.',
+    );
     expect(tile('Missing marks')).not.toHaveAttribute('data-tone');
   });
 
@@ -386,6 +553,24 @@ describe('valuation board', () => {
     renderWithQuery(<ValuationsPage />);
     await screen.findByRole('table', { name: 'Valuations' });
     expect(screen.queryByRole('button', { name: 'New valuation' })).not.toBeInTheDocument();
+  });
+
+  it('says under New valuation why it is not offered, and the button points to it', async () => {
+    mockApi(
+      routes({
+        [ACTIVE]: ok(
+          investmentPageFixture(activePositions().filter((p) => p.id !== POSITION_ID.summitCare)),
+        ),
+      }),
+    );
+    renderWithQuery(<ValuationsPage />);
+    await screen.findByTestId('missing-marks-none');
+    const start = screen.getByRole('button', { name: 'New valuation' });
+    expect(start).toBeDisabled();
+    expect(start).toHaveAccessibleDescription(
+      'Every active position has a version for Jun 30, 2025',
+    );
+    expect(screen.getByText('Every active position has a version for Jun 30, 2025')).toBeVisible();
   });
 
   it('never shows an em dash', async () => {

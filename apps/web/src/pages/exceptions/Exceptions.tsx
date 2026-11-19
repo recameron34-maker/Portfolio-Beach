@@ -27,7 +27,6 @@ import {
   EXCEPTIONS_FORBIDDEN,
   EXCEPTIONS_META,
   exceptionStateWord,
-  exceptionTone,
   isExceptionState,
   knownSources,
   positionText,
@@ -39,24 +38,29 @@ import {
 } from './exceptions.js';
 import './exceptions.css';
 
-/** Where the exception came from: the run or the file, then the row and the position when the reader may see it. */
+/**
+ * Where the exception came from, on one line: the run or the file (a link where it can be read)
+ * and the row; the position, when the reader may see it, on a muted line under it.
+ */
 function ContextCell({ x }: { x: DataException }): ReactNode {
   const link = contextLink(x);
   const row = rowText(x);
   const position = positionText(x);
   return (
     <td className="pb-exceptions-context">
-      {link === null ? (
-        <span>{x.context.intakeFileName ?? x.entity}</span>
-      ) : (
-        <Link to={link.to} params={link.params}>
-          {link.label}
-        </Link>
-      )}
-      {row === null && position === null ? null : (
+      <span className="pb-nowrap">
+        {link === null ? (
+          <span>{x.context.intakeFileName ?? x.entity}</span>
+        ) : (
+          <Link to={link.to} params={link.params}>
+            {link.label}
+          </Link>
+        )}
+        {row === null ? null : `, ${row.toLowerCase()}`}
+      </span>
+      {position === null ? null : (
         <span className="pb-cell-sub">
-          {row === null ? null : <span className="pb-key">{row}</span>}
-          {position === null ? null : x.context.investmentId === null ? (
+          {x.context.investmentId === null ? (
             <span>{position}</span>
           ) : (
             <Link to="/portfolio/$id" params={{ id: x.context.investmentId }}>
@@ -69,9 +73,17 @@ function ContextCell({ x }: { x: DataException }): ReactNode {
   );
 }
 
-function QueueTable({ items, now }: { items: readonly DataException[]; now: Date }): ReactNode {
+function QueueTable({
+  items,
+  now,
+  busy,
+}: {
+  items: readonly DataException[];
+  now: Date;
+  busy: boolean;
+}): ReactNode {
   return (
-    <TableWrap label="Data exceptions">
+    <TableWrap label="Data exceptions" busy={busy}>
       <table
         className="pb-table pb-exceptions-table"
         aria-label="Data exceptions"
@@ -94,23 +106,25 @@ function QueueTable({ items, now }: { items: readonly DataException[]; now: Date
         <tbody>
           {items.map((x) => (
             <tr key={x.id}>
-              <td>
-                <Link to="/data/exceptions/$id" params={{ id: x.id }} className="pb-key">
+              <td className="pb-nowrap">
+                <Link to="/data/exceptions/$id" params={{ id: x.id }} className="pb-rule-id">
                   {x.ruleId}
                 </Link>
               </td>
-              <td>{sourceLabel(x.source)}</td>
+              <td className="pb-nowrap">{sourceLabel(x.source)}</td>
               <ContextCell x={x} />
               <td className="pb-exceptions-text">{x.expected ?? MISSING}</td>
               <td className="pb-exceptions-text">{x.actual ?? MISSING}</td>
-              <td>
+              <td className="pb-nowrap">
                 <Badge tone={severityTone(x.severity)}>{severityLabel(x.severity)}</Badge>
               </td>
-              <td>
-                <Badge tone={exceptionTone(x.state)}>{exceptionStateWord(x.state)}</Badge>
+              <td className="pb-nowrap">{exceptionStateWord(x.state)}</td>
+              <td className="pb-nowrap">
+                {x.owner ?? <span className="pb-exceptions-none">Unassigned</span>}
               </td>
-              <td>{x.owner ?? MISSING}</td>
-              <td>{x.externalTicket ?? MISSING}</td>
+              <td className="pb-nowrap">
+                {x.externalTicket ?? <span className="pb-exceptions-none">None</span>}
+              </td>
               <td className="pb-nowrap">{ageLabel(x.createdAt, now)}</td>
             </tr>
           ))}
@@ -124,11 +138,13 @@ function QueueCard({
   page,
   filters,
   file,
+  busy,
   onFilters,
 }: {
   page: DataExceptionPage;
   filters: ExceptionFilters;
   file: string | undefined;
+  busy: boolean;
   onFilters: (next: ExceptionFilters) => void;
 }): ReactNode {
   // Opened from a run or a staged file, the API answered that file's exceptions alone.
@@ -223,7 +239,7 @@ function QueueCard({
           testId="exceptions-empty"
         />
       ) : (
-        <QueueTable items={page.items} now={now} />
+        <QueueTable items={page.items} now={now} busy={busy} />
       )}
       {page.nextCursor !== null ? (
         <p className="pb-meta" data-testid="exceptions-truncated">
@@ -270,7 +286,13 @@ export function ExceptionsPage(): ReactNode {
   return (
     <>
       <PageHeader title="Exceptions" meta={EXCEPTIONS_META} />
-      <QueueCard page={q.data} filters={filters} file={search.file} onFilters={setFilters} />
+      <QueueCard
+        page={q.data}
+        filters={filters}
+        file={search.file}
+        busy={q.isPlaceholderData}
+        onFilters={setFilters}
+      />
     </>
   );
 }

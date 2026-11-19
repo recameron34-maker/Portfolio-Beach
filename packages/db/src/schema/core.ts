@@ -72,6 +72,11 @@ export const portfolioCompany = core.table('portfolio_company', {
   sector: text('sector'),
   geography: text('geography'),
   description: text('description'),
+  /** Head office (migration 0018): all four recorded or none; the co-investment map draws from them. */
+  hqCity: text('hq_city'),
+  hqCountry: char('hq_country', { length: 2 }),
+  hqLatitude: numeric('hq_latitude', { precision: 8, scale: 5 }),
+  hqLongitude: numeric('hq_longitude', { precision: 8, scale: 5 }),
   ...standardColumns,
 });
 

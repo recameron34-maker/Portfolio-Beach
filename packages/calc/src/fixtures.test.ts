@@ -4,11 +4,13 @@ import { join } from 'node:path';
 import {
   CalcError,
   D,
+  FIT_MEASURES,
   allInCoupon,
   bandIndexOf,
   capitalizePik,
   cashOnCash,
   currentYield,
+  dealFit,
   directAlpha,
   dscr,
   ebitdaMargin,
@@ -17,21 +19,36 @@ import {
   entryStake,
   evToEbitda,
   gainByDriver,
+  hasFlowBetween,
+  heldMultipleMark,
+  impliedStakeMark,
   indexedLevel,
   interestCoverage,
   ksPme,
+  latestLockedBefore,
   latestPeriod,
+  lockedForOrAfter,
+  markComparison,
+  median,
   leverageThroughTranche,
   loanToValue,
   navRollForward,
   netDebtToEbitda,
   parRollForward,
+  planHeadline,
+  planMetrics,
+  previousQuarterEnd,
+  quartersBetween,
   sameQuarterPriorYear,
   sinceEntryMeasures,
+  sourceCrossCheck,
+  statementMark,
+  statementTieTolerance,
   takahashiAlexander,
   toDollars,
   totalGain,
   turnBands,
+  underwritingComparison,
   unfunded,
   valueChange,
   valueCreationAttribution,
@@ -45,11 +62,20 @@ import type {
   BridgePoint,
   CashFlow,
   Decimal,
+  HeldMultipleInput,
   IndexPoint,
+  MarkComparisonInput,
   OperatingFigures,
   PaymentFrequency,
   PeriodRow,
+  PlanFigures,
   RollupPosition,
+  StakeMarkInput,
+  StatementLines,
+  TieTolerances,
+  UnderwritingCase,
+  UnderwritingInputs,
+  UnderwritingTolerances,
 } from './index.js';
 
 /**
@@ -405,6 +431,178 @@ describe('golden fixtures', () => {
           const wanted = fx.expected.weightedAverages as (string | null)[];
           expect(wanted.length).toBe(averages.length);
           averages.forEach((items, i) => expectClose(weightedAverage(items), wanted[i], tol));
+          break;
+        }
+        case 'deal_fit': {
+          type Inputs = Parameters<typeof dealFit>[0];
+          const thresholds = fx.input.thresholds as Parameters<typeof dealFit>[1];
+          const cases = fx.input.cases as Inputs[];
+          const wanted = fx.expected.cases as Record<string, string | null>[];
+          expect(wanted.length).toBe(cases.length);
+          cases.forEach((inputs, i) => {
+            const measures = dealFit(inputs, thresholds);
+            expect(measures.map((m) => m.key)).toEqual(FIT_MEASURES);
+            for (const m of measures) {
+              expectClose(m.score, wanted[i]![m.key], tol);
+              // A measure has a score or a reason it has none, never both and never neither.
+              expect(m.score === null, `case ${i + 1} ${m.key}`).toBe(m.missing !== null);
+            }
+          });
+          const lists = fx.input.medians as string[][];
+          const medians = fx.expected.medians as (string | null)[];
+          expect(medians.length).toBe(lists.length);
+          lists.forEach((values, i) => expectClose(median(values), medians[i], tol));
+          break;
+        }
+        case 'plan_tracking': {
+          const input = fx.input as {
+            onPlanTolerance: string;
+            plans: Record<string, PlanFigures[]>;
+            cases: { plan: string; quarter: PlanFigures | null }[];
+          };
+          const results = fx.expected.results as { metrics: unknown[]; headline: string | null }[];
+          expect(results.length).toBe(input.cases.length);
+          input.cases.forEach((c, i) => {
+            const rows = planMetrics(input.plans[c.plan]!, c.quarter, input.onPlanTolerance);
+            // The rows as they travel: the golden strings, to the letter.
+            expect(rows, `case ${i + 1}`).toEqual(results[i]!.metrics);
+            expect(planHeadline(rows), `case ${i + 1}`).toBe(results[i]!.headline);
+          });
+          break;
+        }
+        case 'underwriting_comparison': {
+          const input = fx.input as {
+            tolerances: UnderwritingTolerances;
+            cases: { case: UnderwritingCase; inputs: UnderwritingInputs }[];
+          };
+          const results = fx.expected.results as unknown[];
+          expect(results.length).toBe(input.cases.length);
+          input.cases.forEach((c, i) => {
+            // The comparison as it travels: the golden strings, to the letter.
+            expect(
+              underwritingComparison(c.case, c.inputs, input.tolerances),
+              `case ${i + 1}`,
+            ).toEqual(results[i]);
+          });
+          break;
+        }
+        case 'statement_mark': {
+          type Read = { value: string; unit: string } | null;
+          const input = fx.input as {
+            settings: TieTolerances & { contributionsTolerancePct: string };
+            cases: {
+              lines: Record<Exclude<keyof StatementLines, 'share'>, Read>;
+              share: string | null;
+              recordContributions: string;
+            }[];
+          };
+          const results = fx.expected.results as { tieToleranceUsd: string; mark: unknown }[];
+          expect(results.length).toBe(input.cases.length);
+          const dollars = (line: Read): string | null =>
+            line === null ? null : toDollars(line.value, line.unit).toFixed();
+          input.cases.forEach((c, i) => {
+            // The tolerance follows the units the five balance lines were read in.
+            const read = [
+              c.lines.beginningBalance,
+              c.lines.contributionsInPeriod,
+              c.lines.distributionsInPeriod,
+              c.lines.netGainLoss,
+              c.lines.endingBalance,
+            ].flatMap((line) => (line === null ? [] : [line.unit]));
+            const tieToleranceUsd = statementTieTolerance(read, input.settings);
+            expect(tieToleranceUsd.toFixed(), `case ${i + 1}`).toBe(results[i]!.tieToleranceUsd);
+            // The answer as it travels: the golden strings, to the letter.
+            expect(
+              statementMark(
+                {
+                  beginningBalance: dollars(c.lines.beginningBalance),
+                  contributionsInPeriod: dollars(c.lines.contributionsInPeriod),
+                  distributionsInPeriod: dollars(c.lines.distributionsInPeriod),
+                  netGainLoss: dollars(c.lines.netGainLoss),
+                  endingBalance: dollars(c.lines.endingBalance),
+                  contributionsToDate: dollars(c.lines.contributionsToDate),
+                  share: c.share,
+                },
+                c.recordContributions,
+                {
+                  tieToleranceUsd,
+                  contributionsTolerancePct: input.settings.contributionsTolerancePct,
+                },
+              ),
+              `case ${i + 1}`,
+            ).toEqual(results[i]!.mark);
+          });
+          break;
+        }
+        case 'suggested_mark': {
+          const input = fx.input as {
+            varianceFlag: string;
+            stake: StakeMarkInput[];
+            heldMultiple: HeldMultipleInput[];
+            comparisons: Omit<MarkComparisonInput, 'varianceFlag'>[];
+            crossChecks: { other: string | null; suggested: string | null }[];
+          };
+          const expected = fx.expected as Record<
+            keyof Omit<typeof input, 'varianceFlag'>,
+            unknown[]
+          >;
+          // Each answer as it travels: the golden strings, to the letter.
+          expect(input.stake.map(impliedStakeMark)).toEqual(expected.stake);
+          expect(input.heldMultiple.map(heldMultipleMark)).toEqual(expected.heldMultiple);
+          expect(
+            input.comparisons.map((c) =>
+              markComparison({ ...c, varianceFlag: input.varianceFlag }),
+            ),
+          ).toEqual(expected.comparisons);
+          expect(
+            input.crossChecks.map((c) =>
+              sourceCrossCheck(c.other, c.suggested, input.varianceFlag),
+            ),
+          ).toEqual(expected.crossChecks);
+          break;
+        }
+        case 'reference_marks': {
+          const input = fx.input as {
+            toleranceDays: number;
+            cases: {
+              quarterEnd: string;
+              marks: { id: string; periodEnd: string; state: string }[];
+              flows: { date: string }[];
+            }[];
+            previousQuarterEnd: { quarterEnd: string }[];
+            quartersBetween: { from: string; to: string }[];
+          };
+          const expected = fx.expected as {
+            results: unknown[];
+            previousQuarterEnd: string[];
+            quartersBetween: number[];
+          };
+          expect(expected.results.length).toBe(input.cases.length);
+          const answers = input.cases.map((c) => {
+            const found = latestLockedBefore(c.marks, c.quarterEnd, input.toleranceDays);
+            return {
+              reference:
+                found === null
+                  ? null
+                  : {
+                      mark: found.mark.id,
+                      reportsFor: found.reportsFor,
+                      previousQuarter: found.previousQuarter,
+                      ageQuarters: found.ageQuarters,
+                    },
+              lockedForOrAfter: lockedForOrAfter(c.marks, c.quarterEnd, input.toleranceDays),
+              // Rule 12.2's test: a flow after the reference mark's own date, on or before the quarter end.
+              flowsSinceReference:
+                found === null ? null : hasFlowBetween(c.flows, found.mark.periodEnd, c.quarterEnd),
+            };
+          });
+          expect(answers).toEqual(expected.results);
+          expect(input.previousQuarterEnd.map((c) => previousQuarterEnd(c.quarterEnd))).toEqual(
+            expected.previousQuarterEnd,
+          );
+          expect(input.quartersBetween.map((c) => quartersBetween(c.from, c.to))).toEqual(
+            expected.quartersBetween,
+          );
           break;
         }
         case 'credit_yield': {

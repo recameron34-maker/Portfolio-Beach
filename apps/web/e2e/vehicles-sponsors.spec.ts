@@ -2,7 +2,7 @@ import AxeBuilder from '@axe-core/playwright';
 import { expect, test } from '@playwright/test';
 import type { Page } from '@playwright/test';
 import { generateDataset } from '@pb/synthetic';
-import { loadDataset, signInAs } from './fixtures.js';
+import { loadDataset, settled, signInAs } from './fixtures.js';
 
 /**
  * Vehicles and sponsors (M17, M6): operations reads a vehicle's client commitments, and so does
@@ -14,7 +14,7 @@ const d = loadDataset();
 const full = generateDataset({ profile: 'small', seed: 42 });
 const CV_FUND = 'Beach CV Opportunities I';
 const CLIENT_DATA_VISIBILITY =
-  'Client commitments are visible to operations, the investment team (the deal team and approvers) and auditors, and to entitled investor relations users (SEC-5.2, SEC-5.4)';
+  'Client commitments are visible to operations, the investment team (the deal team and approvers) and auditors, and to entitled investor relations users';
 
 /** The sponsor with the most active positions, so its 360 page has every section filled. */
 function busiestSponsor(): { id: string; name: string } {
@@ -36,6 +36,7 @@ async function openVehicleFromList(page: Page, name: string): Promise<void> {
 }
 
 async function expectNoSeriousViolations(page: Page): Promise<void> {
+  await settled(page);
   const results = await new AxeBuilder({ page })
     .withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa'])
     .analyze();
@@ -96,7 +97,10 @@ test('a sponsor opens from the Sponsors list', async ({ page }) => {
   await expect(page.getByRole('group', { name: 'NAV by position' })).toBeVisible();
   await expect(page.getByRole('table', { name: 'Funds' })).toBeVisible();
   await expect(page.getByRole('table', { name: 'Our positions' })).toBeVisible();
-  await page.getByRole('link', { name: 'All sponsors' }).click();
+  await page
+    .getByRole('navigation', { name: 'Breadcrumb' })
+    .getByRole('link', { name: 'Sponsors', exact: true })
+    .click();
   await expect(page.getByRole('table', { name: 'Sponsors' })).toBeVisible();
 });
 

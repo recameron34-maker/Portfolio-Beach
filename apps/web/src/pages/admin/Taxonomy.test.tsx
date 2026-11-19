@@ -21,18 +21,27 @@ describe('taxonomy page', () => {
     expect(() => taxonomy.parse(taxonomyFixture())).not.toThrow();
   });
 
-  it('renders a card per domain with codes, labels, parents and inactive badges', async () => {
+  it('lists every domain in one table, a group of rows each, with codes, labels, parents and states', async () => {
     mockApi({ '/api/v1/taxonomy': { body: taxonomyFixture() } });
     render(withQueries(<TaxonomyPage />));
     const dealType = await screen.findByTestId('taxonomy-deal_type');
-    expect(within(dealType).getByRole('heading')).toHaveTextContent('Deal type');
-    expect(within(dealType).getByRole('heading')).toHaveTextContent('2 terms, 1 inactive');
-    const rows = within(within(dealType).getByRole('table')).getAllByRole('row');
+    // One table holds every domain; each domain is a group of rows that opens with its name.
+    expect(screen.getAllByRole('table')).toHaveLength(1);
+    const table = screen.getByRole('table', { name: 'Taxonomy terms' });
+    expect(table).toContainElement(dealType);
+    const rows = within(dealType).getAllByRole('row');
+    expect(rows[0]).toHaveTextContent('Deal type');
+    expect(rows[0]).toHaveTextContent('2 terms, 1 inactive');
     expect(rows[1]).toHaveTextContent('deal_type.co_invest_equity');
     expect(rows[1]).toHaveTextContent('Co-investment (equity)');
-    expect(rows[1]).toHaveTextContent('none');
+    // No parent is a fact, not a missing figure: the cell is empty.
+    expect(within(rows[1]!).getAllByRole('cell')[2]).toBeEmptyDOMElement();
     expect(rows[2]).toHaveTextContent('deal_type.co_invest_equity');
     expect(within(rows[2]!).getByText('Inactive')).toBeVisible();
+    // The index lists each domain with its count, to jump to.
+    const index = screen.getByRole('navigation', { name: 'Domains' });
+    expect(within(index).getByRole('button', { name: 'Deal type 2 terms' })).toBeVisible();
+    expect(within(index).getByRole('button', { name: 'Sector 1 term' })).toBeVisible();
     expect(screen.getByTestId('taxonomy-sector')).toHaveTextContent('Healthcare');
     expect(screen.getByTestId('taxonomy-count')).toHaveTextContent('3 terms across 2 domains');
     expect(screen.getByRole('navigation', { name: 'Admin' })).toHaveTextContent('Taxonomy');
@@ -51,9 +60,9 @@ describe('taxonomy page', () => {
     );
     await userEvent.clear(filter);
     await userEvent.type(filter, 'cv_single');
-    expect(within(screen.getByTestId('taxonomy-deal_type')).getByRole('heading')).toHaveTextContent(
-      '1 of 2 terms',
-    );
+    expect(
+      within(screen.getByTestId('taxonomy-deal_type')).getAllByRole('row')[0],
+    ).toHaveTextContent('1 of 2 terms');
     await userEvent.clear(filter);
     await userEvent.type(filter, 'nothing here');
     expect(screen.getByTestId('taxonomy-empty')).toHaveTextContent('No terms match');

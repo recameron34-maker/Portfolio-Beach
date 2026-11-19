@@ -20,7 +20,7 @@ import type {
   ValuationRow,
   ValuationStoredInputs,
 } from '@pb/contracts';
-import { attempt, valuationMachine } from '@pb/workflows';
+import { attempt, keepSuggestionKeys, valuationMachine } from '@pb/workflows';
 import { closedByLock, isInFlight } from '../../pages/valuations/board.js';
 import { sha256Hex, subtleCrypto } from '../hash.js';
 import { versionsNow, withPriorMark } from '../overlay.js';
@@ -31,6 +31,7 @@ import type { SimActor, SimValuation } from '../state.js';
 import { openChangeRequestsOf } from './changeRequests.js';
 import { canOpen, defineSimRoute, knownCode, recordActivity, staleIfMatch } from './common.js';
 import type { SimContext } from './common.js';
+import { refreshPosition, sourceReviewersOn } from './suggestionDerivation.js';
 
 /**
  * Valuations through docs/18 section 1 (docs/04 M10, decision 0013), the way
@@ -47,6 +48,16 @@ import type { SimContext } from './common.js';
  * a Draft with the same method, inputs and value, as the API does. Every answer carries the
  * prior Locked mark as it stands when it is given. The batch screen runs the same command id by
  * id and never stops at a refusal.
+ *
+ * A valuation suggestion (docs/18 section 14, decision 0023) never writes a mark by itself: its
+ * accept opens a Draft through openDraft and its applyToDraft corrects the open Draft through
+ * correctDraft, the two writes the create and the edit routes here make. The keys a suggestion
+ * leaves on a Draft's inputs (`suggestion.`) say where the value came from: a create or an edit
+ * sent by a person can neither forge, change nor drop them, so the lock hash seals them with
+ * the mark. Whoever approved a run behind a suggestion accepted onto a version, or typed one of
+ * its figures, can take neither approval of that version nor of a later version of the same
+ * quarter, which a reopen starts with the same mark (the machine's sourceReviewers). A lock and
+ * a reopen derive the Open suggestions of the position again.
  */
 
 const NOT_FOUND = 'Valuation not found';
@@ -134,6 +145,23 @@ function answered(ctx: SimContext, credential: string, row: ValuationRow): Valua
 function sameQuarterAs(versions: readonly VersionEntry[], periodEnd: string): VersionEntry[] {
   const quarterEnd = alignedQuarterEnd(periodEnd, TOLERANCE_DAYS);
   return versions.filter((v) => alignedQuarterEnd(v.periodEnd, TOLERANCE_DAYS) === quarterEnd);
+}
+
+/**
+ * The versions of a version's investment and quarter, itself included: the chain a reopen
+ * continues, which the source reviewer rule is read over (workflow.service.ts sourceReviewers).
+ */
+function chainIdsOf(sims: Iterable<SimValuation>, row: ValuationRow): string[] {
+  const quarterEnd = alignedQuarterEnd(row.periodEnd, TOLERANCE_DAYS);
+  const ids: string[] = [];
+  for (const sim of sims) {
+    if (
+      sim.row.investmentId === row.investmentId &&
+      alignedQuarterEnd(sim.row.periodEnd, TOLERANCE_DAYS) === quarterEnd
+    )
+      ids.push(sim.row.id);
+  }
+  return ids;
 }
 
 function nextVersion(
@@ -242,6 +270,94 @@ const badMethod = (instance: string, message: string): Response =>
 const NOT_A_METHOD_CODE = 'Not a valuation_method code';
 const UNKNOWN_METHOD = 'Unknown valuation method';
 
+/** What a write on a version answers: the row as it now stands, or the refusal, with nothing changed. */
+export type Outcome = { ok: true; row: ValuationRow } | { ok: false; response: Response };
+
+/** What a Draft is opened with: the body of a create, or the value and the keys of an accepted suggestion. */
+export interface OpenDraftInput {
+  investmentId: string;
+  periodEnd: string;
+  method: string;
+  fairValue: string;
+  /** Stored as given: the caller decides which keys a Draft may start with. */
+  inputs: ValuationStoredInputs;
+}
+
+/**
+ * The one write of a Draft version (the "(new) to Draft" row) with everything that refuses it,
+ * in the API's order (createDraft of valuations/workflow.service.ts): the create route below,
+ * and the accept of a valuation suggestion (docs/18 section 14). Nothing changes when it refuses.
+ */
+export function openDraft(
+  ctx: SimContext,
+  credential: string,
+  actor: SimActor,
+  input: OpenDraftInput,
+  instance: string,
+): Outcome {
+  const refuse = (response: Response): Outcome => ({ ok: false, response });
+  const { periodEnd } = input;
+  const quarterEnd = alignedQuarterEnd(periodEnd, TOLERANCE_DAYS);
+  if (quarterEnd === periodEnd && !isQuarterEnd(periodEnd))
+    return refuse(
+      precondition(
+        instance,
+        `valuation: the period end must be a quarter end or within ${TOLERANCE_DAYS} days of one`,
+      ),
+    );
+  if (!isPositiveDecimal(input.fairValue))
+    return refuse(
+      problem(400, 'validation', 'Invalid body', {
+        instance,
+        simulated: true,
+        errors: [{ path: 'fairValue', message: 'Must be above zero' }],
+      }),
+    );
+  if (!METHOD_CODE.test(input.method)) return refuse(badMethod(instance, NOT_A_METHOD_CODE));
+  const detail = readDetail(ctx, credential, input.investmentId);
+  // An investment the credential cannot open, or one no longer held, is not found: no hint that it exists.
+  if (detail?.isActive !== true)
+    return refuse(problem(404, 'not-found', 'Investment not found', { instance, simulated: true }));
+  if (!knownCode(ctx, credential, input.method)) return refuse(badMethod(instance, UNKNOWN_METHOD));
+  const versions = versionsOf(ctx, credential, detail.id);
+  if (periodEnd < detail.entryDate)
+    return refuse(
+      precondition(instance, 'valuation: the investment was not yet held at this period end'),
+    );
+  // One version chain per quarter: a sponsor reporting a few days early or late is the same
+  // quarter (alignedQuarterEnd), so its versions block a second chain at the quarter end.
+  const sameQuarter = sameQuarterAs(versions, periodEnd);
+  if (closedByLock(sameQuarter))
+    return refuse(
+      precondition(
+        instance,
+        'valuation: a Locked version exists for this investment and quarter; reopen it to start a new version',
+      ),
+    );
+  if (sameQuarter.some((v) => isInFlight(v.state)))
+    return refuse(
+      precondition(
+        instance,
+        'valuation: a version for this investment and quarter is already in progress; continue that version',
+      ),
+    );
+  const row = createDraft(ctx, credential, detail, {
+    periodEnd,
+    method: input.method,
+    fairValue: storedMoney(input.fairValue),
+    inputs: input.inputs,
+  });
+  recordActivity(ctx, actor, {
+    action: 'valuation.create',
+    entity: 'valuation',
+    entityId: row.id,
+    reason: null,
+    from: null,
+    to: row.state,
+  });
+  return { ok: true, row };
+}
+
 export const createValuationRoute = defineSimRoute({
   method: 'POST',
   path: '/api/v1/valuations',
@@ -249,61 +365,22 @@ export const createValuationRoute = defineSimRoute({
   body: valuationCreateBody,
   idempotent: true,
   handle: (req, ctx) => {
-    const instance = req.url.pathname;
-    const { periodEnd } = req.body;
-    const quarterEnd = alignedQuarterEnd(periodEnd, TOLERANCE_DAYS);
-    if (quarterEnd === periodEnd && !isQuarterEnd(periodEnd))
-      return precondition(
-        instance,
-        `valuation: the period end must be a quarter end or within ${TOLERANCE_DAYS} days of one`,
-      );
-    if (!isPositiveDecimal(req.body.fairValue))
-      return problem(400, 'validation', 'Invalid body', {
-        instance,
-        simulated: true,
-        errors: [{ path: 'fairValue', message: 'Must be above zero' }],
-      });
-    if (!METHOD_CODE.test(req.body.method)) return badMethod(instance, NOT_A_METHOD_CODE);
-    const detail = readDetail(ctx, req.credential, req.body.investmentId);
-    // An investment the credential cannot open, or one no longer held, is not found: no hint that it exists.
-    if (detail?.isActive !== true)
-      return problem(404, 'not-found', 'Investment not found', { instance, simulated: true });
-    if (!knownCode(ctx, req.credential, req.body.method))
-      return badMethod(instance, UNKNOWN_METHOD);
-    const versions = versionsOf(ctx, req.credential, detail.id);
-    if (periodEnd < detail.entryDate)
-      return precondition(
-        instance,
-        'valuation: the investment was not yet held at this period end',
-      );
-    // One version chain per quarter: a sponsor reporting a few days early or late is the same
-    // quarter (alignedQuarterEnd), so its versions block a second chain at the quarter end.
-    const sameQuarter = sameQuarterAs(versions, periodEnd);
-    if (closedByLock(sameQuarter))
-      return precondition(
-        instance,
-        'valuation: a Locked version exists for this investment and quarter; reopen it to start a new version',
-      );
-    if (sameQuarter.some((v) => isInFlight(v.state)))
-      return precondition(
-        instance,
-        'valuation: a version for this investment and quarter is already in progress; continue that version',
-      );
-    const row = createDraft(ctx, req.credential, detail, {
-      periodEnd,
-      method: req.body.method,
-      fairValue: storedMoney(req.body.fairValue),
-      inputs: req.body.inputs ?? {},
-    });
-    recordActivity(ctx, req.actor, {
-      action: 'valuation.create',
-      entity: 'valuation',
-      entityId: row.id,
-      reason: null,
-      from: null,
-      to: row.state,
-    });
-    return jsonResponse(201, row, { simulated: true, etag: row.rowVersion });
+    const outcome = openDraft(
+      ctx,
+      req.credential,
+      req.actor,
+      {
+        investmentId: req.body.investmentId,
+        periodEnd: req.body.periodEnd,
+        method: req.body.method,
+        fairValue: req.body.fairValue,
+        // A person's own inputs: a key a suggestion would write is not theirs to send.
+        inputs: keepSuggestionKeys({}, req.body.inputs ?? {}),
+      },
+      req.url.pathname,
+    );
+    if (!outcome.ok) return outcome.response;
+    return jsonResponse(201, outcome.row, { simulated: true, etag: outcome.row.rowVersion });
   },
 });
 
@@ -327,49 +404,88 @@ export const editValuationRoute = defineSimRoute({
     const { method, fairValue, inputs } = req.body;
     if (method !== undefined && !METHOD_CODE.test(method))
       return badMethod(instance, NOT_A_METHOD_CODE);
-    const sims = ensureValuations(ctx.state, ctx.recordings);
-    const sim = sims.get(req.params.id ?? '');
-    if (sim === undefined || !canOpen(ctx, req.credential, sim.row.investmentId))
-      return notFound(instance);
-    const stale = staleIfMatch(req.headers, sim.row.rowVersion, instance);
-    if (stale !== null) return stale;
-    const { row } = sim;
-    if (row.state !== 'Draft')
-      return problem(
+    const outcome = correctDraft(
+      ctx,
+      req.credential,
+      req.actor,
+      req.params.id ?? '',
+      (stored) => ({
+        ...(method !== undefined ? { method } : {}),
+        ...(fairValue !== undefined ? { fairValue } : {}),
+        // The keys a suggestion left stay as stored, whatever the body sends for them.
+        ...(inputs !== undefined ? { inputs: keepSuggestionKeys(stored, inputs) } : {}),
+      }),
+      req.headers,
+      instance,
+    );
+    if (!outcome.ok) return outcome.response;
+    return jsonResponse(200, outcome.row, { simulated: true, etag: outcome.row.rowVersion });
+  },
+});
+
+/**
+ * The one write of a Draft's correction (editDraft of valuations/workflow.service.ts): the edit
+ * route above, and the applyToDraft of a valuation suggestion (docs/18 section 14), which puts
+ * its value, its method and its keys on the Draft. `change` is handed the inputs the Draft
+ * stores and answers what to write; the Draft keeps its period end. `headers` carry the
+ * If-Match of a person's edit; a suggestion's own write names none.
+ */
+export function correctDraft(
+  ctx: SimContext,
+  credential: string,
+  actor: SimActor,
+  id: string,
+  change: (stored: ValuationStoredInputs) => {
+    method?: string;
+    fairValue?: string;
+    inputs?: ValuationStoredInputs;
+  },
+  headers: Headers | null,
+  instance: string,
+): Outcome {
+  const refuse = (response: Response): Outcome => ({ ok: false, response });
+  const sims = ensureValuations(ctx.state, ctx.recordings);
+  const sim = sims.get(id);
+  if (sim === undefined || !canOpen(ctx, credential, sim.row.investmentId))
+    return refuse(notFound(instance));
+  const stale = headers === null ? null : staleIfMatch(headers, sim.row.rowVersion, instance);
+  if (stale !== null) return refuse(stale);
+  const { row } = sim;
+  if (row.state !== 'Draft')
+    return refuse(
+      problem(
         409,
         'workflow-transition',
         `valuation: edit is not allowed from ${row.state}; only a Draft can be edited`,
         { instance, simulated: true },
-      );
-    if (method !== undefined && !knownCode(ctx, req.credential, method))
-      return badMethod(instance, UNKNOWN_METHOD);
+      ),
+    );
+  const patch = change(inputsOf(ctx, credential, sim));
+  if (patch.method !== undefined && !knownCode(ctx, credential, patch.method))
+    return refuse(badMethod(instance, UNKNOWN_METHOD));
 
-    const next: ValuationRow = {
-      ...row,
-      ...(method !== undefined ? { method } : {}),
-      ...(fairValue !== undefined ? { fairValue: storedMoney(fairValue) } : {}),
-      rowVersion: row.rowVersion + 1,
-    };
-    sims.set(next.id, {
-      ...sim,
-      row: next,
-      changed: true,
-      inputs: inputs ?? sim.inputs,
-    });
-    recordActivity(ctx, req.actor, {
-      action: 'valuation.edit',
-      entity: 'valuation',
-      entityId: next.id,
-      reason: null,
-      from: row.state,
-      to: next.state,
-    });
-    const answer = answered(ctx, req.credential, next);
-    return jsonResponse(200, answer, { simulated: true, etag: answer.rowVersion });
-  },
-});
-
-type Outcome = { ok: true; row: ValuationRow } | { ok: false; response: Response };
+  const next: ValuationRow = {
+    ...row,
+    ...(patch.method !== undefined ? { method: patch.method } : {}),
+    ...(patch.fairValue !== undefined ? { fairValue: storedMoney(patch.fairValue) } : {}),
+    rowVersion: row.rowVersion + 1,
+  };
+  sims.set(next.id, {
+    ...sim,
+    row: next,
+    changed: true,
+    inputs: patch.inputs ?? sim.inputs,
+  });
+  recordActivity(ctx, actor, {
+    action: 'valuation.edit',
+    entity: 'valuation',
+    entityId: next.id,
+    reason: null,
+    from: row.state,
+    to: next.state,
+  });
+  return { ok: true, row: answered(ctx, credential, next) };
+}
 
 /** What the machine's lock precondition is shown where this browser cannot take the hash; the 503 below answers instead. */
 const HASH_UNAVAILABLE = 'unavailable';
@@ -419,6 +535,10 @@ export async function runValuationCommand(
       validationPassed: isPositiveDecimal(row.fairValue),
       preparedBy: personFor(sim.preparedByIds, actor),
       lockHash,
+      // Read for the two approvals that ask for it: no list bars nobody.
+      ...(command === 'dealTeamApprove' || command === 'lock'
+        ? { sourceReviewers: sourceReviewersOn(ctx, chainIdsOf(sims.values(), row)) }
+        : {}),
     },
   });
   if (!result.ok) return refuse(workflowProblem(result, { instance, simulated: true }));
@@ -498,7 +618,12 @@ export async function runValuationCommand(
     from: row.state,
     to: next.state,
   });
-  if (draftId === null) return { ok: true, row: answered(ctx, credential, next) };
+  if (draftId === null) {
+    // A Locked mark closes the Open suggestion of its quarter and of any earlier one, and is the
+    // mark a later quarter's suggestion is now worked out from (docs/18 section 14).
+    if (command === 'lock') refreshPosition(ctx, { credential, actor }, row.investmentId);
+    return { ok: true, row: answered(ctx, credential, next) };
+  }
 
   // docs/18 section 1: reopening creates a new Draft version with the same method, inputs and
   // value to edit, and the answer is that Draft, as the API answers it.
@@ -533,6 +658,8 @@ export async function runValuationCommand(
     from: null,
     to: draft.state,
   });
+  // The mark is no longer Locked: a later quarter's Open suggestion rested on it.
+  refreshPosition(ctx, { credential, actor }, row.investmentId);
   return { ok: true, row: answered(ctx, credential, draft) };
 }
 

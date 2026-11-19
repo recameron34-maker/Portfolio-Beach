@@ -21,6 +21,12 @@ import { refusalFixture, rolePrincipal, sentPosts } from '../../test/fixtures-va
 import { renderWithQuery } from '../../test/render.js';
 import { ClosingPage } from './Closing.js';
 
+/** A row of the tie-out ledger (Commitment, Allocated, Difference) inside the tie-out section. */
+const ledgerRow = (section: HTMLElement, label: string): HTMLElement =>
+  within(within(section).getByRole('table', { name: 'Allocation tie-out' })).getByRole('row', {
+    name: new RegExp(`^${label}`),
+  });
+
 const params = vi.hoisted(() => ({ id: '' }));
 
 vi.mock('../../app/env.js', () => ({ previewMode: true }));
@@ -65,8 +71,15 @@ function open(
 }
 
 const button = (name: string): HTMLElement => screen.getByRole('button', { name });
-/** After a dialog closes Fluent lifts aria-hidden from the page a moment later; wait for the button. */
-const find = (name: string): Promise<HTMLElement> => screen.findByRole('button', { name }, TIMEOUT);
+/**
+ * After a dialog closes Fluent lifts aria-hidden from the page a moment later, and the actions stay
+ * disabled until the command before has settled: wait for the button to be offered.
+ */
+async function find(name: string): Promise<HTMLElement> {
+  const found = await screen.findByRole('button', { name }, TIMEOUT);
+  await waitFor(() => expect(found).toBeEnabled(), TIMEOUT);
+  return found;
+}
 
 async function dialogClosed(): Promise<void> {
   await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
@@ -84,10 +97,17 @@ describe('closing page', () => {
     expect(
       screen.getByRole('heading', { level: 1, name: 'Closing: Project Cove' }),
     ).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: 'Back to the opportunity' })).toHaveAttribute(
+    // The trail: the board, then the opportunity this closing belongs to, by its name.
+    const trail = screen.getByRole('navigation', { name: 'Breadcrumb' });
+    expect(within(trail).getByRole('link', { name: 'Pipeline' })).toHaveAttribute(
+      'href',
+      '/pipeline',
+    );
+    expect(within(trail).getByRole('link', { name: 'Project Cove' })).toHaveAttribute(
       'href',
       `/pipeline/${OPP_ID.closing}`,
     );
+    expect(screen.getByTestId('closing-banner')).toHaveTextContent('Closing, ');
     const record = within(panel).getByTestId('closing-record');
     expect(within(record).getByTestId('closing-close-date')).toHaveTextContent('Aug 15, 2025');
     expect(record).toHaveTextContent('$20.0M');
@@ -96,10 +116,10 @@ describe('closing page', () => {
     expect(confirm).toBeDisabled();
     expect(confirm).toHaveAttribute(
       'title',
-      '1 required closing item still open: a required closing document is missing (M8)',
+      '1 required closing item still open: a required closing document is missing',
     );
     expect(within(record).getByTestId('closing-blockers')).toHaveTextContent(
-      'a required closing document is missing (M8)',
+      'a required closing document is missing',
     );
 
     const items = within(panel).getByTestId('closing-items');
@@ -135,12 +155,10 @@ describe('closing page', () => {
     ).toHaveClass('pb-badge-neutral');
 
     const tieOut = within(panel).getByTestId('closing-tie-out');
-    expect(within(tieOut).getByRole('group', { name: 'Commitment' })).toHaveTextContent('$20.0M');
-    expect(within(tieOut).getByRole('group', { name: 'Allocated' })).toHaveTextContent('$20.0M');
-    expect(within(tieOut).getByRole('group', { name: 'Allocated' })).toHaveTextContent(
-      'Sum of the received amounts',
-    );
-    expect(within(tieOut).getByRole('group', { name: 'Difference' })).toHaveTextContent('$0.0M');
+    expect(ledgerRow(tieOut, 'Commitment')).toHaveTextContent('$20.0M');
+    expect(ledgerRow(tieOut, 'Allocated')).toHaveTextContent('$20.0M');
+    expect(ledgerRow(tieOut, 'Allocated')).toHaveTextContent('Sum of the received amounts');
+    expect(ledgerRow(tieOut, 'Difference')).toHaveTextContent('$0.0M');
     expect(within(tieOut).getByText('Tied out')).toHaveClass('pb-badge-good');
     expect(
       within(tieOut).getByRole('link', { name: 'Edit the allocations on the opportunity page' }),
@@ -150,10 +168,17 @@ describe('closing page', () => {
     const termRows = within(within(terms).getByRole('table', { name: 'Legal terms' }))
       .getAllByRole('row')
       .slice(1);
+    // Each field on its own line in words, true and false as Yes and No; a term with nothing
+    // left to do leaves its actions cell blank to the eye.
     expect(termRows[0]).toHaveTextContent(
-      'Management feerate: 2%; basis: committed capitalDocumentConfirmedRowan CastellanosConfirmed',
+      'Management feeRate: 2%Basis: committed capitalDocumentConfirmedRowan CastellanosNo actions',
     );
-    expect(termRows[1]).toHaveTextContent('Mfnelected: true; deadline: 2025-09-30-Draft-Confirm');
+    expect(
+      within(termRows[0]!)
+        .getAllByRole('listitem')
+        .map((l) => l.textContent),
+    ).toEqual(['Rate: 2%', 'Basis: committed capital']);
+    expect(termRows[1]).toHaveTextContent('MfnElected: YesDeadline: 2025-09-30-Draft-Confirm');
     expect(within(termRows[1]!).getByRole('button', { name: 'Confirm, Mfn' })).toBeEnabled();
     expect(within(terms).getByTestId('legal-term-form')).toBeInTheDocument();
     expect(document.body.textContent).not.toContain(String.fromCharCode(0x2014));
@@ -203,7 +228,7 @@ describe('closing page', () => {
       'Wire confirmation is now Received',
     );
     // Every required item is in: the confirmation is live.
-    expect(screen.getByTestId('closing-confirm')).toBeEnabled();
+    await waitFor(() => expect(screen.getByTestId('closing-confirm')).toBeEnabled());
 
     await userEvent.click(await find('Waive, Side letter'));
     dialog = await screen.findByRole('dialog');
@@ -256,12 +281,13 @@ describe('closing page', () => {
       [PIPE_PATHS.closingCommands(PIPE_ID.closing), { command: 'confirm' }],
     ]);
     const record = screen.getByTestId('closing-record');
-    expect(within(record).getByText('Ops confirmed')).toHaveClass('pb-badge-good');
+    // The message is the page's own; the record it reports lands a moment later.
+    expect(await within(record).findByText('Ops confirmed')).toHaveClass('pb-badge-good');
     expect(record).toHaveTextContent('Rowan Castellanos');
     expect(record).toHaveTextContent('Aug 16, 2025 10:00:00 UTC');
     expect(screen.queryByTestId('closing-confirm')).toBeNull();
     expect(record).toHaveTextContent(
-      'Confirmed by operations: the checklist and the allocations stay as confirmed. A close date change or a reopen returns the record to Open and needs confirmation again (docs/04 M8).',
+      'Confirmed by operations: the checklist and the allocations stay as confirmed. A close date change or a reopen returns the record to Open and needs confirmation again.',
     );
     cleanup();
     vi.restoreAllMocks();
@@ -297,13 +323,11 @@ describe('closing page', () => {
     const panel = await screen.findByTestId('closing-panel');
     const confirm = within(panel).getByTestId('closing-confirm');
     expect(confirm).toBeDisabled();
-    expect(confirm).toHaveAttribute('title', 'Received amounts are missing on 1 line (M22)');
+    expect(confirm).toHaveAttribute('title', 'Received amounts are missing on 1 line');
     const blockers = within(within(panel).getByTestId('closing-blockers')).getAllByRole('listitem');
-    expect(blockers.map((b) => b.textContent)).toEqual([
-      'Received amounts are missing on 1 line (M22)',
-    ]);
+    expect(blockers.map((b) => b.textContent)).toEqual(['Received amounts are missing on 1 line']);
     const tieOut = within(panel).getByTestId('closing-tie-out');
-    expect(within(tieOut).getByRole('group', { name: 'Allocated' })).toHaveTextContent('$12.0M');
+    expect(ledgerRow(tieOut, 'Allocated')).toHaveTextContent('$12.0M');
     expect(within(tieOut).getByText('Short by $8.0M')).toHaveClass('pb-badge-bad');
     // The vehicle rows lead with the vehicle's totals; a vehicle with nothing received shows the
     // placeholder, never its requested amount. The client line sits under it, behind a disclosure.
@@ -322,7 +346,7 @@ describe('closing page', () => {
     );
     expect(within(tieOut).queryByTestId('allocations-hidden-lines')).toBeNull();
     expect(tieOut).toHaveTextContent(
-      'The closing cannot complete until the received amounts equal the commitment (M22).',
+      'The closing cannot complete until the received amounts equal the commitment.',
     );
   });
 
@@ -340,8 +364,8 @@ describe('closing page', () => {
     const panel = await screen.findByTestId('closing-panel');
     const tieOut = within(panel).getByTestId('closing-tie-out');
     // The commitment and the received total lead: the deal's figures, not the visible line's.
-    expect(within(tieOut).getByRole('group', { name: 'Commitment' })).toHaveTextContent('$20.0M');
-    expect(within(tieOut).getByRole('group', { name: 'Allocated' })).toHaveTextContent('$12.0M');
+    expect(ledgerRow(tieOut, 'Commitment')).toHaveTextContent('$20.0M');
+    expect(ledgerRow(tieOut, 'Allocated')).toHaveTextContent('$12.0M');
     expect(within(tieOut).getByText('Short by $8.0M')).toHaveClass('pb-badge-bad');
     const note = within(tieOut).getByTestId('allocations-hidden-lines');
     expect(note).toHaveTextContent(
@@ -355,7 +379,7 @@ describe('closing page', () => {
       within(within(panel).getByTestId('closing-blockers'))
         .getAllByRole('listitem')
         .map((b) => b.textContent),
-    ).toEqual(['Allocations do not tie to the closing commitment, short by $8.0M (M22)']);
+    ).toEqual(['Allocations do not tie to the closing commitment, short by $8.0M']);
   });
 
   it('gives a reader shown no line the tie-out and the count of lines not shown, not an empty state', async () => {
@@ -369,7 +393,7 @@ describe('closing page', () => {
     const tieOut = within(await screen.findByTestId('closing-panel')).getByTestId(
       'closing-tie-out',
     );
-    expect(within(tieOut).getByRole('group', { name: 'Allocated' })).toHaveTextContent('$20.0M');
+    expect(ledgerRow(tieOut, 'Allocated')).toHaveTextContent('$20.0M');
     expect(within(tieOut).getByText('Tied out')).toHaveClass('pb-badge-good');
     expect(tieOut).not.toHaveTextContent('No allocation lines');
     expect(within(tieOut).queryByRole('table', { name: 'Allocations' })).toBeNull();
@@ -475,10 +499,13 @@ describe('closing page', () => {
     expect(reopen).toBeDisabled();
     expect(reopen).toHaveAttribute('title', POSITION);
     expect(within(panel).getByTestId('closing-record')).toHaveTextContent(
-      `Confirmed by operations. ${POSITION}.`,
+      'Confirmed by operations.',
     );
     expect(button('Receive, Side letter')).toHaveAttribute('title', POSITION);
-    expect(within(panel).getByTestId('closing-items-lock')).toHaveTextContent(`${POSITION}.`);
+    // Said once, at the top of the panel; each command it stops names it in its title.
+    expect(within(panel).getByTestId('closing-position-note')).toHaveTextContent(`${POSITION}.`);
+    expect(panel.textContent?.split(POSITION)).toHaveLength(2);
+    expect(within(panel).queryByTestId('closing-items-lock')).toBeNull();
     expect(document.body.textContent).not.toContain(String.fromCharCode(0x2014));
   });
 
@@ -515,7 +542,9 @@ describe('closing page', () => {
         { command: 'changeCloseDate', closeDate: '2025-08-22', reason: 'Signing slipped a week' },
       ],
     ]);
-    expect(screen.getByTestId('closing-close-date')).toHaveTextContent('Aug 22, 2025');
+    await waitFor(() =>
+      expect(screen.getByTestId('closing-close-date')).toHaveTextContent('Aug 22, 2025'),
+    );
     expect(screen.getByTestId('closing-confirm')).toBeInTheDocument();
   }, 30_000);
 
@@ -540,7 +569,7 @@ describe('closing page', () => {
     await screen.findByTestId('closing-panel');
     await userEvent.click(button('Confirm, Mfn'));
     expect(await screen.findByTestId('closing-action-status')).toHaveTextContent('Mfn confirmed');
-    expect(screen.queryByRole('button', { name: 'Confirm, Mfn' })).toBeNull();
+    await waitFor(() => expect(screen.queryByRole('button', { name: 'Confirm, Mfn' })).toBeNull());
 
     const form = screen.getByTestId('legal-term-form');
     const add = within(form).getByRole('button', { name: 'Add term' });
@@ -552,10 +581,13 @@ describe('closing page', () => {
     await userEvent.click(within(form).getByRole('button', { name: 'Add field' }));
     await userEvent.type(within(form).getByLabelText('Field name 2'), 'suspension');
     await userEvent.type(within(form).getByLabelText('Field value 2'), 'investment period');
-    await userEvent.type(within(form).getByLabelText(/Source document id/), 'nope');
+    await userEvent.type(within(form).getByLabelText(/Source document \(optional\)/), 'nope');
     expect(add).toBeDisabled();
-    await userEvent.clear(within(form).getByLabelText(/Source document id/));
-    await userEvent.type(within(form).getByLabelText(/Source document id/), PIPE_ID.document);
+    await userEvent.clear(within(form).getByLabelText(/Source document \(optional\)/));
+    await userEvent.type(
+      within(form).getByLabelText(/Source document \(optional\)/),
+      PIPE_ID.document,
+    );
     await userEvent.click(add);
     expect(await screen.findByTestId('closing-action-status')).toHaveTextContent(
       'Legal term added in draft: Key person',
@@ -614,6 +646,27 @@ describe('closing page', () => {
     expect(
       await screen.findByText('Opportunity not found or not visible to you'),
     ).toBeInTheDocument();
+    // Nothing to go back to but the board.
+    expect(
+      within(screen.getByRole('navigation', { name: 'Breadcrumb' }))
+        .getAllByRole('link')
+        .map((a) => a.getAttribute('href')),
+    ).toEqual(['/pipeline']);
+    cleanup();
+    vi.restoreAllMocks();
+
+    // A load that failed for another reason still leads back to the opportunity by its id.
+    params.id = OPP_ID.closing;
+    mockApi({
+      [PIPE_PATHS.me]: ok(rolePrincipal(['viewer'])),
+      [PIPE_PATHS.opportunity(OPP_ID.closing)]: failing(501, '/api/v1/opportunities'),
+    });
+    renderWithQuery(<ClosingPage />);
+    await screen.findByTestId('closing-page-unavailable');
+    const back = within(screen.getByRole('navigation', { name: 'Breadcrumb' })).getByRole('link', {
+      name: 'Opportunity',
+    });
+    expect(back).toHaveAttribute('href', `/pipeline/${OPP_ID.closing}`);
     cleanup();
     vi.restoreAllMocks();
 

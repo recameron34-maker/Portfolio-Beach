@@ -83,7 +83,7 @@ export const READ_MATRIX: Record<string, Row> = {
   'mon.valuation': row(1, 1, 1, 1, 1, 1, 1, 2, 2),
   'mon.cash_flow': row(2, 2, 2, 2, 2, 2, 2, 3, 3),
   'mon.valuation_history': row(0, 0, 2, 2, 0, 0, 2, 0, 0),
-  'ops.feature_flag': row(10, 10, 10, 10, 10, 10, 10, 10, 10),
+  'ops.feature_flag': row(11, 11, 11, 11, 11, 11, 11, 11, 11),
   // An exception about a staged row, a document, an extraction run or a change request is visible
   // to whoever that record's own policy admits (migrations 0010, 0012 and 0014): three fixture
   // exceptions are about the open, the walled and the unlinked accounting row (reviewers only), four
@@ -100,11 +100,13 @@ export const READ_MATRIX: Record<string, Row> = {
   'stg.valuation': row(0, 2, 2, 2, 0, 0, 2, 3, 3),
   'core.company_alias': row(1, 1, 1, 1, 1, 1, 1, 1, 1),
   // Documents carry the wall of the investment they are attached to, and so do their expected
-  // rows, runs and values (migration 0011); every authenticated user reads the rest. One document
-  // per investment, one of them walled, each with one run and two values.
-  'doc.document': row(1, 1, 1, 1, 1, 1, 1, 2, 2),
+  // rows, runs and values (migration 0011); every authenticated user reads the rest. A quarterly
+  // report per investment, one of them walled, each expected, with one run and two values; and
+  // for the next quarter (migration 0023) a report and a capital account statement on the open
+  // investment and a statement on the walled one, each with one approved run and no staged value.
+  'doc.document': row(3, 3, 3, 3, 3, 3, 3, 5, 5),
   'doc.expected_document': row(1, 1, 1, 1, 1, 1, 1, 2, 2),
-  'doc.extraction_run': row(1, 1, 1, 1, 1, 1, 1, 2, 2),
+  'doc.extraction_run': row(3, 3, 3, 3, 3, 3, 3, 5, 5),
   'stg.extracted_value': row(2, 2, 2, 2, 2, 2, 2, 4, 4),
   // The Phase 3 controls (migration 0013). The wire register is an operations control read by
   // operations, approvers, auditors, platform admins and the system actor only, and it is not
@@ -135,13 +137,50 @@ export const READ_MATRIX: Record<string, Row> = {
   // system actor, the auditor and the platform admin included. The fixture holds one completed
   // key of operations and one pending key of the deal team.
   'ops.idempotency_key': row(0, 1, 1, 0, 0, 0, 0, 0, 0),
+  // Reporting packages and their QA findings (migration 0019, SEC-5.2): client data. The roles
+  // that read every client read both packages; investor relations (A) reads client Alpha's and
+  // its two findings; a viewer and a platform admin read none; the system actor reads both,
+  // because it runs the QA step.
+  'rpt.package': row(0, 2, 2, 2, 1, 0, 2, 2, 2),
+  'rpt.qa_result': row(0, 3, 3, 3, 2, 0, 3, 3, 3),
+  // The underwritten base cases (migration 0021) follow their position: everyone reads the case
+  // of the open investment and its two plan points; the two cases of the walled investment (one
+  // Confirmed, one Draft) and their four points are read inside the wall and by the system actor
+  // only. The history reads like every history table: five images of a case (three inserts and
+  // two confirmations) and six of a point.
+  'mon.underwriting_case': row(1, 1, 1, 1, 1, 1, 1, 3, 3),
+  'mon.underwriting_case_point': row(2, 2, 2, 2, 2, 2, 2, 6, 6),
+  'mon.underwriting_case_history': row(0, 0, 5, 5, 0, 0, 5, 0, 0),
+  'mon.underwriting_case_point_history': row(0, 0, 6, 6, 0, 0, 6, 0, 0),
+  // Valuation suggestions (migration 0023, SEC-5.1, SEC-5.3): operations, the deal team,
+  // approvers, auditors and the system actor read them, under the wall of the position; a
+  // viewer, investor relations and a platform admin are given nothing, though they can open the
+  // position. Two on the open investment (one Superseded, the Open one that replaced it) and an
+  // Open one on the walled investment. The history reads like every history table: three inserts
+  // and the supersession.
+  'mon.valuation_suggestion': row(0, 2, 2, 2, 0, 0, 2, 3, 3),
+  'mon.valuation_suggestion_history': row(0, 0, 4, 4, 0, 0, 4, 0, 0),
 };
 
 export interface WriteCase {
   name: string;
   sql: string;
+  /**
+   * A statement the same actor sends first, in the same transaction, when the write is one no
+   * service sends alone (a plan point is written by whoever has just claimed its Draft). Row-level
+   * security may hide its row from the actor, and then it does nothing; the write is still judged
+   * on its own.
+   */
+  before?: string;
   allowed: ActorName[];
 }
+
+/** The claim an edit of a Draft makes: its sender becomes the last person to change the figures. */
+const CLAIM_WALLED_DRAFT =
+  "update mon.underwriting_case set entered_by = pb.current_user_id(), entered_at = now() where id = 'd0000000-0000-4000-8000-000000000003'";
+
+/** A decision on a valuation suggestion names whoever takes it, and when. */
+const SUGGESTION_DECIDED = 'decided_by = pb.current_user_id(), decided_at = now()';
 
 /** Representative writes. Everyone not listed must be rejected by RLS or a missing grant. */
 export const WRITE_MATRIX: WriteCase[] = [
@@ -547,6 +586,181 @@ export const WRITE_MATRIX: WriteCase[] = [
     sql: "update ops.data_exception set state = 'acknowledged' where id = 'b0000000-0000-4000-8000-00000000001c'",
     // Hidden from everyone outside the wall (migration 0014); the wall member is deal team and may
     // not work the queue, so nobody in the fixture can.
+    allowed: [],
+  },
+  // Reporting packages (migration 0019, docs/18 section 5).
+  {
+    name: 'prepare a reporting package for client Alpha',
+    sql: "insert into rpt.package (client_id, period_end, as_of, basis, label, prepared_by) values ('40000000-0000-4000-8000-000000000001', '2024-09-30', '2024-11-08', 'net', 'preliminary', '10000000-0000-4000-8000-000000000005')",
+    // Investor relations entitled to the client, or the system actor.
+    allowed: ['investor_relations(A)', 'service'],
+  },
+  {
+    name: 'prepare a reporting package for client Beta',
+    sql: "insert into rpt.package (client_id, period_end, as_of, basis, label, prepared_by) values ('40000000-0000-4000-8000-000000000002', '2024-09-30', '2024-11-08', 'net', 'preliminary', '10000000-0000-4000-8000-000000000005')",
+    // Investor relations (A) is not entitled to Beta.
+    allowed: ['service'],
+  },
+  {
+    name: 'move the reporting package of client Alpha on',
+    sql: "update rpt.package set label = 'preliminary' where id = 'c0000000-0000-4000-8000-000000000001'",
+    // The roles the state machine names, each within the clients it reads.
+    allowed: ['operations', 'approver', 'investor_relations(A)', 'service'],
+  },
+  {
+    name: 'move the reporting package of client Beta on',
+    sql: "update rpt.package set label = 'preliminary' where id = 'c0000000-0000-4000-8000-000000000002'",
+    allowed: ['operations', 'approver', 'service'],
+  },
+  {
+    name: 'record a QA finding on the package of client Alpha',
+    sql: "insert into rpt.qa_result (package_id, run_no, rule, entity_ref, passed, detail) values ('c0000000-0000-4000-8000-000000000001', 2, 'QA-LBL-01', 'status', true, 'The package is labelled final.')",
+    // The QA step is the system actor's; no person types a finding.
+    allowed: ['service'],
+  },
+  {
+    name: 'override a failed QA finding on the package of client Alpha',
+    sql: "update rpt.qa_result set override_reason = 'Agreed with the client', approver_id = '10000000-0000-4000-8000-000000000004', overridden_at = now() where id = 'c0000000-0000-4000-8000-000000000003'",
+    allowed: ['approver', 'service'],
+  },
+  // The underwritten base cases (migrations 0021 and 0022, docs/18 section 13). The policies say
+  // who may write at all: the deal team records a case, the deal team and approvers move a case
+  // on, each on a position they can see, and a plan point is written by the deal team member the
+  // Draft names as the last person to change its figures. Which of them may send which command
+  // is the state machine's. The system actor reads every case and writes none.
+  {
+    name: 'record a draft base case on the open investment',
+    sql: "insert into mon.underwriting_case (investment_id, version, form, case_date, planned_exit_date, exit_multiple, gross_moic, gross_irr, revision_reason, entered_by) values ('30000000-0000-4000-8000-000000000001', 2, 'equity', '2024-06-30', '2028-06-30', 11.5, 2.4, 0.19, 'Re-underwritten after the add-on acquisition', pb.current_user_id())",
+    allowed: ['deal_team', 'wall_member(deal_team)'],
+  },
+  {
+    name: 'record a draft base case on the walled investment',
+    // One Draft per position: whoever can withdraw the Draft waiting there does so first. Outside
+    // the wall that touches no row, and the insert is refused on the position itself.
+    before:
+      "update mon.underwriting_case set state = 'Withdrawn', withdrawn_reason = 'Replaced by a new draft' where id = 'd0000000-0000-4000-8000-000000000003'",
+    sql: "insert into mon.underwriting_case (investment_id, version, form, case_date, planned_exit_date, exit_multiple, gross_moic, gross_irr, revision_reason, entered_by) values ('30000000-0000-4000-8000-000000000002', 3, 'equity', '2025-06-30', '2030-06-30', 10, 1.9, 0.14, 'Re-underwritten after the second year', pb.current_user_id())",
+    // Inside the wall only: the deal team outside it is refused, and so is the system actor,
+    // which sees the position and is not deal team.
+    allowed: ['wall_member(deal_team)'],
+  },
+  {
+    name: 'withdraw the confirmed base case of the open investment',
+    sql: "update mon.underwriting_case set state = 'Withdrawn', withdrawn_reason = 'Confirmed against the wrong model' where id = 'd0000000-0000-4000-8000-000000000001'",
+    allowed: ['deal_team', 'approver', 'wall_member(deal_team)'],
+  },
+  {
+    name: 'edit the draft base case on the walled investment',
+    sql: "update mon.underwriting_case set gross_moic = 2.1, entered_by = pb.current_user_id(), entered_at = now() where id = 'd0000000-0000-4000-8000-000000000003'",
+    // Inside the wall only: the deal team and the approver outside it are shown no such row, and
+    // the system actor, which sees it, is neither deal team nor approver.
+    allowed: ['wall_member(deal_team)'],
+  },
+  {
+    name: 'confirm the draft base case on the walled investment',
+    sql: "update mon.underwriting_case set state = 'Confirmed', confirmed_by = pb.current_user_id(), confirmed_at = now() where id = 'd0000000-0000-4000-8000-000000000003'",
+    allowed: ['wall_member(deal_team)'],
+  },
+  // A plan point is written by the person who last changed the figures of its Draft (migration
+  // 0022), so each writer claims the Draft first, as an edit through the API does. Nobody in the
+  // fixture is that person without claiming it: the three rows after these say so.
+  {
+    name: 'add a plan point to the draft base case on the walled investment, having claimed it',
+    before: CLAIM_WALLED_DRAFT,
+    sql: "insert into mon.underwriting_case_point (case_id, period_end, revenue_ltm, ebitda_ltm, net_debt) values ('d0000000-0000-4000-8000-000000000003', '2026-06-30', 95000000, 20000000, 52000000)",
+    allowed: ['wall_member(deal_team)'],
+  },
+  {
+    name: 'change a plan point of the draft base case on the walled investment, having claimed it',
+    before: CLAIM_WALLED_DRAFT,
+    sql: "update mon.underwriting_case_point set net_debt = 61000000 where id = 'd0000000-0000-4000-8000-000000000004'",
+    allowed: ['wall_member(deal_team)'],
+  },
+  {
+    name: 'delete a plan point of the draft base case on the walled investment, having claimed it',
+    before: CLAIM_WALLED_DRAFT,
+    sql: "delete from mon.underwriting_case_point where id = 'd0000000-0000-4000-8000-000000000004'",
+    // Points are replaced as a set while the case is a Draft.
+    allowed: ['wall_member(deal_team)'],
+  },
+  {
+    name: 'add a plan point to a draft base case somebody else entered',
+    sql: "insert into mon.underwriting_case_point (case_id, period_end, revenue_ltm, ebitda_ltm, net_debt) values ('d0000000-0000-4000-8000-000000000003', '2026-06-30', 95000000, 20000000, 52000000)",
+    // The person who entered it is outside the wall and cannot see it; the wall member can see
+    // it and did not enter it.
+    allowed: [],
+  },
+  {
+    name: 'change a plan point of a draft base case somebody else entered',
+    sql: "update mon.underwriting_case_point set net_debt = 61000000 where id = 'd0000000-0000-4000-8000-000000000004'",
+    allowed: [],
+  },
+  {
+    name: 'delete a plan point of a draft base case somebody else entered',
+    sql: "delete from mon.underwriting_case_point where id = 'd0000000-0000-4000-8000-000000000004'",
+    allowed: [],
+  },
+  {
+    name: 'delete a base case',
+    sql: "delete from mon.underwriting_case where id = 'd0000000-0000-4000-8000-000000000003'",
+    // A case is withdrawn, never deleted: no delete is granted to anyone.
+    allowed: [],
+  },
+  // Valuation suggestions (migration 0023, docs/18 section 14). Only the system actor writes
+  // one. A person in operations accepts or dismisses, the system actor supersedes, each on a
+  // position they can see, and neither can take the other's decision: the two update policies
+  // judge the row as it will be. The figures of a suggestion are not granted for update at all.
+  {
+    name: 'write a valuation suggestion for the next quarter of the open investment',
+    sql: `insert into mon.valuation_suggestion (investment_id, period_end, basis, method, reason_code, workings, source_document_id, extraction_run_id, calc_version) values ('30000000-0000-4000-8000-000000000001', '2024-12-31', 'capital_account_balance', 'valuation_method.sponsor_mark', 'no_ending_balance', '{"inputs": []}', 'e0000000-0000-4000-8000-000000000001', 'e0000000-0000-4000-8000-000000000003', 'matrix')`,
+    allowed: ['service'],
+  },
+  {
+    name: 'dismiss the open suggestion on the open investment',
+    sql: `update mon.valuation_suggestion set state = 'Dismissed', decision_reason = 'The statement is for another vehicle', ${SUGGESTION_DECIDED} where id = 'e0000000-0000-4000-8000-000000000008'`,
+    allowed: ['operations'],
+  },
+  {
+    name: 'accept the open suggestion on the open investment onto a draft valuation',
+    // Whoever may open a draft valuation does so first (operations and the system actor); for
+    // everyone else that insert is refused. The system actor is then refused the acceptance.
+    before:
+      "insert into mon.valuation (id, investment_id, period_end, version, method, fair_value) values ('e0000000-0000-4000-8000-00000000000a', '30000000-0000-4000-8000-000000000001', '2024-09-30', 1, 'valuation_method.sponsor_mark', 46500000)",
+    sql: `update mon.valuation_suggestion set state = 'Accepted', valuation_id = 'e0000000-0000-4000-8000-00000000000a', ${SUGGESTION_DECIDED} where id = 'e0000000-0000-4000-8000-000000000008'`,
+    allowed: ['operations'],
+  },
+  {
+    name: 'supersede the open suggestion on the open investment',
+    sql: `update mon.valuation_suggestion set state = 'Superseded', superseded_reason = 'mark_locked', ${SUGGESTION_DECIDED} where id = 'e0000000-0000-4000-8000-000000000008'`,
+    allowed: ['service'],
+  },
+  {
+    name: 'dismiss the open suggestion on the walled investment',
+    sql: `update mon.valuation_suggestion set state = 'Dismissed', decision_reason = 'The statement is for another vehicle', ${SUGGESTION_DECIDED} where id = 'e0000000-0000-4000-8000-000000000009'`,
+    // Nobody in the fixture: operations is outside the wall and is shown no such row, the wall
+    // member is deal team, and the system actor, which sees it, decides nothing for a person.
+    allowed: [],
+  },
+  {
+    name: 'supersede the open suggestion on the walled investment',
+    sql: `update mon.valuation_suggestion set state = 'Superseded', superseded_reason = 'position_closed', ${SUGGESTION_DECIDED} where id = 'e0000000-0000-4000-8000-000000000009'`,
+    allowed: ['service'],
+  },
+  {
+    name: 'rewrite the value of the open suggestion on the open investment',
+    sql: "update mon.valuation_suggestion set suggested_value = 50000000 where id = 'e0000000-0000-4000-8000-000000000008'",
+    // Only the decision columns are granted for update (column grant).
+    allowed: [],
+  },
+  {
+    name: 'move the open suggestion on the open investment to another position',
+    sql: "update mon.valuation_suggestion set investment_id = '30000000-0000-4000-8000-000000000002' where id = 'e0000000-0000-4000-8000-000000000008'",
+    allowed: [],
+  },
+  {
+    name: 'delete a valuation suggestion',
+    sql: "delete from mon.valuation_suggestion where id = 'e0000000-0000-4000-8000-000000000008'",
+    // A suggestion is dismissed or superseded, never deleted: no delete is granted to anyone.
     allowed: [],
   },
 ];

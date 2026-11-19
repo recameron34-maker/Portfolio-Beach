@@ -13,9 +13,11 @@ from fractions import Fraction
 from pathlib import Path
 from typing import Any, cast
 
-from calc_check import CTX, credit, multiples, pme, rollup
+from calc_check import CTX, credit, fit, marks, multiples, pme, rollup
 from calc_check import attribution as attr
 from calc_check import bridge as vc
+from calc_check import suggestion as sg
+from calc_check import underwriting as uw
 from calc_check.irr import xirr
 
 
@@ -131,6 +133,49 @@ def check_case(case: dict[str, Any]) -> list[str]:
             summed = sum((Fraction(book["gainByDriver"][k]) for k in rollup.PARTS), Fraction(0))
             if summed != Fraction(book["gain"]):
                 problems.append("ts portfolio parts do not sum to the gain")
+    elif kind == "fit":
+        scores = fit.deal_fit(inp["inputs"], inp["thresholds"])
+        for key in fit.MEASURES:
+            if not _agree(scores[key], _dec(ts["scores"][key]), tol):
+                problems.append(f"{key} {scores[key]} vs ts {ts['scores'][key]}")
+        typical = fit.median([Decimal(v) for v in inp["positions"]])
+        if not _agree(typical, _dec(ts["median"]), tol):
+            problems.append(f"median {typical} vs ts {ts['median']}")
+    elif kind == "plan":
+        plan_rows = uw.plan_metrics(inp["points"], inp["quarter"], inp["onPlanTolerance"])
+        problems.extend(uw.differences(plan_rows, ts["metrics"], "metrics"))
+        if uw.headline(plan_rows) != ts["headline"]:
+            problems.append(f"headline {uw.headline(plan_rows)} vs ts {ts['headline']}")
+    elif kind == "underwriting":
+        answer = uw.comparison(inp["case"], inp["inputs"], inp["tolerances"])
+        problems.extend(uw.differences(answer, ts, "comparison"))
+    elif kind == "statement_mark":
+        settings = inp["settings"]
+        edge = sg.tie_tolerance(inp["units"], settings)
+        problems.extend(uw.differences(sg.travels(edge), ts["tieToleranceUsd"], "tie tolerance"))
+        mark = sg.statement_mark(
+            inp["lines"], inp["record"], str(edge), settings["contributionsTolerancePct"]
+        )
+        problems.extend(uw.differences(mark, ts["mark"], "mark"))
+    elif kind == "report_mark":
+        # A report with an enterprise value for the new quarter is rule 12.2; one without, 12.3.
+        rule = sg.held_multiple_mark if inp["current"]["ev"] is None else sg.stake_mark
+        problems.extend(uw.differences(rule(inp), ts, "mark"))
+    elif kind == "mark_comparison":
+        flag = inp["varianceFlag"]
+        compared = sg.mark_comparison(inp["comparison"], flag)
+        problems.extend(uw.differences(compared, ts["comparison"], "comparison"))
+        crossed = sg.cross_check(inp["other"], inp["comparison"]["suggested"], flag)
+        problems.extend(uw.differences(crossed, ts["crossCheck"], "crossCheck"))
+    elif kind == "reference_marks":
+        standing = marks.reference_answer(
+            inp["marks"], inp["flows"], inp["quarterEnd"], inp["toleranceDays"]
+        )
+        problems.extend(uw.differences(standing, ts["answer"], "reference"))
+        before = marks.previous_quarter_end(inp["quarterEnd"])
+        problems.extend(uw.differences(before, ts["previousQuarterEnd"], "previousQuarterEnd"))
+        apart = marks.quarters_between(inp["from"], inp["quarterEnd"])
+        problems.extend(uw.differences(apart, ts["quartersFrom"], "quartersFrom"))
     else:
         problems.append(f"unknown kind {kind}")
     return problems

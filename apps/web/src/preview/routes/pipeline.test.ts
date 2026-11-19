@@ -5,6 +5,7 @@ import {
   investmentDetail,
   investmentPage,
   opportunityDetail,
+  opportunityFit,
   opportunityPage,
   problemDetails,
 } from '@pb/contracts';
@@ -189,6 +190,76 @@ describe('reads', () => {
       detailOf(await send(f, USERS.dealWall.externalId, 'GET', path(IDS.opportunity.walled))).stage,
     ).toBe('Diligence');
     expect((await send(f, USERS.viewer.externalId, 'GET', path(NO_SUCH_ID))).status).toBe(404);
+  });
+});
+
+describe('portfolio fit (docs/08 section 8): the answer of the API, never worked out here', () => {
+  const fitPath = (id: string): string => `${path(id)}/fit`;
+
+  it('answers a recorded deal what the API answered the caller, as of the recorded date only', async () => {
+    const { f } = setup();
+    const answer = await send(f, USERS.viewer.externalId, 'GET', fitPath(IDS.opportunity.ic));
+    expect(answer.status, answer.text).toBe(200);
+    const fit = opportunityFit.parse(answer.json);
+    expect(fit.opportunityId).toBe(IDS.opportunity.ic);
+    expect(fit.asOf).toBe(AS_OF);
+    expect(fit.measures).toHaveLength(7);
+    // The recording is replayed as it is: it is the API's answer, not a simulated one.
+    expect(answer.headers.get('x-pb-simulated')).toBeNull();
+
+    const same = await send(
+      f,
+      USERS.viewer.externalId,
+      'GET',
+      `${fitPath(IDS.opportunity.ic)}?asOf=${AS_OF}`,
+    );
+    expect(same.status).toBe(200);
+    const other = await send(
+      f,
+      USERS.viewer.externalId,
+      'GET',
+      `${fitPath(IDS.opportunity.ic)}?asOf=2024-12-31`,
+    );
+    expect(other.status).toBe(404);
+    expect(problemOf(other).detail).toBe('This request is outside the recorded preview');
+    const bad = await send(
+      f,
+      USERS.viewer.externalId,
+      'GET',
+      `${fitPath(IDS.opportunity.ic)}?asOf=yesterday`,
+    );
+    expect(bad.status).toBe(400);
+  });
+
+  it('follows the wall of the deal and answers 404 for a deal that does not exist', async () => {
+    const { f } = setup();
+    const outside = await send(f, USERS.deal.externalId, 'GET', fitPath(IDS.opportunity.walled));
+    expect(outside.status).toBe(404);
+    expect(problemOf(outside).detail).not.toContain(IDS.opportunity.walled);
+    const member = await send(f, USERS.dealWall.externalId, 'GET', fitPath(IDS.opportunity.walled));
+    expect(opportunityFit.parse(member.json).opportunityId).toBe(IDS.opportunity.walled);
+    expect((await send(f, USERS.viewer.externalId, 'GET', fitPath(NO_SUCH_ID))).status).toBe(404);
+  });
+
+  it('says a deal created in the preview has no fit recorded (501), and logs no miss for it', async () => {
+    const { f } = setup();
+    const created = opportunityDetail.parse(
+      (
+        await send(f, USERS.deal.externalId, 'POST', '/api/v1/opportunities', {
+          name: 'Project Fitless',
+          companyName: 'Fitless Holdings',
+          sponsorId: IDS.sponsor,
+          dealType: CO_INVEST,
+          receivedDate: AS_OF,
+        })
+      ).json,
+    );
+    const answer = await send(f, USERS.deal.externalId, 'GET', fitPath(created.id));
+    expect(answer.status).toBe(501);
+    expect(problemOf(answer).detail).toBe(
+      'Portfolio fit is worked out by the API; a deal created in this preview has none recorded',
+    );
+    expect(window.__pbPreviewMisses).toEqual([]);
   });
 });
 

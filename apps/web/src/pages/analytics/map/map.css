@@ -1,0 +1,529 @@
+/*
+ * The co-investment map (decision 0017, docs/06 section 5), in the ledger look of decision 0026: a
+ * neutral map on the page's own white, land a quiet grey, country borders in the page colour, a thin
+ * coast, no grid of lines and no frame. Markers take the chart series by deal type; a chosen marker
+ * is ringed in ink. Every animated or transitioned rule here is repeated, exactly as it is declared,
+ * in the reduced motion block at the foot of this file, where it is switched off.
+ */
+
+.pb-map-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 300px;
+  gap: var(--pb-space-4);
+  align-items: stretch;
+  margin-top: var(--pb-space-2);
+}
+/* The map with its region control laid over the top left corner. */
+.pb-map-stage {
+  position: relative;
+  min-width: 0;
+}
+
+/* ---- The map ---- */
+.pb-map {
+  position: relative;
+  min-width: 0;
+  outline: none;
+}
+.pb-map-canvas {
+  position: relative;
+  overflow: hidden;
+  border-block: 1px solid var(--pb-hairline);
+  background: var(--pb-bg);
+}
+.pb-map:focus-visible .pb-map-canvas {
+  outline: 2px solid var(--pb-brand-accent);
+  outline-offset: 2px;
+}
+/* The frame's own shape on a laptop (its width over its height in map units, WorldMap.tsx); a
+   squarer 4:3 on a phone, below. */
+.pb-map-svg {
+  display: block;
+  width: 100%;
+  height: auto;
+  aspect-ratio: 1000 / 442.4;
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+}
+.pb-map-svg:active {
+  cursor: grabbing;
+}
+.pb-map-sea {
+  fill: var(--pb-bg);
+}
+.pb-map-land {
+  fill: var(--pb-border);
+  pointer-events: none;
+}
+.pb-map-borders {
+  fill: none;
+  stroke: var(--pb-bg);
+  stroke-linejoin: round;
+  pointer-events: none;
+}
+.pb-map-coast {
+  fill: none;
+  stroke: var(--pb-border-strong);
+  stroke-linejoin: round;
+  stroke-linecap: round;
+  pointer-events: none;
+}
+
+/* The opening, once, in about a second: the coast draws, the land and the borders fade in after
+   it, and the markers pop into place in turn. No overshoot. */
+.pb-map.is-intro .pb-map-coast {
+  stroke-dasharray: 1;
+  animation: pb-draw calc(var(--pb-dur-draw) * 2) var(--pb-ease-inout) backwards;
+}
+.pb-map.is-intro .pb-map-land {
+  animation: pb-fade calc(var(--pb-dur-fast) * 2) var(--pb-ease) calc(var(--pb-dur-fast) * 2)
+    backwards;
+}
+.pb-map.is-intro .pb-map-borders {
+  animation: pb-fade calc(var(--pb-dur-fast) * 2) var(--pb-ease) var(--pb-dur-draw) backwards;
+}
+.pb-map.is-intro .pb-map-marker-body {
+  --pb-map-from: 0.6;
+  animation: pb-map-appear var(--pb-dur) var(--pb-ease) backwards;
+  animation-delay: calc(600ms + min(var(--pb-map-i, 0), 16) * 16ms);
+}
+/* After it, a marker that comes into view (cities parting as the map comes closer) grows in. The
+   animation keeps its name when the opening's class comes off, so the markers already in place do
+   not play it again; only one put on the map later does. */
+.pb-map:not(.is-intro) .pb-map-marker-body {
+  animation: pb-map-appear var(--pb-dur-fast) var(--pb-ease) backwards;
+}
+
+@keyframes pb-map-appear {
+  from {
+    opacity: 0;
+    transform: scale(var(--pb-map-from, 0.8));
+  }
+}
+/* A chosen marker's ring spreads once and is gone; the ring that marks it stays still. */
+@keyframes pb-map-ripple {
+  from {
+    opacity: 0.5;
+    transform: scale(1);
+  }
+  to {
+    opacity: 0;
+    transform: scale(2.2);
+  }
+}
+
+/* ---- Markers ---- */
+.pb-map-marker-body {
+  cursor: pointer;
+  outline: none;
+  transform-box: fill-box;
+  transform-origin: center;
+}
+.pb-map-dot {
+  stroke: var(--pb-bg);
+  stroke-width: 2;
+}
+.pb-map-core {
+  fill: var(--pb-bg);
+  pointer-events: none;
+}
+.pb-map-count {
+  font:
+    600 var(--pb-text-xs) / 1 var(--pb-font-ui),
+    sans-serif;
+  font-variant-numeric: tabular-nums;
+  fill: var(--pb-text);
+  pointer-events: none;
+}
+/* The ring around a marker: quiet under the pointer or a hovered row, in ink once chosen or in
+   focus. */
+.pb-map-halo {
+  fill: none;
+  stroke: var(--pb-border-strong);
+  stroke-width: 2;
+  opacity: 0;
+  transition: opacity var(--pb-dur-fast) var(--pb-ease);
+}
+.pb-map-marker-body:hover .pb-map-halo,
+.pb-map-marker.is-lit .pb-map-halo {
+  opacity: 1;
+}
+.pb-map-marker.is-selected .pb-map-halo,
+.pb-map-marker-body:focus-visible .pb-map-halo {
+  opacity: 1;
+  stroke: var(--pb-text);
+}
+.pb-map-ripple {
+  fill: none;
+  stroke-width: 2;
+  opacity: 0;
+  transform-box: fill-box;
+  transform-origin: center;
+  pointer-events: none;
+}
+.pb-map-marker.is-selected .pb-map-ripple,
+.pb-map-marker-body:focus-visible .pb-map-ripple {
+  animation: pb-map-ripple calc(var(--pb-dur-draw) + var(--pb-dur-fast)) var(--pb-ease);
+}
+
+/* ---- Over the map: the regions, the tip, the zoom buttons, the wheel hint ---- */
+/* The parts of the world to jump to, joined, and the tour as a text button at their end. */
+.pb-map-regions {
+  position: absolute;
+  z-index: 2;
+  top: calc(var(--pb-space-2) + 1px);
+  left: var(--pb-space-2);
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--pb-space-1) var(--pb-space-2);
+}
+.pb-map-regions > .pb-segmented {
+  background: var(--pb-bg);
+}
+.pb-map-tour {
+  background: var(--pb-bg);
+}
+.pb-map-tour[aria-pressed='true'] {
+  color: var(--pb-text);
+  background: var(--pb-primary-tint-8);
+}
+/* The tip over a marker reads like a chart's tooltip. */
+.pb-map-tip {
+  position: absolute;
+  z-index: 2;
+  display: grid;
+  gap: 2px;
+  padding: var(--pb-space-1) var(--pb-space-2);
+  border: 1px solid var(--pb-border);
+  border-radius: var(--pb-radius-sm);
+  background: var(--pb-bg);
+  color: var(--pb-text);
+  font-size: var(--pb-text-sm);
+  line-height: var(--pb-text-sm-lh);
+  white-space: nowrap;
+  pointer-events: none;
+  box-shadow: var(--pb-shadow-2);
+  transform: translate(-50%, -100%);
+  animation: pb-fade var(--pb-dur-instant) var(--pb-ease) backwards;
+}
+.pb-map-tip > span {
+  color: var(--pb-muted-strong);
+}
+/* Zoom in, zoom out and the whole world: one column of buttons, hairlines between them. */
+.pb-map-zoom {
+  position: absolute;
+  right: var(--pb-space-2);
+  bottom: var(--pb-space-2);
+  display: grid;
+  border: 1px solid var(--pb-border-strong);
+  border-radius: var(--pb-radius);
+  background: var(--pb-bg);
+}
+.pb-map-zoom button {
+  position: relative;
+  min-width: 32px;
+  height: 32px;
+  padding: 0 var(--pb-space-2);
+  border: 0;
+  border-radius: 0;
+  background: var(--pb-bg);
+  color: var(--pb-text);
+  font: inherit;
+  font-size: var(--pb-text-xl);
+  line-height: 1;
+  cursor: pointer;
+  transition: background-color var(--pb-dur-fast) var(--pb-ease);
+}
+.pb-map-zoom button:first-child {
+  border-radius: calc(var(--pb-radius) - 1px) calc(var(--pb-radius) - 1px) 0 0;
+}
+.pb-map-zoom button:last-child {
+  border-radius: 0 0 calc(var(--pb-radius) - 1px) calc(var(--pb-radius) - 1px);
+}
+.pb-map-zoom button + button {
+  border-top: 1px solid var(--pb-hairline);
+}
+.pb-map-zoom button.pb-map-zoom-reset {
+  font-size: var(--pb-text-sm);
+  font-weight: 500;
+}
+.pb-map-zoom button:hover {
+  background: var(--pb-primary-tint-4);
+}
+.pb-map-zoom button:active {
+  background: var(--pb-primary-tint-8);
+}
+.pb-map-zoom button:focus-visible {
+  outline-offset: -2px;
+}
+.pb-map-hint {
+  position: absolute;
+  left: 50%;
+  bottom: var(--pb-space-3);
+  margin: 0;
+  padding: var(--pb-space-1) var(--pb-space-3);
+  border: 1px solid var(--pb-border);
+  border-radius: var(--pb-radius);
+  background: var(--pb-bg);
+  color: var(--pb-text);
+  font-size: var(--pb-text-sm);
+  line-height: var(--pb-text-sm-lh);
+  opacity: 0;
+  transform: translateX(-50%);
+  pointer-events: none;
+  box-shadow: var(--pb-shadow-2);
+  transition: opacity var(--pb-dur) var(--pb-ease);
+}
+.pb-map-hint.is-shown {
+  opacity: 1;
+}
+.pb-map-keys,
+.pb-map-credit {
+  margin: var(--pb-space-2) 0 0;
+  font-size: var(--pb-text-sm);
+  line-height: var(--pb-text-sm-lh);
+  color: var(--pb-muted);
+}
+
+/* ---- The filters over the map ---- */
+/* Their labels on one line, whatever the height of the control under each. */
+.pb-toolbar.pb-map-filters {
+  align-items: flex-start;
+}
+.pb-map-filters .pb-segmented {
+  justify-self: start;
+}
+/* The label of a group of toggles, set as the toolbar sets a field's label. */
+.pb-map-field-label {
+  font-size: var(--pb-text-sm);
+  line-height: var(--pb-text-sm-lh);
+  font-weight: 500;
+  color: var(--pb-muted-strong);
+}
+.pb-map-toggles {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--pb-space-1) var(--pb-space-4);
+  min-height: 32px;
+}
+/* A deal type shown or not: a small square in its marker colour, filled and ticked while shown. */
+.pb-map-check {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--pb-space-2);
+  min-height: 28px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--pb-text);
+  font: inherit;
+  font-size: var(--pb-text-md);
+  line-height: var(--pb-text-md-lh);
+  cursor: pointer;
+  transition: color var(--pb-dur-fast) var(--pb-ease);
+}
+.pb-map-check[aria-pressed='false'] {
+  color: var(--pb-muted-strong);
+}
+.pb-map-check:focus-visible {
+  border-radius: var(--pb-radius-sm);
+}
+.pb-map-check-box {
+  flex: none;
+  box-sizing: border-box;
+  width: 14px;
+  height: 14px;
+  border: 1px solid var(--pb-border-strong);
+  border-radius: var(--pb-radius-sm);
+  background: var(--pb-bg);
+  transition:
+    background-color var(--pb-dur-fast) var(--pb-ease),
+    border-color var(--pb-dur-fast) var(--pb-ease);
+}
+.pb-map-check[aria-pressed='true'] > .pb-map-check-box {
+  border-color: var(--pb-map-type);
+  background: var(--pb-map-type);
+}
+.pb-map-check[aria-pressed='true'] > .pb-map-check-box::after {
+  content: '';
+  display: block;
+  width: 4px;
+  height: 7px;
+  margin: 1px auto 0;
+  border: solid var(--pb-bg);
+  border-width: 0 2px 2px 0;
+  transform: rotate(45deg);
+}
+
+/* ---- The panel beside the map: no frame, a hairline the map's height between them ---- */
+.pb-map-panel {
+  min-width: 0;
+  padding-left: var(--pb-space-4);
+  border-left: 1px solid var(--pb-hairline);
+}
+.pb-map-panel-empty {
+  margin: 0;
+  font-size: var(--pb-text-md);
+  line-height: var(--pb-text-md-lh);
+  color: var(--pb-muted);
+}
+.pb-map-panel-site + .pb-map-panel-site {
+  margin-top: var(--pb-space-4);
+  padding-top: var(--pb-space-3);
+  border-top: 1px solid var(--pb-hairline);
+}
+.pb-map-panel-site h3 {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: var(--pb-space-2);
+  margin: 0 0 var(--pb-space-2);
+  font-size: var(--pb-text-md);
+  line-height: var(--pb-text-md-lh);
+  font-weight: 600;
+  color: var(--pb-text);
+}
+.pb-map-panel-count {
+  font-size: var(--pb-text-sm);
+  font-weight: 400;
+  color: var(--pb-muted);
+}
+.pb-map-panel-site ul {
+  display: grid;
+  gap: var(--pb-space-3);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.pb-map-position {
+  display: grid;
+  gap: 2px;
+}
+.pb-map-position-name {
+  font-weight: 500;
+}
+.pb-map-position-meta {
+  font-size: var(--pb-text-sm);
+  line-height: var(--pb-text-sm-lh);
+  color: var(--pb-muted);
+}
+.pb-map-position-figures {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--pb-space-1) var(--pb-space-3);
+  font-size: var(--pb-text-sm);
+  line-height: var(--pb-text-sm-lh);
+  font-variant-numeric: tabular-nums;
+}
+.pb-map-position-figures strong {
+  font-weight: 600;
+  color: var(--pb-text);
+}
+
+/* ---- The table under it: a row's place on the map, as one small locate button ---- */
+.pb-map-locate-cell {
+  width: 1%;
+}
+.pb-map-locate {
+  position: relative;
+  display: inline-grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  margin-block: calc(var(--pb-space-1) * -1);
+  padding: 0;
+  border: 0;
+  border-radius: var(--pb-radius);
+  background: transparent;
+  color: var(--pb-brand-primary);
+  cursor: pointer;
+  transition: background-color var(--pb-dur-fast) var(--pb-ease);
+}
+.pb-map-locate:hover {
+  background: var(--pb-primary-tint-8);
+}
+.pb-map-locate:focus-visible {
+  outline-offset: 0;
+}
+
+@media (pointer: coarse) {
+  .pb-map-check {
+    min-height: 44px;
+  }
+  .pb-map-locate::after {
+    content: '';
+    position: absolute;
+    inset: calc(var(--pb-space-2) * -1);
+  }
+}
+
+@media (max-width: 1100px) {
+  .pb-map-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .pb-map-panel {
+    padding: var(--pb-space-3) 0 0;
+    border-left: 0;
+    border-top: 1px solid var(--pb-hairline);
+  }
+}
+
+/* A phone: a squarer map that opens on the cities, the regions over it rather than on it, smaller
+   zoom buttons that keep a 44px touch, and the panel only once a marker is chosen. */
+@media (max-width: 760px) {
+  .pb-map-svg {
+    aspect-ratio: 4 / 3;
+  }
+  .pb-map-regions {
+    position: static;
+    margin-bottom: var(--pb-space-2);
+  }
+  .pb-map-regions > .pb-segmented {
+    flex: 1 1 100%;
+  }
+  .pb-map-regions > .pb-segmented > button {
+    flex: 1 1 0;
+    padding-inline: var(--pb-space-2);
+  }
+  .pb-map-zoom button {
+    min-width: 28px;
+    height: 28px;
+  }
+  .pb-map-zoom button::after {
+    content: '';
+    position: absolute;
+    inset: calc(var(--pb-space-2) * -1);
+  }
+  .pb-map-panel:has(> .pb-map-panel-empty) {
+    display: none;
+  }
+}
+
+/* ---- Reduced motion: nothing moves; the map is simply there ---- */
+@media (prefers-reduced-motion: reduce), (update: slow) {
+  .pb-map.is-intro .pb-map-coast,
+  .pb-map.is-intro .pb-map-land,
+  .pb-map.is-intro .pb-map-borders,
+  .pb-map.is-intro .pb-map-marker-body,
+  .pb-map:not(.is-intro) .pb-map-marker-body,
+  .pb-map-marker.is-selected .pb-map-ripple,
+  .pb-map-marker-body:focus-visible .pb-map-ripple,
+  .pb-map-tip {
+    animation: none;
+  }
+  .pb-map.is-intro .pb-map-coast {
+    stroke-dasharray: none;
+  }
+  .pb-map-halo,
+  .pb-map-zoom button,
+  .pb-map-hint,
+  .pb-map-check,
+  .pb-map-check-box,
+  .pb-map-locate {
+    transition: none;
+  }
+}

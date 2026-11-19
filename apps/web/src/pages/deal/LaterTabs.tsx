@@ -1,25 +1,19 @@
 import type { ReactNode } from 'react';
-import { PhasePage } from '../../components/ui.js';
+import { Card, EmptyState } from '../../components/ui.js';
 import './deal.css';
 
-/* Tabs whose modules land in later phases (docs/09). Each says what arrives and from which module. */
-
-function Arrives({ children }: { children: ReactNode }): ReactNode {
-  return (
-    <div className="pb-prose pb-deal-gap">
-      <p>{children}</p>
-    </div>
-  );
-}
+/*
+ * Tabs whose modules land in later phases (docs/09). Each says it is not built and what it will
+ * hold, in the workspace's own frame: the header and the tab bar already name the page.
+ */
 
 export function TasksTab(): ReactNode {
   return (
-    <PhasePage title="Tasks" phase="Phase 6" modules="M15 tasks and approvals">
-      <Arrives>
-        M15 brings the tasks for this position from the task tool, with owners, due dates and
-        reminders. Approvals waiting on you, such as valuation sign-offs and trade tickets, appear
-        alongside them.
-      </Arrives>
-    </PhasePage>
+    <Card testId="deal-tasks">
+      <EmptyState
+        title="Not built yet"
+        detail="This tab will list the position's tasks from the task tool, with owners, due dates and reminders, and the approvals waiting on you."
+      />
+    </Card>
   );
 }

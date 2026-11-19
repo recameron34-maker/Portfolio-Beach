@@ -6,7 +6,15 @@ import { D } from '@pb/calc';
  * Dates go through fmtDate (common/dates.ts). Values arrive as decimal strings, never JS numbers.
  */
 
-const group = (whole: string): string => whole.replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+/** A whole number's digits in groups of three, in one pass: "1250" is "1,250". */
+function group(whole: string): string {
+  let grouped = '';
+  for (let i = 0; i < whole.length; i += 1) {
+    if (i > 0 && (whole.length - i) % 3 === 0) grouped += ',';
+    grouped += whole.charAt(i);
+  }
+  return grouped;
+}
 
 /** Dollars as $M with one decimal from a decimal string: "390009856.77" -> "$390.0M". */
 export function fmtMoneyM(value: string): string {

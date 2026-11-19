@@ -84,7 +84,8 @@ test('a wall member reads the performance and sponsor tabs of a position', async
   await expect(page).toHaveURL(new RegExp(`/portfolio/${deal.id}/performance$`));
   const quarters = page.getByRole('table', { name: 'Quarterly financials' });
   // Newest first: the first body row is the latest quarter, its LTM revenue as the API serves it.
-  await expect(quarters.getByRole('row').nth(1)).toContainText(
+  // The header holds two rows (the column groups, then the columns), so read the body's rows.
+  await expect(quarters.locator('tbody tr').first()).toContainText(
     moneyM(latestQuarter?.revenueLtm ?? '0'),
   );
   // The banner is shared by every tab.
@@ -162,7 +163,8 @@ test('the Documents tab lists the documents linked to the position, or says none
     await expect(card.getByTestId('deal-documents-empty')).toContainText(
       'No documents for this position',
     );
-    await expect(card).toContainText('0 documents, newest first');
+    // Nothing to count: the title carries no count.
+    await expect(card).not.toContainText('newest first');
     await expect(card.getByRole('table')).toHaveCount(0);
   } else {
     const table = card.getByRole('table', { name: 'Documents' });

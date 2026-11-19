@@ -47,7 +47,35 @@ export const RESULT_PLACES = 10;
  * preview simulation share.
  */
 export function toDecimalString(value: Decimal | null): string | null {
-  return value === null ? null : value.toFixed(RESULT_PLACES).replace(/\.?0+$/, '');
+  return value === null ? null : decimalStringOf(value);
+}
+
+/** `toDecimalString` for a result that is there: the same rendering, and a string for certain. */
+export function decimalStringOf(value: Decimal): string {
+  return trimFractionZeros(value.toFixed(RESULT_PLACES));
+}
+
+/**
+ * A decimal string without the zeros that end its fraction, nor a point left bare: "0.2000" is
+ * "0.2" and "5.00" is "5". A string with no point is a whole number and keeps its zeros. Counted
+ * in a loop, so the time taken grows with the length of the text and no faster.
+ */
+export function trimFractionZeros(text: string): string {
+  if (!text.includes('.')) return text;
+  let end = text.length;
+  while (text[end - 1] === '0') end -= 1;
+  if (text[end - 1] === '.') end -= 1;
+  return text.slice(0, end);
+}
+
+/**
+ * A figure held to the places a result travels with, before it is used again: what a reader
+ * receives is then what the next figure was worked out from, to the last place. A figure that
+ * rounds to nothing is zero, never a negative zero.
+ */
+export function heldAsItTravels(value: Decimal): Decimal {
+  const rounded = value.toDecimalPlaces(RESULT_PLACES);
+  return rounded.isZero() ? ZERO : rounded;
 }
 
 export function isZero(value: Decimal): boolean {

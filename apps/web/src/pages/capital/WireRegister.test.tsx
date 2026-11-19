@@ -83,7 +83,7 @@ describe('wire instruction register', () => {
     expect(
       within(first).getByRole('link', { name: 'Silverline Partners Fund II' }),
     ).toHaveAttribute('href', `/capital-activity/wires/${WIRE_ID.proposed}`);
-    expect(within(first).getByText('Sponsor fund')).toHaveClass('pb-badge-plain');
+    expect(within(first).getByText('Sponsor fund')).toHaveClass('pb-cell-sub');
     expect(first).toHaveTextContent('Version 2');
     expect(within(first).getByText('Proposed')).toHaveClass('pb-badge-watch');
     expect(first).toHaveTextContent('Northline Trust ****9930');

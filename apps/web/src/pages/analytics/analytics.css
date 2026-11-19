@@ -1,61 +1,197 @@
 /* Analytics tabs (pages/analytics). Scoped to this folder; colours come only from the theme variables.
-   styles.css loads first, so a page class wins over a shared class of the same specificity. */
+   styles.css loads first, so a page class wins over a shared class of the same specificity. Every
+   rule here that moves is repeated, exactly as it is declared, in the reduced motion block at the
+   foot of this file. */
 
-/* A short explanatory line under a chart or a table inside a card. */
-.pb-analytics-note {
-  margin: 10px 0 0;
+/* The title and the tab row read as one header: the tab row's rule is the only line under it. */
+.pb-banner:has(+ .pb-analytics-tabs) {
+  margin-bottom: var(--pb-space-2);
 }
 
-/* The filter row of the value creation tabs: six dropdowns that fit one line on a laptop and
-   stack on a phone (the toolbar's own fields go full width there). */
+/* A short explanatory line under a chart or a table inside a section. */
+.pb-analytics-note {
+  margin: var(--pb-space-3) 0 0;
+}
+.pb-analytics-note > .pb-meta {
+  margin: 0;
+}
+
+/* Two charts set side by side to compare: captions of one height, so their plots start level
+   whether or not each has a subtitle. */
+.pb-analytics-pair .pb-chart-caption {
+  min-height: calc(var(--pb-text-md-lh) + var(--pb-text-sm-lh));
+}
+
+/* A control in the context row with its label before it (Exposure's Group by). */
+.pb-analytics-group-by {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--pb-space-1) var(--pb-space-2);
+}
+.pb-analytics-control-label {
+  font-size: var(--pb-text-sm);
+  line-height: var(--pb-text-sm-lh);
+  font-weight: 500;
+  color: var(--pb-muted-strong);
+}
+
+/* The filter row of the value creation tabs: the six fields in an even grid with the count and
+   Clear filters at its end, on the fields' bottom line; three across on a smaller laptop. Values
+   that do not fit end in an ellipsis rather than widening their field. */
+.pb-vc-filters {
+  margin: 0 0 var(--pb-space-5);
+}
+.pb-vc-filters > .pb-toolbar {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(120px, 1fr)) auto;
+  align-items: end;
+  gap: var(--pb-space-2) var(--pb-space-3);
+  margin: 0;
+}
+.pb-vc-filters > .pb-toolbar > .pb-toolbar-end {
+  align-items: center;
+  min-height: 24px;
+  margin-left: 0;
+}
+.pb-vc-filters .pb-analytics-filter {
+  width: 100%;
+  min-width: 0;
+}
+.pb-vc-filters .fui-Dropdown__button {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+@media (max-width: 1320px) {
+  .pb-vc-filters > .pb-toolbar {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+  .pb-vc-filters > .pb-toolbar > .pb-toolbar-end {
+    grid-column: 1 / -1;
+    justify-content: flex-end;
+  }
+}
+/* On a phone: one Filters button with the count beside it, the fields two across under it. */
+.pb-vc-filters-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--pb-space-2) var(--pb-space-3);
+}
+.pb-vc-filters-end {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--pb-space-2);
+  margin-left: auto;
+}
+.pb-vc-filters-fields {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--pb-space-2) var(--pb-space-3);
+  margin-top: var(--pb-space-3);
+}
+
+/* The measure selector of a chart, in the toolbar over it. */
 .pb-toolbar .pb-analytics-filter {
   min-width: 0;
   width: 172px;
 }
-@media (max-width: 720px) {
+@media (max-width: 760px) {
   .pb-toolbar .pb-analytics-filter {
     width: 100%;
   }
 }
 
-/* A quiet count with its detail on demand (the positions a view leaves out, and why). */
+/* A quiet count with its detail on demand (the positions a view leaves out, and why; how the
+   split works). The disclosure itself is the shared one (pb-details). */
 .pb-analytics-details {
-  margin-top: 10px;
-  font-size: 13px;
-  line-height: 20px;
+  display: block;
+  font-size: var(--pb-text-md);
+  line-height: var(--pb-text-md-lh);
   color: var(--pb-muted);
 }
-.pb-analytics-details > summary {
-  cursor: pointer;
-  color: var(--pb-brand-primary);
-}
-.pb-analytics-details > .pb-list {
-  margin-top: 6px;
+.pb-analytics-details > .pb-list,
+.pb-analytics-details > p {
+  max-width: 96ch;
+  margin: var(--pb-space-1) 0 var(--pb-space-2);
   color: var(--pb-text);
 }
+.pb-analytics-details + .pb-analytics-details {
+  margin-top: 0;
+}
 
-/* Wide tables: headers may wrap and cells sit closer so the columns fit a laptop screen. */
-.pb-analytics-dense thead th {
+/* Wide tables: headers may wrap, figure columns' too, so the columns fit a laptop screen. */
+.pb-analytics-dense thead th,
+.pb-analytics-dense thead th.num {
   height: auto;
-  min-height: 32px;
-  padding: 6px;
-  line-height: 16px;
+  padding: var(--pb-space-1) var(--pb-space-2) var(--pb-space-2);
   white-space: normal;
   vertical-align: bottom;
 }
-.pb-analytics-dense td {
-  padding: 7px 6px;
+
+/* The value creation table: its groups over their columns, centred over a rule as wide as the
+   group, each group's first column set off by a hairline from top to foot. The identifier and the
+   company stay in view while the figures scroll beside them (a laptop: both; a phone: the
+   identifier alone, the shared rule). In its tall region the second header row stays under the
+   first. */
+.pb-vc-table {
+  --pb-vc-key-w: 80px;
+  --pb-vc-group-h: 28px;
 }
-.pb-analytics-dense th:first-child,
-.pb-analytics-dense td:first-child {
-  padding-left: 10px;
+.pb-vc-table thead th.pb-vc-group {
+  height: var(--pb-vc-group-h);
+  padding: var(--pb-space-1) var(--pb-space-2);
+  text-align: center;
+  white-space: nowrap;
+  color: var(--pb-text);
+  border-bottom-color: var(--pb-border);
+}
+.pb-vc-table .is-group-start {
+  box-shadow: inset 1px 0 0 var(--pb-hairline);
+}
+.pb-vc-table .pb-vc-key {
+  white-space: nowrap;
+}
+.pb-vc-table .pb-vc-company {
+  min-width: 180px;
+  white-space: nowrap;
+}
+.pb-table-wrap.is-tall .pb-vc-table thead tr + tr th {
+  top: var(--pb-vc-group-h);
+}
+@media (min-width: 761px) {
+  :where(.pb-vc-table) :is(th, td).pb-vc-key {
+    position: sticky;
+    left: 0;
+    z-index: 1;
+    box-sizing: border-box;
+    width: var(--pb-vc-key-w);
+    min-width: var(--pb-vc-key-w);
+    background: var(--pb-bg);
+  }
+  :where(.pb-vc-table) :is(th, td).pb-vc-company {
+    position: sticky;
+    left: var(--pb-vc-key-w);
+    z-index: 1;
+    background: var(--pb-bg);
+  }
+  :where(.pb-table-wrap[data-overflow-x] .pb-vc-table) :is(th, td).pb-vc-company {
+    box-shadow: inset -1px 0 0 var(--pb-hairline);
+  }
+  :where(.pb-vc-table) thead th:is(.pb-vc-key, .pb-vc-company) {
+    z-index: 3;
+  }
 }
 
-/* A sortable column header: the label is a button that keeps the header's own type and colour. */
+/* A sortable column header: the label is a button that keeps the header's own type and colour.
+   Its mark fades in on the column that takes the order and turns when the order flips. */
 .pb-sort {
   display: inline-flex;
   align-items: flex-end;
-  gap: 4px;
+  gap: var(--pb-space-1);
   padding: 0;
   border: 0;
   background: transparent;
@@ -66,30 +202,63 @@
   cursor: pointer;
 }
 .pb-sort:hover {
+  color: var(--pb-text);
   text-decoration: underline;
 }
 .pb-sort:focus-visible {
-  outline: 2px solid var(--pb-bg);
-  outline-offset: 2px;
-  border-radius: 2px;
+  outline-offset: var(--pb-space-1);
+  border-radius: var(--pb-radius-sm);
 }
 .pb-sort-mark {
-  font-size: 9px;
-  line-height: 16px;
+  display: inline-block;
+  font-size: var(--pb-text-xs);
+  line-height: var(--pb-text-sm-lh);
+  transition: transform var(--pb-dur) var(--pb-ease);
+  animation: pb-fade var(--pb-dur) var(--pb-ease) backwards;
+}
+.pb-sort-mark.is-descending {
+  transform: rotate(180deg);
 }
 
 /* "Realized" under a company name in the positions table: a word, quiet, on its own line. */
 .pb-analytics-realized {
   display: block;
-  font-size: 11px;
-  line-height: 14px;
+  font-size: var(--pb-text-sm);
+  line-height: var(--pb-text-sm-lh);
   color: var(--pb-muted-strong);
 }
 
 /* The reason a row's drivers are missing, in the one cell the three drivers share: quiet, and
    read as text, not as a figure. */
 .pb-table td.pb-analytics-reason {
-  font-size: 12px;
-  line-height: 16px;
+  font-size: var(--pb-text-sm);
+  line-height: var(--pb-text-sm-lh);
   text-align: left;
+  white-space: normal;
+}
+
+/* A credit position: its number quiet before the company's name in the section title; its latest
+   quarter's figures under the terms, and the covenant and payment states on one line under them. */
+.pb-credit-key {
+  margin-right: var(--pb-space-1);
+  font-size: var(--pb-text-sm);
+  font-weight: 500;
+  color: var(--pb-muted-strong);
+  font-variant-numeric: tabular-nums;
+}
+.pb-credit-strip {
+  margin-top: var(--pb-space-4);
+  margin-bottom: var(--pb-space-2);
+}
+.pb-credit-states {
+  display: flex;
+  margin: 0 0 var(--pb-space-5);
+}
+
+/* ---- Reduced motion: the sort mark is simply there, already turned ---- */
+@media (prefers-reduced-motion: reduce), (update: slow) {
+  .pb-sort-mark {
+    animation: none;
+    transition: none;
+  }
 }

@@ -15,64 +15,86 @@
   display: contents;
 }
 
-/* Eight columns fit a laptop screen; the title cell holds the title and its file name below. */
-.pb-documents-table td {
-  vertical-align: top;
-}
+/* The hub's table: the title may take two lines, so the part that tells two documents apart (the
+   fund or company after the type) shows; the file name keeps one line; either cut short keeps its
+   whole text in its title, so a row stays at most three lines. The title column takes the room the
+   other columns leave (their text keeps its width, the title's adds none: contain), and the company
+   and its number share a line. */
 .pb-documents-title {
+  width: 100%;
   min-width: 220px;
-  max-width: 360px;
-  overflow-wrap: anywhere;
+}
+.pb-documents-clip {
+  display: block;
+  contain: inline-size;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.pb-documents-clip.is-title {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  white-space: normal;
+}
+.pb-cell-sub > .pb-documents-clip {
+  flex: 1 1 0;
+  min-width: 0;
+}
+.pb-documents-subject {
+  white-space: nowrap;
+  min-width: 200px;
 }
 .pb-documents-more {
-  margin: 12px 0 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--pb-space-2) var(--pb-space-3);
+  margin: var(--pb-space-3) 0 0;
 }
 
-/* The document page: badges in the banner, the duplicates list, the page viewer. */
-.pb-documents-badges {
-  display: inline-flex;
-  flex-wrap: wrap;
-  gap: 6px;
-}
+/* The document page: the links in the meta line, the duplicates list, the page viewer. */
 .pb-documents-links {
   display: inline-flex;
   flex-wrap: wrap;
-  align-items: center;
-  gap: 4px 10px;
+  align-items: baseline;
+  gap: var(--pb-space-1) var(--pb-space-2);
 }
 .pb-documents-duplicates {
   list-style: none;
   margin: 0;
   padding: 0;
   display: grid;
-  gap: 6px;
+  gap: var(--pb-space-2);
 }
 .pb-documents-duplicates li {
   display: flex;
   flex-wrap: wrap;
-  align-items: center;
-  gap: 4px 10px;
+  align-items: baseline;
+  gap: var(--pb-space-1) var(--pb-space-3);
 }
 .pb-documents-page-select {
   display: flex;
   flex-wrap: wrap;
   align-items: end;
-  gap: 10px 14px;
-  margin: 0 0 12px;
+  gap: var(--pb-space-2) var(--pb-space-4);
+  margin: 0 0 var(--pb-space-3);
 }
-/* The lines of the selected page, as the reader returned them: monospace, wrapped, scrolling inside a bounded block. */
+/* The lines of the selected page, as the reader returned them: monospace, wrapped, scrolling inside
+   a bounded block. */
 .pb-documents-page {
   margin: 0;
-  padding: 12px 14px;
+  padding: var(--pb-space-3) var(--pb-space-4);
   max-height: 480px;
   overflow: auto;
   border: 1px solid var(--pb-border);
-  border-radius: 6px;
+  border-radius: var(--pb-radius);
   background: var(--pb-bg);
   color: var(--pb-text);
-  font-family: ui-monospace, 'Cascadia Mono', 'Segoe UI Mono', Menlo, Consolas, monospace;
-  font-size: 12px;
-  line-height: 18px;
+  font-family: var(--pb-font-mono);
+  font-size: var(--pb-text-sm);
+  line-height: var(--pb-text-sm-lh);
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
@@ -81,28 +103,19 @@
   outline-offset: 2px;
 }
 
-/* The classify form and the generate form: fields side by side, the button at the end, stacked on a phone. */
+/* The classify form and the generate form: fields side by side, the button at the end, stacked on
+   a phone. Fluent's dropdown keeps a 250px minimum unless told otherwise. */
 .pb-documents-form {
   display: flex;
   flex-wrap: wrap;
   align-items: end;
-  gap: 10px 14px;
-  margin: 0 0 12px;
+  gap: var(--pb-space-3) var(--pb-space-4);
+  margin: 0 0 var(--pb-space-3);
 }
 .pb-documents-form .pb-documents-filter,
 .pb-documents-form .pb-documents-search {
+  min-width: 0;
   width: 220px;
-}
-.pb-documents-form-status > .pb-notice {
-  margin: 0 0 12px;
-}
-
-/* The expected-document tracker: eight columns; the subject cell holds the name and its number below. */
-.pb-documents-expected td {
-  vertical-align: top;
-}
-.pb-documents-subject {
-  min-width: 200px;
 }
 
 @media (max-width: 760px) {
@@ -111,8 +124,5 @@
   .pb-documents-form .pb-documents-filter,
   .pb-documents-form .pb-documents-search {
     width: 100%;
-  }
-  .pb-documents-title {
-    max-width: none;
   }
 }

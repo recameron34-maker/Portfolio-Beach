@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { Fragment, useState } from 'react';
 import type { ReactNode } from 'react';
 import { Link } from '@tanstack/react-router';
 import { useInfiniteQuery, useQuery } from '@tanstack/react-query';
@@ -27,10 +27,11 @@ import {
   EmptyState,
   ErrorState,
   KeyValueTable,
+  Notice,
+  NumCell,
   PageSkeleton,
   SectionHeader,
   SimulatedBadge,
-  StatTile,
   TableWrap,
 } from '../../components/ui.js';
 import { ActionLogCard, ActionStatus, ReasonDialog } from '../../components/WorkflowActions.js';
@@ -43,7 +44,6 @@ import {
   plural,
 } from '../../lib/format.js';
 import { humanizeState } from '../../lib/states.js';
-import { balanceTiles } from '../../lib/tiles.js';
 import {
   blockedTitle,
   isReason,
@@ -71,16 +71,16 @@ import {
   termsOf,
   termStatusTone,
   termValueOf,
-  termValueText,
   tieOutLabel,
   tieOutTone,
 } from './pipeline.js';
 import type { TermField } from './pipeline.js';
 import { closingTone } from '../../lib/states.js';
 import './pipeline.css';
+import { dialogSurfaceMotion, useJustChanged, useReducedMotion } from '../../components/motion.js';
 
 const CLOSE_DATE_RULE =
-  'The close date is the single source for every report (docs/04 M8). A change after confirmation returns the closing to Open and needs confirmation again.';
+  'The close date is the single source for every report. A change after confirmation returns the closing to Open and needs confirmation again.';
 
 const REOPEN_RULE =
   'Reopening returns the record to Open so the checklist and the allocations can change; operations confirm again.';
@@ -99,14 +99,16 @@ function CloseDateDialog({
   const [reason, setReason] = useState('');
   const [touched, setTouched] = useState(false);
   const ready = isIsoDate(closeDate) && closeDate !== closing.closeDate && isReason(reason);
+  const motion = dialogSurfaceMotion(useReducedMotion());
   return (
     <Dialog
+      surfaceMotion={motion}
       open
       onOpenChange={(_e, d) => {
         if (!d.open) onCancel();
       }}
     >
-      <DialogSurface>
+      <DialogSurface className="pb-dialog" backdrop={{ className: 'pb-dialog-backdrop' }}>
         <form
           noValidate
           onSubmit={(e) => {
@@ -188,14 +190,16 @@ function ReceiveDialog({
   const id = documentId.trim();
   const ok = uuid.safeParse(id).success;
   const chosen = documents.find((d) => d.id === id);
+  const motion = dialogSurfaceMotion(useReducedMotion());
   return (
     <Dialog
+      surfaceMotion={motion}
       open
       onOpenChange={(_e, d) => {
         if (!d.open) onCancel();
       }}
     >
-      <DialogSurface>
+      <DialogSurface className="pb-dialog" backdrop={{ className: 'pb-dialog-backdrop' }}>
         <form
           noValidate
           onSubmit={(e) => {
@@ -286,10 +290,16 @@ function ItemActions({
       allowed: mayUse(roles, PIPELINE_ROLES.closingItem),
       roles: PIPELINE_ROLES.closingItem,
     }) ?? lock;
-  const button = (label: string, onClick: () => void): ReactNode => (
+  // A step back (Reopen) is drawn quiet, as it is on the valuation board, so the commands that move
+  // the item on read first.
+  const button = (
+    label: string,
+    onClick: () => void,
+    appearance: 'outline' | 'subtle' = 'outline',
+  ): ReactNode => (
     <Button
       size="small"
-      appearance="outline"
+      appearance={appearance}
       disabled={blocked !== null || busy}
       {...(blocked === null ? {} : { title: blocked })}
       aria-label={`${label}, ${item.label}`}
@@ -306,7 +316,7 @@ function ItemActions({
           {button('Waive', () => onStart({ kind: 'waive', item }))}
         </>
       ) : (
-        button('Reopen', () => onReopen(item))
+        button('Reopen', () => onReopen(item), 'subtle')
       )}
     </span>
   );
@@ -322,14 +332,16 @@ function ItemsCard({
   log: ActionLog;
 }): ReactNode {
   const command = useClosingItemCommand();
+  const changed = useJustChanged();
   const [pending, setPending] = useState<ItemPending | null>(null);
-  const lock = closingLock(closing).items;
+  const { items: lock, move } = closingLock(closing);
   const issue = (item: ClosingItem, body: ClosingItemCommandBody): void => {
     command.mutate(
       { id: closing.id, itemCode: item.itemCode, body },
       {
         onSuccess: (updated) => {
           const now = updated.items.find((i) => i.itemCode === item.itemCode);
+          changed.mark(item.itemCode);
           log.record(
             'good',
             `${item.label} is now ${humanizeState(now?.status ?? body.command)} ${resultSuffix()}`,
@@ -351,61 +363,69 @@ function ItemsCard({
       >
         Checklist
       </SectionHeader>
-      <TableWrap label="Closing checklist">
-        <table className="pb-table" aria-label="Closing checklist">
-          <thead>
-            <tr>
-              <th>Item</th>
-              <th>Required</th>
-              <th>Status</th>
-              <th>Document</th>
-              <th>Actions</th>
-            </tr>
-          </thead>
-          <tbody>
-            {closing.items.map((item) => (
-              <tr key={item.id} data-testid={`closing-item-${item.itemCode}`}>
-                <td>
-                  {item.label}
-                  {item.waivedReason === null ? null : (
-                    <span className="pb-cell-sub">Waived: {item.waivedReason}</span>
-                  )}
-                </td>
-                <td>{item.required ? 'Required' : 'Optional'}</td>
-                <td>
-                  <Badge tone={itemStatusTone(item)}>{humanizeState(item.status)}</Badge>
-                </td>
-                <td>
-                  {item.documentId === null ? (
-                    MISSING
-                  ) : (
-                    <Link to="/documents/$id" params={{ id: item.documentId }}>
-                      Document
-                    </Link>
-                  )}
-                </td>
-                <td>
-                  <ItemActions
-                    item={item}
-                    roles={roles}
-                    lock={lock}
-                    busy={command.isPending}
-                    onStart={setPending}
-                    onReopen={(i) => issue(i, { command: 'reopen' })}
-                  />
-                </td>
+      {closing.items.length === 0 ? (
+        <p className="pb-meta">No checklist items.</p>
+      ) : (
+        <TableWrap label="Closing checklist">
+          <table className="pb-table" aria-label="Closing checklist">
+            <thead>
+              <tr>
+                <th className="pb-col-text">Item</th>
+                <th className="pb-col-fit">Required</th>
+                <th className="pb-col-fit">Status</th>
+                <th className="pb-col-fit">Document</th>
+                <th className="pb-col-fit">Actions</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
-      </TableWrap>
+            </thead>
+            <tbody>
+              {closing.items.map((item) => (
+                <tr
+                  key={item.id}
+                  data-testid={`closing-item-${item.itemCode}`}
+                  {...changed.rowProps(item.itemCode)}
+                >
+                  <td className="pb-col-text">
+                    {item.label}
+                    {item.waivedReason === null ? null : (
+                      <span className="pb-cell-sub">Waived: {item.waivedReason}</span>
+                    )}
+                  </td>
+                  <td className="pb-col-fit">{item.required ? 'Required' : 'Optional'}</td>
+                  <td className="pb-col-fit">
+                    <Badge tone={itemStatusTone(item)}>{humanizeState(item.status)}</Badge>
+                  </td>
+                  <td className="pb-col-fit">
+                    {item.documentId === null ? (
+                      MISSING
+                    ) : (
+                      <Link to="/documents/$id" params={{ id: item.documentId }}>
+                        Document
+                      </Link>
+                    )}
+                  </td>
+                  <td className="pb-col-fit">
+                    <ItemActions
+                      item={item}
+                      roles={roles}
+                      lock={lock}
+                      busy={command.isPending}
+                      onStart={setPending}
+                      onReopen={(i) => issue(i, { command: 'reopen' })}
+                    />
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </TableWrap>
+      )}
       {lock === null ? (
-        <p className="pb-meta pb-deal-note">
+        <p className="pb-note">
           From config/closing_checklist.json. Operations cannot confirm the closing while a required
           item is open; an optional item is tracked but never blocks.
         </p>
-      ) : (
-        <p className="pb-meta pb-deal-note" data-testid="closing-items-lock">
+      ) : lock === move ? null : (
+        <p className="pb-note" data-testid="closing-items-lock">
           {lock}.
         </p>
       )}
@@ -496,6 +516,16 @@ function RecordCard({
       },
     );
   };
+  const changeButton = (
+    <Button
+      appearance="secondary"
+      disabled={moveBlocked !== null || command.isPending}
+      {...(moveBlocked === null ? {} : { title: moveBlocked })}
+      onClick={() => setChanging(true)}
+    >
+      Change close date
+    </Button>
+  );
   return (
     <Card testId="closing-record">
       <SectionHeader aside={<SimulatedBadge />}>Closing record</SectionHeader>
@@ -506,17 +536,8 @@ function RecordCard({
           {
             label: 'Close date',
             value: (
-              <span className="pb-deal-period" data-testid="closing-close-date">
-                <span className="pb-nowrap">{formatDate(closing.closeDate)}</span>
-                <Button
-                  size="small"
-                  appearance="outline"
-                  disabled={moveBlocked !== null || command.isPending}
-                  {...(moveBlocked === null ? {} : { title: moveBlocked })}
-                  onClick={() => setChanging(true)}
-                >
-                  Change close date
-                </Button>
+              <span className="pb-nowrap" data-testid="closing-close-date">
+                {formatDate(closing.closeDate)}
               </span>
             ),
           },
@@ -534,7 +555,7 @@ function RecordCard({
           },
         ]}
       />
-      <div className="pb-pipe-actions pb-deal-gap">
+      <div className="pb-actions pb-pipe-gap">
         {closing.state === 'Open' ? (
           <Button
             appearance="primary"
@@ -546,35 +567,36 @@ function RecordCard({
             Confirm closing
           </Button>
         ) : (
-          <>
-            <Button
-              appearance="secondary"
-              data-testid="closing-reopen"
-              disabled={moveBlocked !== null || command.isPending}
-              {...(moveBlocked === null ? {} : { title: moveBlocked })}
-              onClick={() => setReopening(true)}
-            >
-              Reopen closing
-            </Button>
-            <p className="pb-meta pb-deal-note">
-              {moveLock === null
-                ? 'Confirmed by operations: the checklist and the allocations stay as confirmed. A close date change or a reopen returns the record to Open and needs confirmation again (docs/04 M8).'
-                : `Confirmed by operations. ${moveLock}.`}
-            </p>
-          </>
+          <Button
+            appearance="secondary"
+            data-testid="closing-reopen"
+            disabled={moveBlocked !== null || command.isPending}
+            {...(moveBlocked === null ? {} : { title: moveBlocked })}
+            onClick={() => setReopening(true)}
+          >
+            Reopen closing
+          </Button>
         )}
+        {changeButton}
       </div>
+      {closing.state === 'Open' ? null : (
+        <p className="pb-note">
+          {moveLock === null
+            ? 'Confirmed by operations: the checklist and the allocations stay as confirmed. A close date change or a reopen returns the record to Open and needs confirmation again.'
+            : 'Confirmed by operations.'}
+        </p>
+      )}
       {closing.state === 'Open' && blockers.length > 0 ? (
-        <ul className="pb-list" data-testid="closing-blockers">
+        <ul className="pb-list pb-pipe-blockers" data-testid="closing-blockers">
           {blockers.map((b) => (
-            <li key={b} className="pb-meta">
+            <li key={b} className="pb-note">
               {b}
             </li>
           ))}
         </ul>
       ) : null}
       {closing.state === 'Open' && blockers.length === 0 ? (
-        <p className="pb-meta">
+        <p className="pb-note">
           Every required item is in and the received amounts tie out; operations may confirm.
         </p>
       ) : null}
@@ -604,56 +626,86 @@ function RecordCard({
 }
 
 /**
- * The tie-out card: the commitment, the received total and the difference lead (the deal's own
- * figures, the same for every reader), then the lines by vehicle with the client breakdown as
- * quiet secondary detail and the count of lines the reader is not shown (AllocationLines.tsx).
+ * The tie-out (M22) as a ledger: the commitment, the received total (the allocated figure) and the
+ * difference under a rule, every figure the API's, the same for every reader; the outcome in
+ * words beside the title. The lines follow by vehicle, with the client breakdown as quiet
+ * secondary detail and the count of lines the reader is not shown (AllocationLines.tsx).
  */
 function TieOutCard({ closing }: { closing: ClosingDetail }): ReactNode {
   const t = closing.allocationTieOut;
-  const lock = closingLock(closing).items;
+  const { items: lock, move } = closingLock(closing);
   return (
     <Card testId="closing-tie-out">
       <SectionHeader aside={<Badge tone={tieOutTone(t)}>{tieOutLabel(t)}</Badge>}>
         Allocation tie-out
       </SectionHeader>
-      <div ref={balanceTiles} className="pb-tiles">
-        <StatTile label="Commitment" value={formatMoneyM(t.commitment)} />
-        <StatTile
-          label="Allocated"
-          value={formatMoneyM(t.allocated)}
-          hint="Sum of the received amounts"
-        />
-        <StatTile
-          label="Difference"
-          value={formatMoneyM(t.difference)}
-          tone={t.tiedOut ? 'good' : 'bad'}
-        />
-      </div>
+      <table className="pb-pipe-ledger" aria-label="Allocation tie-out">
+        <tbody>
+          <tr>
+            <th scope="row">Commitment</th>
+            <NumCell>{formatMoneyM(t.commitment)}</NumCell>
+          </tr>
+          <tr>
+            <th scope="row">
+              Allocated
+              <span className="pb-cell-sub">Sum of the received amounts</span>
+            </th>
+            <NumCell>{formatMoneyM(t.allocated)}</NumCell>
+          </tr>
+        </tbody>
+        <tfoot>
+          <tr>
+            <th scope="row">Difference</th>
+            <NumCell className={t.tiedOut ? 'is-good' : 'is-bad'}>
+              {formatMoneyM(t.difference)}
+            </NumCell>
+          </tr>
+        </tfoot>
+      </table>
       {closing.allocations.length === 0 && t.hiddenLines === 0 ? (
         <EmptyState
           title="No allocation lines"
-          detail="Allocations are edited on the opportunity page; the closing cannot complete until the received amounts equal the commitment (M22)."
+          detail="Allocations are edited on the opportunity page; the closing cannot complete until the received amounts equal the commitment."
         />
       ) : (
         <AllocationLinesTable rows={closing.allocations} hiddenLines={t.hiddenLines} />
       )}
       {lock === null ? (
-        <p className="pb-meta pb-deal-note">
+        <p className="pb-note">
           <Link to="/pipeline/$id" params={{ id: closing.opportunityId }}>
             Edit the allocations on the opportunity page
           </Link>
-          . The closing cannot complete until the received amounts equal the commitment (M22).
+          . The closing cannot complete until the received amounts equal the commitment.
         </p>
       ) : (
-        <p className="pb-meta pb-deal-note">
+        <p className="pb-note">
           The lines stay as confirmed:{' '}
           <Link to="/pipeline/$id" params={{ id: closing.opportunityId }}>
             see them on the opportunity page
           </Link>
-          . {lock}.
+          .{lock === move ? null : ` ${lock}.`}
         </p>
       )}
     </Card>
+  );
+}
+
+/** A legal term's fields one per line: the name in words ("Lock up months"), true and false as Yes and No. */
+function TermValue({
+  value,
+}: {
+  value: Readonly<Record<string, string | number | boolean>>;
+}): ReactNode {
+  const entries = Object.entries(value);
+  if (entries.length === 0) return MISSING;
+  return (
+    <ul className="pb-pipe-term-lines">
+      {entries.map(([key, v]) => (
+        <li key={key}>
+          {humanizeState(key)}: {v === true ? 'Yes' : v === false ? 'No' : String(v)}
+        </li>
+      ))}
+    </ul>
   );
 }
 
@@ -705,7 +757,7 @@ function LegalTermForm({
   return (
     <form
       noValidate
-      className="pb-pipe-form"
+      className="pb-pipe-term-form"
       data-testid="legal-term-form"
       aria-label="Add a legal term"
       onSubmit={(e) => {
@@ -715,7 +767,6 @@ function LegalTermForm({
     >
       <FluentField label="Term type" required>
         <Dropdown
-          className="pb-pipe-control"
           placeholder={types.length === 0 ? 'No term types loaded' : 'Choose a term type'}
           value={termType === '' ? '' : labelOf(termType)}
           selectedOptions={termType === '' ? [] : [termType]}
@@ -729,53 +780,52 @@ function LegalTermForm({
         </Dropdown>
       </FluentField>
       <FluentField
-        label="Source document id"
+        label="Source document (optional)"
         {...(sourceOk
-          ? { hint: 'Optional: the hub document the term is read from.' }
+          ? { hint: 'The id of the hub document the term is read from.' }
           : {
               validationState: 'error' as const,
               validationMessage: 'A document id is a UUID as the document hub shows it.',
             })}
       >
         <Input
-          className="pb-pipe-control pb-pipe-id"
+          className="pb-pipe-id"
           value={sourceDocumentId}
           onChange={(_e, d) => setSourceDocumentId(d.value)}
         />
       </FluentField>
-      <div className="pb-pipe-kv-rows pb-pipe-form-note">
-        {fields.map((f, i) => (
-          <div key={i} className="pb-pipe-kv-row">
-            <Input
-              aria-label={`Field name ${i + 1}`}
-              placeholder="Field, such as rate"
-              value={f.name}
-              onChange={(_e, d) => setField(i, { name: d.value })}
-            />
-            <Input
-              aria-label={`Field value ${i + 1}`}
-              placeholder="Value, such as 2%"
-              value={f.value}
-              onChange={(_e, d) => setField(i, { value: d.value })}
-            />
-          </div>
-        ))}
+      {fields.map((f, i) => (
+        <Fragment key={i}>
+          <Input
+            aria-label={`Field name ${i + 1}`}
+            placeholder="Field, such as rate"
+            value={f.name}
+            onChange={(_e, d) => setField(i, { name: d.value })}
+          />
+          <Input
+            aria-label={`Field value ${i + 1}`}
+            placeholder="Value, such as 2%"
+            value={f.value}
+            onChange={(_e, d) => setField(i, { value: d.value })}
+          />
+        </Fragment>
+      ))}
+      <div className="pb-actions pb-pipe-form-end">
+        <Button
+          appearance="secondary"
+          onClick={() => setFields((fs) => [...fs, { ...EMPTY_FIELD }])}
+        >
+          Add field
+        </Button>
+        <Button
+          appearance="secondary"
+          type="submit"
+          disabled={blocked !== null || !ready || create.isPending}
+          {...(blocked === null ? {} : { title: blocked })}
+        >
+          Add term
+        </Button>
       </div>
-      <Button
-        size="small"
-        appearance="secondary"
-        onClick={() => setFields((fs) => [...fs, { ...EMPTY_FIELD }])}
-      >
-        Add field
-      </Button>
-      <Button
-        appearance="secondary"
-        type="submit"
-        disabled={blocked !== null || !ready || create.isPending}
-        {...(blocked === null ? {} : { title: blocked })}
-      >
-        Add term
-      </Button>
     </form>
   );
 }
@@ -817,7 +867,7 @@ function LegalTermsCard({
       {closing.legalTerms.length === 0 ? (
         <EmptyState
           title="No legal terms captured"
-          detail="Structured terms (fees, carry, key person, MFN, consents) are captured in draft and confirmed against their source document (M22)."
+          detail="Structured terms (fees, carry, key person, MFN, consents) are captured in draft and confirmed against their source document."
           testId="legal-terms-empty"
         />
       ) : (
@@ -825,20 +875,22 @@ function LegalTermsCard({
           <table className="pb-table" aria-label="Legal terms">
             <thead>
               <tr>
-                <th>Term</th>
-                <th>Value</th>
-                <th>Source</th>
-                <th>Status</th>
-                <th>Confirmed by</th>
-                <th>Actions</th>
+                <th className="pb-col-fit">Term</th>
+                <th className="pb-col-text">Value</th>
+                <th className="pb-col-fit">Source</th>
+                <th className="pb-col-fit">Status</th>
+                <th className="pb-col-fit">Confirmed by</th>
+                <th className="pb-col-fit">Actions</th>
               </tr>
             </thead>
             <tbody>
               {closing.legalTerms.map((t) => (
                 <tr key={t.id} data-testid={`legal-term-${t.id}`}>
-                  <td>{labelOf(t.termType)}</td>
-                  <td>{termValueText(t.value)}</td>
-                  <td>
+                  <td className="pb-col-fit">{labelOf(t.termType)}</td>
+                  <td className="pb-col-text">
+                    <TermValue value={t.value} />
+                  </td>
+                  <td className="pb-col-fit">
                     {t.sourceDocumentId === null ? (
                       MISSING
                     ) : (
@@ -847,11 +899,11 @@ function LegalTermsCard({
                       </Link>
                     )}
                   </td>
-                  <td>
+                  <td className="pb-col-fit">
                     <Badge tone={termStatusTone(t.status)}>{humanizeState(t.status)}</Badge>
                   </td>
-                  <td>{personName(t.confirmedBy)}</td>
-                  <td>
+                  <td className="pb-col-fit">{personName(t.confirmedBy)}</td>
+                  <td className="pb-col-fit">
                     {t.status === 'draft' ? (
                       <Button
                         size="small"
@@ -864,7 +916,7 @@ function LegalTermsCard({
                         Confirm
                       </Button>
                     ) : (
-                      <span className="pb-meta">Confirmed</span>
+                      <span className="pb-visually-hidden">No actions</span>
                     )}
                   </td>
                 </tr>
@@ -886,8 +938,12 @@ function Panel({
   roles: readonly string[];
 }): ReactNode {
   const log = useActionLog();
+  // Once the deal converted, every change to the closing is a deal change request: said once here,
+  // and in the title of each command it stops.
+  const { move } = closingLock(closing);
   return (
-    <div data-testid="closing-panel">
+    <div className="pb-page-body" data-testid="closing-panel">
+      {move === null ? null : <Notice testId="closing-position-note">{move}.</Notice>}
       <div className="pb-two-col">
         <RecordCard closing={closing} roles={roles} log={log} />
         <TieOutCard closing={closing} />

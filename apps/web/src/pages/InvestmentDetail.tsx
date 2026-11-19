@@ -46,7 +46,7 @@ function OperatingTable({ detail }: { detail: InvestmentDetail }): ReactNode {
   ];
   return (
     <TableWrap label="Financial performance">
-      <table className="pb-table" aria-label="Financial performance">
+      <table className="pb-table pb-table-short" aria-label="Financial performance">
         <thead>
           <tr>
             <th>Metric</th>
@@ -60,7 +60,7 @@ function OperatingTable({ detail }: { detail: InvestmentDetail }): ReactNode {
         <tbody>
           {rows.map(([metric, current, prior, yoy]) => (
             <tr key={metric}>
-              <td>{metric}</td>
+              <td className="pb-nowrap">{metric}</td>
               <NumCell>{current}</NumCell>
               <NumCell>{prior}</NumCell>
               <NumCell>{yoy}</NumCell>
@@ -77,7 +77,7 @@ function CreditTerms({ detail }: { detail: InvestmentDetail }): ReactNode {
   if (c === null) return null;
   const l = c.latest;
   return (
-    <Card tinted>
+    <Card>
       <SectionHeader>Credit terms</SectionHeader>
       <KeyValueTable
         label="Credit terms"
@@ -128,8 +128,10 @@ export function InvestmentDetailPage(): ReactNode {
   const isCredit = d.credit !== null;
   return (
     <>
-      <Card tinted>
+      <Card>
         <SectionHeader>Deal details</SectionHeader>
+        {/* The state is in the header on every tab, and a realized position's exit date in the
+            NAV figure's hint, so the details do not repeat them. */}
         <KeyValueTable
           label="Deal details"
           rows={[
@@ -137,14 +139,7 @@ export function InvestmentDetailPage(): ReactNode {
             { label: 'Sponsor fund', value: d.sponsorFundName ?? MISSING },
             { label: 'Sector', value: labelOf(d.sector) },
             { label: 'Geography', value: labelOf(d.geography) },
-            {
-              label: 'Investment number',
-              value: <span className="pb-key">{d.investmentNumber}</span>,
-            },
-            {
-              label: 'Status',
-              value: d.isActive ? 'Active' : `Realized ${formatDate(d.exitDate)}`,
-            },
+            { label: 'Investment number', value: d.investmentNumber },
           ]}
         />
       </Card>
@@ -177,7 +172,7 @@ export function InvestmentDetailPage(): ReactNode {
                 .slice(0, 8)
                 .map((v) => (
                   <tr key={`${v.periodEnd}-${v.version}`}>
-                    <td>{formatDate(v.periodEnd)}</td>
+                    <td className="pb-nowrap">{formatDate(v.periodEnd)}</td>
                     <td>{v.version}</td>
                     <td>
                       <Badge tone={valuationTone(v.state)}>{humanizeState(v.state)}</Badge>
@@ -204,7 +199,7 @@ export function InvestmentDetailPage(): ReactNode {
             <tbody>
               {d.cashFlows.map((f, i) => (
                 <tr key={`${f.date}-${i}`}>
-                  <td>{formatDate(f.date)}</td>
+                  <td className="pb-nowrap">{formatDate(f.date)}</td>
                   <td>{labelOf(f.flowType)}</td>
                   <NumCell>{formatMoneyM(f.amount)}</NumCell>
                 </tr>

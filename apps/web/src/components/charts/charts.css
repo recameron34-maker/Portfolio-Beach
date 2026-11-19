@@ -1,39 +1,58 @@
 /* Chart chrome. Series colors come from --pb-chart-1..8 (config/brand.json chartSeries, validated for
    color-vision safety); ink and grid use the UI tokens. */
 .pb-chart {
-  margin: 0 0 16px;
+  margin: 0 0 var(--pb-space-4);
 }
 .pb-chart-caption {
   display: flex;
   flex-wrap: wrap;
   justify-content: space-between;
-  align-items: baseline;
-  gap: 8px 16px;
-  margin-bottom: 8px;
+  align-items: flex-start;
+  gap: var(--pb-space-2) var(--pb-space-4);
+  margin-bottom: var(--pb-space-2);
+}
+.pb-chart-heading {
+  min-width: 0;
 }
 .pb-chart-title {
   font-weight: 600;
-  font-size: 14px;
+  font-size: var(--pb-text-md);
+  line-height: var(--pb-text-md-lh);
   color: var(--pb-text);
 }
+/* A chart title that is its section's heading reads as a section title, on its own line. */
+h2.pb-chart-title {
+  display: block;
+  margin: 0;
+  font-size: var(--pb-text-lg);
+  line-height: var(--pb-text-lg-lh);
+}
+/* The subtitle says what the chart is drawn from, on the line under the title. */
 .pb-chart-subtitle {
-  margin-left: 8px;
-  font-size: 12px;
+  display: block;
+  margin-left: 0;
+  font-size: var(--pb-text-sm);
+  line-height: var(--pb-text-sm-lh);
   color: var(--pb-muted);
 }
+/* The legend and the table command keep to the right of the title; when they wrap under it (a
+   phone), the legend starts at the text edge and the command holds the right edge. */
 .pb-chart-tools {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 12px;
+  gap: var(--pb-space-1) var(--pb-space-3);
+  margin-left: auto;
 }
 .pb-chart-legend {
   display: flex;
   flex-wrap: wrap;
-  gap: 4px 14px;
+  gap: var(--pb-space-1) var(--pb-space-3);
   margin: 0;
   padding: 0;
   list-style: none;
-  font-size: 12px;
+  font-size: var(--pb-text-sm);
+  line-height: var(--pb-text-sm-lh);
   color: var(--pb-muted);
 }
 .pb-chart-legend li {
@@ -45,7 +64,7 @@
   display: inline-block;
   width: 10px;
   height: 10px;
-  border-radius: 2px;
+  border-radius: var(--pb-radius-sm);
 }
 .pb-chart-key {
   display: inline-block;
@@ -53,17 +72,41 @@
   height: 2px;
   border-radius: 1px;
 }
+/* Show table and Show chart: a quiet text command with its icon, no frame; the ring only for the
+   keyboard. The words do not change, so the tests and readers that look for them find them. */
 .pb-chart-toggle {
-  font: inherit;
-  font-size: 12px;
-  color: var(--pb-brand-primary);
+  display: inline-flex;
+  align-items: center;
+  gap: var(--pb-space-1);
+  min-height: 24px;
+  margin-left: auto;
+  margin-right: calc(var(--pb-space-2) * -1);
+  padding: 0 var(--pb-space-2);
+  border: 0;
+  border-radius: var(--pb-radius);
   background: transparent;
-  border: 1px solid var(--pb-border);
-  border-radius: 4px;
-  padding: 2px 8px;
+  color: var(--pb-brand-primary);
+  font: inherit;
+  font-size: var(--pb-text-sm);
+  line-height: var(--pb-text-sm-lh);
+  font-weight: 500;
+  white-space: nowrap;
   cursor: pointer;
+  transition:
+    color var(--pb-dur-fast) var(--pb-ease),
+    background-color var(--pb-dur-fast) var(--pb-ease);
 }
-.pb-chart-toggle:hover,
+.pb-chart-toggle > svg {
+  flex: none;
+  width: 16px;
+  height: 16px;
+}
+.pb-chart-toggle:hover {
+  background: var(--pb-primary-tint-4);
+}
+.pb-chart-toggle:active {
+  background: var(--pb-primary-tint-8);
+}
 .pb-chart-toggle:focus-visible {
   outline: 2px solid var(--pb-brand-accent);
   outline-offset: 1px;
@@ -74,6 +117,11 @@
 .pb-chart-canvas {
   width: 100%;
 }
+/* Until its real width is known the canvas waits unseen (one frame, at most a few), so a chart is
+   never painted at the fallback width and then drawn again. */
+.pb-chart[data-waiting] .pb-chart-canvas {
+  visibility: hidden;
+}
 .pb-chart-svg {
   display: block;
   max-width: 100%;
@@ -83,17 +131,32 @@
 .pb-chart-svg:focus-visible {
   outline: 2px solid var(--pb-brand-accent);
   outline-offset: 2px;
-  border-radius: 4px;
+  border-radius: var(--pb-radius);
 }
 .pb-chart-grid {
-  stroke: var(--pb-border);
+  stroke: var(--pb-hairline);
   stroke-width: 1;
 }
 .pb-chart-axis {
-  stroke: var(--pb-muted);
+  stroke: var(--pb-border-strong);
   stroke-width: 1;
 }
 .pb-chart-crosshair {
+  stroke: var(--pb-muted);
+  stroke-width: 1;
+}
+/* The thin line that joins one bridge step to the next. */
+.pb-chart-connector {
+  stroke: var(--pb-border-strong);
+  stroke-width: 1;
+}
+/* A leader from a line's end to its label, when the label moved to stay clear of another. */
+.pb-chart-leader {
+  stroke: var(--pb-border-strong);
+  stroke-width: 1;
+}
+/* An axis broken between two points: two short strokes across the foot. */
+.pb-chart-break line {
   stroke: var(--pb-muted);
   stroke-width: 1;
 }
@@ -103,24 +166,35 @@
   stroke-width: 1.5;
   stroke-dasharray: 5 4;
 }
-.pb-chart-tick,
-.pb-chart-label {
-  font-size: 12px;
+.pb-chart-tick {
+  font-size: var(--pb-text-xs);
   fill: var(--pb-muted);
+  font-variant-numeric: tabular-nums;
+}
+.pb-chart-label {
+  font-size: var(--pb-text-sm);
+  fill: var(--pb-text);
 }
 .pb-chart-value {
-  font-size: 12px;
+  font-size: var(--pb-text-sm);
   fill: var(--pb-text);
   font-variant-numeric: tabular-nums;
 }
-/* A value inside a stacked segment: page-coloured plate, text colour on it (always 4.5:1 or better). */
+/* A value inside a stacked segment: a page-coloured plate, text colour on it (always 4.5:1 or better). */
 .pb-chart-inlabel-plate {
   fill: var(--pb-bg);
 }
 .pb-chart-inlabel-text {
-  font-size: 11px;
+  font-size: var(--pb-text-xs);
   fill: var(--pb-text);
   font-variant-numeric: tabular-nums;
+}
+/* A line under a chart about how it is drawn (a mark held at the axis edge). */
+.pb-chart-note {
+  margin: var(--pb-space-1) 0 0;
+  font-size: var(--pb-text-sm);
+  line-height: var(--pb-text-sm-lh);
+  color: var(--pb-muted);
 }
 .pb-chart-mark {
   outline: none;
@@ -145,16 +219,18 @@
   z-index: 2;
   pointer-events: none;
   min-width: 150px;
-  padding: 8px 10px;
+  padding: var(--pb-space-2) 10px;
   background: var(--pb-bg);
   border: 1px solid var(--pb-border);
-  border-radius: 6px;
-  box-shadow: 0 6px 20px rgb(0 0 0 / 8%);
-  font-size: 12px;
+  border-radius: var(--pb-radius-sm);
+  box-shadow: var(--pb-shadow-2);
+  font-size: var(--pb-text-sm);
+  line-height: var(--pb-text-sm-lh);
+  animation: pb-fade var(--pb-dur-instant) var(--pb-ease);
 }
 .pb-chart-tooltip-title {
   font-weight: 600;
-  margin-bottom: 4px;
+  margin-bottom: var(--pb-space-1);
   color: var(--pb-text);
 }
 .pb-chart-tooltip-row {
@@ -170,9 +246,186 @@
 .pb-chart-tooltip-name {
   color: var(--pb-muted);
 }
+.pb-chart-tooltip-note {
+  max-width: 240px;
+  margin-top: var(--pb-space-1);
+  color: var(--pb-muted);
+}
 .pb-chart-table {
-  font-size: 13px;
+  font-size: var(--pb-text-md);
+}
+
+/* ---- The entrance (docs/06 section 5): played once, after the canvas has its real width;
+   ChartFigure sets data-entering then and clears it when the marks are in, so a table toggle, a
+   filter or a sort never replays it. Axes, gridlines, ticks, labels and the summary are there
+   from the first frame. Only the bar's or step's path grows (pb-chart-bar, pb-chart-step), never
+   the row group (pb-chart-mark), so a label or a printed figure is never squashed. ---- */
+.pb-chart[data-entering] .pb-chart-line {
+  stroke-dasharray: 1;
+  animation: pb-draw var(--pb-dur-draw) var(--pb-ease-inout) backwards;
+}
+.pb-chart[data-entering] .pb-chart-end {
+  animation: pb-fade var(--pb-dur) var(--pb-ease) calc(var(--pb-dur-draw) - 80ms) backwards;
+}
+.pb-chart[data-entering] .pb-chart-bar {
+  transform-box: fill-box;
+  transform-origin: left center;
+  animation: pb-grow-x var(--pb-dur-slow) var(--pb-ease) backwards;
+  animation-delay: calc(min(var(--i, 0), 8) * var(--pb-stagger));
+}
+.pb-chart[data-entering] .pb-chart-bar.is-negative {
+  transform-origin: right center;
+}
+.pb-chart[data-entering] .pb-chart-step {
+  transform-box: fill-box;
+  transform-origin: left center;
+  animation: pb-grow-x var(--pb-dur) var(--pb-ease) backwards;
+  animation-delay: calc(var(--i, 0) * var(--pb-stagger) * 2);
+}
+.pb-chart[data-entering] .pb-chart-step.is-negative {
+  transform-origin: right center;
+}
+.pb-chart[data-entering] .pb-chart-value,
+.pb-chart[data-entering] .pb-chart-inlabel {
+  animation: pb-fade var(--pb-dur) var(--pb-ease) backwards;
+  animation-delay: calc(var(--pb-dur-slow) + min(var(--i, 0), 8) * var(--pb-stagger));
+}
+.pb-chart[data-entering] .pb-chart-reference {
+  animation: pb-fade var(--pb-dur-enter) var(--pb-ease) backwards;
+}
+.pb-chart[data-entering] .pb-chart-point {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: pb-pop var(--pb-dur) var(--pb-ease) backwards;
+  animation-delay: calc(var(--pb-dur-enter) + min(var(--i, 0), 20) * 12ms);
 }
 .pb-sparkline {
   display: block;
+}
+/* The sparkline under a key figure draws in once, then its latest point appears. The path's
+   length is 1 (pathLength), so one dash covers it whole and the offset alone draws it. */
+.pb-sparkline-line {
+  stroke-dasharray: 1;
+  animation: pb-draw var(--pb-dur-draw) var(--pb-ease-inout) 120ms backwards;
+}
+.pb-sparkline-dot {
+  animation: pb-fade var(--pb-dur) var(--pb-ease) var(--pb-dur-draw) backwards;
+}
+
+/* ---- Radar chart (RadarChart.tsx): a web of rings and spokes, the scores joined into a shape ---- */
+.pb-radar-ring,
+.pb-radar-rim {
+  fill: none;
+  stroke: var(--pb-border);
+  stroke-width: 1;
+}
+.pb-radar-rim {
+  stroke: var(--pb-muted);
+}
+/* A ring's figure sits on the ring itself, on a halo of the page colour so the line passes behind it. */
+.pb-radar-ring-label {
+  font-size: var(--pb-text-xs);
+  fill: var(--pb-muted);
+  font-variant-numeric: tabular-nums;
+  paint-order: stroke;
+  stroke: var(--pb-bg);
+  stroke-width: 4px;
+  stroke-linejoin: round;
+}
+.pb-radar-spoke {
+  stroke: var(--pb-border);
+  stroke-width: 1;
+  transition: stroke var(--pb-dur-fast) var(--pb-ease);
+}
+/* A wide, unseen line over the spoke, so the pointer finds a measure anywhere along it. */
+.pb-radar-reach {
+  stroke: transparent;
+  stroke-width: 18;
+}
+.pb-radar-axis.is-missing .pb-radar-spoke {
+  stroke-dasharray: 3 4;
+}
+.pb-radar-axis:hover .pb-radar-spoke,
+.pb-radar-axis:focus-visible .pb-radar-spoke,
+.pb-radar-axis.is-active .pb-radar-spoke {
+  stroke: var(--pb-brand-primary);
+  stroke-width: 1.5;
+}
+.pb-radar-axis:focus-visible .pb-radar-label {
+  text-decoration: underline;
+}
+.pb-radar-label {
+  font-size: var(--pb-text-sm);
+  fill: var(--pb-muted);
+  cursor: default;
+}
+.pb-radar-score {
+  fill: var(--pb-text);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.pb-radar-axis:hover .pb-radar-label,
+.pb-radar-axis:focus-visible .pb-radar-label,
+.pb-radar-axis.is-active .pb-radar-label {
+  fill: var(--pb-text);
+}
+.pb-radar-area {
+  fill-opacity: 0.18;
+}
+.pb-radar-outline {
+  fill: none;
+  stroke-width: 2;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+}
+.pb-radar-point {
+  stroke: var(--pb-bg);
+  stroke-width: 2;
+  transition: r var(--pb-dur-fast) var(--pb-ease);
+}
+/* The entrance, played once on the motion tokens (styles.css): the web fades in, the shape opens
+   out from near its full size, then each point lands in turn round the chart. Backwards, never
+   both, so a finished shape keeps no transform. */
+.pb-radar-web {
+  animation: pb-fade var(--pb-dur) var(--pb-ease) backwards;
+}
+.pb-radar-shape {
+  animation: pb-radar-open var(--pb-dur-slow) var(--pb-ease) 80ms backwards;
+}
+.pb-radar-point {
+  animation: pb-fade var(--pb-dur-fast) var(--pb-ease) backwards;
+  animation-delay: calc(240ms + var(--pb-radar-i, 0) * var(--pb-stagger));
+}
+@keyframes pb-radar-open {
+  from {
+    opacity: 0;
+    transform: scale(0.85);
+  }
+}
+
+/* ---- Reduced motion: every animated selector of the charts, switched off (docs/06 section 5) ---- */
+@media (prefers-reduced-motion: reduce), (update: slow) {
+  .pb-chart[data-entering] .pb-chart-line,
+  .pb-chart[data-entering] .pb-chart-end,
+  .pb-chart[data-entering] .pb-chart-bar,
+  .pb-chart[data-entering] .pb-chart-bar.is-negative,
+  .pb-chart[data-entering] .pb-chart-step,
+  .pb-chart[data-entering] .pb-chart-step.is-negative,
+  .pb-chart[data-entering] .pb-chart-value,
+  .pb-chart[data-entering] .pb-chart-inlabel,
+  .pb-chart[data-entering] .pb-chart-reference,
+  .pb-chart[data-entering] .pb-chart-point,
+  .pb-chart-tooltip,
+  .pb-sparkline-line,
+  .pb-sparkline-dot,
+  .pb-radar-web,
+  .pb-radar-shape,
+  .pb-radar-point {
+    animation: none;
+  }
+  .pb-chart-toggle,
+  .pb-radar-spoke,
+  .pb-radar-point {
+    transition: none;
+  }
 }

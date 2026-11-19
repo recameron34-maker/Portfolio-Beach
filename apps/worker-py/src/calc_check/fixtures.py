@@ -14,7 +14,9 @@ from calc_check import attribution as attr
 from calc_check import bridge as vc
 from calc_check import (
     credit,
+    fit,
     liquidity,
+    marks,
     multiples,
     operating,
     periods,
@@ -23,6 +25,8 @@ from calc_check import (
     rollup,
     units,
 )
+from calc_check import suggestion as sg
+from calc_check import underwriting as uw
 from calc_check.irr import Flow, xirr
 from calc_check.periods import PeriodRow
 
@@ -293,6 +297,98 @@ def _bands(inp: dict[str, Any], exp: dict[str, Any], tol: str) -> None:
         close(vc.weighted_average(pairs), want, tol, "weightedAverage")
 
 
+def _deal_fit(inp: dict[str, Any], exp: dict[str, Any], tol: str) -> None:
+    for case, want in zip(inp["cases"], exp["cases"], strict=True):
+        scores = fit.deal_fit(case, inp["thresholds"])
+        assert tuple(scores) == fit.MEASURES
+        for key in fit.MEASURES:
+            close(scores[key], want[key], tol, key)
+    for values, want in zip(inp["medians"], exp["medians"], strict=True):
+        close(fit.median([Decimal(v) for v in values]), want, tol, "median")
+
+
+def _plan_tracking(inp: dict[str, Any], exp: dict[str, Any], tol: str) -> None:
+    for n, (case, want) in enumerate(zip(inp["cases"], exp["results"], strict=True), start=1):
+        rows = uw.plan_metrics(inp["plans"][case["plan"]], case["quarter"], inp["onPlanTolerance"])
+        assert [r["metric"] for r in rows] == list(uw.METRICS)
+        found = uw.differences(rows, want["metrics"], f"case {n}")
+        if found:
+            raise MismatchError("; ".join(found))
+        assert uw.headline(rows) == want["headline"], (n, uw.headline(rows), want["headline"])
+
+
+def _underwriting(inp: dict[str, Any], exp: dict[str, Any], tol: str) -> None:
+    for n, (case, want) in enumerate(zip(inp["cases"], exp["results"], strict=True), start=1):
+        answer = uw.comparison(case["case"], case["inputs"], inp["tolerances"])
+        found = uw.differences(answer, want, f"case {n}")
+        if found:
+            raise MismatchError("; ".join(found))
+
+
+def _fail_on(found: list[str]) -> None:
+    if found:
+        raise MismatchError("; ".join(found))
+
+
+def _statement_mark(inp: dict[str, Any], exp: dict[str, Any], _tol: str) -> None:
+    settings = inp["settings"]
+    for n, (case, want) in enumerate(zip(inp["cases"], exp["results"], strict=True), start=1):
+        read = case["lines"]
+        # Each line is converted from the unit it was read in before anything is worked out.
+        lines: dict[str, str | None] = {
+            key: None
+            if line is None
+            else str(units.to_dollars(Decimal(line["value"]), line["unit"]))
+            for key, line in read.items()
+        }
+        lines["share"] = case["share"]
+        balance_units = [
+            read[key]["unit"]
+            for key in (
+                "beginningBalance",
+                "contributionsInPeriod",
+                "distributionsInPeriod",
+                "netGainLoss",
+                "endingBalance",
+            )
+            if read[key] is not None
+        ]
+        edge = sg.tie_tolerance(balance_units, settings)
+        _fail_on(uw.differences(sg.travels(edge), want["tieToleranceUsd"], f"case {n} tolerance"))
+        mark = sg.statement_mark(
+            lines, case["recordContributions"], str(edge), settings["contributionsTolerancePct"]
+        )
+        _fail_on(uw.differences(mark, want["mark"], f"case {n}"))
+
+
+def _suggested_mark(inp: dict[str, Any], exp: dict[str, Any], _tol: str) -> None:
+    flag = inp["varianceFlag"]
+    answers = {
+        "stake": [sg.stake_mark(case) for case in inp["stake"]],
+        "heldMultiple": [sg.held_multiple_mark(case) for case in inp["heldMultiple"]],
+        "comparisons": [sg.mark_comparison(case, flag) for case in inp["comparisons"]],
+        "crossChecks": [
+            sg.cross_check(case["other"], case["suggested"], flag) for case in inp["crossChecks"]
+        ],
+    }
+    assert set(answers) == set(exp)
+    for name, mine in answers.items():
+        _fail_on(uw.differences(mine, exp[name], name))
+
+
+def _reference_marks(inp: dict[str, Any], exp: dict[str, Any], _tol: str) -> None:
+    tolerance_days = inp["toleranceDays"]
+    for n, (case, want) in enumerate(zip(inp["cases"], exp["results"], strict=True), start=1):
+        mine = marks.reference_answer(
+            case["marks"], case["flows"], case["quarterEnd"], tolerance_days
+        )
+        _fail_on(uw.differences(mine, want, f"case {n}"))
+    before = [marks.previous_quarter_end(c["quarterEnd"]) for c in inp["previousQuarterEnd"]]
+    _fail_on(uw.differences(before, exp["previousQuarterEnd"], "previousQuarterEnd"))
+    apart = [marks.quarters_between(c["from"], c["to"]) for c in inp["quartersBetween"]]
+    _fail_on(uw.differences(apart, exp["quartersBetween"], "quartersBetween"))
+
+
 def _credit_yield(inp: dict[str, Any], exp: dict[str, Any], tol: str) -> None:
     t = inp["terms"]
     close(
@@ -414,6 +510,12 @@ HANDLERS: dict[str, Callable[[dict[str, Any], dict[str, Any], str], None]] = {
     "gain_by_driver": _gain,
     "value_creation_rollup": _rollup,
     "entry_bands": _bands,
+    "deal_fit": _deal_fit,
+    "plan_tracking": _plan_tracking,
+    "underwriting_comparison": _underwriting,
+    "statement_mark": _statement_mark,
+    "suggested_mark": _suggested_mark,
+    "reference_marks": _reference_marks,
     "credit_yield": _credit_yield,
     "pik_roll": _pik,
     "credit_ratios": _credit_ratios,

@@ -36,7 +36,14 @@ import type {
 } from '@pb/contracts';
 import { PdfError, readPdf } from '@pb/pdf';
 import type { PdfDocument } from '@pb/pdf';
-import { isNearMiss, linkInvestment, normalizeName } from '@pb/validation';
+import {
+  EXPECTED_DOC_TYPES,
+  expectedParentOf,
+  isNearMiss,
+  linkInvestment,
+  normalizeName,
+  statementHold,
+} from '@pb/validation';
 import { attempt, documentClassificationMachine } from '@pb/workflows';
 import type { DocumentCommand } from '@pb/workflows';
 import { documentSamplePath } from '../book.js';
@@ -90,11 +97,8 @@ export const CLASSIFIER_SWITCH = 'ai.classifier';
 export const UNREADABLE_RULE = 'DOC-READ-01';
 /** How much of the text the index keeps for search (doc.document.text_excerpt). */
 const TEXT_EXCERPT_CHARS = 2000;
-/** The two document types the tracker expects: a report per investment, a statement per sponsor fund. */
-export const EXPECTED_DOC_TYPES = {
-  quarterlyFinancials: 'doc_type.quarterly_financials',
-  capitalAccountStatement: 'doc_type.capital_account_statement',
-} as const;
+/** The two document types the tracker expects: a report per investment, a statement per sponsor fund (shared with the API). */
+export { EXPECTED_DOC_TYPES };
 const machine = documentClassificationMachine;
 
 const notFound = (instance: string): Response =>
@@ -417,26 +421,25 @@ function originalOf(state: PreviewState, contentHash: string): SimDocument | und
   return found;
 }
 
-/** Sets the received document on the empty expected row a classified document answers (same parent, period and type). */
+/**
+ * Sets the received document on the empty expected row a classified document answers (same
+ * parent, period and type). Which row that is comes from expectedParentOf of @pb/validation, as
+ * in the API: a report answers for its investment, and a statement for its sponsor fund only
+ * when it is linked to no position, so a position-level statement never fills a fund's row.
+ */
 export function matchExpectedDocument(
   state: PreviewState,
   doc: Pick<SimDocument, 'id' | 'docType' | 'periodEnd' | 'investmentId' | 'sponsorFundId'>,
 ): boolean {
-  if (doc.docType === null || doc.periodEnd === null) return false;
-  if (
-    doc.docType !== EXPECTED_DOC_TYPES.quarterlyFinancials &&
-    doc.docType !== EXPECTED_DOC_TYPES.capitalAccountStatement
-  )
-    return false;
-  const byInvestment = doc.docType === EXPECTED_DOC_TYPES.quarterlyFinancials;
-  const parent = byInvestment ? doc.investmentId : doc.sponsorFundId;
-  if (parent === null) return false;
+  if (doc.periodEnd === null) return false;
+  const answers = expectedParentOf(doc);
+  if (answers === null) return false;
   for (const row of state.expectedDocuments.values()) {
     if (
       row.receivedDocumentId === null &&
-      row.docType === doc.docType &&
+      row.docType === answers.docType &&
       row.periodEnd === doc.periodEnd &&
-      (byInvestment ? row.investmentId : row.sponsorFundId) === parent
+      (answers.kind === 'investment' ? row.investmentId : row.sponsorFundId) === answers.id
     ) {
       row.receivedDocumentId = doc.id;
       return true;
@@ -463,9 +466,11 @@ function transition(
 
 /**
  * One model call over the redacted pages, then the links and the transition: autoClassify at
- * or above the threshold, flagForReview below it or when the input is refused (the document then
- * keeps the links its file name resolved). The input is the shared frame of @pb/ai (metadata,
- * then the pages as data); nothing of the text is kept beyond the search excerpt.
+ * or above the threshold, flagForReview below it, when the input is refused (the document then
+ * keeps the links its file name resolved) or when a capital account statement names a position
+ * that does not come to exactly one (statementHold of @pb/validation, the API's own rule: the
+ * reason is kept in the evidence, never a name). The input is the shared frame of @pb/ai
+ * (metadata, then the pages as data); nothing of the text is kept beyond the search excerpt.
  */
 function classify(
   book: PreviewBook,
@@ -510,11 +515,25 @@ function classify(
     book,
   );
   const confident = D(output.confidence).gte(threshold);
-  const command: DocumentCommand = confident ? 'autoClassify' : 'flagForReview';
+  // The review rule of a statement (docs/18 section 6): the links stay as the document names
+  // them, so the wall of a position it names still holds; only a person classifies it.
+  const hold =
+    output.docType === EXPECTED_DOC_TYPES.capitalAccountStatement
+      ? statementHold(
+          {
+            investmentNumber: output.investmentNumber ?? null,
+            companyName: fromName?.companyName ?? null,
+          },
+          book.investments,
+          book.matchGuards,
+        )
+      : null;
+  const classified = confident && hold === null;
+  const command: DocumentCommand = classified ? 'autoClassify' : 'flagForReview';
   const result = transition(command, { confidenceAboveThreshold: confident });
   if (!result.ok) return result.response;
   doc.reviewStatus = result.to;
-  doc.docType = confident ? output.docType : null;
+  doc.docType = classified ? output.docType : null;
   doc.investmentId = links.investmentId;
   doc.sponsorFundId = links.sponsorFundId;
   doc.sponsorId = links.sponsorId;
@@ -522,12 +541,19 @@ function classify(
   doc.classificationConfidence = output.confidence;
   doc.classifierEvidence = {
     keywords: output.evidence,
-    candidates: confident
+    candidates: classified
       ? links.candidates
-      : [...links.candidates, { reason: `classifier suggestion: ${output.docType}` }],
+      : [
+          ...links.candidates,
+          ...(hold === null ? [] : [{ reason: hold }]),
+          { reason: `classifier suggestion: ${output.docType}` },
+        ],
   };
-  doc.classifiedAt = confident ? now : null;
-  return { command, reason: confident ? null : 'confidence below the threshold' };
+  doc.classifiedAt = classified ? now : null;
+  return {
+    command,
+    reason: classified ? null : !confident ? 'confidence below the threshold' : hold,
+  };
 }
 
 /** One item of the store, as the system actor: unchanged, a duplicate, or read and classified. */

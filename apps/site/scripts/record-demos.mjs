@@ -6,8 +6,11 @@
 // (the host's build cannot run a browser) and every regeneration adds its size to the history.
 // Output: media/videos/<name>.webm, <name>.webp (the poster frame) and manifest.json, which also
 // carries each recording's captions with their times (the site prints them as a transcript).
+// The captions are also spoken: an open-source voice that runs on this machine reads each one
+// (lib/narration.mjs, narration.config.json) and the clips become the recording's audio track,
+// each starting when its caption appears. A caption stays up until it has been said.
 //
-//   node scripts/record-demos.mjs [--only name,name] [--frames <dir>] [--no-compress]
+//   node scripts/record-demos.mjs [--only name,name] [--frames <dir>] [--no-compress] [--no-narration]
 import { spawnSync } from 'node:child_process';
 import {
   copyFileSync,
@@ -22,6 +25,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { ffmpegPath, launchChromium } from './lib/browser.mjs';
 import { CAPTION_HEIGHT, director, installOverlay } from './lib/demo-overlay.mjs';
+import { estimatedSeconds, openNarration } from './lib/narration.mjs';
 import {
   MEDIA_DIR,
   previewAsOf,
@@ -36,8 +40,12 @@ import { lightTokensCss } from './lib/tokens.mjs';
 const OUT = join(MEDIA_DIR, 'videos');
 const SIZE = { width: 1280, height: 720 };
 const MAX_BYTES = 12 * 1024 * 1024;
-/** A recording is made to be watched in one sitting: a minute at most. */
-const MAX_SECONDS = 60;
+const narrate = !process.argv.includes('--no-narration');
+/**
+ * A recording is made to be watched in one sitting: a minute at most without sound, and a
+ * minute and a half when its captions are spoken, since saying a line takes longer than reading it.
+ */
+const MAX_SECONDS = narrate ? 90 : 60;
 /**
  * The second encoding: VP8 again (what every browser that plays WebM plays), at a constant
  * quality under a ceiling of 480 kilobits a second, which keeps a one-minute recording under
@@ -852,6 +860,30 @@ function writeRecording(from, to, name) {
   copyFileSync(from, to);
 }
 
+/** The recordings of the last run, read before the folder is cleared. */
+const previous = (() => {
+  try {
+    return JSON.parse(readFileSync(join(OUT, 'manifest.json'), 'utf8')).videos ?? [];
+  } catch {
+    return [];
+  }
+})();
+const narration = narrate ? openNarration(log) : null;
+// The captions of the last run are spoken before the camera rolls, so each one's length is known
+// while its recording is made. A caption that is new in this run is timed by an estimate, and
+// its recording is made a second time if the clip turns out longer than the room it was given.
+narration?.ensure(
+  previous
+    .filter((v) => only === null || only.has(v.name))
+    .flatMap((v) => v.steps.map((step) => step.text)),
+);
+const speechMs =
+  narration === null
+    ? undefined
+    : (text) =>
+        (narration.seconds(text) ?? estimatedSeconds(narration.config, text)) * 1000 +
+        narration.config.gapMs;
+
 const preview = await servePreview();
 const browser = await launchChromium();
 const work = mkdtempSync(join(tmpdir(), 'pb-site-videos-'));
@@ -861,9 +893,8 @@ if (framesDir !== null) mkdirSync(framesDir, { recursive: true });
 
 /** @type {{ name: string, title: string, summary: string, steps: { at: number, text: string }[], poster: Buffer | null }[]} */
 const recorded = [];
-for (const demo of DEMOS) {
-  if (only !== null && !only.has(demo.name)) continue;
-  log(`recording ${demo.name}`);
+/** One take of a recording: the file Chromium wrote, the captions with their times, the poster. */
+async function take(demo, attempt) {
   const context = await browser.newContext({
     viewport: SIZE,
     deviceScaleFactor: 1,
@@ -871,7 +902,7 @@ for (const demo of DEMOS) {
     // A screencast frame is written at least once at 25 frames a second, so anything that paints
     // faster than that plays back slowed. The app's own motion is parked; the overlay's is brief.
     reducedMotion: 'reduce',
-    recordVideo: { dir: join(work, demo.name), size: SIZE },
+    recordVideo: { dir: join(work, `${demo.name}-${attempt}`), size: SIZE },
   });
   await context.addInitScript(installOverlay, {
     tokens,
@@ -893,6 +924,7 @@ for (const demo of DEMOS) {
   const p = { ...previewDriver(page, preview.origin), page };
   let frame = 0;
   const d = director(page, {
+    ...(speechMs === undefined ? {} : { speechMs }),
     debugFrame:
       framesDir === null
         ? undefined
@@ -915,18 +947,44 @@ for (const demo of DEMOS) {
   await demo.run({ page, d, p });
   await d.finishCaption();
   await d.wait(300);
-  log(`  ${demo.name}: ${d.elapsed().toFixed(1)}s of wall time`);
+  const endsAt = d.elapsed();
+  log(`  ${demo.name}: ${endsAt.toFixed(1)}s of wall time`);
   if (errors.length > 0) throw new Error(`${demo.name}: page errors: ${errors.join(' | ')}`);
   const video = page.video();
   await context.close();
   if (video === null) throw new Error(`${demo.name}: no recording was made`);
-  writeRecording(await video.path(), join(OUT, `${demo.name}.webm`), demo.name);
+  return { file: await video.path(), steps: d.steps, poster: d.getPoster(), endsAt };
+}
+
+for (const demo of DEMOS) {
+  if (only !== null && !only.has(demo.name)) continue;
+  log(`recording ${demo.name}`);
+  let shot = await take(demo, 1);
+  if (narration !== null) {
+    narration.ensure(shot.steps.map((step) => step.text));
+    let late = narration.overruns(shot.steps, shot.endsAt);
+    if (late.length > 0) {
+      log(
+        `  ${demo.name}: ${late.length} captions were given less room than they take to say; recording again`,
+      );
+      shot = await take(demo, 2);
+      narration.ensure(shot.steps.map((step) => step.text));
+      late = narration.overruns(shot.steps, shot.endsAt);
+      if (late.length > 0)
+        throw new Error(
+          `${demo.name}: the narration still runs into the next caption at ${late.map((s) => `${s.at}s`).join(', ')}`,
+        );
+    }
+  }
+  const target = join(OUT, `${demo.name}.webm`);
+  writeRecording(shot.file, target, demo.name);
+  if (narration !== null) narration.mix(target, shot.steps);
   recorded.push({
     name: demo.name,
     title: demo.title,
     summary: demo.summary,
-    steps: d.steps,
-    poster: d.getPoster(),
+    steps: shot.steps,
+    poster: shot.poster,
   });
 }
 await preview.close();
@@ -982,14 +1040,8 @@ async function durationOf(file) {
   return Math.round(seconds * 10) / 10;
 }
 
-const previous = (() => {
-  try {
-    return JSON.parse(readFileSync(join(OUT, 'manifest.json'), 'utf8')).videos ?? [];
-  } catch {
-    return [];
-  }
-})();
-const entries = new Map(previous.map((v) => [v.name, v]));
+// A partial run (--only) keeps the entries of the recordings it did not make again.
+const entries = new Map((only === null ? [] : previous).map((v) => [v.name, v]));
 let failed = false;
 for (const item of recorded) {
   const file = `${item.name}.webm`;
@@ -1007,6 +1059,7 @@ for (const item of recorded) {
     height: SIZE.height,
     seconds,
     bytes,
+    narrated: narration !== null,
     steps: item.steps,
   });
   const megabytes = (bytes / 1024 / 1024).toFixed(1);
@@ -1024,6 +1077,14 @@ const manifest = {
   generatedFrom: 'apps/web/dist-preview',
   asOf,
   format: 'video/webm',
+  narration:
+    narration === null
+      ? null
+      : {
+          engine: narration.config.engine,
+          voice: narration.config.voice,
+          lang: narration.config.lang,
+        },
   videos: DEMOS.map((demo) => entries.get(demo.name)).filter((v) => v !== undefined),
 };
 writeFileSync(join(OUT, 'manifest.json'), `${JSON.stringify(manifest, null, 2)}\n`);

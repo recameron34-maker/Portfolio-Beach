@@ -7,7 +7,7 @@ import {
   Card,
   EmptyState,
   PageHeader,
-  PageSkeleton,
+  RowsSkeleton,
   SectionHeader,
   TabNav,
 } from '../../components/ui.js';
@@ -39,7 +39,7 @@ export function ReviewQueuePage(): ReactNode {
           Waiting for a person
         </SectionHeader>
         {q.isPending ? (
-          <PageSkeleton rows={4} />
+          <RowsSkeleton rows={4} label="Loading the review queue" />
         ) : q.isError ? (
           <UnavailableState
             error={q.error}

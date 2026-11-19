@@ -64,7 +64,9 @@ describe('activity tab', () => {
       'listitem',
     )[0]!;
     expect(first.querySelector('time')).toHaveAttribute('datetime', '2025-06-30');
-    expect(within(first).getByText('Valuation')).toHaveClass('pb-badge-plain');
+    // The kind is a category: small plain words, no dot.
+    expect(within(first).getByText('Valuation')).toHaveClass('pb-deal-timeline-kind');
+    expect(first.querySelector('.pb-badge')).toBeNull();
     expect(screen.queryByText(/Showing the latest/)).not.toBeInTheDocument();
     expect(screen.queryByRole('status')).not.toBeInTheDocument();
     expect(document.body.textContent).not.toContain(EM_DASH);
@@ -109,13 +111,17 @@ describe('activity tab', () => {
       [DEAL_PATHS.notices]: ok(dealNoticePageFixture()),
     });
     renderWithQuery(<ActivityTab />);
-    const audit = await screen.findByTestId('deal-audit');
+    // One muted line, not an empty section with a title.
+    const audit = await screen.findByText(
+      'The audit trail is available to operations, approvers, auditors and platform admins.',
+    );
+    expect(audit).toHaveAttribute('data-testid', 'deal-audit');
+    expect(audit.tagName).toBe('P');
+    expect(audit).toHaveClass('pb-meta');
     expect(
-      await within(audit).findByText(
-        'The audit trail is available to operations, approvers, auditors and platform admins.',
-      ),
-    ).toHaveClass('pb-meta');
-    expect(within(audit).queryByRole('table')).not.toBeInTheDocument();
+      screen.queryByRole('heading', { name: 'Audit trail for this record' }),
+    ).not.toBeInTheDocument();
+    expect(screen.queryByRole('table')).not.toBeInTheDocument();
     expect(requestedPaths().some((p) => p.startsWith('/api/v1/audit'))).toBe(false);
   });
 

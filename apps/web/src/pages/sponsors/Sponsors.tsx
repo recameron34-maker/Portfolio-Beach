@@ -3,7 +3,7 @@ import type { ReactNode } from 'react';
 import { Link, useParams } from '@tanstack/react-router';
 import { keepPreviousData, useQuery } from '@tanstack/react-query';
 import { Input, Label } from '@fluentui/react-components';
-import { ChevronLeft16Regular, Search16Regular } from '@fluentui/react-icons';
+import { Search16Regular } from '@fluentui/react-icons';
 import type { SponsorDetail, SponsorSummary } from '@pb/contracts';
 import { ApiError } from '../../api/client.js';
 import { sponsorQuery, sponsorsQuery } from '../../app/queries.js';
@@ -11,17 +11,16 @@ import { HorizontalBars } from '../../components/charts/index.js';
 import { UnavailableState } from '../../components/UnavailableState.js';
 import {
   Badge,
+  Breadcrumbs,
   Card,
   EmptyState,
   ErrorState,
-  Field,
   NumCell,
   PageHeader,
   PageSkeleton,
   SectionHeader,
   StatTile,
   TableWrap,
-  Toolbar,
 } from '../../components/ui.js';
 import {
   formatDate,
@@ -83,66 +82,74 @@ function SponsorsTable({ items }: { items: SponsorSummary[] }): ReactNode {
   );
 }
 
-function SponsorDirectory({ items, more }: { items: SponsorSummary[]; more: boolean }): ReactNode {
-  const [search, setSearch] = useState('');
-  if (items.length === 0) {
-    return (
-      <Card>
-        <EmptyState
-          title="No sponsors visible"
-          detail="Sponsors appear here once operations adds them."
-          testId="sponsors-empty"
-        />
-      </Card>
-    );
-  }
-  const shown = filterSponsors(items, search);
-  return (
-    <Card>
-      <SectionHeader>Directory</SectionHeader>
-      <Toolbar>
-        <Field>
-          <Label htmlFor="sponsor-search">Search</Label>
-          <Input
-            id="sponsor-search"
-            contentBefore={<Search16Regular />}
-            placeholder="Sponsor name"
-            value={search}
-            onChange={(_e, d) => setSearch(d.value)}
-          />
-        </Field>
-      </Toolbar>
-      {shown.length === 0 ? (
-        <EmptyState
-          title={`No sponsor matches "${search.trim()}"`}
-          detail="Clear the search to see every sponsor."
-          testId="sponsors-no-match"
-        />
-      ) : (
-        <SponsorsTable items={shown} />
-      )}
-      <p className="pb-meta pb-sponsors-note" data-testid="sponsors-count">
-        {sponsorCountLabel(shown.length, items.length)}
-        {more ? `. Only the first ${items.length} are listed; more sponsors exist.` : null}
-      </p>
-    </Card>
-  );
+/** How many sponsors the directory shows, and whether more exist than one page lists. */
+function countText(shown: number, total: number, more: boolean): string {
+  const count = sponsorCountLabel(shown, total);
+  return more ? `${count}. Only the first ${total} are listed; more sponsors exist.` : count;
 }
 
 /** The sponsor directory (M6): firm-side data only until contacts and interactions arrive in Phase 5. */
 export function SponsorsPage(): ReactNode {
   const q = useQuery({ ...sponsorsQuery, placeholderData: keepPreviousData });
+  const [search, setSearch] = useState('');
   if (q.isPending) return <PageSkeleton rows={8} />;
+  const items = q.isError ? [] : q.data.items;
+  const shown = filterSponsors(items, search);
+  const listed = !q.isError && items.length > 0;
   return (
     <>
       <PageHeader
         title="Sponsors"
-        meta="Firm-side data only in the prototype. Contacts, interactions and the relationship score arrive with M6 in Phase 5."
+        meta={
+          <span className="pb-meta-list">
+            {listed ? (
+              <span data-testid="sponsors-count">
+                {countText(shown.length, items.length, (q.data?.nextCursor ?? null) !== null)}
+              </span>
+            ) : null}
+            <span>Funds, positions and commitments by sponsor</span>
+            <span>Contacts and interactions are not built yet</span>
+          </span>
+        }
+        actions={
+          listed ? (
+            <span className="pb-sponsors-search">
+              <Label htmlFor="sponsor-search" className="pb-visually-hidden">
+                Search
+              </Label>
+              <Input
+                id="sponsor-search"
+                contentBefore={<Search16Regular />}
+                placeholder="Search sponsors"
+                value={search}
+                onChange={(_e, d) => setSearch(d.value)}
+              />
+            </span>
+          ) : undefined
+        }
       />
       {q.isError ? (
         <UnavailableState card error={q.error} subject="Sponsors" testId="sponsors-unavailable" />
+      ) : items.length === 0 ? (
+        <Card>
+          <EmptyState
+            title="No sponsors visible"
+            detail="Sponsors appear here once operations adds them."
+            testId="sponsors-empty"
+          />
+        </Card>
       ) : (
-        <SponsorDirectory items={q.data.items} more={q.data.nextCursor !== null} />
+        <Card>
+          {shown.length === 0 ? (
+            <EmptyState
+              title={`No sponsor matches "${search.trim()}"`}
+              detail="Clear the search to see every sponsor."
+              testId="sponsors-no-match"
+            />
+          ) : (
+            <SponsorsTable items={shown} />
+          )}
+        </Card>
       )}
     </>
   );
@@ -150,13 +157,13 @@ export function SponsorsPage(): ReactNode {
 
 /* ---- Sponsor 360 (/sponsors/$id) ---- */
 
-function BackToSponsors(): ReactNode {
+const SPONSOR_TRAIL = [{ label: 'Sponsors', to: '/sponsors' }];
+
+/** A section with nothing to list says so in one muted line, with what would fill it. */
+function EmptyLine({ testId, children }: { testId?: string; children: ReactNode }): ReactNode {
   return (
-    <p className="pb-sponsors-back">
-      <Link to="/sponsors">
-        <ChevronLeft16Regular />
-        All sponsors
-      </Link>
+    <p className="pb-meta" data-testid={testId}>
+      {children}
     </p>
   );
 }
@@ -180,13 +187,14 @@ function CommittedTile({ sponsor }: { sponsor: SponsorDetail }): ReactNode {
 
 /**
  * Pooled figures over our positions with the sponsor plus our commitments to its funds. Without a
- * visible position nothing pools, so only the count and the commitments show (no blank tiles).
+ * visible position nothing pools, so only the count and the commitments show, as a short strip
+ * whose cells are as wide as they need (no blank figures).
  */
 function SponsorTiles({ sponsor }: { sponsor: SponsorDetail }): ReactNode {
   const m = sponsor.metrics;
   if (m.count === 0) {
     return (
-      <div ref={balanceTiles} className="pb-tiles pb-sponsors-tiles" data-testid="sponsor-tiles">
+      <div ref={balanceTiles} className="pb-tiles is-compact" data-testid="sponsor-tiles">
         <StatTile label="Positions" value="0" hint="No positions with this sponsor" />
         <CommittedTile sponsor={sponsor} />
       </div>
@@ -224,11 +232,10 @@ function ExposureCard({ sponsor }: { sponsor: SponsorDetail }): ReactNode {
     <Card>
       <SectionHeader aside="Active positions">Exposure</SectionHeader>
       {top === undefined ? (
-        <EmptyState
-          title="No active position with a NAV"
-          detail="NAV by position appears once an active position with this sponsor has a Locked valuation."
-          testId="sponsor-nav-empty"
-        />
+        <EmptyLine testId="sponsor-nav-empty">
+          No active position with a NAV. NAV by position appears once an active position with this
+          sponsor has a Locked valuation.
+        </EmptyLine>
       ) : (
         <HorizontalBars
           title="NAV by position"
@@ -241,7 +248,7 @@ function ExposureCard({ sponsor }: { sponsor: SponsorDetail }): ReactNode {
         />
       )}
       {withoutNav > 0 ? (
-        <p className="pb-meta pb-sponsors-note">
+        <p className="pb-note">
           {withoutNav} active {withoutNav === 1 ? 'position has' : 'positions have'} no Locked
           valuation and {withoutNav === 1 ? 'is' : 'are'} not shown.
         </p>
@@ -264,11 +271,9 @@ function FundsCard({ sponsor }: { sponsor: SponsorDetail }): ReactNode {
         Funds
       </SectionHeader>
       {funds.length === 0 ? (
-        <EmptyState
-          title="No funds recorded"
-          detail="Funds this sponsor raises appear here once operations records them."
-          testId="sponsor-funds-empty"
-        />
+        <EmptyLine testId="sponsor-funds-empty">
+          No funds recorded. Funds this sponsor raises appear here once operations records them.
+        </EmptyLine>
       ) : (
         <TableWrap label="Funds">
           <table className="pb-table" aria-label="Funds">
@@ -297,13 +302,7 @@ function FundsCard({ sponsor }: { sponsor: SponsorDetail }): ReactNode {
                     {f.aliases.length === 0 ? (
                       <span className="pb-meta">None</span>
                     ) : (
-                      <span className="pb-chips pb-sponsors-aliases">
-                        {f.aliases.map((a) => (
-                          <Badge key={a} plain tone="neutral">
-                            {a}
-                          </Badge>
-                        ))}
-                      </span>
+                      f.aliases.join(', ')
                     )}
                   </td>
                   <NumCell>{String(f.holdings)}</NumCell>
@@ -334,14 +333,13 @@ function PositionsCard({ sponsor }: { sponsor: SponsorDetail }): ReactNode {
         Our positions
       </SectionHeader>
       {positions.length === 0 ? (
-        <EmptyState
-          title="No positions with this sponsor"
-          detail="Positions appear here once one of our vehicles invests in a deal this sponsor leads."
-          testId="sponsor-positions-empty"
-        />
+        <EmptyLine testId="sponsor-positions-empty">
+          No positions with this sponsor. Positions appear here once one of our vehicles invests in
+          a deal this sponsor leads.
+        </EmptyLine>
       ) : (
         <TableWrap label="Our positions">
-          <table className="pb-table pb-sponsors-table" aria-label="Our positions">
+          <table className="pb-table" aria-label="Our positions">
             <thead>
               <tr>
                 <th>Inv #</th>
@@ -410,15 +408,14 @@ function CommitmentsCard({ sponsor }: { sponsor: SponsorDetail }): ReactNode {
         Commitments
       </SectionHeader>
       {rows.length === 0 ? (
-        <EmptyState
-          title="No commitments to this sponsor's funds"
-          detail="Commitments from the primary program or a client account appear here."
-          testId="sponsor-commitments-empty"
-        />
+        <EmptyLine testId="sponsor-commitments-empty">
+          No commitments to this sponsor&apos;s funds. Commitments from the primary program or a
+          client account appear here.
+        </EmptyLine>
       ) : (
         <>
           <TableWrap label="Commitments">
-            <table className="pb-table pb-sponsors-table" aria-label="Commitments">
+            <table className="pb-table" aria-label="Commitments">
               <thead>
                 <tr>
                   <th>Vehicle</th>
@@ -465,9 +462,8 @@ function CommitmentsCard({ sponsor }: { sponsor: SponsorDetail }): ReactNode {
             </table>
           </TableWrap>
           {noFlows ? (
-            <p className="pb-meta pb-sponsors-note">
-              A commitment with no recorded cash flow yet shows the missing placeholder ({MISSING})
-              for called and unfunded.
+            <p className="pb-note">
+              A commitment with no recorded cash flow yet shows {MISSING} for called and unfunded.
             </p>
           ) : null}
         </>
@@ -480,7 +476,7 @@ function SponsorUnavailable({ error }: { error: Error }): ReactNode {
   const hidden = error instanceof ApiError && (error.status === 404 || error.status === 403);
   return (
     <>
-      <BackToSponsors />
+      <Breadcrumbs items={SPONSOR_TRAIL} />
       {hidden ? (
         <ErrorState
           title="Sponsor not found or not visible to you"
@@ -498,7 +494,10 @@ function SponsorUnavailable({ error }: { error: Error }): ReactNode {
   );
 }
 
-/** Sponsor 360 (docs/04 M6): funds, our positions and commitments; contacts and interactions follow in Phase 5. */
+/**
+ * Sponsor 360 (docs/04 M6): the sponsor's figures, then its funds, our positions with the NAV of
+ * each, and our commitments; contacts and interactions follow in Phase 5.
+ */
 export function SponsorDetailPage(): ReactNode {
   const { id } = useParams({ from: '/app/sponsors/$id' });
   const q = useQuery(sponsorQuery(id));
@@ -507,9 +506,9 @@ export function SponsorDetailPage(): ReactNode {
   const s = q.data;
   return (
     <>
-      <BackToSponsors />
       <PageHeader
         testId="sponsor-banner"
+        crumbs={SPONSOR_TRAIL}
         title={s.name}
         meta={
           <span className="pb-meta-list">
@@ -529,18 +528,18 @@ export function SponsorDetailPage(): ReactNode {
         </p>
       ) : null}
       <SponsorTiles sponsor={s} />
-      {s.positions.length > 0 ? <ExposureCard sponsor={s} /> : null}
       <FundsCard sponsor={s} />
       <PositionsCard sponsor={s} />
+      {s.positions.length > 0 ? <ExposureCard sponsor={s} /> : null}
       <CommitmentsCard sponsor={s} />
       <Card testId="sponsor-relationship">
         <SectionHeader>Contacts and interactions</SectionHeader>
-        <EmptyState
-          title="Contacts and interactions arrive with M6 in Phase 5"
-          detail="That release adds the relationship score, warm paths, coverage and AGM notes."
-        />
+        <EmptyLine>
+          Contacts and interactions are not built yet. That release adds the relationship score,
+          warm paths, coverage and AGM notes.
+        </EmptyLine>
       </Card>
-      <p className="pb-meta" data-testid="sponsor-calc-version">
+      <p className="pb-note" data-testid="sponsor-calc-version">
         Calc version {s.calcVersion}.
       </p>
     </>

@@ -503,7 +503,7 @@ function walls(list: WallList | null): Built {
   const sources = [SOURCES.access];
   if (list === null) return missing('Wall data', sources);
   const rule =
-    "A walled record is visible only to the wall's named members. Approvers and platform admins manage walls but see a walled record only when they are members; for everyone else it does not appear in any list, search or answer (SEC-5.3, SEC-8.5).";
+    "A walled record is visible only to the wall's named members. Approvers and platform admins manage walls but see a walled record only when they are members; for everyone else it does not appear in any list, search or answer.";
   if (list.walls.length === 0) {
     return { paragraphs: ['No wall is visible to you.', rule], sources, complete: true };
   }

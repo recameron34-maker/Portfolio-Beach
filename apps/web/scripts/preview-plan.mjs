@@ -168,6 +168,12 @@ export function buildPlan(dataset, { dealTypes }) {
         name: 'investment value creation',
         paths: investmentIds.map((id) => segment('/api/v1/investments', id, '/value-creation')),
       },
+      // The base case card of the deal workspace (decision 0022): every position, so one that
+      // holds no base case replays the API's own "no form" and a walled one its 404.
+      {
+        name: 'investment underwriting',
+        paths: investmentIds.map((id) => segment('/api/v1/investments', id, '/underwriting')),
+      },
       {
         name: 'investment valuations',
         paths: investmentIds.map((id) =>
@@ -255,6 +261,8 @@ export function buildPlan(dataset, { dealTypes }) {
         paths: [
           withQuery('/api/v1/opportunities', { limit: LIST_LIMIT }),
           ...idsOf(dataset.opportunities).map((id) => segment('/api/v1/opportunities', id)),
+          // How each deal sits against the portfolio (docs/08 section 8): the radar chart's figures.
+          ...idsOf(dataset.opportunities).map((id) => segment('/api/v1/opportunities', id, '/fit')),
         ],
       },
       {

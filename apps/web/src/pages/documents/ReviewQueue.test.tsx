@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, screen, within } from '@testing-library/react';
+import { STATEMENT_HOLD_REASONS } from '@pb/validation';
 import { failing, mockApi, ok } from '../../test/api-mock.js';
 import type { MockRoutes } from '../../test/api-mock.js';
 import { rolePrincipal, sentRequests } from '../../test/fixtures-valuations.js';
@@ -39,6 +40,30 @@ describe('review queue', () => {
   afterEach(() => {
     cleanup();
     vi.restoreAllMocks();
+  });
+
+  it('tells the reviewer what to choose for a statement whose position did not link', async () => {
+    const held = scanFixture({
+      id: DOC_ID.notice,
+      title: 'Capital Account Statement: Northgate Holdco',
+      fileName: '2025-06-30 Kelpwood Fund IV - Capital account statement - Northgate Holdco.pdf',
+      classificationConfidence: '0.9500',
+      classifierEvidence: {
+        keywords: ['capital account statement'],
+        candidates: [
+          { reason: STATEMENT_HOLD_REASONS.notLinked },
+          { reason: 'classifier suggestion: doc_type.capital_account_statement' },
+        ],
+      },
+    });
+    mockApi(routes({ [QUEUE]: ok(documentPageFixture([held, scanFixture()])) }));
+    renderWithQuery(<ReviewQueuePage />);
+    const table = await screen.findByRole('table', { name: 'Review queue' });
+    expect(within(table).getByTestId(`statement-hold-${DOC_ID.notice}`)).toHaveTextContent(
+      'This statement names a position that did not link. Choose the position, or leave it empty for a fund statement.',
+    );
+    // A document the classifier was simply unsure about carries no such line.
+    expect(within(table).queryByTestId(`statement-hold-${DOC_ID.scan}`)).not.toBeInTheDocument();
   });
 
   it('lists every document waiting for a person, newest first, each linking to its page', async () => {
@@ -89,7 +114,7 @@ describe('review queue', () => {
     async () => {
       mockApi(routes({ [QUEUE]: failing(403, QUEUE) }));
       renderWithQuery(<ReviewQueuePage />);
-      expect(screen.getByText('Loading')).toBeInTheDocument();
+      expect(screen.getByText('Loading the review queue')).toBeInTheDocument();
       expect(
         await screen.findByText('The review queue: not visible to your role'),
       ).toBeInTheDocument();

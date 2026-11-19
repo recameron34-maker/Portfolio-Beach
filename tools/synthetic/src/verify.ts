@@ -4,7 +4,11 @@ import type { SyntheticDataset } from '@pb/db';
 import { syntheticDatasetSchema } from '@pb/db';
 import { controlsOf } from './controls.js';
 import type { Allocation, ControlsDataset, OpportunityStageHistory } from './controls.js';
+import { QUARTERLY_REPORTING_DEAL_TYPES } from './preview-book.js';
 import { DATA_SCENARIOS } from './profiles.js';
+import { underwritingTolerances } from './settings.js';
+import { seededComparison } from './underwriting.js';
+import type { UnderwritingCaseRow } from './underwriting.js';
 
 export interface VerifyReport {
   ok: boolean;
@@ -12,15 +16,23 @@ export interface VerifyReport {
   counts: Record<string, number>;
 }
 
+/** The two tolerances the base case scenarios are judged with (config/definitions.json `underwriting`). */
+export interface VerifyTolerances {
+  onPlanTolerance: string;
+  irrTolerance: string;
+}
+
 /**
  * Consistency checks (docs/14 section 1): the contract validates, every reference resolves,
  * ownership sums to 100% per closed vehicle, cash flows and valuations point at real
- * investments, every data-level scenario is present, and no generated name hits the local
+ * investments, every data-level scenario is present, the base cases hold the rules their table
+ * enforces and their scenarios read as they are tagged, and no generated name hits the local
  * deny-list.
  */
 export function verifyDataset(
   raw: unknown,
   denyListPath = 'config/local/denylist.txt',
+  tolerances: VerifyTolerances = underwritingTolerances(),
 ): VerifyReport {
   const problems: string[] = [];
   const parsed = syntheticDatasetSchema.safeParse(raw);
@@ -153,6 +165,7 @@ export function verifyDataset(
   for (const [inv, n] of entryCounts) must(n === 1, `investment ${inv} has ${n} entry snapshots`);
 
   verifyControls(d, controls, must);
+  verifyUnderwriting(d, must, tolerances);
 
   for (const scenario of DATA_SCENARIOS)
     must((d.scenarios[scenario]?.length ?? 0) > 0, `scenario ${scenario} is missing`);
@@ -493,5 +506,297 @@ function verifyControls(d: SyntheticDataset, c: ControlsDataset, must: Must): vo
       r.effectiveDate <= d.asOf && notAfterAsOf(r.appliedAt),
       `${who}: dated after the as-of date`,
     );
+  }
+}
+
+const blank = (text: string | null): boolean => text === null || text.trim().length === 0;
+
+/**
+ * The underwritten base cases (docs/14 section 12): every reference resolves; the rules migration
+ * 0021 enforces hold (a second person confirmed, a source outside a Draft, a reason from version
+ * 2 and when withdrawn, one Draft per position and one Confirmed case per position and date, an
+ * equity plan of two points or more ending on the planned exit, a loan with a yield, a loss rate
+ * between 0 and 1 and no plan); a version is a correction of a confirmed case or dated after
+ * every one of them; a walled position's case was recorded inside its wall; nothing happened
+ * after the as-of date; each scenario position reads, through the comparison of docs/08 section
+ * 11 under the configured tolerances, as its tag says; and every Confirmed loan case compares.
+ */
+function verifyUnderwriting(d: SyntheticDataset, must: Must, tolerances: VerifyTolerances): void {
+  const cases = d.underwritingCases ?? [];
+  const users = new Set(d.users.map((u) => u.id));
+  const investments = new Map(d.investments.map((i) => [i.id, i]));
+  const endOfAsOf = `${d.asOf}T23:59:59Z`;
+  const numberOf = (c: UnderwritingCaseRow): string =>
+    `${investments.get(c.investmentId)?.investmentNumber ?? c.investmentId} base case version ${String(c.version)}`;
+  const wasConfirmed = (c: UnderwritingCaseRow): boolean => c.confirmedBy !== null;
+
+  const byInvestment = new Map<string, UnderwritingCaseRow[]>();
+  for (const c of cases) {
+    const name = numberOf(c);
+    const investment = investments.get(c.investmentId);
+    must(investment !== undefined, `${name}: unknown investment`);
+    if (investment === undefined) continue;
+    const versions = byInvestment.get(c.investmentId);
+    if (versions === undefined) byInvestment.set(c.investmentId, [c]);
+    else versions.push(c);
+
+    const equity = QUARTERLY_REPORTING_DEAL_TYPES.includes(investment.dealType);
+    must(
+      c.form === 'equity' ? equity : investment.dealType === 'deal_type.private_credit',
+      `${name}: the form ${c.form} does not fit the position's deal type`,
+    );
+    must(users.has(c.enteredBy), `${name}: unknown person entered it`);
+    must(
+      c.confirmedBy === null || users.has(c.confirmedBy),
+      `${name}: unknown person confirmed it`,
+    );
+    must(c.confirmedBy !== c.enteredBy, `${name}: confirmed by the person who entered it`);
+    must((c.confirmedBy === null) === (c.confirmedAt === null), `${name}: half a confirmation`);
+    must(c.state !== 'Draft' || !wasConfirmed(c), `${name}: a Draft that names who confirmed it`);
+    must(
+      (c.state !== 'Confirmed' && c.state !== 'Superseded') || wasConfirmed(c),
+      `${name}: ${c.state} with nobody who confirmed it`,
+    );
+    must(c.state === 'Draft' || !blank(c.sourceNote), `${name}: no source outside a Draft`);
+    must(
+      (c.state === 'Withdrawn') === (c.withdrawnReason !== null) &&
+        (c.withdrawnReason === null || !blank(c.withdrawnReason)),
+      `${name}: a withdrawal reason is there when, and only when, the case is Withdrawn`,
+    );
+    must(c.version === 1 || !blank(c.revisionReason), `${name}: a later version with no reason`);
+    must(c.plannedExitDate > c.caseDate, `${name}: the planned exit is not after the case date`);
+    must(
+      Number(c.grossMoic) > 0 && Number(c.grossIrr) > -1,
+      `${name}: a MOIC or an IRR out of range`,
+    );
+    must(c.enteredAt <= endOfAsOf, `${name}: entered after the as-of date`);
+    must(
+      c.confirmedAt === null || (c.confirmedAt >= c.enteredAt && c.confirmedAt <= endOfAsOf),
+      `${name}: confirmed before it was entered, or after the as-of date`,
+    );
+    if (c.form === 'equity') {
+      must(
+        c.exitMultiple !== null && Number(c.exitMultiple) > 0 && c.underwrittenYield === null,
+        `${name}: an equity case has an exit multiple above zero and no yield`,
+      );
+      must(c.annualLossRate === null, `${name}: an equity case has no loss rate`);
+      must(
+        c.points.length >= 2 && c.points[c.points.length - 1]?.periodEnd === c.plannedExitDate,
+        `${name}: an equity plan has two points or more, the last on the planned exit`,
+      );
+      must(
+        c.points.every((p, i) => i === 0 || p.periodEnd > (c.points[i - 1]?.periodEnd ?? '')),
+        `${name}: the plan points are not in date order, one per date`,
+      );
+      must(
+        c.points.every((p) => p.revenueLtm !== null || p.ebitdaLtm !== null || p.netDebt !== null),
+        `${name}: a plan point with no figure`,
+      );
+    } else {
+      must(
+        c.exitMultiple === null && c.underwrittenYield !== null && c.points.length === 0,
+        `${name}: a loan case has a yield, no exit multiple and no plan points`,
+      );
+      must(
+        c.underwrittenYield === null || Number(c.underwrittenYield) > -1,
+        `${name}: an underwritten yield out of range`,
+      );
+      must(
+        c.annualLossRate === null ||
+          (Number(c.annualLossRate) >= 0 && Number(c.annualLossRate) <= 1),
+        `${name}: a loss rate outside 0 to 1`,
+      );
+    }
+    const wall = d.walls.filter((w) =>
+      w.records.some((r) => r.entity === 'investment' && r.entityId === c.investmentId),
+    );
+    if (wall.length > 0) {
+      const inside = (user: string | null): boolean =>
+        user === null || wall.some((w) => w.memberUserIds.includes(user));
+      must(
+        inside(c.enteredBy) && inside(c.confirmedBy),
+        `${name}: recorded by someone outside the wall of its position`,
+      );
+    }
+  }
+
+  for (const versions of byInvestment.values()) {
+    versions.sort((a, b) => a.version - b.version);
+    const first = versions[0];
+    if (first === undefined) continue;
+    const position = investments.get(first.investmentId)?.investmentNumber ?? first.investmentId;
+    must(
+      versions.every((c, i) => c.version === i + 1),
+      `${position}: base case versions do not run 1, 2, 3 without a gap`,
+    );
+    const drafts = versions.filter((c) => c.state === 'Draft');
+    must(
+      drafts.length === 0 || (drafts.length === 1 && versions[versions.length - 1] === drafts[0]),
+      `${position}: more than one Draft base case, or a Draft that is not the latest version`,
+    );
+    const confirmedDates = versions.filter((c) => c.state === 'Confirmed').map((c) => c.caseDate);
+    must(
+      new Set(confirmedDates).size === confirmedDates.length,
+      `${position}: two Confirmed base cases with one case date`,
+    );
+    for (const [i, c] of versions.entries()) {
+      const earlier = versions
+        .slice(0, i)
+        .filter((e) => wasConfirmed(e) && e.state !== 'Withdrawn');
+      must(
+        earlier.length === 0 ||
+          earlier.some((e) => e.caseDate === c.caseDate) ||
+          earlier.every((e) => e.caseDate < c.caseDate),
+        `${numberOf(c)}: its case date is neither a confirmed case's nor later than all of them`,
+      );
+      if (c.state === 'Superseded')
+        must(
+          versions
+            .slice(i + 1)
+            .some((later) => later.caseDate === c.caseDate && wasConfirmed(later)),
+          `${numberOf(c)}: Superseded with no later confirmed version of the same case date`,
+        );
+    }
+  }
+
+  // The scenarios: each tag names one position, and the position reads as the tag says.
+  const base = { ...d, scenarios: d.scenarios };
+  const tagged = (scenario: string): UnderwritingCaseRow[] | null => {
+    const ids = d.scenarios[scenario];
+    if (ids === undefined) return null;
+    const [id] = ids;
+    must(
+      ids.length === 1 && id !== undefined,
+      `scenario ${scenario} names ${String(ids.length)} positions, not one`,
+    );
+    return id === undefined ? null : (byInvestment.get(id) ?? []);
+  };
+  const compared = (scenario: string, row: UnderwritingCaseRow | undefined) => {
+    if (row === undefined) {
+      must(false, `scenario ${scenario}: its position has no Confirmed base case`);
+      return null;
+    }
+    try {
+      return seededComparison(base, row, tolerances);
+    } catch (error) {
+      must(
+        false,
+        `scenario ${scenario}: ${error instanceof Error ? error.message : 'not comparable'}`,
+      );
+      return null;
+    }
+  };
+  const confirmedOf = (versions: UnderwritingCaseRow[]): UnderwritingCaseRow[] =>
+    versions.filter((c) => c.state === 'Confirmed');
+
+  // A loan is judged on its returns alone (docs/08 section 11, rule 6): its comparison carries
+  // no company figure, whatever the position reports.
+  for (const c of cases) {
+    if (c.form !== 'credit' || c.state !== 'Confirmed' || !investments.has(c.investmentId))
+      continue;
+    try {
+      const comparison = seededComparison(base, c, tolerances);
+      must(
+        comparison.metrics.length === 0 && comparison.valueCreation === null,
+        `${numberOf(c)}: a loan compared on company figures`,
+      );
+    } catch (error) {
+      must(false, `${numberOf(c)}: ${error instanceof Error ? error.message : 'not comparable'}`);
+    }
+  }
+  const metric = (comparison: NonNullable<ReturnType<typeof compared>>, name: string) =>
+    comparison.metrics.find((m) => m.metric === name);
+
+  for (const [scenario, status] of [
+    ['underwriting_ahead', 'ahead'],
+    ['underwriting_on_plan', 'on_plan'],
+    ['underwriting_behind', 'behind'],
+  ] as const) {
+    const versions = tagged(scenario);
+    if (versions === null) continue;
+    const comparison = compared(scenario, confirmedOf(versions)[0]);
+    if (comparison === null) continue;
+    must(
+      versions.length === 1 &&
+        comparison.headline === status &&
+        comparison.returns.irrStatus === status,
+      `scenario ${scenario}: EBITDA reads ${comparison.headline ?? 'no status'} and the IRR ${comparison.returns.irrStatus ?? 'no status'} against plan`,
+    );
+  }
+  {
+    const versions = tagged('underwriting_past_exit');
+    const comparison =
+      versions === null ? null : compared('underwriting_past_exit', confirmedOf(versions)[0]);
+    if (comparison !== null)
+      must(
+        comparison.returns.pathNotCalculable === 'past_plan_end' &&
+          comparison.metrics.every((m) => m.notCalculable === 'past_plan_end'),
+        'scenario underwriting_past_exit: the plan has not ended for a held position',
+      );
+  }
+  {
+    const versions = tagged('underwriting_gap');
+    const comparison =
+      versions === null ? null : compared('underwriting_gap', confirmedOf(versions)[0]);
+    if (comparison !== null)
+      must(
+        metric(comparison, 'net_debt')?.notCalculable === 'missing_plan_figure' &&
+          metric(comparison, 'ebitda')?.status !== null,
+        'scenario underwriting_gap: net debt is not missing from the plan beside the current quarter',
+      );
+  }
+  {
+    const versions = tagged('underwriting_net_cash');
+    const comparison =
+      versions === null ? null : compared('underwriting_net_cash', confirmedOf(versions)[0]);
+    if (comparison !== null) {
+      const netDebt = metric(comparison, 'net_debt');
+      must(
+        netDebt?.notCalculable === 'non_positive_plan' && Number(netDebt.plan ?? '1') <= 0,
+        'scenario underwriting_net_cash: the plan is not in net cash at the current quarter',
+      );
+    }
+  }
+  {
+    const versions = tagged('underwriting_reunderwritten');
+    if (versions !== null) {
+      const dates = confirmedOf(versions).map((c) => c.caseDate);
+      must(
+        dates.length === 2 && dates[0] !== dates[1],
+        'scenario underwriting_reunderwritten: not two Confirmed base cases with two case dates',
+      );
+    }
+  }
+  {
+    const versions = tagged('underwriting_corrected');
+    if (versions !== null) {
+      const [old, current] = versions;
+      must(
+        versions.length === 2 &&
+          old?.state === 'Superseded' &&
+          current?.state === 'Confirmed' &&
+          old.caseDate === current.caseDate &&
+          old.exitMultiple !== current.exitMultiple,
+        'scenario underwriting_corrected: not a Superseded case and the Confirmed one that corrects it',
+      );
+    }
+  }
+  {
+    const versions = tagged('underwriting_draft');
+    if (versions !== null)
+      must(
+        versions.length === 1 && versions[0]?.state === 'Draft',
+        'scenario underwriting_draft: the position does not hold a Draft alone',
+      );
+  }
+  {
+    const versions = tagged('underwriting_withdrawn');
+    if (versions !== null)
+      must(
+        versions.length === 1 &&
+          versions[0]?.state === 'Withdrawn' &&
+          versions[0].confirmedBy !== null,
+        'scenario underwriting_withdrawn: the position does not hold one retired base case alone',
+      );
   }
 }

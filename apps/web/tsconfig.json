@@ -15,6 +15,8 @@
   "include": [
     "src/**/*.ts",
     "src/**/*.tsx",
+    "src/**/*.json",
+    "scripts/lib/world.d.mts",
     "e2e/**/*.ts",
     "scripts/**/*.ts",
     "vite.config.ts",
@@ -27,6 +29,7 @@
     { "path": "../../packages/contracts" },
     { "path": "../../packages/db" },
     { "path": "../../packages/pdf" },
+    { "path": "../../packages/report-engine" },
     { "path": "../../packages/validation" },
     { "path": "../../packages/workflows" },
     { "path": "../../packages/xlsx" },

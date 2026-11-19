@@ -46,6 +46,7 @@ import {
   WIRE_STATES,
 } from './wires.js';
 import type { ProposeField, ProposeForm } from './wires.js';
+import { useJustChanged } from '../../components/motion.js';
 import './capital.css';
 
 interface Choice {
@@ -70,7 +71,16 @@ function fundChoices(
  * commitment to; the body is checked against the contract before it is sent, so the API's
  * refusals are only the ones a form cannot see.
  */
-function ProposeForm({ onLog, onDone }: { onLog: ActionLog; onDone: () => void }): ReactNode {
+function ProposeForm({
+  onLog,
+  onDone,
+  onProposed,
+}: {
+  onLog: ActionLog;
+  onDone: () => void;
+  /** The version the form added, so its row washes once in the register. */
+  onProposed: (id: string) => void;
+}): ReactNode {
   const propose = useProposeWireInstruction();
   const positions = useQuery(investmentsQuery(ACTIVE_POSITIONS));
   const commitments = useQuery(commitmentsQuery);
@@ -114,12 +124,12 @@ function ProposeForm({ onLog, onDone }: { onLog: ActionLog; onDone: () => void }
   );
   return (
     <Card testId="wire-propose-form">
-      <SectionHeader aside={<SimulatedBadge />}>Propose a new instruction</SectionHeader>
+      <SectionHeader>Propose a new instruction</SectionHeader>
       <p className="pb-meta">
         Type the details from a verified source: a signed closing or subscription document, the fund
-        administrator or a known contact. Never from the notice or from an email asking for a change
-        (SEC-12.1). A second person verifies the version by callback before any ticket releases
-        against it (SEC-12.2).
+        administrator or a known contact. Never from the notice or from an email asking for a
+        change. A second person verifies the version by callback before any ticket releases against
+        it.
       </p>
       <form
         onSubmit={(e) => {
@@ -129,6 +139,7 @@ function ProposeForm({ onLog, onDone }: { onLog: ActionLog; onDone: () => void }
           if (body === null || form.counterpartyId === '') return;
           propose.mutate(body, {
             onSuccess: (d) => {
+              onProposed(d.id);
               onLog.record(
                 'good',
                 `Version ${d.version} proposed for ${d.counterparty.name} (${d.bankDetailsMasked}); a second person must verify it by callback ${resultSuffix()}`,
@@ -227,6 +238,7 @@ function ProposeForm({ onLog, onDone }: { onLog: ActionLog; onDone: () => void }
           <Button appearance="secondary" onClick={onDone}>
             Cancel
           </Button>
+          <SimulatedBadge />
         </div>
       </form>
     </Card>
@@ -247,13 +259,15 @@ export function WireRegisterPage(): ReactNode {
   const [counterparty, setCounterparty] = useState('');
   const roles = me.data?.roles ?? [];
   const canPropose = roles.some((r) => PROPOSE_ROLES.includes(r));
+  const wash = useJustChanged();
   const header = (
     <>
-      <PageHeader
-        title="Wire instruction register"
-        meta="Bank details are typed from a verified source and verified by a second person's callback (SEC-12.1, SEC-12.2). Every role sees the masked form."
-      />
+      <PageHeader title="Wire instruction register" />
       <TabNav label="Capital activity" items={CAPITAL_TABS} />
+      <p className="pb-meta pb-tab-rule">
+        Bank details are typed from a verified source and verified by a second person&apos;s
+        callback. Every role sees the masked form.
+      </p>
     </>
   );
   if (q.isPending) return <PageSkeleton rows={8} />;
@@ -268,7 +282,7 @@ export function WireRegisterPage(): ReactNode {
           forbidden={{
             title: 'The wire register: not visible to your role',
             detail:
-              'Operations, approvers, auditors and platform admins read the register (SEC-12.2). Ask a platform administrator if you need access.',
+              'Operations, approvers, auditors and platform admins read the register. Ask a platform administrator if you need access.',
           }}
           errorTitle="Wire register unavailable"
           testId="wires-unavailable"
@@ -284,7 +298,9 @@ export function WireRegisterPage(): ReactNode {
     <>
       {header}
       <ActionStatus latest={log.latest} testId="wire-action-status" />
-      {proposing ? <ProposeForm onLog={log} onDone={() => setProposing(false)} /> : null}
+      {proposing ? (
+        <ProposeForm onLog={log} onDone={() => setProposing(false)} onProposed={wash.mark} />
+      ) : null}
       <Card testId="wire-register">
         <SectionHeader aside="Newest proposal first">Register</SectionHeader>
         <Toolbar
@@ -349,7 +365,7 @@ export function WireRegisterPage(): ReactNode {
             }
           />
         ) : (
-          <WireTable rows={rows} label="Wire instructions" />
+          <WireTable rows={rows} label="Wire instructions" tall rowProps={wash.rowProps} />
         )}
         <p className="pb-meta" data-testid="wire-count">
           {plural(rows.length, 'version')} shown; {plural(pending, 'version')} waiting for a

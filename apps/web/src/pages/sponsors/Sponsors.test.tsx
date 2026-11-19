@@ -67,6 +67,18 @@ describe('sponsors directory', () => {
     expect(within(cliffside).getByText('Watch')).toHaveClass('pb-badge-watch');
     expect(screen.getByTestId('sponsors-count')).toHaveTextContent('3 sponsors');
     expect(screen.getByRole('heading', { name: 'Sponsors' })).toBeInTheDocument();
+    // The count is the header's meta and the search its action; the table follows the header
+    // with no section title of its own.
+    const header = screen
+      .getByRole('heading', { level: 1, name: 'Sponsors' })
+      .closest('.pb-banner');
+    expect(header).toContainElement(screen.getByTestId('sponsors-count'));
+    expect(header).toContainElement(screen.getByRole('textbox', { name: 'Search' }));
+    expect(screen.getByRole('textbox', { name: 'Search' })).toHaveAttribute(
+      'placeholder',
+      'Search sponsors',
+    );
+    expect(screen.queryByRole('heading', { name: 'Directory' })).toBeNull();
     expect(screen.queryByRole('status')).not.toBeInTheDocument();
     expect(document.body.textContent).not.toContain(EM_DASH);
   });
@@ -145,7 +157,11 @@ describe('sponsor 360', () => {
     expect(screen.getByTestId('sponsor-description')).toHaveTextContent(
       'Control buyouts and growth investments in the middle market.',
     );
-    expect(screen.getByRole('link', { name: 'All sponsors' })).toHaveAttribute('href', '/sponsors');
+    expect(
+      within(screen.getByRole('navigation', { name: 'Breadcrumb' })).getByRole('link', {
+        name: 'Sponsors',
+      }),
+    ).toHaveAttribute('href', '/sponsors');
 
     const tiles = screen.getByTestId('sponsor-tiles');
     const tile = (label: string): HTMLElement => within(tiles).getByRole('group', { name: label });
@@ -166,8 +182,9 @@ describe('sponsor 360', () => {
 
     const funds = screen.getByRole('table', { name: 'Funds' });
     const fundOne = rowWith(funds, 'Kelpwood Fund I');
-    expect(within(fundOne).getByText('KF I')).toHaveClass('pb-badge-plain');
-    expect(within(fundOne).getByText('Kelpwood I')).toBeInTheDocument();
+    // Aliases as a comma list, not chips.
+    expect(within(fundOne).getByText('KF I, Kelpwood I')).toBeInTheDocument();
+    expect(fundOne.querySelector('.pb-badge')).toBeNull();
     expect(within(fundOne).getByText('$4,000.0M')).toHaveClass('num');
     expect(within(fundOne).getByText('$3,916.7M')).toBeInTheDocument();
     expect(within(fundOne).getByText('$25.0M')).toBeInTheDocument();
@@ -208,14 +225,16 @@ describe('sponsor 360', () => {
     expect(
       within(commitments).getByRole('rowheader', { name: 'Total' }).closest('tr'),
     ).toHaveTextContent('$33.0M');
-    expect(
-      screen.getByText(/no recorded cash flow yet shows the missing placeholder/),
-    ).toBeInTheDocument();
+    expect(screen.getByText(/no recorded cash flow yet shows -/)).toBeInTheDocument();
 
     expect(screen.getByTestId('sponsor-relationship')).toHaveTextContent(
-      'Contacts and interactions arrive with M6 in Phase 5',
+      'Contacts and interactions are not built yet',
     );
     expect(screen.getByTestId('sponsor-calc-version')).toHaveTextContent('Calc version 0.1.0.');
+    // Funds first, then our positions and the NAV of each, the commitments and the contacts.
+    expect(
+      screen.getAllByRole('heading', { level: 2 }).map((h) => h.firstChild?.textContent),
+    ).toEqual(['Funds', 'Our positions', 'Exposure', 'Commitments', 'Contacts and interactions']);
     expect(screen.queryByRole('status')).not.toBeInTheDocument();
     expect(document.body.textContent).not.toContain(EM_DASH);
   });
@@ -256,7 +275,11 @@ describe('sponsor 360', () => {
     // No zero NAV is shown for a sponsor with nothing to pool.
     expect(within(tiles).queryByText('$0.0M')).not.toBeInTheDocument();
     expect(screen.queryByRole('group', { name: 'NAV by position' })).not.toBeInTheDocument();
+    // Two figures make a short strip whose cells are as wide as they need.
+    expect(tiles).toHaveClass('is-compact');
+    // An empty section is one muted line.
     expect(screen.getByTestId('sponsor-funds-empty')).toHaveTextContent('No funds recorded');
+    expect(screen.getByTestId('sponsor-funds-empty').tagName).toBe('P');
     expect(screen.getByTestId('sponsor-positions-empty')).toHaveTextContent(
       'No positions with this sponsor',
     );
@@ -264,9 +287,7 @@ describe('sponsor 360', () => {
     expect(
       within(commitments).queryByRole('columnheader', { name: 'Client' }),
     ).not.toBeInTheDocument();
-    expect(
-      screen.queryByText(/no recorded cash flow yet shows the missing placeholder/),
-    ).not.toBeInTheDocument();
+    expect(screen.queryByText(/no recorded cash flow yet shows -/)).not.toBeInTheDocument();
   });
 
   it('says when no active position has a NAV yet', async () => {
@@ -303,10 +324,11 @@ describe('sponsor 360', () => {
       expect(await screen.findByTestId('error-state')).toHaveTextContent(
         'Sponsor not found or not visible to you',
       );
-      expect(screen.getByRole('link', { name: 'All sponsors' })).toHaveAttribute(
-        'href',
-        '/sponsors',
-      );
+      expect(
+        within(screen.getByRole('navigation', { name: 'Breadcrumb' })).getByRole('link', {
+          name: 'Sponsors',
+        }),
+      ).toHaveAttribute('href', '/sponsors');
       cleanup();
       vi.restoreAllMocks();
     }

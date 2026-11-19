@@ -445,7 +445,8 @@ async function loadLabels(tx: Tx): Promise<Map<string, string>> {
   return new Map(rows.map((r) => [r.code, r.label]));
 }
 
-async function loadOperatingRows(
+/** The company quarters of a set of positions, oldest first, as the caller may read them. */
+export async function loadOperatingRows(
   tx: Tx,
   ids: readonly string[],
 ): Promise<Map<string, OperatingRow[]>> {

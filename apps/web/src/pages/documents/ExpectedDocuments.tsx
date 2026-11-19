@@ -14,9 +14,9 @@ import {
   Card,
   EmptyState,
   Field,
-  NumCell,
   PageHeader,
   PageSkeleton,
+  RowsSkeleton,
   SectionHeader,
   SimulatedBadge,
   TabNav,
@@ -71,7 +71,7 @@ function GenerateCard({ defaultPeriodEnd }: { defaultPeriodEnd: string }): React
 
   return (
     <Card testId="expected-generate">
-      <SectionHeader aside={<SimulatedBadge />}>Generate expected documents</SectionHeader>
+      <SectionHeader>Generate expected documents</SectionHeader>
       <p className="pb-meta">
         One quarterly report per position that reports quarterly figures and one capital account
         statement per sponsor fund with a commitment, due a fixed number of days after the quarter
@@ -89,22 +89,25 @@ function GenerateCard({ defaultPeriodEnd }: { defaultPeriodEnd: string }): React
             onChange={(_e, d) => setPeriodEnd(d.value)}
           />
         </div>
-        <Button
-          size="small"
-          appearance="primary"
-          disabledFocusable={problem !== null || busy}
-          {...(problem === null ? {} : { title: problem })}
-          onClick={generate}
-        >
-          Generate expected documents
-        </Button>
+        <span className="pb-actions">
+          <Button
+            size="small"
+            appearance="primary"
+            disabledFocusable={problem !== null || busy}
+            {...(problem === null ? {} : { title: problem })}
+            onClick={generate}
+          >
+            Generate expected documents
+          </Button>
+          <SimulatedBadge />
+        </span>
       </div>
       <ActionStatus latest={log.latest} testId="expected-action-status" />
     </Card>
   );
 }
 
-/** The position or the fund a row is owed by, as a link where the reader may follow it. */
+/** The position or the fund a row is owed by, as a link where the reader may follow it, its number after it. */
 function SubjectCell({ row }: { row: ExpectedDocument }): ReactNode {
   return (
     <td className="pb-documents-subject">
@@ -118,17 +121,29 @@ function SubjectCell({ row }: { row: ExpectedDocument }): ReactNode {
         <span>{MISSING}</span>
       )}
       {row.investmentNumber === null ? null : (
-        <span className="pb-cell-sub">
+        <>
+          {' '}
           <span className="pb-key">{row.investmentNumber}</span>
-        </span>
+        </>
       )}
     </td>
   );
 }
 
-function ExpectedTable({ items }: { items: readonly ExpectedDocument[] }): ReactNode {
+/** "-45": the days from the due date, signed, for the timing's title. */
+function signedDays(ageDays: number): string {
+  return ageDays > 0 ? `+${ageDays}` : String(ageDays);
+}
+
+function ExpectedTable({
+  items,
+  busy,
+}: {
+  items: readonly ExpectedDocument[];
+  busy: boolean;
+}): ReactNode {
   return (
-    <TableWrap label="Expected documents">
+    <TableWrap label="Expected documents" busy={busy}>
       <table
         className="pb-table pb-documents-expected"
         aria-label="Expected documents"
@@ -141,7 +156,7 @@ function ExpectedTable({ items }: { items: readonly ExpectedDocument[] }): React
             <th>Period</th>
             <th>Due</th>
             <th>Status</th>
-            <th className="num">Age (days)</th>
+            <th className="num">Timing</th>
             <th>Document</th>
           </tr>
         </thead>
@@ -149,17 +164,17 @@ function ExpectedTable({ items }: { items: readonly ExpectedDocument[] }): React
           {items.map((row) => (
             <tr key={row.id}>
               <SubjectCell row={row} />
-              <td>{docTypeLabel(row.docType)}</td>
+              <td className="pb-nowrap">{docTypeLabel(row.docType)}</td>
               <td className="pb-nowrap">{formatDate(row.periodEnd)}</td>
               <td className="pb-nowrap">{formatDate(row.dueDate)}</td>
               <td>
                 <Badge tone={expectedStatusTone(row.status)}>{expectedWord(row.status)}</Badge>
               </td>
-              <td className="num" title={ageTitle(row)}>
-                {String(row.ageDays)}
+              <td className="num" title={`${signedDays(row.ageDays)} days from the due date`}>
+                {ageTitle(row)}
               </td>
               {row.receivedDocumentId === null ? (
-                <NumCell>{MISSING}</NumCell>
+                <td className="is-missing">{MISSING}</td>
               ) : (
                 <td>
                   <Link to="/documents/$id" params={{ id: row.receivedDocumentId }}>
@@ -249,7 +264,7 @@ function TrackerCard({ isOps }: { isOps: boolean }): ReactNode {
         </p>
       )}
       {q.isPending ? (
-        <PageSkeleton rows={4} />
+        <RowsSkeleton rows={4} label="Loading expected documents" />
       ) : q.isError ? (
         <UnavailableState
           error={q.error}
@@ -270,7 +285,7 @@ function TrackerCard({ isOps }: { isOps: boolean }): ReactNode {
           testId="expected-empty"
         />
       ) : (
-        <ExpectedTable items={q.data.items} />
+        <ExpectedTable items={q.data.items} busy={q.isPlaceholderData} />
       )}
       {q.data !== undefined && q.data.nextCursor !== null ? (
         <p className="pb-meta" data-testid="expected-truncated">

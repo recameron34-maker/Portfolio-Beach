@@ -26,8 +26,11 @@ import {
   promotedPeriod,
   REVIEW_ROLES,
   reviewOrder,
+  extractableTypesText,
   runGates,
+  runSchemaTraits,
   runsByState,
+  statementReading,
   tokensText,
   undecidedClean,
   unitLabel,
@@ -42,6 +45,7 @@ import {
   readyDetailFixture,
   reviewValues,
   runFixture,
+  statementDetailFixture,
 } from './test-fixtures.js';
 
 const problem = (code: string, status: number, detail: string): ApiError =>
@@ -75,6 +79,9 @@ describe('review order and words', () => {
 
   it('reads a value in its own unit and never converts it', () => {
     expect(valueText('125.40', 'USD_M', 'money')).toBe('$125.40M');
+    // The sign goes before the dollar sign; the digits are the document's, untouched.
+    expect(valueText('-7.94', 'USD_M', 'money')).toBe('-$7.94M');
+    expect(valueText('-1250000.00', 'USD', 'money')).toBe('-$1250000.00');
     expect(valueText('95500', 'USD_K', 'money')).toBe('$95500K');
     expect(valueText('1250000.00', 'USD', 'money')).toBe('$1250000.00');
     expect(valueText('0.6250', 'PCT', 'percent')).toBe('62.50%');
@@ -383,5 +390,47 @@ describe('click-to-source', () => {
     expect(firstPage(detailFixture())).toBe(2);
     expect(firstPage(detailFixture({ values: cleanValues() }))).toBe(3);
     expect(firstPage(detailFixture({ values: [], pages: [] }))).toBe(1);
+  });
+});
+
+describe('what a run schema means for the page (decision 0023)', () => {
+  it('a quarterly report promotes and carries a narrative; a capital account statement does neither', () => {
+    expect(runSchemaTraits('quarterly_financials')).toEqual({ promotes: true, narrative: true });
+    expect(runSchemaTraits('capital_account_statement')).toEqual({
+      promotes: false,
+      narrative: false,
+    });
+    // A schema the config no longer holds reads as one that promotes: the API refuses it by name.
+    expect(runSchemaTraits('no_such_schema')).toEqual({ promotes: true, narrative: true });
+  });
+
+  it('says how a statement will be read: our account for the position, or in the fund', () => {
+    expect(statementReading(statementDetailFixture())).toBe(
+      'Our account for Meridian Data Partners, INV-0001',
+    );
+    expect(statementReading(statementDetailFixture({ fundLevel: true }))).toBe(
+      'Our account in Kelpwood Fund IV',
+    );
+    const unlinked = statementDetailFixture({ fundLevel: true });
+    expect(
+      statementReading({ ...unlinked, document: { ...unlinked.document, sponsorFundName: null } }),
+    ).toBe('Our account in a fund this document is not linked to');
+    // A quarterly report has no such line: its approval promotes figures.
+    expect(statementReading(detailFixture())).toBeNull();
+  });
+
+  it('words the approval of a statement without a promotion', () => {
+    const approved = statementDetailFixture({ stage: 'approved' });
+    expect(approvedPhrase(approved)).toBe(
+      'Approved: the statement for Jun 30, 2025; nothing was written to the quarterly record',
+    );
+    expect(runGates(approved.run, ['operations']).blocked).toBe('This run is approved');
+    expect(approvedPhrase(readyDetailFixture())).toBe(
+      'Approved: figures promoted for Jun 30, 2025',
+    );
+  });
+
+  it('names the document types a batch can extract, from the schemas in config', () => {
+    expect(extractableTypesText()).toBe('Quarterly financials, Capital account statement');
   });
 });
