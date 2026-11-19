@@ -7,43 +7,71 @@
   width: 190px;
 }
 
-/* Ten columns fit a laptop screen; the expected and actual texts wrap inside a bounded cell. */
-.pb-exceptions-table td {
-  vertical-align: top;
-}
+/* Ten columns: the rule held in view on a phone, the context on one line with the position under
+   it, the expected and actual texts in cells a word fits in, so a phone scrolls the table instead
+   of breaking words. */
 .pb-exceptions-context {
-  min-width: 180px;
+  min-width: 220px;
 }
 .pb-exceptions-text {
-  max-width: 220px;
-  overflow-wrap: anywhere;
+  min-width: 140px;
+  max-width: 260px;
+  overflow-wrap: break-word;
+}
+.pb-exceptions-none {
+  color: var(--pb-muted-strong);
 }
 
-/* The detail page: two badges in the banner, the action buttons in a row, the ticket form beside them. */
-.pb-exceptions-badges {
-  display: inline-flex;
-  flex-wrap: wrap;
-  gap: 6px;
+/* The detail page: what was expected and what was found, side by side and read first; the actions
+   in a row, the ticket form under them. */
+.pb-exceptions-pair {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 200px), 1fr));
+  gap: var(--pb-space-3) var(--pb-space-6);
+  max-width: 720px;
+  margin: 0 0 var(--pb-space-4);
+}
+.pb-exceptions-pair dt {
+  font-size: var(--pb-text-sm);
+  line-height: var(--pb-text-sm-lh);
+  font-weight: 500;
+  color: var(--pb-muted-strong);
+}
+.pb-exceptions-pair dd {
+  margin: 2px 0 0;
+  font-size: var(--pb-text-lg);
+  line-height: var(--pb-text-lg-lh);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: var(--pb-text);
+  overflow-wrap: break-word;
+}
+.pb-exceptions-pair dd.is-missing {
+  font-weight: 500;
+  color: var(--pb-muted-strong);
 }
 .pb-exceptions-context-line {
   display: inline-flex;
   flex-wrap: wrap;
-  align-items: center;
-  gap: 4px 10px;
+  align-items: baseline;
+  gap: var(--pb-space-1) var(--pb-space-3);
 }
 .pb-exceptions-actions {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 8px;
-  margin: 0 0 12px;
+  gap: var(--pb-space-2);
+  margin: 0 0 var(--pb-space-3);
 }
 .pb-exceptions-ticket {
   display: flex;
   flex-wrap: wrap;
   align-items: end;
-  gap: 10px 14px;
-  margin: 0 0 12px;
+  gap: var(--pb-space-3) var(--pb-space-4);
+  margin: 0 0 var(--pb-space-3);
+}
+.pb-exceptions-ticket > .pb-simulated {
+  align-self: center;
 }
 .pb-exceptions-ticket-input {
   min-width: 0;

@@ -1,98 +1,76 @@
-/* Intake pages (docs/04 M2). Tokens only; shared table, tile and badge styles live in styles.css,
-   which loads first, so a page class wins over a shared class of the same specificity. Filters keep
-   .pb-toolbar in front to outrank Fluent's own classes. */
+/* Intake pages (docs/04 M2), also loaded by Weekly values. Tokens only; shared table, tile, badge,
+   file input and findings styles live in styles.css, which loads first, so a page class wins over
+   a shared class of the same specificity. Filters keep .pb-toolbar in front to outrank Fluent's
+   own classes. */
 
-/* Filters sized to their content, so the toolbar holds one row on a laptop screen. */
 .pb-toolbar .pb-intake-filter {
   min-width: 0;
   width: 190px;
 }
 
-/* The upload row: the file input and its button side by side, stacked on a phone. */
+/* The upload row: the file input, then its command and the preview's marker, stacked on a phone. */
 .pb-intake-upload {
   display: flex;
   flex-wrap: wrap;
   align-items: end;
-  gap: 10px 14px;
-  margin: 0 0 12px;
+  gap: var(--pb-space-3) var(--pb-space-4);
+  margin: 0 0 var(--pb-space-3);
 }
-.pb-intake-upload input[type='file'] {
-  max-width: 100%;
-  font: inherit;
-  font-size: 13px;
-}
-.pb-intake-samples {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 8px;
-  margin: 0;
-}
-.pb-intake-drop {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  display: grid;
-  gap: 6px;
-}
-.pb-intake-drop li {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 6px 12px;
+.pb-intake-upload > .pb-actions {
+  min-height: 28px;
 }
 .pb-intake-upload-status > .pb-notice {
-  margin: 0 0 12px;
+  margin: 0 0 var(--pb-space-3);
 }
 
-/* Seven columns fit a laptop screen; each cell holds its word first and its detail on muted lines
-   below. On a phone the table scrolls inside its frame. */
-.pb-intake-rows td {
-  vertical-align: top;
-}
+/* The staged rows: the position and its number on one line, why it did not link under it. */
 .pb-intake-subject {
   min-width: 200px;
 }
-.pb-intake-lines {
+/* What approving writes, as a grid: the figure, the record's, the file's; both right-aligned so
+   they compare, the file's (what will be written) in ink. */
+.pb-intake-diff {
   display: grid;
-  gap: 2px;
-  margin-top: 4px;
-  font-size: 12px;
-  line-height: 16px;
-  color: var(--pb-muted);
+  grid-template-columns: auto auto auto;
+  column-gap: var(--pb-space-3);
+  margin-top: var(--pb-space-1);
+  font-size: var(--pb-text-sm);
+  line-height: var(--pb-text-sm-lh);
+  font-variant-numeric: tabular-nums;
 }
-.pb-intake-findings {
-  display: inline-flex;
-  flex-wrap: wrap;
-  gap: 4px;
+.pb-intake-diff-line {
+  display: grid;
+  grid-template-columns: subgrid;
+  grid-column: 1 / -1;
+  white-space: nowrap;
 }
-.pb-intake-details {
-  margin-top: 4px;
-  font-size: 12px;
-  line-height: 16px;
-  color: var(--pb-muted);
+.pb-intake-diff-field {
+  color: var(--pb-muted-strong);
 }
-.pb-intake-details > summary {
-  cursor: pointer;
-  color: var(--pb-brand-primary);
+.pb-intake-diff-record {
+  text-align: right;
+  color: var(--pb-muted-strong);
 }
-.pb-intake-details > .pb-list {
-  margin-top: 4px;
+.pb-intake-diff-file {
+  text-align: right;
   color: var(--pb-text);
+  font-weight: 500;
 }
-.pb-intake-file-findings {
-  margin: 0;
-  padding-left: 0;
-  list-style: none;
-  display: grid;
-  gap: 6px;
-}
-.pb-intake-file-findings li {
+
+/* The findings of a refused file: a dot, the rule, the message and what was expected, a line each. */
+.pb-intake-file-findings > li {
   display: flex;
   flex-wrap: wrap;
-  align-items: center;
-  gap: 4px 10px;
+  align-items: baseline;
+  gap: var(--pb-space-1) var(--pb-space-3);
 }
+.pb-intake-file-findings .pb-dot {
+  margin-right: 0;
+}
+.pb-intake-file-findings .pb-note {
+  margin: 0;
+}
+
 @media (max-width: 760px) {
   .pb-toolbar .pb-intake-filter {
     width: 100%;

@@ -114,7 +114,7 @@ describe('review queue', () => {
     async () => {
       mockApi(routes({ [QUEUE]: failing(403, QUEUE) }));
       renderWithQuery(<ReviewQueuePage />);
-      expect(screen.getByText('Loading')).toBeInTheDocument();
+      expect(screen.getByText('Loading the review queue')).toBeInTheDocument();
       expect(
         await screen.findByText('The review queue: not visible to your role'),
       ).toBeInTheDocument();

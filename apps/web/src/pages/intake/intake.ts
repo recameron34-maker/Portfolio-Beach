@@ -22,7 +22,8 @@ import { commandOptions, rolesLabel } from '../../lib/states.js';
  */
 
 /** The page header's context line: the control every staged value passes through (docs/05). */
-export const INTAKE_META = 'Staging, validation, approval, then production';
+export const INTAKE_META =
+  'Accounting exports and operations workbooks, checked row by row before anything is written';
 
 /** What a role the intake routes refuse is told (the API answers 403; viewers, investor relations and platform admins). */
 export const INTAKE_FORBIDDEN = {

@@ -17,6 +17,7 @@ import { ExtractionRunPage } from './ExtractionRun.js';
 import {
   acceptedCleanDetailFixture,
   approvedDetailFixture,
+  cleanValues,
   detailFixture,
   editedDetailFixture,
   failedDetailFixture,
@@ -126,10 +127,19 @@ describe('extraction run review', () => {
     expect(banner).toHaveTextContent('Cost $0.0071');
     expect(within(banner).getByText('Succeeded')).toHaveClass('pb-badge-good');
     expect(within(banner).getByText('Awaiting approval')).toHaveClass('pb-badge-watch');
-    expect(screen.getByRole('link', { name: 'All extraction runs' })).toHaveAttribute(
+    // The trail names where the run sits: Documents, then Extraction.
+    const trail = screen.getByRole('navigation', { name: 'Breadcrumb' });
+    expect(within(trail).getByRole('link', { name: 'Documents' })).toHaveAttribute(
+      'href',
+      '/documents',
+    );
+    expect(within(trail).getByRole('link', { name: 'Extraction' })).toHaveAttribute(
       'href',
       '/documents/extraction',
     );
+    // The run's state and approval are words in the meta line; the header holds no command.
+    expect(within(banner).getByText('Succeeded').closest('.pb-meta-list')).not.toBeNull();
+    expect(within(banner).queryByRole('button')).not.toBeInTheDocument();
 
     expect(within(tile('Values')).getByText('15')).toBeInTheDocument();
     expect(within(tile('Clean')).getByText('12')).toBeInTheDocument();
@@ -151,19 +161,29 @@ describe('extraction run review', () => {
     const revenue = rowOf('Revenue LTM');
     expect(revenue).toHaveTextContent('required');
     expect(within(revenue).getByText('$125.40M')).toBeInTheDocument();
+    // One Source column: the page as a command, then the quote under it; the value right-aligned.
     expect(
-      within(revenue).getByRole('button', { name: 'Show Revenue LTM on page 2' }),
-    ).toHaveTextContent('Page 2');
+      within(fields())
+        .getAllByRole('columnheader')
+        .map((h) => h.textContent),
+    ).toEqual(['Field', 'Value', 'Source', 'Confidence', 'Validation', 'Decision', 'Actions']);
+    expect(within(fields()).getByRole('columnheader', { name: 'Value' })).toHaveClass('num');
+    expect(within(revenue).getByText('$125.40M').closest('td')).toHaveClass('num');
+    const source = within(revenue).getByRole('button', { name: 'Show Revenue LTM on page 2' });
+    expect(source).toHaveTextContent('Page 2');
     expect(within(revenue).getByText('LTM revenue 125.40')).toHaveClass('pb-extraction-quote');
+    expect(within(revenue).getByText('LTM revenue 125.40').closest('td')).toBe(
+      source.closest('td'),
+    );
     expect(within(revenue).getByText('100%')).toBeInTheDocument();
     expect(within(revenue).getByText('Clean')).toHaveClass('pb-badge-good');
     expect(within(revenue).getByText('-')).toBeInTheDocument();
 
     const cash = rowOf('Cash');
     expect(within(cash).getByText('Invalid')).toHaveClass('pb-badge-bad');
-    expect(within(cash).getByText('EXT-CITE-02', { selector: '.pb-badge' })).toHaveClass(
-      'pb-badge-bad',
-    );
+    // The severity is the validation word's, said once; the rule is an identifier, not a pill.
+    expect(within(cash).getByText('EXT-CITE-02').closest('.pb-rule-id')).not.toBeNull();
+    expect(within(cash).queryByText('EXT-CITE-02', { selector: '.pb-badge' })).toBeNull();
     expect(within(cash).getByText('1 finding')).toBeInTheDocument();
     expect(
       within(cash).getByText('EXT-CITE-02: Cash: the quote was not found on page 2'),
@@ -178,9 +198,7 @@ describe('extraction run review', () => {
     const headcount = rowOf('Headcount');
     expect(within(headcount).getByText('62%')).toBeInTheDocument();
     expect(within(headcount).getByText('Flagged')).toHaveClass('pb-badge-watch');
-    expect(within(headcount).getByText('EXT-CONF-01', { selector: '.pb-badge' })).toHaveClass(
-      'pb-badge-watch',
-    );
+    expect(within(headcount).getByText('EXT-CONF-01').closest('.pb-rule-id')).not.toBeNull();
     expect(within(rowOf('Sponsor ownership')).getByText('62.50%')).toBeInTheDocument();
     expect(within(rowOf('Period end')).getByText('Jun 30, 2025')).toBeInTheDocument();
 
@@ -207,6 +225,32 @@ describe('extraction run review', () => {
     );
   });
 
+  it('says once who decided when every decision shares its reviewer and time', async () => {
+    mockApi(routes(['deal_team'], { [detailPath(RUN_ID.succeeded)]: ok(readyDetailFixture()) }));
+    renderWithQuery(<ExtractionRunPage />);
+    expect(await screen.findByTestId('run-decided')).toHaveTextContent(
+      /^Every decision below was made by .+, .+\.$/,
+    );
+    // Each decision cell then holds its word alone.
+    const revenue = rowOf('Revenue LTM');
+    expect(within(revenue).getByText('Accepted')).toBeInTheDocument();
+    expect(revenue).not.toHaveTextContent('By ');
+    expect(screen.queryByTestId('run-blocked')).not.toBeInTheDocument();
+  });
+
+  it('shows a value the document does not state as missing, with why', async () => {
+    const values = cleanValues({ cash: { value: null, unit: null, page: null, quote: null } });
+    mockApi(
+      routes(['deal_team'], { [detailPath(RUN_ID.succeeded)]: ok(detailFixture({ values })) }),
+    );
+    renderWithQuery(<ExtractionRunPage />);
+    await screen.findByTestId('run-fields');
+    const cash = rowOf('Cash');
+    expect(within(cash).getByText('Not in the document')).toBeInTheDocument();
+    expect(within(cash).queryByRole('button', { name: /^Show Cash/ })).not.toBeInTheDocument();
+    expect(within(cash).getAllByText('-').length).toBeGreaterThanOrEqual(2);
+  });
+
   it('tells a viewer who reviews and offers no actions', async () => {
     mockApi(routes(['viewer']));
     renderWithQuery(<ExtractionRunPage />);
@@ -215,7 +259,7 @@ describe('extraction run review', () => {
     );
     expect(screen.queryByRole('button', { name: 'Accept clean values' })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /^Accept, / })).not.toBeInTheDocument();
-    expect(within(fields()).getAllByRole('columnheader')).toHaveLength(7);
+    expect(within(fields()).getAllByRole('columnheader')).toHaveLength(6);
   });
 
   it('accepts one value and reports it', async () => {
@@ -405,9 +449,20 @@ describe('extraction run review', () => {
     const again = screen.getByRole('button', { name: 'Approve and promote' });
     expect(again).toHaveAttribute('aria-disabled', 'true');
     expect(again).toHaveAttribute('title', 'This run is approved and its figures are promoted');
+    // Nothing in the table can be decided once the run is approved: no Actions column, and why
+    // is said once over the values; the narrative offers no command either.
+    expect(await screen.findByTestId('run-blocked')).toHaveTextContent(
+      'This run is approved and its figures are promoted.',
+    );
     expect(
-      within(rowOf('Revenue LTM')).getByRole('button', { name: 'Accept, Revenue LTM' }),
-    ).toHaveAttribute('aria-disabled', 'true');
+      within(fields()).queryByRole('columnheader', { name: 'Actions' }),
+    ).not.toBeInTheDocument();
+    expect(
+      within(rowOf('Revenue LTM')).queryByRole('button', { name: 'Accept, Revenue LTM' }),
+    ).not.toBeInTheDocument();
+    expect(
+      within(screen.getByTestId('run-narrative')).queryByRole('button'),
+    ).not.toBeInTheDocument();
     expect(screen.queryByText('AI draft')).not.toBeInTheDocument();
   });
 
@@ -803,7 +858,11 @@ describe('extraction run review', () => {
     expect(await screen.findByTestId('error-state')).toHaveTextContent(
       'Extraction run not found or not visible to you',
     );
-    expect(screen.getByRole('link', { name: 'All extraction runs' })).toBeInTheDocument();
+    expect(
+      within(screen.getByRole('navigation', { name: 'Breadcrumb' })).getByRole('link', {
+        name: 'Extraction',
+      }),
+    ).toHaveAttribute('href', '/documents/extraction');
 
     cleanup();
     vi.restoreAllMocks();

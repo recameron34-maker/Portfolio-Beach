@@ -99,18 +99,24 @@ describe('the exceptions queue', () => {
       'href',
       `/data/lookthrough/${RUN_ID.defects}`,
     );
-    expect(within(nav).getByText('Row 2')).toHaveClass('pb-key');
+    // The context on one line, the file and its row, the position under it.
+    expect(
+      within(nav).getByRole('link', { name: 'lookthrough-2025-06-30.json' }).parentElement,
+    ).toHaveTextContent('lookthrough-2025-06-30.json, row 2');
     expect(
       within(nav).getByRole('link', { name: 'INV-0004 Silverline Staffing Holdings' }),
     ).toHaveAttribute('href', `/portfolio/${POSITION_ID.silverline}`);
     expect(within(nav).getByText('20000000.00')).toBeInTheDocument();
     expect(within(nav).getByText('High')).toHaveClass('pb-badge-bad');
-    expect(within(nav).getByText('Open')).toHaveClass('pb-badge-watch');
-    expect(within(nav).getAllByText('-')).toHaveLength(2);
+    // The severity a dot and a word, the state a plain word; no owner or ticket said in words.
+    expect(within(nav).getByText('Open')).not.toHaveClass('pb-badge');
+    expect(within(nav).getByText('Unassigned')).toHaveClass('pb-exceptions-none');
+    expect(within(nav).getByText('None')).toHaveClass('pb-exceptions-none');
+    expect(within(nav).queryAllByText('-')).toHaveLength(0);
     expect(within(nav).getAllByRole('cell')[9]).toHaveTextContent(/^(today|\d+ days?)$/);
 
     const unmatched = rowOf('Meridian Data Partner');
-    expect(within(unmatched).getByText('Row 5')).toBeInTheDocument();
+    expect(within(unmatched).getByText(/, row 5$/)).toBeInTheDocument();
     expect(within(unmatched).queryByRole('link', { name: /INV-/ })).not.toBeInTheDocument();
     expect(within(unmatched).getByText('a position on record')).toBeInTheDocument();
 
@@ -119,12 +125,12 @@ describe('the exceptions queue', () => {
     expect(
       within(accounting).getByRole('link', { name: 'accounting-export-2025-06-30-update.csv' }),
     ).toHaveAttribute('href', `/data/intake/${FILE_ID.update}`);
-    expect(within(accounting).getByText('Acknowledged')).toHaveClass('pb-badge-brand');
+    expect(within(accounting).getByText('Acknowledged')).toBeInTheDocument();
     expect(within(accounting).getByText('Avery Castellanos')).toBeInTheDocument();
     expect(within(accounting).getByText('HD-1042')).toBeInTheDocument();
 
     const resolved = rowOf('TIE-01');
-    expect(within(resolved).getByText('Resolved')).toHaveClass('pb-badge-good');
+    expect(within(resolved).getByText('Resolved')).toBeInTheDocument();
     expect(within(resolved).getByText('High')).toHaveClass('pb-badge-bad');
     expect(within(rowOf('Other')).getByText('Medium')).toHaveClass('pb-badge-watch');
     expect(screen.queryByTestId('exceptions-file-note')).not.toBeInTheDocument();
@@ -186,7 +192,9 @@ describe('the exceptions queue', () => {
     expect(
       within(row).getByRole('link', { name: 'weekly-values-2025-06-27-update.csv' }),
     ).toHaveAttribute('href', `/data/weekly/${WEEKLY_FILE_ID.update}`);
-    expect(within(row).getByText('Row 8')).toHaveClass('pb-key');
+    expect(
+      within(row).getByRole('link', { name: 'weekly-values-2025-06-27-update.csv' }).parentElement,
+    ).toHaveTextContent('weekly-values-2025-06-27-update.csv, row 8');
     expect(screen.getByText('1 exception')).toBeInTheDocument();
   });
 

@@ -57,7 +57,7 @@ describe('weekly values list', () => {
     expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('Weekly values');
     expect(
       screen.getByText(
-        'Weekly report values to valuation staging: prior, variance, threshold flag, then a Draft valuation',
+        'Weekly values checked against the last locked mark; an approved value becomes a draft valuation',
       ),
     ).toBeInTheDocument();
     expect(screen.getByTestId('weekly-files')).toBe(table);
@@ -89,10 +89,18 @@ describe('weekly values list', () => {
     const card = await screen.findByTestId('weekly-upload');
     expect(fileInput()).toHaveAttribute('accept', '.csv,text/csv');
     expect(screen.getByRole('button', { name: 'Stage weekly values' })).toBeDisabled();
-    const drop = await within(card).findByRole('list', { name: 'Files in the weekly drop folder' });
+    // The files waiting in the drop folder are one table: file, folder, received, the command.
+    const drop = await within(card).findByRole('table', { name: 'Waiting in the drop folders' });
     expect(screen.getByTestId('weekly-drops')).toBe(drop);
-    expect(drop).toHaveTextContent('weekly-values-2025-06-27-update.csv');
-    expect(drop).toHaveTextContent('Received Jun 30, 2025');
+    const waiting = within(drop).getAllByRole('row')[1]!;
+    expect(
+      within(waiting)
+        .getAllByRole('cell')
+        .map((c) => c.textContent),
+    ).toEqual(['weekly-values-2025-06-27-update.csv', 'Weekly values', 'Jun 30, 2025', 'Stage']);
+    expect(
+      within(waiting).getByRole('button', { name: 'Stage, weekly-values-2025-06-27-update.csv' }),
+    ).toBeEnabled();
     await screen.findByRole('table', { name: 'Weekly files' });
     const urls = sentRequests().map(([url]) => url);
     expect([...new Set(urls)].sort()).toEqual([ME, FILES, DROPS].sort());

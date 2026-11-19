@@ -62,7 +62,7 @@ function RunCard({
   };
   return (
     <Card testId="lookthrough-run">
-      <SectionHeader aside={<SimulatedBadge />}>Reconcile an extract</SectionHeader>
+      <SectionHeader>Reconcile an extract</SectionHeader>
       <p className="pb-meta">
         The provider&apos;s extract for the date is read from the look-through folder, linked to the
         book, mapped onto the taxonomy and compared with the approved values. Every difference opens
@@ -80,9 +80,12 @@ function RunCard({
             onChange={(_e, d) => setAsOf(d.value)}
           />
         </div>
-        <Button size="small" appearance="primary" disabled={!valid || busy} onClick={run}>
-          Reconcile
-        </Button>
+        <span className="pb-actions">
+          <Button size="small" appearance="primary" disabled={!valid || busy} onClick={run}>
+            Reconcile
+          </Button>
+          <SimulatedBadge />
+        </span>
       </div>
       <div role="status" className="pb-lookthrough-run-status" data-testid="lookthrough-run-status">
         {message === null ? null : <p className="pb-notice pb-notice-bad">{message}</p>}

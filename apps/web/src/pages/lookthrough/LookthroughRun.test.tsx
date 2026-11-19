@@ -74,10 +74,12 @@ describe('a reconcile run', () => {
     expect(banner).toHaveTextContent('By Avery Castellanos');
     expect(banner).toHaveTextContent('7 rows');
     expect(within(banner).getByText('Differences')).toHaveClass('pb-badge-watch');
-    expect(screen.getByRole('link', { name: 'All reconcile runs' })).toHaveAttribute(
-      'href',
-      '/data/lookthrough',
-    );
+    expect(within(banner).getByText('Differences').closest('.pb-meta-list')).not.toBeNull();
+    expect(
+      within(screen.getByRole('navigation', { name: 'Breadcrumb' })).getByRole('link', {
+        name: 'Look-through',
+      }),
+    ).toHaveAttribute('href', '/data/lookthrough');
     expect(screen.queryByTestId('lookthrough-duplicate')).not.toBeInTheDocument();
     expect(screen.queryByTestId('lookthrough-file-findings')).not.toBeInTheDocument();
     expect(screen.queryByTestId('lookthrough-hidden-rows')).not.toBeInTheDocument();
@@ -103,8 +105,12 @@ describe('a reconcile run', () => {
       `/portfolio/${POSITION_ID.meridian}`,
     );
     expect(within(agrees).getByText('INV-0001')).toHaveClass('pb-key');
-    expect(within(agrees).getByText('Technology (Software)')).toBeInTheDocument();
-    expect(within(agrees).getByText('North America (North America)')).toBeInTheDocument();
+    // The provider's label, and the term it maps to only when that reads differently.
+    expect(within(agrees).getByText('Technology')).toBeInTheDocument();
+    expect(within(agrees).getByText('maps to Software')).toHaveClass('pb-cell-sub');
+    expect(within(agrees).getByText('North America')).toBeInTheDocument();
+    expect(within(agrees).queryByText(/maps to North America/)).not.toBeInTheDocument();
+    expect(agrees.querySelector('.pb-lookthrough-differs')).toBeNull();
     expect(within(agrees).getAllByText('$27,400,000.00')).toHaveLength(1);
     expect(within(agrees).getByText('record $27,400,000.00')).toBeInTheDocument();
     expect(within(agrees).getAllByText('None')).toHaveLength(2);
@@ -113,26 +119,26 @@ describe('a reconcile run', () => {
     const nav = rowOf('Silverline Staffing Holdings');
     expect(within(nav).getByText('$21,500,000.00')).toBeInTheDocument();
     expect(within(nav).getByText('record $20,000,000.00')).toBeInTheDocument();
-    const navBadge = within(nav).getByText('NAV', { selector: '.pb-badge' });
-    expect(navBadge).toHaveClass('pb-badge-watch');
-    expect(navBadge.closest('[title]')).toHaveAttribute(
+    // A watch dot before the provider's figure that differs; the differences as words, each
+    // titled with both sides, and heard as that sentence.
+    expect(
+      within(nav).getByText('$21,500,000.00').querySelector('.pb-lookthrough-differs'),
+    ).not.toBeNull();
+    expect(within(nav).getByText('NAV', { selector: 'span[title]' })).toHaveAttribute(
       'title',
       'NAV $20,000,000.00 on record, provider $21,500,000.00',
     );
     expect(
       within(nav).getByText('NAV $20,000,000.00 on record, provider $21,500,000.00'),
-    ).toBeInTheDocument();
-    expect(within(nav).getByText('LT-TIE-01', { selector: '.pb-badge' })).toHaveClass(
-      'pb-badge-bad',
-    );
+    ).toHaveClass('pb-visually-hidden');
+    expect(within(nav).getByText('LT-TIE-01').closest('.pb-rule-id')).not.toBeNull();
+    expect(within(nav).getByText('1 finding')).toHaveClass('pb-badge-bad');
     expect(within(nav).getByText('Flagged')).toHaveClass('pb-badge-watch');
     expect(within(nav).getByText('1 exception')).toBeInTheDocument();
 
     const sector = rowOf('Cobalt Energy Group');
-    expect(within(sector).getByText('Healthcare (Healthcare)')).toBeInTheDocument();
-    expect(within(sector).getByText('Sector', { selector: '.pb-badge' })).toHaveClass(
-      'pb-badge-watch',
-    );
+    expect(within(sector).getByText('Healthcare')).toBeInTheDocument();
+    expect(within(sector).getByText('Sector', { selector: 'span[title]' })).toBeInTheDocument();
     expect(
       within(sector).getByText(
         'Sector sector.energy_transition on record, provider Healthcare (sector.healthcare)',
@@ -140,10 +146,9 @@ describe('a reconcile run', () => {
     ).toBeInTheDocument();
 
     const unmapped = rowOf('Ashby Renewables Group');
-    expect(within(unmapped).getByText('Other (unmapped)')).toBeInTheDocument();
-    expect(within(unmapped).getByText('LT-MAP-01', { selector: '.pb-badge' })).toHaveClass(
-      'pb-badge-bad',
-    );
+    expect(within(unmapped).getByText('Other')).toBeInTheDocument();
+    expect(within(unmapped).getByText('Not mapped')).toHaveClass('pb-badge-watch');
+    expect(within(unmapped).getByText('LT-MAP-01').closest('.pb-rule-id')).not.toBeNull();
     expect(within(unmapped).getByText('1 finding')).toBeInTheDocument();
     expect(
       within(unmapped).getByText(
@@ -160,14 +165,12 @@ describe('a reconcile run', () => {
     expect(within(unmatched).getAllByText('record -')).toHaveLength(2);
 
     const stale = rowOf('Summit Care Holdings');
-    expect(within(stale).getByText('LT-STALE-01', { selector: '.pb-badge' })).toHaveClass(
-      'pb-badge-bad',
-    );
+    expect(within(stale).getByText('LT-STALE-01').closest('.pb-rule-id')).not.toBeNull();
     expect(within(stale).queryByText(/exception/)).not.toBeInTheDocument();
 
     const alias = rowAt(7);
     expect(within(alias).getByRole('link', { name: 'Meridian Data Partners' })).toBeInTheDocument();
-    expect(within(alias).getByText('LT-DUP-01', { selector: '.pb-badge' })).toBeInTheDocument();
+    expect(within(alias).getByText('LT-DUP-01').closest('.pb-rule-id')).not.toBeNull();
   });
 
   it('counts the rows behind a wall and notes a duplicate reconcile', async () => {
@@ -210,7 +213,7 @@ describe('a reconcile run', () => {
     });
     renderWithQuery(<LookthroughRunPage />);
     const findings = await screen.findByRole('list', { name: 'Run findings' });
-    expect(within(findings).getByText('LT-FILE-01')).toHaveClass('pb-badge-bad');
+    expect(within(findings).getByText('LT-FILE-01')).toHaveClass('pb-rule-id');
     expect(findings).toHaveTextContent('No extract for 2025-05-30');
     expect(screen.getByTestId('lookthrough-no-rows')).toHaveTextContent('No rows were reconciled');
     expect(within(screen.getByTestId('lookthrough-banner')).getByText('No extract')).toHaveClass(
@@ -231,7 +234,11 @@ describe('a reconcile run', () => {
       mockApi(routes({ [runPath(RUN_ID.defects)]: failing(status, runPath(RUN_ID.defects)) }));
       renderWithQuery(<LookthroughRunPage />);
       expect(await screen.findByText(text), String(status)).toBeInTheDocument();
-      expect(screen.getByRole('link', { name: 'All reconcile runs' })).toBeInTheDocument();
+      expect(
+        within(screen.getByRole('navigation', { name: 'Breadcrumb' })).getByRole('link', {
+          name: 'Look-through',
+        }),
+      ).toBeInTheDocument();
     }
   });
 

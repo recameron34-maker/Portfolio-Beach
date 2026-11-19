@@ -79,6 +79,9 @@ describe('review order and words', () => {
 
   it('reads a value in its own unit and never converts it', () => {
     expect(valueText('125.40', 'USD_M', 'money')).toBe('$125.40M');
+    // The sign goes before the dollar sign; the digits are the document's, untouched.
+    expect(valueText('-7.94', 'USD_M', 'money')).toBe('-$7.94M');
+    expect(valueText('-1250000.00', 'USD', 'money')).toBe('-$1250000.00');
     expect(valueText('95500', 'USD_K', 'money')).toBe('$95500K');
     expect(valueText('1250000.00', 'USD', 'money')).toBe('$1250000.00');
     expect(valueText('0.6250', 'PCT', 'percent')).toBe('62.50%');

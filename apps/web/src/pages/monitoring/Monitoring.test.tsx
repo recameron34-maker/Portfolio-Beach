@@ -111,9 +111,7 @@ describe('monitoring board', () => {
     expect(container.querySelector('[aria-busy="true"]')).not.toBeNull();
     const tiles = await screen.findByTestId('monitoring-tiles');
     expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('Monitoring');
-    expect(
-      screen.getByText(/Quarter ended Jun 30, 2025, judged as of Jun 30, 2025/),
-    ).toBeInTheDocument();
+    expect(screen.getByText(/Quarter ended Jun 30, 2025, as of Jun 30, 2025/)).toBeInTheDocument();
     expect(screen.getByRole('navigation', { name: 'Portfolio' })).toHaveTextContent('Monitoring');
     const count = (label: string): string =>
       within(within(tiles).getByRole('group', { name: label })).getByText(/^\d+$/, {
@@ -137,22 +135,34 @@ describe('monitoring board', () => {
         .getAllByRole('columnheader')
         .map((h) => h.textContent),
     ).toEqual([
-      'Inv #',
       'Company',
       'Vehicle',
       'Sponsor fund',
       'Deal type',
       'Report',
+      'Due',
       'Run',
       'Flags',
       'Approval',
     ]);
+    // The quarter and the as-of day sit over the figures they choose, not inside the board.
+    expect(
+      within(screen.getByTestId('monitoring-board')).queryByRole('combobox', { name: 'Quarter' }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.getByRole('combobox', { name: 'Quarter' }).compareDocumentPosition(tiles) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
     expect(within(table()).getAllByRole('row')).toHaveLength(5);
     expect(screen.getByText('4 positions')).toBeInTheDocument();
 
-    // A received report with a run awaiting approval: every link and the flags count.
+    // A received report with a run awaiting approval: every link and the flags count. The number
+    // sits after the company, in its cell.
     const meridian = rowOf('INV-0001');
     expect(within(meridian).getByText('INV-0001')).toHaveClass('pb-key');
+    expect(within(meridian).getByText('INV-0001').closest('td')).toBe(
+      within(meridian).getByRole('link', { name: 'Meridian Data Partners' }).closest('td'),
+    );
     expect(within(meridian).getByRole('link', { name: 'Meridian Data Partners' })).toHaveAttribute(
       'href',
       `/portfolio/${ID.inv1}`,
@@ -160,15 +170,20 @@ describe('monitoring board', () => {
     expect(within(meridian).getByText('Kelpwood Fund IV')).toBeInTheDocument();
     expect(within(meridian).getByText('Co invest equity')).toBeInTheDocument();
     expect(within(meridian).getByText('Received')).toHaveClass('pb-badge-good');
-    expect(within(meridian).getByText('Due Aug 14, 2025')).toBeInTheDocument();
-    expect(within(meridian).getByText('received 30 days early')).toBeInTheDocument();
-    // The page names each link by its company (aria-label); the router stand-in keeps the text only.
-    expect(within(meridian).getByRole('link', { name: 'Document' })).toHaveAttribute(
+    // The due date on its own; how early the report came is the date's title, not a line.
+    expect(within(meridian).getByText('Aug 14, 2025')).toHaveAttribute(
+      'title',
+      'received 30 days early',
+    );
+    expect(within(meridian).queryByText('received 30 days early')).not.toBeInTheDocument();
+    // The status word opens the document, the run's word its review. The page names each link by
+    // its company and word (aria-label); the router stand-in keeps the text only.
+    expect(within(meridian).getByRole('link', { name: 'Received' })).toHaveAttribute(
       'href',
       `/documents/${BOARD_ID.docMeridian}`,
     );
     expect(within(meridian).getByText('Succeeded')).toHaveClass('pb-badge-good');
-    expect(within(meridian).getByRole('link', { name: 'Run' })).toHaveAttribute(
+    expect(within(meridian).getByRole('link', { name: 'Succeeded' })).toHaveAttribute(
       'href',
       `/documents/extraction/${BOARD_ID.runMeridian}`,
     );
@@ -178,16 +193,17 @@ describe('monitoring board', () => {
     // A report still expected: no document, no run, so the flags show the placeholder.
     const summit = rowOf('INV-0002');
     expect(within(summit).getByText('Expected')).toHaveClass('pb-badge-neutral');
-    expect(within(summit).getByText('due in 45 days')).toBeInTheDocument();
-    expect(within(summit).queryByRole('link', { name: 'Document' })).not.toBeInTheDocument();
-    expect(within(summit).queryByRole('link', { name: 'Run' })).not.toBeInTheDocument();
+    expect(within(summit).queryByText('due in 45 days')).not.toBeInTheDocument();
+    expect(within(summit).getByTitle('due in 45 days')).toBeInTheDocument();
+    expect(within(summit).getAllByRole('link')).toHaveLength(1);
     expect(within(summit).getAllByText('-')).toHaveLength(2);
     expect(within(summit).getByText('None')).toHaveClass('pb-badge-neutral');
 
     // A late report whose seeded quarter is approved without a time: the placeholder, never an error.
     const ashby = rowOf('INV-0003');
     expect(within(ashby).getByText('Late')).toHaveClass('pb-badge-watch');
-    expect(within(ashby).getByText('16 days past due')).toBeInTheDocument();
+    // Late: how far past due is a line under the date.
+    expect(within(ashby).getByText('16 days past due')).toHaveClass('pb-cell-sub');
     expect(within(ashby).getByText('Approved')).toHaveClass('pb-badge-good');
     expect(within(ashby).getByText('Cv single asset')).toBeInTheDocument();
     // Sponsor fund, run, flags and the approval time all show the placeholder.
@@ -195,7 +211,7 @@ describe('monitoring board', () => {
 
     // A credit position received on its fund's statement, approved with a time.
     const credit = rowOf('INV-0004');
-    expect(within(credit).getByText('received 3 days late')).toBeInTheDocument();
+    expect(within(credit).getByTitle('received 3 days late')).toBeInTheDocument();
     expect(within(credit).getByText('Jul 20, 2025')).toBeInTheDocument();
     expect(screen.getByText(/A report counts as late 15 days after its due date/)).toBeVisible();
     expect(screen.getByTestId('monitoring-action-status')).toBeEmptyDOMElement();
@@ -230,7 +246,7 @@ describe('monitoring board', () => {
     expect(dateInput()).toHaveValue('2025-06-30');
     fireEvent.change(dateInput(), { target: { value: '2025-08-30' } });
     await waitFor(() => expect(boardRequests()).toContain(`${BOARD}?asOf=2025-08-30`));
-    expect(await screen.findByText(/judged as of Aug 30, 2025/)).toBeInTheDocument();
+    expect(await screen.findByText(/, as of Aug 30, 2025/)).toBeInTheDocument();
     // A quarter picked while the as-of day stands sends both, sorted.
     await userEvent.click(screen.getByRole('combobox', { name: 'Quarter' }));
     await userEvent.click(await screen.findByRole('option', { name: 'Q2 2025 (Jun 30, 2025)' }));
@@ -263,7 +279,7 @@ describe('monitoring board', () => {
     renderWithQuery(<MonitoringPage />);
     await screen.findByTestId('monitoring-tiles');
     fireEvent.change(dateInput(), { target: { value: '2025-08-30' } });
-    await screen.findByText(/judged as of Aug 30, 2025/);
+    await screen.findByText(/, as of Aug 30, 2025/);
     const button = screen.getByTestId('monitoring-export');
     expect(button).toHaveTextContent('Export CSV');
     await userEvent.click(button);

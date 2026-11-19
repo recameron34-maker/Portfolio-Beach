@@ -6,98 +6,129 @@
   min-width: 0;
   width: 190px;
 }
-.pb-toolbar .pb-extraction-period {
-  min-width: 0;
-  width: 150px;
-}
 
-/* The batch form: period, type and the button on one row on a laptop, stacked on a phone. */
+/* The batch form: period, type and the command on one row on a laptop, stacked on a phone. Fluent's
+   dropdown keeps a 250px minimum unless told otherwise. */
 .pb-extraction-form {
   display: flex;
   flex-wrap: wrap;
   align-items: end;
-  gap: 10px 14px;
-  margin: 0 0 12px;
+  gap: var(--pb-space-3) var(--pb-space-4);
+  margin: 0 0 var(--pb-space-3);
 }
-.pb-extraction-form > .pb-notice {
-  flex-basis: 100%;
-  margin: 0;
+.pb-extraction-form .pb-extraction-period {
+  min-width: 0;
+  width: 160px;
+}
+.pb-extraction-form .pb-extraction-filter {
+  min-width: 0;
+  width: 220px;
+}
+.pb-extraction-form-note {
+  max-width: 72ch;
+  margin: 0 0 var(--pb-space-3);
 }
 .pb-extraction-form-problem {
   flex-basis: 100%;
   margin: 0;
-  font-size: 12px;
-  line-height: 16px;
+  font-size: var(--pb-text-sm);
+  line-height: var(--pb-text-sm-lh);
   color: var(--pb-bad-ink);
 }
 
 /* Load more under a table. */
 .pb-extraction-more {
-  margin: 12px 0 0;
+  margin: var(--pb-space-3) 0 0;
 }
 
-/* The review table: values and quotes keep their lines; every cell starts at its top. */
-.pb-extraction-fields td {
-  vertical-align: top;
+/* The runs table: the document's title and its file name keep one line each, cut short with their
+   whole text in the title; the company and its number share a line. */
+.pb-extraction-document {
+  width: 100%;
+  min-width: 220px;
 }
-.pb-extraction-fields .is-selected td {
-  background: var(--pb-accent-tint-10);
-}
-.pb-extraction-quote {
+.pb-extraction-clip {
   display: block;
-  max-width: 260px;
-  font-size: 12px;
-  line-height: 16px;
-  color: var(--pb-muted-strong);
-  overflow-wrap: anywhere;
+  contain: inline-size;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.pb-cell-sub > .pb-extraction-clip {
+  flex: 1 1 0;
+  min-width: 0;
+}
+.pb-extraction-company {
+  white-space: nowrap;
+  min-width: 180px;
+}
+
+/* The review table: the value right-aligned with what it was under it; the source as the page,
+   a command in the accent's ink, then the quote; text columns keep a width a word fits in, so a
+   phone scrolls the table instead of breaking words. */
+.pb-extraction-field {
+  min-width: 112px;
 }
 .pb-extraction-was {
   display: block;
-  font-size: 12px;
-  line-height: 16px;
+  font-size: var(--pb-text-sm);
+  line-height: var(--pb-text-sm-lh);
   color: var(--pb-muted);
 }
-.pb-extraction-findings {
-  display: inline-flex;
-  flex-wrap: wrap;
-  gap: 4px;
+.pb-extraction-source {
+  min-width: 160px;
 }
-.pb-extraction-details {
-  margin-top: 4px;
-  font-size: 12px;
-  line-height: 16px;
-  color: var(--pb-muted);
+.pb-table .pb-extraction-page-link {
+  min-height: 0;
+  padding: 0;
+  color: var(--pb-accent-ink);
+  font-weight: 500;
 }
-.pb-extraction-details > summary {
-  cursor: pointer;
-  color: var(--pb-brand-primary);
+.pb-table .pb-extraction-page-link:hover {
+  background: transparent;
+  text-decoration: underline;
 }
-.pb-extraction-details > .pb-list {
-  margin-top: 4px;
-  color: var(--pb-text);
+.pb-table .pb-extraction-page-link:focus-visible {
+  outline: 2px solid var(--pb-brand-accent);
+  outline-offset: 2px;
+  border-radius: var(--pb-radius-sm);
+}
+.pb-extraction-quote {
+  display: block;
+  min-width: 160px;
+  max-width: 260px;
+  font-size: var(--pb-text-sm);
+  line-height: var(--pb-text-sm-lh);
+  color: var(--pb-muted-strong);
+  overflow-wrap: break-word;
 }
 .pb-extraction-actions {
   display: inline-flex;
   flex-wrap: wrap;
-  gap: 2px 4px;
+  gap: 2px var(--pb-space-1);
 }
 .pb-extraction-actions > button {
   white-space: nowrap;
+}
+/* A sentence said once over the values (why nothing can be decided, who decided). */
+.pb-extraction-above {
+  margin: 0 0 var(--pb-space-3);
 }
 
 /* The drafted narrative: the highlights as a list, the commentary as a paragraph, each with its actions. */
 .pb-extraction-narrative {
   display: grid;
-  gap: 14px;
+  gap: var(--pb-space-4);
+  max-width: 72ch;
 }
 .pb-extraction-narrative h3 {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 8px;
-  margin: 0 0 6px;
-  font-size: 13px;
-  line-height: 20px;
+  gap: var(--pb-space-2);
+  margin: 0 0 var(--pb-space-1);
+  font-size: var(--pb-text-md);
+  line-height: var(--pb-text-md-lh);
   font-weight: 600;
 }
 .pb-extraction-narrative h3 > .pb-extraction-actions {
@@ -111,7 +142,7 @@
   max-height: 720px;
   overflow: auto;
   border: 1px solid var(--pb-border);
-  border-radius: 6px;
+  border-radius: var(--pb-radius);
   background: var(--pb-surface-2);
 }
 .pb-extraction-page-frame:focus-visible {
@@ -133,22 +164,40 @@
 .pb-extraction-page text {
   fill: var(--pb-text);
 }
+/* A quote that becomes highlighted fades in; the one it replaces goes at once. */
 .pb-extraction-page .pb-extraction-highlight {
   fill: rgba(var(--pb-accent-rgb), 0.3);
   stroke: var(--pb-brand-accent);
   stroke-width: 1;
+  animation: pb-fade var(--pb-dur-fast) var(--pb-ease) backwards;
 }
 .pb-extraction-page-note {
-  margin: 10px 0 0;
+  max-width: 72ch;
+  margin: var(--pb-space-3) 0 0;
 }
 
 @media (max-width: 760px) {
   .pb-toolbar .pb-extraction-filter,
-  .pb-toolbar .pb-extraction-period {
+  .pb-extraction-form .pb-extraction-filter,
+  .pb-extraction-form .pb-extraction-period {
     width: 100%;
   }
-  .pb-extraction-quote {
-    max-width: 200px;
+}
+/* On a touch screen the page command keeps its line in the row, with a band 44px tall around it
+   that takes the touch. */
+@media (pointer: coarse), (max-width: 760px) {
+  .pb-main .pb-table .pb-extraction-page-link {
+    position: relative;
+    min-height: 0;
+  }
+  .pb-main .pb-table .pb-extraction-page-link::before {
+    content: '';
+    position: absolute;
+    top: 50%;
+    left: 0;
+    right: 0;
+    height: 44px;
+    transform: translateY(-50%);
   }
 }
 
@@ -156,7 +205,14 @@
 .pb-extraction-fields .is-selected .pb-cell-sub,
 .pb-extraction-fields .is-selected .pb-extraction-was,
 .pb-extraction-fields .is-selected .pb-extraction-quote,
-.pb-extraction-fields .is-selected .pb-extraction-details,
 .pb-extraction-fields .is-selected .pb-meta {
   color: var(--pb-muted-strong);
+}
+
+/* Motion policy: each animated selector of this file, repeated exactly, switched off under reduced
+   motion or on a slow display (docs/06 section 5). */
+@media (prefers-reduced-motion: reduce), (update: slow) {
+  .pb-extraction-page .pb-extraction-highlight {
+    animation: none;
+  }
 }

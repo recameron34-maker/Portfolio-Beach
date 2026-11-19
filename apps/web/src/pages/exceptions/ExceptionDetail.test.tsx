@@ -80,15 +80,22 @@ describe('an exception', () => {
     expect(banner()).toHaveTextContent('Opened Jul 2, 2025 10:15:00 UTC');
     expect(within(banner()).getByText('High')).toHaveClass('pb-badge-bad');
     expect(within(banner()).getByText('Open')).toHaveClass('pb-badge-watch');
-    expect(screen.getByRole('link', { name: 'All exceptions' })).toHaveAttribute(
-      'href',
-      '/data/exceptions',
-    );
+    expect(within(banner()).getByText('Open').closest('.pb-meta-list')).not.toBeNull();
+    expect(
+      within(screen.getByRole('navigation', { name: 'Breadcrumb' })).getByRole('link', {
+        name: 'Exceptions',
+      }),
+    ).toHaveAttribute('href', '/data/exceptions');
+    // What was expected and what was found lead, side by side; the rest is the table under them.
+    const found = screen.getByTestId('exception-detail');
+    const pair = (term: string): HTMLElement =>
+      within(found).getByText(term, { selector: 'dt' }).nextElementSibling as HTMLElement;
+    expect(pair('Expected')).toHaveTextContent('20000000.00');
+    expect(pair('Actual')).toHaveTextContent('21500000.00');
     const detail = screen.getByRole('table', { name: 'Exception' });
     const value = (label: string): HTMLElement =>
       within(detail).getByRole('rowheader', { name: label }).nextElementSibling as HTMLElement;
-    expect(value('Expected')).toHaveTextContent('20000000.00');
-    expect(value('Actual')).toHaveTextContent('21500000.00');
+    expect(within(detail).queryByRole('rowheader', { name: 'Expected' })).not.toBeInTheDocument();
     expect(
       within(value('Context')).getByRole('link', { name: 'lookthrough-2025-06-30.json' }),
     ).toHaveAttribute('href', `/data/lookthrough/${RUN_ID.defects}`);
@@ -290,7 +297,11 @@ describe('an exception', () => {
       );
       renderWithQuery(<ExceptionDetailPage />);
       expect(await screen.findByText(text), String(code)).toBeInTheDocument();
-      expect(screen.getByRole('link', { name: 'All exceptions' })).toBeInTheDocument();
+      expect(
+        within(screen.getByRole('navigation', { name: 'Breadcrumb' })).getByRole('link', {
+          name: 'Exceptions',
+        }),
+      ).toBeInTheDocument();
     }
   });
 

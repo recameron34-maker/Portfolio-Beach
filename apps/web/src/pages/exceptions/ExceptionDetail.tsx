@@ -11,6 +11,7 @@ import { meQuery } from '../../app/queries.js';
 import { UnavailableState } from '../../components/UnavailableState.js';
 import {
   Badge,
+  Breadcrumbs,
   Card,
   ErrorState,
   Field,
@@ -43,15 +44,8 @@ import {
 } from './exceptions.js';
 import './exceptions.css';
 
-function BackLink(): ReactNode {
-  return (
-    <p className="pb-meta">
-      <Link to="/data/exceptions" search={{}}>
-        All exceptions
-      </Link>
-    </p>
-  );
-}
+/** Where an exception's page sits: under the queue. */
+const CRUMBS = [{ label: 'Exceptions', to: '/data/exceptions' }];
 
 /** The run or file and the position the exception is about, as links where the reader may follow them. */
 function Context({ x }: { x: DataException }): ReactNode {
@@ -143,7 +137,7 @@ function ActionsCard({ x, roles }: { x: DataException; roles: readonly string[] 
 
   return (
     <Card testId="exception-actions">
-      <SectionHeader aside={<SimulatedBadge />}>Actions</SectionHeader>
+      <SectionHeader>Actions</SectionHeader>
       {!actions.offered ? (
         <p className="pb-meta" data-testid="exception-read-only">
           Operations works the queue; your role reads it.
@@ -182,6 +176,7 @@ function ActionsCard({ x, roles }: { x: DataException; roles: readonly string[] 
                 );
               })
             )}
+            {actions.transitions.length === 0 ? null : <SimulatedBadge />}
           </div>
           <form
             className="pb-exceptions-ticket"
@@ -209,6 +204,7 @@ function ActionsCard({ x, roles }: { x: DataException; roles: readonly string[] 
             >
               Set ticket
             </Button>
+            {actions.transitions.length === 0 ? <SimulatedBadge /> : null}
           </form>
         </>
       )}
@@ -235,30 +231,40 @@ function ActionsCard({ x, roles }: { x: DataException; roles: readonly string[] 
 function ExceptionBody({ x, roles }: { x: DataException; roles: readonly string[] }): ReactNode {
   return (
     <>
-      <BackLink />
       <PageHeader
+        crumbs={CRUMBS}
         title={x.ruleId}
         meta={
           <span className="pb-meta-list">
+            <span>
+              <Badge tone={severityTone(x.severity)}>{severityLabel(x.severity)}</Badge>
+            </span>
+            <span>
+              <Badge tone={exceptionTone(x.state)}>{exceptionStateWord(x.state)}</Badge>
+            </span>
             <span>{sourceLabel(x.source)}</span>
             <span>Opened {formatDateTime(x.createdAt)}</span>
-          </span>
-        }
-        actions={
-          <span className="pb-exceptions-badges">
-            <Badge tone={severityTone(x.severity)}>{severityLabel(x.severity)}</Badge>
-            <Badge tone={exceptionTone(x.state)}>{exceptionStateWord(x.state)}</Badge>
           </span>
         }
         testId="exception-banner"
       />
       <Card testId="exception-detail">
         <SectionHeader>What the intake found</SectionHeader>
+        <dl className="pb-exceptions-pair">
+          <div>
+            <dt>Expected</dt>
+            <dd className={x.expected === null ? 'is-missing' : undefined}>
+              {x.expected ?? MISSING}
+            </dd>
+          </div>
+          <div>
+            <dt>Actual</dt>
+            <dd className={x.actual === null ? 'is-missing' : undefined}>{x.actual ?? MISSING}</dd>
+          </div>
+        </dl>
         <KeyValueTable
           label="Exception"
           rows={[
-            { label: 'Expected', value: x.expected ?? MISSING },
-            { label: 'Actual', value: x.actual ?? MISSING },
             { label: 'Context', value: <Context x={x} /> },
             {
               label: 'Candidates',
@@ -294,7 +300,7 @@ export function ExceptionDetailPage(): ReactNode {
     const missing = q.error instanceof ApiError && q.error.status === 404;
     return (
       <>
-        <BackLink />
+        <Breadcrumbs items={CRUMBS} />
         {missing ? (
           <ErrorState
             title="Exception not found or not visible to you"

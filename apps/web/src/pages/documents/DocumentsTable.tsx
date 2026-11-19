@@ -14,11 +14,11 @@ import {
 } from './documents.js';
 import './documents.css';
 
-/** The company or fund a document is about, as a link where the reader may follow it. */
+/** The company or fund a document is about, as a link where the reader may follow it, its number after it. */
 function SubjectCell({ doc }: { doc: DocumentSummary }): ReactNode {
   const subject = subjectOf(doc);
   return (
-    <td>
+    <td className="pb-documents-subject">
       {subject.link === null ? (
         <span>{subject.text}</span>
       ) : (
@@ -27,9 +27,10 @@ function SubjectCell({ doc }: { doc: DocumentSummary }): ReactNode {
         </Link>
       )}
       {doc.investmentNumber === null ? null : (
-        <span className="pb-cell-sub">
+        <>
+          {' '}
           <span className="pb-key">{doc.investmentNumber}</span>
-        </span>
+        </>
       )}
     </td>
   );
@@ -39,19 +40,23 @@ function SubjectCell({ doc }: { doc: DocumentSummary }): ReactNode {
  * The hub's table, shared by the hub, the review queue and any tab that lists documents: title
  * (a link to the document) with its file name and, for a statement held because the position it
  * names did not link, what the reviewer is asked to choose; then type, company or fund, period, status, received,
- * the classifier's confidence and the latest extraction run (a link to its review page).
+ * the classifier's confidence and the latest extraction run (a link to its review page). The title
+ * and the file name keep one line each, cut short with their whole text in the title. `busy` dims
+ * the rows while a new search or filter replaces them.
  */
 export function DocumentsTable({
   items,
   label,
   testId,
+  busy = false,
 }: {
   items: readonly DocumentSummary[];
   label: string;
   testId: string;
+  busy?: boolean;
 }): ReactNode {
   return (
-    <TableWrap label={label}>
+    <TableWrap label={label} busy={busy}>
       <table className="pb-table pb-documents-table" aria-label={label} data-testid={testId}>
         <thead>
           <tr>
@@ -71,12 +76,19 @@ export function DocumentsTable({
             return (
               <tr key={doc.id}>
                 <td className="pb-documents-title">
-                  <Link to="/documents/$id" params={{ id: doc.id }}>
+                  <Link
+                    to="/documents/$id"
+                    params={{ id: doc.id }}
+                    className="pb-documents-clip"
+                    title={doc.title}
+                  >
                     {doc.title}
                   </Link>
                   {doc.fileName === doc.title ? null : (
                     <span className="pb-cell-sub">
-                      <span>{doc.fileName}</span>
+                      <span className="pb-documents-clip" title={doc.fileName}>
+                        {doc.fileName}
+                      </span>
                     </span>
                   )}
                   {hold === null ? null : (
@@ -85,7 +97,7 @@ export function DocumentsTable({
                     </span>
                   )}
                 </td>
-                <td>{docTypeLabel(doc.docType)}</td>
+                <td className="pb-nowrap">{docTypeLabel(doc.docType)}</td>
                 <SubjectCell doc={doc} />
                 <td className="pb-nowrap">{formatDate(doc.periodEnd)}</td>
                 <td>

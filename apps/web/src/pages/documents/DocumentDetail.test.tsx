@@ -106,9 +106,10 @@ describe('a document', () => {
     renderWithQuery(<DocumentDetailPage />);
     await screen.findByTestId('document-banner');
     expect(within(banner()).getByRole('heading', { level: 1 })).toHaveTextContent(REPORT_TITLE);
-    expect(banner()).toHaveTextContent(REPORT_FILE);
+    // The file name and the received day are the metadata's alone; the meta keeps the period.
+    expect(banner()).not.toHaveTextContent(REPORT_FILE);
     expect(banner()).toHaveTextContent('Jun 30, 2025');
-    expect(banner()).toHaveTextContent('Received Jul 1, 2025');
+    expect(banner()).not.toHaveTextContent('Received Jul 1, 2025');
     expect(within(banner()).getByRole('link', { name: 'Meridian Data Partners' })).toHaveAttribute(
       'href',
       `/portfolio/${POSITION_ID.meridian}`,
@@ -118,12 +119,15 @@ describe('a document', () => {
       'href',
       `/sponsors/${ID.sponsor1}`,
     );
-    expect(within(banner()).getByText('Quarterly financials')).toHaveClass('pb-badge-plain');
+    // The type in words and the status as a dot and a word, both in the meta line.
+    expect(within(banner()).getByText('Quarterly financials')).not.toHaveClass('pb-badge');
     expect(within(banner()).getByText('Classified')).toHaveClass('pb-badge-good');
-    expect(screen.getByRole('link', { name: 'All documents' })).toHaveAttribute(
-      'href',
-      '/documents',
-    );
+    expect(within(banner()).getByText('Classified').closest('.pb-meta-list')).not.toBeNull();
+    expect(
+      within(screen.getByRole('navigation', { name: 'Breadcrumb' })).getByRole('link', {
+        name: 'Documents',
+      }),
+    ).toHaveAttribute('href', '/documents');
     expect(status()).toBeEmptyDOMElement();
 
     expect(screen.getByTestId('document-detail')).toContainElement(metadata());
@@ -351,7 +355,11 @@ describe('a document', () => {
     renderWithQuery(<DocumentDetailPage />);
     expect(screen.getByText('Loading')).toBeInTheDocument();
     expect(await screen.findByText('Document not found or not visible to you')).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: 'All documents' })).toBeInTheDocument();
+    expect(
+      within(screen.getByRole('navigation', { name: 'Breadcrumb' })).getByRole('link', {
+        name: 'Documents',
+      }),
+    ).toBeInTheDocument();
   });
 
   it('shows any other failure as an error', TIMEOUT, async () => {

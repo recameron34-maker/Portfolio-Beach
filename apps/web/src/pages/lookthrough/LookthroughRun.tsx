@@ -1,11 +1,13 @@
+import { Fragment } from 'react';
 import type { ReactNode } from 'react';
 import { Link, useParams, useSearch } from '@tanstack/react-router';
 import { useQuery } from '@tanstack/react-query';
-import type { IntakeFinding, LookthroughRow, LookthroughRunDetail } from '@pb/contracts';
+import type { LookthroughRow, LookthroughRunDetail } from '@pb/contracts';
 import { ApiError } from '../../api/client.js';
 import { UnavailableState } from '../../components/UnavailableState.js';
 import {
   Badge,
+  Breadcrumbs,
   Card,
   EmptyState,
   ErrorState,
@@ -16,26 +18,17 @@ import {
   StatTile,
   TableWrap,
 } from '../../components/ui.js';
-import { formatDate, MISSING, plural } from '../../lib/format.js';
+import { formatDate, labelOf, MISSING, plural } from '../../lib/format.js';
 import { humanizeState, stagingTone } from '../../lib/states.js';
 import { balanceTiles } from '../../lib/tiles.js';
-import {
-  candidatesText,
-  dayOf,
-  exactMoney,
-  findingDetail,
-  findingTone,
-  hiddenRowsNote,
-  linkNote,
-  rowSubject,
-} from '../intake/intake.js';
+import { dayOf, exactMoney, hiddenRowsNote } from '../intake/intake.js';
+import { FileFindingsCard, FindingsCell, SubjectCell } from '../intake/IntakeFile.js';
 import { lookthroughRunQuery } from './lookthrough-queries.js';
 import {
   approvedText,
   describeDifference,
   DIFFERENCE_LABELS,
   LOOKTHROUGH_FORBIDDEN,
-  mappedLabel,
   rowExceptionsText,
   runStatusTone,
   runStatusWord,
@@ -43,13 +36,8 @@ import {
 } from './lookthrough.js';
 import './lookthrough.css';
 
-function BackLink(): ReactNode {
-  return (
-    <p className="pb-meta">
-      <Link to="/data/lookthrough">All reconcile runs</Link>
-    </p>
-  );
-}
+/** Where a run's page sits: under Look-through. */
+const CRUMBS = [{ label: 'Look-through', to: '/data/lookthrough' }];
 
 function Tiles({ run }: { run: LookthroughRunDetail }): ReactNode {
   const s = runSummary(run);
@@ -73,72 +61,52 @@ function Tiles({ run }: { run: LookthroughRunDetail }): ReactNode {
   );
 }
 
-function FileFindingsCard({ findings }: { findings: readonly IntakeFinding[] }): ReactNode {
+/**
+ * What the provider called a sector or a geography, and the taxonomy term it maps to when that
+ * reads differently ("maps to Software"); a label the mapping does not know is marked "Not mapped".
+ */
+function MappedCell({ label, code }: { label: string; code: string | null }): ReactNode {
+  const term = code === null ? null : labelOf(code);
   return (
-    <Card tone="error" testId="lookthrough-file-findings">
-      <SectionHeader>Run findings</SectionHeader>
-      <ul className="pb-lookthrough-file-findings" aria-label="Run findings">
-        {findings.map((f, i) => {
-          const detail = findingDetail(f);
-          return (
-            <li key={`${f.ruleId}-${i}`}>
-              <Badge tone={findingTone(f.severity)}>{f.ruleId}</Badge>
-              <span>{f.message}</span>
-              {detail === null ? null : <span className="pb-meta">{detail}</span>}
-            </li>
-          );
-        })}
-      </ul>
-    </Card>
-  );
-}
-
-/** The position a row is about: a link once matched, else the provider's name with why it did not link. */
-function PositionCell({ row }: { row: LookthroughRow }): ReactNode {
-  const subject = rowSubject(row);
-  const note = linkNote(row.link);
-  const candidates = candidatesText(row.link.candidates);
-  const name = subject.companyName ?? MISSING;
-  return (
-    <td className="pb-lookthrough-position">
-      {row.link.status === 'matched' && row.link.investmentId !== null ? (
-        <Link to="/portfolio/$id" params={{ id: row.link.investmentId }}>
-          {name}
-        </Link>
-      ) : (
-        <span>{name}</span>
+    <td>
+      <span className="pb-nowrap">{label}</span>
+      {code === null ? (
+        <span className="pb-cell-sub">
+          <Badge tone="watch">Not mapped</Badge>
+        </span>
+      ) : term === label ? null : (
+        <span className="pb-cell-sub">maps to {term}</span>
       )}
-      <span className="pb-cell-sub">
-        {subject.investmentNumber === null ? null : (
-          <span className="pb-key">{subject.investmentNumber}</span>
-        )}
-        {note === null ? null : (
-          <Badge plain tone="watch">
-            {note}
-          </Badge>
-        )}
-      </span>
-      {candidates === null ? null : <span className="pb-lookthrough-lines">{candidates}</span>}
     </td>
   );
 }
 
-/** The provider's figure with the record's beneath it, both to the cent. */
+/** The provider's figure with the record's beneath it, both to the cent; a watch dot when they differ. */
 function ExposureCell({
   provider,
   approved,
+  differs,
 }: {
   provider: string;
   approved: string | null;
+  differs: boolean;
 }): ReactNode {
   return (
-    <td className="num pb-lookthrough-exposure">
-      <span>{exactMoney(provider)}</span>
-      <span className="pb-lookthrough-lines">record {approvedText(approved)}</span>
+    <td className="num">
+      <span className="pb-lookthrough-figure">
+        {differs ? (
+          <span className="pb-lookthrough-differs" title="Differs from the record">
+            <span className="pb-visually-hidden">Differs from the record: </span>
+          </span>
+        ) : null}
+        {exactMoney(provider)}
+      </span>
+      <span className="pb-cell-sub">record {approvedText(approved)}</span>
     </td>
   );
 }
 
+/** The fields that disagree with the record, in words; each one's title says both sides. */
 function DifferencesCell({ row }: { row: LookthroughRow }): ReactNode {
   if (row.differences.length === 0) {
     return (
@@ -147,55 +115,22 @@ function DifferencesCell({ row }: { row: LookthroughRow }): ReactNode {
       </td>
     );
   }
+  // The words show; a screen reader hears each difference as its sentence instead.
   return (
     <td>
-      <span className="pb-lookthrough-badges">
-        {row.differences.map((d) => (
-          <span key={d.field} title={describeDifference(d)}>
-            <Badge tone="watch">{DIFFERENCE_LABELS[d.field]}</Badge>
-          </span>
+      <span aria-hidden="true">
+        {row.differences.map((d, i) => (
+          <Fragment key={d.field}>
+            {i === 0 ? null : ', '}
+            <span title={describeDifference(d)}>{DIFFERENCE_LABELS[d.field]}</span>
+          </Fragment>
         ))}
       </span>
-      <span className="pb-lookthrough-lines">
-        {row.differences.map((d) => (
-          <span key={d.field}>{describeDifference(d)}</span>
-        ))}
-      </span>
-    </td>
-  );
-}
-
-function FindingsCell({ findings }: { findings: readonly IntakeFinding[] }): ReactNode {
-  if (findings.length === 0) {
-    return (
-      <td>
-        <span className="pb-meta">None</span>
-      </td>
-    );
-  }
-  return (
-    <td>
-      <span className="pb-lookthrough-badges">
-        {findings.map((f, i) => (
-          <span key={`${f.ruleId}-${i}`} title={f.message}>
-            <Badge tone={findingTone(f.severity)}>{f.ruleId}</Badge>
-          </span>
-        ))}
-      </span>
-      <details className="pb-lookthrough-details">
-        <summary>{plural(findings.length, 'finding')}</summary>
-        <ul className="pb-list">
-          {findings.map((f, i) => {
-            const detail = findingDetail(f);
-            return (
-              <li key={`${f.ruleId}-${i}`}>
-                {f.ruleId}: {f.message}
-                {detail === null ? '' : ` (${detail})`}
-              </li>
-            );
-          })}
-        </ul>
-      </details>
+      {row.differences.map((d) => (
+        <span key={d.field} className="pb-visually-hidden">
+          {describeDifference(d)}
+        </span>
+      ))}
     </td>
   );
 }
@@ -227,24 +162,24 @@ function RowsTable({ rows }: { rows: readonly LookthroughRow[] }): ReactNode {
             return (
               <tr key={row.id}>
                 <NumCell>{String(row.rowNo)}</NumCell>
-                <PositionCell row={row} />
-                <td>{mappedLabel(row.provider.sector, row.mapped.sector)}</td>
-                <td>{mappedLabel(row.provider.geography, row.mapped.geography)}</td>
+                <SubjectCell row={row} />
+                <MappedCell label={row.provider.sector} code={row.mapped.sector} />
+                <MappedCell label={row.provider.geography} code={row.mapped.geography} />
                 <ExposureCell
                   provider={row.provider.exposureAtNav}
                   approved={row.approved.exposureAtNav}
+                  differs={row.differences.some((d) => d.field === 'exposureAtNav')}
                 />
                 <ExposureCell
                   provider={row.provider.exposureAtCost}
                   approved={row.approved.exposureAtCost}
+                  differs={row.differences.some((d) => d.field === 'exposureAtCost')}
                 />
                 <DifferencesCell row={row} />
                 <FindingsCell findings={row.findings} />
                 <td>
                   <Badge tone={stagingTone(row.status)}>{humanizeState(row.status)}</Badge>
-                  {exceptions === null ? null : (
-                    <span className="pb-lookthrough-lines">{exceptions}</span>
-                  )}
+                  {exceptions === null ? null : <span className="pb-cell-sub">{exceptions}</span>}
                 </td>
               </tr>
             );
@@ -303,18 +238,20 @@ function RowsCard({ run }: { run: LookthroughRunDetail }): ReactNode {
 function RunBody({ run, duplicate }: { run: LookthroughRunDetail; duplicate: boolean }): ReactNode {
   return (
     <>
-      <BackLink />
       <PageHeader
+        crumbs={CRUMBS}
         title={run.fileName}
         meta={
           <span className="pb-meta-list">
+            <span>
+              <Badge tone={runStatusTone(run.status)}>{runStatusWord(run.status)}</Badge>
+            </span>
             <span>As of {formatDate(run.asOf)}</span>
             <span>Reconciled {dayOf(run.receivedAt)}</span>
             <span>By {run.receivedBy ?? MISSING}</span>
             <span>{plural(run.rowCount, 'row')}</span>
           </span>
         }
-        actions={<Badge tone={runStatusTone(run.status)}>{runStatusWord(run.status)}</Badge>}
         testId="lookthrough-banner"
       />
       {duplicate ? (
@@ -323,7 +260,13 @@ function RunBody({ run, duplicate }: { run: LookthroughRunDetail; duplicate: boo
         </p>
       ) : null}
       <Tiles run={run} />
-      {run.fileFindings.length > 0 ? <FileFindingsCard findings={run.fileFindings} /> : null}
+      {run.fileFindings.length > 0 ? (
+        <FileFindingsCard
+          findings={run.fileFindings}
+          title="Run findings"
+          testId="lookthrough-file-findings"
+        />
+      ) : null}
       <RowsCard run={run} />
     </>
   );
@@ -343,7 +286,7 @@ export function LookthroughRunPage(): ReactNode {
     const missing = q.error instanceof ApiError && q.error.status === 404;
     return (
       <>
-        <BackLink />
+        <Breadcrumbs items={CRUMBS} />
         {missing ? (
           <ErrorState
             title="Reconcile run not found or not visible to you"

@@ -15,6 +15,7 @@ import {
   Field,
   PageHeader,
   PageSkeleton,
+  RowsSkeleton,
   SectionHeader,
   SimulatedBadge,
   TabNav,
@@ -76,27 +77,23 @@ function HubCard({ isOps }: { isOps: boolean }): ReactNode {
 
   return (
     <Card testId="documents-card">
-      <SectionHeader
-        aside={
-          <>
-            {items.length === 0 ? null : plural(items.length, 'document')}
-            <SimulatedBadge />
-          </>
-        }
-      >
+      <SectionHeader aside={items.length === 0 ? undefined : plural(items.length, 'document')}>
         Documents
       </SectionHeader>
       <Toolbar
         end={
           isOps ? (
-            <Button
-              size="small"
-              appearance="primary"
-              disabledFocusable={indexer.isPending}
-              onClick={index}
-            >
-              Index documents
-            </Button>
+            <>
+              <Button
+                size="small"
+                appearance="primary"
+                disabledFocusable={indexer.isPending}
+                onClick={index}
+              >
+                Index documents
+              </Button>
+              <SimulatedBadge />
+            </>
           ) : undefined
         }
       >
@@ -176,7 +173,7 @@ function HubCard({ isOps }: { isOps: boolean }): ReactNode {
       )}
       <ActionStatus latest={log.latest} testId="documents-action-status" />
       {docs.isPending ? (
-        <PageSkeleton rows={4} />
+        <RowsSkeleton rows={4} label="Loading documents" />
       ) : docs.isError ? (
         <UnavailableState
           error={docs.error}
@@ -197,7 +194,12 @@ function HubCard({ isOps }: { isOps: boolean }): ReactNode {
           testId="documents-empty"
         />
       ) : (
-        <DocumentsTable items={items} label="Documents" testId="documents-table" />
+        <DocumentsTable
+          items={items}
+          label="Documents"
+          testId="documents-table"
+          busy={docs.isPlaceholderData}
+        />
       )}
       {docs.hasNextPage ? (
         <p className="pb-documents-more">
@@ -210,7 +212,6 @@ function HubCard({ isOps }: { isOps: boolean }): ReactNode {
             Load more
           </Button>
           <span className="pb-meta">
-            {' '}
             Showing {items.length} so far, {LIST_LIMIT} a page.
           </span>
         </p>

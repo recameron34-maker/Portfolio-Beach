@@ -214,8 +214,8 @@ export function unitLabel(unit: ExtractionUnit): string {
 }
 
 /**
- * A value as the document states it, in its own unit: "$125.40M", "42.50%", "Jun 30, 2025",
- * "120"; the missing placeholder when the model answered null. Nothing is converted here: the
+ * A value as the document states it, in its own unit: "$125.40M", "-$7.94M", "42.50%",
+ * "Jun 30, 2025", "120"; the missing placeholder when the model answered null. Nothing is converted here: the
  * dollars reach the record only through the promotion, which converts with packages/calc.
  */
 export function valueText(
@@ -225,8 +225,13 @@ export function valueText(
 ): string {
   if (value === null || value === '') return MISSING;
   switch (kind) {
-    case 'money':
-      return unit !== null && isMoneyUnit(unit) ? `$${value}${MONEY_SUFFIX[unit] ?? ''}` : value;
+    case 'money': {
+      if (unit === null || !isMoneyUnit(unit)) return value;
+      // The sign goes before the dollar sign, as every other figure writes it: "-$7.94M".
+      const negative = value.startsWith('-');
+      const digits = negative ? value.slice(1) : value;
+      return `${negative ? '-' : ''}$${digits}${MONEY_SUFFIX[unit] ?? ''}`;
+    }
     case 'percent':
       return formatPct(value, 2);
     case 'date':

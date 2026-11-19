@@ -84,10 +84,12 @@ describe('weekly values file', () => {
     expect(banner).toHaveTextContent('By Avery Castellanos');
     expect(banner).toHaveTextContent('7 rows');
     expect(within(banner).getByText('Flagged')).toHaveClass('pb-badge-watch');
-    expect(screen.getByRole('link', { name: 'All weekly files' })).toHaveAttribute(
-      'href',
-      '/data/weekly',
-    );
+    expect(within(banner).getByText('Flagged').closest('.pb-meta-list')).not.toBeNull();
+    expect(
+      within(screen.getByRole('navigation', { name: 'Breadcrumb' })).getByRole('link', {
+        name: 'Weekly values',
+      }),
+    ).toHaveAttribute('href', '/data/weekly');
     expect(screen.queryByTestId('weekly-duplicate')).not.toBeInTheDocument();
     expect(screen.queryByTestId('intake-file-findings')).not.toBeInTheDocument();
 
@@ -137,10 +139,8 @@ describe('weekly values file', () => {
     const badge = within(beyond).getByText('Above threshold');
     expect(badge.closest('.pb-badge')).toHaveClass('pb-badge-bad');
     expect(badge).toHaveAttribute('title', 'At or beyond the 10% threshold');
-    expect(within(beyond).getByText('WK-BOUND-01', { selector: '.pb-badge' })).toHaveClass(
-      'pb-badge-bad',
-    );
-    expect(within(beyond).getByText('1 finding')).toBeInTheDocument();
+    expect(within(beyond).getByText('WK-BOUND-01').closest('.pb-rule-id')).not.toBeNull();
+    expect(within(beyond).getByText('1 finding')).toHaveClass('pb-badge-bad');
     expect(within(beyond).getByText('Flagged')).toHaveClass('pb-badge-watch');
 
     // An unmatched name: no link, no prior, the candidates for a person, the placeholder for the variance.
@@ -151,9 +151,7 @@ describe('weekly values file', () => {
     expect(
       within(unmatched).getByText('Candidates: INV-0001 Meridian Data Partners (near miss)'),
     ).toBeInTheDocument();
-    expect(within(unmatched).getByText('WK-XREF-01', { selector: '.pb-badge' })).toHaveClass(
-      'pb-badge-bad',
-    );
+    expect(within(unmatched).getByText('WK-XREF-01').closest('.pb-rule-id')).not.toBeNull();
     expect(within(unmatched).getAllByText('-').length).toBeGreaterThanOrEqual(2);
 
     // A promoted row: compared with the weekly value before it, with its Draft valuation.
@@ -180,7 +178,7 @@ describe('weekly values file', () => {
     // A report date that is not a day is shown as written, never guessed.
     const badDate = rowOf('Juniper Financial Group');
     expect(within(badDate).getByText('27/06/2025')).toBeInTheDocument();
-    expect(within(badDate).getByText('WK-TYPE-01', { selector: '.pb-badge' })).toBeInTheDocument();
+    expect(within(badDate).getByText('WK-TYPE-01').closest('.pb-rule-id')).not.toBeNull();
 
     // One Draft valuation from this file so far: the board link says so.
     expect(screen.getByTestId('weekly-board-link')).toHaveTextContent(
@@ -371,7 +369,11 @@ describe('weekly values file', () => {
     expect(
       await screen.findByText('Weekly file not found or not visible to you'),
     ).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: 'All weekly files' })).toBeInTheDocument();
+    expect(
+      within(screen.getByRole('navigation', { name: 'Breadcrumb' })).getByRole('link', {
+        name: 'Weekly values',
+      }),
+    ).toBeInTheDocument();
 
     cleanup();
     vi.restoreAllMocks();

@@ -11,6 +11,7 @@ import { meQuery } from '../../app/queries.js';
 import { UnavailableState } from '../../components/UnavailableState.js';
 import {
   Badge,
+  Breadcrumbs,
   Card,
   EmptyState,
   ErrorState,
@@ -19,6 +20,7 @@ import {
   PageHeader,
   PageSkeleton,
   SectionHeader,
+  SimulatedBadge,
   StatTile,
   TableWrap,
   Toolbar,
@@ -57,13 +59,8 @@ import {
 import '../intake/intake.css';
 import './weekly.css';
 
-function BackLink(): ReactNode {
-  return (
-    <p className="pb-meta">
-      <Link to="/data/weekly">All weekly files</Link>
-    </p>
-  );
-}
+/** Where a weekly file's page sits: under Weekly values. */
+const CRUMBS = [{ label: 'Weekly values', to: '/data/weekly' }];
 
 function Tiles({ file }: { file: WeeklyFileDetail }): ReactNode {
   const c = file.counts;
@@ -99,9 +96,7 @@ function PriorCell({ row }: { row: WeeklyRow }): ReactNode {
   return (
     <td className="pb-weekly-figure">
       {exactMoney(row.priorValue)}
-      <span className="pb-cell-sub">
-        <span className="pb-meta">{priorNote(row)}</span>
-      </span>
+      <span className="pb-cell-sub">{priorNote(row)}</span>
     </td>
   );
 }
@@ -271,6 +266,7 @@ function RowsCard({
                   Reject flagged rows
                 </Button>
               ) : null}
+              <SimulatedBadge />
             </>
           ) : undefined
         }
@@ -359,17 +355,19 @@ function FileBody({
 }): ReactNode {
   return (
     <>
-      <BackLink />
       <PageHeader
+        crumbs={CRUMBS}
         title={file.fileName}
         meta={
           <span className="pb-meta-list">
+            <span>
+              <Badge tone={stagingTone(file.status)}>{humanizeState(file.status)}</Badge>
+            </span>
             <span>Received {dayOf(file.receivedAt)}</span>
             <span>By {file.receivedBy ?? MISSING}</span>
             <span>{plural(file.rowCount, 'row')}</span>
           </span>
         }
-        actions={<Badge tone={stagingTone(file.status)}>{humanizeState(file.status)}</Badge>}
         testId="weekly-banner"
       />
       {duplicate ? (
@@ -400,7 +398,7 @@ export function WeeklyFilePage(): ReactNode {
     const missing = q.error instanceof ApiError && q.error.status === 404;
     return (
       <>
-        <BackLink />
+        <Breadcrumbs items={CRUMBS} />
         {missing ? (
           <ErrorState
             title="Weekly file not found or not visible to you"

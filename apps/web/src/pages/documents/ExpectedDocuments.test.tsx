@@ -81,7 +81,7 @@ describe('expected documents', () => {
       within(table())
         .getAllByRole('columnheader')
         .map((h) => h.textContent),
-    ).toEqual(['Company or fund', 'Type', 'Period', 'Due', 'Status', 'Age (days)', 'Document']);
+    ).toEqual(['Company or fund', 'Type', 'Period', 'Due', 'Status', 'Timing', 'Document']);
 
     const received = rowOf('Meridian Data Partners');
     expect(within(received).getByRole('link', { name: 'Meridian Data Partners' })).toHaveAttribute(
@@ -93,10 +93,12 @@ describe('expected documents', () => {
     expect(within(received).getByText('Jun 30, 2025')).toBeInTheDocument();
     expect(within(received).getByText('Aug 14, 2025')).toBeInTheDocument();
     expect(within(received).getByText('Received')).toHaveClass('pb-badge-good');
-    expect(within(received).getByText('-45')).toHaveAttribute(
+    // The timing in words, right-aligned; the signed days in its title.
+    expect(within(received).getByText('Received 45 days before due')).toHaveAttribute(
       'title',
-      'Received 45 days before due',
+      '-45 days from the due date',
     );
+    expect(within(received).getByText('Received 45 days before due')).toHaveClass('num');
     expect(within(received).getByRole('link', { name: 'Open document' })).toHaveAttribute(
       'href',
       `/documents/${DOC_ID.report}`,
@@ -104,12 +106,20 @@ describe('expected documents', () => {
 
     const late = rowOf('Silverline Staffing Holdings');
     expect(within(late).getByText('Late')).toHaveClass('pb-badge-watch');
-    expect(within(late).getByText('16')).toHaveAttribute('title', '16 days past due');
-    expect(within(late).getByText('-')).toBeInTheDocument();
+    expect(within(late).getByText('16 days past due')).toHaveAttribute(
+      'title',
+      '+16 days from the due date',
+    );
+    // No document yet: the placeholder, aligned with the links in its column.
+    expect(within(late).getByText('-')).toHaveClass('is-missing');
+    expect(within(late).getByText('-')).not.toHaveClass('num');
 
     const missing = rowOf('Cobalt Ridge Logistics');
     expect(within(missing).getByText('Missing')).toHaveClass('pb-badge-bad');
-    expect(within(missing).getByText('76')).toHaveAttribute('title', '76 days past due');
+    expect(within(missing).getByText('76 days past due')).toHaveAttribute(
+      'title',
+      '+76 days from the due date',
+    );
 
     const fund = rowOf('Kelpwood Fund IV');
     expect(within(fund).queryByRole('link')).not.toBeInTheDocument();

@@ -66,7 +66,11 @@ describe('intake list', () => {
     renderWithQuery(<IntakePage />);
     const table = await screen.findByRole('table', { name: 'Intake files' });
     expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('Intake');
-    expect(screen.getByText('Staging, validation, approval, then production')).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        'Accounting exports and operations workbooks, checked row by row before anything is written',
+      ),
+    ).toBeInTheDocument();
     // Intake is a tab of the Admin row, so the row shows here as on every page in it.
     expect(screen.getByRole('navigation', { name: 'Admin' })).toHaveTextContent('Intake');
     expect(screen.getByTestId('intake-files')).toBe(table);
@@ -101,8 +105,14 @@ describe('intake list', () => {
     const card = await screen.findByTestId('intake-upload');
     expect(fileInput()).toHaveAttribute('accept', '.csv,text/csv');
     expect(screen.getByRole('button', { name: 'Stage export' })).toBeDisabled();
-    const drop = await within(card).findByRole('list', { name: 'Exports in the drop folder' });
-    expect(drop).toHaveTextContent('accounting-export-2025-06-30-update.csv');
+    // Both drop folders are one table, each file with its folder and the command that stages it.
+    const drop = await within(card).findByRole('table', { name: 'Waiting in the drop folders' });
+    const waiting = (name: string): HTMLElement =>
+      within(drop).getByText(name).closest('tr') as HTMLElement;
+    await within(drop).findByText('ops-drop-2025-06-30-update.xlsx');
+    expect(
+      within(waiting('accounting-export-2025-06-30-update.csv')).getByText('Accounting exports'),
+    ).toBeInTheDocument();
     expect(screen.queryByTestId('intake-sample-clean')).not.toBeInTheDocument();
     // The workbook upload sits in the same card with the ops drop folder beside it.
     expect(workbookInput()).toHaveAttribute(
@@ -110,10 +120,12 @@ describe('intake list', () => {
       '.xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
     );
     expect(screen.getByRole('button', { name: 'Stage workbook' })).toBeDisabled();
-    const workbooks = await within(card).findByRole('list', {
-      name: 'Workbooks in the ops drop folder',
-    });
-    expect(workbooks).toHaveTextContent('ops-drop-2025-06-30-update.xlsx');
+    expect(
+      within(waiting('ops-drop-2025-06-30-update.xlsx')).getByText('Operations workbooks'),
+    ).toBeInTheDocument();
+    // The browser's own file inputs, in the app's look, keep their labels.
+    expect(fileInput()).toHaveClass('pb-file');
+    expect(workbookInput()).toHaveClass('pb-file');
     const urls = sentRequests().map(([url]) => url);
     expect([...new Set(urls)].sort()).toEqual([ME, FILES, EXPORTS, DROPS].sort());
 

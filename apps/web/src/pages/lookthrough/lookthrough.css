@@ -1,76 +1,43 @@
-/* Look-through pages (docs/04 M2 lookthrough-reconcile). Tokens only; shared table, tile and
-   badge styles live in styles.css, which loads first, so a page class wins over a shared class of
-   the same specificity. */
+/* Look-through pages (docs/04 M2 lookthrough-reconcile). Tokens only; shared table, tile, badge
+   and findings styles live in styles.css, and the position and findings cells are the intake
+   page's (intake.css), which loads first, so a page class wins over a shared class of the same
+   specificity. */
 
-/* The run card: the date and its button side by side, stacked on a phone. */
+/* The run card: the date, then the command and the preview's marker, stacked on a phone. */
 .pb-lookthrough-run {
   display: flex;
   flex-wrap: wrap;
   align-items: end;
-  gap: 10px 14px;
-  margin: 0 0 12px;
+  gap: var(--pb-space-3) var(--pb-space-4);
+  margin: 0 0 var(--pb-space-3);
+}
+.pb-lookthrough-run > .pb-actions {
+  min-height: 28px;
 }
 .pb-lookthrough-date {
   min-width: 0;
   width: 190px;
 }
 .pb-lookthrough-run-status > .pb-notice {
-  margin: 0 0 12px;
+  margin: 0 0 var(--pb-space-3);
 }
 
-/* Nine columns fit a laptop screen; each cell holds its word first and its detail on muted lines
-   below. On a phone the table scrolls inside its frame. */
-.pb-lookthrough-rows td {
-  vertical-align: top;
-}
-.pb-lookthrough-position {
-  min-width: 200px;
-}
-.pb-lookthrough-exposure {
-  white-space: nowrap;
-}
-.pb-lookthrough-exposure > span {
+/* The reconciled positions: the provider's figure over the record's, a watch dot before a figure
+   that disagrees with the record. */
+.pb-lookthrough-figure {
   display: block;
 }
-.pb-lookthrough-lines {
-  display: grid;
-  gap: 2px;
-  margin-top: 4px;
-  font-size: 12px;
-  line-height: 16px;
-  color: var(--pb-muted);
+.pb-lookthrough-differs {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  margin-right: var(--pb-space-2);
+  border-radius: 50%;
+  background: var(--pb-watch);
+  vertical-align: 2px;
 }
-.pb-lookthrough-badges {
-  display: inline-flex;
-  flex-wrap: wrap;
-  gap: 4px;
-}
-.pb-lookthrough-details {
-  margin-top: 4px;
-  font-size: 12px;
-  line-height: 16px;
-  color: var(--pb-muted);
-}
-.pb-lookthrough-details > summary {
-  cursor: pointer;
-  color: var(--pb-brand-primary);
-}
-.pb-lookthrough-details > .pb-list {
-  margin-top: 4px;
-  color: var(--pb-text);
-}
-.pb-lookthrough-file-findings {
-  margin: 0;
-  padding-left: 0;
-  list-style: none;
-  display: grid;
-  gap: 6px;
-}
-.pb-lookthrough-file-findings li {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 4px 10px;
+.pb-lookthrough-rows .num .pb-cell-sub {
+  justify-content: flex-end;
 }
 @media (max-width: 760px) {
   .pb-lookthrough-date {

@@ -16,13 +16,16 @@ import {
   taxonomyQuery,
 } from '../../app/queries.js';
 import { UnavailableState } from '../../components/UnavailableState.js';
+import { useReducedMotion } from '../../components/motion.js';
 import {
   Badge,
+  Breadcrumbs,
   Card,
   ErrorState,
   KeyValueTable,
   PageHeader,
   PageSkeleton,
+  RowsSkeleton,
   SectionHeader,
   SimulatedBadge,
 } from '../../components/ui.js';
@@ -53,13 +56,8 @@ import {
 import type { ClassifyForm } from './documents.js';
 import './documents.css';
 
-function BackLink(): ReactNode {
-  return (
-    <p className="pb-meta">
-      <Link to="/documents">All documents</Link>
-    </p>
-  );
-}
+/** Where a document's page sits: under the hub. */
+const CRUMBS = [{ label: 'Documents', to: '/documents' }];
 
 /** The position or the fund the document is linked to, as links where the reader may follow them. */
 function Links({ doc }: { doc: DocumentDetail }): ReactNode {
@@ -181,7 +179,10 @@ function DuplicatesCard({ doc }: { doc: DocumentDetail }): ReactNode {
 /** The lines of one page as the reader returned them, with a selector for the page. */
 function PagesView({ pages }: { pages: DocumentPages }): ReactNode {
   const selectId = useId();
+  const reduced = useReducedMotion();
   const [number, setNumber] = useState(pages.pages[0]?.number ?? 1);
+  // Once the reader picks another page, the new page's text fades in where the old one was.
+  const [swapped, setSwapped] = useState(false);
   const page = pages.pages.find((p) => p.number === number) ?? pages.pages[0];
   if (page === undefined) {
     return <p className="pb-meta">The reader found no page in this document.</p>;
@@ -198,7 +199,10 @@ function PagesView({ pages }: { pages: DocumentPages }): ReactNode {
             selectedOptions={[String(page.number)]}
             onOptionSelect={(_e, d) => {
               const n = Number(d.optionValue);
-              if (Number.isInteger(n) && n >= 1) setNumber(n);
+              if (Number.isInteger(n) && n >= 1) {
+                setSwapped(!reduced && n !== page.number);
+                setNumber(n);
+              }
             }}
           >
             {pages.pages.map((p) => (
@@ -211,7 +215,8 @@ function PagesView({ pages }: { pages: DocumentPages }): ReactNode {
         <span className="pb-meta">{plural(page.lines.length, 'line')}</span>
       </div>
       <pre
-        className="pb-documents-page"
+        key={page.number}
+        className={swapped ? 'pb-documents-page pb-swap-in' : 'pb-documents-page'}
         tabIndex={0}
         aria-label={`Text of page ${page.number}`}
         data-testid="document-page-text"
@@ -231,7 +236,7 @@ function PagesCard({ doc }: { doc: DocumentDetail }): ReactNode {
         Pages
       </SectionHeader>
       {q.isPending ? (
-        <PageSkeleton rows={4} />
+        <RowsSkeleton rows={4} label="Loading the document's text" />
       ) : q.isError ? (
         <UnavailableState
           inline
@@ -298,7 +303,7 @@ function ClassifyCard({ doc, log }: { doc: DocumentDetail; log: ActionLog }): Re
 
   return (
     <Card testId="document-classify">
-      <SectionHeader aside={<SimulatedBadge />}>Classify</SectionHeader>
+      <SectionHeader>Classify</SectionHeader>
       {hold === null ? null : (
         <p className="pb-notice" data-testid="document-statement-hold">
           {hold}
@@ -419,15 +424,18 @@ function ClassifyCard({ doc, log }: { doc: DocumentDetail; log: ActionLog }): Re
             onChange={(_e, d) => setForm({ ...form, reason: d.value })}
           />
         </div>
-        <Button
-          type="submit"
-          size="small"
-          appearance="primary"
-          disabledFocusable={problem !== null || busy}
-          {...(problem === null ? {} : { title: problem })}
-        >
-          Classify
-        </Button>
+        <span className="pb-actions">
+          <Button
+            type="submit"
+            size="small"
+            appearance="primary"
+            disabledFocusable={problem !== null || busy}
+            {...(problem === null ? {} : { title: problem })}
+          >
+            Classify
+          </Button>
+          <SimulatedBadge />
+        </span>
       </form>
     </Card>
   );
@@ -457,8 +465,8 @@ function DocumentBody({
   }, [offered]);
   return (
     <>
-      <BackLink />
       <PageHeader
+        crumbs={CRUMBS}
         title={
           <span ref={title} tabIndex={-1}>
             {doc.title}
@@ -466,18 +474,14 @@ function DocumentBody({
         }
         meta={
           <span className="pb-meta-list">
-            <span>{doc.fileName}</span>
+            <span>
+              <Badge tone={reviewStatusTone(doc.reviewStatus)}>
+                {reviewWord(doc.reviewStatus)}
+              </Badge>
+            </span>
+            {doc.docType === null ? null : <span>{docTypeLabel(doc.docType)}</span>}
             <span>{doc.periodEnd === null ? 'No period' : formatDate(doc.periodEnd)}</span>
-            <span>Received {dayOf(doc.receivedAt)}</span>
             <Links doc={doc} />
-          </span>
-        }
-        actions={
-          <span className="pb-documents-badges">
-            <Badge plain tone="brand">
-              {docTypeLabel(doc.docType)}
-            </Badge>
-            <Badge tone={reviewStatusTone(doc.reviewStatus)}>{reviewWord(doc.reviewStatus)}</Badge>
           </span>
         }
         testId="document-banner"
@@ -513,7 +517,7 @@ export function DocumentDetailPage(): ReactNode {
     const missing = q.error instanceof ApiError && q.error.status === 404;
     return (
       <>
-        <BackLink />
+        <Breadcrumbs items={CRUMBS} />
         {missing ? (
           <ErrorState
             title="Document not found or not visible to you"

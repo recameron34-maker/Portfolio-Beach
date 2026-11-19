@@ -158,7 +158,7 @@ async function judgeOn(page: Page, asOf: string): Promise<void> {
   await page.getByRole('combobox', { name: 'Quarter' }).click();
   await page.getByRole('option', { name: quarterOption(quarterEnd) }).click();
   await page.getByLabel('As of').fill(asOf);
-  await expect(page.getByText(`judged as of ${shownDate(asOf)}`)).toBeVisible();
+  await expect(page.getByText(`, as of ${shownDate(asOf)}`)).toBeVisible();
   await expect(page.locator('[aria-busy="true"]')).toHaveCount(0);
 }
 
@@ -198,8 +198,11 @@ test('operations reads the board, sees the late report turn late then missing, t
   const lateRow = rowFor(page, late.investmentNumber);
   await expect(lateRow).toContainText(late.companyName);
   await expect(lateRow).toContainText('Expected');
-  await expect(lateRow).toContainText(`Due ${shownDate(dueDate)}`);
-  await expect(lateRow).toContainText(
+  // The Due column holds the date; how far off it is, before it is late, is the date's title.
+  const dueCell = lateRow.locator('td').nth(5);
+  await expect(dueCell).toHaveText(shownDate(dueDate));
+  await expect(dueCell).toHaveAttribute(
+    'title',
     `due in ${definitions.documents.expectedDueDaysAfterQuarterEnd} days`,
   );
   await expect(lateRow.getByRole('link', { name: late.companyName })).toHaveAttribute(
