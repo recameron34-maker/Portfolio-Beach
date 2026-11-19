@@ -101,4 +101,23 @@ describe('RadarChart', () => {
     expect(rows[1]).toHaveTextContent('Sponsor tier70');
     expect(rows[3]).toHaveTextContent('Sizen/a');
   });
+
+  it('sets a label at the side clear of a point at the spoke end, even on a spoke that leans down', () => {
+    const seven: RadarAxis[] = ['A', 'B', 'C', 'D', 'E', 'F', 'G'].map((label, i) => ({
+      key: label,
+      label: `${label} measure`,
+      value: i === 4 ? 100 : 50,
+      display: i === 4 ? '100' : '50',
+    }));
+    const { container } = chart({ axes: seven });
+    for (const axis of container.querySelectorAll('.pb-radar-axis')) {
+      const spoke = axis.querySelector('.pb-radar-spoke');
+      const label = axis.querySelector('.pb-radar-label');
+      const anchor = label?.getAttribute('text-anchor');
+      if (anchor === 'middle') continue;
+      const gap = Math.abs(Number(label?.getAttribute('x')) - Number(spoke?.getAttribute('x2')));
+      // A point is 4px across its centre (6px when brought forward): 14px leaves room for both.
+      expect(gap).toBeGreaterThanOrEqual(14);
+    }
+  });
 });

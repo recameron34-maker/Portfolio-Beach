@@ -200,6 +200,7 @@ function ValueSeries({ credit, company }: { credit: CreditBlock; company: string
       ]}
       kind="money"
       format={moneyLabel}
+      baselineZero={false}
       summary={`Fair value and par for ${company} over ${plural(quarters.length, 'quarter')}; the latest fair value is ${formatMoneyM(last.fairValue)} against par of ${formatMoneyM(last.parValue)}.`}
     />
   );

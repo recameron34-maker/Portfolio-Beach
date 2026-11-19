@@ -1,8 +1,9 @@
 import { useState } from 'react';
 import type { KeyboardEvent, PointerEvent, ReactNode } from 'react';
+import { MISSING } from '../../lib/format.js';
 import { ChartFigure } from './ChartFigure.js';
 import type { TooltipState } from './ChartFigure.js';
-import { compactValue, knownRuns, linearScale, niceTicks, seriesColor } from './scale.js';
+import { axisLabels, dodge, knownRuns, linearScale, niceTicks, seriesColor } from './scale.js';
 import type { ValueKind } from './scale.js';
 import { useWidth } from './useWidth.js';
 
@@ -17,20 +18,29 @@ export interface LineSeries {
 }
 
 const PAD = { top: 12, right: 96, bottom: 28, left: 56 };
+/** Right of the plot when no end label is drawn: room for half the last date under the axis. */
+const PAD_RIGHT_BARE = 28;
+/** The gap an axis break leaves in the gridlines. */
+const BREAK_GAP = 12;
 
 /**
- * Trend over time for one or more series: 2px lines, end markers with a surface ring, a wash
- * under a single series, a crosshair tooltip that lists every series at the nearest x, keyboard
+ * Trend over time for one or more series: 1.75px lines with no wash under them, end markers with
+ * a surface ring, a crosshair tooltip that lists every series at the nearest x, keyboard
  * navigation with the arrow keys, direct end labels for two to four series and the table twin. A
- * null value is a gap: the line stops before it and starts again after it.
+ * null value is a gap: the line stops before it and starts again after it. One series has no end
+ * label: the chart's title names it. End labels that would touch move apart, each joined to its
+ * line by a short leader, so none is dropped.
  *
  * The points sit at even steps unless `at` places them: one number per point, rising (days since
  * the first date, say), so points that are unevenly spaced in time are drawn that far apart and a
- * straight line in time is a straight line on the chart.
+ * straight line in time is a straight line on the chart. `breakAfter` marks the axis broken after
+ * a point (an entry date before evenly spaced quarters). With `baselineZero` false the axis spans
+ * the figures only, and its lowest gridline is labelled like every other.
  */
 export function LineChart({
   title,
   heading,
+  hideCaption,
   subtitle,
   x,
   at,
@@ -40,11 +50,13 @@ export function LineChart({
   summary,
   height = 240,
   baselineZero = true,
+  breakAfter,
   testId,
 }: {
   title: string;
   /** The title is the section's heading (an h2): the chart is all its section holds. */
   heading?: boolean | undefined;
+  hideCaption?: boolean | undefined;
   subtitle?: string | undefined;
   x: string[];
   /** Where each point sits along the axis, in any unit; left out, the points are evenly spaced. */
@@ -55,15 +67,22 @@ export function LineChart({
   summary: string;
   height?: number | undefined;
   baselineZero?: boolean | undefined;
+  /** The axis is broken between this point and the next: their spacing is not to scale. */
+  breakAfter?: number | undefined;
   testId?: string | undefined;
 }): ReactNode {
-  const [ref, width] = useWidth();
+  const [ref, width, measured] = useWidth();
   const [active, setActive] = useState<number | null>(null);
   const all = series.flatMap((s) => s.values).filter((v): v is number => v !== null);
-  const ticks = niceTicks(Math.min(...all, 0), Math.max(...all, 0), 4, baselineZero);
+  const ticks = baselineZero
+    ? niceTicks(Math.min(...all, 0), Math.max(...all, 0), 4, true)
+    : niceTicks(Math.min(...all), Math.max(...all), 4, false);
+  const tickText = axisLabels(ticks, kind);
   const lo = ticks[0] ?? 0;
   const hi = ticks[ticks.length - 1] ?? 1;
-  const plotW = Math.max(120, width - PAD.left - PAD.right);
+  const labelled = series.length >= 2 && series.length <= 4;
+  const padRight = labelled ? PAD.right : PAD_RIGHT_BARE;
+  const plotW = Math.max(120, width - PAD.left - padRight);
   const plotH = height - PAD.top - PAD.bottom;
   // The share of the axis each point sits at: its place in `at` when every point has one and
   // they span a range, else its even step.
@@ -128,16 +147,27 @@ export function LineChart({
             name: s.name,
             value:
               s.values[active] === null || s.values[active] === undefined
-                ? 'n/a'
+                ? MISSING
                 : format(s.values[active]),
             color: seriesColor(i + 1),
           })),
         };
+  // The live region names a missing figure in words; the tooltip shows the placeholder.
+  const spoken =
+    active === null
+      ? ''
+      : `${x[active] ?? ''}: ${series
+          .map((s) => {
+            const v = s.values[active];
+            return `${s.name} ${v === null || v === undefined ? 'n/a' : format(v)}`;
+          })
+          .join(', ')}`;
 
-  // End labels for two to four series; a label too close to the previous one is dropped (the
-  // legend carries it). One series needs none: the chart's title names it.
-  const endLabels: { name: string; y: number; color: string }[] = [];
-  if (series.length >= 2 && series.length <= 4) {
+  // End labels for two to four series, apart by at least LABEL_STEP: each moves down off the one
+  // above it, and back up from the plot's foot when the last would fall below it. One series
+  // needs none: the chart's title names it.
+  const endLabels: { name: string; y: number; at: number; color: string }[] = [];
+  if (labelled) {
     const candidates = series
       .map((s, i) => {
         let last = -1;
@@ -150,15 +180,33 @@ export function LineChart({
         const v = last >= 0 ? s.values[last] : null;
         return v === null || v === undefined
           ? null
-          : { name: s.name, y: yAt(v), color: seriesColor(i + 1) };
+          : { name: s.name, y: yAt(v), at: yAt(v), color: seriesColor(i + 1) };
       })
-      .filter((c): c is { name: string; y: number; color: string } => c !== null)
+      .filter((c): c is { name: string; y: number; at: number; color: string } => c !== null)
       .sort((a, b) => a.y - b.y);
-    for (const c of candidates) {
-      const prev = endLabels[endLabels.length - 1];
-      if (prev === undefined || c.y - prev.y >= 14) endLabels.push(c);
-    }
+    endLabels.push(...dodge(candidates, PAD.top, PAD.top + plotH));
   }
+  // An axis break: a gap in the gridlines half way between the two points, two strokes across
+  // the foot. The lines themselves run on, since a gap in a line means a missing figure.
+  const breakAt =
+    breakAfter !== undefined && breakAfter >= 0 && breakAfter < x.length - 1
+      ? (xAt(breakAfter) + xAt(breakAfter + 1)) / 2
+      : null;
+  const rule = (y: number, className: string, key: string): ReactNode =>
+    breakAt === null ? (
+      <line key={key} x1={PAD.left} x2={PAD.left + plotW} y1={y} y2={y} className={className} />
+    ) : (
+      <g key={key}>
+        <line x1={PAD.left} x2={breakAt - BREAK_GAP / 2} y1={y} y2={y} className={className} />
+        <line
+          x1={breakAt + BREAK_GAP / 2}
+          x2={PAD.left + plotW}
+          y1={y}
+          y2={y}
+          className={className}
+        />
+      </g>
+    );
 
   return (
     <ChartFigure
@@ -178,6 +226,8 @@ export function LineChart({
       summary={summary}
       tooltip={tooltip}
       testId={testId}
+      measured={measured}
+      hideCaption={hideCaption}
     >
       <div ref={ref} className="pb-chart-canvas">
         <svg
@@ -193,20 +243,27 @@ export function LineChart({
           onKeyDown={onKey}
           onBlur={() => setActive(null)}
         >
-          {ticks.map((t) => (
+          {ticks.map((t, i) => (
             <g key={t}>
-              <line
-                x1={PAD.left}
-                x2={PAD.left + plotW}
-                y1={yAt(t)}
-                y2={yAt(t)}
-                className={t === 0 ? 'pb-chart-axis' : 'pb-chart-grid'}
-              />
+              {rule(yAt(t), t === 0 && baselineZero ? 'pb-chart-axis' : 'pb-chart-grid', 'rule')}
               <text x={PAD.left - 8} y={yAt(t) + 4} className="pb-chart-tick" textAnchor="end">
-                {compactValue(t, kind)}
+                {tickText[i]}
               </text>
             </g>
           ))}
+          {breakAt === null ? null : (
+            <g className="pb-chart-break" aria-hidden="true">
+              {[breakAt - BREAK_GAP / 2, breakAt + BREAK_GAP / 2].map((bx) => (
+                <line
+                  key={bx}
+                  x1={bx - 2}
+                  x2={bx + 2}
+                  y1={PAD.top + plotH + 5}
+                  y2={PAD.top + plotH - 5}
+                />
+              ))}
+            </g>
+          )}
           {x.map((label, i) =>
             named.has(i) ? (
               <text
@@ -222,7 +279,6 @@ export function LineChart({
           )}
           {series.map((s, si) => {
             const color = seriesColor(si + 1);
-            const base = yAt(Math.max(lo, 0));
             const runs = knownRuns(s.values, s.absent);
             const lastRun = runs[runs.length - 1];
             const end = lastRun?.[lastRun.length - 1];
@@ -235,19 +291,14 @@ export function LineChart({
                   const d = `M${run.map((p) => `${xAt(p.i)} ${yAt(p.v)}`).join('L')}`;
                   return (
                     <g key={first.i}>
-                      {series.length === 1 && run.length > 1 ? (
-                        <path
-                          d={`${d}L${xAt(last.i)} ${base}L${xAt(first.i)} ${base}Z`}
-                          fill={color}
-                          opacity={0.1}
-                        />
-                      ) : null}
                       {run.length > 1 ? (
                         <path
+                          className="pb-chart-line"
                           d={d}
+                          pathLength={1}
                           fill="none"
                           stroke={color}
-                          strokeWidth={2}
+                          strokeWidth={1.75}
                           strokeLinejoin="round"
                           strokeLinecap="round"
                         />
@@ -259,6 +310,7 @@ export function LineChart({
                 })}
                 {end !== undefined ? (
                   <circle
+                    className="pb-chart-end"
                     cx={xAt(end.i)}
                     cy={yAt(end.v)}
                     r={4}
@@ -271,9 +323,20 @@ export function LineChart({
             );
           })}
           {endLabels.map((l) => (
-            <text key={l.name} x={PAD.left + plotW + 10} y={l.y + 4} className="pb-chart-label">
-              {l.name}
-            </text>
+            <g key={l.name} className="pb-chart-end">
+              {Math.abs(l.y - l.at) > 1 ? (
+                <line
+                  x1={PAD.left + plotW + 3}
+                  y1={l.at}
+                  x2={PAD.left + plotW + 8}
+                  y2={l.y}
+                  className="pb-chart-leader"
+                />
+              ) : null}
+              <text x={PAD.left + plotW + 10} y={l.y + 4} className="pb-chart-label">
+                {l.name}
+              </text>
+            </g>
           ))}
           {active !== null ? (
             <g>
@@ -302,9 +365,7 @@ export function LineChart({
           ) : null}
         </svg>
         <p className="pb-visually-hidden" aria-live="polite" aria-atomic="true">
-          {tooltip === null
-            ? ''
-            : `${tooltip.title}: ${tooltip.rows.map((r) => `${r.name} ${r.value}`).join(', ')}`}
+          {spoken}
         </p>
       </div>
     </ChartFigure>

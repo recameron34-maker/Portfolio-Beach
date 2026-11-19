@@ -547,6 +547,9 @@ describe('Analytics: Value creation tab', () => {
         '2 of 3 marks sit above the line: our mark grew faster than the company EBITDA. 1 position has no EBITDA growth or no mark growth and is not plotted.',
       ),
     ).toBeInTheDocument();
+    // Too few marks to call one far from the rest: none is held at the axis edge.
+    expect(chart.querySelector('[data-held]')).toBeNull();
+    expect(screen.queryByText(/beyond the axis/)).not.toBeInTheDocument();
     const figure = screen.getByTestId('value-creation-scatter');
     await userEvent.click(within(figure).getByRole('button', { name: 'Show table' }));
     const table = within(figure).getByRole('table', {

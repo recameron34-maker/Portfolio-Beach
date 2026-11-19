@@ -3,7 +3,7 @@ import { Link } from '@tanstack/react-router';
 import { keepPreviousData, useQuery } from '@tanstack/react-query';
 import type { AnalyticsSummary } from '@pb/contracts';
 import { analyticsQuery } from '../../app/queries.js';
-import { HorizontalBars, LineChart } from '../../components/charts/index.js';
+import { HorizontalBars, LineChart, SharedScale } from '../../components/charts/index.js';
 import { NavTrendCard } from '../../components/NavTrendCard.js';
 import { UnavailableState } from '../../components/UnavailableState.js';
 import {
@@ -47,30 +47,32 @@ function CashFlowsCard({ summary }: { summary: AnalyticsSummary }): ReactNode {
         Cash flows
       </SectionHeader>
       <div className="pb-two-col">
-        <HorizontalBars
-          title="Contributions by year"
-          data={years.map((y) => ({
-            label: y.period,
-            value: Number(y.contributions),
-            display: formatMoneyM(y.contributions),
-          }))}
-          kind="money"
-          valueColumn="Contributions"
-          summary={`Contributions by year over ${years.length} years, ${years[0]?.period ?? ''} to ${last.period}.`}
-          testId="performance-contributions"
-        />
-        <HorizontalBars
-          title="Distributions by year"
-          data={years.map((y) => ({
-            label: y.period,
-            value: Number(y.distributions),
-            display: formatMoneyM(y.distributions),
-          }))}
-          kind="money"
-          valueColumn="Distributions"
-          summary={`Distributions by year over ${years.length} years, ${years[0]?.period ?? ''} to ${last.period}.`}
-          testId="performance-distributions"
-        />
+        <SharedScale>
+          <HorizontalBars
+            title="Contributions by year"
+            data={years.map((y) => ({
+              label: y.period,
+              value: Number(y.contributions),
+              display: formatMoneyM(y.contributions),
+            }))}
+            kind="money"
+            valueColumn="Contributions"
+            summary={`Contributions by year over ${years.length} years, ${years[0]?.period ?? ''} to ${last.period}.`}
+            testId="performance-contributions"
+          />
+          <HorizontalBars
+            title="Distributions by year"
+            data={years.map((y) => ({
+              label: y.period,
+              value: Number(y.distributions),
+              display: formatMoneyM(y.distributions),
+            }))}
+            kind="money"
+            valueColumn="Distributions"
+            summary={`Distributions by year over ${years.length} years, ${years[0]?.period ?? ''} to ${last.period}.`}
+            testId="performance-distributions"
+          />
+        </SharedScale>
       </div>
       <LineChart
         title="Cumulative net cash flow"

@@ -247,6 +247,44 @@ test('the NAV sparkline draws in once and is still under reduced motion @a11y', 
   );
 });
 
+test('charts draw and grow in once and are still under reduced motion @a11y', async ({ page }) => {
+  await signInAs(page, 'ops.one', d);
+  await page.goto('/analytics');
+  await page.getByTestId('exposure-nav').waitFor();
+  // The entrance lasts about half a second and then clears itself; the document's animations are
+  // slowed tenfold so it is still running when it is read. The tab is opened in the page, so the
+  // slowed timeline is the one its charts start on.
+  const cdp = await page.context().newCDPSession(page);
+  await cdp.send('Animation.enable');
+  await cdp.send('Animation.setPlaybackRate', { playbackRate: 0.1 });
+  await page.emulateMedia({ reducedMotion: 'no-preference' });
+  await page
+    .getByRole('navigation', { name: 'Analytics' })
+    .getByRole('link', { name: 'Performance' })
+    .click();
+  await page.locator('.pb-chart[data-entering] .pb-chart-line').first().waitFor();
+  await page.locator('.pb-chart[data-entering] .pb-chart-bar').first().waitFor();
+  const lines = page.locator('.pb-main .pb-chart-line');
+  const bars = page.getByTestId('performance-contributions').locator('.pb-chart-bar');
+  const moving = { lines: await animationNames(lines), bars: await animationNames(bars) };
+  expect(moving.lines.length).toBeGreaterThan(0);
+  expect(moving.lines.every((n) => n === 'pb-draw')).toBe(true);
+  expect(moving.bars.length).toBeGreaterThan(0);
+  expect(moving.bars.every((n) => n === 'pb-grow-x')).toBe(true);
+  // Under the setting the entrance stops at once and its flag clears for good ...
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  await expect(page.locator('.pb-chart[data-entering]')).toHaveCount(0);
+  // ... and the stylesheet holds every mark still even while the flag is on.
+  await page.evaluate(() => {
+    for (const figure of document.querySelectorAll('.pb-chart')) {
+      figure.setAttribute('data-entering', '');
+    }
+  });
+  expect((await animationNames(lines)).every((n) => n === 'none')).toBe(true);
+  expect((await animationNames(bars)).every((n) => n === 'none')).toBe(true);
+  await cdp.send('Animation.setPlaybackRate', { playbackRate: 1 });
+});
+
 // ---- Every page added this round, at a laptop and a phone width --------------------------------
 
 /** A page to scan and what shows once its own data has arrived. */

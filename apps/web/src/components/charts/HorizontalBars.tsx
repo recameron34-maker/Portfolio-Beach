@@ -1,20 +1,22 @@
 import { useState } from 'react';
-import type { ReactNode } from 'react';
+import type { CSSProperties, ReactNode } from 'react';
 import { ChartFigure } from './ChartFigure.js';
 import type { TooltipState } from './ChartFigure.js';
 import {
+  BAR,
+  barRows,
   chartLabels,
-  compactValue,
-  LABEL_GAP,
+  axisLabels,
   labelBudget,
-  labelColumn,
   labelStride,
   linearScale,
   niceTicks,
   seriesColor,
+  tickAnchor,
   valueLabelPosition,
 } from './scale.js';
 import type { ValueKind } from './scale.js';
+import { useSharedDomain } from './shared-scale.js';
 import { useWidth } from './useWidth.js';
 
 export interface BarDatum {
@@ -25,20 +27,21 @@ export interface BarDatum {
   emphasis?: boolean | undefined;
 }
 
-const ROW = 30;
-const BAR = 18;
 /** Room right of the plot for the value label at the end of the longest bar. */
 const PAD_R = 72;
 /** The plot never shrinks below this; the value labels then hold to the chart's right edge. */
 const MIN_PLOT = 40;
 
 /**
- * Single-series horizontal bars (magnitude by category). Thin marks with a rounded data end,
- * a value label at the tip, hover and focus tooltips, and the table twin from ChartFigure.
+ * Single-series horizontal bars (magnitude by category): 12px bars with square ends, a value
+ * label at the tip, hover and focus tooltips, and the table twin from ChartFigure. Under 480px of
+ * chart width each label sits whole on its own line above its bar; beside the bars a label too
+ * long for its column is cut. Inside a SharedScale the value axis is shared with its neighbours.
  */
 export function HorizontalBars({
   title,
   heading,
+  hideCaption,
   subtitle,
   data,
   kind,
@@ -49,6 +52,7 @@ export function HorizontalBars({
   title: string;
   /** The title is the section's heading (an h2): the chart is all its section holds. */
   heading?: boolean | undefined;
+  hideCaption?: boolean | undefined;
   subtitle?: string | undefined;
   data: BarDatum[];
   kind: ValueKind;
@@ -56,21 +60,31 @@ export function HorizontalBars({
   summary: string;
   testId?: string | undefined;
 }): ReactNode {
-  const [ref, width] = useWidth();
+  const [ref, width, measured] = useWidth();
   const [tooltip, setTooltip] = useState<TooltipState | null>(null);
   const hasEmphasis = data.some((d) => d.emphasis === true);
-  const max = Math.max(0, ...data.map((d) => d.value));
-  const min = Math.min(0, ...data.map((d) => d.value));
+  const [min, max] = useSharedDomain(
+    Math.min(0, ...data.map((d) => d.value)),
+    Math.max(0, ...data.map((d) => d.value)),
+  );
   const ticks = niceTicks(min, max, 4);
+  const tickText = axisLabels(ticks, kind);
   const lo = ticks[0] ?? 0;
   const hi = ticks[ticks.length - 1] ?? 1;
-  const labelW = labelColumn(width);
-  const shortLabels = chartLabels(
+  const rows = barRows(
+    width,
     data.map((d) => d.label),
-    labelBudget(labelW),
   );
-  const plotW = Math.max(MIN_PLOT, width - labelW - PAD_R);
-  const x = linearScale(lo, hi, labelW, labelW + plotW);
+  const ROW = rows.row;
+  const labels =
+    rows.layout === 'side'
+      ? chartLabels(
+          data.map((d) => d.label),
+          labelBudget(rows.labelWidth),
+        )
+      : data.map((d) => d.label);
+  const plotW = Math.max(MIN_PLOT, width - rows.plotLeft - PAD_R);
+  const x = linearScale(lo, hi, rows.plotLeft, rows.plotLeft + plotW);
   const height = data.length * ROW + 28;
   const zero = x(0);
   const stride = labelStride(ticks.length - 1, plotW);
@@ -85,12 +99,14 @@ export function HorizontalBars({
     <ChartFigure
       title={title}
       heading={heading}
+      hideCaption={hideCaption}
       subtitle={subtitle}
       series={[]}
       table={{ columns: ['Category', valueColumn], rows: data.map((d) => [d.label, d.display]) }}
       summary={summary}
       tooltip={tooltip}
       testId={testId}
+      measured={measured}
     >
       <div ref={ref} className="pb-chart-canvas">
         <svg
@@ -100,6 +116,7 @@ export function HorizontalBars({
           viewBox={`0 0 ${width} ${height}`}
           role="group"
           aria-label={title}
+          data-labels={rows.layout}
         >
           {ticks.map((t, i) => (
             <g key={t}>
@@ -115,19 +132,20 @@ export function HorizontalBars({
                   x={x(t)}
                   y={data.length * ROW + 18}
                   className="pb-chart-tick"
-                  textAnchor="middle"
+                  textAnchor={tickAnchor(x(t))}
                 >
-                  {compactValue(t, kind)}
+                  {tickText[i]}
                 </text>
               ) : null}
             </g>
           ))}
           {data.map((d, i) => {
-            const y = i * ROW + (ROW - BAR) / 2;
+            const y = i * ROW + rows.barTop;
             const start = Math.min(zero, x(d.value));
             const end = Math.max(zero, x(d.value));
             const w = Math.max(0, end - start);
-            const r = Math.min(4, w);
+            // Square ends: at most a 1px softening at the data end.
+            const r = Math.min(1, w);
             const path =
               d.value >= 0
                 ? `M${start} ${y}H${end - r}a${r} ${r} 0 0 1 ${r} ${r}V${y + BAR - r}a${r} ${r} 0 0 1 ${-r} ${r}H${start}Z`
@@ -142,6 +160,7 @@ export function HorizontalBars({
                 role="img"
                 aria-label={`${d.label}: ${d.display}`}
                 className="pb-chart-mark"
+                style={{ '--i': i } as CSSProperties}
                 onPointerEnter={() => show(d, i)}
                 onPointerLeave={() => setTooltip(null)}
                 onFocus={() => show(d, i)}
@@ -149,14 +168,18 @@ export function HorizontalBars({
               >
                 <rect x={0} y={i * ROW} width={width} height={ROW} className="pb-chart-hit" />
                 <text
-                  x={labelW - LABEL_GAP}
-                  y={y + BAR / 2 + 4}
+                  x={rows.labelX}
+                  y={i * ROW + rows.labelBaseline}
                   className="pb-chart-label"
-                  textAnchor="end"
+                  textAnchor={rows.labelAnchor}
                 >
-                  {shortLabels[i]}
+                  {labels[i]}
                 </text>
-                <path d={path} fill={fill} />
+                <path
+                  d={path}
+                  fill={fill}
+                  className={d.value < 0 ? 'pb-chart-bar is-negative' : 'pb-chart-bar'}
+                />
                 <text
                   x={value.x}
                   y={y + BAR / 2 + 4}

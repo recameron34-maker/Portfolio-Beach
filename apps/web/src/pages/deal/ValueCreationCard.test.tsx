@@ -113,6 +113,17 @@ describe('deal workspace: value creation card', () => {
         .getAllByRole('listitem')
         .map((li) => li.textContent),
     ).toEqual(['EBITDA', 'EV', 'Equity value', 'Our mark']);
+    // The entry snapshot is not a quarter: the axis is broken after it, and the index is framed
+    // by its own figures rather than run down to zero.
+    expect(figure.querySelectorAll('.pb-chart-break line')).toHaveLength(2);
+    const yTicks = [...figure.querySelectorAll('.pb-chart-tick[text-anchor="end"]')].map(
+      (t) => t.textContent,
+    );
+    expect(yTicks).not.toContain('0');
+    // All four end labels are drawn, none dropped for being close to another.
+    expect(
+      [...figure.querySelectorAll('g.pb-chart-end text')].map((t) => t.textContent).sort(),
+    ).toEqual(['EBITDA', 'EV', 'Equity value', 'Our mark']);
     await userEvent.click(within(figure).getByRole('button', { name: 'Show table' }));
     const table = within(figure).getByRole('table', { name: 'Indexed since entry, as a table' });
     expect(

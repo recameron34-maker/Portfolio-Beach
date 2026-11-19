@@ -29,6 +29,8 @@ const RINGS = [0.25, 0.5, 0.75, 1];
 const LINE = 14;
 /** How far past the rim a label starts. */
 const LABEL_GAP = 12;
+/** A label at the side starts at least this far across from its spoke's end, clear of a point there. */
+const LABEL_CLEAR = 14;
 const TOOLTIP_WIDTH = 220;
 
 /**
@@ -57,7 +59,7 @@ export function RadarChart({
   onActive?: ((key: string | null) => void) | undefined;
   testId?: string | undefined;
 }): ReactNode {
-  const [ref, width] = useWidth(480);
+  const [ref, width, measured] = useWidth(480);
   const [tooltip, setTooltip] = useState<TooltipState | null>(null);
   const { radius, cx, cy, height } = radarLayout(width);
   const count = axes.length;
@@ -66,8 +68,20 @@ export function RadarChart({
 
   /** Where a measure's label block starts and how its lines are set (shared by the label and the tooltip). */
   const labelOf = (axis: RadarAxis, index: number) => {
-    const at = radarPoint(index, count, 100, radius + LABEL_GAP, cx, cy);
+    const out = radarPoint(index, count, 100, radius + LABEL_GAP, cx, cy);
+    const rim = radarPoint(index, count, 100, radius, cx, cy);
     const anchor = radarAnchor(index, count);
+    // A spoke that leans down or up puts most of the gap below or above its end, so a label set
+    // beside it would touch a score of 100 there: it starts clear of the end across as well.
+    const at = {
+      x:
+        anchor === 'end'
+          ? Math.min(out.x, rim.x - LABEL_CLEAR)
+          : anchor === 'start'
+            ? Math.max(out.x, rim.x + LABEL_CLEAR)
+            : out.x,
+      y: out.y,
+    };
     const words = axis.label.split(' ');
     const lines = words.length === 2 ? words : [axis.label];
     // The lines and the score under them. Above the centre the block ends at the rim; below it,
@@ -109,6 +123,7 @@ export function RadarChart({
       summary={summary}
       tooltip={tooltip}
       testId={testId}
+      measured={measured}
     >
       <div ref={ref} className="pb-chart-canvas">
         <svg

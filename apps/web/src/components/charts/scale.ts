@@ -81,6 +81,35 @@ export function compactValue(value: number, kind: ValueKind): string {
   }
 }
 
+/**
+ * The figures under an axis's gridlines, written alike: one unit for the whole axis ($M, $K or $,
+ * by its largest tick) and as many decimals as the step between ticks needs, so no two ticks read
+ * the same and none carries a decimal its neighbours lack ("5%, 10%, 15%"; "$18.0M, $18.2M").
+ * Zero is written plainly. Full figures belong in tooltips and tables.
+ */
+export function axisLabels(ticks: readonly number[], kind: ValueKind): string[] {
+  const step = ticks.length > 1 ? Math.abs((ticks[1] ?? 0) - (ticks[0] ?? 0)) : 0;
+  const top = Math.max(0, ...ticks.map((t) => Math.abs(t)));
+  const places = (unit: number, least = 0): number =>
+    step > 0 ? Math.max(least, Math.min(3, Math.ceil(-Math.log10(step / unit) - 1e-9))) : least;
+  const [unit, suffix]: [number, string] =
+    top >= 1_000_000 ? [1_000_000, 'M'] : top >= 1_000 ? [1_000, 'K'] : [1, ''];
+  return ticks.map((t) => {
+    const sign = t < 0 ? '-' : '';
+    const abs = Math.abs(t);
+    switch (kind) {
+      case 'money':
+        return abs === 0 ? '$0' : `${sign}$${(abs / unit).toFixed(places(unit))}${suffix}`;
+      case 'pct':
+        return abs === 0 ? '0%' : `${sign}${(abs * 100).toFixed(places(0.01))}%`;
+      case 'multiple':
+        return `${sign}${abs.toFixed(places(1, 1))}x`;
+      case 'count':
+        return abs === 0 ? '0' : `${sign}${groupThousands(abs.toFixed(places(1)))}`;
+    }
+  });
+}
+
 /** Average advance of one character of a 12 px category label: an estimate for fitting, not a measurement. */
 export const LABEL_CHAR_PX = 6.6;
 /** Space between the end of a category label and the plot. */
@@ -92,6 +121,81 @@ export const LABEL_GAP = 10;
  */
 export function labelColumn(width: number): number {
   return Math.round(Math.min(220, Math.max(96, width * 0.36)));
+}
+
+/** Where a bar chart sets its category labels: beside the bars, or each on its own line above its bar. */
+export type LabelLayout = 'side' | 'above';
+
+/** Under this chart width the labels go above their bars, whole, instead of being cut to fit beside them. */
+export const LABELS_ABOVE_UNDER = 480;
+
+/**
+ * The label layout for a chart this wide: beside the bars from 480px; under it, above them unless
+ * every label (when given) fits its column whole, so a label is never cut on a phone and short
+ * ones (years) keep the compact rows.
+ */
+export function labelLayout(width: number, labels?: readonly string[]): LabelLayout {
+  if (width >= LABELS_ABOVE_UNDER) return 'side';
+  if (labels === undefined) return 'above';
+  const budget = labelBudget(labelColumn(width));
+  return labels.every((label) => label.length <= budget) ? 'side' : 'above';
+}
+
+/** Thickness of a bar, in pixels, at every width. */
+export const BAR = 12;
+
+/** The rows of a bar chart for a canvas of a given width (HorizontalBars, StackedBars, BridgeChart). */
+export interface BarRows {
+  layout: LabelLayout;
+  /** Height of one category's row. */
+  row: number;
+  /** Where the plot starts: after the label column beside the bars, at the left edge above them. */
+  plotLeft: number;
+  /** The label column's width; 0 when the labels sit above the bars. */
+  labelWidth: number;
+  /** From the top of a row to the top of its bar. */
+  barTop: number;
+  /** From the top of a row to the baseline of its label. */
+  labelBaseline: number;
+  /** Where each label starts or ends, and from which side. */
+  labelX: number;
+  labelAnchor: 'start' | 'end';
+}
+
+/** Beside the bars: 26px rows with the label centred on its bar. Above them: 40px rows, the label's line then its bar. */
+export function barRows(width: number, labels?: readonly string[]): BarRows {
+  if (labelLayout(width, labels) === 'above') {
+    return {
+      layout: 'above',
+      row: 40,
+      plotLeft: 0,
+      labelWidth: 0,
+      barTop: 20,
+      labelBaseline: 13,
+      labelX: 0,
+      labelAnchor: 'start',
+    };
+  }
+  const row = 26;
+  const labelWidth = labelColumn(width);
+  return {
+    layout: 'side',
+    row,
+    plotLeft: labelWidth,
+    labelWidth,
+    barTop: (row - BAR) / 2,
+    labelBaseline: (row - BAR) / 2 + BAR / 2 + 4,
+    labelX: labelWidth - LABEL_GAP,
+    labelAnchor: 'end',
+  };
+}
+
+/**
+ * A tick's figure is centred under its gridline, except at the plot's left edge, where it would
+ * be cut: there it starts on the line instead.
+ */
+export function tickAnchor(x: number, minX = 16): 'start' | 'middle' {
+  return x < minX ? 'start' : 'middle';
 }
 
 /** How many characters of a category label fit in a label column (4 px kept clear on the left). */
@@ -202,4 +306,55 @@ export function knownRuns(
   });
   if (run.length > 0) out.push(run);
   return out;
+}
+
+/** A line chart's end labels keep at least this far apart; one moved off its line gets a leader. */
+export const LABEL_STEP = 14;
+
+/**
+ * End labels moved apart: in order from the top, each at least LABEL_STEP below the one before;
+ * then, from the foot, none below `bottom` and each at least LABEL_STEP above the next; none
+ * above `top`. `at` stays where its line ends, for the leader.
+ */
+export function dodge<T extends { y: number; at: number }>(
+  sorted: readonly T[],
+  top: number,
+  bottom: number,
+): T[] {
+  const out = sorted.map((c) => ({ ...c }));
+  for (let i = 1; i < out.length; i++) {
+    const prev = out[i - 1];
+    const cur = out[i];
+    if (prev !== undefined && cur !== undefined) cur.y = Math.max(cur.y, prev.y + LABEL_STEP);
+  }
+  for (let i = out.length - 1; i >= 0; i--) {
+    const cur = out[i];
+    if (cur === undefined) continue;
+    const next = out[i + 1];
+    cur.y = Math.min(cur.y, next === undefined ? bottom : next.y - LABEL_STEP);
+    cur.y = Math.max(cur.y, top);
+  }
+  return out;
+}
+
+/**
+ * The fences outside which a figure is far from the rest: the first quartile less `k` times the
+ * interquartile range, and the third quartile plus it (quartiles by linear interpolation). With
+ * fewer than four figures, or no spread between the quartiles, there are none.
+ */
+export function outlierFences(values: readonly number[], k = 3): { lo: number; hi: number } | null {
+  const sorted = values.filter((v) => Number.isFinite(v)).sort((a, b) => a - b);
+  if (sorted.length < 4) return null;
+  const quantile = (share: number): number => {
+    const pos = (sorted.length - 1) * share;
+    const below = Math.floor(pos);
+    const a = sorted[below] ?? 0;
+    const b = sorted[below + 1] ?? a;
+    return a + (b - a) * (pos - below);
+  };
+  const q1 = quantile(0.25);
+  const q3 = quantile(0.75);
+  const spread = q3 - q1;
+  if (!(spread > 0)) return null;
+  return { lo: q1 - k * spread, hi: q3 + k * spread };
 }

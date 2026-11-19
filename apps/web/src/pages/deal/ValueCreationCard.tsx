@@ -160,6 +160,8 @@ function IndexedLines({
       ]}
       kind="count"
       format={indexLabel}
+      baselineZero={false}
+      breakAfter={points[0]?.isEntry === true ? 0 : undefined}
       summary={`Indexed lines for ${company} over ${points.length} points to ${formatDate(last.periodEnd)}: EBITDA ${shown(last.ebitdaIndex)}, EV ${shown(last.evIndex)}, equity value ${shown(last.equityValueIndex)} against 100 at entry, and our mark ${shown(last.markIndex)} per 100 invested.`}
       testId="deal-value-creation-index"
     />

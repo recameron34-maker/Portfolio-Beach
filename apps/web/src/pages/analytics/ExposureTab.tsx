@@ -4,7 +4,7 @@ import { keepPreviousData, useQuery } from '@tanstack/react-query';
 import { Dropdown, Label, Option } from '@fluentui/react-components';
 import type { AnalyticsSummary, ExposureBucket } from '@pb/contracts';
 import { analyticsQuery } from '../../app/queries.js';
-import { HorizontalBars, StackedBars } from '../../components/charts/index.js';
+import { HorizontalBars, SharedScale, StackedBars } from '../../components/charts/index.js';
 import { UnavailableState } from '../../components/UnavailableState.js';
 import {
   Card,
@@ -140,24 +140,26 @@ export function ExposureTab(): ReactNode {
         ) : (
           <>
             <div className="pb-two-col">
-              <HorizontalBars
-                title={`NAV by ${label.toLowerCase()}`}
-                subtitle="Locked marks only"
-                data={navBars}
-                kind="money"
-                valueColumn="NAV"
-                summary={`NAV by ${label.toLowerCase()} across ${navBars.length} buckets; the largest is ${largest.label} at ${largest.display}.`}
-                testId="exposure-nav"
-              />
-              <HorizontalBars
-                title={`Invested by ${label.toLowerCase()}`}
-                subtitle="Contributions to date"
-                data={investedBars}
-                kind="money"
-                valueColumn="Invested"
-                summary={`Invested capital by ${label.toLowerCase()} across ${investedBars.length} buckets.`}
-                testId="exposure-invested"
-              />
+              <SharedScale>
+                <HorizontalBars
+                  title={`NAV by ${label.toLowerCase()}`}
+                  subtitle="Locked marks only"
+                  data={navBars}
+                  kind="money"
+                  valueColumn="NAV"
+                  summary={`NAV by ${label.toLowerCase()} across ${navBars.length} buckets; the largest is ${largest.label} at ${largest.display}.`}
+                  testId="exposure-nav"
+                />
+                <HorizontalBars
+                  title={`Invested by ${label.toLowerCase()}`}
+                  subtitle="Contributions to date"
+                  data={investedBars}
+                  kind="money"
+                  valueColumn="Invested"
+                  summary={`Invested capital by ${label.toLowerCase()} across ${investedBars.length} buckets.`}
+                  testId="exposure-invested"
+                />
+              </SharedScale>
             </div>
             <BucketTable buckets={buckets} label={label} />
           </>

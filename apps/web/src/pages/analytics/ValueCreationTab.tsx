@@ -228,6 +228,7 @@ function GrowthCard({ positions }: { positions: readonly ValueCreationPosition[]
             seriesNames={seriesNames}
             seriesLabel="Side of the line"
             equalLine
+            clampOutliers
             summary={`${words.summary} against the company's EBITDA growth since entry for ${plural(points.length, 'position')}; ${ahead} sit above the line where the two are equal.`}
             testId="value-creation-scatter"
           />
