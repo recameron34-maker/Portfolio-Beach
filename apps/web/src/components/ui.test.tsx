@@ -1,6 +1,17 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, render, screen, within } from '@testing-library/react';
-import { KeyValueTable, PageHeader, SectionHeader, StatTile, Subhead, TableWrap } from './ui.js';
+import {
+  EmptyState,
+  KeyValueTable,
+  Notice,
+  PageHeader,
+  PageSkeleton,
+  RowsSkeleton,
+  SectionHeader,
+  StatTile,
+  Subhead,
+  TableWrap,
+} from './ui.js';
 
 vi.mock('@tanstack/react-router', async () =>
   (await import('../test/router-mock.js')).routerMock(),
@@ -157,5 +168,53 @@ describe('figures strip cell', () => {
     const flagged = screen.getByRole('group', { name: 'Flagged' });
     expect(flagged).toHaveAttribute('data-tone', 'watch');
     expect(flagged).toHaveAttribute('data-zero');
+  });
+});
+
+describe('states', () => {
+  afterEach(cleanup);
+
+  it('says an empty list plainly, with no mark', () => {
+    render(<EmptyState title="No requests" detail="Nothing is waiting." testId="empty" />);
+    const empty = screen.getByTestId('empty');
+    expect(empty).toHaveTextContent('No requestsNothing is waiting.');
+    expect(empty.querySelector('svg')).toBeNull();
+  });
+
+  it('sets a notice in its tone, info by default', () => {
+    render(
+      <>
+        <Notice testId="info">Values are as of the quarter end.</Notice>
+        <Notice tone="good" testId="good">
+          Saved.
+        </Notice>
+        <Notice tone="watch" testId="watch">
+          One file is late.
+        </Notice>
+        <Notice tone="bad" testId="bad">
+          The read failed.
+        </Notice>
+      </>,
+    );
+    expect(screen.getByTestId('info').className).toBe('pb-notice');
+    expect(screen.getByTestId('good')).toHaveClass('pb-notice', 'pb-notice-good');
+    expect(screen.getByTestId('watch')).toHaveClass('pb-notice', 'pb-notice-watch');
+    expect(screen.getByTestId('bad')).toHaveClass('pb-notice', 'pb-notice-bad');
+    expect(screen.getByTestId('watch').tagName).toBe('P');
+  });
+
+  it('loads in the shape of the page and of a list, busy and never a status', () => {
+    const { container } = render(
+      <>
+        <PageSkeleton tiles={4} rows={3} />
+        <RowsSkeleton rows={5} />
+      </>,
+    );
+    const [page, list] = Array.from(container.querySelectorAll(':scope > [aria-busy="true"]'));
+    expect(page?.querySelectorAll('.pb-skeleton-tile')).toHaveLength(4);
+    expect(page?.querySelectorAll('.pb-skeleton-row')).toHaveLength(3);
+    expect(list?.querySelectorAll('.pb-skeleton-row')).toHaveLength(5);
+    expect(list).toHaveTextContent('Loading');
+    expect(screen.queryByRole('status')).toBeNull();
   });
 });

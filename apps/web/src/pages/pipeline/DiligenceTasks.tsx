@@ -36,6 +36,7 @@ import {
   taskStatusTone,
   termsOf,
 } from './pipeline.js';
+import { dialogSurfaceMotion, useReducedMotion } from '../../components/motion.js';
 
 type Pending = { kind: 'complete'; task: DiligenceTask } | { kind: 'waive'; task: DiligenceTask };
 
@@ -52,14 +53,16 @@ function EvidenceDialog({
   const [documentId, setDocumentId] = useState('');
   const id = documentId.trim();
   const ok = id === '' || uuid.safeParse(id).success;
+  const motion = dialogSurfaceMotion(useReducedMotion());
   return (
     <Dialog
+      surfaceMotion={motion}
       open
       onOpenChange={(_e, d) => {
         if (!d.open) onCancel();
       }}
     >
-      <DialogSurface>
+      <DialogSurface className="pb-dialog" backdrop={{ className: 'pb-dialog-backdrop' }}>
         <form
           noValidate
           onSubmit={(e) => {

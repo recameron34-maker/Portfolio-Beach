@@ -5,9 +5,10 @@ import { Card, EmptyState, ErrorState } from './ui.js';
 
 /**
  * What a failed read shows. A 403 or 501 becomes an empty state that names the reason (who can
- * see the data, or that it is not built yet); anything else is an error. inline renders that
- * error as a notice so it can sit inside a card next to other content; card wraps the empty state
- * in a card when it stands alone on a page.
+ * see the data, or that it is not built yet), flat like every empty state, with no icon: the
+ * title already says it. Anything else is an error. inline renders that error as a notice so it
+ * can sit in a section next to other content; card puts the empty state in a section of its own
+ * when it stands alone on a page.
  */
 export function UnavailableState({
   error,

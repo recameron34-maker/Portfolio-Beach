@@ -31,6 +31,7 @@ import {
 import type { InputEntry } from './board.js';
 import { isSuggestionKey, splitSuggestionKeys } from './suggestions.js';
 import './valuations.css';
+import { dialogSurfaceMotion, useReducedMotion } from '../../components/motion.js';
 
 /** The active valuation methods of the taxonomy, in its order, with the version's own method always among them. */
 function methodChoices(
@@ -110,14 +111,16 @@ export function EditValuationDialog({
   const setEntry = (i: number, patch: Partial<InputEntry>): void =>
     setEntries((prev) => prev?.map((e, j) => (j === i ? { ...e, ...patch } : e)) ?? null);
 
+  const motion = dialogSurfaceMotion(useReducedMotion());
   return (
     <Dialog
+      surfaceMotion={motion}
       open
       onOpenChange={(_e, d) => {
         if (!d.open) onCancel();
       }}
     >
-      <DialogSurface>
+      <DialogSurface className="pb-dialog" backdrop={{ className: 'pb-dialog-backdrop' }}>
         <form
           // The contract decides what is valid, not the browser's own tooltips.
           noValidate

@@ -3,7 +3,7 @@ import { expect, test } from '@playwright/test';
 import type { Page } from '@playwright/test';
 import { investmentPage } from '@pb/contracts';
 import type { InvestmentSummary } from '@pb/contracts';
-import { apiCall, loadDataset, signInAs, switchTo, walledDeal } from './fixtures.js';
+import { apiCall, loadDataset, settled, signInAs, switchTo, walledDeal } from './fixtures.js';
 
 /**
  * The co-investment map (decision 0017) over the real API: held co-investments and single-asset
@@ -24,6 +24,7 @@ async function heldOnMap(page: Page, who: string): Promise<InvestmentSummary[]> 
 }
 
 async function expectNoSeriousViolations(page: Page): Promise<void> {
+  await settled(page);
   const results = await new AxeBuilder({ page })
     .withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa'])
     .analyze();

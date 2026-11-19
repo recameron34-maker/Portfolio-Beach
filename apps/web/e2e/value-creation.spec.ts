@@ -6,7 +6,7 @@ import { D, valueCreationRollup } from '@pb/calc';
 import { investmentValueCreation, matchesValueCreationFilters, valueCreation } from '@pb/contracts';
 import type { InvestmentValueCreation, ValueCreation } from '@pb/contracts';
 import { generateDataset } from '@pb/synthetic';
-import { apiCall, loadDataset, signInAs, switchTo, walledDeal } from './fixtures.js';
+import { apiCall, loadDataset, settled, signInAs, switchTo, walledDeal } from './fixtures.js';
 
 /**
  * Value creation and entry metric analytics (docs/04 M13 and M20) over the real API: the Value
@@ -69,6 +69,7 @@ const positions = (page: Page): Locator =>
 const bodyRows = (table: Locator): Locator => table.locator('tbody tr');
 
 async function expectNoSeriousViolations(page: Page): Promise<void> {
+  await settled(page);
   const results = await new AxeBuilder({ page })
     .withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa'])
     .analyze();

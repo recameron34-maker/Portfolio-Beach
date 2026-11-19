@@ -80,6 +80,10 @@ body,
   -webkit-text-size-adjust: 100%;
   -webkit-font-smoothing: antialiased;
 }
+/* The scrollbar's room is kept even when a dialog stops the page scrolling, so nothing shifts. */
+html {
+  scrollbar-gutter: stable;
+}
 * {
   box-sizing: border-box;
 }
@@ -800,77 +804,95 @@ p:last-child {
 }
 
 /* ---- Badges, status, chips ---- */
+/* A state is a dot and a word, never colour alone and never a pill: the dot carries the tone, the
+   word stays in the text colour unless the state needs its ink (watch, bad). Laid out on the text's
+   baseline so a status reads on the same line as the words beside it. */
 .pb-badge {
   display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  height: 20px;
-  padding: 0 8px;
-  border-radius: 999px;
-  border: 1px solid transparent;
-  font-size: 11px;
-  line-height: 18px;
-  font-weight: 600;
-  letter-spacing: 0.03em;
+  align-items: baseline;
+  gap: var(--pb-space-1);
+  font-size: var(--pb-text-sm);
+  line-height: var(--pb-text-sm-lh);
+  font-weight: 500;
+  letter-spacing: 0;
   white-space: nowrap;
-  vertical-align: middle;
+  vertical-align: baseline;
 }
 .pb-badge-dot {
+  align-self: center;
   width: 6px;
   height: 6px;
   border-radius: 50%;
-  background: currentColor;
+  background: var(--pb-border-strong);
   flex: none;
 }
 .pb-badge-neutral {
   color: var(--pb-muted-strong);
-  background: var(--pb-surface-2);
-  border-color: var(--pb-border);
 }
-.pb-badge-brand {
-  color: var(--pb-brand-primary);
-  background: var(--pb-primary-tint-8);
-  border-color: var(--pb-primary-tint-12);
-}
+.pb-badge-good,
+.pb-badge-brand,
 .pb-badge-accent {
-  color: var(--pb-accent-ink);
-  background: var(--pb-accent-tint-10);
-}
-.pb-badge-good {
-  color: var(--pb-good-ink);
-  background: var(--pb-good-tint);
-  border-color: rgba(var(--pb-good-rgb), 0.18);
+  color: var(--pb-text);
 }
 .pb-badge-watch {
   color: var(--pb-watch-ink);
-  background: var(--pb-watch-tint);
-  border-color: rgba(var(--pb-watch-rgb), 0.22);
 }
 .pb-badge-bad {
   color: var(--pb-bad-ink);
-  background: var(--pb-bad-tint);
-  border-color: rgba(var(--pb-bad-rgb), 0.18);
 }
-.pb-badge-plain .pb-badge-dot {
+.pb-badge-good > .pb-badge-dot {
+  background: var(--pb-good);
+}
+.pb-badge-watch > .pb-badge-dot {
+  background: var(--pb-watch);
+}
+.pb-badge-bad > .pb-badge-dot {
+  background: var(--pb-bad);
+}
+.pb-badge-brand > .pb-badge-dot {
+  background: var(--pb-brand-primary);
+}
+.pb-badge-accent > .pb-badge-dot {
+  background: var(--pb-brand-accent);
+}
+/* A category is plain text: no dot, no tone. */
+.pb-badge.pb-badge-plain {
+  color: var(--pb-muted-strong);
+}
+.pb-badge-plain > .pb-badge-dot {
   display: none;
 }
+/* The preview's "Simulated" and an assistant's "AI draft": a hollow ring and the word. */
 .pb-ai-draft,
 .pb-simulated {
   display: inline-flex;
-  align-items: center;
-  height: 18px;
-  padding: 0 7px;
-  margin-left: 6px;
-  border-radius: 999px;
-  border: 1px dashed var(--pb-watch);
-  background: var(--pb-watch-tint);
+  align-items: baseline;
+  gap: var(--pb-space-1);
+  margin-left: var(--pb-space-2);
+  font-size: var(--pb-text-sm);
+  line-height: var(--pb-text-sm-lh);
+  font-weight: 500;
+  letter-spacing: 0;
+  white-space: nowrap;
+  vertical-align: baseline;
   color: var(--pb-watch-ink);
-  font-size: 10.5px;
-  line-height: 16px;
-  font-weight: 600;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  vertical-align: middle;
+}
+.pb-ai-draft::before,
+.pb-simulated::before {
+  content: '';
+  align-self: center;
+  flex: none;
+  width: 6px;
+  height: 6px;
+  box-sizing: border-box;
+  border: 1.5px solid var(--pb-watch);
+  border-radius: 50%;
+}
+.pb-ai-draft {
+  color: var(--pb-accent-ink);
+}
+.pb-ai-draft::before {
+  border-color: var(--pb-brand-accent);
 }
 .pb-status-good {
   color: var(--pb-good-ink);
@@ -883,18 +905,18 @@ p:last-child {
 }
 .pb-dot {
   display: inline-block;
-  width: 8px;
-  height: 8px;
-  margin-right: 6px;
+  width: 6px;
+  height: 6px;
+  margin-right: var(--pb-space-2);
   border-radius: 50%;
   background: currentColor;
-  vertical-align: 1px;
+  vertical-align: 2px;
 }
 .pb-chips {
   display: flex;
   flex-wrap: wrap;
-  gap: 8px;
-  margin: 0 0 10px;
+  gap: var(--pb-space-1) var(--pb-space-3);
+  margin: 0 0 var(--pb-space-3);
 }
 /* A workflow's states as a row of chips (WorkflowSpec on the phase pages) */
 .pb-workflow-states {
@@ -903,21 +925,20 @@ p:last-child {
   margin: 4px 0 14px;
 }
 
-/* ---- Toolbar, fields, tabs ---- */
+/* ---- Toolbar, fields, forms, quiet controls, tabs ---- */
+/* Filters over a table: no rule of their own, the table's header rule is the line under them. */
 .pb-toolbar {
   display: flex;
   flex-wrap: wrap;
   align-items: end;
-  gap: 10px 14px;
-  margin: 0 0 14px;
-  padding: 0 0 14px;
-  border-bottom: 1px solid var(--pb-hairline);
+  gap: var(--pb-space-3) var(--pb-space-4);
+  margin: 0 0 var(--pb-space-4);
 }
 .pb-toolbar-end {
   display: inline-flex;
   flex-wrap: wrap;
   align-items: end;
-  gap: 10px 8px;
+  gap: var(--pb-space-2);
   margin-left: auto;
 }
 .pb-toolbar .pb-header-spacer {
@@ -928,155 +949,289 @@ p:last-child {
 }
 .pb-field {
   display: grid;
-  gap: 4px;
+  gap: var(--pb-space-1);
 }
 .pb-field > label,
 .pb-field > .fui-Label {
-  font-size: 11px;
-  line-height: 16px;
-  font-weight: 600;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  color: var(--pb-muted);
+  font-size: var(--pb-text-sm);
+  line-height: var(--pb-text-sm-lh);
+  font-weight: 500;
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--pb-muted-strong);
 }
-/* Tabs wrap to a second line rather than hide past the edge; phones swipe a single row instead */
-/* Tabs wrap at every width (a phone shows two rows rather than hiding tabs off the edge). */
+/* A form's fields in a row that wraps, their controls on one bottom line; or in an even grid. */
+.pb-form-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: var(--pb-space-3) var(--pb-space-4);
+}
+.pb-form-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 200px), 1fr));
+  align-items: start;
+  gap: var(--pb-space-3) var(--pb-space-4);
+}
+.pb-w-s {
+  width: 150px;
+}
+.pb-w-m {
+  width: 200px;
+}
+.pb-w-l {
+  width: 260px;
+}
+/* A command that sits among text (Show table, Clear filters): words in the link colour, a tint
+   under the pointer, no frame. */
+.pb-btn-quiet {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--pb-space-1);
+  min-height: 28px;
+  padding: 0 var(--pb-space-2);
+  border: 0;
+  border-radius: var(--pb-radius);
+  background: transparent;
+  color: var(--pb-brand-primary);
+  font: inherit;
+  font-size: var(--pb-text-md);
+  line-height: var(--pb-text-md-lh);
+  font-weight: 500;
+  cursor: pointer;
+}
+.pb-btn-quiet:hover {
+  background: var(--pb-primary-tint-8);
+}
+.pb-btn-quiet:active {
+  background: var(--pb-primary-tint-12);
+}
+.pb-btn-quiet:disabled {
+  color: var(--pb-muted-strong);
+  background: transparent;
+  cursor: default;
+}
+/* One choice of a few, side by side: the chosen one (aria-pressed) tinted in the link colour. */
+.pb-segmented {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 2px;
+  padding: 2px;
+  border: 1px solid var(--pb-border);
+  border-radius: var(--pb-radius);
+}
+.pb-segmented > button {
+  min-height: 28px;
+  padding: 0 var(--pb-space-3);
+  border: 0;
+  border-radius: var(--pb-radius-sm);
+  background: transparent;
+  color: var(--pb-muted-strong);
+  font: inherit;
+  font-size: var(--pb-text-md);
+  line-height: var(--pb-text-md-lh);
+  font-weight: 500;
+  cursor: pointer;
+}
+.pb-segmented > button:hover {
+  color: var(--pb-text);
+  background: var(--pb-primary-tint-4);
+}
+.pb-segmented > button[aria-pressed='true'] {
+  color: var(--pb-brand-primary);
+  background: var(--pb-primary-tint-8);
+  font-weight: 600;
+}
+.pb-btn-quiet,
+.pb-segmented > button {
+  transition:
+    color var(--pb-dur-fast) var(--pb-ease),
+    background-color var(--pb-dur-fast) var(--pb-ease);
+}
+.pb-btn-quiet:active,
+.pb-segmented > button:active {
+  transition-duration: var(--pb-dur-instant);
+}
+
+/* Tabs: the words in a row over a hairline; the current tab in ink with an accent line drawn under
+   it, over the hairline (section "Motion"). The hairline is painted behind the row, so a row that
+   scrolls (a phone) never clips the accent line. They wrap on a wide screen; on a phone they are
+   one row that scrolls. */
 .pb-tabs {
   display: flex;
   flex-wrap: wrap;
-  gap: 2px;
-  margin: 0 0 16px;
-  border-bottom: 1px solid var(--pb-border);
-  overflow-x: auto;
+  gap: 0 var(--pb-space-1);
+  margin: 0 0 var(--pb-space-5);
+  box-shadow: inset 0 -1px 0 var(--pb-border);
   scrollbar-width: none;
 }
 .pb-tabs::-webkit-scrollbar {
   display: none;
 }
 .pb-tabs a {
+  position: relative;
   flex: none;
   display: inline-flex;
   align-items: center;
   height: 36px;
-  padding: 0 12px;
-  margin-bottom: -1px;
+  padding: 0 var(--pb-space-3);
   color: var(--pb-muted-strong);
-  font-size: 13px;
+  font-size: var(--pb-text-md);
   font-weight: 500;
   text-decoration: none;
-  border-bottom: 2px solid transparent;
-  transition:
-    color var(--pb-dur-fast) var(--pb-ease),
-    border-color var(--pb-dur-fast) var(--pb-ease);
+  transition: color var(--pb-dur-fast) var(--pb-ease);
 }
 .pb-tabs a:hover {
-  color: var(--pb-brand-primary);
+  color: var(--pb-text);
 }
 .pb-tabs a:focus-visible {
   outline-offset: -2px;
 }
 .pb-tabs a[aria-current='page'] {
-  color: var(--pb-brand-primary);
+  color: var(--pb-text);
   font-weight: 600;
-  border-bottom-color: var(--pb-brand-accent);
 }
 
 /* ---- Empty, notice, loading ---- */
+/* Nothing to show: a title and its reason, left-aligned, with no frame and no mark. On its own in a
+   section or on the page it takes a little more room and a larger title. */
 .pb-empty {
   display: grid;
-  justify-items: center;
-  gap: 6px;
-  padding: 32px 20px;
-  border: 1px dashed var(--pb-border-strong);
-  border-radius: 6px;
-  background: var(--pb-surface-2);
-  text-align: center;
-}
-/* Beside other content in a card an empty state is a quiet note; the mark and the dashed frame
-   are kept for a card that holds nothing else. */
-.pb-card > .pb-empty:not(:only-child) {
-  justify-items: start;
   gap: 2px;
-  padding: 12px 14px;
-  border-style: solid;
-  border-color: var(--pb-hairline);
+  justify-items: start;
+  padding: var(--pb-space-3) 0;
   text-align: left;
 }
-.pb-card > .pb-empty:not(:only-child) > .pb-empty-mark {
-  display: none;
-}
-.pb-card > .pb-empty:not(:only-child) > .pb-empty-detail {
-  max-width: 72ch;
-}
-.pb-empty-mark {
-  width: 56px;
-  height: 20px;
-  margin-bottom: 4px;
-  color: var(--pb-muted-strong);
+.pb-card > .pb-empty:only-child,
+.pb-main > .pb-empty {
+  padding: var(--pb-space-5) 0;
 }
 .pb-empty-title {
   margin: 0;
-  font-size: 14px;
-  line-height: 20px;
+  font-size: var(--pb-text-md);
+  line-height: var(--pb-text-md-lh);
   font-weight: 600;
   color: var(--pb-text);
 }
+.pb-card > .pb-empty:only-child > .pb-empty-title,
+.pb-main > .pb-empty > .pb-empty-title {
+  font-size: var(--pb-text-lg);
+  line-height: var(--pb-text-lg-lh);
+}
 .pb-empty-detail {
   margin: 0;
-  max-width: 52ch;
-  font-size: 13px;
-  line-height: 20px;
+  max-width: 72ch;
+  font-size: var(--pb-text-md);
+  line-height: var(--pb-text-md-lh);
   color: var(--pb-muted-strong);
 }
+.pb-empty + .pb-meta {
+  margin-top: var(--pb-space-2);
+}
+/* A notice: a dot and a sentence on a quiet band, no frame and no bar. The tone shows in the dot,
+   the band and the ink. A control inside one sits in a trailing span after the sentence. */
 .pb-notice {
-  display: flex;
-  align-items: flex-start;
-  gap: 10px;
-  margin: 12px 0 0;
-  padding: 8px 12px;
-  border: 1px solid var(--pb-border);
-  border-left: 3px solid var(--pb-brand-accent);
-  border-radius: 0 6px 6px 0;
+  position: relative;
+  display: block;
+  margin: var(--pb-space-3) 0;
+  padding: var(--pb-space-2) var(--pb-space-3) var(--pb-space-2) var(--pb-space-5);
+  border-radius: var(--pb-radius);
   background: var(--pb-primary-tint-4);
-  font-size: 13px;
-  line-height: 20px;
+  font-size: var(--pb-text-md);
+  line-height: var(--pb-text-md-lh);
   color: var(--pb-text);
 }
+.pb-notice::before {
+  content: '';
+  position: absolute;
+  left: var(--pb-space-3);
+  top: calc(var(--pb-space-2) + 7px);
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--pb-brand-accent);
+}
+.pb-notice > ul,
+.pb-notice > ol {
+  margin: var(--pb-space-1) 0 0;
+  padding-left: var(--pb-space-4);
+}
+.pb-notice-action {
+  margin-left: var(--pb-space-2);
+}
 .pb-notice-good {
-  border-color: rgba(var(--pb-good-rgb), 0.25);
-  border-left-color: var(--pb-good);
   background: var(--pb-good-tint);
   color: var(--pb-good-ink);
 }
+.pb-notice-good::before {
+  background: var(--pb-good);
+}
+.pb-notice-watch {
+  background: var(--pb-watch-tint);
+  color: var(--pb-watch-ink);
+}
+.pb-notice-watch::before {
+  background: var(--pb-watch);
+}
 .pb-notice-bad {
-  border-color: rgba(var(--pb-bad-rgb), 0.25);
-  border-left-color: var(--pb-bad);
   background: var(--pb-bad-tint);
   color: var(--pb-bad-ink);
 }
+.pb-notice-bad::before {
+  background: var(--pb-bad);
+}
+/* Loading in the shape of what replaces it: a title bar, a strip of figures, 32px rows. */
 .pb-skeleton {
   display: grid;
-  gap: 12px;
+  gap: var(--pb-space-5);
 }
 .pb-skeleton-bar {
-  height: 14px;
+  height: 12px;
   border-radius: var(--pb-radius-sm);
   background: var(--pb-primary-tint-8);
 }
 .pb-skeleton-bar.is-title {
-  width: 40%;
-  height: 26px;
+  width: 30%;
+  height: 20px;
 }
 .pb-skeleton-tiles {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(172px, 1fr));
-  gap: 12px;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 150px), 1fr));
+  border-block: 1px solid var(--pb-border);
+  overflow: hidden;
 }
 .pb-skeleton-tile {
-  height: 84px;
-  border: 1px solid var(--pb-border);
-  border-radius: var(--pb-radius);
-  background: var(--pb-primary-tint-4);
+  display: grid;
+  gap: var(--pb-space-2);
+  padding: var(--pb-space-3) var(--pb-space-4);
+  box-shadow: -1px 0 0 var(--pb-hairline);
+}
+.pb-skeleton-tile > .pb-skeleton-bar:first-child {
+  width: 50%;
+}
+.pb-skeleton-tile > .pb-skeleton-bar + .pb-skeleton-bar {
+  width: 70%;
+  height: 20px;
+}
+.pb-skeleton-row {
+  display: flex;
+  align-items: center;
+  gap: var(--pb-space-5);
+  height: 32px;
+  border-bottom: 1px solid var(--pb-hairline);
+}
+.pb-skeleton-row > .pb-skeleton-bar {
+  flex: none;
+  width: 15%;
+}
+.pb-skeleton-row > .pb-skeleton-bar:first-child {
+  width: 40%;
+}
+.pb-skeleton-row > .pb-skeleton-bar:last-child {
+  width: 10%;
+}
+.pb-skeleton-rows {
+  gap: 0;
 }
 
 /* ---- Lists on Home ---- */
@@ -1232,11 +1387,11 @@ p:last-child {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 2px 8px;
-  margin-top: 4px;
-  font-size: 12px;
-  line-height: 16px;
-  color: var(--pb-muted);
+  gap: 2px var(--pb-space-2);
+  margin-top: var(--pb-space-1);
+  font-size: var(--pb-text-sm);
+  line-height: var(--pb-text-sm-lh);
+  color: var(--pb-muted-strong);
 }
 
 /* ---- Assistant switch (preview only): the simulated flag change beside its label ---- */
@@ -1258,13 +1413,31 @@ p:last-child {
   display: inline-flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 2px 4px;
+  gap: 2px var(--pb-space-1);
 }
 .pb-command-buttons > button {
   white-space: nowrap;
 }
+/* Why a command is blocked, in words under the buttons (CommandButtons showBlockedReason). */
+.pb-command-group,
+.pb-command-reason {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: flex-start;
+}
+.pb-command-reason {
+  margin-top: var(--pb-space-1);
+  font-size: var(--pb-text-sm);
+  line-height: var(--pb-text-sm-lh);
+}
+/* The result of the reader's own command, beside the controls: a sentence on the neutral band with
+   a dot in the outcome's colour; a refusal keeps its own band. The words say which it was. */
 .pb-action-status > .pb-notice {
-  margin: 0 0 12px;
+  margin: 0 0 var(--pb-space-3);
+}
+.pb-action-status > .pb-notice-good {
+  background: var(--pb-primary-tint-4);
+  color: var(--pb-text);
 }
 .pb-action-log {
   list-style: none;
@@ -1274,11 +1447,11 @@ p:last-child {
 .pb-action-log > li {
   display: flex;
   align-items: baseline;
-  gap: 10px;
-  padding: 8px 0;
+  gap: var(--pb-space-3);
+  padding: var(--pb-space-2) 0;
   border-top: 1px solid var(--pb-hairline);
-  font-size: 13px;
-  line-height: 20px;
+  font-size: var(--pb-text-md);
+  line-height: var(--pb-text-md-lh);
 }
 .pb-action-log > li:first-child {
   border-top: 0;
@@ -1289,62 +1462,149 @@ p:last-child {
 }
 .pb-action-log .pb-badge {
   flex: none;
+  min-width: 64px;
+}
+/* A dialog: a frame of its own over a dimmed page. Two classes, so these outrank Fluent's styles,
+   which are injected after this sheet. */
+.fui-DialogSurface.pb-dialog {
+  border-radius: var(--pb-radius-lg);
+  box-shadow: var(--pb-shadow-3);
+}
+.pb-dialog .fui-DialogTitle {
+  font-size: var(--pb-text-xl);
+  line-height: var(--pb-text-xl-lh);
+  font-weight: 600;
+}
+.fui-DialogSurface__backdrop.pb-dialog-backdrop {
+  background: rgba(var(--pb-text-rgb), 0.32);
 }
 .pb-dialog-content {
   display: grid;
-  gap: 14px;
+  gap: var(--pb-space-3);
 }
 .pb-dialog-content > p {
   margin: 0;
 }
 
-/* ---- Step strip (components/StepStrip.tsx): the steps of a workflow as an ordered list that
-   wraps. The component counts the steps: all of them in one row, half of them in a row below
-   1240px, two below 560px (the Responsive section at the foot). ---- */
+/* ---- Step strip (components/StepStrip.tsx): the steps of a workflow in one row, each a segment
+   across the top and its name under it. Done segments are dark, the current one the accent, those
+   ahead a hairline. Under 560px the names give way to one line that says where the record is. ---- */
 .pb-steps {
   display: grid;
   grid-template-columns: repeat(var(--pb-steps, 8), minmax(0, 1fr));
-  gap: 6px;
-  margin: 0 0 16px;
+  column-gap: var(--pb-space-1);
+  margin: 0 0 var(--pb-space-5);
   padding: 0;
   list-style: none;
 }
 .pb-steps > li {
+  position: relative;
   display: flex;
   flex-direction: column;
-  gap: 6px;
   min-width: 0;
-  padding: 8px 10px;
-  background: var(--pb-bg);
-  border: 1px solid var(--pb-border);
-  border-radius: var(--pb-radius);
-  font-size: 12px;
-  line-height: 16px;
-  font-weight: 600;
+  padding: var(--pb-space-2) 0 0;
+  font-size: var(--pb-text-sm);
+  line-height: var(--pb-text-sm-lh);
+  font-weight: 500;
   color: var(--pb-text);
+  overflow-wrap: anywhere;
+}
+.pb-steps > li::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: var(--pb-border);
+}
+.pb-steps > li[data-status='done']::before {
+  background: var(--pb-muted-strong);
+}
+.pb-steps > li[aria-current='step']::before {
+  background: var(--pb-brand-accent);
 }
 .pb-steps > li[aria-current='step'] {
-  border-color: var(--pb-brand-primary);
-  box-shadow: inset 0 3px 0 var(--pb-brand-accent);
+  font-weight: 600;
 }
 .pb-steps > li[data-status='upcoming'] {
-  font-weight: 500;
+  font-weight: 400;
   color: var(--pb-muted-strong);
-  background: var(--pb-surface-2);
 }
-.pb-steps > li[data-status='done'] {
-  box-shadow: inset 0 3px 0 var(--pb-border-strong);
-}
-/* The state of a step in words under its name: quiet for done, the brand colour for current. */
+/* The state of a step in words under its name: quiet for done, the accent's ink for current. */
 .pb-step-state {
-  font-size: 11px;
-  line-height: 14px;
-  font-weight: 500;
+  font-weight: 400;
   color: var(--pb-muted-strong);
 }
 .pb-steps > li[aria-current='step'] > .pb-step-state {
-  font-weight: 600;
+  font-weight: 500;
+  color: var(--pb-accent-ink);
+}
+.pb-steps-summary {
+  display: none;
+  margin: 0 0 var(--pb-space-5);
+  font-size: var(--pb-text-sm);
+  line-height: var(--pb-text-sm-lh);
+  color: var(--pb-text);
+}
+
+/* ---- Shared helpers: a cell's second line, a disclosure, a list of items, a row of markers, a
+   note under a control, a row of actions. Pages use these rather than their own copies. ---- */
+.pb-details > summary {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--pb-space-2);
+  min-height: 32px;
   color: var(--pb-brand-primary);
+  font-weight: 500;
+  list-style: none;
+  cursor: pointer;
+}
+.pb-details > summary::-webkit-details-marker {
+  display: none;
+}
+.pb-details > summary::before {
+  content: '';
+  flex: none;
+  width: 0;
+  height: 0;
+  border-block: 4px solid transparent;
+  border-left: 6px solid currentColor;
+  transition: transform var(--pb-dur-fast) var(--pb-ease);
+}
+.pb-details[open] > summary::before {
+  transform: rotate(90deg);
+}
+.pb-item-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.pb-item-list > li {
+  padding: var(--pb-space-2) 0;
+  border-top: 1px solid var(--pb-hairline);
+}
+.pb-item-list > li:first-child {
+  border-top: 0;
+  padding-top: 0;
+}
+.pb-marker-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--pb-space-1) var(--pb-space-3);
+}
+.pb-note {
+  margin: var(--pb-space-2) 0 0;
+  font-size: var(--pb-text-sm);
+  line-height: var(--pb-text-sm-lh);
+  color: var(--pb-muted-strong);
+}
+.pb-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--pb-space-2);
 }
 
 /* ---- Attention list (Home): position, vehicle and its flags ---- */
@@ -1728,11 +1988,6 @@ p:last-child {
 }
 
 /* ---- Responsive ---- */
-@media (max-width: 1240px) {
-  .pb-steps {
-    grid-template-columns: repeat(var(--pb-steps-half, 4), minmax(0, 1fr));
-  }
-}
 @media (max-width: 1100px) {
   .pb-main {
     padding: 20px 20px 48px;
@@ -1873,6 +2128,17 @@ p:last-child {
   .pb-toolbar-end {
     margin-left: 0;
   }
+  .pb-w-s,
+  .pb-w-m,
+  .pb-w-l {
+    width: 100%;
+  }
+  /* Tabs in one row that scrolls, fading at the right edge. */
+  .pb-tabs {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    mask-image: linear-gradient(to right, var(--pb-text) calc(100% - 24px), transparent);
+  }
   .pb-grid {
     height: 62vh;
   }
@@ -1893,9 +2159,42 @@ p:last-child {
     max-height: none;
   }
 }
+/* Controls a finger can hit: 44px tall on a touch screen or a phone. */
+@media (pointer: coarse), (max-width: 760px) {
+  .pb-main .fui-Button,
+  .pb-tabs a,
+  .pb-nav-item,
+  .pb-chart-toggle,
+  .pb-details > summary,
+  .pb-guide-compact summary,
+  .pb-btn-quiet,
+  .pb-segmented > button {
+    min-height: 44px;
+  }
+  .pb-command-buttons,
+  .pb-actions {
+    gap: var(--pb-space-2);
+  }
+}
 @media (max-width: 560px) {
+  /* The strip keeps its segments; the names give way to one line under it. */
   .pb-steps {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+    margin-bottom: var(--pb-space-2);
+  }
+  .pb-steps > li {
+    min-height: var(--pb-space-2);
+    padding: 0;
+  }
+  .pb-steps > li > span {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+  }
+  .pb-steps-summary {
+    display: block;
   }
   /* The header's meta items one under another, without the dots between them. */
   .pb-banner .pb-meta-list {
@@ -2077,6 +2376,28 @@ p:last-child {
   animation-delay: 140ms;
 }
 
+/* The tab that became current: its underline draws in. It plays on every tab change, whether the
+   row was rendered again or kept, because the pseudo-element is created then. */
+.pb-tabs a[aria-current='page']::after {
+  content: '';
+  position: absolute;
+  left: var(--pb-space-3);
+  right: var(--pb-space-3);
+  bottom: 0;
+  height: 2px;
+  background: var(--pb-brand-accent);
+  animation: pb-tab-in var(--pb-dur) var(--pb-ease) backwards;
+}
+
+/* Steps: done segments fill in order and the current one last; after a command only the segment
+   whose status changed fills (its animation name changes from none). StepStrip sets --i. */
+.pb-steps > li[data-status='done']::before,
+.pb-steps > li[aria-current='step']::before {
+  transform-origin: left center;
+  animation: pb-grow-x var(--pb-dur) var(--pb-ease) backwards;
+  animation-delay: calc(var(--i, 0) * 30ms);
+}
+
 /* The reader's own command: its result line drops in beside the controls and the row it changed
    washes once (components/motion.ts, useJustChanged). Never on a refetch; the role="status" region
    itself does not move. */
@@ -2106,8 +2427,7 @@ p:last-child {
 .pb-main > .pb-skeleton {
   animation: pb-fade var(--pb-dur) var(--pb-ease) 120ms backwards;
 }
-.pb-skeleton-bar,
-.pb-skeleton-tile {
+.pb-skeleton-bar {
   animation: pb-pulse 1200ms var(--pb-ease-inout) infinite alternate;
 }
 
@@ -2121,6 +2441,9 @@ p:last-child {
   .pb-main > :not(.pb-banner, .pb-tabs, .pb-skeleton, .pb-tiles),
   .pb-enter-children > *,
   .pb-tiles > *,
+  .pb-tabs a[aria-current='page']::after,
+  .pb-steps > li[data-status='done']::before,
+  .pb-steps > li[aria-current='step']::before,
   .pb-action-status > *,
   .pb-action-log > li:first-child,
   .pb-table tr[data-just-changed] > *,
@@ -2128,7 +2451,6 @@ p:last-child {
   .pb-skeleton,
   .pb-main > .pb-skeleton,
   .pb-skeleton-bar,
-  .pb-skeleton-tile,
   .pb-scene-glow,
   .pb-scene-wave,
   .pb-scene-wave-a,
@@ -2160,14 +2482,16 @@ p:last-child {
   .pb-scene-foam {
     transform: translate3d(-7%, 0, 0);
   }
-  .pb-skeleton-bar,
-  .pb-skeleton-tile {
+  .pb-skeleton-bar {
     opacity: 0.7;
   }
   a,
   .pb-nav-item,
   .pb-nav-icon,
   .pb-tabs a,
+  .pb-btn-quiet,
+  .pb-segmented > button,
+  .pb-details > summary::before,
   .pb-signin-list > button,
   .pb-table-wrap {
     transition: none;

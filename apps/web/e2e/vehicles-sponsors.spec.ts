@@ -2,7 +2,7 @@ import AxeBuilder from '@axe-core/playwright';
 import { expect, test } from '@playwright/test';
 import type { Page } from '@playwright/test';
 import { generateDataset } from '@pb/synthetic';
-import { loadDataset, signInAs } from './fixtures.js';
+import { loadDataset, settled, signInAs } from './fixtures.js';
 
 /**
  * Vehicles and sponsors (M17, M6): operations reads a vehicle's client commitments, and so does
@@ -36,6 +36,7 @@ async function openVehicleFromList(page: Page, name: string): Promise<void> {
 }
 
 async function expectNoSeriousViolations(page: Page): Promise<void> {
+  await settled(page);
   const results = await new AxeBuilder({ page })
     .withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa'])
     .analyze();

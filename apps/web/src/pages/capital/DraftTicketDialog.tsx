@@ -15,6 +15,7 @@ import { isoDate, positiveDecimal } from '@pb/contracts';
 import type { CapitalNoticeDetail } from '@pb/contracts';
 import { formatDate } from '../../lib/format.js';
 import { noticeAmount } from './notices.js';
+import { dialogSurfaceMotion, useReducedMotion } from '../../components/motion.js';
 
 export interface DraftTicketValues {
   fundingDate: string;
@@ -45,14 +46,16 @@ export function DraftTicketDialog({
   const dateOk = isoDate.safeParse(dateText).success;
   const amountOk = positiveDecimal.safeParse(amountText).success;
   const ready = dateOk && amountOk;
+  const motion = dialogSurfaceMotion(useReducedMotion());
   return (
     <Dialog
+      surfaceMotion={motion}
       open
       onOpenChange={(_e, d) => {
         if (!d.open) onCancel();
       }}
     >
-      <DialogSurface>
+      <DialogSurface className="pb-dialog" backdrop={{ className: 'pb-dialog-backdrop' }}>
         <form
           data-testid="draft-ticket-form"
           onSubmit={(e) => {

@@ -26,6 +26,7 @@ import {
   listRuns,
   loadDataset,
   runDetail,
+  settled,
   signInAs,
   startExtractionBatch,
   switchTo,
@@ -101,6 +102,7 @@ const userName = (externalId: string): string =>
   d.users.find((u) => u.externalId === externalId)?.displayName ?? '';
 
 async function expectNoSeriousViolations(page: Page): Promise<void> {
+  await settled(page);
   const results = await new AxeBuilder({ page })
     .withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa'])
     .analyze();

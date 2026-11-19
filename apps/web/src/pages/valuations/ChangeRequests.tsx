@@ -79,6 +79,7 @@ import {
 } from './changes.js';
 import type { NamedOption } from './changes.js';
 import './valuations.css';
+import { dialogSurfaceMotion, useReducedMotion } from '../../components/motion.js';
 
 type RequestOption = CommandOption<ChangeRequestState, ChangeRequestCommand>;
 
@@ -119,14 +120,16 @@ function PeriodDialog({
   onSubmit: (periodEnd: string) => void;
 }): ReactNode {
   const [period, setPeriod] = useState(periods[0] ?? '');
+  const motion = dialogSurfaceMotion(useReducedMotion());
   return (
     <Dialog
+      surfaceMotion={motion}
       open
       onOpenChange={(_e, d) => {
         if (!d.open) onCancel();
       }}
     >
-      <DialogSurface>
+      <DialogSurface className="pb-dialog" backdrop={{ className: 'pb-dialog-backdrop' }}>
         <form
           onSubmit={(e) => {
             e.preventDefault();
@@ -196,14 +199,16 @@ function RouteDialog({
 }): ReactNode {
   const [ownerId, setOwnerId] = useState('');
   const owner = owners.find((o) => o.id === ownerId);
+  const motion = dialogSurfaceMotion(useReducedMotion());
   return (
     <Dialog
+      surfaceMotion={motion}
       open
       onOpenChange={(_e, d) => {
         if (!d.open) onCancel();
       }}
     >
-      <DialogSurface>
+      <DialogSurface className="pb-dialog" backdrop={{ className: 'pb-dialog-backdrop' }}>
         <form
           onSubmit={(e) => {
             e.preventDefault();

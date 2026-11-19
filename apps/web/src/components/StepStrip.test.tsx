@@ -41,11 +41,15 @@ describe('the step strip', () => {
     expect(upcoming!.querySelector('.pb-step-state')).toBeNull();
   });
 
-  it('tells the stylesheet how many steps there are and how many make half a strip', () => {
+  it('tells the stylesheet how many steps there are and numbers each one, so the done ones fill in order', () => {
     const { rerender } = render(<StepStrip label="Steps" steps={STEPS} />);
     const strip = screen.getByRole('list', { name: 'Steps' });
     expect(strip.style.getPropertyValue('--pb-steps')).toBe('3');
-    expect(strip.style.getPropertyValue('--pb-steps-half')).toBe('2');
+    expect(
+      within(strip)
+        .getAllByRole('listitem')
+        .map((li) => li.style.getPropertyValue('--i')),
+    ).toEqual(['0', '1', '2']);
     rerender(
       <StepStrip
         label="Steps"
@@ -57,10 +61,24 @@ describe('the step strip', () => {
       />,
     );
     expect(strip.style.getPropertyValue('--pb-steps')).toBe('8');
-    expect(strip.style.getPropertyValue('--pb-steps-half')).toBe('4');
-    // No step at all still gives the stylesheet a column to lay out.
     rerender(<StepStrip label="Steps" steps={[]} />);
-    expect(strip.style.getPropertyValue('--pb-steps-half')).toBe('1');
+    expect(strip.style.getPropertyValue('--pb-steps')).toBe('0');
     expect(within(strip).queryAllByRole('listitem')).toHaveLength(0);
+  });
+
+  it('says where the record is in one line for a narrow phone, hidden from screen readers', () => {
+    const { container, rerender } = render(<StepStrip label="Release gate" steps={STEPS} />);
+    const line = container.querySelector('.pb-steps-summary');
+    expect(line).toHaveTextContent('Step 2 of 3: QA failed');
+    expect(line).toHaveAttribute('aria-hidden', 'true');
+    expect(screen.queryByText('Step 2 of 3: QA failed')).not.toBeNull();
+    // No step is current (a deal that was passed): no line.
+    rerender(
+      <StepStrip
+        label="Release gate"
+        steps={STEPS.map((step) => ({ ...step, status: 'upcoming' as const }))}
+      />,
+    );
+    expect(container.querySelector('.pb-steps-summary')).toBeNull();
   });
 });

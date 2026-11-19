@@ -157,7 +157,7 @@ describe('change request queue', () => {
     const applied = rowOf('Partial exit of a fifth of the holding to a strategic buyer');
     expect(within(applied).getByText('Applied')).toHaveClass('pb-badge-good');
     expect(within(applied).getByText('Mar 31, 2025')).toBeInTheDocument();
-    expect(within(applied).getByText('None')).toBeInTheDocument();
+    expect(within(applied).getByText('No actions')).toHaveClass('pb-visually-hidden');
     const rejected = rowOf('Interest payment to be treated as a distribution');
     expect(within(rejected).getByText('Rejected')).toHaveClass('pb-badge-bad');
     expect(within(rejected).getByText('Already reflected in the record')).toBeInTheDocument();

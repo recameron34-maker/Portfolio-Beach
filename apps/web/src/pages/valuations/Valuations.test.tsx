@@ -102,7 +102,7 @@ describe('valuation board', () => {
     expect(within(meridianRow).getByText('Sponsor mark')).toBeInTheDocument();
 
     const reopened = within(table).getByText('Reopened').closest('tr')!;
-    expect(within(reopened).getByText('None')).toBeInTheDocument();
+    expect(within(reopened).getByText('No actions')).toHaveClass('pb-visually-hidden');
     expect(screen.queryByText('Showing the first 200', { exact: false })).not.toBeInTheDocument();
     expect(screen.queryByText('Simulated')).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Reset preview' })).not.toBeInTheDocument();

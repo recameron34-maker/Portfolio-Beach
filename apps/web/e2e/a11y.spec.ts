@@ -12,8 +12,10 @@ import {
   latestQuarter,
   listRuns,
   loadDataset,
+  settled,
   signInAs,
   startExtractionBatch,
+  switchTo,
   walledDeal,
 } from './fixtures.js';
 
@@ -39,26 +41,6 @@ test.beforeAll(() => {
   mkdirSync(folder, { recursive: true });
   writeFileSync(join(folder, `${cleanExtract.asOf}.json`), cleanExtract.json);
 });
-
-/**
- * Waits for every finite animation on the page to finish (the loading pulse is the only one that
- * loops), so axe never measures contrast while a block is still fading in. Gives up after five
- * seconds rather than hang on an animation that never ends.
- */
-async function settled(page: Page): Promise<void> {
-  await page.evaluate(async () => {
-    const finite = document
-      .getAnimations()
-      .filter((a) => a.effect?.getComputedTiming().iterations !== Infinity)
-      .map((a) =>
-        a.finished.then(
-          () => undefined,
-          () => undefined,
-        ),
-      );
-    await Promise.race([Promise.all(finite), new Promise((resolve) => setTimeout(resolve, 5_000))]);
-  });
-}
 
 /** The rule ids and node counts axe reports as serious or critical on the page as it stands. */
 async function seriousViolations(page: Page): Promise<string[]> {
@@ -109,6 +91,28 @@ async function animationNames(locator: Locator): Promise<string[]> {
   return locator.evaluateAll((els) => els.map((el) => getComputedStyle(el).animationName));
 }
 
+/** The same, for a pseudo-element of each element ('::before', '::after'). */
+async function pseudoAnimationNames(locator: Locator, pseudo: string): Promise<string[]> {
+  return locator.evaluateAll(
+    (els, which) => els.map((el) => getComputedStyle(el, which).animationName),
+    pseudo,
+  );
+}
+
+/** Reads a locator's animations with motion allowed and then under the setting. */
+async function movingThenStill(
+  page: Page,
+  read: () => Promise<string[]>,
+  name: string,
+): Promise<void> {
+  await page.emulateMedia({ reducedMotion: 'no-preference' });
+  const moving = await read();
+  expect(moving.length).toBeGreaterThan(0);
+  expect(moving.every((n) => n === name)).toBe(true);
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  expect((await read()).every((n) => n === 'none')).toBe(true);
+}
+
 test('pages and loading states arrive composed under reduced motion @a11y', async ({ page }) => {
   await signInAs(page, 'ops.one', d);
   await page.goto('/sponsors');
@@ -149,8 +153,50 @@ test('pages and loading states arrive composed under reduced motion @a11y', asyn
   expect(await animationNames(skeleton)).toEqual(['pb-fade']);
   release();
   // Let the held request go on before the route is removed.
-  await page.unroute(SPONSOR_LIST, { behavior: 'wait' });
+  await page.unrouteAll({ behavior: 'wait' });
   await page.getByRole('table', { name: 'Sponsors' }).waitFor();
+
+  // The steps done fill their segments and the current tab draws its underline.
+  await page.goto(`/pipeline/${closingDeal}`);
+  const done = page.locator(".pb-steps > li[data-status='done']");
+  await done.first().waitFor();
+  await movingThenStill(page, () => pseudoAnimationNames(done, '::before'), 'pb-grow-x');
+  await page.goto(`/portfolio/${openDeal}`);
+  const tab = page.locator(".pb-tabs a[aria-current='page']");
+  await tab.waitFor();
+  await movingThenStill(page, () => pseudoAnimationNames(tab, '::after'), 'pb-tab-in');
+
+  // The result of a command (refused here, so nothing is written) drops in beside the controls
+  // and at the head of the log.
+  await switchTo(page, 'deal.one', d);
+  const COMMANDS = new RegExp(`/api/v1/opportunities/${sourcedDeal}/commands`);
+  await page.route(COMMANDS, (route) =>
+    route.fulfill({
+      status: 422,
+      contentType: 'application/problem+json',
+      body: JSON.stringify({
+        type: 'https://example.test/problems/workflow-precondition',
+        title: 'Workflow precondition',
+        status: 422,
+        detail: 'Held back for the motion check.',
+        request_id: 'motion-check',
+      }),
+    }),
+  );
+  await page.goto(`/pipeline/${sourcedDeal}`);
+  await page
+    .getByTestId('opportunity-stage-actions')
+    .getByRole('button', { name: /^Advance/ })
+    .click();
+  const newest = page.locator('.pb-action-log > li:first-child');
+  await expect(newest).toContainText('Held back for the motion check.');
+  await movingThenStill(page, () => animationNames(newest), 'pb-drop');
+  await movingThenStill(
+    page,
+    () => animationNames(page.locator('.pb-action-status > *')),
+    'pb-drop',
+  );
+  await page.unrouteAll({ behavior: 'wait' });
 });
 
 // ---- Every page added this round, at a laptop and a phone width --------------------------------

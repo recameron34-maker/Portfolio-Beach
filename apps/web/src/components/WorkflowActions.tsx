@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useId, useState } from 'react';
 import type { ReactNode } from 'react';
 import {
   Button,
@@ -11,7 +11,8 @@ import {
   Field as FluentField,
   Input,
 } from '@fluentui/react-components';
-import { Badge, Card, EmptyState, SectionHeader } from './ui.js';
+import { dialogSurfaceMotion, useReducedMotion } from './motion.js';
+import { Badge, Card, SectionHeader } from './ui.js';
 import { commandLabel } from '../lib/states.js';
 import type { CommandOption } from '../lib/states.js';
 import { blockedTitle, isReason, MIN_REASON_LENGTH } from '../lib/workflow.js';
@@ -20,7 +21,10 @@ import type { ActionEntry } from '../lib/workflow.js';
 /**
  * One small button per command the transition table lists from the record's state, under the
  * binding action rules (workflow.ts). `context` names the record so each button has a distinct
- * accessible name in a table of rows.
+ * accessible name in a table of rows. With no command the cell stays blank to the eye and says
+ * "No actions" to a screen reader. `primary` marks the one command the page leads with; a page
+ * with a single group of commands may show why a command is blocked (`showBlockedReason`), one
+ * line per reason under the buttons, and each blocked button points to its own.
  */
 export function CommandButtons<S extends string, C extends string>({
   options,
@@ -28,6 +32,8 @@ export function CommandButtons<S extends string, C extends string>({
   context,
   notAllowedTitle,
   appearance = 'subtle',
+  primary,
+  showBlockedReason = false,
   onIssue,
 }: {
   options: readonly CommandOption<S, C>[];
@@ -35,21 +41,31 @@ export function CommandButtons<S extends string, C extends string>({
   context?: string | undefined;
   notAllowedTitle?: ((option: CommandOption<S, C>) => string | undefined) | undefined;
   appearance?: 'subtle' | 'outline' | 'secondary';
+  primary?: C | undefined;
+  showBlockedReason?: boolean;
   onIssue: (option: CommandOption<S, C>) => void;
 }): ReactNode {
-  if (options.length === 0) return <span className="pb-meta">None</span>;
-  return (
+  const reasonId = useId();
+  if (options.length === 0) return <span className="pb-visually-hidden">No actions</span>;
+  const blocked = options.map((o) => blockedTitle(o, notAllowedTitle?.(o)));
+  const reasons = showBlockedReason
+    ? [...new Set(blocked.filter((b): b is string => b !== null))]
+    : [];
+  const buttons = (
     <span className="pb-command-buttons">
-      {options.map((o) => {
-        const blocked = blockedTitle(o, notAllowedTitle?.(o));
+      {options.map((o, i) => {
+        const why = blocked[i] ?? null;
         const label = commandLabel(o.command);
         return (
           <Button
             key={`${o.command}-${o.to}`}
             size="small"
-            appearance={appearance}
-            disabled={blocked !== null || busy}
-            {...(blocked === null ? {} : { title: blocked })}
+            appearance={o.command === primary ? 'primary' : appearance}
+            disabled={why !== null || busy}
+            {...(why === null ? {} : { title: why })}
+            {...(why !== null && reasons.includes(why)
+              ? { 'aria-describedby': `${reasonId}-${reasons.indexOf(why)}` }
+              : {})}
             {...(context === undefined ? {} : { 'aria-label': `${label}, ${context}` })}
             onClick={() => onIssue(o)}
           >
@@ -57,6 +73,19 @@ export function CommandButtons<S extends string, C extends string>({
           </Button>
         );
       })}
+    </span>
+  );
+  if (reasons.length === 0) return buttons;
+  return (
+    <span className="pb-command-group">
+      {buttons}
+      <span className="pb-meta pb-command-reason">
+        {reasons.map((r, i) => (
+          <span key={r} id={`${reasonId}-${i}`}>
+            {r}
+          </span>
+        ))}
+      </span>
     </span>
   );
 }
@@ -76,14 +105,16 @@ export function ReasonDialog({
   const [reason, setReason] = useState('');
   const [touched, setTouched] = useState(false);
   const valid = isReason(reason);
+  const motion = dialogSurfaceMotion(useReducedMotion());
   return (
     <Dialog
       open
+      surfaceMotion={motion}
       onOpenChange={(_e, d) => {
         if (!d.open) onCancel();
       }}
     >
-      <DialogSurface>
+      <DialogSurface className="pb-dialog" backdrop={{ className: 'pb-dialog-backdrop' }}>
         <form
           onSubmit={(e) => {
             e.preventDefault();
@@ -160,10 +191,7 @@ export function ActionLogCard({ entries }: { entries: readonly ActionEntry[] }):
         Actions this session
       </SectionHeader>
       {entries.length === 0 ? (
-        <EmptyState
-          title="No actions yet"
-          detail="The result of each workflow action you take on this page appears here, newest first. The list clears when the page reloads."
-        />
+        <p className="pb-meta">No actions yet</p>
       ) : (
         <ul className="pb-action-log" aria-label="Actions this session">
           {entries.map((e) => (

@@ -1,4 +1,4 @@
-import { Fragment } from 'react';
+import { Fragment, useEffect, useRef } from 'react';
 import type { ReactNode } from 'react';
 import { Link } from '@tanstack/react-router';
 import { previewMode } from '../app/env.js';
@@ -218,7 +218,8 @@ export function PageHeader({
 /**
  * Secondary navigation inside an area (tabs). Paths are absolute so hash and browser history both
  * work. A tab may carry a search (the filters two tabs share); it does not decide which tab is
- * the current one. The tabs a role works in most come first for that role; none is left out.
+ * the current one. The tabs a role works in most come first for that role; none is left out. On a
+ * phone the tabs are one row that scrolls, so the current tab is brought into view when it opens.
  */
 export function TabNav({
   items,
@@ -234,8 +235,16 @@ export function TabNav({
 }): ReactNode {
   // The role's order for this row, when its configuration gives one (config/role_focus.json).
   const ordered = tabsFor(items, useRoleFocus());
+  const narrow = useNarrowScreen();
+  const row = useRef<HTMLElement>(null);
+  useEffect(() => {
+    if (!narrow) return;
+    row.current
+      ?.querySelector('[aria-current="page"]')
+      ?.scrollIntoView?.({ block: 'nearest', inline: 'nearest' });
+  }, [narrow]);
   return (
-    <nav className="pb-tabs" aria-label={label}>
+    <nav className="pb-tabs" aria-label={label} ref={row}>
       {ordered.map((t) => (
         <Link
           key={t.to}
@@ -255,7 +264,11 @@ export function TabNav({
 
 export type Tone = 'neutral' | 'good' | 'watch' | 'bad' | 'brand' | 'accent';
 
-/** Status with a dot and a word, never colour alone (docs/06). plain drops the dot for category chips. */
+/**
+ * A state as a small dot and a word, never colour alone and never a pill (docs/06 section 2). The
+ * dot carries the tone; the word stays in ink unless the state needs its own (watch, bad). plain
+ * drops the dot: a category is plain text, not a state.
+ */
 export function Badge({
   tone = 'neutral',
   plain = false,
@@ -355,18 +368,10 @@ export function Field({ children }: { children: ReactNode }): ReactNode {
   return <div className="pb-field">{children}</div>;
 }
 
-/** The horizon mark: the sign-in motif at 56 by 20, decorative. */
-function HorizonMark(): ReactNode {
-  return (
-    <svg className="pb-empty-mark" viewBox="0 0 56 20" aria-hidden="true" focusable="false">
-      <line x1="0" y1="6.5" x2="56" y2="6.5" stroke="currentColor" strokeWidth="1" />
-      <line x1="8" y1="14.5" x2="48" y2="14.5" stroke="currentColor" strokeWidth="1" />
-      <circle cx="28" cy="6.5" r="2.5" fill="currentColor" />
-    </svg>
-  );
-}
-
-/** Nothing to show, said plainly, with the reason and optionally what would make it appear. */
+/**
+ * Nothing to show, said plainly, with the reason and optionally what would make it appear: a title
+ * and its detail, left-aligned, with no frame and no mark.
+ */
 export function EmptyState({
   title,
   detail,
@@ -378,14 +383,51 @@ export function EmptyState({
 }): ReactNode {
   return (
     <div className="pb-empty" data-testid={testId}>
-      <HorizonMark />
       <p className="pb-empty-title">{title}</p>
       {detail !== undefined ? <p className="pb-empty-detail">{detail}</p> : null}
     </div>
   );
 }
 
-/** Page-level loading. aria-busy, never role="status": the banner must stay the only status element on app pages. */
+/**
+ * A sentence on a quiet band with a dot in its tone (docs/06 section 2): info for what the reader
+ * should know, good, watch or bad when it reports an outcome. No frame and no bar.
+ */
+export function Notice({
+  tone = 'info',
+  children,
+  testId,
+}: {
+  tone?: 'info' | 'good' | 'watch' | 'bad';
+  children: ReactNode;
+  testId?: string | undefined;
+}): ReactNode {
+  return (
+    <p
+      className={tone === 'info' ? 'pb-notice' : `pb-notice pb-notice-${tone}`}
+      data-testid={testId}
+    >
+      {children}
+    </p>
+  );
+}
+
+/** One loading row: bars where a name and three figures will be. */
+function SkeletonRow(): ReactNode {
+  return (
+    <div className="pb-skeleton-row">
+      <div className="pb-skeleton-bar" />
+      <div className="pb-skeleton-bar" />
+      <div className="pb-skeleton-bar" />
+      <div className="pb-skeleton-bar" />
+    </div>
+  );
+}
+
+/**
+ * Page-level loading, in the shape of the page that replaces it: a title, a strip of figures and
+ * rows. aria-busy, never role="status": the banner must stay the only status element on app pages.
+ */
 export function PageSkeleton({
   tiles = 0,
   rows = 3,
@@ -400,12 +442,29 @@ export function PageSkeleton({
       {tiles > 0 ? (
         <div className="pb-skeleton-tiles">
           {Array.from({ length: tiles }, (_, i) => (
-            <div key={i} className="pb-skeleton-tile" />
+            <div key={i} className="pb-skeleton-tile">
+              <div className="pb-skeleton-bar" />
+              <div className="pb-skeleton-bar" />
+            </div>
           ))}
         </div>
       ) : null}
+      <div className="pb-skeleton-rows">
+        {Array.from({ length: rows }, (_, i) => (
+          <SkeletonRow key={i} />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/** A list loading inside a section: rows of bars, busy, never role="status". */
+export function RowsSkeleton({ rows }: { rows: number }): ReactNode {
+  return (
+    <div className="pb-skeleton pb-skeleton-rows" aria-busy="true">
+      <span className="pb-visually-hidden">Loading</span>
       {Array.from({ length: rows }, (_, i) => (
-        <div key={i} className="pb-skeleton-bar" />
+        <SkeletonRow key={i} />
       ))}
     </div>
   );

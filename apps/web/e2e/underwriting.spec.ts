@@ -10,7 +10,7 @@ import {
 } from '@pb/contracts';
 import type { UnderwritingRead } from '@pb/contracts';
 import { generateDataset } from '@pb/synthetic';
-import { apiCall, loadDataset, signInAs, switchTo } from './fixtures.js';
+import { apiCall, loadDataset, settled, signInAs, switchTo } from './fixtures.js';
 
 /**
  * A position against the base case its sponsor underwrote (docs/04 M9, decision 0022), over the
@@ -134,6 +134,7 @@ async function expectNoWriteButtons(page: Page, except: readonly string[] = []):
 }
 
 async function expectNoSeriousViolations(page: Page): Promise<void> {
+  await settled(page);
   const results = await new AxeBuilder({ page })
     .withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa'])
     .analyze();

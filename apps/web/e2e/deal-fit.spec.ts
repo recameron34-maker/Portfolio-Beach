@@ -2,7 +2,7 @@ import AxeBuilder from '@axe-core/playwright';
 import { expect, test } from '@playwright/test';
 import type { Page } from '@playwright/test';
 import { opportunityFit, opportunityPage } from '@pb/contracts';
-import { apiCall, loadDataset, signInAs } from './fixtures.js';
+import { apiCall, loadDataset, settled, signInAs } from './fixtures.js';
 
 /**
  * The "Portfolio fit" card of an opportunity (docs/08 section 8, decision 0018) over the real
@@ -15,6 +15,7 @@ import { apiCall, loadDataset, signInAs } from './fixtures.js';
 const d = loadDataset();
 
 async function expectNoSeriousViolations(page: Page): Promise<void> {
+  await settled(page);
   const results = await new AxeBuilder({ page })
     .withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa'])
     .analyze();

@@ -37,6 +37,7 @@ import {
   unexplainedTieOuts,
 } from './packages.js';
 import type { PositionNames } from './packages.js';
+import { dialogSurfaceMotion, useReducedMotion } from '../../../components/motion.js';
 
 type PackageOption = CommandOption<ReportPackageState, ReportingPackageCommand>;
 
@@ -62,14 +63,16 @@ function ExplanationsDialog({
   const [drafts, setDrafts] = useState<Readonly<Record<string, string>>>({});
   const [touched, setTouched] = useState(false);
   const body = regenerateBody(drafts);
+  const motion = dialogSurfaceMotion(useReducedMotion());
   return (
     <Dialog
+      surfaceMotion={motion}
       open
       onOpenChange={(_e, d) => {
         if (!d.open) onCancel();
       }}
     >
-      <DialogSurface>
+      <DialogSurface className="pb-dialog" backdrop={{ className: 'pb-dialog-backdrop' }}>
         <form
           // The dialog says what a box needs in its own words.
           noValidate

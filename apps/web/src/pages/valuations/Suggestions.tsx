@@ -88,6 +88,7 @@ import type { SuggestionStateFilter } from './suggestions.js';
 import { SuggestionWorkings } from './SuggestionWorkings.js';
 import { ValuationTabs } from './ValuationTabs.js';
 import './valuations.css';
+import { dialogSurfaceMotion, useReducedMotion } from '../../components/motion.js';
 
 const TITLE = 'Valuation suggestions';
 
@@ -283,14 +284,16 @@ function ConfirmDialog({
   const title =
     pending.kind === 'accept' ? 'Open a draft valuation' : 'Use this value on the draft';
   const flags = flagSentences(row.flags);
+  const motion = dialogSurfaceMotion(useReducedMotion());
   return (
     <Dialog
+      surfaceMotion={motion}
       open
       onOpenChange={(_e, d) => {
         if (!d.open) onCancel();
       }}
     >
-      <DialogSurface>
+      <DialogSurface className="pb-dialog" backdrop={{ className: 'pb-dialog-backdrop' }}>
         <DialogBody>
           <DialogTitle>{title}</DialogTitle>
           <DialogContent className="pb-dialog-content">

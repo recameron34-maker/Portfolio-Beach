@@ -107,6 +107,7 @@ import { resultSuffix, useActionLog } from '../../lib/workflow.js';
 import type { ActionLog } from '../../lib/workflow.js';
 import './valuations.css';
 import { balanceTiles } from '../../lib/tiles.js';
+import { dialogSurfaceMotion, useReducedMotion } from '../../components/motion.js';
 
 type ValuationOption = CommandOption<ValuationState, ValuationCommand>;
 
@@ -491,14 +492,16 @@ function ResetPreviewDialog({
   onCancel: () => void;
   onConfirm: () => void;
 }): ReactNode {
+  const motion = dialogSurfaceMotion(useReducedMotion());
   return (
     <Dialog
+      surfaceMotion={motion}
       open
       onOpenChange={(_e, d) => {
         if (!d.open) onCancel();
       }}
     >
-      <DialogSurface>
+      <DialogSurface className="pb-dialog" backdrop={{ className: 'pb-dialog-backdrop' }}>
         <DialogBody>
           <DialogTitle>Reset preview</DialogTitle>
           <DialogContent className="pb-dialog-content">

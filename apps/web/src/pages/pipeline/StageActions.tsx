@@ -32,6 +32,7 @@ import { resultSuffix } from '../../lib/workflow.js';
 import type { ActionLog } from '../../lib/workflow.js';
 import { useOpportunityCommand } from './api.js';
 import { advanceBlocker, isIsoDate, isPositiveAmount, nextStage, termsOf } from './pipeline.js';
+import { dialogSurfaceMotion, useReducedMotion } from '../../components/motion.js';
 
 type StageOption = CommandOption<DealStage, OpportunityCommand>;
 
@@ -55,14 +56,16 @@ function PassDialog({
   const reasons = termsOf(taxonomy.data, 'pass_reason');
   const [code, setCode] = useState('');
   const [note, setNote] = useState('');
+  const motion = dialogSurfaceMotion(useReducedMotion());
   return (
     <Dialog
+      surfaceMotion={motion}
       open
       onOpenChange={(_e, d) => {
         if (!d.open) onCancel();
       }}
     >
-      <DialogSurface>
+      <DialogSurface className="pb-dialog" backdrop={{ className: 'pb-dialog-backdrop' }}>
         <form
           noValidate
           onSubmit={(e) => {
@@ -135,14 +138,16 @@ function ClosingDialog({
   const [touched, setTouched] = useState(false);
   const amount = commitment.trim();
   const ready = isIsoDate(closeDate) && isPositiveAmount(amount);
+  const motion = dialogSurfaceMotion(useReducedMotion());
   return (
     <Dialog
+      surfaceMotion={motion}
       open
       onOpenChange={(_e, d) => {
         if (!d.open) onCancel();
       }}
     >
-      <DialogSurface>
+      <DialogSurface className="pb-dialog" backdrop={{ className: 'pb-dialog-backdrop' }}>
         <form
           noValidate
           onSubmit={(e) => {

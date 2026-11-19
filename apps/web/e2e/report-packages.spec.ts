@@ -5,7 +5,7 @@ import type { Locator, Page } from '@playwright/test';
 import { auditPage, canonicalJson, reportPackageDetail, reportPackageList } from '@pb/contracts';
 import type { QaFindingRow, ReportPackageDetail } from '@pb/contracts';
 import { failingPackageCase, generateDataset } from '@pb/synthetic';
-import { apiCall, latestQuarter, loadDataset, signInAs, switchTo } from './fixtures.js';
+import { apiCall, latestQuarter, loadDataset, settled, signInAs, switchTo } from './fixtures.js';
 
 /**
  * The packages journey (docs/04 M14, docs/18 section 5, decision 0024) over the real API: the
@@ -103,6 +103,7 @@ const expectedCell = (row: Locator): Locator => row.getByRole('cell').nth(3);
 const foundCell = (row: Locator): Locator => row.getByRole('cell').nth(4);
 
 async function expectNoSeriousViolations(page: Page): Promise<void> {
+  await settled(page);
   const results = await new AxeBuilder({ page })
     .withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa'])
     .analyze();

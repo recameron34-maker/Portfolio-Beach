@@ -17,6 +17,7 @@ import { MONEY_UNITS } from '@pb/contracts';
 import type { ExtractedValue, ExtractionRunCommandBody } from '@pb/contracts';
 import { editBody, editProblems, unitLabel, valueHint, valueText } from './extraction.js';
 import type { EditForm } from './extraction.js';
+import { dialogSurfaceMotion, useReducedMotion } from '../../components/motion.js';
 
 /**
  * Replaces a value with the reviewer's own, and for a money field its unit (docs/18 section 7).
@@ -46,14 +47,16 @@ export function EditValueDialog({
     touched && problems[key] !== undefined
       ? { validationState: 'error' as const, validationMessage: problems[key] }
       : {};
+  const motion = dialogSurfaceMotion(useReducedMotion());
   return (
     <Dialog
+      surfaceMotion={motion}
       open
       onOpenChange={(_e, d) => {
         if (!d.open) onCancel();
       }}
     >
-      <DialogSurface>
+      <DialogSurface className="pb-dialog" backdrop={{ className: 'pb-dialog-backdrop' }}>
         <form
           onSubmit={(e) => {
             e.preventDefault();
@@ -141,14 +144,16 @@ export function ApproveDialog({
   onSubmit: (reason: string | undefined) => void;
 }): ReactNode {
   const [reason, setReason] = useState('');
+  const motion = dialogSurfaceMotion(useReducedMotion());
   return (
     <Dialog
+      surfaceMotion={motion}
       open
       onOpenChange={(_e, d) => {
         if (!d.open) onCancel();
       }}
     >
-      <DialogSurface>
+      <DialogSurface className="pb-dialog" backdrop={{ className: 'pb-dialog-backdrop' }}>
         <form
           onSubmit={(e) => {
             e.preventDefault();

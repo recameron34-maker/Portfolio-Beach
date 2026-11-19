@@ -78,6 +78,7 @@ import {
 import type { TermField } from './pipeline.js';
 import { closingTone } from '../../lib/states.js';
 import './pipeline.css';
+import { dialogSurfaceMotion, useReducedMotion } from '../../components/motion.js';
 
 const CLOSE_DATE_RULE =
   'The close date is the single source for every report. A change after confirmation returns the closing to Open and needs confirmation again.';
@@ -99,14 +100,16 @@ function CloseDateDialog({
   const [reason, setReason] = useState('');
   const [touched, setTouched] = useState(false);
   const ready = isIsoDate(closeDate) && closeDate !== closing.closeDate && isReason(reason);
+  const motion = dialogSurfaceMotion(useReducedMotion());
   return (
     <Dialog
+      surfaceMotion={motion}
       open
       onOpenChange={(_e, d) => {
         if (!d.open) onCancel();
       }}
     >
-      <DialogSurface>
+      <DialogSurface className="pb-dialog" backdrop={{ className: 'pb-dialog-backdrop' }}>
         <form
           noValidate
           onSubmit={(e) => {
@@ -188,14 +191,16 @@ function ReceiveDialog({
   const id = documentId.trim();
   const ok = uuid.safeParse(id).success;
   const chosen = documents.find((d) => d.id === id);
+  const motion = dialogSurfaceMotion(useReducedMotion());
   return (
     <Dialog
+      surfaceMotion={motion}
       open
       onOpenChange={(_e, d) => {
         if (!d.open) onCancel();
       }}
     >
-      <DialogSurface>
+      <DialogSurface className="pb-dialog" backdrop={{ className: 'pb-dialog-backdrop' }}>
         <form
           noValidate
           onSubmit={(e) => {
