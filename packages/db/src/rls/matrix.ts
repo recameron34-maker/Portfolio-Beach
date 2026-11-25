@@ -143,6 +143,12 @@ export const READ_MATRIX: Record<string, Row> = {
   // because it runs the QA step.
   'rpt.package': row(0, 2, 2, 2, 1, 0, 2, 2, 2),
   'rpt.qa_result': row(0, 3, 3, 3, 2, 0, 3, 3, 3),
+  // Their history reads like every history table: operations, approvers and the auditor, and
+  // nobody else. A package's history holds every snapshot it ever showed, so investor relations
+  // entitled to the client, who read the package itself, do not read its past images, and
+  // neither does the deal team. One image per insert: two packages and three findings.
+  'rpt.package_history': row(0, 0, 2, 2, 0, 0, 2, 0, 0),
+  'rpt.qa_result_history': row(0, 0, 3, 3, 0, 0, 3, 0, 0),
   // The underwritten base cases (migration 0021) follow their position: everyone reads the case
   // of the open investment and its two plan points; the two cases of the walled investment (one
   // Confirmed, one Draft) and their four points are read inside the wall and by the system actor
