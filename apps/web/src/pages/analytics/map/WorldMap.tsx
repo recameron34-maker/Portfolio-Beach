@@ -3,7 +3,6 @@ import type { CSSProperties, KeyboardEvent, PointerEvent, ReactNode } from 'reac
 import { useWidth } from '../../../components/charts/useWidth.js';
 import { MOTION } from '../../../components/motion.js';
 import { plural } from '../../../lib/format.js';
-import { useNarrowScreen } from '../../../lib/media.js';
 import {
   WORLD_VIEW,
   citiesText,
@@ -51,7 +50,10 @@ let framed: string | undefined;
 /** The frame is the same for every map, so it is worked out once. */
 const frameOnce = (): string => (framed ??= frame());
 
-/** Height over width of the map's canvas (map.css): the frame's own on a laptop, 4:3 on a phone. */
+/**
+ * Height over width of the map's canvas (map.css): the frame's own, or a squarer 4:3 on a phone
+ * whose positions sit in one part of the world (`squarer`, which the tab decides once).
+ */
 const WIDE_ASPECT = MAP_HEIGHT / MAP_WIDTH;
 const PHONE_ASPECT = 3 / 4;
 
@@ -99,6 +101,8 @@ export interface WorldMapProps {
   colours: Readonly<Record<string, string>>;
   /** Told when the reader takes hold of the map (a drag, a key, a zoom), so a tour can stop. */
   onInteract: () => void;
+  /** A phone whose opening view is a region: the canvas is 4:3, which that view fills. */
+  squarer?: boolean;
 }
 
 /**
@@ -116,11 +120,12 @@ export function WorldMap({
   reduced,
   colours,
   onInteract,
+  squarer = false,
 }: WorldMapProps): ReactNode {
   const [canvasRef, width] = useWidth(960);
   const svgRef = useRef<SVGSVGElement | null>(null);
   const { view, flyTo, jumpTo, target } = map;
-  const aspect = useNarrowScreen() ? PHONE_ASPECT : WIDE_ASPECT;
+  const aspect = squarer ? PHONE_ASPECT : WIDE_ASPECT;
   const box = shownBox(view, aspect);
   /** Frame units one pixel takes at this view: sizes given in pixels are multiplied by it. */
   const unit = MAP_WIDTH / (width * view.k);
@@ -263,7 +268,7 @@ export function WorldMap({
       <div className="pb-map-canvas" ref={canvasRef}>
         <svg
           ref={svgRef}
-          className="pb-map-svg"
+          className={squarer ? 'pb-map-svg is-squarer' : 'pb-map-svg'}
           viewBox={`${box.x} ${box.y} ${box.width} ${box.height}`}
           preserveAspectRatio="xMidYMid meet"
           role="group"

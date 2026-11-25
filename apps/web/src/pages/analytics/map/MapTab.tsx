@@ -1,7 +1,7 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
 import type { CSSProperties, ReactNode } from 'react';
-import { Dropdown, Label, Option } from '@fluentui/react-components';
-import { MyLocation16Regular } from '@fluentui/react-icons';
+import { Button, Dropdown, Label, Option } from '@fluentui/react-components';
+import { Filter16Regular, MyLocation16Regular } from '@fluentui/react-icons';
 import { useQuery } from '@tanstack/react-query';
 import { Link } from '@tanstack/react-router';
 import type { InvestmentSummary } from '@pb/contracts';
@@ -38,6 +38,7 @@ import {
   tourOrder,
 } from './map-model.js';
 import type { MapFilters, MapStatus, Site } from './map-model.js';
+import { MAP_HEIGHT, MAP_WIDTH } from './projection.js';
 import { useMapView } from './use-map-view.js';
 import './map.css';
 
@@ -55,6 +56,23 @@ const STATUSES: readonly { key: MapStatus; label: string }[] = [
   { key: 'realized', label: 'Realized' },
   { key: 'all', label: 'All' },
 ];
+
+/**
+ * The least zoom at which the frame fills a 4:3 canvas from top to foot. A fitted view wider than
+ * that (cities from one ocean to another) would leave the squarer box mostly water, so the phone
+ * keeps the frame's own wide shape for it.
+ */
+const SQUARER_FROM = (3 / 4) * (MAP_WIDTH / MAP_HEIGHT);
+
+/** How many of the four filters are off their defaults: the count the folded row shows. */
+function filtersSet(filters: MapFilters): number {
+  return [
+    filters.dealTypes.length !== DEFAULT_FILTERS.dealTypes.length,
+    filters.status !== DEFAULT_FILTERS.status,
+    filters.vehicle !== DEFAULT_FILTERS.vehicle,
+    filters.sector !== DEFAULT_FILTERS.sector,
+  ].filter(Boolean).length;
+}
 
 /** How long the tour rests on each city; the flight there takes the drawing time of a line. */
 const TOUR_REST = 3000;
@@ -142,6 +160,21 @@ export function MapTab(): ReactNode {
     };
   }, [items, filters]);
   const stops = useMemo(() => tourOrder(sites), [sites]);
+  /*
+   * The shape of a phone's canvas, from the view that fits the positions the page opens on: 4:3
+   * when they sit in one part of the world, the frame's own wide shape when they span it. It is
+   * decided from the positions, not the reader's filters, so the box never changes shape under a
+   * filter or a zoom.
+   */
+  const squarer = useMemo(
+    () =>
+      narrow &&
+      fitPoints(placePositions(filterPositions(items ?? [], DEFAULT_FILTERS)).sites).k >=
+        SQUARER_FROM,
+    [narrow, items],
+  );
+  const [filtersOpen, setFiltersOpen] = useState(false);
+  const filtersId = useId();
 
   /*
    * The tour: fly to each city in turn, west to east, then back out to the world. A visit is made
@@ -216,9 +249,88 @@ export function MapTab(): ReactNode {
   const countries = new Set(sites.map((s) => s.country)).size;
   const placed = shown.length - unplaced.length;
 
+  const filterFields = (
+    <>
+      <Field>
+        <span className="pb-map-field-label" id="map-deal-types">
+          Deal type
+        </span>
+        <div className="pb-map-toggles" role="group" aria-labelledby="map-deal-types">
+          {MAP_DEAL_TYPES.map((type) => (
+            <button
+              key={type}
+              type="button"
+              className="pb-map-check"
+              aria-pressed={filters.dealTypes.includes(type)}
+              onClick={() => toggleType(type)}
+            >
+              {/* A square in the type's marker colour, filled while the type is shown. */}
+              <span
+                className="pb-map-check-box"
+                style={{ '--pb-map-type': COLOURS[type] } as CSSProperties}
+                aria-hidden="true"
+              />
+              {labelOf(type)}
+            </button>
+          ))}
+        </div>
+      </Field>
+      <Field>
+        <span className="pb-map-field-label" id="map-status">
+          Status
+        </span>
+        <div className="pb-segmented" role="group" aria-labelledby="map-status">
+          {STATUSES.map((status) => (
+            <button
+              key={status.key}
+              type="button"
+              aria-pressed={filters.status === status.key}
+              onClick={() => change({ status: status.key })}
+            >
+              {status.label}
+            </button>
+          ))}
+        </div>
+      </Field>
+      <Field>
+        <Label htmlFor="map-vehicle">Vehicle</Label>
+        <Dropdown
+          id="map-vehicle"
+          value={filters.vehicle === '' ? 'All vehicles' : filters.vehicle}
+          selectedOptions={[filters.vehicle]}
+          onOptionSelect={(_e, d) => change({ vehicle: d.optionValue ?? '' })}
+        >
+          <Option value="">All vehicles</Option>
+          {vehicles.map((v) => (
+            <Option key={v} value={v}>
+              {v}
+            </Option>
+          ))}
+        </Dropdown>
+      </Field>
+      <Field>
+        <Label htmlFor="map-sector">Sector</Label>
+        <Dropdown
+          id="map-sector"
+          value={filters.sector === '' ? 'All sectors' : labelOf(filters.sector)}
+          selectedOptions={[filters.sector]}
+          onOptionSelect={(_e, d) => change({ sector: d.optionValue ?? '' })}
+        >
+          <Option value="">All sectors</Option>
+          {sectors.map((s) => (
+            <Option key={s} value={s} text={labelOf(s)}>
+              {labelOf(s)}
+            </Option>
+          ))}
+        </Dropdown>
+      </Field>
+    </>
+  );
+
   return (
     <>
       <PageContext
+        heading="Co-investment map"
         items={[
           `As of ${formatDate(page.data.asOf)}`,
           'Co-investments and single-asset CVs visible to you',
@@ -243,81 +355,27 @@ export function MapTab(): ReactNode {
       </div>
 
       <Card testId="map-card">
-        <Toolbar className="pb-map-filters">
-          <Field>
-            <span className="pb-map-field-label" id="map-deal-types">
-              Deal type
-            </span>
-            <div className="pb-map-toggles" role="group" aria-labelledby="map-deal-types">
-              {MAP_DEAL_TYPES.map((type) => (
-                <button
-                  key={type}
-                  type="button"
-                  className="pb-map-check"
-                  aria-pressed={filters.dealTypes.includes(type)}
-                  onClick={() => toggleType(type)}
-                >
-                  {/* A square in the type's marker colour, filled while the type is shown. */}
-                  <span
-                    className="pb-map-check-box"
-                    style={{ '--pb-map-type': COLOURS[type] } as CSSProperties}
-                    aria-hidden="true"
-                  />
-                  {labelOf(type)}
-                </button>
-              ))}
-            </div>
-          </Field>
-          <Field>
-            <span className="pb-map-field-label" id="map-status">
-              Status
-            </span>
-            <div className="pb-segmented" role="group" aria-labelledby="map-status">
-              {STATUSES.map((status) => (
-                <button
-                  key={status.key}
-                  type="button"
-                  aria-pressed={filters.status === status.key}
-                  onClick={() => change({ status: status.key })}
-                >
-                  {status.label}
-                </button>
-              ))}
-            </div>
-          </Field>
-          <Field>
-            <Label htmlFor="map-vehicle">Vehicle</Label>
-            <Dropdown
-              id="map-vehicle"
-              value={filters.vehicle === '' ? 'All vehicles' : filters.vehicle}
-              selectedOptions={[filters.vehicle]}
-              onOptionSelect={(_e, d) => change({ vehicle: d.optionValue ?? '' })}
+        {narrow ? (
+          // On a phone the four filters fold under one button that says how many are set, so
+          // the map is on the first screen; the regions and the tour stay with the map.
+          <div className="pb-map-filters-fold">
+            <Button
+              icon={<Filter16Regular />}
+              aria-expanded={filtersOpen}
+              aria-controls={filtersId}
+              onClick={() => setFiltersOpen((was) => !was)}
             >
-              <Option value="">All vehicles</Option>
-              {vehicles.map((v) => (
-                <Option key={v} value={v}>
-                  {v}
-                </Option>
-              ))}
-            </Dropdown>
-          </Field>
-          <Field>
-            <Label htmlFor="map-sector">Sector</Label>
-            <Dropdown
-              id="map-sector"
-              value={filters.sector === '' ? 'All sectors' : labelOf(filters.sector)}
-              selectedOptions={[filters.sector]}
-              onOptionSelect={(_e, d) => change({ sector: d.optionValue ?? '' })}
-            >
-              <Option value="">All sectors</Option>
-              {sectors.map((s) => (
-                <Option key={s} value={s} text={labelOf(s)}>
-                  {labelOf(s)}
-                </Option>
-              ))}
-            </Dropdown>
-          </Field>
-        </Toolbar>
+              {filtersSet(filters) === 0 ? 'Filters' : `Filters, ${filtersSet(filters)} set`}
+            </Button>
+            {filtersOpen ? (
+              <div id={filtersId}>
+                <Toolbar className="pb-map-filters">{filterFields}</Toolbar>
+              </div>
+            ) : null}
+          </div>
+        ) : (
+          <Toolbar className="pb-map-filters">{filterFields}</Toolbar>
+        )}
 
         <div className="pb-map-layout">
           <div className="pb-map-stage">
@@ -356,6 +414,7 @@ export function MapTab(): ReactNode {
               reduced={reduced}
               colours={COLOURS}
               onInteract={stopTour}
+              squarer={squarer}
             />
           </div>
           <aside className="pb-map-panel" aria-label="Positions at the chosen marker">

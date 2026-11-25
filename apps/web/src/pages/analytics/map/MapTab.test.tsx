@@ -244,8 +244,15 @@ describe('co-investment map', () => {
         (item) => item.textContent,
       ),
     ).toEqual(['As of Jun 30, 2025', 'Co-investments and single-asset CVs visible to you']);
-    // No section title repeats the tab; the tile says where the unplaced positions are listed.
-    expect(screen.queryByRole('heading', { name: 'Co-investment map' })).toBeNull();
+    // No section title on the page repeats the tab; its name is a heading that is not shown, so
+    // a reader who moves by headings reaches the figures and the map, which come before the
+    // first section title. The tile says where the unplaced positions are listed.
+    const tabHeading = screen.getByRole('heading', { level: 2, name: 'Co-investment map' });
+    expect(tabHeading).toHaveClass('pb-visually-hidden');
+    expect(
+      tabHeading.compareDocumentPosition(screen.getByTestId('world-map')) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
     expect(tile('No head office recorded')).toHaveTextContent('Listed under the table');
     // Deal types are two ticked squares in their marker colour; status one choice of three.
     const types = screen.getByRole('group', { name: 'Deal type' });
@@ -345,6 +352,83 @@ describe('co-investment map', () => {
       expect(height! / width!).toBeCloseTo(0.75, 5);
       expect(width).toBeLessThan(1000);
       expect(markers()).toHaveLength(2);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('on a phone keeps the wide map when the cities span the world, where a squarer box would be mostly water', async () => {
+    vi.stubGlobal('matchMedia', (query: string) => ({
+      matches: query === '(max-width: 760px)',
+      media: query,
+      addEventListener: () => undefined,
+      removeEventListener: () => undefined,
+    }));
+    try {
+      // Held positions from Austin to Tokyo: the view that fits them is the whole world.
+      const far = position({ companyName: 'Gorse Group', hq: TOKYO });
+      open([...BOOK, far]);
+      const map = await screen.findByTestId('world-map');
+      const svg = map.querySelector('svg.pb-map-svg');
+      const [, , width, height] = (svg?.getAttribute('viewBox') ?? '').split(' ').map(Number);
+      // The frame's own shape (1000 by 442.4), so the land fills the box from edge to edge.
+      expect(width).toBe(1000);
+      expect(height! / width!).toBeCloseTo(0.4424, 4);
+      expect(svg).not.toHaveClass('is-squarer');
+      // Narrowing the positions afterwards does not reshape the box under the reader.
+      await userEvent.click(screen.getByRole('button', { name: /^Filters/ }));
+      await userEvent.click(screen.getByRole('button', { name: 'Realized' }));
+      const [, , , after] = (svg?.getAttribute('viewBox') ?? '').split(' ').map(Number);
+      expect(after! / 1000).toBeCloseTo(0.4424, 4);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('on a phone folds the four filters under one button that counts the ones set, so the map is on the first screen', async () => {
+    vi.stubGlobal('matchMedia', (query: string) => ({
+      matches: query === '(max-width: 760px)',
+      media: query,
+      addEventListener: () => undefined,
+      removeEventListener: () => undefined,
+    }));
+    try {
+      open();
+      await screen.findByTestId('world-map');
+      const fold = screen.getByRole('button', { name: 'Filters' });
+      expect(fold).toHaveAttribute('aria-expanded', 'false');
+      expect(screen.queryByRole('group', { name: 'Deal type' })).toBeNull();
+      expect(screen.queryByRole('group', { name: 'Status' })).toBeNull();
+      expect(screen.queryByRole('combobox', { name: 'Vehicle' })).toBeNull();
+      // The regions and the tour stay on the map: they move the view, they filter nothing.
+      expect(screen.getByRole('group', { name: 'Jump to a region' })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Play tour' })).toBeInTheDocument();
+
+      await userEvent.click(fold);
+      expect(fold).toHaveAttribute('aria-expanded', 'true');
+      const fields = document.getElementById(fold.getAttribute('aria-controls') ?? '');
+      expect(fields).not.toBeNull();
+      expect(within(fields!).getByRole('group', { name: 'Deal type' })).toBeInTheDocument();
+      expect(within(fields!).getByRole('group', { name: 'Status' })).toBeInTheDocument();
+      expect(within(fields!).getByRole('combobox', { name: 'Vehicle' })).toBeInTheDocument();
+      expect(within(fields!).getByRole('combobox', { name: 'Sector' })).toBeInTheDocument();
+
+      // Each filter moved off its default counts once; back at the default it counts no more.
+      await userEvent.click(screen.getByRole('button', { name: 'Realized' }));
+      expect(fold).toHaveAccessibleName('Filters, 1 set');
+      await userEvent.click(
+        screen.getByRole('button', { name: 'Continuation vehicle (single asset)' }),
+      );
+      expect(fold).toHaveAccessibleName('Filters, 2 set');
+      await userEvent.click(screen.getByRole('button', { name: 'Held' }));
+      expect(fold).toHaveAccessibleName('Filters, 1 set');
+      // Folded again, the count still says a filter is at work.
+      await userEvent.click(fold);
+      expect(screen.queryByRole('group', { name: 'Status' })).toBeNull();
+      expect(fold).toHaveAccessibleName('Filters, 1 set');
+      expect(markers().map((m) => m.getAttribute('aria-label'))).toEqual([
+        'Austin, United States: 2 positions',
+      ]);
     } finally {
       vi.unstubAllGlobals();
     }
