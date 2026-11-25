@@ -196,7 +196,6 @@ export function PackagesPage(): ReactNode {
                   ref={(el: HTMLButtonElement | null) => {
                     startButton.current = el;
                   }}
-                  size="small"
                   appearance="primary"
                   icon={<Add16Regular />}
                   disabled={!canStart}

@@ -1895,7 +1895,10 @@ p:last-child {
 /* Why a command is blocked, in words under the button it explains (CommandButtons
    showBlockedReason): the blocked button, or the blocked buttons side by side that share the
    reason, and the words under them from their first button's edge, as one item in the row. The
-   words wrap within a short measure, so a long reason never pushes the next button far away. */
+   item is as wide as its buttons and no wider: the words take no width of their own (width 0,
+   then the item's) and wrap under their button, so every button keeps the same gap to the next
+   whether or not it carries a reason. A short button still gives its words 12 characters, about
+   two words a line, which may set the next button a few pixels further off. */
 .pb-command-buttons.pb-command-group {
   align-items: flex-start;
 }
@@ -1911,19 +1914,25 @@ p:last-child {
 }
 .pb-command-reason {
   display: block;
-  max-width: 28ch;
+  width: 0;
+  min-width: max(100%, 12ch);
   margin-top: var(--pb-space-1);
   font-size: var(--pb-text-sm);
   line-height: var(--pb-text-sm-lh);
 }
-/* The result of the reader's own command, beside the controls: a sentence on the neutral band with
-   a dot in the outcome's colour; a refusal keeps its own band. The words say which it was. */
+/* The result of the reader's own command, beside the controls: a sentence on the neutral band
+   behind a neutral dot; a refusal keeps its own band and dot. The words say how it went: a
+   command that ran may leave the record at "QA failed", and a green dot before those words would
+   say the opposite. */
 .pb-action-status > .pb-notice {
   margin: 0 0 var(--pb-space-3);
 }
 .pb-action-status > .pb-notice-good {
   background: var(--pb-primary-tint-4);
   color: var(--pb-text);
+}
+.pb-action-status > .pb-notice-good::before {
+  background: var(--pb-border-strong);
 }
 .pb-action-log {
   list-style: none;

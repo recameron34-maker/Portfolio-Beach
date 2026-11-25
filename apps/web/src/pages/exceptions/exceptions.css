@@ -50,6 +50,13 @@
   font-weight: 500;
   color: var(--pb-muted-strong);
 }
+/* The exception's facts, two pairs a row: each pair takes half the table, so the second label
+   starts at the middle whatever the first value's length, and a long context wraps in its half. */
+@media (min-width: 761px) {
+  .pb-exceptions-facts .pb-kv td:has(+ th) {
+    width: 32%;
+  }
+}
 .pb-exceptions-context-line {
   display: inline-flex;
   flex-wrap: wrap;

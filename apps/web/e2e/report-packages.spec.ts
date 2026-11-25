@@ -379,6 +379,17 @@ test('the packages journey: a failing package is started, overridden with a reas
   await expect(hash).toContainText(approved.contentHash ?? 'no hash');
   await expect(hash).toContainText('Taken over everything this package shows, as approved.');
   await expect(page.getByTestId('package-gate')).toContainText(userName(APPROVER));
+  // On a phone the approved page still fits its screen: the hash wraps instead of pushing the
+  // page sideways (a table scrolls inside its own frame, the page itself never does).
+  await page.setViewportSize({ width: 390, height: 844 });
+  await expect(hash).toBeVisible();
+  expect(
+    await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth),
+    'the approved package page is wider than a 390px screen',
+  ).toBeLessThanOrEqual(0);
+  const hashBox = await hash.locator('.pb-pkg-hash-value').boundingBox();
+  expect((hashBox?.x ?? 0) + (hashBox?.width ?? 0)).toBeLessThanOrEqual(390);
+  await page.setViewportSize({ width: 1280, height: 720 });
 
   /* ---- Investor relations releases; the page is read only ---- */
   await openAs(page, PREPARER, id);

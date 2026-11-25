@@ -285,22 +285,24 @@ function ExceptionBody({ x, roles }: { x: DataException; roles: readonly string[
             </dd>
           </div>
         </dl>
-        <KeyValueTable
-          label="Exception"
-          rows={[
-            { label: 'Context', value: <Context x={x} /> },
-            {
-              label: 'Candidates',
-              value:
-                x.candidates.length === 0
-                  ? MISSING
-                  : `${x.candidates.length} (${x.candidates.map((c) => codeWords(c.reason)).join(', ')}); listed on the staged row`,
-            },
-            { label: 'Owner', value: x.owner ?? MISSING },
-            { label: 'External ticket', value: x.externalTicket ?? MISSING },
-            { label: 'Updated', value: formatDateTime(x.updatedAt) },
-          ]}
-        />
+        <div className="pb-exceptions-facts">
+          <KeyValueTable
+            label="Exception"
+            rows={[
+              { label: 'Context', value: <Context x={x} /> },
+              {
+                label: 'Candidates',
+                value:
+                  x.candidates.length === 0
+                    ? MISSING
+                    : `${x.candidates.length} (${x.candidates.map((c) => codeWords(c.reason)).join(', ')}); listed on the staged row`,
+              },
+              { label: 'Owner', value: x.owner ?? MISSING },
+              { label: 'External ticket', value: x.externalTicket ?? MISSING },
+              { label: 'Updated', value: formatDateTime(x.updatedAt) },
+            ]}
+          />
+        </div>
       </Card>
       <ActionsCard x={x} roles={roles} />
     </>

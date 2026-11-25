@@ -1,3 +1,5 @@
+import { existsSync, readFileSync } from 'node:fs';
+import { join, resolve } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
@@ -221,6 +223,28 @@ describe('workflow action pieces', () => {
     expect(submit).toBeEnabled();
     await userEvent.click(submit);
     expect(onSubmit).toHaveBeenCalledWith('restated');
+  });
+
+  it('draws the result of a command that ran with a neutral dot, so the words alone say how it went', () => {
+    // A command that ran is recorded as good, and its sentence may still read "is now QA failed":
+    // on the neutral band a green dot before those words would say the opposite.
+    const src = [resolve('apps/web/src'), resolve('src')].find((dir) =>
+      existsSync(join(dir, 'styles.css')),
+    );
+    const css = readFileSync(join(src ?? '', 'styles.css'), 'utf8');
+    const rule = (selector: string): string => {
+      const at = css.indexOf(`\n${selector} {`);
+      return at === -1 ? '' : css.slice(at, css.indexOf('}', at));
+    };
+    expect(rule('.pb-action-status > .pb-notice-good')).toContain(
+      'background: var(--pb-primary-tint-4);',
+    );
+    expect(rule('.pb-action-status > .pb-notice-good::before')).toContain(
+      'background: var(--pb-border-strong);',
+    );
+    // A notice that reports an outcome elsewhere keeps its own dot, and a refusal its band.
+    expect(rule('.pb-notice-good::before')).toContain('background: var(--pb-good);');
+    expect(css).not.toContain('.pb-action-status > .pb-notice-bad');
   });
 
   it('shows the latest result in the status region and every result newest first', () => {

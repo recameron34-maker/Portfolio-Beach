@@ -84,7 +84,9 @@
   max-width: 78ch;
   margin: 0 0 var(--pb-space-3);
 }
-/* The hash an approval locked the content with, in full: it wraps anywhere on a narrow page. */
+/* The hash an approval locked the content with, in full: it wraps anywhere on a narrow page. The
+   identifier style it also takes (pb-key) keeps one line, so this sets the wrapping back; without
+   it the 64 characters push an approved or released package's page sideways on a phone. */
 .pb-pkg-hash {
   display: grid;
   justify-items: start;
@@ -102,6 +104,7 @@
   font-size: var(--pb-text-md);
   line-height: var(--pb-text-md-lh);
   font-variant-numeric: tabular-nums;
+  white-space: normal;
   overflow-wrap: anywhere;
 }
 /* What a check expected and what it found sit side by side: one line each, figures in step. */
