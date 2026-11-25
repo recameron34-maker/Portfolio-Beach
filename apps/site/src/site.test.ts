@@ -7,6 +7,7 @@ import * as content from './content/site.js';
 import { demoAddress, fragmentFiles, toFragment } from './render/artifact.js';
 import { renderFavicon } from './render/favicon.js';
 import { escapeHtml, html, trusted } from './render/html.js';
+import { isIconName } from './render/icons.js';
 import { lengthText, sizeText } from './render/media.js';
 import type { Media } from './render/media.js';
 import { renderNotFound } from './render/not-found.js';
@@ -408,6 +409,40 @@ describe('the look (decision 0026)', () => {
       const em = /^(-?[\d.]+)em$/.exec(value);
       expect(value === '0' || (em !== null && Number(em[1]) <= 0.01), value).toBe(true);
     }
+  });
+
+  it('keeps no beach in its small marks: no shell for an icon, no accent dash for a list point', () => {
+    // The scene and the waves went; the shell that marked the synthetic data went with them.
+    expect(isIconName('shell')).toBe(false);
+    const icons: string[] = [
+      ...content.CONTROLS.items.map((item) => item.icon),
+      ...content.OVERVIEW.roles.items.map((role) => role.icon),
+    ];
+    expect(icons).not.toContain('shell');
+    for (const name of icons) expect(isIconName(name), name).toBe(true);
+    // A list point is marked by a hairline in the rule colour, never by a dash in the accent,
+    // which is the bullet of a generated landing page.
+    const marker = /\.points li::before\s*\{([^}]*)\}/.exec(SITE_CSS)?.[1] ?? '';
+    expect(marker).toMatch(/background\s*:\s*var\(--pb-border-strong\)/);
+    expect(marker).toMatch(/height\s*:\s*1px/);
+    expect(marker).not.toContain('--pb-accent');
+  });
+
+  it('sets the 404 page in the product face, carried in the page itself', () => {
+    // The page is served at any address, so it can ask for no file: the two weights it uses
+    // travel inside it, and it still names no other file.
+    const faces = [...lost.matchAll(/@font-face\{([^}]*)\}/g)].map((m) => m[1] ?? '');
+    expect(faces).toHaveLength(2);
+    expect(faces.map((face) => /font-weight:(\d+)/.exec(face)?.[1])).toEqual(['400', '600']);
+    const family = tokenSets().fonts.ui.split(',')[0]?.trim().replace(/"/g, '') ?? '';
+    for (const face of faces) {
+      expect(face).toContain(`font-family:'${family}'`);
+      expect(face).toMatch(
+        /src:url\(data:font\/woff2;base64,[A-Za-z0-9+/=]{20000,}\) format\('woff2'\)/,
+      );
+    }
+    expect(lost).not.toMatch(/url\((?!data:)/);
+    expect(lost).not.toMatch(/<(link|script|img)\b/);
   });
 
   it('rounds nothing into a pill: a full radius only on a dot', () => {

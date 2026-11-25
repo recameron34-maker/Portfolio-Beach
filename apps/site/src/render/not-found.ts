@@ -2,10 +2,44 @@
  * The 404 page. A static host serves it at whatever address was not found, so it cannot rely on
  * a relative URL: it carries its own small stylesheet inline, loads nothing else, and its one link
  * goes to the site's base path (the root unless PB_SITE_BASE says otherwise at build time).
+ *
+ * Its type is the product's own (decision 0026). A font file at an address would be one more
+ * thing a host must serve from the right place, so the two weights the page uses travel inside
+ * it, as data: the regular and the semibold Latin files of the web app (apps/web/src/app/fonts,
+ * declared for the tool and the site in apps/web/src/app/fonts.css), about 43 KB before encoding.
  */
+import { readFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { NOT_FOUND, SITE } from '../content/site.js';
 import { html, trusted } from './html.js';
 import { mark } from './mark.js';
+
+const here = dirname(fileURLToPath(import.meta.url));
+const REPO = join(here, '..', '..', '..', '..');
+const FONTS = join(REPO, 'apps', 'web', 'src', 'app', 'fonts');
+
+/** The first family of the brand's UI stack (config/brand.json): the one the bundled files are. */
+function uiFamily(): string {
+  const brand = JSON.parse(readFileSync(join(REPO, 'config', 'brand.json'), 'utf8')) as {
+    fonts: { ui: string[] };
+  };
+  return brand.fonts.ui[0] ?? 'sans-serif';
+}
+
+/** The two weights the page sets (text, and the heading, the name and the button), as data. */
+function faces(): string {
+  const family = uiFamily();
+  return [
+    { weight: 400, file: 'IBMPlexSans-Regular-Latin1.woff2' },
+    { weight: 600, file: 'IBMPlexSans-SemiBold-Latin1.woff2' },
+  ]
+    .map(
+      ({ weight, file }) =>
+        `@font-face{font-family:'${family}';font-style:normal;font-weight:${weight};font-display:swap;src:url(data:font/woff2;base64,${readFileSync(join(FONTS, file)).toString('base64')}) format('woff2')}`,
+    )
+    .join('\n');
+}
 
 const CSS = `
 *,*::before,*::after{box-sizing:border-box}
@@ -55,7 +89,7 @@ export function renderNotFound(tokens: string, base: string): string {
     <title>${NOT_FOUND.title}</title>
     <meta name="robots" content="noindex" />
     <meta name="color-scheme" content="light dark" />
-    <style>${trusted(tokens).value}${CSS}</style>
+    <style>${trusted(tokens).value}${faces()}${CSS}</style>
   </head>
   <body>
     ${body.value}

@@ -411,7 +411,7 @@ export const CONTROLS = {
       text: 'Imported files and extracted values land in staging first. Nothing is written to a core financial table without validation and a person’s approval.',
     },
     {
-      icon: 'shell',
+      icon: 'flask',
       name: 'Synthetic data, mock sign-in',
       text: 'The prototype runs on synthetic data and signs in with a picker of synthetic users. The application refuses to start in production mode with any mock adapter or mock identity.',
     },

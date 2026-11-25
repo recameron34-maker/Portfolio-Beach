@@ -30,9 +30,9 @@ const PATHS = {
   // Human review: an eye over a tick.
   review:
     '<path d="M2.8 11.5C4.8 7.9 8.1 6 12 6s7.2 1.9 9.2 5.5c-2 3.6-5.3 5.5-9.2 5.5s-7.2-1.9-9.2-5.5z"/><path d="M9.3 11.6l1.9 1.9 3.6-3.8"/>',
-  // Synthetic data: a shell.
-  shell:
-    '<path d="M12 4.5c4.7 0 8 3.6 8 8.2 0 1.2-.2 2.3-.6 3.3H4.6c-.4-1-.6-2.1-.6-3.3 0-4.6 3.3-8.2 8-8.2z"/><path d="M12 4.5V16M8 5.7L9.7 16M16 5.7L14.3 16M5 9.3L7.7 16M19 9.3L16.3 16"/><path d="M9 16l1 3.5h4l1-3.5"/>',
+  // Synthetic data: a flask (made for the test, never taken from a record).
+  flask:
+    '<path d="M9 3.5h6"/><path d="M10 3.5v5.3L5.2 17.6c-.6 1.3.3 2.9 1.8 2.9h10c1.5 0 2.4-1.6 1.8-2.9L14 8.8V3.5"/><path d="M7.6 14.5h8.8"/>',
   // Play.
   play: '<path d="M8 5.5v13l11-6.5z" fill="currentColor" stroke="none"/>',
   // An arrow to the right.

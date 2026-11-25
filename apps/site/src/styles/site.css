@@ -695,14 +695,16 @@ figcaption {
   font-size: 15px;
   line-height: 1.5;
 }
+/* A list point: a hairline in the rule colour. Not a dash in the accent, the bullet of a
+   generated landing page. */
 .points li::before {
   content: '';
   position: absolute;
   left: 2px;
-  top: 0.68em;
-  width: 12px;
-  height: 2px;
-  background: var(--pb-accent);
+  top: 0.75em;
+  width: 10px;
+  height: 1px;
+  background: var(--pb-border-strong);
 }
 /* What is planned: a list under a rule, each one a dot and its state, then its name. */
 .roadmap {
