@@ -46,6 +46,21 @@ Rules made exact by the Phase 3 review:
 ## 5. Reporting package (`rpt.package.state`)
 Draft > Generated > QAFailed | QAPassed; QAFailed > Generated (after fix); QAPassed > InReview > Approved > Released. Released is immutable; corrections create a new package version with a reason.
 
+| From | To | Who | Preconditions |
+|---|---|---|---|
+| (new) | Draft | Investor relations, entitled to the client | One package in progress per client, quarter and basis; a new version after a Released one needs a reason |
+| Draft | Generated | Investor relations, entitled to the client | `generate`: builds the snapshot and runs the QA rules in the same step |
+| Generated | QAFailed, QAPassed | System actor | `qaFail`, `qaPass`: the outcome of the QA rules; no person states it |
+| QAFailed | Generated | Investor relations, entitled to the client | `regenerate` |
+| QAFailed | QAPassed | Approver (not whoever started the package, nor anyone who ran one of its generations) | `overrideQa`: reason required; recorded against every failed finding of the run |
+| QAPassed | InReview | Investor relations, entitled to the client | `submit`: the submitter is recorded (`rpt.package.submitted_by`) |
+| InReview | Approved | Approver (not whoever started the package, nor anyone who ran one of its generations, nor whoever submitted it) | `approve`: locks the content with its hash |
+| Approved | Released | Investor relations entitled to the client, or Operations | `release` |
+
+**Segregation of duties (SEC-5.6).** A package's figures are the reading of whoever generated it, so preparing a package is starting it or running any of its generations (the change log names each run's person). None of those people overrides its failed checks or approves it. Whoever submitted it does not approve it either, so the hand-over to review is always between two people. One function builds the record the machine reads, for the API and for the static preview (`packageCommandRecord` in `packages/workflows/src/controls-package.ts`: `preparedBy`, `generatedBy`, `submittedBy`), and the table row holds the reviewer apart from all three (migrations 0019 and 0024). A package from before migration 0024 has no submitter on record, and that rule bars nobody on it.
+
+**Entitlement (SEC-5.2).** A step the table gives to investor relations is taken for a client the person is entitled to, whatever second role lets them read the package: a person who holds investor relations beside approver or operations, without the entitlement, gets 404 for `generate`, `regenerate` and `submit`, and for `release` unless they hold operations (`packageStepIsInvestorRelations`). An approver overrides and approves for every client, and operations release for every client.
+
 ## 6. Document classification
 Received > Classified (confidence >= threshold) | NeedsReview; NeedsReview > Classified (human). Duplicate (same hash) > linked to the original, not reprocessed.
 

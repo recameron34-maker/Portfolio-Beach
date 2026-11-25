@@ -686,9 +686,10 @@ export interface SimSuggestion {
  * with the findings of its latest QA run (rpt.qa_result): the package as its detail answers it,
  * less the counts of that run, which are read from the findings each time it is answered.
  * Nothing is recorded: the synthetic book seeds no package, so one exists only once investor
- * relations start it here.
+ * relations start it here. submittedBy is who sent it to review (rpt.package.submitted_by):
+ * the machine reads it and no answer carries it.
  */
-export type SimReportPackage = Omit<ReportPackageDetail, 'qa'>;
+export type SimReportPackage = Omit<ReportPackageDetail, 'qa'> & { submittedBy: string | null };
 
 /** The key of a promoted quarter: its investment and period end. */
 export const quarterKey = (investmentId: string, periodEnd: string): string =>

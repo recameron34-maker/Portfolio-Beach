@@ -453,6 +453,38 @@ describe('database guards', () => {
         `update rpt.package set tie_out_explanations = '{"INV-0001": "Sponsor restated the March mark."}'::jsonb where id = '${ids.packageA}'`,
       );
     });
+    it('names who submitted a package, and rejects a reviewer who submitted it or ran one of its generations (migration 0024, SEC-5.6)', async () => {
+      const row = (columns: string, values: string): Promise<unknown> =>
+        handle.exec(
+          `insert into rpt.package (client_id, period_end, as_of, basis, label, prepared_by${columns}) values ('${ids.clientC}', '2023-12-31', '2024-02-09', 'net', 'final', '${u.investorRelationsA}'${values})`,
+        );
+      // The reviewer is not whoever submitted the package for review.
+      await expectDbRejection(
+        row(', submitted_by, reviewer_id', `, '${u.approver}', '${u.approver}'`),
+        /check constraint/,
+      );
+      // Nor anyone who ran one of its generations: the change log names them.
+      const runs = (...by: string[]): string =>
+        `'${JSON.stringify(by.map((id, i) => ({ at: '2024-02-09T10:00:00.000Z', by: id, runNo: i + 1, lines: 0, findings: 0, failed: 0 })))}'::jsonb`;
+      await expectDbRejection(
+        row(', change_log, reviewer_id', `, ${runs(u.operations, u.approver)}, '${u.approver}'`),
+        /check constraint/,
+      );
+      // Whoever submitted it is a user.
+      await expectDbRejection(
+        row(', submitted_by', `, '00000000-0000-4000-8000-00000000dead'`),
+        /foreign key/,
+      );
+      // A reviewer who did neither is accepted, with the submitter on the row.
+      await row(
+        ', change_log, submitted_by, reviewer_id',
+        `, ${runs(u.investorRelationsA, u.operations)}, '${u.operations2}', '${u.approver}'`,
+      );
+      const kept = await handle.query<{ submitted_by: string }>(
+        `select submitted_by from rpt.package where client_id = '${ids.clientC}' and period_end = '2023-12-31' and basis = 'net'`,
+      );
+      expect(kept).toEqual([{ submitted_by: u.operations2 }]);
+    });
     it('keeps a full history image of a package', async () => {
       const rows = await handle.query<{ n: number }>(
         `select count(*)::int as n from rpt.package_history where row_id = '${ids.packageA}'`,

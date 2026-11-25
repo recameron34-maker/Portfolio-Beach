@@ -249,6 +249,7 @@ describe('seeding from the recordings', () => {
       findings: [],
       tieOutExplanations: {},
       changeLog: [],
+      submittedBy: null,
     });
     resetPreviewState(state);
     expect(state.reportPackages.size).toBe(0);

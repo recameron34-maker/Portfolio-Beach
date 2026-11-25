@@ -27,7 +27,8 @@ export const packageLabel = rpt.enum('package_label', ['preliminary', 'final']);
 
 /**
  * One client report for one period and basis (docs/04 M14, migration 0019). Prepared by one
- * person and reviewed by another, locked with a content hash when approved, immutable once
+ * person and reviewed by another (never whoever started it, ran one of its generations or
+ * submitted it, migration 0024), locked with a content hash when approved, immutable once
  * Released: a correction is a new version with a reason.
  */
 export const reportingPackage = rpt.table('package', {
@@ -41,6 +42,8 @@ export const reportingPackage = rpt.table('package', {
   version: integer('version').notNull().default(1),
   state: packageState('state').notNull().default('Draft'),
   preparedBy: uuid('prepared_by').notNull(),
+  /** Who submitted it for review (migration 0024); null until then. Never the reviewer. */
+  submittedBy: uuid('submitted_by'),
   reviewerId: uuid('reviewer_id'),
   approvedAt: timestamp('approved_at', { withTimezone: true }),
   /** SHA-256 of the approved content, hex. */

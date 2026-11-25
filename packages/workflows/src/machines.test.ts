@@ -626,6 +626,74 @@ describe('reporting package, documents and extraction (docs/18 sections 5 to 7)'
         .ok,
     ).toBe(false);
   });
+  it('refuses the approval of whoever started the package, ran one of its generations or submitted it (SEC-5.6)', () => {
+    // OPS started it, OPS2 and DEAL each ran a generation, HEAD submitted it.
+    const record = { preparedBy: OPS, generatedBy: [OPS2, DEAL], submittedBy: HEAD };
+    const approve = (actorId: string, over: Record<string, unknown> = {}) =>
+      attempt(
+        reportingPackageMachine,
+        'InReview',
+        'approve',
+        ctx(['approver', 'investor_relations'], { actorId, record: { ...record, ...over } }),
+      );
+    expect(approve(OPS)).toEqual({
+      ok: false,
+      code: 'precondition',
+      message: 'reporting_package: the package preparer cannot approve it (SEC-5.6)',
+    });
+    for (const generator of [OPS2, DEAL])
+      expect(approve(generator)).toEqual({
+        ok: false,
+        code: 'precondition',
+        message:
+          'reporting_package: whoever ran a generation of the package cannot approve it (SEC-5.6)',
+      });
+    expect(approve(HEAD)).toEqual({
+      ok: false,
+      code: 'precondition',
+      message:
+        'reporting_package: whoever submitted the package for review cannot approve it (SEC-5.6)',
+    });
+    // A fifth person approves; so does the submitter of another package.
+    const OTHER = '10000000-0000-4000-8000-000000000009';
+    expect(approve(OTHER)).toEqual({ ok: true, to: 'Approved' });
+    expect(approve(HEAD, { submittedBy: OTHER })).toEqual({ ok: true, to: 'Approved' });
+    // A list that cannot be read is refused: the control never passes by default.
+    expect(approve(OTHER, { generatedBy: OPS2 })).toMatchObject({
+      ok: false,
+      code: 'precondition',
+    });
+  });
+  it('refuses the override of whoever started the package or ran one of its generations, reason or not (SEC-5.6)', () => {
+    const record = { preparedBy: OPS, generatedBy: [OPS, OPS2] };
+    const override = (actorId: string, reason: string | null = 'Agreed with the client') =>
+      attempt(
+        reportingPackageMachine,
+        'QAFailed',
+        'overrideQa',
+        ctx(['approver', 'investor_relations'], { actorId, record, reason }),
+      );
+    for (const reason of ['Agreed with the client', null])
+      expect(override(OPS, reason)).toEqual({
+        ok: false,
+        code: 'precondition',
+        message:
+          'reporting_package: the package preparer cannot override its failed checks (SEC-5.6)',
+      });
+    expect(override(OPS2)).toEqual({
+      ok: false,
+      code: 'precondition',
+      message:
+        'reporting_package: whoever ran a generation of the package cannot override its failed checks (SEC-5.6)',
+    });
+    // An approver who prepared nothing of it overrides, with a reason and never without one.
+    expect(override(HEAD)).toEqual({ ok: true, to: 'QAPassed' });
+    expect(override(HEAD, null)).toEqual({
+      ok: false,
+      code: 'precondition',
+      message: 'reporting_package: a reason is required',
+    });
+  });
   it('auto-classification needs confidence above the threshold; duplicates need a matching hash', () => {
     expect(
       attempt(

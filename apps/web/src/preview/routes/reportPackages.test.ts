@@ -1135,11 +1135,25 @@ const IR_HEAD = person(22, 'ir.head', 'Test Preparer And Approver', [
 ]);
 /** Reads every client through a second role, and is entitled to none. */
 const IR_DEAL = person(23, 'ir.deal', 'Test Unentitled', ['investor_relations', 'deal_team']);
+/** A second investor relations user entitled to the client. */
+const IR_TWO = person(24, 'ir.second', 'Test Second Investor Relations', ['investor_relations']);
+/** Investor relations and approver, entitled to no client: reads every client as an approver. */
+const IR_HEAD_OUT = person(25, 'ir.head.out', 'Test Unentitled Approver', [
+  'investor_relations',
+  'approver',
+]);
+/** Investor relations and operations, entitled to no client. */
+const IR_OPS = person(26, 'ir.ops', 'Test Unentitled Operations', [
+  'investor_relations',
+  'operations',
+]);
+const UNENTITLED = [IR_DEAL, IR_HEAD_OUT, IR_OPS];
+const ADDED = [IR, IR_HEAD, IR_TWO, ...UNENTITLED];
 const Q2 = '2025-06-30';
 const Q1 = '2025-03-31';
 
 /**
- * The hand-built world of the other preview tests, with three investor relations users added:
+ * The hand-built world of the other preview tests, with six investor relations users added:
  * their sign-ins, the one client (a fifth of the one vehicle every position is in) and the
  * one-pagers they may open, which is every position but the walled one.
  */
@@ -1147,7 +1161,7 @@ function handBuilt(): { fixtures: PreviewFixtures; book: PreviewBook } {
   const world = buildWorld();
   const fixtures: PreviewFixtures = {
     ...world.fixtures,
-    users: [...world.fixtures.users, IR, IR_HEAD, IR_DEAL],
+    users: [...world.fixtures.users, ...ADDED],
     bodies: { ...world.fixtures.bodies },
     responses: { ...world.fixtures.responses },
   };
@@ -1195,14 +1209,14 @@ function handBuilt(): { fixtures: PreviewFixtures; book: PreviewBook } {
       },
     ],
   };
-  for (const user of [IR, IR_HEAD, IR_DEAL]) {
+  for (const user of ADDED) {
     const c = user.externalId;
     add(c, '/api/v1/auth/me', {
       userId: user.userId,
       externalId: c,
       displayName: user.displayName,
       roles: user.roles,
-      clientIds: user === IR_DEAL ? [] : [IDS.client],
+      clientIds: UNENTITLED.includes(user) ? [] : [IDS.client],
       mockIdentity: true,
     });
     add(c, '/api/v1/clients', clients);
@@ -1381,6 +1395,106 @@ describe('reporting packages in the preview: the record as the session leaves it
     expect(detailOf(await send(f, IR.externalId, 'GET', `${BASE}/${draft.id}`))).toEqual(d);
     d = await run(f, USERS.head.externalId, draft.id, { command: 'approve' });
     expect(d).toMatchObject({ state: 'Approved', reviewer: { id: USERS.head.userId } });
+  });
+
+  const refusalOf = async (
+    f: typeof fetch,
+    who: PreviewUser,
+    id: string,
+    body: Record<string, unknown>,
+    status: number,
+  ): Promise<string | undefined> => {
+    const answer = await command(f, who.externalId, id, body);
+    expect(answer.status, `${String(body.command)} as ${who.externalId}`).toBe(status);
+    return problemOf(answer).detail;
+  };
+  const overridden = (f: typeof fetch, id: string): Promise<ReportPackageDetail> =>
+    run(f, USERS.head.externalId, id, { command: 'overrideQa', reason: 'Agreed' });
+
+  it('refuses the override and the approval of whoever ran a generation of the package, whoever started it (SEC-5.6)', async () => {
+    const { f } = handSession();
+    // The investor relations user starts it; a second person, also an approver, generates it.
+    const draft = await started(f, IR.externalId, IDS.client, Q2);
+    let d = await run(f, IR_HEAD.externalId, draft.id, { command: 'generate' });
+    expect(d.state).toBe('QAFailed');
+    expect(d.changeLog.map((r) => r.by.id)).toEqual([IR_HEAD.userId]);
+    // The figures are that person's reading: they do not override the checks that failed on it.
+    expect(
+      await refusalOf(f, IR_HEAD, draft.id, { command: 'overrideQa', reason: 'Fine' }, 422),
+    ).toBe(
+      'reporting_package: whoever ran a generation of the package cannot override its failed checks (SEC-5.6)',
+    );
+    expect(detailOf(await send(f, IR.externalId, 'GET', `${BASE}/${draft.id}`))).toEqual(d);
+    await overridden(f, draft.id);
+    await run(f, IR.externalId, draft.id, { command: 'submit' });
+    expect(await refusalOf(f, IR_HEAD, draft.id, { command: 'approve' }, 422)).toBe(
+      'reporting_package: whoever ran a generation of the package cannot approve it (SEC-5.6)',
+    );
+    d = await run(f, USERS.head.externalId, draft.id, { command: 'approve' });
+    expect(d).toMatchObject({ state: 'Approved', reviewer: { id: USERS.head.userId } });
+  });
+
+  it('refuses the override of whoever started the package, though somebody else generated it (SEC-5.6)', async () => {
+    const { f } = handSession();
+    const draft = await started(f, IR_HEAD.externalId, IDS.client, Q2);
+    const d = await run(f, IR_TWO.externalId, draft.id, { command: 'generate' });
+    expect(d.state).toBe('QAFailed');
+    expect(
+      await refusalOf(f, IR_HEAD, draft.id, { command: 'overrideQa', reason: 'Fine' }, 422),
+    ).toBe('reporting_package: the package preparer cannot override its failed checks (SEC-5.6)');
+    expect(detailOf(await send(f, IR.externalId, 'GET', `${BASE}/${draft.id}`))).toEqual(d);
+    expect((await overridden(f, draft.id)).state).toBe('QAPassed');
+  });
+
+  it('keeps who submitted a package, and refuses that person its approval (SEC-5.6)', async () => {
+    const { f, state } = handSession();
+    const draft = await started(f, IR.externalId, IDS.client, Q2);
+    await run(f, IR.externalId, draft.id, { command: 'generate' });
+    await overridden(f, draft.id);
+    // A third person, entitled to the client and also an approver, submits it for review.
+    let d = await run(f, IR_HEAD.externalId, draft.id, { command: 'submit' });
+    expect(d.state).toBe('InReview');
+    expect(state.reportPackages.get(draft.id)?.submittedBy).toBe(IR_HEAD.userId);
+    // The session keeps it for the machine; an answer is the detail of the contract and nothing more.
+    const answer = await send(f, IR.externalId, 'GET', `${BASE}/${draft.id}`);
+    expect(Object.keys(answer.json as object).sort()).toEqual(
+      Object.keys(reportPackageDetail.shape).sort(),
+    );
+    expect(await refusalOf(f, IR_HEAD, draft.id, { command: 'approve' }, 422)).toBe(
+      'reporting_package: whoever submitted the package for review cannot approve it (SEC-5.6)',
+    );
+    expect(detailOf(await send(f, IR.externalId, 'GET', `${BASE}/${draft.id}`))).toEqual(d);
+    d = await run(f, USERS.head.externalId, draft.id, { command: 'approve' });
+    expect(d.state).toBe('Approved');
+  });
+
+  it('holds the steps of investor relations to the clients they are entitled to, whatever second role they hold (SEC-5.2)', async () => {
+    const { f } = handSession();
+    const draft = await started(f, IR.externalId, IDS.client, Q2);
+    // Each reads the package through the second role, and is entitled to no client: the steps
+    // the table gives to investor relations are not theirs to take for this client.
+    for (const who of UNENTITLED) {
+      expect(detailOf(await send(f, who.externalId, 'GET', `${BASE}/${draft.id}`))).toEqual(draft);
+      expect(await refusalOf(f, who, draft.id, { command: 'generate' }, 404)).toBe(
+        'Reporting package not found',
+      );
+    }
+    expect(detailOf(await send(f, IR.externalId, 'GET', `${BASE}/${draft.id}`))).toEqual(draft);
+    let d = await run(f, IR.externalId, draft.id, { command: 'generate' });
+    expect(d.state).toBe('QAFailed');
+    await refusalOf(f, IR_OPS, draft.id, { command: 'regenerate' }, 404);
+    // An approver overrides for every client: that step is the approver's, not investor relations'.
+    d = await run(f, IR_HEAD_OUT.externalId, draft.id, { command: 'overrideQa', reason: 'Agreed' });
+    expect(d.state).toBe('QAPassed');
+    for (const who of [IR_HEAD_OUT, IR_OPS])
+      await refusalOf(f, who, draft.id, { command: 'submit' }, 404);
+    await run(f, IR.externalId, draft.id, { command: 'submit' });
+    d = await run(f, IR_HEAD_OUT.externalId, draft.id, { command: 'approve' });
+    expect(d).toMatchObject({ state: 'Approved', reviewer: { id: IR_HEAD_OUT.userId } });
+    // Release is investor relations' for their clients and operations' for every client.
+    await refusalOf(f, IR_HEAD_OUT, draft.id, { command: 'release' }, 404);
+    d = await run(f, IR_OPS.externalId, draft.id, { command: 'release' });
+    expect(d).toMatchObject({ state: 'Released', releasedBy: { id: IR_OPS.userId } });
   });
 
   it('holds investor relations to their own clients, even one who reads every client through another role', async () => {

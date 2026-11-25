@@ -20,7 +20,12 @@ import { asSystemActor, schema } from '@pb/db';
 import type { Tx } from '@pb/db';
 import { buildPackageSnapshot, qaPassed, runReportQa, snapshotRequestOf } from '@pb/report-engine';
 import type { QaFinding } from '@pb/report-engine';
-import { attempt, reportingPackageMachine } from '@pb/workflows';
+import {
+  attempt,
+  packageCommandRecord,
+  packageStepIsInvestorRelations,
+  reportingPackageMachine,
+} from '@pb/workflows';
 import { configDecimal, configInteger } from '../common/definitions.js';
 import { ProblemError, workflowProblem } from '../common/problem.js';
 import { requireFreshRow } from '../common/row-version.js';
@@ -35,10 +40,13 @@ import { loadInvestmentsWithMetrics } from '../portfolio/loaders.js';
  * cash flows, as the caller may read them, stores that snapshot on the package and runs the report
  * QA rules over it; the findings are written by the system step, never by a person, and decide
  * whether the package is QAPassed or QAFailed. A failed package is regenerated once the data is
- * fixed, or an approver overrides the failed findings with a reason. The reviewer is never the
- * preparer (SEC-5.6); approval locks the content with a hash (SEC-9.3); a Released package never
- * changes, and a correction is a new version with a reason. Every command runs through
- * reportingPackageMachine and is audited. A package of a client the caller does not read is 404.
+ * fixed, or an approver overrides the failed findings with a reason. Whoever started a package
+ * or ran one of its generations neither overrides its failed findings nor approves it, and
+ * whoever submitted it does not approve it (SEC-5.6); approval locks the content with a hash
+ * (SEC-9.3); a Released package never changes, and a correction is a new version with a reason.
+ * Every command runs through reportingPackageMachine and is audited. A package of a client the
+ * caller does not read is 404, and so is a step of investor relations for a client the caller is
+ * not entitled to.
  */
 
 const pkg = schema.reportingPackage;
@@ -202,14 +210,31 @@ export class PackagesService {
     return this.db.run(principal, requestId, async (tx, audit) => {
       const locked = (await tx.select().from(pkg).where(eq(pkg.id, id)).for('update'))[0];
       if (locked === undefined) throw new ProblemError(404, 'not-found', NOT_FOUND);
-      requireFreshRow(ifMatch, locked.rowVersion, 'reporting_package');
       const from = locked.state;
+      // A step the table gives to investor relations is taken for a client they are entitled
+      // to (SEC-5.2). The update policy admits an approver or operations for every client, so
+      // a person who holds one of those beside investor relations is asked here: the package
+      // is not theirs to move as investor relations, and it is not found for that step.
+      if (
+        packageStepIsInvestorRelations(from, body.command, principal.roles) &&
+        !principal.clientIds.includes(locked.clientId)
+      )
+        throw new ProblemError(404, 'not-found', NOT_FOUND);
+      requireFreshRow(ifMatch, locked.rowVersion, 'reporting_package');
 
       const result = attempt(reportingPackageMachine, from, body.command, {
         actorId: principal.userId,
         actorRoles: principal.roles,
         ...(body.command === 'overrideQa' ? { reason: body.reason } : {}),
-        record: { preparedBy: locked.preparedBy },
+        // Who prepared the package: whoever started it, everyone who ran a generation and
+        // whoever submitted it. The machine refuses each of them where the table says (SEC-5.6).
+        record: {
+          ...packageCommandRecord({
+            preparedBy: locked.preparedBy,
+            runs: storedChangeLog.parse(locked.changeLog),
+            submittedBy: locked.submittedBy,
+          }),
+        },
       });
       if (!result.ok) throw workflowProblem(result);
 
@@ -283,7 +308,8 @@ export class PackagesService {
           releasedBy: principal.userId,
         });
       } else {
-        await this.claim(tx, locked, { state: result.to });
+        // submit: who sent the package to review stays on it, and never approves it.
+        await this.claim(tx, locked, { state: result.to, submittedBy: principal.userId });
       }
       await audit({
         action: `report_package.${body.command}`,

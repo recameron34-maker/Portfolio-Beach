@@ -17,7 +17,13 @@ import type {
 } from '@pb/contracts';
 import { buildPackageSnapshot, qaPassed, runReportQa, snapshotRequestOf } from '@pb/report-engine';
 import type { PositionSource, QaSettings } from '@pb/report-engine';
-import { attempt, reportingPackageMachine } from '@pb/workflows';
+import {
+  attempt,
+  packageCommandRecord,
+  packageStepIsInvestorRelations,
+  reportingPackageMachine,
+} from '@pb/workflows';
+import type { ReportingPackageCommand } from '@pb/workflows';
 import { sha256Hex, subtleCrypto } from '../hash.js';
 import { versionsNow } from '../overlay.js';
 import { jsonResponse, problem, workflowProblem } from '../problems.js';
@@ -95,18 +101,30 @@ const visibleTo = (actor: SimActor, sim: SimReportPackage): boolean =>
   seesAllClients(actor.roles) || entitled(actor, sim.client.id);
 
 /**
- * Who may move a package (its update policy): investor relations entitled to its client, and
- * approvers and operations, who read every client. The machine then names the role each step
- * needs. For a person with one role this is the same as reading it; it differs only for
- * investor relations who read a client through a second role without being entitled to it.
+ * Who may move a package. Its update policy first: investor relations entitled to its client,
+ * and approvers and operations, who read every client. Then the step itself, as the API asks
+ * it: one the table gives to investor relations is taken for a client the person is entitled to
+ * (SEC-5.2), whatever second role lets them read or move the package. The machine then names
+ * the role each step needs. For a person with one role this is the same as reading the package;
+ * it differs only for investor relations who hold a second role without the entitlement.
  */
-const movableBy = (actor: SimActor, sim: SimReportPackage): boolean =>
-  (actor.roles.includes('investor_relations') && entitled(actor, sim.client.id)) ||
-  actor.roles.includes('approver') ||
-  actor.roles.includes('operations');
+const movableBy = (
+  actor: SimActor,
+  sim: SimReportPackage,
+  command: ReportingPackageCommand,
+): boolean => {
+  const isEntitled = entitled(actor, sim.client.id);
+  const admitted =
+    (actor.roles.includes('investor_relations') && isEntitled) ||
+    actor.roles.includes('approver') ||
+    actor.roles.includes('operations');
+  return (
+    admitted && (isEntitled || !packageStepIsInvestorRelations(sim.state, command, actor.roles))
+  );
+};
 
 /** The counts of the latest QA run, read from its findings. */
-function qaOf(sim: SimReportPackage): ReportPackageRow['qa'] {
+function qaOf(sim: Pick<SimReportPackage, 'findings'>): ReportPackageRow['qa'] {
   return {
     runNo: sim.findings[0]?.runNo ?? null,
     findings: sim.findings.length,
@@ -115,7 +133,14 @@ function qaOf(sim: SimReportPackage): ReportPackageRow['qa'] {
   };
 }
 
-const detailOf = (sim: SimReportPackage): ReportPackageDetail => ({ ...sim, qa: qaOf(sim) });
+/** The detail of the contract: the package as the session holds it, less what only the machine reads. */
+const detailOf = ({
+  submittedBy: _submittedBy,
+  ...sim
+}: SimReportPackage): ReportPackageDetail => ({
+  ...sim,
+  qa: qaOf(sim),
+});
 
 /** The list row: the package without what only its detail carries. */
 function rowOf(sim: SimReportPackage): ReportPackageRow {
@@ -269,6 +294,7 @@ export const createReportPackageRoute = defineSimRoute({
       findings: [],
       tieOutExplanations: {},
       changeLog: [],
+      submittedBy: null,
     };
     packages.set(sim.id, sim);
     recordActivity(ctx, req.actor, {
@@ -448,8 +474,8 @@ function generate(
 /**
  * POST /api/v1/report-packages/{id}/commands (investor relations, approver, operations), in the
  * API's order: 404 for a package the caller cannot see or move, 412 for a stale If-Match, the
- * machine (403 role, 409 transition, 422 a missing reason or the preparer approving), then the
- * write. overrideQa stamps the reason, the approver and the time on every failed finding of the
+ * machine (403 role, 409 transition, 422 a missing reason, or someone who prepared the package
+ * overriding its failed checks or approving it), then the write. overrideQa stamps the reason, the approver and the time on every failed finding of the
  * latest run. approve locks the content with SHA-256 over its canonical JSON, the text the API
  * hashes; where the browser offers no SHA-256 the answer is 503 and nothing changes.
  */
@@ -463,7 +489,7 @@ export const reportPackageCommandRoute = defineSimRoute({
     const instance = req.url.pathname;
     const body = req.body;
     const sim = ctx.state.reportPackages.get(req.params.id ?? '');
-    if (sim === undefined || !visibleTo(req.actor, sim) || !movableBy(req.actor, sim))
+    if (sim === undefined || !visibleTo(req.actor, sim) || !movableBy(req.actor, sim, body.command))
       return notFound(instance);
     const stale = staleIfMatch(req.headers, sim.rowVersion, instance);
     if (stale !== null) return stale;
@@ -473,7 +499,15 @@ export const reportPackageCommandRoute = defineSimRoute({
       actorId: req.actor.userId,
       actorRoles: req.actor.roles,
       ...(body.command === 'overrideQa' ? { reason: body.reason } : {}),
-      record: { preparedBy: sim.preparedBy.id },
+      // Who prepared the package: whoever started it, everyone who ran a generation and whoever
+      // submitted it. The machine refuses each of them where the table says (SEC-5.6).
+      record: {
+        ...packageCommandRecord({
+          preparedBy: sim.preparedBy.id,
+          runs: sim.changeLog.map((r) => ({ by: r.by.id })),
+          submittedBy: sim.submittedBy,
+        }),
+      },
     });
     if (!result.ok) return workflowProblem(result, { instance, simulated: true });
 
@@ -505,6 +539,9 @@ export const reportPackageCommandRoute = defineSimRoute({
     } else if (body.command === 'release') {
       sim.releasedAt = now;
       sim.releasedBy = personOf(req.actor);
+    } else {
+      // submit: who sent the package to review stays on it, and never approves it.
+      sim.submittedBy = req.actor.userId;
     }
     sim.state = result.to;
     sim.rowVersion += 1;

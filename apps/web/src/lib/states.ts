@@ -292,7 +292,17 @@ export function commandOptions<S extends string, C extends string>(
       to: t.to,
       roles: t.roles,
       allowed: t.roles.some((r) => actorRoles.includes(r)),
-      needsReason: t.precondition === requireReason,
+      needsReason: asksReason(t.precondition),
       note: t.note,
     }));
+}
+
+/** Whether a precondition asks for a reason: by itself, or as one of the checks of an all(). */
+function asksReason(
+  precondition: Machine<string, string>['transitions'][number]['precondition'],
+): boolean {
+  if (precondition === undefined) return false;
+  if (precondition === requireReason) return true;
+  const checks = (precondition as { checks?: readonly unknown[] }).checks ?? [];
+  return checks.includes(requireReason);
 }

@@ -1,4 +1,4 @@
-import type { Machine, TransitionContext } from './machine.js';
+import type { Check, Machine, TransitionContext } from './machine.js';
 import { all, flag, notAmong, notSameAs, requireReason } from './machine.js';
 
 // ---- 1. Valuation (docs/18 section 1) --------------------------------------------------------
@@ -347,6 +347,23 @@ export type ReportingPackageState =
 export type ReportingPackageCommand =
   'generate' | 'qaFail' | 'qaPass' | 'regenerate' | 'overrideQa' | 'submit' | 'approve' | 'release';
 
+/*
+ * Segregation of duties on a package (SEC-5.6). Its figures are the reading of whoever generated
+ * it, so preparing a package is starting it or running any of its generations: none of those
+ * people overrides its failed checks or approves it. Whoever submitted it for review does not
+ * approve it either, so the hand-over to review is always between two people. The record names
+ * them: preparedBy, generatedBy (everyone who ran a generation) and submittedBy
+ * (packageCommandRecord in controls-package.ts builds it for the API and the static preview).
+ */
+const notPackageStarter = (action: string): Check =>
+  notSameAs('preparedBy', `the package preparer cannot ${action} (SEC-5.6)`);
+const notPackageGenerator = (action: string): Check =>
+  notAmong('generatedBy', `whoever ran a generation of the package cannot ${action} (SEC-5.6)`);
+const notPackageSubmitter = notSameAs(
+  'submittedBy',
+  'whoever submitted the package for review cannot approve it (SEC-5.6)',
+);
+
 export const reportingPackageMachine: Machine<ReportingPackageState, ReportingPackageCommand> = {
   name: 'reporting_package',
   states: ['Draft', 'Generated', 'QAFailed', 'QAPassed', 'InReview', 'Approved', 'Released'],
@@ -382,8 +399,12 @@ export const reportingPackageMachine: Machine<ReportingPackageState, ReportingPa
       to: 'QAPassed',
       command: 'overrideQa',
       roles: ['approver'],
-      precondition: requireReason,
-      note: 'Audited override of a failed QA check.',
+      precondition: all(
+        notPackageStarter('override its failed checks'),
+        notPackageGenerator('override its failed checks'),
+        requireReason,
+      ),
+      note: 'Audited override of a failed QA check, never by someone who prepared the package.',
     },
     { from: 'QAPassed', to: 'InReview', command: 'submit', roles: ['investor_relations'] },
     {
@@ -391,7 +412,11 @@ export const reportingPackageMachine: Machine<ReportingPackageState, ReportingPa
       to: 'Approved',
       command: 'approve',
       roles: ['approver'],
-      precondition: notSameAs('preparedBy', 'the package preparer cannot approve it (SEC-5.6)'),
+      precondition: all(
+        notPackageStarter('approve it'),
+        notPackageGenerator('approve it'),
+        notPackageSubmitter,
+      ),
     },
     {
       from: 'Approved',

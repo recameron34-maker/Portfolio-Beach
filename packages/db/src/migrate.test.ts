@@ -677,6 +677,30 @@ describe('migrations', () => {
     expect(added[0]?.n).toBe(0);
   });
 
+  it('0024: who submitted a reporting package, and the reviewer the record refuses (decision 0024, SEC-5.6)', async () => {
+    const columns = await handle.query<{ type: string; nullable: string }>(
+      "select data_type as type, is_nullable as nullable from information_schema.columns where table_schema = 'rpt' and table_name = 'package' and column_name = 'submitted_by'",
+    );
+    // Null until the package is submitted, and on every package from before the column.
+    expect(columns).toEqual([{ type: 'uuid', nullable: 'YES' }]);
+    const checks = await handle.query<{ name: string }>(
+      "select conname as name from pg_constraint where conrelid = 'rpt.package'::regclass and contype = 'c' and conname like 'package_reviewer_%' order by 1",
+    );
+    expect(checks.map((c) => c.name)).toEqual([
+      'package_reviewer_not_generator',
+      'package_reviewer_not_submitter',
+    ]);
+    // No policy changed: who reads, prepares and moves a package is what migration 0019 said.
+    const policies = await handle.query<{ policyname: string }>(
+      "select policyname from pg_policies where schemaname = 'rpt' and tablename = 'package' order by 1",
+    );
+    expect(policies.map((p) => p.policyname)).toEqual([
+      'move_package',
+      'prepare_package',
+      'read_entitled',
+    ]);
+  });
+
   it('0023: valuation suggestions, their method and their switch (decision 0023)', async () => {
     const enums = await handle.query<{ labels: string }>(`
       select string_agg(e.enumlabel, ',' order by e.enumsortorder) as labels

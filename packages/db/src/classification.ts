@@ -214,13 +214,14 @@ export const CLASSIFICATION: Record<string, TableClassification> = {
     columns: { confirmed_by: 'confidential_personal', confirmed_at: 'internal' },
   },
   // A reporting package is client data (migration 0019): which client, which period and what the
-  // QA engine found on its positions. Who prepared, reviewed and released it is personal; the
-  // workflow columns say nothing about a client.
+  // QA engine found on its positions. Who prepared, submitted (migration 0024), reviewed and
+  // released it is personal; the workflow columns say nothing about a client.
   'rpt.package': {
     default: 'restricted_mnpi',
     retention: 'books_and_records',
     columns: {
       prepared_by: 'confidential_personal',
+      submitted_by: 'confidential_personal',
       reviewer_id: 'confidential_personal',
       released_by: 'confidential_personal',
       approved_at: 'internal',

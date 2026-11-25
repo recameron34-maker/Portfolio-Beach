@@ -256,4 +256,111 @@ describe('reporting packages: what the boundary and the gate refuse', () => {
     const draft = await started('ir.one', clientB, period, { basis: 'net', asOf: today });
     expect(draft.asOf).toBe(today);
   });
+
+  /** The override of a failed gate by an approver who prepared nothing of the package. */
+  const overridden = (id: string): Promise<ReportPackageDetail> =>
+    run('head.one', id, { command: 'overrideQa', reason: 'Understood with operations' });
+  const refusal = async (
+    who: string,
+    id: string,
+    body: Record<string, unknown>,
+    status: number,
+  ): Promise<string | undefined> =>
+    problemDetails.parse((await command(who, id, body).expect(status)).body).detail;
+  const idOf = (externalId: string): string | undefined =>
+    h.dataset.users.find((u) => u.externalId === externalId)?.id;
+
+  it('refuses the override and the approval of whoever ran a generation of the package, whoever started it (SEC-5.6)', async () => {
+    // ir.one starts it; a second person, who is also an approver, generates it. Labelled final
+    // over the stale position, so the gate fails.
+    const draft = await started('ir.one', clientA, period, { basis: 'net', label: 'final' });
+    let d = await run('both.entitled', draft.id, { command: 'generate' });
+    expect(d.state).toBe('QAFailed');
+    expect(d.changeLog.map((r) => r.by.id)).toEqual([idOf('both.entitled')]);
+    // The figures are that person's reading: they do not override the checks that failed on it.
+    expect(
+      await refusal('both.entitled', draft.id, { command: 'overrideQa', reason: 'Fine' }, 422),
+    ).toBe(
+      'reporting_package: whoever ran a generation of the package cannot override its failed checks (SEC-5.6)',
+    );
+    expect((await read('ir.one', draft.id)).qa.overridden).toBe(0);
+    await overridden(draft.id);
+    await run('ir.one', draft.id, { command: 'submit' });
+    // Nor do they approve it, though ir.one started it and submitted it.
+    expect(await refusal('both.entitled', draft.id, { command: 'approve' }, 422)).toBe(
+      'reporting_package: whoever ran a generation of the package cannot approve it (SEC-5.6)',
+    );
+    d = await run('head.one', draft.id, { command: 'approve' });
+    expect(d).toMatchObject({ state: 'Approved', reviewer: { id: idOf('head.one') } });
+  });
+
+  it('refuses the override and the approval of whoever started the package, though somebody else generated it (SEC-5.6)', async () => {
+    // This client's quarter holds the position with no Locked mark at its start: the gate fails.
+    const draft = await started('both.entitled', clientB, period);
+    let d = await run('ir.three', draft.id, { command: 'generate' });
+    expect(d.state).toBe('QAFailed');
+    expect(
+      await refusal('both.entitled', draft.id, { command: 'overrideQa', reason: 'Fine' }, 422),
+    ).toBe('reporting_package: the package preparer cannot override its failed checks (SEC-5.6)');
+    await overridden(draft.id);
+    await run('ir.three', draft.id, { command: 'submit' });
+    expect(await refusal('both.entitled', draft.id, { command: 'approve' }, 422)).toBe(
+      'reporting_package: the package preparer cannot approve it (SEC-5.6)',
+    );
+    // A second approver, who prepared nothing of it, approves.
+    d = await run('head.two', draft.id, { command: 'approve' });
+    expect(d).toMatchObject({ state: 'Approved', reviewer: { id: idOf('head.two') } });
+  });
+
+  it('records who submitted a package, and refuses that person its approval (SEC-5.6)', async () => {
+    const draft = await started('ir.one', clientB, prior);
+    if ((await run('ir.one', draft.id, { command: 'generate' })).state === 'QAFailed')
+      await overridden(draft.id);
+    // A third person, entitled to the client and also an approver, submits it for review.
+    let d = await run('both.entitled', draft.id, { command: 'submit' });
+    expect(d.state).toBe('InReview');
+    const stored = await h.runtime.db.query<{ submitted_by: string | null }>(
+      `select submitted_by from rpt.package where id = '${draft.id}'`,
+    );
+    expect(stored).toEqual([{ submitted_by: idOf('both.entitled') }]);
+    // Sending a package to review and reviewing it are two people's steps.
+    expect(await refusal('both.entitled', draft.id, { command: 'approve' }, 422)).toBe(
+      'reporting_package: whoever submitted the package for review cannot approve it (SEC-5.6)',
+    );
+    expect((await read('ir.one', draft.id)).state).toBe('InReview');
+    d = await run('head.one', draft.id, { command: 'approve' });
+    expect(d.state).toBe('Approved');
+  });
+
+  it('holds the steps of investor relations to the clients they are entitled to, whatever second role they hold (SEC-5.2)', async () => {
+    const draft = await started('ir.one', clientA, prior);
+    // Each reads the package through the second role, and is entitled to no client: the steps
+    // the table gives to investor relations are not theirs to take for this client.
+    for (const who of ['both.unentitled', 'ir.ops', 'ir.deal']) {
+      expect((await read(who, draft.id)).id, who).toBe(draft.id);
+      expect(await refusal(who, draft.id, { command: 'generate' }, 404), who).toBe(
+        'Reporting package not found',
+      );
+    }
+    expect(await read('ir.one', draft.id)).toEqual(draft);
+    let d = await run('ir.one', draft.id, { command: 'generate' });
+    // An approver overrides for every client: that step is the approver's, not investor relations'.
+    if (d.state === 'QAFailed') {
+      await command('ir.ops', draft.id, { command: 'regenerate' }).expect(404);
+      d = await run('both.unentitled', draft.id, {
+        command: 'overrideQa',
+        reason: 'Understood with operations',
+      });
+    }
+    expect(d.state).toBe('QAPassed');
+    for (const who of ['both.unentitled', 'ir.ops'])
+      await command(who, draft.id, { command: 'submit' }).expect(404);
+    await run('ir.one', draft.id, { command: 'submit' });
+    d = await run('both.unentitled', draft.id, { command: 'approve' });
+    expect(d).toMatchObject({ state: 'Approved', reviewer: { id: idOf('both.unentitled') } });
+    // Release is investor relations' for their clients and operations' for every client.
+    await command('both.unentitled', draft.id, { command: 'release' }).expect(404);
+    d = await run('ir.ops', draft.id, { command: 'release' });
+    expect(d).toMatchObject({ state: 'Released', releasedBy: { id: idOf('ir.ops') } });
+  });
 });

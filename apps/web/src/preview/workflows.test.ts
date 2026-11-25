@@ -348,6 +348,7 @@ const packageIn = (state: ReportingPackageState, n: number): SimReportPackage =>
   findings: [],
   tieOutExplanations: {},
   changeLog: [],
+  submittedBy: null,
 });
 
 /** The commands the contract lets a person send; qaPass and qaFail are the system's own. */
