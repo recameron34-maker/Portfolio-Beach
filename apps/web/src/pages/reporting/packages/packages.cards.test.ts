@@ -163,7 +163,12 @@ describe('the figures of a position', () => {
   });
 
   it('shows the placeholder for a line with no end NAV, never zero and never another quarter', () => {
-    const noEnd = line({ endNav: null, endNavPeriodEnd: null, gainLoss: null });
+    const noEnd = line({
+      endNav: null,
+      endNavPeriodEnd: null,
+      endNavMarkDate: null,
+      gainLoss: null,
+    });
     expect(endNavCell(noEnd)).toEqual({ text: MISSING, why: NO_END_MARK });
     expect(gainLossCell(noEnd)).toEqual({ text: MISSING, why: NO_END_MARK });
     expect(markCell(noEnd, PKG_PERIOD)).toEqual({ text: MISSING, why: NO_END_MARK });
@@ -177,6 +182,25 @@ describe('the figures of a position', () => {
       text: MISSING,
       why: 'The quarter of the mark is not recorded',
     });
+  });
+
+  it("says which day the quarter's own mark is dated when the sponsor closed a few days off the quarter end", () => {
+    // Dated June the 27th and reporting for the quarter to June the 30th: not rolled forward.
+    const early = line({ endNavPeriodEnd: PKG_PERIOD, endNavMarkDate: '2025-06-27' });
+    expect(markCell(early, PKG_PERIOD)).toEqual({ text: 'Quarter mark dated Jun 27, 2025' });
+    const late = line({ endNavPeriodEnd: PKG_PERIOD, endNavMarkDate: '2025-07-03' });
+    expect(markCell(late, PKG_PERIOD)).toEqual({ text: 'Quarter mark dated Jul 3, 2025' });
+  });
+
+  it('names a mark that was rolled forward by the day it is dated, not by the quarter end it reports for', () => {
+    const earlier = line({ ...stale, endNavMarkDate: '2025-03-28' });
+    expect(earlier.endNavPeriodEnd).toBe(PKG_PRIOR_PERIOD);
+    expect(markCell(earlier, PKG_PERIOD)).toEqual({ text: 'Rolled forward from Mar 28, 2025' });
+  });
+
+  it('reads a position exited at zero, which no mark stands behind, as the quarter end', () => {
+    const exited = line({ endNav: '0', endNavPeriodEnd: PKG_PERIOD, endNavMarkDate: null });
+    expect(markCell(exited, PKG_PERIOD)).toEqual({ text: 'Quarter end' });
   });
 });
 

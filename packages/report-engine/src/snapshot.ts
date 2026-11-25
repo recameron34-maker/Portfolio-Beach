@@ -2,9 +2,11 @@ import {
   D,
   ZERO,
   addMonths,
+  alignedQuarterEnd,
   containingQuarterEnd,
   flowKindOf,
   isQuarterEnd,
+  lockedNear,
   summarizeFlows,
   toDecimalString,
 } from '@pb/calc';
@@ -27,6 +29,10 @@ export interface PositionRecord {
   entryDate: string;
   /** The date the position was fully exited; null while it is held. */
   exitDate: string | null;
+  /**
+   * Its Locked marks, each with its own period end: the date the sponsor closed its books on,
+   * which may sit a few days from the calendar quarter end the mark reports for.
+   */
   marks: readonly { periodEnd: string; nav: string }[];
   flows: readonly TypedCashFlow[];
 }
@@ -43,6 +49,12 @@ export interface SnapshotRequest {
   priorRelease: QaSnapshot['priorRelease'];
   commentary: QaSnapshot['commentary'];
   moversCount: number;
+  /**
+   * How many days a mark may be dated from a calendar quarter end and still report for it
+   * (`priorYearPeriodEndToleranceDays` of config/definitions.json, the tolerance of every
+   * quarter match on the platform).
+   */
+  toleranceDays: number;
 }
 
 /** One position as a caller reads it from the record: every version of every mark, every approved flow. */
@@ -90,6 +102,8 @@ export interface SnapshotSource {
   /** Why a begin NAV differs from the last released package, by position number. */
   explanations: Readonly<Record<string, string>>;
   moversCount: number;
+  /** `priorYearPeriodEndToleranceDays` of config/definitions.json (SnapshotRequest.toleranceDays). */
+  toleranceDays: number;
 }
 
 const text = (value: Decimal): string => toDecimalString(value) ?? '0';
@@ -101,7 +115,9 @@ const byText = (a: string, b: string): number => (a < b ? -1 : a > b ? 1 : 0);
  * The snapshot request of a package, read from the record. Nothing is computed here: the rules
  * that decide what a package may read are applied, and buildPackageSnapshot does the arithmetic.
  *
- *  - A mark counts only when it is Locked (docs/18 section 1).
+ *  - A mark counts only when it is Locked (docs/18 section 1) and dated on or before the as-of
+ *    date: a sponsor's close a few days after a quarter end is not known before its date. Each
+ *    keeps its own date; which quarter it reports for is buildPackageSnapshot's to say.
  *  - A flow counts when it is dated on or before the as-of date.
  *  - The positions are those of the vehicles the client is committed to.
  *  - The client's share of a vehicle is its ownership on record, in vehicle order; a commitment
@@ -120,7 +136,7 @@ export function snapshotRequestOf(source: SnapshotSource): SnapshotRequest {
       entryDate: p.entryDate,
       exitDate: p.exitDate,
       marks: p.valuations
-        .filter((v) => v.state === 'Locked')
+        .filter((v) => v.state === 'Locked' && v.periodEnd <= source.asOf)
         .map((v) => ({ periodEnd: v.periodEnd, nav: v.fairValue })),
       flows: p.flows
         .filter((f) => f.date <= source.asOf)
@@ -177,6 +193,7 @@ export function snapshotRequestOf(source: SnapshotSource): SnapshotRequest {
     priorRelease,
     commentary: [],
     moversCount: source.moversCount,
+    toleranceDays: source.toleranceDays,
   };
 }
 
@@ -184,35 +201,66 @@ export function snapshotRequestOf(source: SnapshotSource): SnapshotRequest {
 const latest = (dates: readonly string[]): string | null =>
   dates.reduce<string | null>((max, d) => (max === null || d > max ? d : max), null);
 
-function lineOf(position: PositionRecord, periodEnd: string, quarterStart: string): QaLine {
-  const inPeriod = (date: string, after: string): boolean => date > after && date <= periodEnd;
-  const quarter = summarizeFlows(position.flows.filter((f) => inPeriod(f.date, quarterStart)));
+/**
+ * One position's line for the quarter (docs/08 section 7). A Locked mark reports for the calendar
+ * quarter end it is dated within the tolerance of (alignedQuarterEnd), and the mark of a quarter
+ * is the latest dated of those (lockedNear): the rule of the valuation board and the weekly
+ * report, so a sponsor that closes its books a few days early or late is marked for the quarter
+ * here as it is there. A mark holds the flows up to its own date, so the flows of a line are
+ * those after the date of the mark it starts from and on or before the date of the mark it ends
+ * on, and the calendar quarter end stands in on a side that has no mark. A flow between a
+ * sponsor's close and the calendar quarter end is therefore in the next quarter's line, once.
+ */
+function lineOf(
+  position: PositionRecord,
+  periodEnd: string,
+  quarterStart: string,
+  toleranceDays: number,
+): QaLine {
   const enteredInPeriod = position.entryDate > quarterStart;
-
-  // Marks on or before the period end, the latest first.
-  const marks = position.marks
-    .filter((m) => m.periodEnd <= periodEnd)
-    .sort((a, b) => (a.periodEnd < b.periodEnd ? 1 : a.periodEnd > b.periodEnd ? -1 : 0));
-  const startMark = marks.find((m) => m.periodEnd === quarterStart);
-  const recorded = startMark === undefined ? null : D(startMark.nav);
+  // Every mark is Locked here (PositionRecord); lockedNear reads the state it is given.
+  const marks = position.marks.map((m) => ({
+    ...m,
+    state: 'Locked',
+    reportsFor: alignedQuarterEnd(m.periodEnd, toleranceDays),
+  }));
+  const startMark = lockedNear(marks, quarterStart, toleranceDays);
+  const current = lockedNear(marks, periodEnd, toleranceDays);
+  const recorded = startMark === null ? null : D(startMark.nav);
   const begin = enteredInPeriod ? null : recorded;
 
+  // The window of the line: from the date of the mark it starts from to the date of its own.
+  const from = startMark === null || enteredInPeriod ? quarterStart : startMark.periodEnd;
+  const to = current === null ? periodEnd : current.periodEnd;
+  const between = (after: string, onOrBefore: string): TypedCashFlow[] =>
+    position.flows.filter((f) => f.date > after && f.date <= onOrBefore);
+  const inQuarter = between(from, to);
+  const quarter = summarizeFlows(inQuarter);
+
   let end: Decimal | null = null;
+  // The quarter the end NAV's mark reports for, and the date that mark carries.
   let endPeriod: string | null = null;
-  const current = marks.find((m) => m.periodEnd === periodEnd);
-  const last = marks[0];
-  if (current !== undefined) {
+  let endMarkDate: string | null = null;
+  if (current !== null) {
     end = D(current.nav);
     endPeriod = periodEnd;
+    endMarkDate = current.periodEnd;
   } else if (position.exitDate !== null && position.exitDate <= periodEnd) {
     // Fully exited in the quarter: nothing is left to mark.
     end = ZERO;
     endPeriod = periodEnd;
-  } else if (last !== undefined) {
-    // No mark for the period: the last one, rolled forward with the flows since it.
-    const since = summarizeFlows(position.flows.filter((f) => inPeriod(f.date, last.periodEnd)));
-    end = D(last.nav).plus(since.contributions).minus(since.distributions);
-    endPeriod = last.periodEnd;
+  } else {
+    // No mark for the period: the latest one for an earlier period, rolled forward with the
+    // flows since its own date.
+    let last: (typeof marks)[number] | null = null;
+    for (const m of marks)
+      if (m.reportsFor < periodEnd && (last === null || m.periodEnd > last.periodEnd)) last = m;
+    if (last !== null) {
+      const since = summarizeFlows(between(last.periodEnd, periodEnd));
+      end = D(last.nav).plus(since.contributions).minus(since.distributions);
+      endPeriod = last.reportsFor;
+      endMarkDate = last.periodEnd;
+    }
   }
 
   const base = enteredInPeriod ? ZERO : begin;
@@ -222,9 +270,10 @@ function lineOf(position: PositionRecord, periodEnd: string, quarterStart: strin
       : end.minus(base).minus(quarter.contributions).plus(quarter.distributions);
 
   const figureDates = [
-    ...(endPeriod === null ? [] : [endPeriod]),
-    ...(startMark === undefined || enteredInPeriod ? [] : [startMark.periodEnd]),
-    ...position.flows.filter((f) => inPeriod(f.date, quarterStart)).map((f) => f.date),
+    // The date of the mark behind the end NAV; the quarter end for a position exited at zero.
+    ...(endMarkDate === null ? (endPeriod === null ? [] : [endPeriod]) : [endMarkDate]),
+    ...(startMark === null || enteredInPeriod ? [] : [startMark.periodEnd]),
+    ...inQuarter.map((f) => f.date),
   ];
 
   return {
@@ -236,6 +285,7 @@ function lineOf(position: PositionRecord, periodEnd: string, quarterStart: strin
     gainLoss: gainLoss === null ? null : text(gainLoss),
     endNav: end === null ? null : text(end),
     endNavPeriodEnd: endPeriod,
+    endNavMarkDate: endMarkDate,
     recordedQuarterStartNav: recorded === null ? null : text(recorded),
     latestFigureDate: latest(figureDates),
   };
@@ -248,6 +298,9 @@ export function buildPackageSnapshot(request: SnapshotRequest): QaSnapshot {
     throw new Error(`a package period is a quarter end, not ${periodEnd}`);
   if (asOf < periodEnd)
     throw new Error(`the as-of date ${asOf} is before the period end ${periodEnd}`);
+  const { toleranceDays } = request;
+  if (!Number.isInteger(toleranceDays) || toleranceDays < 0)
+    throw new Error(`the period end tolerance is a whole number of days, not ${toleranceDays}`);
   const quarterStart = containingQuarterEnd(addMonths(periodEnd, -3));
 
   const seen = new Set<string>();
@@ -259,7 +312,7 @@ export function buildPackageSnapshot(request: SnapshotRequest): QaSnapshot {
   const held = request.positions
     .filter((p) => p.entryDate <= periodEnd && (p.exitDate === null || p.exitDate > quarterStart))
     .sort((a, b) => (a.ref < b.ref ? -1 : a.ref > b.ref ? 1 : 0));
-  const lines = held.map((p) => lineOf(p, periodEnd, quarterStart));
+  const lines = held.map((p) => lineOf(p, periodEnd, quarterStart, toleranceDays));
 
   const footnotes = lines
     .filter((l) => l.endNav !== null && l.endNavPeriodEnd !== null && l.endNavPeriodEnd < periodEnd)

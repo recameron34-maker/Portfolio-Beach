@@ -163,13 +163,17 @@ describe('the words for what a check is about', () => {
 describe('the words for a footnote', () => {
   it('has words for every footnote the engine writes', () => {
     expect(Object.keys(FOOTNOTE_WORDS)).toEqual([STALE_FOOTNOTE]);
-    expect(footnoteWords(STALE_FOOTNOTE, { endNavPeriodEnd: '2025-06-30' })).toBe(
+    expect(footnoteWords(STALE_FOOTNOTE, { endNavMarkDate: '2025-06-30' })).toBe(
       'Carried at the mark of Jun 30, 2025, rolled forward for cash flows since.',
+    );
+    // The day the mark is dated: the sponsor's own close, a few days before the quarter end.
+    expect(footnoteWords(STALE_FOOTNOTE, { endNavMarkDate: '2025-03-28' })).toBe(
+      'Carried at the mark of Mar 28, 2025, rolled forward for cash flows since.',
     );
   });
 
   it('does not invent the date of a mark it was not given', () => {
-    for (const line of [undefined, { endNavPeriodEnd: null }])
+    for (const line of [undefined, { endNavMarkDate: null }])
       expect(footnoteWords(STALE_FOOTNOTE, line)).toBe(
         'Carried at an earlier mark, rolled forward for cash flows since.',
       );

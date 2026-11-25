@@ -63,6 +63,7 @@ const EXPLANATION_NOT_HELD = 'An explanation names a position the package does n
 
 interface Definitions {
   rollForwardToleranceUsd?: unknown;
+  priorYearPeriodEndToleranceDays?: unknown;
   reporting?: { weeklyMoversCount?: unknown };
   [key: string]: unknown;
 }
@@ -340,6 +341,12 @@ export class PackagesService {
       this.definitions.reporting?.weeklyMoversCount,
       'reporting.weeklyMoversCount',
     );
+    // How far a mark may be dated from the quarter end it reports for: the tolerance the
+    // valuation board and the weekly report match a quarter with.
+    const toleranceDays = configInteger(
+      this.definitions.priorYearPeriodEndToleranceDays,
+      'priorYearPeriodEndToleranceDays',
+    );
     const kept = { ...(locked.tieOutExplanations as Record<string, string>), ...explanations };
 
     // The client's share of each vehicle it is committed to, and the positions of those vehicles.
@@ -375,7 +382,8 @@ export class PackagesService {
       );
 
     // What the record says becomes the request by the one rule the static preview also runs
-    // (@pb/report-engine): Locked marks only, flows to the as-of date, the shares on record.
+    // (@pb/report-engine): Locked marks only, each for the quarter it reports for, flows to the
+    // as-of date, the shares on record.
     const snapshot = buildPackageSnapshot(
       snapshotRequestOf({
         clientRef: locked.clientId,
@@ -405,6 +413,7 @@ export class PackagesService {
         }),
         explanations: kept,
         moversCount,
+        toleranceDays,
       }),
     );
     // An explanation is for a position of this package. One for any other number is refused

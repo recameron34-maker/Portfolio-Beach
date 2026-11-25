@@ -3318,13 +3318,15 @@ check(
     (await breakRow.getByRole('cell').nth(4).innerText()) === moneyM(breakLine.endNav),
   oneLine(await breakRow.innerText()),
 );
-const staleMarkWords = new Date(`${staleLine?.endNavPeriodEnd}T00:00:00Z`).toLocaleDateString(
+// The page names the mark by the day it is dated; the quarter it reports for is what makes it stale.
+const staleMarkWords = new Date(`${staleLine?.endNavMarkDate}T00:00:00Z`).toLocaleDateString(
   'en-US',
   { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC' },
 );
 check(
   'packages: the stale position is carried at its last Locked mark and footnoted with that mark',
   staleLine?.endNavPeriodEnd < quarterEnd &&
+    typeof staleLine?.endNavMarkDate === 'string' &&
     generatedPackage.content.footnotes.some((n) => n.ref === staleRef) &&
     (await page.getByTestId('package-footnotes').innerText()).includes(
       `Carried at the mark of ${staleMarkWords}, rolled forward for cash flows since.`,

@@ -22,6 +22,7 @@ const line = (ref: string, over: Partial<QaLine> = {}): QaLine => ({
   gainLoss: '15',
   endNav: '120',
   endNavPeriodEnd: PERIOD,
+  endNavMarkDate: PERIOD,
   recordedQuarterStartNav: '100',
   latestFigureDate: PERIOD,
   ...over,
@@ -96,7 +97,7 @@ describe('report QA: the release gate', () => {
 
   it('QA-RDY-01: a position with no end NAV is not ready', () => {
     const findings = runReportQa(
-      withLine('INV-A', { endNav: null, endNavPeriodEnd: null }),
+      withLine('INV-A', { endNav: null, endNavPeriodEnd: null, endNavMarkDate: null }),
       SETTINGS,
     );
     expect(of(findings, 'QA-RDY-01', 'INV-A')).toMatchObject({ passed: false, actual: null });
@@ -104,8 +105,26 @@ describe('report QA: the release gate', () => {
     expect(qaPassed(findings)).toBe(false);
   });
 
+  it('QA-STALE-01 (period_end_shift): a mark is judged by the quarter it reports for, not by the day the sponsor closed its books', () => {
+    // Dated three days before the quarter end and reporting for it: the mark of the period.
+    const early = { endNavPeriodEnd: PERIOD, endNavMarkDate: '2025-06-27' };
+    const current = runReportQa(withLine('INV-C', early), SETTINGS);
+    expect(of(current, 'QA-STALE-01', 'INV-C')).toMatchObject({
+      passed: true,
+      expected: PERIOD,
+      actual: PERIOD,
+      detail: 'The mark is for the period of the package.',
+    });
+    // So the package may be final, with no footnote.
+    expect(failed(current)).toEqual([]);
+    // The quarter before's mark, closed three days early, is stale whatever its date.
+    const stale = { endNavPeriodEnd: PRIOR, endNavMarkDate: '2025-03-28' };
+    const older = runReportQa(withLine('INV-C', stale), SETTINGS);
+    expect(failed(older)).toEqual(['QA-STALE-01 INV-C', 'QA-LBL-01 status']);
+  });
+
   it('QA-STALE-01 (stale_valuation): an older mark needs its footnote, and the package cannot be final', () => {
-    const stale = { endNavPeriodEnd: PRIOR };
+    const stale = { endNavPeriodEnd: PRIOR, endNavMarkDate: PRIOR };
     const bare = runReportQa(withLine('INV-C', stale, { status: 'preliminary' }), SETTINGS);
     expect(of(bare, 'QA-STALE-01', 'INV-C')).toMatchObject({
       passed: false,

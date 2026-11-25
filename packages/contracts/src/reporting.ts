@@ -42,8 +42,13 @@ export const reportPackageLine = z.object({
   distributions: s.decimalString,
   gainLoss: s.decimalString.nullable(),
   endNav: s.decimalString.nullable(),
-  /** The period the end NAV's mark is for; earlier than the package's period when it is stale. */
+  /**
+   * The period the end NAV's mark is for: the quarter end it reports for (a mark dated within a
+   * few days of a quarter end reports for it). Earlier than the package's period when it is stale.
+   */
   endNavPeriodEnd: s.isoDate.nullable(),
+  /** The date of that mark, the day the sponsor closed its books; null when no mark stands behind the end NAV. */
+  endNavMarkDate: s.isoDate.nullable(),
   recordedQuarterStartNav: s.decimalString.nullable(),
   latestFigureDate: s.isoDate.nullable(),
 });

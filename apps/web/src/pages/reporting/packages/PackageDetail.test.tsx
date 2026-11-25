@@ -442,6 +442,7 @@ describe('the cards of a reporting package', () => {
           gainLoss: null,
           endNav: null,
           endNavPeriodEnd: null,
+          endNavMarkDate: null,
           recordedQuarterStartNav: null,
           latestFigureDate: null,
         }),

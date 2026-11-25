@@ -38,8 +38,18 @@ export interface QaLine {
   distributions: string;
   gainLoss: string | null;
   endNav: string | null;
-  /** The period the end NAV's mark is for; earlier than the package's period when the mark is stale. */
+  /**
+   * The period the end NAV's mark is for: the calendar quarter end it reports for (a mark dated
+   * within the tolerance of a quarter end reports for it), or its own date when it is near none.
+   * Earlier than the package's period when the mark is stale.
+   */
   endNavPeriodEnd: string | null;
+  /**
+   * The date of the mark the end NAV stands on: the day the sponsor closed its books, which may
+   * sit a few days from the quarter end the mark reports for. Null when no mark stands behind
+   * the end NAV (a position exited at zero, or no end NAV).
+   */
+  endNavMarkDate: string | null;
   /** On record: the Locked mark at the end of the prior quarter. */
   recordedQuarterStartNav: string | null;
   /** The latest date of any figure the line uses (a mark, a flow, an entry snapshot). */

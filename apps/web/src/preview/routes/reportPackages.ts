@@ -54,7 +54,8 @@ import type { SimContext, SimRequest } from './common.js';
  * buildPackageSnapshot of @pb/report-engine), from what the acting credential's own recordings
  * hold: the client's commitments in its recorded client list, and the one-pager of every
  * position it may open. The marks are the versions as they stand in this session, so a mark
- * locked here counts and one reopened here no longer does; the flows are the recorded ones. The
+ * locked here counts and one reopened here no longer does, each for the quarter it reports for
+ * by the tolerance the API reads; the flows are the recorded ones. The
  * QA rules then run over the snapshot and the system step states the outcome (qaPass or qaFail),
  * never the caller. Every command runs through reportingPackageMachine, and everything that can
  * refuse comes before the first change.
@@ -90,6 +91,21 @@ export function previewQaSettings(): QaSettings {
     );
   settingsCache = { toleranceUsd: String(tolerance), moversCount: movers };
   return settingsCache;
+}
+
+/**
+ * How many days a mark may be dated from the quarter end it reports for
+ * (`priorYearPeriodEndToleranceDays`, the key the API reads): the tolerance the valuation board
+ * and the weekly report match a quarter with. A missing or malformed key throws.
+ */
+export function previewPeriodEndToleranceDays(): number {
+  const days: unknown = (definitions as { priorYearPeriodEndToleranceDays?: unknown })
+    .priorYearPeriodEndToleranceDays;
+  if (typeof days !== 'number' || !Number.isInteger(days) || days < 0)
+    throw new Error(
+      'config/definitions.json: priorYearPeriodEndToleranceDays is missing or not a whole number',
+    );
+  return days;
 }
 
 /** Whether the actor is entitled to the client; a reader whose entitlements are not known is entitled to none. */
@@ -404,6 +420,7 @@ function generate(
         })),
       explanations: kept,
       moversCount: previewQaSettings().moversCount,
+      toleranceDays: previewPeriodEndToleranceDays(),
     }),
   );
   // An explanation is for a position of this package: one for any other number is refused

@@ -17,6 +17,8 @@ import type {
 const PERIOD = '2025-06-30';
 const START = '2025-03-31';
 const SETTINGS = { toleranceUsd: '1', moversCount: 3 };
+/** How far a mark may be dated from the quarter end it reports for (priorYearPeriodEndToleranceDays). */
+const TOLERANCE_DAYS = 7;
 
 const position = (ref: string, over: Partial<PositionRecord> = {}): PositionRecord => ({
   ref,
@@ -56,6 +58,7 @@ const request = (
   priorRelease: null,
   commentary: [],
   moversCount: SETTINGS.moversCount,
+  toleranceDays: TOLERANCE_DAYS,
   ...over,
 });
 
@@ -79,6 +82,7 @@ describe('package snapshot: lines from Locked marks and approved flows', () => {
       gainLoss: '15',
       endNav: '120',
       endNavPeriodEnd: PERIOD,
+      endNavMarkDate: PERIOD,
       recordedQuarterStartNav: '100',
       latestFigureDate: PERIOD,
     });
@@ -137,6 +141,8 @@ describe('package snapshot: lines from Locked marks and approved flows', () => {
       gainLoss: '30',
       endNav: '0',
       endNavPeriodEnd: PERIOD,
+      // No mark stands behind a zero: the position is gone.
+      endNavMarkDate: null,
     });
     const gone = position('INV-G', { exitDate: START });
     const later = position('INV-L', { entryDate: '2025-07-01' });
@@ -162,6 +168,7 @@ describe('package snapshot: lines from Locked marks and approved flows', () => {
       gainLoss: '0',
       endNav: '105',
       endNavPeriodEnd: START,
+      endNavMarkDate: START,
     });
     expect(snapshot.footnotes).toEqual([{ ref: 'INV-S', code: STALE_FOOTNOTE }]);
     expect(failed(runReportQa(snapshot, SETTINGS))).toEqual([]);
@@ -264,6 +271,12 @@ describe('package snapshot: lines from Locked marks and approved flows', () => {
     expect(failed(runReportQa(snapshot, SETTINGS))).toEqual([]);
   });
 
+  it('refuses a tolerance that is not a whole number of days, zero or more', () => {
+    for (const toleranceDays of [-1, 1.5, Number.NaN])
+      expect(() => buildPackageSnapshot(request([], { toleranceDays }))).toThrow(/tolerance/);
+    expect(buildPackageSnapshot(request([], { toleranceDays: 0 })).lines).toEqual([]);
+  });
+
   it('refuses a period that is not a quarter end, an as-of date before it, and two positions with one number', () => {
     expect(() => buildPackageSnapshot(request([], { periodEnd: '2025-06-29' }))).toThrow(
       /quarter end/,
@@ -272,6 +285,251 @@ describe('package snapshot: lines from Locked marks and approved flows', () => {
     expect(() => buildPackageSnapshot(request([position('INV-A'), position('INV-A')]))).toThrow(
       /INV-A/,
     );
+  });
+});
+
+/*
+ * A sponsor that closes its books a few days off the quarter end (period_end_shift, docs/14). A
+ * Locked mark reports for the quarter end it is within the tolerance of, as it does on the
+ * valuation board and in the weekly report (alignedQuarterEnd, lockedNear), and a line's flows
+ * are those between the dates of its two marks, so each flow is in one quarter's line.
+ */
+describe('package snapshot: a mark dated a few days off the quarter end it reports for', () => {
+  /** Closes three days early every quarter: December the 28th, March the 28th, June the 27th. */
+  const early = (over: Partial<PositionRecord> = {}): PositionRecord =>
+    position('INV-P', {
+      marks: [
+        { periodEnd: '2024-12-28', nav: '80' },
+        { periodEnd: '2025-03-28', nav: '100' },
+        { periodEnd: '2025-06-27', nav: '120' },
+      ],
+      flows: [
+        // Before the March close: the March mark holds it.
+        { date: '2025-03-27', kind: 'contribution', amount: '-7' },
+        // After the March close and before the calendar quarter end: the June line's.
+        { date: '2025-03-30', kind: 'contribution', amount: '-6' },
+        { date: '2025-05-10', kind: 'contribution', amount: '-10' },
+        { date: '2025-06-01', kind: 'distribution', amount: '4' },
+        // After the June close and before the calendar quarter end: the September line's.
+        { date: '2025-06-29', kind: 'distribution', amount: '2' },
+      ],
+      ...over,
+    });
+
+  it("reads the two marks as the quarter's own: a begin NAV, a gain, no footnote, and every check passes", () => {
+    const snapshot = buildPackageSnapshot(request([early()]));
+    // 100 + (6 + 10) - 4 + 8 = 120
+    expect(snapshot.lines).toEqual([
+      {
+        ref: 'INV-P',
+        enteredInPeriod: false,
+        beginNav: '100',
+        contributions: '16',
+        distributions: '4',
+        gainLoss: '8',
+        endNav: '120',
+        // The quarter the mark reports for, and the date the sponsor closed its books on.
+        endNavPeriodEnd: PERIOD,
+        endNavMarkDate: '2025-06-27',
+        recordedQuarterStartNav: '100',
+        latestFigureDate: '2025-06-27',
+      },
+    ]);
+    expect(snapshot.footnotes).toEqual([]);
+    // Labelled final: a mark for the quarter is not a stale one.
+    expect(failed(runReportQa(snapshot, SETTINGS))).toEqual([]);
+  });
+
+  it('gives the gain two Locked marks give when nothing flowed between them', () => {
+    // 28,234,431.95 - 24,572,464.49 = 3,661,967.46
+    const line = lineOf(
+      [
+        position('INV-0002', {
+          marks: [
+            { periodEnd: '2025-03-28', nav: '24572464.49' },
+            { periodEnd: '2025-06-27', nav: '28234431.95' },
+          ],
+          flows: [],
+        }),
+      ],
+      'INV-0002',
+    );
+    expect(line).toMatchObject({
+      beginNav: '24572464.49',
+      endNav: '28234431.95',
+      gainLoss: '3661967.46',
+      endNavPeriodEnd: PERIOD,
+      endNavMarkDate: '2025-06-27',
+    });
+  });
+
+  it("gives a flow dated after the sponsor's close to the quarter after, so it is counted once", () => {
+    const next = early({
+      marks: [
+        { periodEnd: '2025-03-28', nav: '100' },
+        { periodEnd: '2025-06-27', nav: '120' },
+        { periodEnd: '2025-09-26', nav: '130' },
+      ],
+    });
+    const september = buildPackageSnapshot(
+      request([next], { periodEnd: '2025-09-30', asOf: '2025-10-15' }),
+    );
+    // The June mark of the 27th does not hold the 2 paid out on the 29th: 120 + 0 - 2 + 12 = 130.
+    expect(september.lines[0]).toMatchObject({
+      beginNav: '120',
+      contributions: '0',
+      distributions: '2',
+      gainLoss: '12',
+      endNav: '130',
+      endNavPeriodEnd: '2025-09-30',
+      endNavMarkDate: '2025-09-26',
+    });
+    expect(failed(runReportQa(september, SETTINGS))).toEqual([]);
+    // June's line and September's between them hold every flow after the March close, once:
+    // 16 and 0 in, 4 and 2 out.
+    const june = lineOf([next], 'INV-P');
+    expect([june.contributions, june.distributions]).toEqual(['16', '4']);
+  });
+
+  it('rolls a stale mark forward from its own date, and says both the quarter it is for and its date', () => {
+    const stale = early({
+      marks: [
+        { periodEnd: '2024-12-28', nav: '80' },
+        { periodEnd: '2025-03-28', nav: '100' },
+      ],
+    });
+    const snapshot = buildPackageSnapshot(request([stale], { label: 'preliminary' }));
+    // No mark for June: the mark of March the 28th, plus 16 in and less 4 + 2 out since it, to the
+    // quarter end: 110, and no gain.
+    expect(snapshot.lines[0]).toMatchObject({
+      beginNav: '100',
+      contributions: '16',
+      distributions: '6',
+      gainLoss: '0',
+      endNav: '110',
+      endNavPeriodEnd: START,
+      endNavMarkDate: '2025-03-28',
+      latestFigureDate: '2025-06-29',
+    });
+    expect(snapshot.footnotes).toEqual([{ ref: 'INV-P', code: STALE_FOOTNOTE }]);
+    expect(failed(runReportQa(snapshot, SETTINGS))).toEqual([]);
+    expect(failed(runReportQa(buildPackageSnapshot(request([stale])), SETTINGS))).toEqual([
+      'QA-LBL-01 status',
+    ]);
+  });
+
+  it("reads a mark dated a few days after the quarter end as that quarter's", () => {
+    const late = position('INV-L', {
+      marks: [
+        { periodEnd: START, nav: '100' },
+        { periodEnd: '2025-07-03', nav: '120' },
+      ],
+      flows: [
+        { date: '2025-05-10', kind: 'contribution', amount: '-10' },
+        // Before the sponsor's close of July the 3rd: the mark holds it, so the line does.
+        { date: '2025-07-02', kind: 'contribution', amount: '-9' },
+        { date: '2025-07-04', kind: 'distribution', amount: '5' },
+      ],
+    });
+    // 100 + (10 + 9) - 0 + 1 = 120
+    expect(lineOf([late], 'INV-L')).toMatchObject({
+      beginNav: '100',
+      contributions: '19',
+      distributions: '0',
+      gainLoss: '1',
+      endNav: '120',
+      endNavPeriodEnd: PERIOD,
+      endNavMarkDate: '2025-07-03',
+      latestFigureDate: '2025-07-03',
+    });
+    // The quarter after starts from it, and from its date: 120 + 0 - 5 + 15 = 130.
+    const after = position('INV-L', {
+      marks: [...late.marks, { periodEnd: '2025-09-30', nav: '130' }],
+      flows: late.flows,
+    });
+    expect(lineOf([after], 'INV-L', { periodEnd: '2025-09-30', asOf: '2025-10-15' })).toMatchObject(
+      { beginNav: '120', contributions: '0', distributions: '5', gainLoss: '15' },
+    );
+  });
+
+  it('folds a mark on the edge of the tolerance and not one a day beyond it', () => {
+    const flows: PositionRecord['flows'] = [
+      { date: '2025-05-10', kind: 'contribution', amount: '-10' },
+      { date: '2025-06-25', kind: 'contribution', amount: '-3' },
+    ];
+    // Seven days before the quarter end: the quarter's mark. 100 + 10 - 0 + 8 = 118; the 3 paid
+    // in on the 25th is after it.
+    const onEdge = position('INV-E', {
+      marks: [
+        { periodEnd: START, nav: '100' },
+        { periodEnd: '2025-06-23', nav: '118' },
+      ],
+      flows,
+    });
+    expect(lineOf([onEdge], 'INV-E')).toMatchObject({
+      contributions: '10',
+      gainLoss: '8',
+      endNav: '118',
+      endNavPeriodEnd: PERIOD,
+      endNavMarkDate: '2025-06-23',
+    });
+    // Eight days before: a mark for no quarter end. It is carried and rolled forward like any
+    // earlier mark, 118 + 3 = 121 with the whole quarter's flows, and footnoted: 100 + 13 - 0 + 8.
+    const beyond = position('INV-E', {
+      marks: [
+        { periodEnd: START, nav: '100' },
+        { periodEnd: '2025-06-22', nav: '118' },
+      ],
+      flows,
+    });
+    const snapshot = buildPackageSnapshot(request([beyond], { label: 'preliminary' }));
+    expect(snapshot.lines[0]).toMatchObject({
+      contributions: '13',
+      gainLoss: '8',
+      endNav: '121',
+      endNavPeriodEnd: '2025-06-22',
+      endNavMarkDate: '2025-06-22',
+    });
+    expect(snapshot.footnotes).toEqual([{ ref: 'INV-E', code: STALE_FOOTNOTE }]);
+    // With no tolerance only the quarter end itself is the quarter's.
+    expect(lineOf([early()], 'INV-P', { toleranceDays: 0, label: 'preliminary' })).toMatchObject({
+      beginNav: null,
+      endNavPeriodEnd: '2025-06-27',
+      endNavMarkDate: '2025-06-27',
+    });
+  });
+
+  it('takes the later of two Locked marks that report for one quarter end', () => {
+    const two = position('INV-T', {
+      marks: [
+        { periodEnd: START, nav: '100' },
+        { periodEnd: '2025-06-27', nav: '119' },
+        { periodEnd: PERIOD, nav: '120' },
+      ],
+      flows: [],
+    });
+    expect(lineOf([two], 'INV-T')).toMatchObject({ endNav: '120', endNavMarkDate: PERIOD });
+  });
+
+  it('starts a position entered in the quarter from zero and from the quarter start, whatever mark reports for it', () => {
+    // Entered April the 2nd; the sponsor's March close of April the 3rd reports for March.
+    const entered = position('INV-N', {
+      entryDate: '2025-04-02',
+      marks: [
+        { periodEnd: '2025-04-03', nav: '41' },
+        { periodEnd: PERIOD, nav: '42' },
+      ],
+      flows: [{ date: '2025-04-02', kind: 'contribution', amount: '-40' }],
+    });
+    // 0 + 40 - 0 + 2 = 42
+    expect(lineOf([entered], 'INV-N')).toMatchObject({
+      enteredInPeriod: true,
+      beginNav: null,
+      contributions: '40',
+      gainLoss: '2',
+      endNav: '42',
+    });
+    expect(failed(runReportQa(buildPackageSnapshot(request([entered])), SETTINGS))).toEqual([]);
   });
 });
 
@@ -307,6 +565,7 @@ const source = (over: Partial<SnapshotSource> = {}): SnapshotSource => ({
   released: [],
   explanations: {},
   moversCount: SETTINGS.moversCount,
+  toleranceDays: TOLERANCE_DAYS,
   ...over,
 });
 
@@ -337,6 +596,7 @@ describe('snapshot request: read from the record', () => {
       priorRelease: null,
       commentary: [],
       moversCount: SETTINGS.moversCount,
+      toleranceDays: TOLERANCE_DAYS,
     });
     // 100 + 10 - 5 + 15 = 120, and a quarter of 120 is the client's.
     const snapshot = buildPackageSnapshot(snapshotRequestOf(source()));
@@ -365,6 +625,58 @@ describe('snapshot request: read from the record', () => {
     // With no Locked mark for the quarter the line is the last one rolled forward: 100 + 10 - 5.
     const line = buildPackageSnapshot(request).lines[0];
     expect(line).toMatchObject({ endNav: '105', endNavPeriodEnd: START, gainLoss: '0' });
+  });
+
+  it('reads a mark dated on or before the as-of date and none after it, whatever quarter it reports for', () => {
+    // The sponsor closes June on July the 3rd. Read as of July the 1st that mark is not known.
+    const valuations = [
+      { periodEnd: START, state: 'Locked', fairValue: '100' },
+      { periodEnd: '2025-07-03', state: 'Locked', fairValue: '120' },
+    ];
+    const positions = [stored('INV-A', { valuations })];
+    const early = snapshotRequestOf(source({ positions, asOf: '2025-07-01' }));
+    expect(early.positions[0]?.marks).toEqual([{ periodEnd: START, nav: '100' }]);
+    // The March mark is carried: 100 + 10 - 5.
+    expect(buildPackageSnapshot(early).lines[0]).toMatchObject({
+      endNav: '105',
+      endNavPeriodEnd: START,
+      endNavMarkDate: START,
+    });
+    // Read on the day of the mark it is the quarter's: 120 - 100 - 10 + 5 = 15.
+    const known = snapshotRequestOf(source({ positions, asOf: '2025-07-03' }));
+    expect(known.positions[0]?.marks).toHaveLength(2);
+    expect(buildPackageSnapshot(known).lines[0]).toMatchObject({
+      endNav: '120',
+      gainLoss: '15',
+      endNavPeriodEnd: PERIOD,
+      endNavMarkDate: '2025-07-03',
+    });
+  });
+
+  it("carries the tolerance to the request, so a sponsor's early close is the quarter's mark", () => {
+    const valuations = [
+      { periodEnd: '2025-03-28', state: 'Locked', fairValue: '24572464.49' },
+      { periodEnd: '2025-06-27', state: 'Locked', fairValue: '28234431.95' },
+    ];
+    const request = snapshotRequestOf(
+      source({ positions: [stored('INV-0002', { valuations, flows: [] })] }),
+    );
+    expect(request.toleranceDays).toBe(TOLERANCE_DAYS);
+    // The marks keep their own dates: which quarter each reports for is the snapshot's to say.
+    expect(request.positions[0]?.marks.map((m) => m.periodEnd)).toEqual([
+      '2025-03-28',
+      '2025-06-27',
+    ]);
+    const snapshot = buildPackageSnapshot(request);
+    expect(snapshot.lines[0]).toMatchObject({
+      beginNav: '24572464.49',
+      gainLoss: '3661967.46',
+      endNav: '28234431.95',
+      endNavPeriodEnd: PERIOD,
+      endNavMarkDate: '2025-06-27',
+    });
+    expect(snapshot.footnotes).toEqual([]);
+    expect(failed(runReportQa(snapshot, SETTINGS))).toEqual([]);
   });
 
   it('reads flows up to the as-of date and none after it', () => {

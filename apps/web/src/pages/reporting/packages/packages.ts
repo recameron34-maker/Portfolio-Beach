@@ -299,18 +299,20 @@ export function gainLossCell(line: ReportPackageLine): FigureCell {
 }
 
 /**
- * Which mark the end NAV of a line stands on: the quarter end's, or an earlier one rolled
- * forward for the cash flows since (the line then carries the footnote).
+ * Which mark the end NAV of a line stands on: the quarter's own, or an earlier one rolled
+ * forward for the cash flows since (the line then carries the footnote). The package stores
+ * both the quarter a mark reports for and the day it is dated, so nothing is judged here. A
+ * sponsor that closes its books a few days off the quarter end gives the quarter's mark all the
+ * same, and the cell says which day it is dated; a mark that was rolled forward is named by its
+ * own date, the day the flows since are counted from.
  */
 export function markCell(line: ReportPackageLine, periodEnd: string): FigureCell {
   if (line.endNav === null) return missing(NO_END_MARK);
   if (line.endNavPeriodEnd === null) return missing(NO_MARK_QUARTER);
-  return {
-    text:
-      line.endNavPeriodEnd < periodEnd
-        ? `Rolled forward from ${formatDate(line.endNavPeriodEnd)}`
-        : 'Quarter end',
-  };
+  // No mark stands behind the zero of a position exited in the quarter: its date is the quarter's.
+  const dated = line.endNavMarkDate ?? line.endNavPeriodEnd;
+  if (line.endNavPeriodEnd < periodEnd) return { text: `Rolled forward from ${formatDate(dated)}` };
+  return { text: dated === periodEnd ? 'Quarter end' : `Quarter mark dated ${formatDate(dated)}` };
 }
 
 /**
@@ -382,13 +384,14 @@ export function changeLogRows(runs: readonly ReportPackageRun[]): ChangeLogRow[]
 
 /** Each footnote the report engine writes, as the sentence the page shows for a position's line. */
 export const FOOTNOTE_WORDS: Readonly<
-  Record<string, (line: Pick<ReportPackageLine, 'endNavPeriodEnd'> | undefined) => string>
+  Record<string, (line: Pick<ReportPackageLine, 'endNavMarkDate'> | undefined) => string>
 > = {
+  // The day the mark is dated: the flows since that day are what it was rolled forward for.
   [STALE_FOOTNOTE]: (line) => {
-    const markedFor = line?.endNavPeriodEnd ?? null;
-    return markedFor === null
+    const dated = line?.endNavMarkDate ?? null;
+    return dated === null
       ? 'Carried at an earlier mark, rolled forward for cash flows since.'
-      : `Carried at the mark of ${formatDate(markedFor)}, rolled forward for cash flows since.`;
+      : `Carried at the mark of ${formatDate(dated)}, rolled forward for cash flows since.`;
   },
 };
 
@@ -398,7 +401,7 @@ export const FOOTNOTE_WORDS: Readonly<
  */
 export function footnoteWords(
   code: string,
-  line: Pick<ReportPackageLine, 'endNavPeriodEnd'> | undefined,
+  line: Pick<ReportPackageLine, 'endNavMarkDate'> | undefined,
 ): string {
   const words = FOOTNOTE_WORDS[code];
   return words === undefined ? labelOf(code) : words(line);

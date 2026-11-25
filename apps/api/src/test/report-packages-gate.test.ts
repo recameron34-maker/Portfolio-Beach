@@ -1,5 +1,13 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { addDays, addMonths, containingQuarterEnd, latestQuarterEndOnOrBefore } from '@pb/calc';
+import {
+  D,
+  addDays,
+  addMonths,
+  containingQuarterEnd,
+  flowKindOf,
+  latestQuarterEndOnOrBefore,
+  summarizeFlows,
+} from '@pb/calc';
 import {
   problemDetails,
   reportPackageDetail,
@@ -362,5 +370,88 @@ describe('reporting packages: what the boundary and the gate refuse', () => {
     await command('both.unentitled', draft.id, { command: 'release' }).expect(404);
     d = await run('ir.ops', draft.id, { command: 'release' });
     expect(d).toMatchObject({ state: 'Released', releasedBy: { id: idOf('ir.ops') } });
+  });
+
+  it("reads a sponsor's early close as the quarter's mark: a begin NAV, a gain, no footnote and no failed check (period_end_shift)", async () => {
+    // The position whose sponsor closes its books a few days before each quarter end.
+    const shifted = h.dataset.investments.find(
+      (i) => i.id === h.dataset.scenarios.period_end_shift?.[0],
+    );
+    if (shifted === undefined) throw new Error('the book has a period_end_shift position');
+    const ref = shifted.investmentNumber;
+    const locked = h.dataset.valuations
+      .filter((v) => v.investmentId === shifted.id && v.state === 'Locked')
+      .sort((a, b) => (a.periodEnd < b.periodEnd ? 1 : -1));
+    // Its marks for this quarter and the one before, each dated within a week before the quarter end.
+    const markFor = (quarterEnd: string) =>
+      locked.find((v) => v.periodEnd < quarterEnd && v.periodEnd >= addDays(quarterEnd, -7));
+    const [begin, end] = [markFor(prior), markFor(period)];
+    if (begin === undefined || end === undefined)
+      throw new Error('the shifted position is marked for both quarters');
+    // No mark of it is dated on a quarter end: only the quarter rule finds one.
+    expect(locked.filter((v) => v.periodEnd === prior || v.periodEnd === period)).toEqual([]);
+
+    // A client committed to its vehicle, and investor relations entitled to that client.
+    const committed = new Set(
+      h.dataset.lpCommitments
+        .filter((l) => l.vehicleId === shifted.vehicleId)
+        .map((l) => l.clientId),
+    );
+    const who = h.dataset.users.find(
+      (u) =>
+        u.roles.length === 1 &&
+        u.roles[0] === 'investor_relations' &&
+        u.clientIds.some((id) => committed.has(id)),
+    );
+    const clientId = who?.clientIds.find((id) => committed.has(id));
+    if (who === undefined || clientId === undefined)
+      throw new Error('investor relations are entitled to a client that holds the position');
+
+    const draft = await started(who.externalId, clientId, period, { label: 'final' });
+    const d = await run(who.externalId, draft.id, { command: 'generate' });
+    const line = d.content?.lines.find((l) => l.ref === ref);
+    // The flows between the two closes; the gain is what the two marks and those flows give.
+    const flows = h.dataset.cashFlows.filter(
+      (f) =>
+        f.investmentId === shifted.id &&
+        f.status === 'record_status.approved' &&
+        f.flowDate > begin.periodEnd &&
+        f.flowDate <= end.periodEnd,
+    );
+    const { contributions, distributions } = summarizeFlows(
+      flows.map((f) => ({ date: f.flowDate, kind: flowKindOf(f.flowType), amount: f.amount })),
+    );
+    expect(line).toMatchObject({
+      enteredInPeriod: false,
+      // The quarter the mark reports for, and the day the sponsor closed its books.
+      endNavPeriodEnd: period,
+      endNavMarkDate: end.periodEnd,
+    });
+    const figure = (value: string | null | undefined): string | null =>
+      value === null || value === undefined ? null : D(value).toFixed(2);
+    expect(figure(line?.beginNav)).toBe(D(begin.fairValue).toFixed(2));
+    expect(figure(line?.endNav)).toBe(D(end.fairValue).toFixed(2));
+    expect(figure(line?.gainLoss)).toBe(
+      D(end.fairValue).minus(begin.fairValue).minus(contributions).plus(distributions).toFixed(2),
+    );
+    // Not stale: no footnote, and no check fails on it, labelled final as it is.
+    expect(d.content?.footnotes.filter((n) => n.ref === ref)).toEqual([]);
+    expect(
+      d.findings.filter(
+        (f) => !f.passed && (f.entityRef === ref || f.entityRef.endsWith(`:${ref}`)),
+      ),
+    ).toEqual([]);
+    expect(d.findings.find((f) => f.rule === 'QA-STALE-01' && f.entityRef === ref)).toMatchObject({
+      passed: true,
+      expected: period,
+      actual: period,
+    });
+    // Labelled preliminary, this client's package now passes every check: before, it failed three
+    // on this position every quarter, and nothing but an override each quarter let it through.
+    const preliminary = await started(who.externalId, clientId, period, { basis: 'net' });
+    expect(await run(who.externalId, preliminary.id, { command: 'generate' })).toMatchObject({
+      state: 'QAPassed',
+      qa: { failed: 0, overridden: 0 },
+    });
   });
 });
