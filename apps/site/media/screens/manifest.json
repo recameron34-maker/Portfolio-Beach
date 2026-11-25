@@ -12,8 +12,8 @@
       "height": 900,
       "file": "home.webp",
       "file2x": "home-2x.webp",
-      "bytes": 96984,
-      "bytes2x": 183012
+      "bytes": 94182,
+      "bytes2x": 185862
     },
     {
       "name": "one-pager",
@@ -21,8 +21,8 @@
       "height": 900,
       "file": "one-pager.webp",
       "file2x": "one-pager-2x.webp",
-      "bytes": 66310,
-      "bytes2x": 125166
+      "bytes": 56414,
+      "bytes2x": 109506
     },
     {
       "name": "performance",
@@ -30,8 +30,8 @@
       "height": 900,
       "file": "performance.webp",
       "file2x": "performance-2x.webp",
-      "bytes": 86662,
-      "bytes2x": 159164
+      "bytes": 75344,
+      "bytes2x": 146596
     },
     {
       "name": "deal-value-creation",
@@ -39,8 +39,8 @@
       "height": 900,
       "file": "deal-value-creation.webp",
       "file2x": "deal-value-creation-2x.webp",
-      "bytes": 79038,
-      "bytes2x": 150300
+      "bytes": 85484,
+      "bytes2x": 162260
     },
     {
       "name": "analytics",
@@ -48,8 +48,8 @@
       "height": 900,
       "file": "analytics.webp",
       "file2x": "analytics-2x.webp",
-      "bytes": 71752,
-      "bytes2x": 139650
+      "bytes": 70374,
+      "bytes2x": 138134
     },
     {
       "name": "analytics-performance",
@@ -57,8 +57,8 @@
       "height": 900,
       "file": "analytics-performance.webp",
       "file2x": "analytics-performance-2x.webp",
-      "bytes": 70336,
-      "bytes2x": 132924
+      "bytes": 64418,
+      "bytes2x": 120426
     },
     {
       "name": "analytics-credit",
@@ -66,8 +66,8 @@
       "height": 900,
       "file": "analytics-credit.webp",
       "file2x": "analytics-credit-2x.webp",
-      "bytes": 91738,
-      "bytes2x": 172046
+      "bytes": 79574,
+      "bytes2x": 151264
     },
     {
       "name": "analytics-realizations",
@@ -75,8 +75,8 @@
       "height": 900,
       "file": "analytics-realizations.webp",
       "file2x": "analytics-realizations-2x.webp",
-      "bytes": 84182,
-      "bytes2x": 160742
+      "bytes": 68448,
+      "bytes2x": 132874
     },
     {
       "name": "value-creation",
@@ -84,8 +84,8 @@
       "height": 900,
       "file": "value-creation.webp",
       "file2x": "value-creation-2x.webp",
-      "bytes": 90474,
-      "bytes2x": 172398
+      "bytes": 80546,
+      "bytes2x": 154810
     },
     {
       "name": "entry-metrics",
@@ -93,8 +93,8 @@
       "height": 900,
       "file": "entry-metrics.webp",
       "file2x": "entry-metrics-2x.webp",
-      "bytes": 75044,
-      "bytes2x": 150182
+      "bytes": 74842,
+      "bytes2x": 148578
     },
     {
       "name": "intake",
@@ -102,8 +102,8 @@
       "height": 900,
       "file": "intake.webp",
       "file2x": "intake-2x.webp",
-      "bytes": 81388,
-      "bytes2x": 155512
+      "bytes": 83784,
+      "bytes2x": 162672
     },
     {
       "name": "extraction",
@@ -111,8 +111,8 @@
       "height": 900,
       "file": "extraction.webp",
       "file2x": "extraction-2x.webp",
-      "bytes": 59654,
-      "bytes2x": 118730
+      "bytes": 57094,
+      "bytes2x": 113010
     },
     {
       "name": "monitoring",
@@ -120,8 +120,8 @@
       "height": 900,
       "file": "monitoring.webp",
       "file2x": "monitoring-2x.webp",
-      "bytes": 94494,
-      "bytes2x": 182582
+      "bytes": 106680,
+      "bytes2x": 205862
     },
     {
       "name": "valuation-lock",
@@ -129,8 +129,8 @@
       "height": 900,
       "file": "valuation-lock.webp",
       "file2x": "valuation-lock-2x.webp",
-      "bytes": 99016,
-      "bytes2x": 179452
+      "bytes": 83656,
+      "bytes2x": 160902
     },
     {
       "name": "capital-notice",
@@ -138,8 +138,8 @@
       "height": 900,
       "file": "capital-notice.webp",
       "file2x": "capital-notice-2x.webp",
-      "bytes": 106116,
-      "bytes2x": 198364
+      "bytes": 81042,
+      "bytes2x": 158336
     },
     {
       "name": "closing",
@@ -147,8 +147,8 @@
       "height": 900,
       "file": "closing.webp",
       "file2x": "closing-2x.webp",
-      "bytes": 82154,
-      "bytes2x": 154466
+      "bytes": 77228,
+      "bytes2x": 151550
     },
     {
       "name": "pipeline",
@@ -156,8 +156,8 @@
       "height": 900,
       "file": "pipeline.webp",
       "file2x": "pipeline-2x.webp",
-      "bytes": 90930,
-      "bytes2x": 172418
+      "bytes": 112386,
+      "bytes2x": 219484
     },
     {
       "name": "allocations-viewer",
@@ -165,8 +165,8 @@
       "height": 900,
       "file": "allocations-viewer.webp",
       "file2x": "allocations-viewer-2x.webp",
-      "bytes": 82824,
-      "bytes2x": 159138
+      "bytes": 86566,
+      "bytes2x": 165232
     }
   ]
 }

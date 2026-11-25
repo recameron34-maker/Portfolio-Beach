@@ -7,7 +7,7 @@
       "file": "portfolio-beach-product-overview.pdf",
       "cover": "product-overview.webp",
       "pages": 3,
-      "bytes": 3181844
+      "bytes": 2722466
     },
     {
       "name": "controls-and-security",
@@ -16,7 +16,7 @@
       "file": "portfolio-beach-controls-and-security.pdf",
       "cover": "controls-and-security.webp",
       "pages": 2,
-      "bytes": 1124248
+      "bytes": 854717
     },
     {
       "name": "analytics-and-monitoring",
@@ -25,7 +25,7 @@
       "file": "portfolio-beach-analytics-and-monitoring.pdf",
       "cover": "analytics-and-monitoring.webp",
       "pages": 3,
-      "bytes": 3027738
+      "bytes": 2569078
     }
   ]
 }
