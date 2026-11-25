@@ -3445,6 +3445,20 @@ check(
     unexplainedVersion.status === 422,
   `${releasedPackage?.state}; regenerate ${lateRegenerate.status}; start again ${unexplainedVersion.status}`,
 );
+// The way to the corrected version: a link on the released package, for whoever may start one.
+await page.getByTestId('package-correct').getByRole('link').click();
+await startForm.getByRole('textbox', { name: 'Reason for the new version' }).waitFor();
+check(
+  'packages: a released package links investor relations to the start of its corrected version, with its client, quarter and basis filled in',
+  new URL(page.url()).hash === `#/reporting/packages?correct=${packageId}` &&
+    (await startForm.getByRole('combobox', { name: 'Client' }).innerText()) ===
+      packageCase.client.name &&
+    (await startForm.getByRole('combobox', { name: 'Quarter' }).innerText()) === quarterChosen &&
+    (await startForm.getByRole('combobox', { name: 'Basis' }).innerText()) === 'Gross' &&
+    (await page.getByTestId('packages-card').getByRole('button').count()) === 0,
+  oneLine(await startForm.innerText()),
+);
+await startForm.getByRole('button', { name: 'Cancel' }).click();
 await page.goto(`${origin}/#/reporting/packages`);
 const packageListRow = page
   .getByRole('table', { name: 'Client packages' })
@@ -3474,7 +3488,8 @@ check(
   'packages: not found for investor relations of another client, not visible to a viewer, read only for the deal team',
   viewerPackage.includes('not visible to your role') &&
     (await page.getByTestId('package-banner').innerText()).includes('Released') &&
-    (await packageActions.count()) === 0,
+    (await packageActions.count()) === 0 &&
+    (await page.getByTestId('package-correct').count()) === 0,
   oneLine(viewerPackage),
 );
 await api('viewer.one', 'POST', '/api/v1/preview/reset');

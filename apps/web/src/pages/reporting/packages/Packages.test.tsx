@@ -24,9 +24,13 @@ import { renderWithQuery } from '../../../test/render.js';
 import { navigate } from '../../../test/router-mock.js';
 import { PackagesPage } from './Packages.js';
 
-vi.mock('@tanstack/react-router', async () =>
-  (await import('../../../test/router-mock.js')).routerMock(),
-);
+/** The search of the address the list is opened at; empty unless a test names a package to correct. */
+const route = vi.hoisted((): { search: { correct?: string } } => ({ search: {} }));
+
+vi.mock('@tanstack/react-router', async () => ({
+  ...(await import('../../../test/router-mock.js')).routerMock(),
+  useSearch: () => route.search,
+}));
 
 const PACKAGES = '/api/v1/report-packages';
 const ME = '/api/v1/auth/me';
@@ -83,6 +87,7 @@ describe('the client packages list', () => {
     cleanup();
     vi.restoreAllMocks();
     navigate.mockReset();
+    route.search = {};
   });
 
   it('lists every package newest quarter first, with its state, its checks and who prepared it', async () => {
@@ -208,9 +213,8 @@ describe('the client packages list', () => {
     expect(screen.getByTestId('packages-empty')).toHaveTextContent(
       'Investor relations start a package for a client, a quarter and a basis.',
     );
-    expect(screen.getByTestId('package-count')).toHaveTextContent(
-      '0 packages shown; 0 packages not yet released.',
-    );
+    // The empty state says it: no count line repeats that there is nothing.
+    expect(screen.queryByTestId('package-count')).not.toBeInTheDocument();
     expect(screen.queryByRole('table', { name: 'Client packages' })).not.toBeInTheDocument();
   });
 
@@ -274,6 +278,7 @@ describe('starting a package', () => {
     cleanup();
     vi.restoreAllMocks();
     navigate.mockReset();
+    route.search = {};
   });
 
   it('offers the quarters that have ended, the latest one chosen, and no as-of date', async () => {
@@ -291,10 +296,17 @@ describe('starting a package', () => {
       'Q3 2023',
     ]);
     expect(within(form).queryByLabelText(/as of/i)).not.toBeInTheDocument();
-    // The button on the list waits while the form is open.
+    // While the form is open its own button is the only "Start package" on the page.
+    expect(screen.getAllByRole('button', { name: 'Start package' })).toHaveLength(1);
+    expect(
+      within(screen.getByTestId('packages-card')).queryByRole('button', { name: 'Start package' }),
+    ).not.toBeInTheDocument();
+    // Cancel puts the list's button back.
+    await userEvent.click(within(form).getByRole('button', { name: 'Cancel' }));
+    expect(screen.queryByTestId('package-start-form')).not.toBeInTheDocument();
     expect(
       within(screen.getByTestId('packages-card')).getByRole('button', { name: 'Start package' }),
-    ).toBeDisabled();
+    ).toBeEnabled();
   }, 30_000);
 
   it('starts the first package of a client, quarter and basis and opens its page', async () => {
@@ -455,6 +467,136 @@ describe('starting a package', () => {
     expect(status.textContent).not.toMatch(/docs\/|section 5/);
     expect(navigate).not.toHaveBeenCalled();
     expect(screen.getByTestId('package-start-form')).toBeInTheDocument();
+  }, 30_000);
+
+  it('opens the form for the corrected version of a released package named in the address, with its client, quarter and basis filled in', async () => {
+    const released = packageRowFixture({
+      id: PKG_ID.released,
+      client: { id: CLIENT_ID.beta, name: 'Client Beta Endowment' },
+      periodEnd: PKG_PRIOR_PERIOD,
+      basis: 'net',
+      label: 'final',
+      state: 'Released',
+      releasedAt: '2025-08-20T16:00:00.000Z',
+    });
+    route.search = { correct: PKG_ID.released };
+    open(['investor_relations'], { [PACKAGES]: ok(packageListFixture([released])) });
+    const form = await screen.findByTestId('package-start-form', undefined, TIMEOUT);
+    await waitFor(() =>
+      expect(within(form).getByRole('combobox', { name: 'Client' })).toHaveValue(
+        'Client Beta Endowment',
+      ),
+    );
+    expect(within(form).getByRole('combobox', { name: 'Quarter' })).toHaveValue('Q1 2025');
+    expect(within(form).getByRole('combobox', { name: 'Basis' })).toHaveValue('Net');
+    // The label and the reason are the person's to give.
+    expect(within(form).getByRole('combobox', { name: 'Label' })).toHaveValue('');
+    expect(within(form).getByRole('textbox', { name: 'Reason for the new version' })).toHaveValue(
+      '',
+    );
+    expect(within(form).getByText(/Version 1 was released on Aug 20, 2025/)).toBeVisible();
+    expect(startPosts()).toEqual([]);
+    // Cancel closes it, and it stays closed.
+    await userEvent.click(within(form).getByRole('button', { name: 'Cancel' }));
+    expect(screen.queryByTestId('package-start-form')).not.toBeInTheDocument();
+  }, 30_000);
+
+  it('opens no form from the address for a reader who may not start, or for a package that is not released', async () => {
+    const released = packageRowFixture({ id: PKG_ID.released, state: 'Released' });
+    route.search = { correct: PKG_ID.released };
+    open(['approver'], { [PACKAGES]: ok(packageListFixture([released])) });
+    await screen.findByRole('table', { name: 'Client packages' });
+    expect(screen.queryByTestId('package-start-form')).not.toBeInTheDocument();
+    cleanup();
+    vi.restoreAllMocks();
+    // Named, and still in progress: there is nothing to correct yet.
+    route.search = { correct: PKG_ID.draft };
+    open(['investor_relations']);
+    await screen.findByRole('table', { name: 'Client packages' });
+    expect(screen.queryByTestId('package-start-form')).not.toBeInTheDocument();
+  });
+
+  it('reads the list again when a start is refused, so the form shows the package that is in the way', async () => {
+    // Somebody else starts the same package after this page read its list.
+    const meanwhile = packageRowFixture({
+      id: PKG_ID.draft,
+      client: { id: CLIENT_ID.beta, name: 'Client Beta Endowment' },
+      periodEnd: PKG_PRIOR_PERIOD,
+      basis: 'net',
+      state: 'Draft',
+    });
+    let refused = false;
+    const form = await openStartForm({
+      [PACKAGES]: (_url: URL, method: string): MockResponse => {
+        if (method !== 'POST')
+          return ok(packageListFixture(refused ? [meanwhile, ...packageRows()] : packageRows()));
+        refused = true;
+        return {
+          status: 409,
+          body: refusalFixture(
+            409,
+            'A package for this client, period and basis is already in progress',
+          ),
+        };
+      },
+    });
+    await pick(form, 'Client', 'Client Beta Endowment');
+    await pick(form, 'Quarter', 'Q1 2025');
+    await pick(form, 'Basis', 'Net');
+    await pick(form, 'Label', 'Preliminary');
+    expect(within(form).queryByTestId('package-in-progress')).not.toBeInTheDocument();
+    await userEvent.click(within(form).getByRole('button', { name: 'Start package' }));
+    await waitFor(
+      () =>
+        expect(screen.getByTestId('package-action-status')).toHaveTextContent(
+          'already in progress',
+        ),
+      TIMEOUT,
+    );
+    // The list was read again: the form now links to the package and offers no second try.
+    const notice = await within(form).findByTestId('package-in-progress', undefined, TIMEOUT);
+    expect(
+      within(notice).getByRole('link', { name: 'Client Beta Endowment, Q1 2025, net, version 1' }),
+    ).toHaveAttribute('href', `/reporting/packages/${PKG_ID.draft}`);
+    expect(within(form).getByRole('button', { name: 'Start package' })).toBeDisabled();
+    expect(startPosts()).toHaveLength(1);
+  }, 30_000);
+
+  it('reads the list again when a start is refused for want of a reason, so the form asks for it', async () => {
+    // The package in progress was released elsewhere after this page read its list.
+    const released = packageRowFixture({
+      id: PKG_ID.released,
+      client: { id: CLIENT_ID.beta, name: 'Client Beta Endowment' },
+      periodEnd: PKG_PRIOR_PERIOD,
+      basis: 'net',
+      state: 'Released',
+      releasedAt: '2025-08-20T16:00:00.000Z',
+    });
+    let refused = false;
+    const form = await openStartForm({
+      [PACKAGES]: (_url: URL, method: string): MockResponse => {
+        if (method !== 'POST') return ok(packageListFixture(refused ? [released] : []));
+        refused = true;
+        return {
+          status: 422,
+          body: refusalFixture(
+            422,
+            'A package for this client, period and basis was released; a new version needs a reason',
+          ),
+        };
+      },
+    });
+    await pick(form, 'Client', 'Client Beta Endowment');
+    await pick(form, 'Quarter', 'Q1 2025');
+    await pick(form, 'Basis', 'Net');
+    await pick(form, 'Label', 'Preliminary');
+    expect(within(form).queryByRole('textbox')).not.toBeInTheDocument();
+    await userEvent.click(within(form).getByRole('button', { name: 'Start package' }));
+    // The list was read again: the reason can now be given.
+    expect(
+      await within(form).findByRole('textbox', { name: 'Reason for the new version' }, TIMEOUT),
+    ).toBeRequired();
+    expect(within(form).getByRole('button', { name: 'Start new version' })).toBeEnabled();
   }, 30_000);
 
   it('says so when the reader is entitled to no client, and when the client list fails', async () => {

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { isQuarterEnd } from '@pb/calc';
-import { REPORT_PACKAGE_STATES } from '@pb/contracts';
+import { API_PREFIX, REPORT_PACKAGE_STATES, ROUTES } from '@pb/contracts';
 import type { ReportPackageRow, ReportPackageState } from '@pb/contracts';
 import { QA_RULES, STALE_FOOTNOTE } from '@pb/report-engine';
 import { reportingPackageMachine } from '@pb/workflows';
@@ -34,13 +34,16 @@ import {
   PACKAGE_STATES,
   packageWords,
   parsedStartBody,
+  parsePackagesSearch,
   personCommands,
   positionNames,
   positionWords,
   quarterChoices,
   RULE_WORDS,
   ruleWords,
+  START_ROLES,
   startBody,
+  startFormFor,
   startProblems,
   startStanding,
 } from './packages.js';
@@ -273,6 +276,62 @@ describe('the release gate as steps', () => {
     expect(NEXT_STEP_WORDS.QAPassed).toContain('no way back');
     expect(NEXT_STEP_WORDS.InReview).toContain('no way back');
     expect(NEXT_STEP_WORDS.Released).toContain('new version');
+  });
+
+  it('says who may not override the failed checks or approve: whoever prepared the package', () => {
+    // Starting a package, generating it and submitting it are a preparer's steps (SEC-5.6).
+    expect(NEXT_STEP_WORDS.QAFailed).toBe(
+      'Investor relations regenerates the package once the record is fixed, or an approver who did not start or generate it overrides the failed checks with a reason.',
+    );
+    expect(NEXT_STEP_WORDS.InReview).toBe(
+      'An approver who did not start, generate or submit the package approves it. There is no way back from here: a correction is a new version, started once this one is released.',
+    );
+  });
+});
+
+describe('who may start a package', () => {
+  it("is the role list of the contract's own start route, read and not copied", () => {
+    const route = ROUTES.find(
+      (r) => r.method === 'POST' && r.path === `${API_PREFIX}/report-packages`,
+    );
+    expect(route?.roles.length).toBeGreaterThan(0);
+    // The same list: a role added to the route is offered the button with no change here.
+    expect(START_ROLES).toBe(route?.roles);
+  });
+});
+
+describe('the corrected version of a released package', () => {
+  const released = packageRowFixture({
+    id: PKG_ID.released,
+    basis: 'gross',
+    label: 'final',
+    state: 'Released',
+  });
+
+  it('reads the package to correct from the address, and drops anything that is not an id', () => {
+    expect(parsePackagesSearch({ correct: PKG_ID.released })).toEqual({ correct: PKG_ID.released });
+    for (const search of [{}, { correct: 'not-an-id' }, { correct: 7 }, { correct: '' }])
+      expect(parsePackagesSearch(search), JSON.stringify(search)).toEqual({});
+    // Nothing else of the address is kept.
+    expect(parsePackagesSearch({ correct: PKG_ID.released, state: 'Released' })).toEqual({
+      correct: PKG_ID.released,
+    });
+  });
+
+  it('fills the start form with its client, quarter and basis, and leaves the label and the reason to the person', () => {
+    expect(startFormFor([released], PKG_ID.released)).toEqual({
+      ...EMPTY_START_FORM,
+      clientId: released.client.id,
+      periodEnd: released.periodEnd,
+      basis: 'gross',
+    });
+  });
+
+  it('fills nothing for a package that is not released, not listed or not named', () => {
+    const draft = packageRowFixture({ id: PKG_ID.draft });
+    expect(startFormFor([draft], PKG_ID.draft)).toBeNull();
+    expect(startFormFor([released], PKG_ID.draft)).toBeNull();
+    expect(startFormFor([released], undefined)).toBeNull();
   });
 });
 

@@ -44,23 +44,27 @@ import './packages.css';
  * ended, a basis and a label. There is no as-of field: the API reads the record as of its own
  * date. One package is in progress at a time for a client, quarter and basis, so the form reads
  * the list for the standing of the three: with one in progress it links to it and sends nothing,
- * and with a released one it asks why the new version is needed. The body is checked against the
+ * and with a released one it asks why the new version is needed. Opened from a released package
+ * it starts with that package's client, quarter and basis. The body is checked against the
  * contract before it is sent, and the API judges again.
  */
 export function StartPackageForm({
   packages,
+  initial,
   onLog,
   onDone,
 }: {
   /** The packages the reader sees: what tells whether one is already in progress or released. */
   packages: readonly ReportPackageRow[];
+  /** What the form opens with: the client, quarter and basis of a released package being corrected. */
+  initial?: StartForm;
   onLog: ActionLog;
   onDone: () => void;
 }): ReactNode {
   const start = useStartPackage();
   const navigate = useNavigate();
   const clients = useQuery(clientsQuery);
-  const [form, setForm] = useState<StartForm>(EMPTY_START_FORM);
+  const [form, setForm] = useState<StartForm>(initial ?? EMPTY_START_FORM);
   const [touched, setTouched] = useState(false);
   const asOf = clients.data?.asOf;
   const quarters = asOf === undefined ? [] : quarterChoices(asOf);

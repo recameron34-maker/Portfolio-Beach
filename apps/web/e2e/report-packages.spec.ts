@@ -408,6 +408,23 @@ test('the packages journey: a failing package is started, overridden with a reas
   });
   expect(late.status()).toBe(409);
 
+  // The way to its corrected version, for whoever may start a package: the list opens its start
+  // form with this package's client, quarter and basis, and asks for the reason.
+  await page
+    .getByTestId('package-correct')
+    .getByRole('link', { name: 'Start a corrected version' })
+    .click();
+  await expect(page).toHaveURL(new RegExp(`/reporting/packages\\?correct=${id}$`));
+  await expect(form.getByRole('combobox', { name: 'Client' })).toHaveText(client.name);
+  await expect(form.getByRole('combobox', { name: 'Quarter' })).toHaveText(shownQuarter(quarter));
+  await expect(form.getByRole('combobox', { name: 'Basis' })).toHaveText('Gross');
+  await expect(form.getByRole('textbox', { name: 'Reason for the new version' })).toBeVisible();
+  await expect(form).toContainText('Version 1 was released');
+  // While the form is open its own button is the only one that starts a package.
+  await expect(page.getByTestId('packages-card').getByRole('button')).toHaveCount(0);
+  await form.getByRole('button', { name: 'Cancel' }).click();
+  await expect(form).toHaveCount(0);
+
   // The list: one row for the package, Released, its checks said as overridden. A new version
   // of it asks for a reason; the journey starts none, so nothing is left in progress.
   await page.goto('/reporting/packages');
@@ -462,4 +479,5 @@ test('the packages journey: a failing package is started, overridden with a reas
   await page.goto(`/reporting/packages/${id}`);
   await expect(page.getByTestId('package-hash')).toContainText(approved.contentHash ?? 'no hash');
   await expect(actions(page)).toHaveCount(0);
+  await expect(page.getByTestId('package-correct')).toHaveCount(0);
 });

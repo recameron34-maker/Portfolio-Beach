@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import type { ReactNode } from 'react';
-import { useParams } from '@tanstack/react-router';
+import { Link, useParams } from '@tanstack/react-router';
 import { useQuery } from '@tanstack/react-query';
 import { Button } from '@fluentui/react-components';
 import { ChevronRight16Regular } from '@fluentui/react-icons';
@@ -59,6 +59,7 @@ import {
   RESULT_WORDS,
   ruleWords,
   splitFindings,
+  START_ROLES,
   WHO_READS_PACKAGES,
 } from './packages.js';
 import type { FigureCell, FindingResult, PositionNames } from './packages.js';
@@ -71,15 +72,15 @@ const TRAIL = [
   { label: 'Packages', to: '/reporting/packages' },
 ];
 
-/** A person with the time they acted, or the missing placeholder while nobody has. */
-function byAt(person: { name: string } | null, at: string | null): string {
-  if (person === null) return MISSING;
+/** A person with the time they acted, or in words that nobody has yet: a step still to come is not a missing value. */
+function byAt(person: { name: string } | null, at: string | null, notYet: string): string {
+  if (person === null) return notYet;
   return at === null ? person.name : `${person.name}, ${formatDateTime(at)}`;
 }
 
 /**
- * The row header of a position: its number, which never breaks across lines, and the company
- * when the reader's own positions list has it.
+ * The row header of a position: its number, written as the app writes an identifier everywhere
+ * and never broken across lines, then the company when the reader's own positions list has it.
  */
 function PositionTh({
   positionRef,
@@ -91,7 +92,7 @@ function PositionTh({
   const name = names.get(positionRef);
   return (
     <th scope="row" className="pb-col-text">
-      <span className="pb-nowrap">{positionRef}</span>
+      <span className="pb-key pb-nowrap">{positionRef}</span>
       {name === undefined ? null : ` ${name}`}
     </th>
   );
@@ -105,9 +106,18 @@ function NotGenerated(): ReactNode {
 /**
  * The release gate (docs/18 section 5): where the package stands among the six steps, what
  * happens next and who does it, who prepared, approved and released it, and once it is approved
- * the hash its content was locked with (SEC-9.3). The commands that move it sit in the header.
+ * the hash its content was locked with (SEC-9.3). The commands that move it sit in the header. A
+ * released package is moved by nothing; whoever may start a package is linked to the start of
+ * its corrected version.
  */
-function ReleaseGateCard({ detail }: { detail: ReportPackageDetail }): ReactNode {
+function ReleaseGateCard({
+  detail,
+  canStart,
+}: {
+  detail: ReportPackageDetail;
+  /** The reader may start a package: a released one offers them its corrected version. */
+  canStart: boolean;
+}): ReactNode {
   return (
     <Card testId="package-gate">
       <SectionHeader>Release gate</SectionHeader>
@@ -115,13 +125,27 @@ function ReleaseGateCard({ detail }: { detail: ReportPackageDetail }): ReactNode
       <p className="pb-pkg-next" data-testid="package-next">
         {NEXT_STEP_WORDS[detail.state]}
       </p>
+      {/* Nothing moves a released package: its correction is a new version, started from the list. */}
+      {detail.state === 'Released' && canStart ? (
+        <p className="pb-pkg-correct" data-testid="package-correct">
+          <Link to="/reporting/packages" search={{ correct: detail.id }}>
+            Start a corrected version
+          </Link>
+        </p>
+      ) : null}
       <KeyValueTable
         label="Who moved the package"
         rows={[
           { label: 'Prepared by', value: detail.preparedBy.name },
           { label: 'Checks', value: checksSummary(detail.qa) },
-          { label: 'Approved by', value: byAt(detail.reviewer, detail.approvedAt) },
-          { label: 'Released by', value: byAt(detail.releasedBy, detail.releasedAt) },
+          {
+            label: 'Approved by',
+            value: byAt(detail.reviewer, detail.approvedAt, 'Not approved yet'),
+          },
+          {
+            label: 'Released by',
+            value: byAt(detail.releasedBy, detail.releasedAt, 'Not released yet'),
+          },
           ...(detail.correctionReason === null
             ? []
             : [{ label: 'Reason for this version', value: detail.correctionReason }]),
@@ -547,6 +571,11 @@ function ExplanationsCard({
               ? 'No earlier package was released to this client on this basis, so there is nothing to tie to.'
               : 'Each begin NAV is tied to the end NAV of the last package released to this client on this basis. A difference needs an explanation.'}
           </p>
+          {rows.length > 0 ? null : content.priorRelease === null ? null : (
+            // There is a release to tie to and nothing is explained: say so. With no release the
+            // sentence above has said why there is nothing here.
+            <EmptyLine title="No explanations recorded" />
+          )}
           {rows.length === 0 ? null : (
             <TableWrap label="Tie-out explanations">
               <table className="pb-table pb-table-short" aria-label="Tie-out explanations">
@@ -661,7 +690,10 @@ function Body({ detail }: { detail: ReportPackageDetail }): ReactNode {
         </p>
       ) : null}
       <ActionStatus latest={log.latest} testId="package-action-status" />
-      <ReleaseGateCard detail={detail} />
+      <ReleaseGateCard
+        detail={detail}
+        canStart={(me.data?.roles ?? []).some((role) => START_ROLES.includes(role))}
+      />
       <ChecksCard detail={detail} names={names} />
       <PositionsCard detail={detail} content={content} names={names} />
       <FootnotesCard content={content} names={names} />

@@ -132,6 +132,30 @@ describe('reporting package writes', () => {
       expect(keys()).toContain(JSON.stringify([key]));
   });
 
+  it('keeps nothing of a refused start, and reads the list again so the form sees what is in the way', async () => {
+    for (const status of [409, 422]) {
+      vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+        json(status, { ...STALE, status, title: 'Refused', detail: 'A package is in the way' }),
+      );
+      const { result, client, keys } = harness(() => useStartPackage());
+      result.current.mutate({
+        clientId: CLIENT_ID.alpha,
+        periodEnd: PKG_PERIOD,
+        basis: 'net',
+        label: 'preliminary',
+      });
+      await waitFor(() => expect(result.current.isError).toBe(true));
+      expect((result.current.error as ApiError).status).toBe(status);
+      expect(client.getQueryData(['report-package', PKG_ID.draft])).toBeUndefined();
+      // Somebody started the same package, or released the one in progress: the list says which.
+      // Nothing was written, so the audit trail is left alone.
+      expect(keys().sort(), String(status)).toEqual(
+        PACKAGE_READS.map((key) => JSON.stringify(key)).sort(),
+      );
+      vi.restoreAllMocks();
+    }
+  });
+
   it('sends a command with the row version the person was shown as If-Match, and keeps the answer', async () => {
     const answer = generatedDetailFixture();
     const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(json(200, answer));

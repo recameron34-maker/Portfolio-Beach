@@ -69,6 +69,12 @@ export const PACKAGE_READS: QueryKey[] = [['report-packages'], ['report-package'
 /** The reads a package write can change: where it stands, and the audit trail every write adds to. */
 export const PACKAGE_KEYS: QueryKey[] = [...PACKAGE_READS, ['audit']];
 
+/**
+ * Starts a package. A refusal reads the list again, as a refused command does: what refuses a
+ * start is most often what somebody else did meanwhile (the same package started, or the one in
+ * progress released), and the form works out from the list whether to link to the package in the
+ * way or to ask for the reason of a new version.
+ */
 export function useStartPackage(): UseMutationResult<
   ReportPackageDetail,
   Error,
@@ -82,6 +88,7 @@ export function useStartPackage(): UseMutationResult<
       queryClient.setQueryData(['report-package', detail.id], detail);
       invalidate(queryClient, PACKAGE_KEYS);
     },
+    onError: () => invalidate(queryClient, PACKAGE_READS),
   });
 }
 

@@ -58,6 +58,11 @@
   line-height: var(--pb-text-prose-lh);
   color: var(--pb-text);
 }
+/* The way to the corrected version of a released package, under the sentence that explains it. */
+.pb-pkg-correct {
+  margin: calc(-1 * var(--pb-space-1)) 0 var(--pb-space-3);
+  font-size: var(--pb-text-prose);
+}
 /* The commands of the gate in the header: the buttons, why a blocked one is blocked under it, and
    the Simulated marker level with the buttons. */
 .pb-pkg-actions {

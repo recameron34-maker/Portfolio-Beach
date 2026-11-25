@@ -1,10 +1,13 @@
 import { isCalendarDate, latestQuarterEndOnOrBefore, previousQuarterEnd } from '@pb/calc';
 import {
+  API_PREFIX,
   REPORT_PACKAGE_STATES,
   reportPackageBasis,
   reportPackageCommandBody,
   reportPackageCreateBody,
   reportPackageLabel,
+  ROUTES,
+  uuid,
 } from '@pb/contracts';
 import type {
   QaFindingRow,
@@ -444,18 +447,19 @@ export function gateSteps(pkg: Pick<ReportPackageRow, 'state' | 'qa'>): Step[] {
 
 /**
  * What happens next from each state, and who does it (docs/18 section 5). The gate only moves
- * forward once the checks have passed, and the page says so where that begins to matter.
+ * forward once the checks have passed, and the page says so where that begins to matter. Whoever
+ * prepared a package does not judge it: the two steps of an approver say whom that leaves out.
  */
 export const NEXT_STEP_WORDS: Readonly<Record<ReportPackageState, string>> = {
   Draft:
     'Investor relations generates the package: the figures are read from the record and every check is run.',
   Generated: 'The checks have not answered yet. Reload the page to see their result.',
   QAFailed:
-    'Investor relations regenerates the package once the record is fixed, or an approver overrides the failed checks with a reason.',
+    'Investor relations regenerates the package once the record is fixed, or an approver who did not start or generate it overrides the failed checks with a reason.',
   QAPassed:
     'Investor relations submits the package for review. There is no way back from here: a correction is a new version, started once this one is released.',
   InReview:
-    'An approver who did not prepare the package approves it. There is no way back from here: a correction is a new version, started once this one is released.',
+    'An approver who did not start, generate or submit the package approves it. There is no way back from here: a correction is a new version, started once this one is released.',
   Approved: 'Investor relations or operations releases the package to the client.',
   Released:
     'Released packages are read only. Investor relations starts a new version, with a reason, to correct one.',
@@ -775,8 +779,41 @@ export function startFieldLabel(path: string): string | null {
   return START_FIELD_LABELS[path] ?? null;
 }
 
-/** The role that starts a package, generates it and submits it (docs/18 section 5). */
-export const START_ROLES: readonly string[] = ['investor_relations'];
+/**
+ * Who may start a package: the role list of the contract's own route, read from the route table
+ * so the list lives in one place (POST /report-packages).
+ */
+export const START_ROLES: readonly string[] =
+  ROUTES.find((r) => r.method === 'POST' && r.path === `${API_PREFIX}/report-packages`)?.roles ??
+  [];
+
+/* ---- The corrected version of a released package ---- */
+
+/** The search of the list's address: the released package whose corrected version is being started. */
+export interface PackagesSearch {
+  correct?: string;
+}
+
+/** The search as the list reads it; anything that is not a package id is dropped, never an error page. */
+export function parsePackagesSearch(search: Record<string, unknown>): PackagesSearch {
+  const correct = uuid.safeParse(search.correct);
+  return correct.success ? { correct: correct.data } : {};
+}
+
+/**
+ * The start form for the corrected version of a released package the reader sees: its client,
+ * quarter and basis, with the label and the reason left to the person. Null for a package that
+ * is not named, not on the list or not released: there is nothing to correct yet.
+ */
+export function startFormFor(
+  items: readonly ReportPackageRow[],
+  packageId: string | undefined,
+): StartForm | null {
+  const row = items.find((item) => item.id === packageId && item.state === 'Released');
+  return row === undefined
+    ? null
+    : { ...EMPTY_START_FORM, clientId: row.client.id, periodEnd: row.periodEnd, basis: row.basis };
+}
 
 /** Who reads packages, in the words both pages use for a reader they are not shown to. */
 export const WHO_READS_PACKAGES = `Investor relations read the packages of the clients they are entitled to; ${WHO_READS_EVERY_CLIENT} read every client's. Ask a platform administrator if you need access.`;

@@ -71,6 +71,7 @@ import { ClientsPage, DisclosuresPage, WeeklyReportPage } from '../pages/reporti
 // Reporting packages (decision 0024): the list, starting one, and a package with its release gate.
 import { PackageDetailPage } from '../pages/reporting/packages/PackageDetail.js';
 import { PackagesPage } from '../pages/reporting/packages/Packages.js';
+import { parsePackagesSearch } from '../pages/reporting/packages/packages.js';
 import { SignInPage } from '../pages/SignIn.js';
 import { SponsorDetailPage, SponsorsPage } from '../pages/sponsors/Sponsors.js';
 import { ValuationsPage } from '../pages/valuations/Valuations.js';
@@ -180,7 +181,14 @@ const clientsRoute = child('/reporting/clients', ClientsPage);
 const disclosuresRoute = child('/reporting/disclosures', DisclosuresPage);
 // Reporting packages (decision 0024). The other Reporting pages are static segments, which
 // outrank a package's $id under its own segment whatever the order.
-const packagesRoute = child('/reporting/packages', PackagesPage);
+// The list's search names a released package whose corrected version is being started; anything
+// that is not a package id is dropped, never an error page.
+const packagesRoute = createRoute({
+  getParentRoute: () => appRoute,
+  path: '/reporting/packages',
+  component: PackagesPage,
+  validateSearch: parsePackagesSearch,
+});
 const packageRoute = child('/reporting/packages/$id', PackageDetailPage);
 
 const analyticsRoute = createRoute({

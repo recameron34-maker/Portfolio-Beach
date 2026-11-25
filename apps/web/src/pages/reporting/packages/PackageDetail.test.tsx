@@ -15,7 +15,7 @@ import {
   PKG_PERIOD,
   PKG_PERSON,
 } from '../../../test/fixtures-packages.js';
-import { activePositions } from '../../../test/fixtures-valuations.js';
+import { activePositions, rolePrincipal } from '../../../test/fixtures-valuations.js';
 import { renderWithQuery } from '../../../test/render.js';
 import { PackageDetailPage } from './PackageDetail.js';
 import { NET_NOTICE, NEXT_STEP_WORDS, NO_END_MARK, NO_START_MARK } from './packages.js';
@@ -23,7 +23,7 @@ import { NET_NOTICE, NEXT_STEP_WORDS, NO_END_MARK, NO_START_MARK } from './packa
 const params = vi.hoisted(() => ({ id: '' }));
 
 vi.mock('@tanstack/react-router', async () => ({
-  ...(await import('../../../test/router-mock.js')).routerMock(),
+  ...(await import('../../../test/router-mock.js')).routerMockWithSearch(),
   useParams: () => ({ id: params.id }),
 }));
 
@@ -33,6 +33,14 @@ const detailPath = (id: string): string => `/api/v1/report-packages/${id}`;
 const IDENTIFIER = /QA-[A-Z]+-\d+|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i;
 
 const POSITIONS = '/api/v1/investments';
+const ME = '/api/v1/auth/me';
+
+/** Whether the page has asked for an address: the roles of the reader arrive with the sign-in read. */
+const sentTo = (path: string): boolean =>
+  vi.mocked(globalThis.fetch).mock.calls.some(([input]) => {
+    const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
+    return url.endsWith(path);
+  });
 
 function open(detail: ReportPackageDetail, extra: MockRoutes = {}): void {
   params.id = detail.id;
@@ -124,9 +132,13 @@ describe('a reporting package page', () => {
       'Imogen Tavares',
     );
     expect(within(who).getByRole('row', { name: /Checks/ })).toHaveTextContent('Not run');
-    // Nobody approved or released it yet: the placeholder, never a guess.
-    expect(within(who).getByRole('row', { name: /Approved by/ })).toHaveTextContent('Approved by-');
-    expect(within(who).getByRole('row', { name: /Released by/ })).toHaveTextContent('Released by-');
+    // Nobody approved or released it yet: said in words, never a bare placeholder or a guess.
+    expect(within(who).getByRole('row', { name: /Approved by/ })).toHaveTextContent(
+      'Approved byNot approved yet',
+    );
+    expect(within(who).getByRole('row', { name: /Released by/ })).toHaveTextContent(
+      'Released byNot released yet',
+    );
     expect(within(who).queryByText('Reason for this version')).not.toBeInTheDocument();
     expect(document.body.textContent).not.toMatch(IDENTIFIER);
   });
@@ -154,7 +166,7 @@ describe('a reporting package page', () => {
       'Released: upcoming',
     ]);
     expect(screen.getByTestId('package-next')).toHaveTextContent(
-      'Investor relations regenerates the package once the record is fixed, or an approver overrides the failed checks with a reason.',
+      'Investor relations regenerates the package once the record is fixed, or an approver who did not start or generate it overrides the failed checks with a reason.',
     );
     expect(
       within(screen.getByRole('table', { name: 'Who moved the package' })).getByRole('row', {
@@ -230,6 +242,48 @@ describe('a reporting package page', () => {
       'The June mark of one position was restated.',
     );
     expect(screen.getByTestId('package-next')).toHaveTextContent('Released packages are read only');
+    // The reader's roles are not known here: nobody is offered the corrected version.
+    expect(screen.queryByTestId('package-correct')).not.toBeInTheDocument();
+  });
+
+  it('offers investor relations the corrected version of a released package, and nobody else', async () => {
+    const released = generatedDetailFixture({
+      id: PKG_ID.released,
+      state: 'Released',
+      label: 'preliminary',
+      reviewer: PKG_PERSON.approver,
+      approvedAt: '2025-08-18T14:05:00.000Z',
+      releasedBy: PKG_PERSON.operations,
+      releasedAt: '2025-08-19T08:30:00.000Z',
+      contentHash: 'a'.repeat(64),
+      rowVersion: 7,
+    });
+    open(released, { [ME]: ok(rolePrincipal(['investor_relations'])) });
+    const correct = await screen.findByTestId('package-correct');
+    // The list opens its start form for this package: its client, quarter and basis filled in.
+    expect(
+      within(correct).getByRole('link', { name: 'Start a corrected version' }),
+    ).toHaveAttribute('href', `/reporting/packages?correct=${PKG_ID.released}`);
+    // A link, not a command: nothing moves a released package.
+    expect(within(screen.getByTestId('package-gate')).queryByRole('button')).toBeNull();
+    expect(screen.queryByTestId('package-actions')).not.toBeInTheDocument();
+    for (const role of ['approver', 'operations', 'deal_team', 'auditor'] as const) {
+      cleanup();
+      vi.restoreAllMocks();
+      open(released, { [ME]: ok(rolePrincipal([role])) });
+      await screen.findByTestId('package-gate');
+      await waitFor(() => expect(sentTo(ME)).toBe(true));
+      expect(screen.queryByTestId('package-correct'), role).not.toBeInTheDocument();
+    }
+    // And no package short of Released offers it, to anyone.
+    cleanup();
+    vi.restoreAllMocks();
+    open(overriddenDetailFixture({ state: 'InReview', rowVersion: 5 }), {
+      [ME]: ok(rolePrincipal(['investor_relations'])),
+    });
+    await screen.findByTestId('package-gate');
+    await waitFor(() => expect(sentTo(ME)).toBe(true));
+    expect(screen.queryByTestId('package-correct')).not.toBeInTheDocument();
   });
 
   it('reads a package of a client the reader does not read as not found', async () => {
@@ -511,6 +565,16 @@ describe('the cards of a reporting package', () => {
       'INV-0003',
     ]);
     expect(cellsOf('Client share')[0]![0]).toBe('INV-0001 Meridian Data Partners');
+    // The number is written as the app writes an identifier everywhere, on one line; the company
+    // follows it in the cell's own weight.
+    for (const table of ['Positions', 'Footnotes', 'Client share']) {
+      const header = within(screen.getByRole('table', { name: table })).getAllByRole(
+        'rowheader',
+      )[0]!;
+      const number = within(header).getByText(/^INV-000\d$/);
+      expect(number, table).toHaveClass('pb-key', 'pb-nowrap');
+      expect(header.querySelectorAll('.pb-key'), table).toHaveLength(1);
+    }
     await showPassed(25);
     expect(checkRow('NAV roll-forward', 'INV-0001 Meridian Data Partners')[0]).toBe('Passed');
     expect(checkRow('Movers list', 'Whole package')[3]).toBe(
@@ -572,6 +636,27 @@ describe('the cards of a reporting package', () => {
     // With nothing to tie to, the sentence says why and no empty table or second line follows.
     expect(within(first).queryByRole('table')).not.toBeInTheDocument();
     expect(first).not.toHaveTextContent('No explanations recorded');
+    cleanup();
+    vi.restoreAllMocks();
+    // With a release to tie to and nothing explained, the card says that none is recorded: the
+    // sentence above it says only what a difference would need.
+    open(
+      generatedDetailFixture(
+        {},
+        packageContentFixture({
+          priorRelease: {
+            endNav: { 'INV-0001': '11900000', 'INV-0002': '4200000' },
+            explanations: {},
+          },
+        }),
+      ),
+    );
+    const none = await screen.findByTestId('package-explanations');
+    expect(none).toHaveTextContent(
+      'Each begin NAV is tied to the end NAV of the last package released to this client on this basis.',
+    );
+    expect(none).toHaveTextContent('No explanations recorded');
+    expect(within(none).queryByRole('table')).not.toBeInTheDocument();
     cleanup();
     vi.restoreAllMocks();
     const explanations = {
