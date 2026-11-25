@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import { Link, useNavigate } from '@tanstack/react-router';
 import { useQuery } from '@tanstack/react-query';
@@ -82,6 +82,12 @@ export function StartPackageForm({
     chosen.basis !== '' &&
     !basisOnRecord(client.reportingBases, chosen.basis);
   const set = (patch: Partial<StartForm>): void => setForm((f) => ({ ...f, ...patch }));
+  // The form replaces the button that opened it, so its first field takes focus: a keyboard or
+  // screen reader user is in the form, not back at the top of the page.
+  const formRef = useRef<HTMLFormElement | null>(null);
+  useEffect(() => {
+    formRef.current?.querySelector<HTMLElement>('[role="combobox"]')?.focus();
+  }, []);
   const error = (key: StartField): object =>
     touched && problems[key] !== undefined
       ? { validationState: 'error' as const, validationMessage: problems[key] }
@@ -94,6 +100,7 @@ export function StartPackageForm({
         check.
       </p>
       <form
+        ref={formRef}
         // The form says what each field needs in its own words, for every field at once.
         noValidate
         onSubmit={(e) => {

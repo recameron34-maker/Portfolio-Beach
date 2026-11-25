@@ -599,3 +599,127 @@ describe('a command the API refuses', () => {
     expect(within(screen.getByTestId('package-banner')).getByText('Approved')).toBeInTheDocument();
   });
 });
+
+/*
+ * Keyboard focus. A command replaces the button that sent it, and a dialog opened from the page
+ * has no trigger to give focus back to: left alone, focus falls to the document and a keyboard or
+ * screen reader user is put back at the top of the page. It goes to the next step instead.
+ */
+describe('where keyboard focus goes on the release gate', () => {
+  afterEach(() => {
+    cleanup();
+    vi.restoreAllMocks();
+  });
+
+  it('moves to the first command of the new state once a command has changed it', async () => {
+    const world = open(['investor_relations'], draft(), ok(failed()));
+    await waitFor(() => expect(button('Generate')).toBeEnabled());
+    world.detail = failed();
+    button('Generate').focus();
+    await userEvent.keyboard('{Enter}');
+    await within(status()).findByText(/is now QA failed/);
+    // Generate is gone; Regenerate is the step investor relations may take next.
+    await waitFor(() => expect(button('Regenerate')).toHaveFocus());
+  });
+
+  it('moves to the result when the new state leaves the person no command', async () => {
+    const steps: [Roles, ReportPackageDetail, string, ReportPackageDetail][] = [
+      // In review, investor relations wait for an approver.
+      [['investor_relations'], passed(), 'Submit', inReview()],
+      // Released, nothing is left to press for anyone.
+      [['operations'], approved(), 'Release', released()],
+    ];
+    for (const [roles, before, name, after] of steps) {
+      const world = open(roles, before, ok(after));
+      await waitFor(() => expect(button(name)).toBeEnabled());
+      world.detail = after;
+      button(name).focus();
+      await userEvent.keyboard('{Enter}');
+      await within(status()).findByText(/is now/);
+      await waitFor(() => expect(status(), name).toHaveFocus());
+      // Reachable by a script only: the status line is not a stop on the way through the page.
+      expect(status()).toHaveAttribute('tabindex', '-1');
+      cleanup();
+      vi.restoreAllMocks();
+    }
+  });
+
+  it('returns to the button that opened a dialog when the dialog is cancelled', async () => {
+    open(['approver'], failed(), ok(passed()));
+    await waitFor(() => expect(button('Override QA')).toBeEnabled());
+    button('Override QA').focus();
+    await userEvent.keyboard('{Enter}');
+    const override = await screen.findByRole('dialog');
+    await userEvent.click(within(override).getByRole('button', { name: 'Cancel' }));
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+    await waitFor(() => expect(button('Override QA')).toHaveFocus());
+    expect(sentCommands()).toEqual([]);
+    cleanup();
+    vi.restoreAllMocks();
+
+    open(['investor_relations'], tieOutBreak(), ok(tieOutBreak()));
+    await waitFor(() => expect(button('Regenerate')).toBeEnabled());
+    button('Regenerate').focus();
+    await userEvent.keyboard('{Enter}');
+    const explain = await screen.findByRole('dialog');
+    await userEvent.click(within(explain).getByRole('button', { name: 'Cancel' }));
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+    await waitFor(() => expect(button('Regenerate')).toHaveFocus());
+    expect(sentCommands()).toEqual([]);
+  });
+
+  it('moves on from a dialog that sent its command: to the result, or to the next command', async () => {
+    // The override leaves an approver nothing to press: Submit is investor relations'.
+    const world = open(['approver'], failed(), ok(passed()));
+    await waitFor(() => expect(button('Override QA')).toBeEnabled());
+    await userEvent.click(button('Override QA'));
+    const override = await screen.findByRole('dialog');
+    await userEvent.type(
+      within(override).getByRole('textbox', { name: /Reason/ }),
+      'The stale mark is disclosed in the cover letter',
+    );
+    world.detail = passed();
+    await userEvent.click(within(override).getByRole('button', { name: 'Override QA' }));
+    await within(status()).findByText(/is now QA passed/);
+    await waitFor(() => expect(status()).toHaveFocus());
+    cleanup();
+    vi.restoreAllMocks();
+
+    // A regeneration that fails again leaves Regenerate to press.
+    const again: ReportPackageDetail = { ...tieOutBreak(), rowVersion: 5 };
+    const second = open(['investor_relations'], tieOutBreak(), ok(again));
+    await waitFor(() => expect(button('Regenerate')).toBeEnabled());
+    await userEvent.click(button('Regenerate'));
+    const explain = await screen.findByRole('dialog');
+    second.detail = again;
+    await userEvent.click(within(explain).getByRole('button', { name: 'Regenerate' }));
+    await within(status()).findByText(/is now QA failed/);
+    await waitFor(() => expect(button('Regenerate')).toHaveFocus());
+  });
+
+  it('stays on the button of a command that was refused and changed nothing', async () => {
+    open(
+      ['approver'],
+      inReview(),
+      refusal(422, 'reporting_package: the package preparer cannot approve it (SEC-5.6)'),
+    );
+    await waitFor(() => expect(button('Approve')).toBeEnabled());
+    button('Approve').focus();
+    await userEvent.keyboard('{Enter}');
+    await within(status()).findByText(/Blocked by a rule/);
+    await waitFor(() => expect(button('Approve')).toBeEnabled());
+    expect(button('Approve')).toHaveFocus();
+  });
+
+  it('follows a package that somebody else moved: a stale command lands on the step that now stands', async () => {
+    const world = open(['investor_relations'], passed(), { status: 412, body: STALE });
+    await waitFor(() => expect(button('Submit')).toBeEnabled());
+    // A colleague submitted it and an approver approved it while this page stood open.
+    world.detail = approved();
+    button('Submit').focus();
+    await userEvent.keyboard('{Enter}');
+    await within(status()).findByText(/Someone changed this package first/);
+    // The page read the package again: it is Approved, and Release is the step that stands.
+    await waitFor(() => expect(button('Release')).toHaveFocus());
+  });
+});

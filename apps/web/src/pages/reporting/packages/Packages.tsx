@@ -1,4 +1,4 @@
-import { useId, useState } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import { Link, useSearch } from '@tanstack/react-router';
 import { keepPreviousData, useQuery } from '@tanstack/react-query';
@@ -110,6 +110,18 @@ export function PackagesPage(): ReactNode {
   const [state, setState] = useState<ReportPackageState | ''>('');
   const roles = me.data?.roles ?? [];
   const canStart = roles.some((r) => START_ROLES.includes(r));
+  // The form of a corrected version, for a reader who may start one; null for anyone else, and
+  // for a package that is not on the list or not released.
+  const correcting = canStart && !closed ? startFormFor(q.data?.items ?? [], search.correct) : null;
+  const formOpen = starting || correcting !== null;
+  // The form takes the place of the button that opens it. When the form closes the button is
+  // back and takes focus, so cancelling does not drop a keyboard user to the top of the page.
+  const startButton = useRef<HTMLButtonElement | null>(null);
+  const formWasOpen = useRef(false);
+  useEffect(() => {
+    if (formWasOpen.current && !formOpen) startButton.current?.focus();
+    formWasOpen.current = formOpen;
+  }, [formOpen]);
   // A reader who may not start a package sees the button and which role it needs.
   const blocked = blockedTitle({ allowed: canStart, roles: START_ROLES });
   const blockedId = useId();
@@ -150,10 +162,6 @@ export function PackagesPage(): ReactNode {
   const rows = filterPackages(items, { clientId, state });
   const inProgress = items.filter((row) => row.state !== 'Released').length;
   const clientName = clients.find((c) => c.id === clientId)?.name;
-  // The form of a corrected version, for a reader who may start one; null for anyone else, and
-  // for a package that is not on the list or not released.
-  const correcting = canStart && !closed ? startFormFor(items, search.correct) : null;
-  const formOpen = starting || correcting !== null;
   const closeForm = (): void => {
     setStarting(false);
     setClosed(true);
@@ -184,6 +192,10 @@ export function PackagesPage(): ReactNode {
                   </span>
                 )}
                 <Button
+                  // Fluent's Button infers its ref element from a slot union: a typed callback.
+                  ref={(el: HTMLButtonElement | null) => {
+                    startButton.current = el;
+                  }}
                   size="small"
                   appearance="primary"
                   icon={<Add16Regular />}

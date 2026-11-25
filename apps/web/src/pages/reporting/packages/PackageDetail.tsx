@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useId, useMemo, useState } from 'react';
 import type { ReactNode } from 'react';
 import { Link, useParams } from '@tanstack/react-router';
 import { useQuery } from '@tanstack/react-query';
@@ -655,6 +655,8 @@ function Body({ detail }: { detail: ReportPackageDetail }): ReactNode {
   // list, or a list that did not load, leaves the number alone.
   const positions = useQuery(investmentsQuery({ limit: LIST_LIMIT }));
   const names = useMemo(() => positionNames(positions.data?.items ?? []), [positions.data]);
+  // The result line can take focus: a command that leaves the person no button lands there.
+  const statusId = useId();
   const { content } = detail;
   return (
     <div data-testid="package-detail">
@@ -681,7 +683,13 @@ function Body({ detail }: { detail: ReportPackageDetail }): ReactNode {
           </span>
         }
         actions={
-          <PackageActions detail={detail} roles={me.data?.roles ?? []} names={names} onLog={log} />
+          <PackageActions
+            detail={detail}
+            roles={me.data?.roles ?? []}
+            names={names}
+            statusId={statusId}
+            onLog={log}
+          />
         }
       />
       {detail.basis === 'net' ? (
@@ -689,7 +697,7 @@ function Body({ detail }: { detail: ReportPackageDetail }): ReactNode {
           {NET_NOTICE}
         </p>
       ) : null}
-      <ActionStatus latest={log.latest} testId="package-action-status" />
+      <ActionStatus latest={log.latest} testId="package-action-status" id={statusId} />
       <ReleaseGateCard
         detail={detail}
         canStart={(me.data?.roles ?? []).some((role) => START_ROLES.includes(role))}

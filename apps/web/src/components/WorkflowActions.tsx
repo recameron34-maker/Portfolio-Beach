@@ -192,16 +192,27 @@ export function ReasonDialog({
   );
 }
 
-/** The page's one status region: the latest action result, good or refused (AdminFlags pattern). */
+/**
+ * The page's one status region: the latest action result, good or refused (AdminFlags pattern).
+ * With an `id` it can take focus from a script (never on the way through the page with Tab): a
+ * page moves focus here when a command leaves the person no button to land on.
+ */
 export function ActionStatus({
   latest,
   testId,
+  id,
 }: {
   latest: ActionEntry | null;
   testId: string;
+  id?: string;
 }): ReactNode {
   return (
-    <div role="status" className="pb-action-status" data-testid={testId}>
+    <div
+      role="status"
+      className="pb-action-status"
+      data-testid={testId}
+      {...(id === undefined ? {} : { id, tabIndex: -1 })}
+    >
       {latest === null ? null : (
         <p
           key={latest.id}

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import {
   Button,
@@ -24,6 +24,7 @@ import { commandLabel } from '../../../lib/states.js';
 import type { CommandOption } from '../../../lib/states.js';
 import { resultSuffix } from '../../../lib/workflow.js';
 import type { ActionLog } from '../../../lib/workflow.js';
+import { ApiError } from '../../../api/client.js';
 import { describePackageError, usePackageCommand } from './api.js';
 import {
   commandResultWords,
@@ -144,17 +145,25 @@ function ExplanationsDialog({
  * being moved twice. What the API alone can judge is left to it and its refusal is shown: an
  * approver is offered Approve whoever prepared the package (SEC-5.6). An override asks for its
  * reason first; a regeneration asks for explanations only when a tie-out failed unexplained.
+ *
+ * Keyboard focus follows the package. A command that moves it replaces the button that sent it,
+ * so focus goes to the first command the person may take from the new state, or to the page's
+ * result line (`statusId`) when there is none; a dialog that is cancelled gives focus back to
+ * the button that opened it. Focus never falls to the document.
  */
 export function PackageActions({
   detail,
   roles,
   names,
+  statusId,
   onLog,
 }: {
   detail: ReportPackageDetail;
   /** The roles of the signed-in person; none while they are not known. */
   roles: readonly string[];
   names: PositionNames;
+  /** The id of the page's result line: where focus goes when no command is left to land on. */
+  statusId: string;
   onLog: ActionLog;
 }): ReactNode {
   const command = usePackageCommand();
@@ -162,18 +171,53 @@ export function PackageActions({
   const [explaining, setExplaining] = useState(false);
   const options = personCommands(detail.state, roles);
   const gaps = unexplainedTieOuts(detail);
+
+  const group = useRef<HTMLDivElement | null>(null);
+  // Where the package stood when a command was sent from here: once it stands elsewhere, the
+  // buttons are the new state's and focus moves to them. Null when no command is being followed.
+  const sentFrom = useRef<{ state: ReportPackageState; rowVersion: number } | null>(null);
+  const { state, rowVersion } = detail;
+  const busy = command.isPending;
+  useEffect(() => {
+    const from = sentFrom.current;
+    if (from === null || busy) return;
+    if (from.state === state && from.rowVersion === rowVersion) return;
+    sentFrom.current = null;
+    const next = group.current?.querySelector<HTMLButtonElement>('button:not(:disabled)');
+    (next ?? document.getElementById(statusId))?.focus();
+  }, [state, rowVersion, busy, statusId]);
+  // The command whose dialog was closed without sending: its button takes focus back once the
+  // dialog has left the page (a dialog opened from here has no trigger of its own to return to).
+  const reopen = useRef<ReportingPackageCommand | null>(null);
+  const dialogOpen = overriding || explaining;
+  useEffect(() => {
+    const back = reopen.current;
+    if (dialogOpen || back === null) return;
+    reopen.current = null;
+    const label = commandLabel(back);
+    [...(group.current?.querySelectorAll('button') ?? [])]
+      .find((button) => button.textContent === label)
+      ?.focus();
+  }, [dialogOpen]);
+
   if (options.length === 0) return null;
 
-  const send = (body: ReportPackageCommandBody): void =>
+  const send = (body: ReportPackageCommandBody): void => {
+    sentFrom.current = { state: detail.state, rowVersion: detail.rowVersion };
     command.mutate(
       { id: detail.id, rowVersion: detail.rowVersion, body },
       {
         onSuccess: (answer) =>
           onLog.record('good', `${commandResultWords(body.command, answer)} ${resultSuffix()}`),
-        onError: (error) =>
-          onLog.record('bad', `${commandLabel(body.command)}: ${describePackageError(error)}`),
+        onError: (error) => {
+          // A refusal changes nothing and the button is still there, unless somebody moved the
+          // package first: then the page reads it again and focus follows it to where it stands.
+          if (!(error instanceof ApiError && error.status === 412)) sentFrom.current = null;
+          onLog.record('bad', `${commandLabel(body.command)}: ${describePackageError(error)}`);
+        },
       },
     );
+  };
   const issue = (option: PackageOption): void => {
     switch (option.command) {
       case 'overrideQa':
@@ -197,7 +241,7 @@ export function PackageActions({
   };
   return (
     <>
-      <div className="pb-pkg-actions" data-testid="package-actions">
+      <div className="pb-pkg-actions" data-testid="package-actions" ref={group}>
         <CommandButtons
           options={options}
           busy={command.isPending}
@@ -211,7 +255,10 @@ export function PackageActions({
         <ReasonDialog
           title="Override QA"
           subject={overrideSubject(openFailures(detail.findings))}
-          onCancel={() => setOverriding(false)}
+          onCancel={() => {
+            reopen.current = 'overrideQa';
+            setOverriding(false);
+          }}
           onSubmit={(reason) => {
             send({ command: 'overrideQa', reason });
             setOverriding(false);
@@ -222,7 +269,10 @@ export function PackageActions({
         <ExplanationsDialog
           gaps={gaps}
           names={names}
-          onCancel={() => setExplaining(false)}
+          onCancel={() => {
+            reopen.current = 'regenerate';
+            setExplaining(false);
+          }}
           onSubmit={(body) => {
             send(body);
             setExplaining(false);

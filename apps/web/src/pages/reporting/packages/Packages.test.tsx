@@ -309,6 +309,25 @@ describe('starting a package', () => {
     ).toBeEnabled();
   }, 30_000);
 
+  it('moves keyboard focus into the form when it opens, and back to the button when it is cancelled', async () => {
+    open(['investor_relations']);
+    const start = await screen.findByRole('button', { name: 'Start package' }, TIMEOUT);
+    start.focus();
+    await userEvent.keyboard('{Enter}');
+    const form = await screen.findByTestId('package-start-form');
+    // The button that opened the form is gone: focus is on the form's first field, not the document.
+    await waitFor(() =>
+      expect(within(form).getByRole('combobox', { name: 'Client' })).toHaveFocus(),
+    );
+    await userEvent.click(within(form).getByRole('button', { name: 'Cancel' }));
+    expect(screen.queryByTestId('package-start-form')).not.toBeInTheDocument();
+    await waitFor(() =>
+      expect(
+        within(screen.getByTestId('packages-card')).getByRole('button', { name: 'Start package' }),
+      ).toHaveFocus(),
+    );
+  }, 30_000);
+
   it('starts the first package of a client, quarter and basis and opens its page', async () => {
     const created = packageDetailFixture({
       id: '00000000-0000-4000-8000-000000000999',
