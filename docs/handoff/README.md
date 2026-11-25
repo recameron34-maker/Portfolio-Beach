@@ -11,16 +11,18 @@ Read this before `docs/SESSION_LOG.md` when you pick the work up. Update or dele
 | Work | State | Where |
 |---|---|---|
 | Everything up to valuation suggestions (decisions 0016 to 0023) | Built, reviewed three ways, fixed, pushed | Pull request 18, commits up to `44104ff` |
-| Reporting, Packages pages (decision 0024) | All eight slices built and pushed (check `git log` for slice 8's last commits). **Not reviewed yet:** the three reviews and their fixes have not run. | Section 2 |
+| Reporting, Packages pages (decision 0024) | Built, merged, then reviewed and fixed on 2026-11-25: 22 findings, all fixed, each with a test that failed first. What was found, what was decided and what was left are in decision 0024, "After the verification" | Section 2 |
 | The review of every open design question | Paused after collecting. 177 questions listed, none decided | Section 4 |
 | The demo artifact | Version 19, built from `62fb769`: has valuation suggestions and the Packages pages (its preview probe passed 223 of 223) | Section 3 |
 | Pull request 18 | Open. Not merged. A human merges | Section 5 |
 
 Branch: `claude/gifted-tesla-eg7s85` (the only branch the session may push to). Run `git log --oneline 44104ff..HEAD` to see what landed after this was written.
 
-Next free numbers when this was written: decision record 0025 (0024 is the Packages pages, written in its slice 8), migration 0024, `docs/08` section 13, golden fixture 32, `docs/18` section 15, capability row E16. Check before using one.
+Next free numbers when this was written: decision record 0025 (0024 is the Packages pages, written in its slice 8), migration 0024, `docs/08` section 13, golden fixture 32, `docs/18` section 15, capability row E16. Check before using one. (Migration 0024 was used on 2026-11-25 for the submitter of a package; the next free migration is 0025. Decision record 0026 is the UI pass.)
 
 ## 2. Reporting, Packages pages: finish, then review
+
+**Done (2026-11-25).** Every slice is committed and merged, and the review below has run with its fixes: decision 0024, "After the verification", and the session log entry of that date. What follows is kept as the record of how it was to be done.
 
 Specification: `docs/handoff/spec-report-packages-web.md` (eight slices, section 11 of the file; where it says decision 0022 read 0024).
 
@@ -149,7 +151,7 @@ By the owner's instruction of 2026-11-18, everything in this section is built by
 
 In order:
 
-1. **Reporting, Packages pages: the review.** Finish anything of slice 8 that has no commit, then the three reviews and their fixes (section 2). Until then the pages are built and not reviewed.
+1. **Reporting, Packages pages: the review.** Done on 2026-11-25 (decision 0024, "After the verification"). What it left open is listed there: where focus goes after a start opens a package's page, a table-level check on who overrides, the words of a refusal for a two-role reader, and the two items that were already open (a package inherits the walls of its positions; a way back with a reason).
 2. **The open design questions.** Decide the 177 collected questions (section 4), then build what the decisions change: decision record 0025 first, then the slices of the specification that review writes.
 3. **The rest of Phase 4** (`docs/09`): the template engine with layout locks and the external change log; the weekly report; the client reports themselves (PowerPoint, Word, Excel) with mover commentary, the disclosure library, approved statistics and the distribution log; the reporting views for analytics. The Phase 4 exit journey needs the template engine.
 4. **Phases 5 to 8** as `docs/09` lists them: front office (pipeline, diligence and IC, relationship capture, commitments and pacing); analytics, access and assistants (exposures, benchmarking, liquidity, the read API, Ask Portfolio Beach); Beach Ops; merge readiness.

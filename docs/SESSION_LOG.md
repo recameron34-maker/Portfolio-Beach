@@ -673,7 +673,9 @@ The next line of Phase 4 in the roadmap: "The Reporting, Packages pages: the fin
 
 **Verified**
 
-__VERIFIED__
+Nothing was written here when the slice was committed: the session stopped early (see the end of this entry) and the placeholder of the entry's draft was left in its place. What was run before that commit is in its own message (typecheck, lint, the style and employer-data guards and the web tests it names).
+
+The feature was verified as merged on 2026-11-25, before any fix of that review, by the review's own run of every gate of `docs/handoff/README.md` section 6: typecheck and lint clean; vitest 290 files, 5,869 tests; `test:calc` 175 tests, 59 Python tests, 680 cross-check cases; `test:rls` 1,775; `test:workflows` 363; `test:evals` 16; 1,042 columns classified; the style and employer-data guards OK; OpenAPI 95 paths with a clean tree; dependencies OK; the probe 238 of 238; the whole browser suite 78 of 78. What the three reviews then found, and the counts after the fixes, are in the entry of 2026-11-25 below and in decision 0024, "After the verification".
 
 **Differences from the written design**
 
@@ -697,7 +699,6 @@ __VERIFIED__
 - `qtd_ytd_basis` and `sign_flip` are still not generated.
 - The published preview and the site's media were made before this feature.
 - The feature is far over the target of about 800 changed lines for one pull request; its commits follow the slices.
-__EXTRA_OPEN__
 
 **Stopped early (added by the session lead, 2026-11-18):** the build was stopped here because the week's usage ran out. This last slice was committed after typecheck, lint, the style and employer-data guards and the web tests named in the commit, not after its own full closing run, and the three reviews of the feature have not run. `docs/handoff/README.md` says how to finish.
 
@@ -1263,3 +1264,35 @@ The copy slice of `docs/handoff/ui-pass-plan.md` (finding P106), with the copy e
 - The base case card keeps uppercase figure labels while the preview probe reads them in capitals.
 - Everything in `docs/handoff/README.md` section 10 (for the builder model).
 
+### Session 14 (2026-11-25): the review of the Reporting, Packages pages, and its fixes (decision 0024, "After the verification")
+
+The Packages pages were merged before their review (session 12 stopped early). This session ran it: every gate on the merged tree, five independent readings (the gates and the specification; the maths and the workflow; access and the static preview; the behaviour of the restyled pages; their look), then one fixer for the 22 findings on the Packages pages. All 22 held and all are fixed, each with a test that failed before its fix. The findings on slices 10 to 14 of the UI pass were another fixer's and are not in this entry.
+
+**What changed**
+
+- **A mark is read for the quarter it reports for** (`packages/report-engine`, `bfde8c2`). The snapshot matched a Locked mark by its exact date, so the position whose sponsor closes its books three days before each quarter end (`period_end_shift`) had no begin NAV, no gain, a stale footnote and three failed checks in every package. It now picks a quarter's mark by the rule of the valuation board and the weekly report (`alignedQuarterEnd`, `lockedNear`, `priorYearPeriodEndToleranceDays`), which the API and the preview hand in. The flows of a line are those between the dates of its two marks, so a flow between a sponsor's close and the calendar quarter end is in the next quarter's line, once. A line records the quarter its mark reports for and the day it is dated (`endNavMarkDate`, new in the contract), and the page names a mark by its own date. `docs/08` section 7 and fixture 26.
+- **Segregation of duties and entitlement** (`d87a347`, migration 0024). Whoever started a package or ran one of its generations neither overrides its failed checks nor approves it; whoever submitted it does not approve it. `rpt.package.submitted_by` records the submitter, with two checks on the row; no policy changes. A step the table gives to investor relations answers 404 without the entitlement to the client, whatever second role the person holds. One function builds the record the machine reads and one says which steps are investor relations', for the API and the preview (`packages/workflows/src/controls-package.ts`). `docs/18` section 5 has its table; `docs/03`; 1,043 columns classified.
+- **The boundary** (`f55a6b4`, `4fcf7c9`). A reason or an explanation is measured and kept without the spaces around it; an explanation for a position the package does not hold is refused; the list answers the contract's row and no longer the stored row with its snapshot; a start for a client the caller is not entitled to is 404 where the API answered 500; an as-of date after today is refused.
+- **The access matrix** (`23d6052`) pins who reads the history of a package and of its findings.
+- **The pages** (`9e48f12`, `1811ef3`). A Released package links whoever may start one to the start of its corrected version, and the list opens the form with its client, quarter and basis (`?correct=`). A refused start reads the list again. Who may start is the contract's own role list. "No explanations recorded" when there is a release to tie to; "Not approved yet" and "Not released yet"; the position number as the app's identifier; one "Start package" while the form is open; no count line on an empty list; the next-step sentences say whom an approver's two steps leave out. Keyboard focus goes into the start form and back to its button, to the first command of the new state or to the result line, and back to the button that opened a dialog.
+- The API test harness takes extra users, for people who hold two roles (`apps/api/src/test/report-packages-gate.test.ts`).
+- Docs: decision 0024 ("After the verification", and its SEC-5.2 and SEC-5.6 lines), `docs/04` M14, `apps/web/README.md`, `docs/handoff/README.md` (the review is done; the next free migration is 0025), and the Verified section of session 12's entry, which had been left as a placeholder.
+
+**Verified** (on the final code, `1811ef3` with the docs of this entry)
+
+- `pnpm typecheck` and `pnpm lint`: clean.
+- `pnpm exec vitest run`: 292 files, 5,969 tests passed (290 files and 5,869 tests before the fixes).
+- `pnpm test:rls`: 1,811 passed. `pnpm test:workflows`: 370 passed. `pnpm check:classification`: 1,043 columns. `pnpm openapi:generate`: 95 paths, tree clean.
+- `bash scripts/check-style.sh` and `pnpm check:employer-data`: OK.
+- `pnpm --filter @pb/api build` and `pnpm --filter @pb/web build:preview`: OK. The probe: 239 passed, 0 failed, 0 skipped (one new check, the corrected version link).
+- In Chromium: `e2e/a11y.spec.ts`, `e2e/journey3.spec.ts`, `e2e/report-packages.spec.ts` and `e2e/weekly.spec.ts` together, 36 passed. The whole browser suite was not run again.
+- The access review's keyboard walk, run again on the rebuilt preview: focus is on the form's first field after Start package, on the button after Cancel, on Regenerate after Generate, on the opener after Escape in both dialogs, on the result line after the override, on Regenerate after a regeneration; no console error. After a start opens the package's page it is still on the document (left, below).
+- The client that holds the shifted position: 33 checks, none failed, labelled preliminary (three failed before).
+
+**Open items**
+
+- Left by the review, with the options, in decision 0024: where focus goes when a start opens the package's page (the shell's, for every page); a table-level check on who overrides a failed check (a trigger across two tables; the machine refuses it today); the words a two-role reader gets when an investor relations step is refused ("Reporting package not found" while the page shows the package); a snapshot stored before `endNavMarkDate` cannot be read back (none exists).
+- Still open from before: a package inherits the walls of the positions it holds; a way back with a reason; net figures; the template engine.
+- The whole browser suite and the remaining gates of `docs/handoff/README.md` section 6 (`test:calc`, `test:evals` alone, `check:dependencies`) were not run again after the fixes: no calculation, eval or dependency changed. CI runs them on the push.
+- The published demo artifact and the website's media were made before these fixes.
+- These commits change about 2,900 lines (about 1,950 of them tests) against the target of about 800 for one pull request; each commit is one topic.
