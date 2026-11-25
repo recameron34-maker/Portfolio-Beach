@@ -12,9 +12,9 @@
     "openapi:generate": "node dist/openapi-cli.js"
   },
   "dependencies": {
-    "@nestjs/common": "12.4.0",
-    "@nestjs/core": "12.4.0",
-    "@nestjs/platform-express": "12.4.0",
+    "@nestjs/common": "12.6.0",
+    "@nestjs/core": "12.6.0",
+    "@nestjs/platform-express": "12.6.0",
     "@pb/adapters": "workspace:*",
     "@pb/ai": "workspace:*",
     "@pb/calc": "workspace:*",
@@ -33,7 +33,7 @@
     "zod": "4.6.7"
   },
   "devDependencies": {
-    "@nestjs/testing": "12.4.0",
+    "@nestjs/testing": "12.6.0",
     "@pb/synthetic": "workspace:*",
     "@swc/core": "1.16.22",
     "@types/express": "5.0.6",

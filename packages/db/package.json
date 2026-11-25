@@ -29,7 +29,7 @@
     "check:classification": "node dist/cli/check-classification.js"
   },
   "dependencies": {
-    "@electric-sql/pglite": "0.5.15",
+    "@electric-sql/pglite": "0.5.17",
     "drizzle-orm": "0.45.4",
     "pg": "8.23.1",
     "zod": "4.6.7"
