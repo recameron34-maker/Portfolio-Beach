@@ -19,7 +19,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4 # pin to SHA
+      - uses: actions/checkout@v7 # pin to SHA
       - run: bash scripts/check-employer-data.sh
       - run: bash scripts/check-style.sh
   ci:
@@ -27,7 +27,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v4 # pin to SHA
+      - uses: actions/checkout@v7 # pin to SHA
       - uses: pnpm/action-setup@v4 # pin to SHA
         with: { version: '${{ env.PNPM_VERSION }}' }
       - uses: actions/setup-node@v4 # pin to SHA
@@ -52,7 +52,7 @@ jobs:
     # cores); the limit leaves room for a slow day without letting a hung run burn the hour.
     timeout-minutes: 60
     steps:
-      - uses: actions/checkout@v4 # pin to SHA
+      - uses: actions/checkout@v7 # pin to SHA
       - uses: pnpm/action-setup@v4 # pin to SHA
         with: { version: '${{ env.PNPM_VERSION }}' }
       - uses: actions/setup-node@v4 # pin to SHA
@@ -77,7 +77,7 @@ jobs:
       # checks after them run always; the static analysis runs in the ci job's lint (decision 0016).
       HOSTED_SCANNING: ${{ github.event.repository.private == false || vars.CODE_SCANNING == 'on' }}
     steps:
-      - uses: actions/checkout@v4 # pin to SHA
+      - uses: actions/checkout@v7 # pin to SHA
       - uses: github/codeql-action/init@v3 # pin to SHA
         if: env.HOSTED_SCANNING == 'true'
         with: { languages: 'javascript-typescript,python' }
