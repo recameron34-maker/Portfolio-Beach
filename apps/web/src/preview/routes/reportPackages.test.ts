@@ -1,9 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { addMonths, containingQuarterEnd, latestQuarterEndOnOrBefore } from '@pb/calc';
+import { addDays, addMonths, containingQuarterEnd, latestQuarterEndOnOrBefore } from '@pb/calc';
 import {
   canonicalJson,
   reportPackageDetail,
   reportPackageList,
+  reportPackageRow,
   seesAllClients,
   valuationRow,
 } from '@pb/contracts';
@@ -429,6 +430,35 @@ describe('reporting packages in the preview: who starts and who reads', () => {
     expect(window.__pbPreviewMisses).toEqual([]);
   });
 
+  it("refuses an as-of date after the preview's own date, so a quarter that has not ended is never packaged", async () => {
+    const { f } = session();
+    // The preview's date is the date of its recordings, as the API's is its clock's.
+    const today = dataset.asOf;
+    const tomorrow = addDays(today, 1);
+    // The quarter tomorrow is in has not ended.
+    const nextQuarter = containingQuarterEnd(tomorrow);
+    const body = { clientId: clientB, basis: 'net', label: 'preliminary' };
+    for (const [periodEnd, asOf] of [
+      [nextQuarter, nextQuarter],
+      [period, tomorrow],
+      ['2031-12-31', '2031-12-31'],
+    ] as const) {
+      const refused = await create(f, 'ir.one', { ...body, periodEnd, asOf });
+      expect(refused.status, `${periodEnd} ${asOf}`).toBe(400);
+      expect(refused.json).toMatchObject({
+        detail: 'Invalid body',
+        errors: [{ path: 'asOf', message: 'The as-of date is not after today' }],
+      });
+    }
+    // Without an as-of date a quarter that has not ended is refused as before.
+    expect((await create(f, 'ir.one', { ...body, periodEnd: nextQuarter })).status).toBe(400);
+    expect(reportPackageList.parse((await send(f, 'ops.one', 'GET', BASE)).json).items).toEqual([]);
+    // Today itself is an as-of date like any earlier one.
+    expect((await started(f, 'ir.one', clientB, period, { basis: 'net', asOf: today })).asOf).toBe(
+      today,
+    );
+  });
+
   it('lists the packages a reader may see, newest period first, with the counts of the latest run', async () => {
     const { f } = session();
     const a = await started(f, 'ir.one', clientA, prior);
@@ -446,9 +476,9 @@ describe('reporting packages in the preview: who starts and who reads', () => {
     const row = all.find((p) => p.id === a.id);
     expect(row?.qa).toEqual(generatedA.qa);
     expect(row).toMatchObject({ state: generatedA.state, rowVersion: generatedA.rowVersion });
-    // A row carries no content and no findings: those are the detail's.
-    expect(Object.keys(row ?? {})).not.toContain('content');
-    expect(Object.keys(row ?? {})).not.toContain('findings');
+    // A row is the row of the contract and nothing more: the content and the findings are the
+    // detail's.
+    expect(Object.keys(row ?? {}).sort()).toEqual(Object.keys(reportPackageRow.shape).sort());
 
     const one = reportPackageList.parse((await send(f, 'ir.one', 'GET', BASE)).json).items;
     expect(one.map((p) => p.id).sort()).toEqual([a.id, b.id].sort());

@@ -89,7 +89,10 @@ export class PackagesService {
   ) {}
 
   async list(principal: Principal, requestId: string): Promise<ReportPackageList> {
-    return this.db.run(principal, requestId, async (tx) => ({ items: await this.rows(tx) }));
+    // The row of the contract and nothing more: the stored row, with its snapshot, stays here.
+    return this.db.run(principal, requestId, async (tx) => ({
+      items: (await this.rows(tx)).map(({ record: _record, ...row }) => row),
+    }));
   }
 
   async detail(principal: Principal, requestId: string, id: string): Promise<ReportPackageDetail> {
@@ -102,7 +105,8 @@ export class PackagesService {
     requestId: string,
     body: ReportPackageCreateBody,
   ): Promise<ReportPackageDetail> {
-    const asOf = body.asOf ?? this.adapters.clock.today();
+    const today = this.adapters.clock.today();
+    const asOf = body.asOf ?? today;
     if (!isQuarterEnd(body.periodEnd))
       throw new ProblemError(400, 'validation', 'Invalid body', [
         { path: 'periodEnd', message: 'A package period is a calendar quarter end' },
@@ -111,8 +115,18 @@ export class PackagesService {
       throw new ProblemError(400, 'validation', 'Invalid body', [
         { path: 'asOf', message: 'The as-of date is on or after the period end' },
       ]);
+    // The record cannot be read as of a day that has not come: with the check above, a quarter
+    // that has not ended is never packaged, whatever as-of date the caller names.
+    if (asOf > today)
+      throw new ProblemError(400, 'validation', 'Invalid body', [
+        { path: 'asOf', message: 'The as-of date is not after today' },
+      ]);
+    // Investor relations prepare a package for a client they are entitled to, whatever a second
+    // role lets them read (the insert policy of rpt.package asks the same): any other client
+    // does not exist for this request (SEC-5.2).
+    if (!principal.clientIds.includes(body.clientId))
+      throw new ProblemError(404, 'not-found', CLIENT_NOT_FOUND);
     return this.db.run(principal, requestId, async (tx, audit) => {
-      // A client the caller is not entitled to does not exist for it (SEC-5.2).
       const client = (
         await tx
           .select({ id: schema.client.id })

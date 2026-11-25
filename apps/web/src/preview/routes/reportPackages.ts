@@ -179,7 +179,8 @@ export const reportPackageRoute = defineSimRoute({
  * POST /api/v1/report-packages (investor relations): a Draft for a client the caller is entitled
  * to, a quarter and a basis. One is in progress at a time for the three; once that one is
  * Released the next is a new version and needs a reason. The as-of date is the body's, else the
- * date of the recordings, which is the preview's own date as the API's clock is its own.
+ * date of the recordings, which is the preview's own date as the API's clock is its own; one
+ * after that date is refused.
  */
 export const createReportPackageRoute = defineSimRoute({
   method: 'POST',
@@ -191,7 +192,8 @@ export const createReportPackageRoute = defineSimRoute({
     const instance = req.url.pathname;
     const body = req.body;
     const refusal = { instance, simulated: true } as const;
-    const asOf = body.asOf ?? ctx.recordings.asOf;
+    const today = ctx.recordings.asOf;
+    const asOf = body.asOf ?? today;
     if (!isQuarterEnd(body.periodEnd))
       return problem(400, 'validation', 'Invalid body', {
         ...refusal,
@@ -201,6 +203,13 @@ export const createReportPackageRoute = defineSimRoute({
       return problem(400, 'validation', 'Invalid body', {
         ...refusal,
         errors: [{ path: 'asOf', message: 'The as-of date is on or after the period end' }],
+      });
+    // The record cannot be read as of a day that has not come, so a quarter that has not ended
+    // is never packaged, whatever as-of date the caller names.
+    if (asOf > today)
+      return problem(400, 'validation', 'Invalid body', {
+        ...refusal,
+        errors: [{ path: 'asOf', message: 'The as-of date is not after today' }],
       });
     // A client the caller is not entitled to does not exist for it (SEC-5.2). The database lets
     // investor relations prepare a package only for a client they are entitled to, whatever a

@@ -1,11 +1,54 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { addMonths, containingQuarterEnd, latestQuarterEndOnOrBefore } from '@pb/calc';
-import { problemDetails, reportPackageDetail, reportPackageList } from '@pb/contracts';
+import { addDays, addMonths, containingQuarterEnd, latestQuarterEndOnOrBefore } from '@pb/calc';
+import {
+  problemDetails,
+  reportPackageDetail,
+  reportPackageList,
+  reportPackageRow,
+} from '@pb/contracts';
 import type { ReportPackageDetail } from '@pb/contracts';
+import type { SyntheticDataset } from '@pb/db';
 import { startHarness } from './harness.js';
 import type { Harness } from './harness.js';
 
 const BASE = '/api/v1/report-packages';
+
+type User = SyntheticDataset['users'][number];
+
+/**
+ * People the seed does not hold. Each of the first four holds investor relations beside a second
+ * role, which is where the role lists alone stop telling who may do what; the last two are a
+ * second approver and a second investor relations user on ir.one's clients.
+ */
+function extraUsers(dataset: SyntheticDataset): User[] {
+  const clientsOf = (externalId: string): string[] =>
+    dataset.users.find((u) => u.externalId === externalId)?.clientIds ?? [];
+  const user = (
+    n: number,
+    externalId: string,
+    roles: User['roles'],
+    clientIds: string[],
+  ): User => ({
+    id: `5e000000-0000-4000-8000-${String(n).padStart(12, '0')}`,
+    externalId,
+    displayName: `Test ${externalId.replace(/\./g, ' ')}`,
+    email: `${externalId}@portfolio-beach.example`,
+    roles,
+    clientIds,
+  });
+  return [
+    // Investor relations and approver, entitled to ir.one's clients.
+    user(1, 'both.entitled', ['investor_relations', 'approver'], clientsOf('ir.one')),
+    // The same two roles, entitled to no client: reads every client through the approver role.
+    user(2, 'both.unentitled', ['investor_relations', 'approver'], []),
+    // Investor relations entitled to ir.two's client, reading every client through the deal team.
+    user(3, 'ir.deal', ['investor_relations', 'deal_team'], clientsOf('ir.two')),
+    // Investor relations and operations, entitled to none.
+    user(4, 'ir.ops', ['investor_relations', 'operations'], []),
+    user(5, 'head.two', ['approver'], []),
+    user(6, 'ir.three', ['investor_relations'], clientsOf('ir.one')),
+  ];
+}
 
 /**
  * Reporting packages, what the verification of decision 0024 found (its section "After the
@@ -20,9 +63,10 @@ describe('reporting packages: what the boundary and the gate refuse', () => {
   let earlier: string;
   let clientA: string;
   let clientB: string;
+  let clientC: string;
 
   beforeAll(async () => {
-    h = await startHarness();
+    h = await startHarness({ extraUsers });
     period = latestQuarterEndOnOrBefore(h.dataset.asOf);
     prior = containingQuarterEnd(addMonths(period, -3));
     earlier = containingQuarterEnd(addMonths(prior, -3));
@@ -31,6 +75,9 @@ describe('reporting packages: what the boundary and the gate refuse', () => {
     if (a === undefined || b === undefined) throw new Error('ir.one has two clients');
     clientA = a;
     clientB = b;
+    const c = h.dataset.users.find((u) => u.externalId === 'ir.two')?.clientIds[0];
+    if (c === undefined) throw new Error('ir.two has a client');
+    clientC = c;
   });
   afterAll(async () => {
     await h.close();
@@ -157,6 +204,56 @@ describe('reporting packages: what the boundary and the gate refuse', () => {
     // An override reason is kept without the spaces around it too.
     d = await run('head.one', draft.id, { command: 'overrideQa', reason: '  agreed with ops  ' });
     expect(d.findings.find((f) => f.override !== null)?.override?.reason).toBe('agreed with ops');
-    void clientB;
+  });
+
+  it('lists each package as the row of the contract and nothing more', async () => {
+    const draft = await started('ir.one', clientB, earlier);
+    await run('ir.one', draft.id, { command: 'generate' });
+    const body = (await get('ops.one', BASE).expect(200)).body as {
+      items: Record<string, unknown>[];
+    };
+    expect(body.items.length).toBeGreaterThan(0);
+    // No snapshot, no stored row: a list read carries what the list shows.
+    const keys = Object.keys(reportPackageRow.shape).sort();
+    for (const item of body.items) expect(Object.keys(item).sort()).toEqual(keys);
+    expect(Object.keys(body)).toEqual(['items']);
+  });
+
+  it('answers 404 to investor relations who start a package for a client they are not entitled to, whatever second role they hold', async () => {
+    const body = { clientId: clientA, periodEnd: earlier, basis: 'net', label: 'preliminary' };
+    // Each reads the client through the second role; none is entitled to it.
+    for (const who of ['ir.deal', 'ir.ops', 'both.unentitled']) {
+      const refused = await create(who, body).expect(404);
+      expect(problemDetails.parse(refused.body).detail, who).toBe('Client not found');
+    }
+    expect(await versionsOf(clientA, earlier)).not.toContain('1 Draft');
+    // Entitled, the same people start one like any investor relations user.
+    const own = await started('ir.deal', clientC, earlier, { basis: 'net' });
+    expect(own.preparedBy.id).toBe(h.dataset.users.find((u) => u.externalId === 'ir.deal')?.id);
+    await started('both.entitled', clientA, earlier, { basis: 'net' });
+  });
+
+  it("refuses an as-of date after the API's own date, so a quarter that has not ended is never packaged", async () => {
+    const today = h.dataset.asOf;
+    const tomorrow = addDays(today, 1);
+    // The quarter tomorrow is in has not ended.
+    const nextQuarter = containingQuarterEnd(tomorrow);
+    const body = { clientId: clientB, basis: 'net', label: 'preliminary' };
+    for (const [periodEnd, asOf] of [
+      [nextQuarter, nextQuarter],
+      [period, tomorrow],
+      ['2031-12-31', '2031-12-31'],
+    ] as const) {
+      const refused = await create('ir.one', { ...body, periodEnd, asOf }).expect(400);
+      expect(problemDetails.parse(refused.body).errors, `${periodEnd} ${asOf}`).toEqual([
+        { path: 'asOf', message: 'The as-of date is not after today' },
+      ]);
+    }
+    // Without an as-of date a quarter that has not ended is refused as before.
+    await create('ir.one', { ...body, periodEnd: nextQuarter }).expect(400);
+    expect(await versionsOf(clientB, nextQuarter)).toEqual([]);
+    // Today itself is an as-of date like any earlier one.
+    const draft = await started('ir.one', clientB, period, { basis: 'net', asOf: today });
+    expect(draft.asOf).toBe(today);
   });
 });
