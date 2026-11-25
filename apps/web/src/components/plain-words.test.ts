@@ -52,6 +52,25 @@ describe('plain words', () => {
     );
   });
 
+  it("keeps the term a provider's label was mapped to when the two read differently", () => {
+    registerTaxonomyLabels([
+      { code: 'sector.software', label: 'Software' },
+      { code: 'sector.energy_transition', label: 'Energy transition' },
+      { code: 'sector.healthcare', label: 'Healthcare' },
+      { code: 'geography.other', label: 'Other' },
+      { code: 'geography.north_america', label: 'North America' },
+    ]);
+    // The label was compared as this term: dropping the code must not drop what it meant.
+    expect(codeWords('Technology (sector.software)')).toBe('Technology (Software)');
+    expect(codeWords('Energy (sector.energy_transition)')).toBe('Energy (Energy transition)');
+    expect(codeWords('Rest of World (geography.other)')).toBe('Rest of World (Other)');
+    // The same words twice say nothing: the bracket goes, whatever the capitals or spacing.
+    expect(codeWords('Healthcare (sector.healthcare)')).toBe('Healthcare');
+    expect(codeWords('north  america (geography.north_america)')).toBe('north  america');
+    // Never a code on the page, in or out of the bracket.
+    expect(codeWords('sector.software (sector.software)')).toBe('Software');
+  });
+
   it('never adds a unit or touches a figure, a name or a file', () => {
     for (const value of [
       '20000000.00',

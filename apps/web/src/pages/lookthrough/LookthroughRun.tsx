@@ -108,9 +108,10 @@ function ExposureCell({
 }
 
 /**
- * A difference in words: the record's code by its label, and the provider's own label without the
- * code it mapped to ("Sector Energy transition on record, provider Healthcare"). Figures are left
- * as they came, so the money reads as the record holds it.
+ * A difference in words: the record's code by its label, and the provider's own label with the
+ * term it mapped to when the two read differently ("Sector Healthcare on record, provider
+ * Technology (Software)"; "provider Healthcare" when they read the same). Figures are left as
+ * they came, so the money reads as the record holds it.
  */
 function differenceWords(d: LookthroughDifference): string {
   return describeDifference({

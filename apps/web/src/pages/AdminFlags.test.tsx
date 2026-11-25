@@ -79,9 +79,13 @@ describe('feature flags page', () => {
     await userEvent.type(reason, '!');
     expect(extraction).toBeEnabled();
     await userEvent.click(extraction);
-    // The result names the flag as the table does, by its description with no key or control.
+    // The result names the flag by its description with no key or control, and a kill switch as
+    // the switch it is: "Kill switch ... is now off" would read as calls allowed.
     const message = await screen.findByTestId('flag-message');
-    expect(message).toHaveTextContent('Kill switch for AI extraction calls is now on (audited).');
+    expect(message).toHaveTextContent(
+      /^The switch for AI extraction calls is now on \(audited\)\.$/,
+    );
+    expect(message).not.toHaveTextContent('Kill switch');
     expect(message).not.toHaveTextContent('ai.extraction');
     expect(message).not.toHaveTextContent('SEC-');
     const patch = vi
@@ -95,6 +99,39 @@ describe('feature flags page', () => {
     });
     await userEvent.click(screen.getByRole('button', { name: 'Clear reason' }));
     expect(reason).toHaveValue('');
+  });
+
+  it('says a kill switch that was turned off is off, in words that cannot read as allowed', async () => {
+    mockApi({
+      '/api/v1/auth/me': { body: admin },
+      '/api/v1/flags': { body: flagsFixture(true) },
+      '/api/v1/flags/ai.extraction': {
+        body: {
+          key: 'ai.extraction',
+          enabled: false,
+          description: 'Kill switch for AI extraction calls (SEC-8.10)',
+        },
+      },
+      '/api/v1/flags/adapter.accounting': {
+        body: {
+          key: 'adapter.accounting',
+          enabled: false,
+          description: 'Accounting import and export adapter',
+        },
+      },
+    });
+    render(withQueries(<AdminFlagsPage />));
+    await userEvent.type(await screen.findByLabelText('Reason for the next change'), 'stop');
+    await userEvent.click(screen.getByRole('switch', { name: 'ai.extraction enabled' }));
+    const message = await screen.findByTestId('flag-message');
+    expect(message).toHaveTextContent(
+      /^The switch for AI extraction calls is now off \(audited\)\.$/,
+    );
+    // A flag that is not a kill switch keeps its own description.
+    await userEvent.click(screen.getByRole('switch', { name: 'adapter.accounting enabled' }));
+    expect(
+      await screen.findByText(/^Accounting import and export adapter is now off/),
+    ).toBeVisible();
   });
 
   it('is read only for every other role, with no reason to type', async () => {

@@ -74,6 +74,31 @@ describe('watchlist page', () => {
     expect(screen.queryByRole('status')).not.toBeInTheDocument();
   });
 
+  it('shows a limit with the decimals it was configured with, never a rounded one', async () => {
+    // A flag is tested against the limit as configured: 6.25 shown as "6.3x", or 12.75% as
+    // "12.8%", would be a different number from the one the flags above were tested against.
+    mockApi({
+      [WATCHLIST]: ok({
+        ...watchlistFixture(),
+        thresholds: {
+          netDebtToEbitdaMax: 6.25,
+          ebitdaYoYDeclinePct: 0.1275,
+          markdownPct: 0.125,
+          missingFinancialsDays: 75,
+          maturityWithinMonths: 12,
+        },
+      }),
+    });
+    renderWithQuery(<WatchlistPage />);
+    const thresholds = await screen.findByRole('table', { name: 'Monitoring thresholds' });
+    const valueOf = (label: string): string | null | undefined =>
+      within(thresholds).getByText(label).nextElementSibling?.textContent;
+    expect(valueOf('Net debt / EBITDA, maximum')).toBe('6.25x');
+    expect(valueOf('EBITDA decline year on year')).toBe('12.75%');
+    expect(valueOf('Markdown against the prior Locked mark')).toBe('12.5%');
+    expect(valueOf('Without approved financials for')).toBe('75 days');
+  });
+
   it('puts the flags under the position on a phone, in the same table', async () => {
     const original = globalThis.matchMedia;
     globalThis.matchMedia = ((query: string) => ({

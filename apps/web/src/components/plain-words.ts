@@ -41,14 +41,23 @@ const DOMAINS =
 const CODE = new RegExp(`\\b(?:${DOMAINS})\\.[a-z0-9_]+\\b`, 'g');
 const WHOLE_CODE = new RegExp(`^(?:${DOMAINS})\\.[a-z0-9_]+$`);
 /** A provider's label followed by the code it was mapped to: "Healthcare (sector.healthcare)". */
-const MAPPED = new RegExp(` \\((?:${DOMAINS})\\.[a-z0-9_]+\\)$`);
+const MAPPED = new RegExp(`^(.+) \\(((?:${DOMAINS})\\.[a-z0-9_]+)\\)$`);
+
+/** Two wordings that read the same: capitals and spacing aside. */
+const sameWords = (a: string, b: string): boolean =>
+  a.trim().replace(/\s+/g, ' ').toLowerCase() === b.trim().replace(/\s+/g, ' ').toLowerCase();
 
 /**
- * A value as a reader says it: a code by its label ("Energy transition"), a provider's label
- * without the code it was mapped to ("Healthcare"), a code inside a sentence by its label. Any
- * other value (a figure, a name, a sentence) stays exactly as it came; no unit is added.
+ * A value as a reader says it: a code by its label ("Energy transition"), a code inside a sentence
+ * by its label, and a provider's label with the term it was mapped to in words, "Technology
+ * (Software)": the term is what the record was compared with, so it stays. Only when the label
+ * and the term read the same does the bracket go ("Healthcare"). Any other value (a figure, a
+ * name, a sentence) stays exactly as it came; no unit is added.
  */
 export function codeWords(value: string): string {
   if (WHOLE_CODE.test(value)) return labelOf(value);
-  return value.replace(MAPPED, '').replace(CODE, (code) => labelOf(code));
+  const mapped = MAPPED.exec(value);
+  const words = (mapped?.[1] ?? value).replace(CODE, (code) => labelOf(code));
+  const term = mapped?.[2] === undefined ? null : labelOf(mapped[2]);
+  return term === null || sameWords(words, term) ? words : `${words} (${term})`;
 }

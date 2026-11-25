@@ -1,10 +1,12 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { clearTaxonomyLabels, registerTaxonomyLabels } from '../../lib/format.js';
 import { failing, mockApi, ok } from '../../test/api-mock.js';
 import type { MockRoutes } from '../../test/api-mock.js';
 import {
   EXCEPTION_ID,
+  exceptionFixture,
   exceptionPageFixture,
   exceptions,
   weeklyExceptionFixture,
@@ -76,6 +78,7 @@ async function pick(combobox: string, option: string): Promise<void> {
 describe('the exceptions queue', () => {
   afterEach(() => {
     cleanup();
+    clearTaxonomyLabels();
     vi.restoreAllMocks();
   });
 
@@ -140,6 +143,26 @@ describe('the exceptions queue', () => {
     expect(within(rowOf('Other')).getByText('Medium')).toHaveClass('pb-badge-watch');
     expect(screen.queryByTestId('exceptions-file-note')).not.toBeInTheDocument();
     expect(screen.queryByTestId('exceptions-truncated')).not.toBeInTheDocument();
+  });
+
+  it("keeps the term a provider's label was mapped to when it reads differently from the label", async () => {
+    registerTaxonomyLabels([
+      { code: 'sector.software', label: 'Software' },
+      { code: 'sector.healthcare', label: 'Healthcare' },
+    ]);
+    const technology = exceptionFixture({
+      id: EXCEPTION_ID.sector,
+      ruleId: 'LT-DIFF-01',
+      expected: 'sector.healthcare',
+      actual: 'Technology (sector.software)',
+    });
+    mockApi(routes({ [LIST]: ok(exceptionPageFixture([technology])) }));
+    renderWithQuery(<ExceptionsPage />);
+    await screen.findByRole('table', { name: 'Data exceptions' });
+    // "Technology" alone would not say which term the label was compared as.
+    const row = rowOf('Technology (Software)');
+    expect(within(row).getByText('Healthcare')).toBeInTheDocument();
+    expect(row).not.toHaveTextContent('sector.');
   });
 
   it('sends the state, source and severity filters to the API', TIMEOUT, async () => {

@@ -94,7 +94,7 @@ describe('rendered page copy', () => {
     await userEvent.type(screen.getByLabelText('Reason for the next change'), 'ok!');
     await userEvent.click(screen.getByRole('switch', { name: 'ai.extraction enabled' }));
     expect(await screen.findByTestId('flag-message')).toHaveTextContent(
-      'Kill switch for AI extraction calls is now on',
+      'The switch for AI extraction calls is now on',
     );
     expect(buildWords()).toEqual([]);
     for (const f of flags.flags) expect(visibleText()).not.toContain(f.key);

@@ -222,6 +222,13 @@ describe('extraction run review', () => {
     expect(
       within(narrative).getByRole('button', { name: 'Reject, Commentary' }),
     ).toBeInTheDocument();
+    // Accept and Reject change nothing the card shows, so the note says what they decide: an
+    // unaccepted draft is not written on approval, and the page does not show the decision yet.
+    const note = narrative.querySelector('.pb-extraction-page-note');
+    expect(note).toHaveTextContent(
+      'Drafted from the extracted figures only. Accepting the clean values accepts the draft if it passed the style rules. Approval writes the draft to the quarter only if it was accepted. This page does not yet show whether the draft was accepted or rejected.',
+    );
+    expect(note).not.toHaveTextContent('API');
 
     // Approval waits for the flagged and invalid values.
     const approve = screen.getByRole('button', { name: 'Approve and promote' });

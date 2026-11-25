@@ -21,6 +21,14 @@ import {
 import { useNarrowScreen } from '../lib/media.js';
 import { withoutReferences } from '../lib/references.js';
 
+/**
+ * A flag as the result line names it: its description without the control it cites, and a kill
+ * switch as "The switch for ...". "Kill switch for AI extraction calls is now off" would read as
+ * the calls being allowed, when off is what stops them.
+ */
+const switchWords = (description: string): string =>
+  withoutReferences(description).replace(/^Kill switch for /, 'The switch for ');
+
 /** A switch the reader can change, or not yet: the reason unlocks it, the role allows it. */
 interface FlagRowProps {
   flag: FeatureFlag;
@@ -86,7 +94,7 @@ export function AdminFlagsPage(): ReactNode {
     onSuccess: (f) => {
       // The flag by its description, as the table names it; the key stays with the switch.
       setMessage(
-        `${withoutReferences(f.description)} is now ${f.enabled ? 'on' : 'off'} ${previewMode ? '(simulated in this preview, not audited)' : '(audited)'}.`,
+        `${switchWords(f.description)} is now ${f.enabled ? 'on' : 'off'} ${previewMode ? '(simulated in this preview, not audited)' : '(audited)'}.`,
       );
       changed.mark(f.key);
       void queryClient.invalidateQueries({ queryKey: ['flags'] });

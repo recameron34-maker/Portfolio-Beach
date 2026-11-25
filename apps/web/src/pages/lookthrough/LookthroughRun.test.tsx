@@ -4,6 +4,7 @@ import { clearTaxonomyLabels, registerTaxonomyLabels } from '../../lib/format.js
 import { failing, mockApi, ok } from '../../test/api-mock.js';
 import type { MockRoutes } from '../../test/api-mock.js';
 import {
+  lookthroughRowFixture,
   lookthroughRunDetailFixture,
   lookthroughRuns,
   RUN_ID,
@@ -172,6 +173,28 @@ describe('a reconcile run', () => {
     expect(within(alias).getByRole('link', { name: 'Meridian Data Partners' })).toBeInTheDocument();
     expect(within(alias).getByText('LT-DUP-01').closest('.pb-rule-id')).not.toBeNull();
     expect(within(alias).getByText('1 finding')).toHaveClass('pb-badge-bad');
+  });
+
+  it("says which term a provider's label was compared as when the label reads differently", async () => {
+    // The rule writes the provider's side as its label and the code it mapped to. "Technology"
+    // alone would lose that the comparison was with Software.
+    const row = lookthroughRowFixture({
+      differences: [
+        { field: 'sector', expected: 'sector.healthcare', actual: 'Technology (sector.software)' },
+      ],
+    });
+    mockApi(
+      routes({ [runPath(RUN_ID.defects)]: ok(lookthroughRunDetailFixture({ rows: [row] })) }),
+    );
+    renderWithQuery(<LookthroughRunPage />);
+    await screen.findByTestId('lookthrough-banner');
+    const words = 'Sector Healthcare on record, provider Technology (Software)';
+    expect(within(rowAt(1)).getByText(words)).toHaveClass('pb-visually-hidden');
+    expect(within(rowAt(1)).getByText('Sector', { selector: 'span[title]' })).toHaveAttribute(
+      'title',
+      words,
+    );
+    expect(rowAt(1)).not.toHaveTextContent('sector.');
   });
 
   it('counts the rows behind a wall and notes a duplicate reconcile', async () => {

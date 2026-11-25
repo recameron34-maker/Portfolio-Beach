@@ -147,6 +147,22 @@ describe('an exception', () => {
     expect(pair('Actual')).toHaveTextContent(/^Healthcare$/);
     cleanup();
 
+    // A label that reads differently from the term it mapped to keeps the term in words: it is
+    // what the record was compared with, and nothing else on the page says it.
+    const technology = exceptionFixture({
+      ruleId: 'LT-DIFF-01',
+      expected: 'sector.healthcare',
+      actual: 'Technology (sector.software)',
+    });
+    mockApi(routes(['operations'], { [detailPath(EXCEPTION_ID.nav)]: ok(technology) }));
+    renderWithQuery(<ExceptionDetailPage />);
+    await screen.findByTestId('exception-banner');
+    const mapped = within(screen.getByTestId('exception-detail')).getByText('Actual', {
+      selector: 'dt',
+    }).nextElementSibling;
+    expect(mapped).toHaveTextContent(/^Technology \(Software\)$/);
+    cleanup();
+
     const bare = exceptionFixture({
       context: {
         intakeFileId: null,

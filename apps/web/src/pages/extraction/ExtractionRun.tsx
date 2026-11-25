@@ -502,7 +502,8 @@ function NarrativeCard({
       )}
       <p className="pb-meta pb-extraction-page-note">
         Drafted from the extracted figures only. Accepting the clean values accepts the draft if it
-        passed the style rules.
+        passed the style rules. Approval writes the draft to the quarter only if it was accepted.
+        This page does not yet show whether the draft was accepted or rejected.
       </p>
     </Card>
   );

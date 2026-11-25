@@ -43,14 +43,25 @@ const THRESHOLD_LABELS: Record<string, string> = {
   maturityWithinMonths: 'Maturity within',
 };
 
+/** The decimals a plain decimal carries ("6.25" has two); null for any other spelling. */
+function decimalsOf(text: string): number | null {
+  const m = /^\d+(?:\.(\d+))?$/.exec(text);
+  return m === null ? null : (m[1]?.length ?? 0);
+}
+
 /**
  * A threshold in the reader's units, from the unit its name carries: a share as a percentage,
  * months and days as words, the leverage limit as a multiple. Any other value shows as recorded.
+ * A limit is never rounded: the flags were tested against the value as configured, so 6.25 reads
+ * "6.25x" and 0.1275 reads "12.75%". One decimal is the least shown ("6.0x", "15.0%").
  */
 function thresholdText(key: string, value: number | string): string {
   const text = String(value);
-  if (key.endsWith('Pct')) return formatPct(text);
-  if (key === 'netDebtToEbitdaMax') return formatMultiple(text);
+  const decimals = decimalsOf(text);
+  if (key.endsWith('Pct'))
+    return decimals === null ? text : formatPct(text, Math.max(1, decimals - 2));
+  if (key === 'netDebtToEbitdaMax')
+    return decimals === null ? text : decimals <= 1 ? formatMultiple(text) : `${text}x`;
   const n = typeof value === 'number' ? value : Number.NaN;
   if (Number.isInteger(n) && key.endsWith('Months')) return plural(n, 'month');
   if (Number.isInteger(n) && key.endsWith('Days')) return plural(n, 'day');
