@@ -44,6 +44,11 @@ export interface HarnessOptions {
    * extractor answers them like any other document.
    */
   extraDocuments?: (dataset: SyntheticDataset) => SyntheticDocument[];
+  /**
+   * People added to the dataset before it is loaded, each with roles and client entitlements the
+   * seed gives nobody: a person who holds two roles, say. They sign in like any other user.
+   */
+  extraUsers?: (dataset: SyntheticDataset) => SyntheticDataset['users'];
 }
 
 /**
@@ -71,6 +76,8 @@ export function writeDocumentRoot(root: string, set: DocumentSet): void {
 /** An API over a fresh in-memory database seeded with the small synthetic profile. */
 export async function startHarness(options: HarnessOptions = {}): Promise<Harness> {
   const dataset = generateDataset({ profile: 'small', seed: 42 });
+  // Added before the load, so the database and the sign-in both know them.
+  dataset.users.push(...(options.extraUsers?.(dataset) ?? []));
   const db = await createTestDb();
   await loadSyntheticDataset(db, dataset);
   const scratch = mkdtempSync(join(tmpdir(), 'pb-api-'));

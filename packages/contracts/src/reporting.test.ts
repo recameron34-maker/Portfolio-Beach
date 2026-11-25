@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import { buildOpenApi } from './openapi.js';
-import { reportPackageDetail, reportPackageRun } from './reporting.js';
+import {
+  reportPackageCommandBody,
+  reportPackageCreateBody,
+  reportPackageDetail,
+  reportPackageRun,
+} from './reporting.js';
 import type { ReportPackageDetail } from './reporting.js';
 
 /*
@@ -92,5 +97,76 @@ describe('the reporting package detail: its change log', () => {
         items: { required: ['at', 'by', 'runNo', 'lines', 'findings', 'failed'] },
       });
     }
+  });
+});
+
+/*
+ * What a person writes on a package (a reason for a new version, a reason for an override, an
+ * explanation of a tie-out) is measured without the spaces around it and kept that way: text of
+ * spaces is no reason, and the record refuses one (migration 0019), so the boundary does first.
+ */
+describe('reasons and explanations on a package: measured and kept without the spaces around them', () => {
+  const start = {
+    clientId: '33333333-3333-4333-8333-333333333333',
+    periodEnd: '2025-06-30',
+    basis: 'gross',
+    label: 'final',
+  };
+
+  it('refuses a reason for a new version that is spaces, or too short once the spaces are gone', () => {
+    for (const correctionReason of ['   ', '    ', ' \n\t ', ' ab ', '  a  '])
+      expect(
+        reportPackageCreateBody.safeParse({ ...start, correctionReason }).success,
+        JSON.stringify(correctionReason),
+      ).toBe(false);
+    expect(
+      reportPackageCreateBody.parse({ ...start, correctionReason: '  Corrected figures  ' })
+        .correctionReason,
+    ).toBe('Corrected figures');
+    // No reason at all is still a body: only a released package asks for one.
+    expect(reportPackageCreateBody.parse(start).correctionReason).toBeUndefined();
+  });
+
+  it('refuses an override reason that is spaces, and keeps a real one trimmed', () => {
+    expect(
+      reportPackageCommandBody.safeParse({ command: 'overrideQa', reason: '     ' }).success,
+    ).toBe(false);
+    expect(
+      reportPackageCommandBody.safeParse({ command: 'overrideQa', reason: ' ok ' }).success,
+    ).toBe(false);
+    expect(
+      reportPackageCommandBody.parse({ command: 'overrideQa', reason: '  agreed with ops  ' }),
+    ).toEqual({ command: 'overrideQa', reason: 'agreed with ops' });
+  });
+
+  it('refuses an explanation that is spaces, and keeps a real one trimmed', () => {
+    for (const command of ['generate', 'regenerate'] as const) {
+      expect(
+        reportPackageCommandBody.safeParse({ command, explanations: { 'INV-0002': '     ' } })
+          .success,
+        command,
+      ).toBe(false);
+      expect(
+        reportPackageCommandBody.parse({
+          command,
+          explanations: { 'INV-0002': '  Restated by the sponsor ' },
+        }),
+      ).toEqual({ command, explanations: { 'INV-0002': 'Restated by the sponsor' } });
+    }
+  });
+
+  it('still bounds the text at 500 characters and refuses a control character', () => {
+    expect(
+      reportPackageCommandBody.safeParse({ command: 'overrideQa', reason: 'a'.repeat(500) })
+        .success,
+    ).toBe(true);
+    expect(
+      reportPackageCommandBody.safeParse({ command: 'overrideQa', reason: 'a'.repeat(501) })
+        .success,
+    ).toBe(false);
+    expect(
+      reportPackageCommandBody.safeParse({ command: 'overrideQa', reason: 'agreed\u0000 with ops' })
+        .success,
+    ).toBe(false);
   });
 });

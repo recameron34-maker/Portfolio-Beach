@@ -51,6 +51,7 @@ const overrider = alias(schema.appUser, 'qa_overrider');
 const ENTITY = 'rpt.package';
 const NOT_FOUND = 'Reporting package not found';
 const CLIENT_NOT_FOUND = 'Client not found';
+const EXPLANATION_NOT_HELD = 'An explanation names a position the package does not hold';
 
 interface Definitions {
   rollForwardToleranceUsd?: unknown;
@@ -366,6 +367,13 @@ export class PackagesService {
         moversCount,
       }),
     );
+    // An explanation is for a position of this package. One for any other number is refused
+    // before anything is written, so nothing is kept for a position the package does not hold.
+    const held = new Set(snapshot.lines.map((line) => line.ref));
+    if (Object.keys(explanations).some((ref) => !held.has(ref)))
+      throw new ProblemError(400, 'validation', 'Invalid body', [
+        { path: 'explanations', message: EXPLANATION_NOT_HELD },
+      ]);
     const findings = runReportQa(snapshot, { toleranceUsd: tolerance, moversCount });
     const passed = qaPassed(findings);
     const failed = findings.filter((f) => !f.passed).length;

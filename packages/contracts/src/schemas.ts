@@ -36,6 +36,17 @@ export const plainText = (max: number): z.ZodString =>
     .max(max)
     .refine((value) => !FORBIDDEN_CONTROL.test(value), CONTROL_MESSAGE);
 
+/**
+ * Free text measured and kept without the spaces around it: the spaces are dropped first, so text
+ * of spaces is empty and a minimum length refuses it, and what is stored is what was said.
+ */
+export const trimmedText = (max: number): z.ZodString =>
+  z
+    .string()
+    .trim()
+    .max(max)
+    .refine((value) => !FORBIDDEN_CONTROL.test(value), CONTROL_MESSAGE);
+
 /** A code or name a list is filtered by: one bounded line of text, matched exactly, never empty. */
 export const filterText = z
   .string()

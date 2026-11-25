@@ -56,6 +56,7 @@ import type { SimContext, SimRequest } from './common.js';
 
 const NOT_FOUND = 'Reporting package not found';
 const CLIENT_NOT_FOUND = 'Client not found';
+const EXPLANATION_NOT_HELD = 'An explanation names a position the package does not hold';
 const CLIENTS_PATH = '/api/v1/clients';
 
 const notFound = (instance: string): Response =>
@@ -370,6 +371,15 @@ function generate(
       moversCount: previewQaSettings().moversCount,
     }),
   );
+  // An explanation is for a position of this package: one for any other number is refused
+  // before anything changes, in the API's words.
+  const held = new Set(snapshot.lines.map((line) => line.ref));
+  if (Object.keys(explanations).some((ref) => !held.has(ref)))
+    return problem(400, 'validation', 'Invalid body', {
+      instance,
+      simulated: true,
+      errors: [{ path: 'explanations', message: EXPLANATION_NOT_HELD }],
+    });
   const found = runReportQa(snapshot, previewQaSettings());
   const failed = found.filter((f) => !f.passed).length;
   const runNo = (sim.findings[0]?.runNo ?? 0) + 1;

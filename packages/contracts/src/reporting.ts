@@ -5,7 +5,7 @@ import * as s from './schemas.js';
  * Reporting packages (docs/04 M14, docs/18 section 5, docs/08 section 7): one client report for
  * a quarter and a basis, the snapshot it shows, the findings of the report QA rules and the
  * commands that move it from Draft to Released. Money travels as decimal strings; reasons and
- * explanations are bounded plain text.
+ * explanations are bounded plain text, measured and kept without the spaces around them.
  */
 
 export const REPORT_PACKAGE_STATES = [
@@ -23,7 +23,13 @@ export type ReportPackageState = z.infer<typeof reportPackageState>;
 export const reportPackageBasis = z.enum(['gross', 'net']);
 export const reportPackageLabel = z.enum(['preliminary', 'final']);
 
-const reason = s.plainText(500).min(3);
+/**
+ * What a person writes on a package, a reason or an explanation: 3 to 500 characters once the
+ * spaces around it are dropped. Text of spaces is no reason: the record refuses a blank one
+ * (migration 0019), so the boundary does first, and a blank explanation never replaces a real one.
+ */
+const written = s.trimmedText(500).min(3);
+const reason = written;
 /** A position's number, as it keys an explanation. */
 const positionRef = z.string().min(1).max(64);
 
@@ -158,7 +164,7 @@ export const reportPackageCreateBody = z
 export type ReportPackageCreateBody = z.infer<typeof reportPackageCreateBody>;
 
 /** Why a begin NAV differs from the last released package, by position number. */
-const explanations = z.record(positionRef, s.plainText(500).min(3));
+const explanations = z.record(positionRef, written);
 
 /**
  * The commands of docs/18 section 5. generate and regenerate build the snapshot and run the QA

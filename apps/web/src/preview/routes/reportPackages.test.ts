@@ -873,6 +873,91 @@ describe('reporting packages in the preview: generating and the QA gate', () => 
   });
 });
 
+describe('reporting packages in the preview: what a person writes on a package', () => {
+  it('refuses a reason of spaces for a new version and starts nothing, and keeps a real one trimmed', async () => {
+    const { f } = session();
+    const first = await started(f, 'ir.one', clientA, prior);
+    expect((await released(f, TEAM, first.id)).state).toBe('Released');
+    const body = { clientId: clientA, periodEnd: prior, basis: 'gross', label: 'preliminary' };
+    // Text of spaces is no reason: 400 at the boundary, as the API answers, and no version 2.
+    for (const correctionReason of ['    ', ' ab ']) {
+      const refused = await create(f, 'ir.one', { ...body, correctionReason });
+      expect(refused.status, correctionReason).toBe(400);
+      expect(refused.json).toMatchObject({ errors: [{ path: 'correctionReason' }] });
+    }
+    const listed = reportPackageList.parse((await send(f, 'ops.one', 'GET', BASE)).json).items;
+    expect(listed.map((p) => `${p.version} ${p.state}`)).toEqual(['1 Released']);
+    const v2 = detailOf(
+      await create(f, 'ir.one', { ...body, correctionReason: '  Corrected figures  ' }),
+      201,
+    );
+    expect(v2).toMatchObject({ version: 2, state: 'Draft', correctionReason: 'Corrected figures' });
+  });
+
+  it('keeps an explanation only for a position the package holds, never a blank one, and trims what it keeps', async () => {
+    const { f } = session();
+    // Labelled final over the stale position, so the gate fails and the package can be run again.
+    const draft = await started(f, 'ir.one', clientA, period, { label: 'final' });
+    let d = await run(f, 'ir.one', draft.id, { command: 'generate' });
+    expect(d.state).toBe('QAFailed');
+    const ref = contentOf(d).lines[0]?.ref;
+    if (ref === undefined) throw new Error('the package holds a position');
+
+    // A position the package does not hold: refused, and nothing is run or kept.
+    for (const unknown of ['INV-9999', 'constructor']) {
+      const refused = await command(f, 'ir.one', draft.id, {
+        command: 'regenerate',
+        explanations: { [unknown]: 'Not a position of this package' },
+      });
+      expect(refused.status, unknown).toBe(400);
+      expect(refused.json).toMatchObject({
+        detail: 'Invalid body',
+        errors: [
+          {
+            path: 'explanations',
+            message: 'An explanation names a position the package does not hold',
+          },
+        ],
+      });
+    }
+    // Text of spaces is no explanation.
+    expect(
+      (
+        await command(f, 'ir.one', draft.id, {
+          command: 'regenerate',
+          explanations: { [ref]: '     ' },
+        })
+      ).status,
+    ).toBe(400);
+    expect(detailOf(await send(f, 'ir.one', 'GET', `${BASE}/${draft.id}`))).toEqual(d);
+
+    d = await run(f, 'ir.one', draft.id, {
+      command: 'regenerate',
+      explanations: { [ref]: '  Restated by the sponsor  ' },
+    });
+    expect(d.tieOutExplanations).toEqual({ [ref]: 'Restated by the sponsor' });
+    // A blank one sent later is refused, so the one on record stays.
+    expect(
+      (
+        await command(f, 'ir.one', draft.id, {
+          command: 'regenerate',
+          explanations: { [ref]: '   ' },
+        })
+      ).status,
+    ).toBe(400);
+    expect(
+      detailOf(await send(f, 'ir.one', 'GET', `${BASE}/${draft.id}`)).tieOutExplanations,
+    ).toEqual({ [ref]: 'Restated by the sponsor' });
+
+    // An override reason is kept without the spaces around it too.
+    d = await run(f, 'head.one', draft.id, {
+      command: 'overrideQa',
+      reason: '  agreed with ops  ',
+    });
+    expect(d.findings.find((x) => x.override !== null)?.override?.reason).toBe('agreed with ops');
+  });
+});
+
 describe('reporting packages in the preview: which release a package ties to', () => {
   it('picks the latest earlier quarter released to the same client on the same basis, and nothing else', async () => {
     const { f } = session();
