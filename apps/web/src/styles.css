@@ -980,7 +980,9 @@ p:last-child {
 /* A long table: a region of limited height whose header stays in view while the rows scroll. While
    rows lie below its foot, a soft edge at the foot says so (a cover that travels with the rows over
    a shade that stays put, as at the sides) and the foot takes a rule (TableWrap marks
-   data-more-below); at the last row both are gone. */
+   data-more-below); at the last row both are gone. A table that runs only a little past the
+   region (up to a third) is shown whole instead (TableWrap marks data-whole): a second scroll bar
+   for its last two rows would hide more than it saves. */
 .pb-table-wrap.is-tall {
   max-height: min(72vh, 760px);
   overflow: auto;
@@ -999,6 +1001,9 @@ p:last-child {
       var(--pb-space-2) 100% no-repeat scroll,
     linear-gradient(to top, rgba(var(--pb-text-rgb), 0.1), transparent) center bottom / 100%
       var(--pb-space-4) no-repeat scroll;
+}
+.pb-table-wrap.is-tall[data-whole] {
+  max-height: none;
 }
 .pb-table-wrap.is-tall[data-more-below] {
   border-bottom-color: var(--pb-border-strong);

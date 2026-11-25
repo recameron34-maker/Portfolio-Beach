@@ -26,6 +26,7 @@ import {
   plural,
 } from '../../lib/format.js';
 import { irrFlagHint } from '../../lib/labels.js';
+import { useNarrowScreen } from '../../lib/media.js';
 import { balanceTiles } from '../../lib/tiles.js';
 
 function CashFlowsCard({ summary }: { summary: AnalyticsSummary }): ReactNode {
@@ -86,7 +87,7 @@ function CashFlowsCard({ summary }: { summary: AnalyticsSummary }): ReactNode {
         testId="performance-cumulative"
       />
       <TableWrap label="Cash flows by year">
-        <table className="pb-table" aria-label="Cash flows by year">
+        <table className="pb-table pb-analytics-flows" aria-label="Cash flows by year">
           <thead>
             <tr>
               <th>Year</th>
@@ -116,6 +117,9 @@ function CashFlowsCard({ summary }: { summary: AnalyticsSummary }): ReactNode {
 function TopPositionsCard({ summary }: { summary: AnalyticsSummary }): ReactNode {
   const top = summary.topPositions;
   const first = top[0];
+  // A phone holds one identity cell (the company, its number under it): two narrow columns
+  // wrapped every company to a word a line and held only the number in view.
+  const narrow = useNarrowScreen();
   return (
     <Card>
       <SectionHeader aside={`Top ${top.length} by NAV, Locked marks only`}>
@@ -128,8 +132,10 @@ function TopPositionsCard({ summary }: { summary: AnalyticsSummary }): ReactNode
         />
       ) : (
         <>
+          {/* The section's title names the chart: its own title is for its name and table view. */}
           <HorizontalBars
             title="NAV of the largest positions"
+            hideCaption
             data={top.map((p, i) => ({
               label: p.companyName,
               value: Number(p.nav ?? '0'),
@@ -145,7 +151,7 @@ function TopPositionsCard({ summary }: { summary: AnalyticsSummary }): ReactNode
             <table className="pb-table" aria-label="Largest positions">
               <thead>
                 <tr>
-                  <th>Inv #</th>
+                  {narrow ? null : <th>Inv #</th>}
                   <th>Company</th>
                   <th>Vehicle</th>
                   <th className="num">NAV</th>
@@ -156,15 +162,18 @@ function TopPositionsCard({ summary }: { summary: AnalyticsSummary }): ReactNode
               <tbody>
                 {top.map((p) => (
                   <tr key={p.id}>
-                    <td>
-                      <span className="pb-key">{p.investmentNumber}</span>
-                    </td>
-                    <td>
+                    {narrow ? null : (
+                      <td>
+                        <span className="pb-key">{p.investmentNumber}</span>
+                      </td>
+                    )}
+                    <td className={narrow ? 'pb-col-text' : undefined}>
                       <Link to="/portfolio/$id" params={{ id: p.id }}>
                         {p.companyName}
                       </Link>
+                      {narrow ? <span className="pb-cell-sub">{p.investmentNumber}</span> : null}
                     </td>
-                    <td>{p.vehicleName}</td>
+                    <td className={narrow ? 'pb-col-text' : undefined}>{p.vehicleName}</td>
                     <NumCell>{formatMoneyM(p.nav)}</NumCell>
                     <NumCell>{formatPct(p.navShare)}</NumCell>
                     <NumCell>{formatMoic(p.grossMoic)}</NumCell>

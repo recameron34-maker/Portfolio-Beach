@@ -299,7 +299,10 @@ export function CreditTab(): ReactNode {
   const items = q.data.items;
   return (
     <>
-      <PageContext items={[`As of ${formatDate(q.data.asOf)}`, plural(items.length, 'position')]} />
+      <PageContext
+        heading="Credit book"
+        items={[`As of ${formatDate(q.data.asOf)}`, plural(items.length, 'position')]}
+      />
       <Card>
         {items.length === 0 ? (
           <EmptyState

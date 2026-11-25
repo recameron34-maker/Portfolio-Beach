@@ -32,15 +32,12 @@ import './analytics.css';
 
 /** The cohorts of one entry metric: MOIC as bars, then count, invested, NAV, distributions, IRR and EBITDA growth. */
 function CohortCard({
-  heading,
   metric,
   measure,
   cohorts,
   testId,
 }: {
-  /** "By entry purchase multiple". */
-  heading: string;
-  /** "entry purchase multiple": the words the chart and the table are named with. */
+  /** "entry purchase multiple": the words the section, its chart and its table are named with. */
   metric: string;
   /** "Entry EV / EBITDA": how the band is measured. */
   measure: string;
@@ -51,7 +48,8 @@ function CohortCard({
   const best = [...bars].sort((a, b) => b.value - a.value)[0];
   return (
     <Card testId={testId}>
-      <SectionHeader aside={`${measure} bands`}>{heading}</SectionHeader>
+      {/* The bars are the section's chart, so the chart's title is the section's, said once. */}
+      <SectionHeader aside={`${measure} bands`}>{`Gross MOIC by ${metric}`}</SectionHeader>
       {best === undefined ? (
         <EmptyState
           title="No band has a MOIC"
@@ -60,6 +58,7 @@ function CohortCard({
       ) : (
         <HorizontalBars
           title={`Gross MOIC by ${metric}`}
+          hideCaption
           subtitle="Pooled over the positions of each band"
           data={bars}
           kind="multiple"
@@ -215,14 +214,12 @@ export function EntryMetricsTab(): ReactNode {
       {context}
       {bar}
       <CohortCard
-        heading="By entry purchase multiple"
         metric="entry purchase multiple"
         measure="Entry EV / EBITDA"
         cohorts={shown.cohorts.byEntryMultiple}
         testId="entry-multiple"
       />
       <CohortCard
-        heading="By entry net leverage"
         metric="entry net leverage"
         measure="Entry net debt / EBITDA"
         cohorts={shown.cohorts.byEntryLeverage}

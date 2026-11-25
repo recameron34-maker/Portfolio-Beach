@@ -256,20 +256,27 @@ export function PageHeader({
  * as-of date and the scope as short items with a dot between them, the tab's own controls on the
  * right (a grouping, an export), and an optional second line for a scope sentence that adds
  * something the items do not. It replaces the asides and meta lines that each repeated the date.
+ *
+ * `heading` is the tab's name as a heading that is not shown. A tab whose content starts before
+ * its first section title (figures, a chart, a table) passes it, so a reader who moves by
+ * headings has an entry to that content: the tab row names the tab only as a link.
  */
 export function PageContext({
   items,
   controls,
   note,
+  heading,
   testId,
 }: {
   items: ReactNode[];
   controls?: ReactNode;
   note?: ReactNode;
+  heading?: string | undefined;
   testId?: string | undefined;
 }): ReactNode {
   return (
     <div className="pb-page-context" data-testid={testId}>
+      {heading !== undefined ? <h2 className="pb-visually-hidden">{heading}</h2> : null}
       <p className="pb-page-context-items pb-meta-list">
         {items.map((item, i) => (
           <span key={i}>{item}</span>
@@ -410,15 +417,23 @@ export function Badge({
 }
 
 /**
+ * The tall region of a long table (styles.css, `.pb-table-wrap.is-tall`): at most this share of
+ * the window's height and never more than `most` pixels. A table up to `over` times that height
+ * is shown whole instead: a second scroll bar for the last two rows hides more than it saves.
+ */
+const TALL_REGION = { share: 0.72, most: 760, over: 4 / 3 } as const;
+
+/**
  * The frame every table sits in. A table wider than its section (a phone) scrolls sideways inside
  * it, and the frame takes keyboard focus so it can be scrolled without a pointer (WCAG 2.1.1).
  * It is positioned, so visually hidden text inside the table (absolutely positioned) scrolls and
  * clips with the table instead of widening the page. The label is the table's own label. `tall`
  * holds a long table in a region of limited height whose header stays in view; `busy` says the
  * rows are being replaced (aria-busy), and the frame dims while they are. The frame marks, for the
- * stylesheet, when its table is wider than it (`data-overflow-x`: the held first column's edge)
- * and when a tall region has rows below its foot (`data-more-below`: the rule at the foot), the
- * way TabNav marks the ends of its row.
+ * stylesheet, when its table is wider than it (`data-overflow-x`: the held first column's edge),
+ * when a tall region has rows below its foot (`data-more-below`: the rule at the foot), the way
+ * TabNav marks the ends of its row, and when a table in a tall region runs so little past it that
+ * it is shown whole (`data-whole`, TALL_REGION).
  */
 export function TableWrap({
   label,
@@ -438,6 +453,13 @@ export function TableWrap({
     const wrap = frame.current;
     if (wrap === null) return undefined;
     const mark = (): void => {
+      // First, since it sets the region's height: the table's own height does not depend on it.
+      const table = wrap.firstElementChild;
+      const region = Math.min(window.innerHeight * TALL_REGION.share, TALL_REGION.most);
+      wrap.toggleAttribute(
+        'data-whole',
+        tall && table instanceof HTMLElement && table.offsetHeight <= region * TALL_REGION.over,
+      );
       wrap.toggleAttribute('data-overflow-x', wrap.scrollWidth > wrap.clientWidth + 1);
       wrap.toggleAttribute(
         'data-more-below',

@@ -110,6 +110,7 @@ export function RealizationsTab(): ReactNode {
     <>
       {asOf === undefined ? null : (
         <PageContext
+          heading="Realized positions"
           items={[`As of ${formatDate(asOf)}`, 'Realized positions visible to you']}
           note="Holding period runs from the first contribution to the exit, in 365-day years."
         />

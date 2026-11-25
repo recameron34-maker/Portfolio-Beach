@@ -42,7 +42,6 @@ export function ValueCreationFilterBar({
         <Dropdown
           id={`vc-filter-${key}`}
           className="pb-analytics-filter"
-          size="small"
           // A value from a shared address that this reader's positions do not hold.
           value={selected === '' ? all : (current?.label ?? 'Not in this view')}
           selectedOptions={[selected]}
@@ -67,7 +66,6 @@ export function ValueCreationFilterBar({
       </span>
       {filtered ? (
         <Button
-          size="small"
           appearance="outline"
           data-testid="value-creation-filters-clear"
           onClick={() => onChange({})}
@@ -84,7 +82,6 @@ export function ValueCreationFilterBar({
         <>
           <div className="pb-vc-filters-bar">
             <Button
-              size="small"
               icon={<Filter16Regular />}
               aria-expanded={open}
               aria-controls={fieldsId}

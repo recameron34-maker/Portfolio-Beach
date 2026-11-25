@@ -158,6 +158,7 @@ export function ExposureTab(): ReactNode {
   return (
     <>
       <PageContext
+        heading="Exposure"
         items={[
           `As of ${formatDate(summary.asOf)}`,
           plural(summary.activeInvestments, 'active position'),

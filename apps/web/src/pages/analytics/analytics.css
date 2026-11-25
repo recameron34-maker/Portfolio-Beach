@@ -38,7 +38,8 @@
 
 /* The filter row of the value creation tabs: the six fields in an even grid with the count and
    Clear filters at its end, on the fields' bottom line; three across on a smaller laptop. Values
-   that do not fit end in an ellipsis rather than widening their field. */
+   that do not fit end in an ellipsis rather than widening their field. The fields and the button
+   are the height of every other filter row (32px), the same as the measure selector under them. */
 .pb-vc-filters {
   margin: 0 0 var(--pb-space-5);
 }
@@ -51,7 +52,7 @@
 }
 .pb-vc-filters > .pb-toolbar > .pb-toolbar-end {
   align-items: center;
-  min-height: 24px;
+  min-height: 32px;
   margin-left: 0;
 }
 .pb-vc-filters .pb-analytics-filter {
@@ -123,6 +124,21 @@
   margin-top: 0;
 }
 
+/* The cash flows by year: five short columns that a phone can show whole. Its cells stand 4px
+   apart there instead of 8px (the first and last keep their outer 8px, on the section's edge), so
+   the last column is not cut off for the sake of 22px. */
+@media (max-width: 480px) {
+  .pb-table.pb-analytics-flows :is(th, td) {
+    padding-inline: var(--pb-space-1);
+  }
+  .pb-table.pb-analytics-flows :is(th, td):first-child {
+    padding-left: var(--pb-space-2);
+  }
+  .pb-table.pb-analytics-flows :is(th, td):last-child {
+    padding-right: var(--pb-space-2);
+  }
+}
+
 /* Wide tables: headers may wrap, figure columns' too, so the columns fit a laptop screen. */
 .pb-analytics-dense thead th,
 .pb-analytics-dense thead th.num {
@@ -133,10 +149,12 @@
 }
 
 /* The value creation table: its groups over their columns, centred over a rule as wide as the
-   group, each group's first column set off by a hairline from top to foot. The identifier and the
-   company stay in view while the figures scroll beside them (a laptop: both; a phone: the
-   identifier alone, the shared rule). In its tall region the second header row stays under the
-   first. */
+   group, each group's first column set off by a hairline from top to foot. What names a row stays
+   in view while the figures scroll beside it: on a laptop the identifier and the company, two
+   held columns; on a phone one cell, the company with its number under it, 150px wide and held
+   by the shared rule for a table's first column, so a scrolled row still says whose it is and two
+   figure columns show beside it at rest. In its tall region the second header row stays under
+   the first. */
 .pb-vc-table {
   --pb-vc-key-w: 80px;
   --pb-vc-group-h: 28px;
@@ -161,6 +179,21 @@
 }
 .pb-table-wrap.is-tall .pb-vc-table thead tr + tr th {
   top: var(--pb-vc-group-h);
+}
+@media (max-width: 760px) {
+  .pb-vc-table .pb-vc-company {
+    box-sizing: border-box;
+    width: 150px;
+    min-width: 150px;
+    max-width: 150px;
+    white-space: normal;
+  }
+  /* The number's sort, under the company's in the one header the held cell has. */
+  .pb-vc-table .pb-sort-sub {
+    display: flex;
+    margin-top: var(--pb-space-1);
+    font-weight: 400;
+  }
 }
 @media (min-width: 761px) {
   :where(.pb-vc-table) :is(th, td).pb-vc-key {

@@ -752,6 +752,59 @@ describe('Analytics: Value creation tab', () => {
     expect(cells[1]).toHaveClass('pb-vc-company');
   });
 
+  it('on a phone holds one identity cell, the company over its number, and keeps both sorts', async () => {
+    vi.stubGlobal('matchMedia', (query: string) => ({
+      matches: query === '(max-width: 760px)',
+      addEventListener: () => undefined,
+      removeEventListener: () => undefined,
+    }));
+    try {
+      mockApi({ [VIEW]: ok(valueCreationFixture()) });
+      renderWithQuery(<ValueCreationTab />);
+      const table = await screen.findByRole('table', { name: 'Value creation by position' });
+      // Scrolled sideways, a row must still say which company it is: the held cell is the
+      // company with the investment number under it, not the number alone.
+      const first = rowOf(table, 'Saltmarsh Holdings');
+      const cells = within(first).getAllByRole('cell');
+      expect(cells).toHaveLength(15);
+      expect(cells[0]).toHaveClass('pb-vc-company');
+      expect(within(cells[0]!).getByRole('link', { name: 'Saltmarsh Holdings' })).toBeVisible();
+      expect(cells[0]!.querySelector('.pb-cell-sub')).toHaveTextContent(/^INV-\d{4}$/);
+      expect(first.querySelector('.pb-vc-key')).toBeNull();
+      // One header for that cell, over both header rows, with a sort for each of its two facts.
+      const identity = within(table).getAllByRole('columnheader')[0]!;
+      expect(identity).toHaveAttribute('rowspan', '2');
+      expect(identity).toHaveAttribute('aria-sort', 'none');
+      expect(
+        within(identity)
+          .getAllByRole('button')
+          .map((b) => b.textContent?.replace(/[▲▼]/g, '')),
+      ).toEqual(['Company', 'Inv #']);
+      expect(within(table).queryByRole('columnheader', { name: /^Inv #$/ })).toBeNull();
+      // Every figure column is still there, under the same groups.
+      expect(within(table).getAllByRole('columnheader')).toHaveLength(19);
+      const numbers = (): string[] =>
+        [...table.querySelectorAll('tbody tr .pb-cell-sub')].map((el) => el.textContent ?? '');
+      // Text sorts A to Z on its first press, as on a wider screen.
+      await userEvent.click(within(identity).getByRole('button', { name: /^Inv #/ }));
+      expect(identity).toHaveAttribute('aria-sort', 'ascending');
+      expect(numbers()).toEqual(['INV-0001', 'INV-0002', 'INV-0003', 'INV-0004']);
+      await userEvent.click(within(identity).getByRole('button', { name: /^Inv #/ }));
+      expect(identity).toHaveAttribute('aria-sort', 'descending');
+      expect(numbers()).toEqual(['INV-0004', 'INV-0003', 'INV-0002', 'INV-0001']);
+      await userEvent.click(within(identity).getByRole('button', { name: /^Company/ }));
+      expect(identity).toHaveAttribute('aria-sort', 'ascending');
+      await userEvent.click(
+        within(within(table).getByRole('columnheader', { name: /^Gross MOIC/ })).getByRole(
+          'button',
+        ),
+      );
+      expect(identity).toHaveAttribute('aria-sort', 'none');
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
   it('puts the date, the scope and Export CSV in one row under the tabs, the export apart from the table', async () => {
     mockApi({ [VIEW]: ok(valueCreationFixture()) });
     renderWithQuery(<ValueCreationTab />);
@@ -1050,6 +1103,26 @@ describe('Analytics: Entry metrics tab', () => {
     const bars = await screen.findByRole('group', {
       name: 'Gross MOIC by entry purchase multiple',
     });
+    // The section is titled with its chart's words, once: no second title over the bars.
+    for (const [testId, title, aside] of [
+      ['entry-multiple', 'Gross MOIC by entry purchase multiple', 'Entry EV / EBITDA bands'],
+      ['entry-leverage', 'Gross MOIC by entry net leverage', 'Entry net debt / EBITDA bands'],
+    ] as const) {
+      const section = screen.getByTestId(testId);
+      // The section's heading holds its title and, after it, the aside.
+      const heading = within(section).getByRole('heading', { level: 2 });
+      expect(heading).toHaveClass('pb-section-header');
+      expect(heading.firstElementChild).toHaveTextContent(new RegExp(`^${title}$`));
+      expect(heading.querySelector('.pb-section-aside')).toHaveTextContent(aside);
+      const caption = section.querySelector('.pb-chart-title');
+      expect(caption).toHaveTextContent(title);
+      expect(caption).toHaveClass('pb-visually-hidden');
+      // The chart's sub-line stays as the line that says what the bars are pooled over.
+      expect(section.querySelector('.pb-chart-subtitle')).toHaveTextContent(
+        'Pooled over the positions of each band',
+      );
+    }
+    expect(screen.queryByRole('heading', { name: /^By entry/ })).toBeNull();
     expect(within(bars).getByRole('img', { name: '9.0x to 11.0x: 1.52x' })).toBeInTheDocument();
     expect(within(bars).getByRole('img', { name: '11.0x to 13.0x: 0.75x' })).toBeInTheDocument();
     // An empty band has no bar (never a bar at zero) and still has its row.

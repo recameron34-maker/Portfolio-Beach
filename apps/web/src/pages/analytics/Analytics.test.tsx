@@ -110,8 +110,12 @@ describe('analytics tabs', () => {
       [...context!.querySelectorAll('.pb-page-context-items > span')].map((s) => s.textContent),
     ).toEqual(['As of Jun 30, 2025', '2 active positions', 'Locked marks only']);
     expect(context).toContainElement(screen.getByRole('group', { name: 'Group by' }));
-    // No section repeats the tab's name, and the date is said only there.
-    expect(screen.queryByRole('heading', { name: 'Exposure' })).toBeNull();
+    // No section title on the page repeats the tab's name; the tab is still a heading for a
+    // reader who moves by headings, so the charts and the table under it have an entry.
+    const tabHeading = screen.getByRole('heading', { level: 2, name: 'Exposure' });
+    expect(tabHeading).toHaveClass('pb-visually-hidden');
+    expect(context).toContainElement(tabHeading);
+    // The date is said only there.
     expect(screen.getAllByText(/As of Jun 30, 2025/)).toHaveLength(1);
     // The section that holds only the vehicles chart takes the chart's title as its own.
     expect(
@@ -212,12 +216,48 @@ describe('analytics tabs', () => {
     const flows = screen.getByRole('table', { name: 'Cash flows by year' });
     expect(within(flows).getByText('-$279.6M')).toBeInTheDocument();
     const top = screen.getByRole('table', { name: 'Largest positions' });
+    // The section's title names its chart: the chart keeps its own title for its name and its
+    // table view only, so the page does not say "Largest positions" twice over the bars.
+    const largest = screen.getByTestId('performance-top-positions');
+    expect(largest.querySelector('.pb-chart-title')).toHaveClass('pb-visually-hidden');
+    expect(screen.getByRole('group', { name: 'NAV of the largest positions' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { level: 2, name: /^Largest positions/ })).toHaveClass(
+      'pb-section-header',
+    );
     expect(within(top).getByRole('link', { name: 'Ashby Renewables Group' })).toHaveAttribute(
       'href',
       `/portfolio/${ID.inv3}`,
     );
     expect(within(top).getByText('17.0%')).toBeInTheDocument();
     expect(screen.getByRole('img', { name: 'Ashby Renewables Group: $79.1M' })).toBeInTheDocument();
+  });
+
+  it('performance: on a phone the largest positions hold the company, with its number under it', async () => {
+    vi.stubGlobal('matchMedia', (query: string) => ({
+      matches: query === '(max-width: 760px)',
+      addEventListener: () => undefined,
+      removeEventListener: () => undefined,
+    }));
+    try {
+      mockApi({ [ANALYTICS]: ok(analyticsFixture()) });
+      renderWithQuery(<PerformanceAnalyticsTab />);
+      const top = await screen.findByRole('table', { name: 'Largest positions' });
+      expect(
+        within(top)
+          .getAllByRole('columnheader')
+          .map((h) => h.textContent),
+      ).toEqual(['Company', 'Vehicle', 'NAV', 'Share of NAV', 'Gross MOIC']);
+      const row = within(top).getByRole('link', { name: 'Ashby Renewables Group' }).closest('tr');
+      const identity = within(row!).getAllByRole('cell')[0]!;
+      // The held first cell names the company; the number is its sub-line, not a column.
+      expect(identity).toContainElement(
+        within(top).getByRole('link', { name: 'Ashby Renewables Group' }),
+      );
+      expect(identity.querySelector('.pb-cell-sub')).toHaveTextContent(/^INV-\d{4}$/);
+      expect(identity).toHaveClass('pb-col-text');
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 
   it('credit book: the positions table, and an empty state per position while performance is not implemented', async () => {
@@ -230,6 +270,12 @@ describe('analytics tabs', () => {
     });
     renderWithQuery(<CreditTab />);
     const book = await screen.findByRole('table', { name: 'Credit positions' });
+    // The book's table comes before the first section title: the tab's own heading leads to it.
+    const tabHeading = screen.getByRole('heading', { level: 2, name: 'Credit book' });
+    expect(tabHeading).toHaveClass('pb-visually-hidden');
+    expect(
+      tabHeading.compareDocumentPosition(book) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
     expect(within(book).getByRole('link', { name: 'Summit Services Co' })).toHaveAttribute(
       'href',
       `/portfolio/${ID.inv2}`,
@@ -304,6 +350,13 @@ describe('analytics tabs', () => {
     expect(within(tiles).getByRole('group', { name: 'Realized positions' })).toHaveTextContent('1');
     expect(within(tiles).getByRole('group', { name: 'Gross MOIC' })).toHaveTextContent('1.87x');
     const table = await screen.findByRole('table', { name: 'Realized positions' });
+    // This tab has no section title of its own: the tab's name is its one heading under the
+    // page title, kept for a reader who moves by headings and not shown.
+    const tabHeading = screen.getByRole('heading', { level: 2, name: 'Realized positions' });
+    expect(tabHeading).toHaveClass('pb-visually-hidden');
+    expect(
+      tabHeading.compareDocumentPosition(tiles) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
     const row = within(table).getByRole('link', { name: 'Penrose Foods Holdings' }).closest('tr');
     expect(row).not.toBeNull();
     expect(row).toHaveTextContent('2.0 years');

@@ -1,3 +1,5 @@
+import { existsSync, readFileSync } from 'node:fs';
+import { join, resolve } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import {
@@ -61,6 +63,85 @@ describe('table frame', () => {
     const region = screen.getByRole('region', { name: 'Trade tickets' });
     expect(region).toHaveAttribute('aria-busy', 'true');
     expect(region).toHaveClass('pb-table-wrap', 'is-tall');
+  });
+
+  it('shows a table whole when it runs only a little past the tall region, and holds a much longer one', () => {
+    // 72 percent of a 900px window is a 648px region. A table of 742px would hide its last
+    // rows behind a second scroll bar for 95px; a table twice the region's height needs it.
+    let resized: (() => void) | undefined;
+    vi.stubGlobal(
+      'ResizeObserver',
+      class {
+        constructor(callback: () => void) {
+          resized = callback;
+        }
+        observe = vi.fn();
+        disconnect = vi.fn();
+      },
+    );
+    vi.stubGlobal('innerHeight', 900);
+    try {
+      render(
+        <TableWrap label="Positions" tall>
+          <table aria-label="Positions">
+            <tbody>
+              <tr>
+                <td>INV-0001</td>
+              </tr>
+            </tbody>
+          </table>
+        </TableWrap>,
+      );
+      const region = screen.getByRole('region', { name: 'Positions' });
+      const table = within(region).getByRole('table');
+      const tallAs = (px: number): void => {
+        Object.defineProperty(table, 'offsetHeight', { configurable: true, value: px });
+        resized?.();
+      };
+      tallAs(742);
+      expect(region).toHaveAttribute('data-whole');
+      // Up to a third over the region is shown; beyond it the region holds the table.
+      tallAs(864);
+      expect(region).toHaveAttribute('data-whole');
+      tallAs(865);
+      expect(region).not.toHaveAttribute('data-whole');
+      tallAs(1400);
+      expect(region).not.toHaveAttribute('data-whole');
+      // The region's height is never over 760px, however tall the window.
+      vi.stubGlobal('innerHeight', 2000);
+      tallAs(1013);
+      expect(region).toHaveAttribute('data-whole');
+      tallAs(1014);
+      expect(region).not.toHaveAttribute('data-whole');
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('never marks a table that is not in a tall region', () => {
+    render(
+      <TableWrap label="Cash flows">
+        <table aria-label="Cash flows">
+          <tbody>
+            <tr>
+              <td>Jun 30, 2025</td>
+            </tr>
+          </tbody>
+        </table>
+      </TableWrap>,
+    );
+    expect(screen.getByRole('region', { name: 'Cash flows' })).not.toHaveAttribute('data-whole');
+  });
+
+  it('keeps the tall region and the rule that shows a table whole on one cap', () => {
+    // TableWrap works from the cap the stylesheet sets (72 percent of the window, at most 760px,
+    // the numbers the test above measures against): the stylesheet must still say them.
+    const src = [resolve('apps/web/src'), resolve('src')].find((dir) =>
+      existsSync(join(dir, 'styles.css')),
+    );
+    const css = readFileSync(join(src ?? '', 'styles.css'), 'utf8');
+    expect(css).toMatch(/\.pb-table-wrap\.is-tall \{\s*max-height: min\(72vh, 760px\);/);
+    expect(css).toMatch(/\.pb-table-wrap\.is-tall\[data-whole\] \{\s*max-height: none;/);
   });
 
   it('frames the key and value table the same way', () => {

@@ -31,6 +31,7 @@ import {
   MISSING,
   plural,
 } from '../../lib/format.js';
+import { useNarrowScreen } from '../../lib/media.js';
 import { balanceTiles } from '../../lib/tiles.js';
 import { useActionLog } from '../../lib/workflow.js';
 import { csvRowCount, downloadText, exportResult } from '../monitoring/monitoring.js';
@@ -374,7 +375,56 @@ function cellClass(c: Column): string | undefined {
   return names.length === 0 ? undefined : names.join(' ');
 }
 
-/** A column's sortable header: the short words on screen, the whole name for a screen reader. */
+/** A column's sort: the short words on screen, the whole name for a screen reader. */
+function SortButton({
+  c,
+  sort,
+  onSort,
+  sub = false,
+}: {
+  c: Column;
+  sort: SortState;
+  onSort: (key: SortKey) => void;
+  /** The second sort of a header that holds two (the number under the company, on a phone). */
+  sub?: boolean;
+}): ReactNode {
+  const active = sort.key === c.key;
+  return (
+    <button
+      type="button"
+      className={sub ? 'pb-sort pb-sort-sub' : 'pb-sort'}
+      onClick={() => onSort(c.key)}
+    >
+      <span>
+        {c.before === undefined ? null : (
+          <>
+            <span className="pb-visually-hidden">{c.before}</span>{' '}
+          </>
+        )}
+        {c.label}
+        {c.after === undefined ? null : (
+          <>
+            {' '}
+            <span className="pb-visually-hidden">{c.after}</span>
+          </>
+        )}
+      </span>
+      {active ? (
+        // One mark that turns when the order flips.
+        <span
+          className={
+            sort.direction === 'descending' ? 'pb-sort-mark is-descending' : 'pb-sort-mark'
+          }
+          aria-hidden="true"
+        >
+          ▲
+        </span>
+      ) : null}
+    </button>
+  );
+}
+
+/** A column's sortable header. */
 function SortHeader({
   c,
   sort,
@@ -386,58 +436,65 @@ function SortHeader({
   onSort: (key: SortKey) => void;
   rowSpan?: number;
 }): ReactNode {
-  const active = sort.key === c.key;
   return (
     <th
       scope="col"
       rowSpan={rowSpan}
       className={cellClass(c)}
-      aria-sort={active ? sort.direction : 'none'}
+      aria-sort={sort.key === c.key ? sort.direction : 'none'}
     >
-      <button type="button" className="pb-sort" onClick={() => onSort(c.key)}>
-        <span>
-          {c.before === undefined ? null : (
-            <>
-              <span className="pb-visually-hidden">{c.before}</span>{' '}
-            </>
-          )}
-          {c.label}
-          {c.after === undefined ? null : (
-            <>
-              {' '}
-              <span className="pb-visually-hidden">{c.after}</span>
-            </>
-          )}
-        </span>
-        {active ? (
-          // One mark that turns when the order flips.
-          <span
-            className={
-              sort.direction === 'descending' ? 'pb-sort-mark is-descending' : 'pb-sort-mark'
-            }
-            aria-hidden="true"
-          >
-            ▲
-          </span>
-        ) : null}
-      </button>
+      <SortButton c={c} sort={sort} onSort={onSort} />
     </th>
   );
 }
 
-function PositionRow({ p }: { p: ValueCreationPosition }): ReactNode {
+const IDENTITY_KEYS: readonly SortKey[] = ['companyName', 'investmentNumber'];
+
+/**
+ * On a phone, the header of the one cell that names a row: the company with its investment number
+ * under it. It keeps the sort of each, so nothing a wider screen sorts by is lost.
+ */
+function IdentityHeader({
+  sort,
+  onSort,
+}: {
+  sort: SortState;
+  onSort: (key: SortKey) => void;
+}): ReactNode {
+  return (
+    <th
+      scope="col"
+      rowSpan={2}
+      className="pb-vc-company"
+      aria-sort={IDENTITY_KEYS.includes(sort.key) ? sort.direction : 'none'}
+    >
+      {IDENTITY_KEYS.map((key, i) => {
+        const c = COLUMNS.find((column) => column.key === key);
+        return c === undefined ? null : (
+          <SortButton key={key} c={c} sort={sort} onSort={onSort} sub={i > 0} />
+        );
+      })}
+    </th>
+  );
+}
+
+function PositionRow({ p, narrow }: { p: ValueCreationPosition; narrow: boolean }): ReactNode {
   const g = p.gainByDriver;
   return (
     <tr>
-      <td className="pb-vc-key">
-        <span className="pb-key">{p.investmentNumber}</span>
-      </td>
+      {narrow ? null : (
+        <td className="pb-vc-key">
+          <span className="pb-key">{p.investmentNumber}</span>
+        </td>
+      )}
       <td className="pb-vc-company">
         <Link to="/portfolio/$id/performance" params={{ id: p.id }}>
           {p.companyName}
         </Link>
         {/* A realized position holds no NAV: its gain is what was distributed less what was invested. */}
         {p.isActive ? null : <span className="pb-analytics-realized">Realized</span>}
+        {/* On a phone the number is the company's sub-line: the one held cell names the row. */}
+        {narrow ? <span className="pb-cell-sub">{p.investmentNumber}</span> : null}
       </td>
       <NumCell className="is-group-start">{formatMultiple(p.entry?.evToEbitda ?? null)}</NumCell>
       <NumCell>{formatMultiple(p.current?.evToEbitda ?? null)}</NumCell>
@@ -471,6 +528,10 @@ function PositionRow({ p }: { p: ValueCreationPosition }): ReactNode {
 
 function PositionsCard({ view }: { view: ShownView }): ReactNode {
   const [sort, setSort] = useState<SortState>(DEFAULT_SORT);
+  // A phone holds one identity cell (the company, its number under it): a held number alone
+  // would not say which company a row of figures belongs to once it is scrolled.
+  const narrow = useNarrowScreen();
+  const columns = narrow ? COLUMNS.filter((c) => c.key !== 'investmentNumber') : COLUMNS;
   const rows = sortPositions(view.positions, sort);
   const onSort = (key: SortKey): void => setSort((current) => nextSort(current, key));
   return (
@@ -487,11 +548,13 @@ function PositionsCard({ view }: { view: ShownView }): ReactNode {
               its own spans both rows), so every column keeps exactly one header with a sort. */}
           <thead>
             <tr>
-              {COLUMNS.map((c, i) => {
+              {columns.map((c, i) => {
+                if (narrow && c.key === 'companyName')
+                  return <IdentityHeader key={c.key} sort={sort} onSort={onSort} />;
                 if (c.group === undefined)
                   return <SortHeader key={c.key} c={c} sort={sort} onSort={onSort} rowSpan={2} />;
-                if (COLUMNS[i - 1]?.group === c.group) return null;
-                const span = COLUMNS.filter((x) => x.group === c.group).length;
+                if (columns[i - 1]?.group === c.group) return null;
+                const span = columns.filter((x) => x.group === c.group).length;
                 return (
                   <th
                     key={c.group}
@@ -505,14 +568,16 @@ function PositionsCard({ view }: { view: ShownView }): ReactNode {
               })}
             </tr>
             <tr>
-              {COLUMNS.filter((c) => c.group !== undefined).map((c) => (
-                <SortHeader key={c.key} c={c} sort={sort} onSort={onSort} />
-              ))}
+              {columns
+                .filter((c) => c.group !== undefined)
+                .map((c) => (
+                  <SortHeader key={c.key} c={c} sort={sort} onSort={onSort} />
+                ))}
             </tr>
           </thead>
           <tbody>
             {rows.map((p) => (
-              <PositionRow key={p.id} p={p} />
+              <PositionRow key={p.id} p={p} narrow={narrow} />
             ))}
           </tbody>
         </table>
