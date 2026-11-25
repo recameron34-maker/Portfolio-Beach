@@ -110,17 +110,54 @@ export function axisLabels(ticks: readonly number[], kind: ValueKind): string[] 
   });
 }
 
-/** Average advance of one character of a 12 px category label: an estimate for fitting, not a measurement. */
-export const LABEL_CHAR_PX = 6.6;
+/**
+ * Average advance of one character of a 12px category label in the bundled face, for words in
+ * mixed case: an estimate for fitting, not a measurement.
+ */
+export const LABEL_CHAR_PX = 5.8;
 /** Space between the end of a category label and the plot. */
 export const LABEL_GAP = 10;
+/** Kept clear at the left of the label column, so an estimate that runs a little short is not cut. */
+const LABEL_CLEAR = 4;
+/** The narrowest label column: room for a tick figure centred on the plot's first gridline. */
+const LABEL_MIN = 40;
 
 /**
- * Width of the category label column of a bar chart: about 36 percent of the chart, never under
- * 96 or over 220 pixels, so the bars keep most of a phone-width card.
+ * Estimated width of a 12px category label, by the kind of each character: tabular digits are
+ * wider than letters, capitals wider than small letters, and a few letters much narrower or
+ * wider than the rest. It errs a little wide (a few pixels over a long name, never under by more
+ * than the clear edge), so a label that is drawn whole is never cut at the chart's edge.
  */
-export function labelColumn(width: number): number {
-  return Math.round(Math.min(220, Math.max(96, width * 0.36)));
+export function labelPx(label: string): number {
+  let px = 0;
+  for (const ch of label) {
+    if (ch >= '0' && ch <= '9') px += 7.2;
+    else if (ch === ' ') px += 2.9;
+    else if ("ijl.,':;|!".includes(ch)) px += 3.4;
+    else if ('frtI()/-'.includes(ch)) px += 4.7;
+    else if ('mwMW%&@'.includes(ch)) px += 10.5;
+    else if (ch >= 'A' && ch <= 'Z') px += 7.8;
+    else if (ch >= 'a' && ch <= 'z') px += 6.6;
+    else px += 7.2;
+  }
+  return px;
+}
+
+/** The estimated width of the widest of a chart's category labels; 0 when it has none. */
+export function widestLabel(labels: readonly string[]): number {
+  return labels.reduce((widest, label) => Math.max(widest, labelPx(label)), 0);
+}
+
+/**
+ * Width of the category label column of a bar chart. Its cap is about 36 percent of the chart,
+ * never under 96 or over 220 pixels, so the bars keep most of a phone-width card. Given the
+ * widest label (widestLabel), the column is what that label needs with its gap, up to the cap:
+ * years take 43 pixels, not a third of the chart. Without one it is the cap.
+ */
+export function labelColumn(width: number, widest?: number): number {
+  const cap = Math.round(Math.min(220, Math.max(96, width * 0.36)));
+  if (widest === undefined) return cap;
+  return Math.min(cap, Math.max(LABEL_MIN, Math.ceil(widest) + LABEL_GAP + LABEL_CLEAR));
 }
 
 /** Where a bar chart sets its category labels: beside the bars, or each on its own line above its bar. */
@@ -131,14 +168,14 @@ export const LABELS_ABOVE_UNDER = 480;
 
 /**
  * The label layout for a chart this wide: beside the bars from 480px; under it, above them unless
- * every label (when given) fits its column whole, so a label is never cut on a phone and short
+ * every label (when given) fits the column whole, so a label is never cut on a phone and short
  * ones (years) keep the compact rows.
  */
 export function labelLayout(width: number, labels?: readonly string[]): LabelLayout {
   if (width >= LABELS_ABOVE_UNDER) return 'side';
   if (labels === undefined) return 'above';
-  const budget = labelBudget(labelColumn(width));
-  return labels.every((label) => label.length <= budget) ? 'side' : 'above';
+  const column = labelColumn(width);
+  return labels.every((label) => labelBudget(column, label) >= label.length) ? 'side' : 'above';
 }
 
 /** Thickness of a bar, in pixels, at every width. */
@@ -162,8 +199,13 @@ export interface BarRows {
   labelAnchor: 'start' | 'end';
 }
 
-/** Beside the bars: 26px rows with the label centred on its bar. Above them: 40px rows, the label's line then its bar. */
-export function barRows(width: number, labels?: readonly string[]): BarRows {
+/**
+ * Beside the bars: 26px rows with the label centred on its bar, in a column as wide as the widest
+ * label needs. Above them: 40px rows, the label's line then its bar. `widest` is the widest label
+ * of every chart that shares this one's scale (SharedScale), so their plots start on one line; a
+ * chart on its own leaves it out.
+ */
+export function barRows(width: number, labels?: readonly string[], widest?: number): BarRows {
   if (labelLayout(width, labels) === 'above') {
     return {
       layout: 'above',
@@ -177,7 +219,10 @@ export function barRows(width: number, labels?: readonly string[]): BarRows {
     };
   }
   const row = 26;
-  const labelWidth = labelColumn(width);
+  const labelWidth = labelColumn(
+    width,
+    labels === undefined ? undefined : Math.max(widestLabel(labels), widest ?? 0),
+  );
   return {
     layout: 'side',
     row,
@@ -198,9 +243,19 @@ export function tickAnchor(x: number, minX = 16): 'start' | 'middle' {
   return x < minX ? 'start' : 'middle';
 }
 
-/** How many characters of a category label fit in a label column (4 px kept clear on the left). */
-export function labelBudget(column: number): number {
-  return Math.max(5, Math.floor((column - LABEL_GAP - 4) / LABEL_CHAR_PX));
+/**
+ * How many characters of a category label fit in a label column (4px kept clear on the left).
+ * For a given label: all of it when its estimated width fits, otherwise the share of its own
+ * characters that does (a row of digits is cut sooner than words of the same length). Without a
+ * label, the count for average words.
+ */
+export function labelBudget(column: number, label?: string): number {
+  const room = column - LABEL_GAP - LABEL_CLEAR;
+  if (label === undefined || label.length === 0)
+    return Math.max(5, Math.floor(room / LABEL_CHAR_PX));
+  const px = labelPx(label);
+  if (px <= room) return label.length;
+  return Math.max(5, Math.floor(room / (px / label.length)));
 }
 
 const ELLIPSIS = '...';
@@ -237,12 +292,18 @@ function truncateEnd(label: string, max: number): string {
 
 /**
  * The category labels of one chart, each at most max characters and, where the room allows, no
- * two alike. Labels are cut in the middle (truncateMiddle); labels whose cuts come out the same
- * because they differ only in the middle ("Seagrass Fund II", "Seagrass Growth Fund II") keep
- * their start instead, where they differ. Same order as the input.
+ * two alike. `max` is one count for every label, or what each label may keep (labelBudget with
+ * the label, so one that fits its column is never cut). Labels are cut in the middle
+ * (truncateMiddle); labels whose cuts come out the same because they differ only in the middle
+ * ("Seagrass Fund II", "Seagrass Growth Fund II") keep their start instead, where they differ.
+ * Same order as the input.
  */
-export function chartLabels(labels: readonly string[], max: number): string[] {
-  const cuts = labels.map((label) => truncateMiddle(label, max));
+export function chartLabels(
+  labels: readonly string[],
+  max: number | ((label: string) => number),
+): string[] {
+  const maxOf = (label: string): number => (typeof max === 'number' ? max : max(label));
+  const cuts = labels.map((label) => truncateMiddle(label, maxOf(label)));
   const groups = new Map<string, Set<string>>();
   cuts.forEach((cut, i) => {
     const group = groups.get(cut) ?? new Set<string>();
@@ -252,7 +313,7 @@ export function chartLabels(labels: readonly string[], max: number): string[] {
   const starts = new Map<string, string>();
   for (const group of groups.values()) {
     if (group.size < 2) continue;
-    const kept = [...group].map((label) => truncateEnd(label, max));
+    const kept = [...group].map((label) => truncateEnd(label, maxOf(label)));
     // Only when the starts tell every label of the group apart; otherwise the ends stay.
     if (new Set(kept).size === group.size) {
       [...group].forEach((label, i) => starts.set(label, kept[i] ?? label));

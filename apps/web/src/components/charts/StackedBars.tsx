@@ -69,18 +69,13 @@ export function StackedBars({
   const ticks = niceTicks(0, Math.max(0, ...totals), 4);
   const tickText = axisLabels(ticks, kind);
   const hi = ticks[ticks.length - 1] ?? 1;
-  const rows = barRows(
-    width,
-    data.map((d) => d.label),
-  );
+  const names = data.map((d) => d.label);
+  const rows = barRows(width, names);
   const ROW = rows.row;
   const labels =
     rows.layout === 'side'
-      ? chartLabels(
-          data.map((d) => d.label),
-          labelBudget(rows.labelWidth),
-        )
-      : data.map((d) => d.label);
+      ? chartLabels(names, (label) => labelBudget(rows.labelWidth, label))
+      : names;
   const single = (d: StackDatum): boolean => d.segments.filter((s) => s.value > 0).length === 1;
   const padR = data.some(single) ? PAD_R_VALUE : PAD_R;
   const plotW = Math.max(MIN_PLOT, width - rows.plotLeft - padR);

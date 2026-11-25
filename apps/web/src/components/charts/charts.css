@@ -3,6 +3,16 @@
 .pb-chart {
   margin: 0 0 var(--pb-space-4);
 }
+/* Charts set side by side to be compared (a two-column row of figures): the row is followed by
+   the space one chart is, and charts stacked on a phone keep one gap between them, where the
+   row's own margin and each figure's used to add up to three times that. */
+.pb-two-col > .pb-chart {
+  margin-bottom: 0;
+}
+.pb-two-col:has(> .pb-chart) {
+  row-gap: var(--pb-space-5);
+  margin-bottom: var(--pb-space-4);
+}
 .pb-chart-caption {
   display: flex;
   flex-wrap: wrap;

@@ -215,6 +215,82 @@ describe('chart marks', () => {
     expect(width('Distributions') / width('Contributions')).toBeCloseTo(0.25, 2);
   });
 
+  it('starts the plots of charts in a SharedScale on one line, whatever their own labels need', () => {
+    measureAs(600);
+    render(
+      <SharedScale>
+        <HorizontalBars
+          title="By sector"
+          data={[{ label: 'Business services', value: 200, display: '$200' }]}
+          kind="money"
+          valueColumn="NAV"
+          summary="one sector"
+        />
+        <HorizontalBars
+          title="By year"
+          data={[{ label: '2024', value: 200, display: '$200' }]}
+          kind="money"
+          valueColumn="NAV"
+          summary="one year"
+        />
+      </SharedScale>,
+    );
+    const barOf = (name: string): { start: number; end: number } => {
+      const d = screen
+        .getByRole('group', { name })
+        .querySelector('.pb-chart-bar')
+        ?.getAttribute('d');
+      return {
+        start: Number(/^M([\d.]+)/.exec(d ?? '')?.[1]),
+        end: Number(/H([\d.]+)a/.exec(d ?? '')?.[1]),
+      };
+    };
+    // The same figure is the same bar in both: a year's short label does not move its plot.
+    expect(barOf('By year')).toEqual(barOf('By sector'));
+  });
+
+  it('gives short labels a short column, so the bars keep the chart', () => {
+    measureAs(552);
+    const { container } = render(
+      <HorizontalBars
+        title="Contributions by year"
+        data={[
+          { label: '2016', value: 200, display: '$200' },
+          { label: '2025', value: 50, display: '$50' },
+        ]}
+        kind="money"
+        valueColumn="Contributions"
+        summary="two years"
+      />,
+    );
+    const label = container.querySelector('.pb-chart-label');
+    // Four digits are 29px: the label ends 10px before a plot that starts at 43px, where the
+    // column used to take 199px of the 552.
+    expect(label?.getAttribute('x')).toBe('33');
+    const d = container.querySelector('.pb-chart-bar')?.getAttribute('d') ?? '';
+    expect(Number(/^M([\d.]+)/.exec(d)?.[1])).toBe(43);
+  });
+
+  it('draws a label whole when it fits the column a chart of that width allows', () => {
+    measureAs(552);
+    const { container } = render(
+      <HorizontalBars
+        title="Exposure by vehicle"
+        data={[
+          { label: 'Beach Co-Invest Fund III', value: 200, display: '$200' },
+          { label: 'Client Gamma Separate Account', value: 50, display: '$50' },
+        ]}
+        kind="money"
+        valueColumn="NAV"
+        summary="two vehicles"
+      />,
+    );
+    expect([...container.querySelectorAll('.pb-chart-label')].map((t) => t.textContent)).toEqual([
+      'Beach Co-Invest Fund III',
+      'Client Gamma Separate Account',
+    ]);
+  });
+
   it('keeps each chart on its own axis outside a SharedScale', () => {
     measureAs(600);
     render(
@@ -323,6 +399,47 @@ describe('line charts', () => {
     );
     expect(container.querySelectorAll('.pb-chart-break line')).toHaveLength(2);
     expect(container.querySelectorAll('.pb-chart-line')).toHaveLength(1);
+  });
+
+  it('always names the point before an axis break, and thins the other labels around it', () => {
+    // A phone: the labels are thinned from the right, which used to drop "Entry" and leave the
+    // break strokes at the origin with nothing saying what the first point is.
+    const x = ['Entry', 'Mar 2024', 'Jun 2024', 'Sep 2024', 'Dec 2024', 'Mar 2025', 'Jun 2025'];
+    const named = (width: number, breakAfter?: number): { text: string; x: number }[] => {
+      cleanup();
+      measureAs(width);
+      const { container } = render(
+        <LineChart
+          title="Indexed since entry"
+          x={x}
+          series={[
+            { name: 'EBITDA', values: [100, 104, 108, 112, 120, 128, 135] },
+            { name: 'Our mark', values: [100, 101, 105, 110, 118, 121, 130] },
+          ]}
+          kind="count"
+          format={(v) => v.toFixed(1)}
+          summary="seven points"
+          breakAfter={breakAfter}
+        />,
+      );
+      return [...container.querySelectorAll('.pb-chart-tick[text-anchor="middle"]')].map((t) => ({
+        text: t.textContent ?? '',
+        x: Number(t.getAttribute('x')),
+      }));
+    };
+    for (const width of [343, 420, 600, 1100]) {
+      const labels = named(width, 0);
+      expect(labels[0]?.text, `at ${width}`).toBe('Entry');
+      expect(labels.at(-1)?.text, `at ${width}`).toBe('Jun 2025');
+      // No label runs into the one before it: centres apart by half of each and a gap.
+      for (let i = 1; i < labels.length; i++) {
+        const [a, b] = [labels[i - 1]!, labels[i]!];
+        const need = (a.text.length * 6.6) / 2 + (b.text.length * 6.6) / 2 + 8;
+        expect(b.x - a.x, `${a.text} and ${b.text} at ${width}`).toBeGreaterThanOrEqual(need);
+      }
+    }
+    // Without a break nothing is pinned: the labels are thinned from the right as before.
+    expect(named(343).map((l) => l.text)).not.toContain('Entry');
   });
 
   it('shows the missing placeholder in the tooltip and names the gap in the live region', () => {

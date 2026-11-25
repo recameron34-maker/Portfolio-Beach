@@ -59,18 +59,13 @@ export function BridgeChart({
   const tickText = axisLabels(ticks, kind);
   const lo = ticks[0] ?? 0;
   const hi = ticks[ticks.length - 1] ?? 1;
-  const rows = barRows(
-    width,
-    steps.map((s) => s.label),
-  );
+  const names = steps.map((s) => s.label);
+  const rows = barRows(width, names);
   const ROW = rows.row;
   const labels =
     rows.layout === 'side'
-      ? chartLabels(
-          steps.map((s) => s.label),
-          labelBudget(rows.labelWidth),
-        )
-      : steps.map((s) => s.label);
+      ? chartLabels(names, (label) => labelBudget(rows.labelWidth, label))
+      : names;
   const plotW = Math.max(MIN_PLOT, width - rows.plotLeft - PAD_R);
   const x = linearScale(lo, hi, rows.plotLeft, rows.plotLeft + plotW);
   const height = steps.length * ROW + 28;

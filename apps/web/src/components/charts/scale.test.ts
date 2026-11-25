@@ -8,6 +8,7 @@ import {
   knownRuns,
   labelBudget,
   labelColumn,
+  labelPx,
   labelStride,
   niceStep,
   labelLayout,
@@ -16,6 +17,7 @@ import {
   tickAnchor,
   truncateMiddle,
   valueLabelPosition,
+  widestLabel,
 } from './scale.js';
 
 describe('chart scales', () => {
@@ -44,19 +46,78 @@ describe('chart scales', () => {
 });
 
 describe('category labels', () => {
-  it('gives the label column about 36 percent of the chart, between 96 and 220 pixels', () => {
+  it('caps the label column at about 36 percent of the chart, between 96 and 220 pixels', () => {
     expect(labelColumn(316)).toBe(114);
     expect(labelColumn(450)).toBe(162);
     expect(labelColumn(200)).toBe(96);
     expect(labelColumn(1000)).toBe(220);
   });
 
-  it('fits about one character per 6.6 pixels of the column, after the gap', () => {
-    expect(labelBudget(96)).toBe(12);
-    expect(labelBudget(114)).toBe(15);
-    expect(labelBudget(162)).toBe(22);
-    expect(labelBudget(220)).toBe(31);
+  it('sizes the label column from its widest label, never over the cap', () => {
+    // Years: four tabular digits and the gap, not a third of the chart.
+    expect(labelPx('2019')).toBeCloseTo(28.8, 5);
+    expect(labelColumn(552, widestLabel(['2016', '2017', '2025']))).toBe(43);
+    expect(labelColumn(343, widestLabel(['2016', '2025']))).toBe(43);
+    // A long name takes what it needs and no more than the cap.
+    const account = 'Client Gamma Separate Account';
+    const column = labelColumn(552, widestLabel(['Beach Co-Invest Fund II', account]));
+    expect(column).toBeGreaterThanOrEqual(Math.ceil(labelPx(account)) + 14);
+    expect(column).toBeLessThanOrEqual(labelColumn(552));
+    expect(labelColumn(316, 500)).toBe(labelColumn(316));
+    expect(labelColumn(1000, 500)).toBe(220);
+    // Nothing to label still leaves a column a tick figure can sit in.
+    expect(labelColumn(552, widestLabel([]))).toBe(40);
+  });
+
+  it('estimates a label by the kind of each character, never under what the face draws', () => {
+    // Measured in the bundled face at 12px (browser and font metrics agree to a pixel).
+    const measured: [string, number][] = [
+      ['Client Gamma Separate Account', 174.8],
+      ['Beach Co-Invest Fund III', 137.0],
+      ['Business services', 95.6],
+      ['INV-0019', 54.2],
+      ['8.0x to 10.0x', 71.3],
+      ['Not recorded', 70.9],
+    ];
+    for (const [label, px] of measured) {
+      expect(labelPx(label), label).toBeGreaterThanOrEqual(px - 0.5);
+      expect(labelPx(label), label).toBeLessThanOrEqual(px + 8);
+    }
+  });
+
+  it('fits about one character per 5.8 pixels of the column, after the gap', () => {
+    expect(labelBudget(96)).toBe(14);
+    expect(labelBudget(114)).toBe(17);
+    expect(labelBudget(162)).toBe(25);
+    expect(labelBudget(220)).toBe(35);
     expect(labelBudget(10)).toBe(5);
+  });
+
+  it('leaves a label whole when it fits its column, and cuts a wider one to what fits', () => {
+    // The Home chart at 1440: a 552px chart, whose cap is 199px. The account's name fits it.
+    const account = 'Client Gamma Separate Account';
+    expect(labelBudget(labelColumn(552), account)).toBe(account.length);
+    expect(chartLabels([account], (label) => labelBudget(labelColumn(552), label))).toEqual([
+      account,
+    ]);
+    // A label wider than the column is cut to the share of its own characters that fits, and
+    // what is left stays inside the column (the cut keeps different letters, so the 4px clear
+    // edge takes the difference; the label ends 10px before the plot).
+    for (const long of [
+      'Borrower credit analysis and covenant review',
+      'Kelpwood Capital Partners Fund IV',
+      'INV-0019 2019202020212022',
+    ]) {
+      for (const column of [96, 114, 162]) {
+        const budget = labelBudget(column, long);
+        expect(budget, long).toBeLessThan(long.length);
+        expect(labelPx(truncateMiddle(long, budget)), `${long} in ${column}`).toBeLessThanOrEqual(
+          column - 10,
+        );
+      }
+    }
+    // Digits are wider than letters: a long number is cut sooner than words of its length.
+    expect(labelBudget(114, '2019202020212022')).toBeLessThan(labelBudget(114, 'abcdefghijklmnop'));
   });
 
   it('cuts the middle so funds that share a long start stay apart', () => {
@@ -183,6 +244,13 @@ describe('knownRuns', () => {
     const side = barRows(600);
     expect(side).toMatchObject({ row: 26, barTop: 7, labelAnchor: 'end' });
     expect(side.plotLeft).toBe(labelColumn(600));
+    // With its labels, the plot starts where the widest of them ends; charts that share a scale
+    // are handed the widest label of them all, so their plots start on one line.
+    expect(barRows(552, ['2016', '2025']).plotLeft).toBe(43);
+    expect(barRows(358, ['2016', '2025'])).toMatchObject({ layout: 'side', plotLeft: 43 });
+    expect(barRows(552, ['2016', '2025'], labelPx('Healthcare')).plotLeft).toBe(
+      labelColumn(552, labelPx('Healthcare')),
+    );
   });
 
   it('starts a tick figure on its gridline at the left edge, and centres it elsewhere', () => {

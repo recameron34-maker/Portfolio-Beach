@@ -3,7 +3,15 @@ import type { KeyboardEvent, PointerEvent, ReactNode } from 'react';
 import { MISSING } from '../../lib/format.js';
 import { ChartFigure } from './ChartFigure.js';
 import type { TooltipState } from './ChartFigure.js';
-import { axisLabels, dodge, knownRuns, linearScale, niceTicks, seriesColor } from './scale.js';
+import {
+  axisLabels,
+  dodge,
+  knownRuns,
+  labelPx,
+  linearScale,
+  niceTicks,
+  seriesColor,
+} from './scale.js';
 import type { ValueKind } from './scale.js';
 import { useWidth } from './useWidth.js';
 
@@ -22,6 +30,11 @@ const PAD = { top: 12, right: 96, bottom: 28, left: 56 };
 const PAD_RIGHT_BARE = 28;
 /** The gap an axis break leaves in the gridlines. */
 const BREAK_GAP = 12;
+/** A tick's type size against the 12px a category label is estimated at (labelPx). */
+const TICK_PX = 11;
+const LABEL_PX = 12;
+/** The least space between the pinned label before an axis break and the next label named. */
+const TICK_LABEL_GAP = 10;
 
 /**
  * Trend over time for one or more series: 1.75px lines with no wash under them, end markers with
@@ -97,17 +110,28 @@ export function LineChart({
   const keys = series.map((s, i) => ({ name: s.name, color: seriesColor(i + 1) }));
   const labelEvery = Math.max(1, Math.ceil(x.length / Math.max(2, Math.floor(plotW / 90))));
   // Which points are named under the axis. Evenly spaced points take every nth from the right;
-  // placed points take, from the right, each one far enough from the last one named.
+  // placed points take, from the right, each one far enough from the last one named. The point
+  // before an axis break is always named (the break means nothing without "Entry" under it), and
+  // a label that would run into it is left out instead.
+  const pinned =
+    breakAfter !== undefined && breakAfter >= 0 && breakAfter < x.length - 1 ? breakAfter : null;
+  const half = (i: number): number => (labelPx(x[i] ?? '') * TICK_PX) / LABEL_PX / 2;
+  const clearOfPinned = (i: number): boolean =>
+    pinned === null ||
+    i === pinned ||
+    Math.abs(xAt(i) - xAt(pinned)) >= half(i) + half(pinned) + TICK_LABEL_GAP;
   const named = new Set<number>();
+  if (pinned !== null) named.add(pinned);
   if (span > 0) {
     let lastNamed = Infinity;
     for (let i = x.length - 1; i >= 0; i--) {
-      if (lastNamed - xAt(i) < 90) continue;
+      if (lastNamed - xAt(i) < 90 || !clearOfPinned(i)) continue;
       named.add(i);
       lastNamed = xAt(i);
     }
   } else {
-    for (let i = 0; i < x.length; i++) if ((x.length - 1 - i) % labelEvery === 0) named.add(i);
+    for (let i = 0; i < x.length; i++)
+      if ((x.length - 1 - i) % labelEvery === 0 && clearOfPinned(i)) named.add(i);
   }
 
   const nearest = (clientX: number, el: SVGSVGElement): number => {

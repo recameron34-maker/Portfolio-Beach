@@ -14,6 +14,7 @@ import {
   seriesColor,
   tickAnchor,
   valueLabelPosition,
+  widestLabel,
 } from './scale.js';
 import type { ValueKind } from './scale.js';
 import { useSharedDomain } from './shared-scale.js';
@@ -63,26 +64,23 @@ export function HorizontalBars({
   const [ref, width, measured] = useWidth();
   const [tooltip, setTooltip] = useState<TooltipState | null>(null);
   const hasEmphasis = data.some((d) => d.emphasis === true);
-  const [min, max] = useSharedDomain(
+  const names = data.map((d) => d.label);
+  // Charts compared side by side share the value axis and the label column (SharedScale).
+  const [min, max, widest] = useSharedDomain(
     Math.min(0, ...data.map((d) => d.value)),
     Math.max(0, ...data.map((d) => d.value)),
+    widestLabel(names),
   );
   const ticks = niceTicks(min, max, 4);
   const tickText = axisLabels(ticks, kind);
   const lo = ticks[0] ?? 0;
   const hi = ticks[ticks.length - 1] ?? 1;
-  const rows = barRows(
-    width,
-    data.map((d) => d.label),
-  );
+  const rows = barRows(width, names, widest);
   const ROW = rows.row;
   const labels =
     rows.layout === 'side'
-      ? chartLabels(
-          data.map((d) => d.label),
-          labelBudget(rows.labelWidth),
-        )
-      : data.map((d) => d.label);
+      ? chartLabels(names, (label) => labelBudget(rows.labelWidth, label))
+      : names;
   const plotW = Math.max(MIN_PLOT, width - rows.plotLeft - PAD_R);
   const x = linearScale(lo, hi, rows.plotLeft, rows.plotLeft + plotW);
   const height = data.length * ROW + 28;
